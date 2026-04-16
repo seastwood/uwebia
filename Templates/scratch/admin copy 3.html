@@ -1,0 +1,2307 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <title>Web Builder</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/lint.min.css">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/lint/lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.0/beautify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.0/beautify-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.0/beautify-html.min.js"></script>
+</head>
+
+
+
+<style>
+    body {
+        font-family: 'Roboto', sans-serif;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        overflow: hidden;
+        /* Prevent body from scrolling */
+    }
+
+    .navbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        background-color: #4CAF50;
+        color: white;
+        height: 2vw;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+
+    }
+
+
+    .add-section-btn {
+        float: right;
+        font-size: 18px;
+        color: white;
+        padding: 14px 16px;
+        cursor: pointer;
+        background-color: transparent;
+    }
+
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgb(0, 0, 0);
+        background-color: rgba(0, 0, 0, 0.4);
+        padding-top: 60px;
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 5% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: black;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    /* Style the button */
+    #previewButton {
+        background-color: transparent;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 5px;
+        transition: background-color 0.3s;
+    }
+
+    #previewButton:hover,
+    #refreshButton:hover,
+    #saveChangesButton:hover,
+    #addSectionBtn:hover {
+        background-color: #45a049;
+        cursor: pointer;
+    }
+
+    /* Style the icon */
+    #previewButton i {
+        margin-right: 5px;
+    }
+
+    #refreshButton {
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+        margin-left: 10px;
+        /* Adjust margin as needed */
+    }
+
+    #refreshButton i {
+        font-size: 20px;
+        /* Adjust icon size as needed */
+    }
+
+    .big-content-container {
+        display: flex;
+        flex-direction: column;
+        /* Change to column layout for mobile */
+        height: calc(100vh - 50px);
+        /* Adjust for navbar height */
+        max-width: 100vw;
+        /* Set max width to fill the screen */
+    }
+
+    @media (min-width: 769px) {
+
+        /* Apply desktop layout styles */
+        .big-content-container {
+            flex-direction: row;
+            /* Change to row layout for desktop */
+        }
+    }
+
+
+    .content-container {
+        flex: 1;
+        padding: 0 10px;
+        height: 100%;
+        overflow-y: auto;
+        position: relative;
+    }
+
+    .web-preview {
+        width: 50%;
+        /* Set initial width */
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+    }
+
+    #publicFrame {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .resizer {
+        width: 10px;
+        background: #252525;
+        cursor: ew-resize;
+        border-left: 2px solid #646464;
+        /* Left border */
+        border-right: 2px solid #646464;
+        /* Right border */
+
+    }
+
+    .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.5);
+        display: none;
+        z-index: 2;
+    }
+
+    @media (max-width: 768px) {
+        .resizer {
+            display: none;
+        }
+
+        .web-preview {
+            display: none;
+            width: 100%;
+        }
+
+        .web-preview.visible {
+            display: block;
+        }
+    }
+
+    h2 {
+        margin-bottom: 10px;
+        text-align: center;
+    }
+
+    form {
+        margin-bottom: 10px;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    input[type="file"],
+    textarea {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+
+    input[type="submit"] {
+        padding: 10px 20px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+
+    input[type="checkbox"] {
+        margin-right: 10px;
+    }
+
+    #message {
+        position: fixed;
+        bottom: 10px;
+        /* Adjust as needed */
+        left: 50%;
+        /* Position horizontally in the middle */
+        transform: translateX(-50%);
+        /* Center horizontally */
+        padding: 10px;
+        background-color: #f0f0f0;
+        border-radius: 5px;
+        display: none;
+        /* Initially hide the message */
+    }
+
+    #closeButton {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        cursor: pointer;
+    }
+
+
+
+    .uploaded-images {
+        margin-top: 5px;
+        list-style-type: none;
+        padding: 0;
+    }
+
+    .uploaded-images li {
+        padding: 3px;
+        background-color: #f9f9f900;
+        border: 1px solid #ddd;
+        cursor: move;
+        z-index: 9999;
+        display: inline-block;
+    }
+
+    .uploaded-images img {
+        max-width: 150px;
+        max-height: 120px;
+        display: block;
+        margin: 0 auto;
+        position: relative;
+        z-index: -1;
+        border: 1px solid #ddd;
+        pointer-events: none;
+    }
+
+    .uploaded-images .drag-over {
+        border: 2px dashed #2dce35;
+    }
+
+    #trashCan {
+        display: inline-block;
+        width: 100px;
+        height: 75px;
+    }
+
+    #trashCan .drag-over {
+        border: 2px dashed #ce682d;
+        /* Add dashed border when dragging over */
+    }
+
+    ul {
+        display: block;
+        list-style-type: disc;
+        margin-block-start: 1em;
+        margin-block-end: 1em;
+        margin-inline-start: 0px;
+        margin-inline-end: 0px;
+        padding-inline-start: 0px;
+    }
+
+    label {
+        /* margin-top: 10px; */
+        font-weight: bold;
+    }
+
+    .uploaded-images-container,
+    .toggle-page-container,
+    .message,
+    .page-header-container,
+    .update-text-container,
+    .page-body-container,
+    .map-marker-container,
+    .contact-form-container,
+    .section-title {
+        width: 90%;
+        margin: 0 auto;
+        /* Center the container horizontally */
+        padding: 12px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        /* background-color: #f9f9f9; */
+        margin-bottom: 20px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    }
+
+    .section-title {
+        width: 90%;
+        margin: 0 auto;
+        padding: 12px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        margin-top: 20px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        cursor: pointer;
+        /* Add a cursor pointer to indicate interactivity */
+        transition: background-color 0.3s ease;
+        /* Add a smooth transition for hover effect */
+    }
+
+    .section-title:hover {
+        background-color: #68596b;
+        /* Change background color on hover */
+    }
+
+    .section-content {
+        display: none;
+        /* Hide the section content by default */
+        overflow: hidden;
+        /* Hide any overflow content */
+        transition: height 0.3s ease;
+        /* Add a smooth transition for height change */
+    }
+
+    .section-content.open {
+        display: block;
+        /* Show the section content when open */
+        height: auto;
+        /* Automatically adjust height */
+    }
+
+
+    label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+
+    .dynamic-width {
+        width: calc(100% - 24px);
+        /* Adjust the width based on the padding */
+    }
+
+    .editor-wrapper {
+        position: relative;
+        width: 100%;
+        height: 600px;
+        /* Initial height */
+        resize: vertical;
+        overflow: hidden;
+        border: 1px solid #ccc;
+    }
+
+    .CodeMirror {
+        width: 100%;
+        height: 100%;
+    }
+
+    .color-picker-container {
+        display: inline-block;
+        position: relative;
+        padding: 5px 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .color-picker-container:hover {
+        background-color: #f0f0f0;
+    }
+</style>
+
+<style>
+    /* Dark mode styles */
+    body.dark-mode {
+        background-color: #363339;
+        color: #ffffff;
+    }
+
+    .navbar.dark-mode {
+        background-color: #3b373b;
+    }
+
+    .dropbtn.dark-mode {
+
+        color: white;
+    }
+
+    input[type="submit"].dark-mode,
+    #previewButton.dark-mode,
+    #refreshButton {
+        color: #ffffff;
+    }
+
+    .toggle-switch {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .toggle-switch input[type="checkbox"] {
+        display: none;
+    }
+
+    .toggle-switch label {
+        position: relative;
+        display: inline-block;
+        width: 40px;
+        height: 20px;
+        background-color: #ccc;
+        border-radius: 20px;
+        cursor: pointer;
+    }
+
+    .toggle-switch label::after {
+        content: '';
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        background-color: #ffffff;
+        border-radius: 50%;
+        top: 1px;
+        left: 1px;
+        transition: all 0.3s;
+    }
+
+    .toggle-switch input[type="checkbox"]:checked+label::after {
+        transform: translateX(20px);
+    }
+
+    .toggle-switch input[type="checkbox"]:checked+label {
+        background-color: #4CAF50;
+    }
+
+    /* WebKit-based browsers */
+    ::-webkit-scrollbar {
+        width: 12px;
+        /* Width of the scrollbar */
+        height: 12px;
+        /* Height of the scrollbar */
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #333;
+        /* Dark background for the scrollbar track */
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background-color: #555;
+        /* Darker color for the scrollbar thumb */
+        border-radius: 10px;
+        /* Rounded corners for the scrollbar thumb */
+        border: 3px solid #333;
+        /* Adds space around the thumb and makes it look better */
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #777;
+        /* Lighter color when hovering over the scrollbar thumb */
+    }
+
+    /* Firefox */
+    * {
+        scrollbar-width: thin;
+        /* Thin scrollbar width */
+        scrollbar-color: #555 #333;
+        /* Thumb color and track color */
+    }
+
+    /* Scrollbar for specific elements */
+    .scrollable-element {
+        scrollbar-width: thin;
+        /* Thin scrollbar width */
+        scrollbar-color: #555 #333;
+        /* Thumb color and track color */
+    }
+
+    /* Styling the scrollbar for specific elements in WebKit-based browsers */
+    .scrollable-element::-webkit-scrollbar {
+        width: 12px;
+        /* Width of the scrollbar */
+        height: 12px;
+        /* Height of the scrollbar */
+    }
+
+    .scrollable-element::-webkit-scrollbar-track {
+        background: #333;
+        /* Dark background for the scrollbar track */
+    }
+
+    .scrollable-element::-webkit-scrollbar-thumb {
+        background-color: #555;
+        /* Darker color for the scrollbar thumb */
+        border-radius: 10px;
+        /* Rounded corners for the scrollbar thumb */
+        border: 3px solid #333;
+        /* Adds space around the thumb and makes it look better */
+    }
+
+    .scrollable-element::-webkit-scrollbar-thumb:hover {
+        background: #777;
+        /* Lighter color when hovering over the scrollbar thumb */
+    }
+</style>
+
+<style>
+    .dropdown {
+        display: relative;
+        font-size: small;
+        z-index: 999999;
+    }
+
+    .dropbtn {
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+        color: rgb(34, 34, 34);
+    }
+
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        background-color: #3d3d3d;
+        box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+        z-index: 1;
+        right: 0;
+        /* Adjust to move content to the left */
+    }
+
+
+    .dropdown:hover .dropdown-content {
+        display: block;
+    }
+
+    .dropdown-content a {
+        color: rgb(226, 226, 226);
+        padding: 12px 16px;
+        text-decoration: none;
+        display: block;
+    }
+
+    .dropdown-content a:hover {
+        background-color: #616963;
+    }
+
+    /* CSS for the checkbox */
+    .image-checkbox {
+        position: absolute;
+        top: 5px;
+        /* Adjust as needed */
+        right: 5px;
+        /* Adjust as needed */
+        z-index: 1;
+        /* Ensure the checkbox is above the image */
+    }
+
+    /* CSS to style the checkbox when checked */
+    .image-checkbox:checked+img {
+        border: 2px solid #73ff00;
+        /* Change the border color as needed */
+    }
+
+    .arrow {
+        position: relative;
+        cursor: pointer;
+        z-index: 9999;
+        /* Ensure the arrows are on top of the title */
+        transition: all 0.3s ease;
+    }
+
+    .arrow:hover {
+        color: blue;
+        /* Change color on hover */
+    }
+</style>
+
+</head>
+
+<body>
+
+    <!-- Include CodeMirror and Linting Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jshint/2.13.4/jshint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/javascript-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/html-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmlhint/0.11.0/htmlhint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/csslint/1.0.5/csslint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/css-lint.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+
+
+    <div class="navbar">
+        <div class="navbar-title">uwebia</div>
+        <div>
+            <label for="toggle">Toggle Public Page:</label>
+            <input type="checkbox" id="toggle" {% if site_active_status %}checked{% endif %}>
+        </div>
+        <span class="add-section-btn" id="addSectionBtn">+</span>
+
+
+        <button id="saveChangesButton"><i class="fas fa-save"></i></button>
+
+        <button id="previewButton">
+            <i class="fas fa-eye"></i>
+        </button>
+        <button id="refreshButton">
+            <i class="fas fa-sync"></i>
+        </button>
+        <label class="switch">
+            <input type="checkbox" id="darkModeToggle" checked>
+            <span class="slider round"></span>
+        </label>
+    </div>
+
+
+<div class="big-content-container">
+    <div class="content-container">
+        <h2>Admin Page</h2>
+        <a href="{{ url_for('public_page') }}" class="public-page-button">View Public Page</a>
+
+        <div id="public-page-container">
+            <!-- Sections will be dynamically added here -->
+        </div>
+
+        <div id="message">
+            <span id="messageContent"></span>
+            <span id="closeButton" onclick="closeMessage()">x</span>
+        </div>
+    </div>
+    <div class="resizer" id="resizer"></div>
+    <div class="web-preview" id="rightContainer">
+        <iframe id="publicFrame" src="public.html"></iframe>
+        <div class="overlay" id="overlay"></div>
+    </div>
+
+    <div id="add-section-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="closeModal">&times;</span>
+            <form id="add-section-form">
+                <label for="section-type">Section Type:</label>
+                <select id="section-type" name="section_type">
+                    <option value="header">Header</option>
+                    <option value="image_gallery">Image Gallery</option>
+                    <option value="text">Text</option>
+                    <option value="map">Map</option>
+                    <option value="contact_form">Contact Form</option>
+                </select><br><br>
+
+                <!-- Additional inputs for section content can be added here -->
+
+                <button type="submit">Add Section</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+    <!-- JavaScript code -->
+
+    <script>
+        // Define the sections array in the global scope
+        // Define the sections array in the global scope
+    let sections = [];
+
+// Function to populate the sections array with data fetched from the server
+function populateSections() {
+    fetch('/get_sections')
+        .then(response => response.json())
+        .then(data => {
+            // Assuming data is an array of sections retrieved from the server
+            sections = data;
+            // Once sections are populated, render the HTML
+            reloadSections(sections);
+        })
+        .catch(error => {
+            console.error('Error fetching sections:', error);
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    populateSections();
+});
+
+function toggleSectionContent(sectionTitleElement) {
+    var sectionContent = sectionTitleElement.nextElementSibling;
+    if (sectionContent && sectionContent.classList.contains("section-content")) {
+        sectionContent.classList.toggle("open");
+
+        if (sectionContent.classList.contains("open")) {
+            codeMirrorEditors.forEach(function (editor) {
+                editor.refresh();
+            });
+        }
+    }
+}
+
+function reloadSections(sections) {
+    const container = document.querySelector('.content-container');
+    container.innerHTML = `
+        <h2>Admin Page</h2>
+        <a href="{{ url_for('public_page') }}" class="public-page-button">View Public Page</a>
+        <div id="public-page-container"></div>
+        <div id="message">
+            <span id="messageContent"></span>
+            <span id="closeButton" onclick="closeMessage()">x</span>
+        </div>
+    `;
+
+    const publicPageContainer = document.getElementById('public-page-container');
+
+    sections.forEach(section => {
+        const sectionElement = createSectionElement(section);
+        publicPageContainer.appendChild(sectionElement);
+    });
+}
+
+function createSectionElement(section) {
+    const sectionWrapper = document.createElement('div');
+    sectionWrapper.className = 'section-wrapper';
+
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'section-title';
+    titleDiv.innerHTML = `
+        <span class="arrow up-arrow" data-section-id="${section.id}" onclick="moveSectionUp(this)">▲</span>
+        <span class="arrow down-arrow" data-section-id="${section.id}" onclick="moveSectionDown(this)">▼</span>
+        ${section.section_type}
+    `;
+
+    titleDiv.addEventListener('click', function(event) {
+        if (!event.target.matches('.arrow, .dropbtn, .dropdown-content a')) {
+            toggleSectionContent(this);
+        }
+    });
+    sectionWrapper.appendChild(titleDiv);
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'section-content';
+
+    // Add the specific section content based on section.section_type
+    switch (section.section_type) {
+        case 'image_gallery':
+            contentDiv.innerHTML = `
+                <div class="uploaded-images-container section-container">
+                    <div class="dropdown" style="position: relative; float: right;">
+                        <button class="dropbtn">⋮</button>
+                        <div class="dropdown-content">
+                            <a href="#" class="delete-section" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete</a>
+                            <a href="#" class="delete-selected-images" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete Selected Images</a>
+                        </div>
+                    </div>
+                    <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_id}">
+                        <input type="hidden" name="section_id" value="${section.id}">
+                        <label for="picture">Pictures:</label>
+                        <input type="file" name="picture" accept="image/*" multiple><br><br>
+                        <input type="submit" value="Upload">
+                        <label>Uploaded Images:</label>
+                        <div class="uploaded-images" ondrop="handleDrop(event)" ondragover="handleDragOver(event)">
+                            <ul class="sortable" id="sortable-${section.id}">
+                                <!-- Images will be inserted here -->
+                            </ul>
+                            <div id="trashCan" ondrop="handleDropTrash(event)" ondragover="handleDragOver(event)">
+                                <!-- Trashcan SVG -->
+                                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="100" height="75" viewBox="0 0 256 256" xml:space="preserve">
+                                    <defs></defs>
+                                    <g style="pointer-events: none; stroke: none; stroke-width: 0; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: none; fill-rule: nonzero; opacity: 1;" transform="translate(1.4065934065934016 1.4065934065934016) scale(2.81 2.81)">
+                                        <path d="M68.162 10.398H21.838c-5.38 0-9.742 4.362-9.742 9.742v3.065h65.808V20.14C77.904 14.76 73.542 10.398 68.162 10.398z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(71,191,88); fill-rule: nonzero; opacity: 1;" transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                        <path d="M57.628 14.469H32.373c-1.104 0-2-0.896-2-2C30.373 5.593 35.966 0 42.841 0h4.318c6.875 0 12.469 5.593 12.469 12.469C59.628 13.573 58.732 14.469 57.628 14.469zM34.611 10.469H55.39C54.488 6.761 51.141 4 47.159 4h-4.318C38.86 4 35.512 6.761 34.611 10.469z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(71,191,88); fill-rule: nonzero; opacity: 1;" transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                        <path d="M16.154 27.346l3.555 60.704C19.773 89.145 20.679 90 21.776 90h46.449c1.097 0 2.003-0.855 2.068-1.949l3.554-60.704H16.154z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(71,191,88); fill-rule: nonzero; opacity: 1;" transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                        <path d="M32.87 81.108c-0.04 0.003-0.079 0.004-0.119 0.004c-1.051 0-1.933-0.82-1.995-1.883l-2.275-38.856c-0.064-1.103 0.777-2.049 1.88-2.113c1.088-0.066 2.049 0.777 2.113 1.88l2.275 38.855C34.814 80.098 33.973 81.044 32.87 81.108z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;" transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                        <path d="M47 79.112c0 1.104-0.896 2-2 2s-2-0.896-2-2V40.256c0-1.104 0.896-2 2-2s2 0.896 2 2V79.112z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;" transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                        <path d="M59.244 79.229c-0.063 1.063-0.944 1.883-1.995 1.883c-0.039 0-0.079-0.001-0.119-0.003c-1.103-0.065-1.944-1.012-1.88-2.114l2.275-38.855c0.063-1.103 0.992-1.947 2.113-1.88c1.103 0.064 1.944 1.011 1.879 2.113L59.244 79.229z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;" transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                    </g>
+                                </svg>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            `;
+                    break;
+
+                case 'header':
+                    contentDiv.innerHTML = `
+                <div class="page-header-container section-container">
+                    <div class="dropdown" style="position: relative; float: right;">
+                        <button class="dropbtn">⋮</button>
+                        <div class="dropdown-content">
+                            <a href="#" class="delete-section" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete</a>
+                        </div>
+                    </div>
+                    <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_id}">
+                        <label for="header_text">Header Text:</label><br>
+                        <textarea id="header_text" name="header_text" rows="1" class="dynamic-width" style="padding: 10px;">${section.content['text']}</textarea><br><br>
+                    </form>
+                </div>
+            `;
+                    break;
+
+                case 'button':
+                    contentDiv.innerHTML = `
+                <div class="update-text-container section-container">
+                    <div class="dropdown" style="position: relative; float: right;">
+                        <button class="dropbtn">⋮</button>
+                        <div class="dropdown-content">
+                            <a href="#" class="delete-section" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete</a>
+                        </div>
+                    </div>
+                    <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_id}">
+                        <label for="button_text">Button Text:</label><br>
+                        <textarea id="button_text" name="button_text" rows="1" class="dynamic-width" style="padding: 10px;">${section.content['text']}</textarea><br><br>
+                        <label for="button_link">Button Link:</label><br>
+                        <textarea id="button_link" name="button_link" rows="1" class="dynamic-width" style="padding: 10px;">${section.content['link']}</textarea><br><br>
+                        <label for="button_enabled">Enable Button:</label>
+                        <input type="checkbox" id="button_enabled" name="button_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+                    </form>
+                </div>
+            `;
+                    break;
+
+                case 'text':
+                    contentDiv.innerHTML = `
+                <div class="page-body-container section-container">
+                    <div class="dropdown" style="position: relative; float: right;">
+                        <button class="dropbtn">⋮</button>
+                        <div class="dropdown-content">
+                            <a href="#" class="delete-section" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete</a>
+                        </div>
+                    </div>
+                    <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_id}">
+                        <label for="text-${section.id}">Body Text:</label>
+                        <button type="button" class="formatCodeButton">Format Code</button><br>
+                        <div class="editor-wrapper">
+                            <textarea id="text-${section.id}" name="text" required>${section.content['text']}</textarea>
+                        </div>
+                        <label for="color-picker">Color Picker:</label>
+                        <div id="color-picker"></div>
+                        <div id="saved-colors"></div>
+                        <br><br>
+                    </form>
+                </div>
+            `;
+                    break;
+
+                case 'map':
+                    contentDiv.innerHTML = `
+                <div class="map-marker-container section-container">
+                    <div class="dropdown" style="position: relative; float: right;">
+                        <button class="dropbtn">⋮</button>
+                        <div class="dropdown-content">
+                            <a href="#" class="delete-section" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete</a>
+                        </div>
+                    </div>
+                    <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_id}">
+                        <label for="map_marker_label">Map Marker Label:</label><br>
+                        <textarea id="map_marker_label" name="map_marker_label" rows="1" class="dynamic-width" style="padding: 10px;">${section.content['marker_label']}</textarea><br><br>
+                        <label for="latitude">Latitude:</label>
+                        <input type="number" step="any" id="latitude" name="latitude" value="${section.content['latitude']}" required><br><br>
+                        <label for="longitude">Longitude:</label>
+                        <input type="number" step="any" id="longitude" name="longitude" value="${section.content['longitude']}" required><br><br>
+                        <label for="map_enabled">Enable Map:</label>
+                        <input type="checkbox" id="map_enabled" name="map_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+                    </form>
+                </div>
+            `;
+                    break;
+
+                case 'contact_form':
+                    contentDiv.innerHTML = `
+                <div class="contact-form-container section-container">
+                    <div class="dropdown" style="position: relative; float: right;">
+                        <button class="dropbtn">⋮</button>
+                        <div class="dropdown-content">
+                            <a href="#" class="delete-section" data-section-id="${section.id}" data-page-id="${section.page_id}">Delete</a>
+                        </div>
+                    </div>
+                    <form class="update-section-form" data-section-id="${section.id}" data-section-type="contact_form">
+                        <input type="hidden" name="section_id" value="${section.id}" data-page-id="${section.page_id}">
+                        <input type="hidden" name="section_type" value="contact_form">
+                        <label for="contact_form_title">Contact Form Title:</label><br>
+                        <textarea id="contact_form_title" name="contact_form_title" rows="1" class="dynamic-width" style="padding: 10px;">${section.content['title']}</textarea><br><br>
+                        <label for="contact_email">Email Recipient:</label><br>
+                        <textarea id="contact_email" name="contact_email" rows="1" class="dynamic-width" style="padding: 10px;">${section.content['email']}</textarea><br><br>
+                        <label for="contact_form_enabled">Enable Contact Form:</label>
+                        <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+                    </form>
+                </div>
+            `;
+                    break;
+            }
+
+
+    sectionWrapper.appendChild(contentDiv);
+
+    return sectionWrapper;
+        }
+
+    </script>
+
+
+    <!-- Iframe of public page -->
+    <script>
+        function getRootUrl() {
+            var currentUrl = window.location.href;
+            var parts = currentUrl.split('/'); // Split the URL by '/'
+            var rootUrl = parts.slice(0, 3).join('/'); // Join the first three parts to get the root URL
+            return rootUrl;
+        }
+
+        function updatePublicView() {
+            var publicFrame = document.getElementById('publicFrame');
+            var rootUrl = getRootUrl();
+
+            // Update the iframe source with the root URL
+            publicFrame.src = rootUrl;
+        }
+
+        // Call the updatePublicView function when the page loads
+        window.onload = updatePublicView;
+
+        // Add event listener to the Refresh button
+        document.getElementById("refreshButton").addEventListener("click", reloadIframe);
+
+
+        // Function to reload the iframe and maintain scroll position
+        function reloadIframe() {
+            const iframe = document.getElementById("publicFrame");
+            const scrollPosition = iframe.contentWindow.scrollY;
+
+            iframe.addEventListener("load", function () {
+                iframe.contentWindow.scrollTo(0, scrollPosition);
+            }, { once: true });
+
+            iframe.contentWindow.location.reload(true);
+        }
+        // Function to move a section up
+        function moveSectionUp(element) {
+            const sectionId = parseInt(element.getAttribute('data-section-id'));
+            console.log('Moving section up with ID:', sectionId);
+            console.log('Current sections:', sections); // Access the sections array
+
+            // Find the section with the given ID
+            const sectionIndex = sections.findIndex(section => section.id === sectionId);
+
+            if (sectionIndex === -1 || sections[sectionIndex].order === 1) {
+                console.log(`Section not found or already at the top: ${sectionId}`);
+                return;
+            }
+
+            // Find the section with the order one less than the current section
+            const aboveSection = sections.find(section => section.order === sections[sectionIndex].order - 1);
+
+            if (!aboveSection) {
+                console.log("No section found to swap with");
+                return;
+            }
+
+            // Swap the order numbers
+            const tempOrder = sections[sectionIndex].order;
+            sections[sectionIndex].order = aboveSection.order;
+            aboveSection.order = tempOrder;
+
+            // Update the order numbers in the backend for both sections
+            updateSectionOrder(sectionId, sections[sectionIndex].order);
+            updateSectionOrder(aboveSection.id, aboveSection.order);
+
+            setTimeout(function () {
+                populateSections();
+            }, 100);
+
+        }
+
+        // Function to move a section down
+        function moveSectionDown(element) {
+            const sectionId = parseInt(element.getAttribute('data-section-id'));
+            console.log('Moving section down with ID:', sectionId);
+            console.log('Current sections:', sections); // Access the sections array
+
+            // Find the section with the given ID
+            const sectionIndex = sections.findIndex(section => section.id === sectionId);
+
+            if (sectionIndex === -1 || sections[sectionIndex].order === sections.length) {
+                console.log(`Section not found or already at the bottom: ${sectionId}`);
+                return;
+            }
+
+            // Find the section with the order one more than the current section
+            const belowSection = sections.find(section => section.order === sections[sectionIndex].order + 1);
+
+            if (!belowSection) {
+                console.log("No section found to swap with");
+                return;
+            }
+
+            // Swap the order numbers
+            const tempOrder = sections[sectionIndex].order;
+            sections[sectionIndex].order = belowSection.order;
+            belowSection.order = tempOrder;
+
+            // Update the order numbers in the backend for both sections
+            updateSectionOrder(sectionId, sections[sectionIndex].order);
+            updateSectionOrder(belowSection.id, belowSection.order);
+            setTimeout(function () {
+                populateSections();
+            }, 100);
+        }
+
+        // Function to update the section order in the backend
+        function updateSectionOrder(sectionId, newOrder) {
+            console.log("Updating section order for ID:", sectionId, "to new order:", newOrder);
+
+            // Send a request to update the section order to the server
+            fetch(`/update_section_order?section_id=${sectionId}&new_order=${newOrder}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to update section order');
+                    }
+                    console.log('Section order updated successfully.');
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+    </script>
+
+
+    <!-- Preview and Resizing -->
+    <script>
+        const previewButton = document.getElementById('previewButton');
+        const rightContainer = document.getElementById('rightContainer');
+        const resizer = document.getElementById('resizer');
+        const leftSide = document.querySelector('.content-container');
+        const overlay = document.getElementById('overlay');
+        let isResizing = false;
+
+        previewButton.addEventListener('click', () => {
+            rightContainer.classList.toggle('visible');
+            reloadIframe()
+        });
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            overlay.style.display = 'block'; // Show overlay during resizing
+            document.addEventListener('mousemove', resize);
+            document.addEventListener('mouseup', stopResize);
+            e.preventDefault(); // Prevent text selection
+        });
+
+        function resize(e) {
+            if (isResizing) {
+                const containerOffsetLeft = leftSide.getBoundingClientRect().left;
+                const pointerRelativeXpos = e.clientX - containerOffsetLeft;
+                const leftWidth = pointerRelativeXpos;
+                const rightWidth = document.body.offsetWidth - leftWidth - resizer.offsetWidth;
+
+                leftSide.style.width = `${leftWidth}px`;
+                rightContainer.style.width = `${rightWidth}px`;
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            overlay.style.display = 'none'; // Hide overlay after resizing
+            document.removeEventListener('mousemove', resize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+    </script>
+
+    <!-- Color Picker -->
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const pickr = Pickr.create({
+                el: '#color-picker',
+                theme: 'classic', // or 'monolith', or 'nano'
+
+                swatches: [
+                    'rgba(244, 67, 54, 1)',
+                    'rgba(233, 30, 99, 0.95)',
+                    'rgba(156, 39, 176, 0.9)',
+                    'rgba(103, 58, 183, 0.85)',
+                    'rgba(63, 81, 181, 0.8)',
+                    'rgba(33, 150, 243, 0.75)',
+                    'rgba(3, 169, 244, 0.7)',
+                    'rgba(0, 188, 212, 0.7)',
+                    'rgba(0, 150, 136, 0.75)',
+                    'rgba(76, 175, 80, 0.8)',
+                    'rgba(139, 195, 74, 0.85)',
+                    'rgba(205, 220, 57, 0.9)',
+                    'rgba(255, 235, 59, 0.95)',
+                    'rgba(255, 193, 7, 1)'
+                ],
+
+                components: {
+                    // Main components
+                    preview: true,
+                    opacity: true,
+                    hue: true,
+
+                    // Input / output Options
+                    interaction: {
+                        hex: true,
+                        rgba: false,
+                        hsla: false,
+                        hsva: false,
+                        cmyk: false,
+                        input: true,
+                        clear: true,
+                        save: true
+                    }
+                }
+            });
+
+            pickr.on('change', (color, instance) => {
+                const hexColor = color.toHEXA().toString();
+                console.log(hexColor);
+            });
+
+            pickr.on('save', (color, instance) => {
+                const hexColor = color.toHEXA().toString();
+                saveColor(hexColor);
+            });
+
+            function saveColor(color) {
+                const savedColorsContainer = document.getElementById('saved-colors');
+                const colorElement = document.createElement('div');
+                colorElement.style.backgroundColor = color;
+                colorElement.style.width = '50px';
+                colorElement.style.height = '50px';
+                colorElement.style.display = 'inline-block';
+                colorElement.style.margin = '5px';
+                colorElement.style.cursor = 'pointer';
+                colorElement.title = color;
+
+                colorElement.addEventListener('click', () => {
+                    copyToClipboard(color);
+                    alert(`Copied ${color} to clipboard!`);
+                });
+
+                savedColorsContainer.appendChild(colorElement);
+            }
+
+            function copyToClipboard(text) {
+                const tempInput = document.createElement('input');
+                tempInput.value = text;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+            }
+        });
+    </script>
+
+
+    <!-- Image Functions -->
+    <script>
+
+        // Function to delete selected images for a specific section
+        function deleteSelectedImages(sectionId) {
+            // Check if there are selected images for this section
+            if (selectedImages[sectionId] && selectedImages[sectionId].length > 0) {
+                // Make a server request to delete the selected images for this section
+                fetch("/delete_selected_images", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        sectionId: sectionId,
+                        imageIds: selectedImages[sectionId]
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            console.log("Selected images deleted successfully for section", sectionId);
+                            // Remove deleted images from the UI
+                            selectedImages[sectionId] = []; // Clear the selected images list for this section
+                            loadUploadedImages(sectionId); // Reload the uploaded images for this section
+                        } else {
+                            console.error("Failed to delete selected images for section", sectionId, ":", data.message);
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            } else {
+                console.log("No selected images to delete for section", sectionId);
+            }
+        }
+
+        // Event listener for "Delete Selected Images" option
+        document.querySelectorAll('.delete-selected-images').forEach(function (link) {
+            link.addEventListener('click', function (event) {
+                event.preventDefault();
+                var sectionId = this.getAttribute('data-section-id');
+                deleteSelectedImages(sectionId);
+            });
+        });
+
+
+        document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll(".updateImageForm").forEach(function (form) {
+                var sectionId = form.getAttribute("data-section-id");
+
+                // Attach the submit event listener to each form
+                form.addEventListener("submit", function (event) {
+                    event.preventDefault(); // Prevent default form submission
+
+                    var formData = new FormData(form);
+
+                    fetch("/update_public_images", {
+                        method: "POST",
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                document.getElementById("message").innerHTML = data.message;
+                                // Refresh the uploaded images after successful upload
+                                loadUploadedImages(sectionId); // Pass the section ID to refresh the specific section
+                            } else {
+                                document.getElementById("message").innerHTML = data.message;
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                });
+
+                // Load images for this section on page load
+                loadUploadedImages(sectionId);
+            });
+        });
+        // Dictionary to store selected images for each section
+        var selectedImages = {};
+
+        // Function to load uploaded images for a specific section
+        function loadUploadedImages(sectionId) {
+            fetch(`/get_uploaded_images?section_id=${sectionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    var uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
+                    uploadedImagesUl.innerHTML = ""; // Clear previous images
+
+                    // Check if the selected images list for this section exists, if not, create it
+                    if (!selectedImages[sectionId]) {
+                        selectedImages[sectionId] = [];
+                    }
+
+                    data.images.forEach(picture => {
+                        var li = document.createElement("li");
+                        li.setAttribute("data-order", picture.order); // Set data-order attribute for reordering
+                        li.setAttribute("data-id", picture.id); // Set data-id attribute for image ID
+                        li.setAttribute("data-section-id", sectionId); // Set data-section-id attribute for section ID
+                        li.draggable = true;
+                        li.addEventListener("dragstart", handleDragStart);
+                        li.addEventListener("dragover", handleDragOver);
+                        li.addEventListener("drop", handleDrop);
+                        var img = document.createElement("img");
+                        img.src = picture.url;
+
+                        // Create checkbox element
+                        var checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'image-checkbox';
+                        checkbox.style.position = 'relative';
+                        checkbox.style.top = '5px'; // Adjust top position as needed
+                        checkbox.style.right = '5px'; // Adjust right position as needed
+                        checkbox.addEventListener('change', function () {
+                            if (this.checked) {
+                                // Add image to selected list for this section
+                                addToSelectedImages(sectionId, picture.id);
+                            } else {
+                                // Remove image from selected list for this section
+                                removeFromSelectedImages(sectionId, picture.id);
+                            }
+                        });
+
+                        // Append image and checkbox to list item
+                        li.appendChild(img);
+                        li.appendChild(checkbox);
+                        // Append list item to ul
+                        uploadedImagesUl.appendChild(li);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Function to add image to the list of selected images for a specific section
+        function addToSelectedImages(sectionId, imageId) {
+            // Add image ID to the selected images list for this section
+            selectedImages[sectionId].push(imageId);
+            console.log('Image added to selected list for section', sectionId, ':', imageId);
+        }
+
+        // Function to remove image from the list of selected images for a specific section
+        function removeFromSelectedImages(sectionId, imageId) {
+            // Remove image ID from the selected images list for this section
+            var index = selectedImages[sectionId].indexOf(imageId);
+            if (index !== -1) {
+                selectedImages[sectionId].splice(index, 1);
+            }
+            console.log('Image removed from selected list for section', sectionId, ':', imageId);
+        }
+
+
+        // Function to handle drag start event
+        function handleDragStart(event) {
+            event.dataTransfer.setData("text/plain", JSON.stringify({
+                sourceOrder: event.target.dataset.order,
+                sourceSection: event.target.dataset.sectionId
+            }));
+        }
+
+        let dropHandled = false;
+
+        function handleDrop(event) {
+            event.preventDefault();
+
+            // Check if the drop event has been handled already
+            if (dropHandled) {
+                return;
+            }
+
+            var sourceData = JSON.parse(event.dataTransfer.getData("text/plain"));
+            var sourceOrder = sourceData.sourceOrder;
+            var sourceSection = sourceData.sourceSection;
+
+            var targetOrder = event.target.dataset.order;
+            var targetId = event.target.dataset.id;
+            var targetSection = event.target.dataset.sectionId;
+
+            console.log("Source Order:", sourceOrder);
+            console.log("Target Order:", targetOrder);
+            console.log("Source Section:", sourceSection);
+            console.log("Target Section:", targetSection);
+            console.log("Target ID:", targetId);
+            console.log("Event Target:", event.target);
+            console.log("Event CurrentTarget:", event.currentTarget);
+            // Check if the drop occurred on a different section
+            if (sourceSection !== targetSection) {
+                // Move the image to the target section
+                moveImageToSection(sourceOrder, sourceSection, targetSection);
+            } else if (sourceOrder !== targetOrder && sourceSection === targetSection) {
+                // Swap images in the UI
+                swapImages(sourceOrder, targetOrder, targetId, targetSection);
+            }
+
+            // Set dropHandled flag to true to indicate that the drop event has been handled
+            dropHandled = true;
+        }
+
+        // Reset dropHandled flag when drag over event occurs
+        function handleDragOver(event) {
+            dropHandled = false;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+
+            // Highlight the potential drop target by adding a class to the closest li element
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.add('drag-over');
+            }
+
+        }
+
+        // Add event listeners for dragenter and dragleave on the ul element
+        document.getElementById('sortable').addEventListener('dragenter', function (event) {
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.add('drag-over');
+            }
+        });
+
+        document.getElementById('sortable').addEventListener('dragleave', function (event) {
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.remove('drag-over');
+            }
+        });
+
+        // Add event listeners for dragenter and dragleave on the trash can element
+        document.getElementById('trashCan').addEventListener('dragenter', function (event) {
+            // Add class to the trash can when dragged over
+            var trashCan = document.getElementById('trashCan');
+            trashCan.classList.add('drag-over');
+        });
+
+        document.getElementById('trashCan').addEventListener('dragleave', function (event) {
+            // Remove drag-over class from the trash can
+            var trashCan = document.getElementById('trashCan');
+            trashCan.classList.remove('drag-over');
+        });
+
+
+
+        // Load uploaded images when the page loads
+        window.addEventListener("load", function () {
+            loadUploadedImages();
+
+        });
+
+
+        // Function to add a slideshow image
+        function addSlideshowImage(imageId, imageUrl, sectionId) {
+            var formData = new FormData(document.getElementById("updateImageForm"));
+            formData.append('section_id', sectionId); // Append sectionId to form data
+
+            fetch("/update_public_images", {
+                method: "POST",
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Add the slideshow image with the image ID and URL
+                        var slideshowUl = document.getElementById("slideshowSortable");
+                        var li = document.createElement("li");
+                        var img = document.createElement("img");
+                        li.draggable = true;
+                        li.addEventListener("dragstart", handleDragStartSlideshow);
+                        li.addEventListener("dragover", handleDragOver);
+                        li.addEventListener("drop", handleDropSlideshow);
+                        img.src = imageUrl;
+                        li.appendChild(img);
+                        li.setAttribute("data-id", imageId); // Set data-id attribute for image ID
+                        slideshowUl.appendChild(li);
+                        document.getElementById("message").innerHTML = "Image added to slideshow.";
+                    } else {
+                        document.getElementById("message").innerHTML = "Failed to add image to slideshow.";
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+
+        function handleDropSlideshow(event) {
+            event.preventDefault();
+
+            // Get the dragged index
+            var draggedIndex = event.dataTransfer.getData("text/plain");
+
+            // Check if the drop event originates from the uploaded images area
+            var isFromUploaded = event.dataTransfer.getData("isFromUploaded") === "true";
+
+            // If the drop event originates from the uploaded images area, do nothing
+            if (isFromUploaded) {
+                console.log("Image dragged from uploaded images, ignoring drop in slideshow.");
+                return;
+            }
+
+            // Get the image ID of the dragged image
+            var imageId = document.querySelector(`#sortable li[data-index="${draggedIndex}"]`).getAttribute("data-id");
+            var sectionId = document.querySelector(`#sortable li[data-index="${draggedIndex}"]`).getAttribute("data-section-id");
+
+            // Check if the dropped image is not already in the slideshow
+            var slideshowImages = document.getElementById("slideshowSortable").querySelectorAll("li");
+            var isAlreadyInSlideshow = Array.from(slideshowImages).some(li => li.dataset.id === imageId);
+
+            if (!isAlreadyInSlideshow) {
+                // Get the image URL from the uploaded images section
+                var imageUrl;
+                var uploadedImages = document.getElementById("sortable").querySelectorAll("li");
+                uploadedImages.forEach(li => {
+                    if (li.dataset.index === draggedIndex) {
+                        imageUrl = li.querySelector("img").src;
+                    }
+                });
+
+                // Add the slideshow image with the image ID and URL
+                addSlideshowImage(imageId, imageUrl, sectionId);
+            } else {
+                console.log("Image already exists in the slideshow.");
+            }
+        }
+
+        // Function to update the order of images on the server
+        function updateImageOrder(order) {
+            fetch("/update_image_order", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(order)  // Send the array of order objects directly
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        showMessage(data.message);
+                    } else {
+                        // If the order update is successful, reload the images
+                        loadUploadedImages();
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function moveImageToSection(sourceOrder, sourceSection, targetSection) {
+            // Make a server request to update the database with the new section ID for the image
+            fetch("/move_image_to_section", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    sourceOrder: sourceOrder,
+                    sourceSection: sourceSection,
+                    targetSection: targetSection
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        console.log("Image moved successfully from section", sourceSection, "to section", targetSection);
+                        // Update UI
+                        updateUIAfterMove(sourceOrder, sourceSection, targetSection);
+                    } else {
+                        console.error("Failed to move image:", data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function updateUIAfterMove(sourceOrder, sourceSection, targetSection) {
+            // Remove the image from the source section
+            var sourceSectionContainer = document.getElementById(`sortable-${sourceSection}`);
+            var sourceImage = sourceSectionContainer.querySelector(`li[data-order="${sourceOrder}"]`);
+            sourceImage.remove();
+
+            // Reload images for the source section
+            loadUploadedImages(sourceSection);
+
+            // Reload images for the target section
+            loadUploadedImages(targetSection);
+        }
+
+        function swapImages(fromOrder, toOrder, targetId, sectionId) {
+            var sortableId = "sortable-" + sectionId;
+            var sortableContainer = document.getElementById(sortableId);
+            if (!sortableContainer) {
+                console.error("Sortable container not found for section ID:", sectionId);
+                return;
+            }
+
+            var children = sortableContainer.children;
+            if (!children) {
+                console.error("Children of sortable container not found");
+                return;
+            }
+            var fromIndex, toIndex;
+
+            // Find the indexes of the source and target images based on their data-order attribute
+            for (var i = 0; i < children.length; i++) {
+                if (children[i].dataset.order === fromOrder) {
+                    fromIndex = i;
+                }
+                if (children[i].dataset.order === toOrder) {
+                    toIndex = i;
+                }
+            }
+
+            // Reorder the images based on their data-order attribute
+            if (fromIndex < toIndex) {
+                // Move the source image after the target image
+                sortableContainer.insertBefore(children[fromIndex], children[toIndex].nextSibling);
+            } else {
+                // Move the source image before the target image
+                sortableContainer.insertBefore(children[fromIndex], children[toIndex]);
+            }
+
+            // Update the data-order attribute of each list item
+            Array.from(children).forEach((image, index) => {
+                image.dataset.order = index + 1; // Update the data-order attribute based on the new order
+            });
+
+            // Create an array of objects containing picture ID, new order, and section ID
+            var orderData = Array.from(children).map((image) => {
+                return { id: image.dataset.id, order: image.dataset.order, sectionId: sectionId };
+            });
+
+            // Update the image order with the new order associated with each picture
+            updateImageOrder(orderData);
+        }
+
+
+
+        // Function to handle deletion of images using the trash can
+        function handleDropTrash(event, source) {
+            event.preventDefault();
+            var order = event.dataTransfer.getData("text/plain");
+            var imageToRemove = document.querySelector(`li[data-order="${order}"]`);
+            if (imageToRemove) {
+                // Display a confirmation dialog before deleting the image
+                var confirmation = confirm("Are you sure you want to delete this image?");
+                if (confirmation) {
+                    // If the user confirms, proceed with deletion
+                    var imageId = imageToRemove.dataset.id;
+                    deleteImage(imageId); // Call the function to delete the image
+                    imageToRemove.remove();
+                }
+            }
+        }
+
+        // Function to delete an image
+        function deleteImage(imageId) {
+            fetch("/delete_image", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ id: imageId })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        console.log(data.message); // Log success message
+                        showMessage(data.message);
+                    } else {
+                        console.error('Error:', data.message); // Log error message
+                        showMessage(data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+        // Function to add a selectable checkbox to each image
+        function addCheckboxToImage(imageElement) {
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'image-checkbox';
+            checkbox.style.position = 'absolute';
+            checkbox.style.top = '5px'; // Adjust top position as needed
+            checkbox.style.right = '5px'; // Adjust right position as needed
+            checkbox.addEventListener('change', function () {
+                if (this.checked) {
+                    // Add image to selected list
+                    addToSelectedImages(imageElement);
+                } else {
+                    // Remove image from selected list
+                    removeFromSelectedImages(imageElement);
+                }
+            });
+            imageElement.appendChild(checkbox);
+        }
+
+        // Call this function when the page is loaded to add checkboxes to all existing images
+        function addCheckboxesToExistingImages() {
+            var sections = document.querySelectorAll('.uploaded-images');
+            sections.forEach(function (section) {
+                var images = section.querySelectorAll('.sortable li img');
+                images.forEach(function (image) {
+                    addCheckboxToImage(image.parentElement);
+                });
+            });
+        }
+
+        // Call this function to initialize checkboxes for existing images and new images added dynamically
+        document.addEventListener('DOMContentLoaded', function () {
+            addCheckboxesToExistingImages();
+        });
+
+    </script>
+
+
+
+    <!-- Text/Code Editor and Save Function -->
+    <script>
+        function showMessage(message) {
+            var messageElement = document.getElementById('message');
+            var messageContent = document.getElementById('messageContent');
+
+            // Set message content
+            messageContent.textContent = message;
+
+            // Show the message
+            messageElement.style.display = 'block';
+        }
+
+        function closeMessage() {
+            var messageElement = document.getElementById('message');
+
+            // Hide the message
+            messageElement.style.display = 'none';
+        }
+
+        function initializeCodeMirror(textArea) {
+            const editor = CodeMirror.fromTextArea(textArea, {
+                mode: "htmlmixed",
+                lineNumbers: true,
+                theme: "dracula",
+                autoCloseBrackets: true,
+                lineWrapping: true,
+                gutters: ["CodeMirror-lint-markers"],
+                lint: {
+                    getAnnotations: function (content) {
+                        var result = []; // Initialize an empty array to store linting results
+
+                        // Check for unclosed HTML tags
+                        var tagRegex = /<([^\/!][^\s>]*)\b[^>]*>(?![\s\S]*?<\/\1>)/g;
+                        var match;
+                        while ((match = tagRegex.exec(content)) !== null) {
+                            result.push({
+                                message: "Unclosed tag: <" + match[1] + ">",
+                                severity: "error",
+                                from: CodeMirror.Pos(content.substr(0, match.index).split('\n').length - 1, match.index - content.lastIndexOf('\n', match.index - 1) - 1),
+                                to: CodeMirror.Pos(content.substr(0, match.index).split('\n').length - 1, match.index - content.lastIndexOf('\n', match.index - 1))
+                            });
+                        }
+
+                        // Check for unclosed curly braces
+                        var braceStack = [];
+                        for (var i = 0; i < content.length; i++) {
+                            if (content[i] === '{') {
+                                braceStack.push(i);
+                            } else if (content[i] === '}') {
+                                if (braceStack.length > 0) {
+                                    braceStack.pop();
+                                } else {
+                                    result.push({
+                                        message: "Unmatched closing brace: }",
+                                        severity: "error",
+                                        from: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1) - 1),
+                                        to: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1))
+                                    });
+                                }
+                            }
+                        }
+
+                        while (braceStack.length > 0) {
+                            var unmatchedIndex = braceStack.pop();
+                            result.push({
+                                message: "Unclosed brace: {",
+                                severity: "error",
+                                from: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1) - 1),
+                                to: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1))
+                            });
+                        }
+
+                        // Check for unclosed parentheses
+                        var parenStack = [];
+                        for (var i = 0; i < content.length; i++) {
+                            if (content[i] === '(') {
+                                parenStack.push(i);
+                            } else if (content[i] === ')') {
+                                if (parenStack.length > 0) {
+                                    parenStack.pop();
+                                } else {
+                                    result.push({
+                                        message: "Unmatched closing parenthesis: )",
+                                        severity: "error",
+                                        from: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1) - 1),
+                                        to: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1))
+                                    });
+                                }
+                            }
+                        }
+
+                        while (parenStack.length > 0) {
+                            var unmatchedIndex = parenStack.pop();
+                            result.push({
+                                message: "Unclosed parenthesis: (",
+                                severity: "error",
+                                from: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1) - 1),
+                                to: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1))
+                            });
+                        }
+                        // Check for missing semicolons only in JavaScript and CSS
+                        var lines = content.split('\n');
+                        for (var i = 0; i < lines.length; i++) {
+                            var line = lines[i].trim();
+                            if (!line.includes('<') && !line.includes('>')) { // Exclude lines containing < and >
+                                // Check if the line is a continuation of an expression or a template literal
+                                if (line && !line.endsWith(';') && !line.endsWith('}') && !line.endsWith('{') && !line.endsWith(')') && !line.endsWith(',') && !/[\+\-\*\/=]$/.test(line) && !/\$\{[^}]+\}$/.test(line)) {
+                                    result.push({
+                                        message: "Missing semicolon or incorrect line termination",
+                                        severity: "error",
+                                        from: CodeMirror.Pos(i, 0),
+                                        to: CodeMirror.Pos(i, lines[i].length)
+                                    });
+                                }
+                            }
+                        }
+
+                        return result;
+                    }
+                }
+            });
+            codeMirrorEditors.push(editor);
+
+            // Attach format code button to this specific CodeMirror instance
+            const formatCodeButton = textArea.closest('.page-body-container').querySelector('.formatCodeButton');
+            formatCodeButton.addEventListener('click', function () {
+                formatCode(editor);
+            });
+            return editor;
+        }
+        const codeMirrorEditors = [];
+
+        function formatCode(editor) {
+            if (editor) {
+                var content = editor.getValue();
+                var mode = editor.getOption("mode");
+                var formattedContent;
+
+                if (mode === "htmlmixed") {
+                    formattedContent = html_beautify(content, {
+                        indent_size: 4,
+                        indent_char: ' ',
+                        max_preserve_newlines: 1,
+                        preserve_newlines: true,
+                        indent_inner_html: true,
+                        wrap_line_length: 80,
+                        end_with_newline: true
+                    });
+                } else if (mode === "css") {
+                    formattedContent = css_beautify(content, {
+                        indent_size: 4,
+                        indent_char: ' ',
+                        max_preserve_newlines: 1,
+                        preserve_newlines: true,
+                        wrap_line_length: 80,
+                        end_with_newline: true
+                    });
+                } else {
+                    formattedContent = js_beautify(content, {
+                        indent_size: 4,
+                        indent_char: ' ',
+                        max_preserve_newlines: 1,
+                        preserve_newlines: true,
+                        brace_style: "collapse",
+                        wrap_line_length: 80,
+                        end_with_newline: true
+                    });
+                }
+
+                editor.setValue(formattedContent);
+            }
+        }
+
+        function showMessage(message) {
+            alert(message);
+        }
+
+        function handleSubmit(classSelector, endpoint) {
+            const forms = document.querySelectorAll(`.${classSelector}`);
+
+            forms.forEach((form) => {
+                form.addEventListener("submit", function (event) {
+                    event.preventDefault();
+
+                    // Save content from the correct CodeMirror instance
+                    const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
+                    if (editor) {
+                        editor.save(); // This will save the CodeMirror content back into the textarea
+                    }
+
+                    const formData = new FormData(this);
+                    formData.append("section_id", this.dataset.sectionId);
+                    formData.append("section_type", this.dataset.sectionType);
+
+                    fetch(endpoint, {
+                        method: "POST",
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // showMessage(data.message);
+                                // loadUploadedImages();
+                            } else {
+                                showMessage(data.message);
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                });
+            });
+            // reloadIframe();
+        }
+
+        handleSubmit("update-section-form", "/update_section");
+
+        document.getElementById("saveChangesButton").addEventListener("click", function () {
+            const forms = document.querySelectorAll(".update-section-form");
+            forms.forEach((form) => {
+                const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
+                if (editor) {
+                    editor.save(); // Ensure all CodeMirror instances save their content back to the textareas
+                }
+                form.requestSubmit();
+            });
+            setTimeout(function () {
+                reloadIframe();
+            }, 100);
+
+        });
+
+        document.addEventListener("DOMContentLoaded", function () {
+            // Function to initialize CodeMirror for a textarea
+            // initializeCodeMirror()
+            // Select all textareas within page-body-container and initialize CodeMirror for each
+            const textAreas = document.querySelectorAll(".page-body-container textarea");
+
+
+            textAreas.forEach((textArea, index) => {
+                initializeCodeMirror(textArea);
+            });
+
+
+
+
+
+
+        });
+
+
+
+
+
+
+    </script>
+
+
+    <!-- Dark Mode Toggle -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggleSwitch = document.getElementById('darkModeToggle');
+            const body = document.body;
+            const navbar = document.querySelector('.navbar');
+            const contentContainer = document.querySelector('.content-container');
+            const webPreview = document.querySelector('.web-preview');
+            const sectionOptions = document.querySelectorAll('.dropbtn');
+
+            // Function to apply dark mode
+            function applyDarkMode() {
+                body.classList.add('dark-mode');
+                navbar.classList.add('dark-mode');
+                contentContainer.classList.add('dark-mode');
+                webPreview.classList.add('dark-mode');
+                document.querySelector('#previewButton').classList.add('dark-mode');
+                sectionOptions.forEach(option => option.classList.add('dark-mode'));
+            }
+
+            // Function to remove dark mode
+            function removeDarkMode() {
+                body.classList.remove('dark-mode');
+                navbar.classList.remove('dark-mode');
+                contentContainer.classList.remove('dark-mode');
+                webPreview.classList.remove('dark-mode');
+                document.querySelector('#previewButton').classList.remove('dark-mode');
+                sectionOptions.forEach(option => option.classList.remove('dark-mode'));
+            }
+
+            // Load theme from local storage
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme === 'dark' || !currentTheme) {
+                applyDarkMode();
+                toggleSwitch.checked = true;
+            } else {
+                removeDarkMode();
+                toggleSwitch.checked = false;
+            }
+
+            // Toggle switch event listener
+            toggleSwitch.addEventListener('change', () => {
+                if (toggleSwitch.checked) {
+                    applyDarkMode();
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    removeDarkMode();
+                    localStorage.setItem('theme', 'light');
+                }
+            });
+        });
+    </script>
+
+
+    <!-- Add Section -->
+    <script>
+
+        // Set the global variable pageId
+
+
+
+        // Get the modal
+        var modal = document.getElementById("add-section-modal");
+
+        // Get the button that opens the modal
+        var btn = document.getElementById("addSectionBtn");
+
+        // Get the <span> element that closes the modal
+        var span = document.getElementById("closeModal");
+
+        // When the user clicks the button, open the modal
+        btn.onclick = function () {
+            modal.style.display = "block";
+        }
+
+        // When the user clicks on <span> (x), close the modal
+        span.onclick = function () {
+            modal.style.display = "none";
+        }
+
+        // When the user clicks anywhere outside of the modal, close it
+        window.onclick = function (event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        document.getElementById('add-section-form').addEventListener('submit', function (event) {
+            // Set the global variable pageId
+            const pageId = "{{page_id}}"
+            event.preventDefault();
+
+            const sectionType = document.getElementById('section-type').value;
+            // Gather additional inputs for the section content
+            const content = {}; // Populate this object based on the section type and form inputs
+
+            const data = {
+                section_type: sectionType,
+                order: document.querySelectorAll('.page-section').length, // Example order based on current sections
+                content: content
+            };
+
+            fetch(`/page/${pageId}/add_section`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message === 'Section added successfully') {
+                        addSectionToDOM(sectionType, data.section);
+                        modal.style.display = "none";
+                    } else {
+                        alert('Failed to add section');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        });
+
+        function addSectionToDOM(sectionType, sectionId, sectionContent = {}) {
+            let sectionHTML = '';
+            switch (sectionType) {
+                case 'header':
+                    sectionHTML = `
+            <div class="page-header-container page-section section-container" data-id="${sectionId}">
+                <div class="dropdown" style="position: relative; float: right;">
+                    <button class="dropbtn">⋮</button>
+                    <div class="dropdown-content">
+                        <a href="#" class="delete-section" data-section-id="${sectionId}">Delete</a>
+                    </div>
+                </div>
+                <form class="update-section-form" data-section-id="${sectionId}" data-section-type="header">
+                    <label for="header_text">Header Text:</label><br>
+                    <textarea id="header_text" name="header_text" rows="1" class="dynamic-width" style="padding: 10px;">${sectionContent.text || ''}</textarea><br><br>
+                </form>
+            </div>`;
+                    break;
+                case 'button':
+                    sectionHTML = `
+            <div class="update-text-container page-section section-container" data-id="${sectionId}">
+                <div class="dropdown" style="position: relative; float: right;">
+                    <button class="dropbtn">⋮</button>
+                    <div class="dropdown-content">
+                        <a href="#" class="delete-section" data-section-id="${sectionId}">Delete</a>
+                    </div>
+                </div>
+                <form class="update-section-form" data-section-id="${sectionId}" data-section-type="button">
+                    <label for="button_text">Button Text:</label><br>
+                    <textarea id="button_text" name="button_text" rows="1" class="dynamic-width" style="padding: 10px;">${sectionContent.text || ''}</textarea><br><br>
+                    <label for="button_link">Button Link:</label><br>
+                    <textarea id="button_link" name="button_link" rows="1" class="dynamic-width" style="padding: 10px;">${sectionContent.link || ''}</textarea><br><br>
+                    <label for="button_enabled">Enable Button:</label>
+                    <input type="checkbox" id="button_enabled" name="button_enabled" ${sectionContent.enabled ? 'checked' : ''}><br><br>
+                </form>
+            </div>`;
+                    break;
+                case 'text':
+                    sectionHTML = `
+            <div class="page-body-container page-section section-container" data-id="${sectionId}">
+                <div class="dropdown" style="position: relative; float: right;">
+                    <button class="dropbtn">⋮</button>
+                    <div class="dropdown-content">
+                        <a href="#" class="delete-section" data-section-id="${sectionId}">Delete</a>
+                    </div>
+                </div>
+                <form class="update-section-form" data-section-id="${sectionId}" data-section-type="text">
+                    <label for="text-${sectionId}">Body Text:</label>
+                    <button type="button" class="formatCodeButton">Format Code</button><br>
+                    <div class="editor-wrapper">
+                        <textarea id="text-${sectionId}" name="text" required>${sectionContent.text || ''}</textarea>
+                    </div>
+                    <label for="color-picker">Color Picker:</label>
+                    <div id="color-picker"></div>
+                    <div id="saved-colors"></div>
+                    <br><br>
+                </form>
+            </div>`;
+                    break;
+                case 'map':
+                    sectionHTML = `
+            <div class="map-marker-container page-section section-container" data-id="${sectionId}">
+                <div class="dropdown" style="position: relative; float: right;">
+                    <button class="dropbtn">⋮</button>
+                    <div class="dropdown-content">
+                        <a href="#" class="delete-section" data-section-id="${sectionId}">Delete</a>
+                    </div>
+                </div>
+                <form class="update-section-form" data-section-id="${sectionId}" data-section-type="map">
+                    <label for="map_marker_label">Map Marker Label:</label><br>
+                    <textarea id="map_marker_label" name="map_marker_label" rows="1" class="dynamic-width" style="padding: 10px;">${sectionContent.marker_label || ''}</textarea><br><br>
+                    <label for="latitude">Latitude:</label>
+                    <input type="number" step="any" id="latitude" name="latitude" value="${sectionContent.latitude || ''}" required><br><br>
+                    <label for="longitude">Longitude:</label>
+                    <input type="number" step="any" id="longitude" name="longitude" value="${sectionContent.longitude || ''}" required><br><br>
+                    <label for="map_enabled">Enable Map:</label>
+                    <input type="checkbox" id="map_enabled" name="map_enabled" ${sectionContent.enabled ? 'checked' : ''}><br><br>
+                </form>
+            </div>`;
+                    break;
+                case 'contact_form':
+                    sectionHTML = `
+            <div class="contact-form-container page-section section-container" data-id="${sectionId}">
+                <div class="dropdown" style="position: relative; float: right;">
+                    <button class="dropbtn">⋮</button>
+                    <div class="dropdown-content">
+                        <a href="#" class="delete-section" data-section-id="${sectionId}">Delete</a>
+                    </div>
+                </div>
+                <form class="update-section-form" data-section-id="${sectionId}" data-section-type="contact_form">
+                    <input type="hidden" name="section_id" value="${sectionId}">
+                    <input type="hidden" name="section_type" value="contact_form">
+                    <label for="contact_form_title">Contact Form Title:</label><br>
+                    <textarea id="contact_form_title" name="contact_form_title" rows="1" class="dynamic-width" style="padding: 10px;">${sectionContent.title || ''}</textarea><br><br>
+                    <label for="contact_email">Email Recipient:</label><br>
+                    <textarea id="contact_email" name="contact_email" rows="1" class="dynamic-width" style="padding: 10px;">${sectionContent.email || ''}</textarea><br><br>
+                    <label for="contact_form_enabled">Enable Contact Form:</label>
+                    <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" ${sectionContent.enabled ? 'checked' : ''}><br><br>
+                </form>
+            </div>`;
+                    break;
+            }
+
+            document.getElementById('public-page-container').insertAdjacentHTML('beforeend', sectionHTML);
+
+            const forms = document.querySelectorAll(".update-section-form");
+            forms.forEach((form) => {
+                const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
+                if (editor) {
+                    editor.save(); // Ensure all CodeMirror instances save their content back to the textareas
+                }
+                form.requestSubmit();
+            });
+            // Reload the window after a short delay to ensure the form submission is complete
+            setTimeout(function () {
+                reloadWindow();
+            }, 100);
+
+        }
+
+        function saveScrollPosition() {
+            sessionStorage.setItem('scrollPosition', window.scrollY);
+        }
+
+        function reloadWindow() {
+            saveScrollPosition();
+            window.location.reload();
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const scrollPosition = sessionStorage.getItem('scrollPosition');
+            if (scrollPosition !== null) {
+                window.scrollTo(0, parseInt(scrollPosition));
+                sessionStorage.removeItem('scrollPosition');
+            }
+        });
+
+        function saveScrollPosition() {
+            sessionStorage.setItem('scrollPosition', window.scrollY);
+        }
+
+        function reloadWindow() {
+            saveScrollPosition();
+            window.location.reload();
+        }
+    </script>
+
+    <!-- DELETE Section -->
+    <script>
+        document.querySelectorAll('.delete-section').forEach(function (element) {
+            element.addEventListener('click', function (event) {
+                event.preventDefault();
+                const sectionId = this.getAttribute('data-section-id');
+                const pageId = this.getAttribute('data-page-id');
+
+                fetch(`/page/${pageId}/remove_section/${sectionId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.message === 'Section removed successfully') {
+                            // Find the closest section-container and remove it
+                            const sectionContainer = this.closest('.section-container');
+                            sectionContainer.parentElement.removeChild(sectionContainer);
+                        } else {
+                            alert('Failed to remove section');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            });
+        });
+
+    </script>
+    <!-- toggle public page -->
+    <script>
+        // Handle toggle switch change
+        document.getElementById("toggle").addEventListener("change", function (event) {
+            var site_active_status = event.target.checked ? 1 : 0;
+            fetch("/toggle_public_page", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ site_active_status: site_active_status })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showMessage(data.message);
+                    } else {
+                        showMessage(data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        });
+    </script>
+</body>
+
+</html>

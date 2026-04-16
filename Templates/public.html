@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css' rel='stylesheet' />
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
+    <!-- Bootstrap CSS -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize Bootstrap modal
+        var myModal = new bootstrap.Modal(document.getElementById('eventModal'));
+    </script>
+
+    <!-- Bootstrap JS (optional, but required for certain features like modals) -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+
+
+</head>
+<title>Public Page</title>
+<style>
+    html,
+    body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        /* Prevent horizontal scrolling */
+        font-family: 'Roboto', sans-serif;
+        /* background-color: rgb(39, 39, 39); */
+        /* Dark background color */
+        /* color: #fff; */
+        /* White text color */
+    }
+
+
+
+    /* CSS for banner */
+    .banner {
+        background-color: rgba(39, 39, 39, 0.7);
+        /* Dark background color with 70% opacity */
+        padding: 3px;
+        /* Add some padding */
+        text-align: center;
+        /* Center the text */
+        position: fixed;
+        /* Fixed positioning */
+        top: 0;
+        /* Position at the top */
+        width: 100%;
+        /* Full width */
+        z-index: 999;
+        /* Ensure it's above other content */
+        font-size: 18px;
+        /* Default font size */
+        display: flex;
+        /* Use flexbox */
+        align-items: center;
+        /* Center align items vertically */
+        flex-wrap: wrap;
+        /* Allow wrapping */
+        /* font-weight:bold; */
+        box-shadow: 0 8px 16px rgb(0 0 0 / 16%), 0 0 20px rgb(0 0 0 / 15%);
+    }
+
+    .content-area {
+    text-align: center;
+    /* display: flex; */
+    /* flex-direction: column; */
+    align-items: center;
+    /* margin-bottom: 50px; */
+    /* text-align: center; */
+    height: auto;
+    overflow: hidden;
+}
+
+
+
+    /* CSS for the text span */
+    .banner-text {
+        max-width: 90%;
+        /* Limit the maximum width of the text */
+        margin: 0 auto;
+        /* Center the text horizontally */
+    }
+
+    .fc-direction-ltr {
+        direction: ltr;
+        text-align: left;
+        height: 425px;
+    }
+
+    /* CSS for the button */
+    .virtual-tour-button {
+        display: inline-block;
+        background-color: #4CAF50;
+        /* Green button color */
+        color: white;
+        /* White text color */
+        padding: 10px 20px;
+        /* Add padding */
+        border: none;
+        /* Remove border */
+        border-radius: 5px;
+        /* Add border radius */
+        text-decoration: none;
+        /* Remove default underline */
+        font-size: 15px;
+        /* Button font size */
+        margin-top: 20px;
+        /* Add margin to space the button from the image */
+        transition: background-color 0.3s;
+        /* Smooth transition for hover effect */
+        box-shadow: 0 8px 16px rgb(0 0 0 / 16%), 0 0 20px rgb(0 0 0 / 15%);
+    }
+
+    /* Hover effect for the button */
+    .virtual-tour-button:hover {
+        background-color: #45a049;
+        /* Darker green color on hover */
+    }
+
+    pre {
+        white-space: pre-wrap;
+        /* Since CSS 2.1 */
+        white-space: -moz-pre-wrap;
+        /* Mozilla, since 1999 */
+        white-space: -pre-wrap;
+        /* Opera 4-6 */
+        white-space: -o-pre-wrap;
+        /* Opera 7 */
+        word-wrap: break-word;
+        /* Internet Explorer 5.5+ */
+        font-family: 'Roboto', sans-serif;
+        /* Apply Roboto font to body */
+        font-size: 16px;
+        color: white;
+
+    }
+
+    .text-area {
+        /* max-width: min(1000px, 90%); */
+        text-align: left;
+        /* margin-left: 10%;
+        margin-right: 10%; */
+        padding-top: 10px;
+        padding-bottom: 10px;
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    .single-image-container {
+        /* position: relative;e */
+        /* width: 100vw; */
+        /* Set width to 100% of the viewport width */
+        /* height: auto; */
+        /* Set height to auto to adjust based on width */
+        /* overflow: hidden; */
+    }
+
+    .single-image-container img {
+        width: 100%;
+        /* height: 100%; */
+        object-fit: cover;
+        /* Ensure images cover the entire container */
+    }
+
+    .section-container{
+        position: relative;
+    }
+
+
+    .slideshow-thumbnail-container {
+        /* display: flex; */
+        flex-direction: column;
+        /* Arrange containers in a column */
+        /* max-width: 100vw;
+        min-width: 50vw; */
+        flex-grow: 1;
+        /* Allow the container to grow */
+        max-width: 100%;
+        /* Set a maximum width to prevent it from occupying the entire row */
+        margin: 0 auto;
+        /* Center the container horizontally */
+        min-width: 10%
+    }
+
+    .slideshow-container {
+        position: relative;
+        /* width: 100vw; */
+        width: 100%;
+        /* min-width: 10%; */
+        padding-top: 56.25%;
+        /* Maintain a 16:9 aspect ratio */
+        overflow: hidden;
+        flex-grow: 1;
+        /* Allow the container to grow */
+    }
+
+    .mySlides {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    .mySlides img {
+        width: 100%;
+        height: 100%;
+        object-fit:contain;
+        /* Ensure images cover the entire container */
+    }
+
+    .thumbnail-container {
+        overflow-x: auto;
+        white-space: nowrap;
+        /* padding: 2px; */
+        box-sizing: border-box;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.5) rgba(0, 0, 0, 0.5);
+        flex-grow: 1;
+        max-width: 100vw;
+        margin-top: 5px;
+        /* Add space between slideshow and thumbnails */
+    }
+
+
+    /* Remove margin from the last thumbnail */
+    .thumbnail:last-child {
+        margin-right: 0;
+    }
+
+    /* CSS for the thumbnails */
+    .thumbnail {
+        display: inline-block;
+        /* Display thumbnails inline */
+        margin: 5px;
+        /* Add margin between thumbnails */
+        cursor: pointer;
+        /* Change cursor to pointer when hovering over thumbnail */
+    }
+
+    /* Style the scrollbar track */
+    .thumbnail-container::-webkit-scrollbar {
+        width: 8px;
+        /* Set the width of the scrollbar */
+    }
+
+    /* Style the scrollbar thumb */
+    .thumbnail-container::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.5);
+        /* Set the color of the thumb */
+        border-radius: 4px;
+        /* Add border radius */
+    }
+
+    /* Hide scrollbar when not hovering over the container */
+    .thumbnail-container::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(0, 0, 0, 0.7);
+        /* Darken thumb color on hover */
+    }
+
+    /* Style the scrollbar track */
+    .thumbnail-container::-webkit-scrollbar-track {
+        background-color: rgba(255, 255, 255, 0.2);
+        /* Set the color of the track */
+    }
+</style>
+<style>
+    /* Style for the map container */
+    [id^="map"] {
+        border: 2px solid #ddd;
+        /* Add a border */
+        border-radius: 10px;
+        /* Add rounded corners */
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        /* Add a shadow */
+        padding-top: 10px;
+        padding-bottom: 10px;
+        height: 400px;
+        /* width: 75%; */
+    }
+
+    /* Style for the map popup */
+    .leaflet-popup-content-wrapper {
+        background-color: #fff;
+        /* Set background color */
+        color: #333;
+        /* Set text color */
+        border-radius: 5px;
+        /* Add rounded corners */
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        /* Add a shadow */
+    }
+
+    /* Style for the map popup arrow */
+    .leaflet-popup-tip-container {
+        display: none;
+        /* Hide the arrow */
+    }
+
+
+    /* Contact Form Container */
+    .contact-form-container {
+        margin-top: 20px;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        /* width: 80%; */
+        border-color: #797979;
+        border-style: solid;
+    }
+
+    /* Contact Form Title */
+    .contact-form-container h2 {
+        margin-bottom: 20px;
+        color: #ffffff;
+    }
+
+    /* Form Input Fields */
+    .contact-form-container input[type="text"],
+    .contact-form-container input[type="email"],
+    .contact-form-container textarea {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        box-sizing: border-box;
+    }
+
+    /* Form Submit Button */
+    .contact-form-container button[type="submit"] {
+        padding: 10px 20px;
+        background-color: transparent;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    .contact-form-container button[type="submit"]:hover {
+        background-color: #0056b3;
+    }
+
+    .calendar-container {
+        width: 100%;
+        max-width: 800px;
+        height: 100%;
+        /* Adjust the maximum width as needed */
+        margin: 0 auto;
+        /* Center the container horizontally */
+        padding-top: 20px;
+        padding-bottom: 20px;
+        box-sizing: border-box;
+        color: white;
+    }
+
+    .calendar {
+        height: 100%;
+        background-color: transparent;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 5, 10, 0.1);
+        color: white;
+        padding: 10px;
+    }
+
+    .modal-content {
+        background-color: #474644;
+    }
+
+    .youtube-video-container {
+        /* width: 100vw; */
+        /* Set container width to 90% of viewport width */
+        height: 0;
+        /* Set initial height to 0 to ensure aspect ratio */
+        padding-bottom: 56.25%;
+        /* Set padding-bottom to create a 16:9 aspect ratio (9 / 16 * 100) */
+        position: relative;
+        /* Position container relative for absolute positioning */
+        overflow: hidden;
+        /* Hide any overflow */
+    }
+
+    .youtube-video-embed {
+        position: absolute;
+        /* Position video absolutely within container */
+        top: 0;
+        /* Align video to top of container */
+        left: 0;
+        /* Align video to left of container */
+        width: 100%;
+        /* Set video width to fill container */
+        height: 100%;
+        /* Set video height to fill container */
+    }
+
+    a {
+        color: #ffffff;
+        text-decoration: none;
+        background-color: transparent;
+    }
+
+    .button {
+        display: inline-block;
+        padding: 10px 10px;
+        background-color: #3593b8;
+        color: #fff;
+        text-decoration: none;
+        border-radius: 5px;
+        border: none;
+        cursor: pointer;
+    }
+
+    .button:hover {
+        background-color: #852cc0;
+    }
+
+
+    /* CSS for row container */
+    .row-container {
+        display: flex;
+        /* Use flexbox to display rows horizontally */
+        flex-wrap: wrap;
+        /* Allow rows to wrap to the next line */
+        justify-content: center;
+        /* Center rows horizontally */
+        margin-bottom: 20px;
+        /* Add margin between rows */
+        width: 100vw;
+        height: fit-content;
+    }
+
+    /* CSS for each row */
+    .row {
+        display: flex;
+        /* Use flexbox to display items horizontally */
+        flex-wrap: nowrap;
+        /* Prevent items from wrapping */
+        /* margin-right: -10px; */
+        /* Compensate for margin-right of items */
+        width: 100vw;
+        /* justify-content: center; */
+        height: fit-content;
+        /* align-items: center; */
+        /* Allow rows to wrap to the next line */
+        justify-content: center;
+        align-items: center;
+    }
+
+    .navbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        /* width: 100%; */
+        background-color: rgba(39, 39, 39, 0.7);
+        z-index: 1000;
+        /* padding-left: 10px; */
+        padding-top: 5px;
+        border-radius: 5px;
+    }
+
+    .navbar-toggle {
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 20px;
+    }
+
+
+    .bar {
+        width: 35px;
+        height: 3px;
+        background-color: #fff;
+        margin: px 0;
+        /* font-weight: bolder; */
+        border-radius: 10px;
+    }
+
+    .navbar-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        background-color: #252525;
+        padding: 10px 20px;
+        z-index: 1001;
+    }
+
+    .navbar:hover .navbar-menu {
+        display: block;
+    }
+
+    .navbar-menu a {
+        display: block;
+        color: #fff;
+        padding: 5px;
+        padding-left: 10px;
+        transition: background-color 0.5s;
+        padding-right: 10px;
+    }
+
+    .navbar-menu a:hover {
+        background-color: #555;
+        /* Change background color on hover */
+    }
+</style>
+
+<body>
+    {% if content.is_preview %}
+    <div class="preview-banner">Preview</div>
+    {% endif %}
+    {% set navbar_rendered = False %}
+    {% for section in content['sections'] %}
+    {% if section.section_type == 'navbar' and not navbar_rendered %}
+    <div class="navbar">
+        <div class="navbar-toggle" onclick="toggleMenu()">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+        </div>
+        <div class="navbar-menu" id="navbarMenu">
+            {% for item in section.content['navbar_items'] %}
+            <a href="{{ item['url'] }}">{{ item['name'] }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% set navbar_rendered = True %}
+    {% endif %}
+    {% endfor %}
+
+    <!-- Public Page Content -->
+    <div class="content-area">
+
+        {% for section in content['sections'] %}
+        {% if section.section_type == 'header' %}
+        <div class="banner-background">
+        </div>
+        <!-- Banner -->
+        <div class="banner">
+            <span class="banner-text">{{ section.content['text'] }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
+        <div class="row-container">
+            <div class="row">
+                {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
+                {% for section in sorted_sections %}
+                <div class="section-container" style="width: {{ section.width }}%;">
+
+                    {% if section.section_type == 'image_gallery' %}
+                    <div class="slideshow-thumbnail-container">
+                        <div class="slideshow-container" data-section-id="{{ section.id }}">
+                            {% if section.id in content.pictures_by_section %}
+                            {% for imageUrl in content.pictures_by_section[section.id] %}
+                            <div class="mySlides fade" data-section-id="{{ section.id }}">
+                                <img src="{{ imageUrl }}">
+                            </div>
+                            {% endfor %}
+                            {% else %}
+                            <p>No images in this section.</p>
+                            {% endif %}
+                        </div>
+                        <div style="text-align:center">
+                            <div class="thumbnail-container" data-section-id="{{ section.id }}">
+                                {% if section.id in content.pictures_by_section %}
+                                {% for imageUrl in content.pictures_by_section[section.id] %}
+                                <div class="thumbnail">
+                                    <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
+                                        onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
+                                </div>
+                                {% endfor %}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% elif section.section_type == 'image' %}
+                    <div class="single-image-container">
+                        <!-- <div class="slideshow-container" data-section-id="{{ section.id }}"> -->
+                        {% if section.id in content.pictures_by_section %}
+                        <!-- {% for imageUrl in content.pictures_by_section[section.id] %} -->
+                        <!-- <div class="mySlides fade" data-section-id="{{ section.id }}"> -->
+                        <img src="{{ imageUrl }}">
+                        <!-- </div> -->
+                        <!-- {% endfor %} -->
+                        {% else %}
+                        <p>No images in this section.</p>
+                        {% endif %}
+                        <!-- </div>
+                    <div style="text-align:center">
+                        <div class="thumbnail-container" data-section-id="{{ section.id }}">
+                            {% if section.id in content.pictures_by_section %}
+                            {% for imageUrl in content.pictures_by_section[section.id] %}
+                            <div class="thumbnail">
+                                <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
+                                    onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
+                            </div>
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div> -->
+                    </div>
+                    {% elif section.section_type == 'code' %}
+                    <div class="text-area">
+                        {{ section.content['text'] | safe }}
+                    </div>
+                    {% elif section.section_type == 'text' %}
+                    <div class="text-area">
+                        {{ section.content['html'] | safe }}
+                    </div>
+
+                    {% elif section.section_type == 'button' %}
+                    {% if section.content['enabled'] %}
+                    <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{ section.content['text']
+                        }}</a>
+                    {% endif %}
+                    {% elif section.section_type == 'map' %}
+                    {% if section.content['enabled'] %}
+                    <div id="map_{{ section.id }}" style="height: 400px;"></div>
+                    <script id="map-data_{{ section.id }}" type="application/json">
+                    {{ section.content | tojson }}
+                </script>
+                    {% endif %}
+                    {% elif section.section_type == 'calendar' %}
+                    <div class="calendar-container section-container" data-section-id="{{ section.id }}">
+                        <div id="calendar-{{ section.id }}" class="calendar"></div>
+                        <!-- Add a button to subscribe to this section's calendar -->
+                        <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download class="button">Download
+                            Calendar</a>
+                    </div>
+                    <!-- Event Modal -->
+                    <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
+                        aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content modal-dark">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="eventModalTitle"></h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                        aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body" id="eventModalBody">
+                                    <!-- Event details will be populated here -->
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary"
+                                        data-bs-dismiss="modal">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% elif section.section_type == 'contact_form' %}
+                    {% if section.content['enabled'] %}
+                    <div class="contact-form-container">
+                        <h2>{{ section.content['title'] }}</h2>
+                        <form id="contactForm" class="contact-form">
+                            <div class="form-group">
+                                <label for="senders_email">Your Email:</label><br>
+                                <input type="email" id="senders_email" name="senders_email"
+                                    class="dynamic-width form-control" style="padding: 10px;">
+                            </div>
+                            <div class="form-group">
+                                <label for="message_subject">Subject:</label><br>
+                                <input type="text" id="message_subject" name="message_subject"
+                                    class="dynamic-width form-control" style="padding: 10px;">
+                            </div>
+                            <div class="form-group">
+                                <label for="message_body">Message:</label><br>
+                                <textarea id="message_body" name="message_body" rows="5"
+                                    class="dynamic-width form-control" style="padding: 10px;"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Submit</button>
+                        </form>
+                        <div id="successMessage" style="display: none;">
+                            <h2>Message Sent!</h2>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% elif section.section_type == 'youtube_video' %}
+                    <div class="youtube-video-container">
+                        <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
+                            {% if section.content['youtube_url'] %}
+                            <iframe width="100%" height="100%"
+                                src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}" frameborder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowfullscreen></iframe>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+
+
+<script>
+    // Example JavaScript to set styles dynamically
+
+    const background_color = "{{ content.background_color }}";
+    const text_color = "{{ content.text_color }}";
+
+
+    document.body.style.backgroundColor = background_color;
+    document.body.style.color = text_color;
+
+    console.log("BACKGROUND COLOR: ", background_color, " TEXT_COLOR: ", text_color)
+</script>
+
+
+
+</body>
+<script>
+    function toggleMenu() {
+        var navbarMenu = document.getElementById("navbarMenu");
+        navbarMenu.classList.toggle("show");
+    }
+</script>
+<script>
+
+
+    const pageId = "{{ content.page_id }}";
+    // Function to fetch events from the backend
+    function fetchEvents(sectionId, successCallback, failureCallback) {
+        // Fetch events from the backend using the provided sectionId
+        return fetch(`/page/${sectionId}/events`)
+            .then(response => response.json())
+            .then(events => {
+                console.log('Fetched Events:', events); // Log fetched events
+                // Invoke the success callback with the fetched events
+                successCallback(events);
+            })
+            .catch(error => {
+                // Invoke the failure callback if an error occurs
+                failureCallback(error);
+            });
+    }
+
+    // Initialize the calendar
+    function initializeCalendar(sectionId, pageId) {
+        console.log('Initializing calendar for section ID:', sectionId);
+        const calendarEl = document.getElementById(`calendar-${sectionId}`);
+        console.log('Calendar element:', calendarEl);
+
+        const calendar = new FullCalendar.Calendar(calendarEl, {
+            // Add your FullCalendar options here
+            initialView: 'dayGridMonth',
+            events: (info, successCallback, failureCallback) => {
+                // Call fetchEvents with the sectionId parameter
+                fetchEvents(sectionId, successCallback, failureCallback);
+            },
+            eventClick: function (info) {
+                // Display a modal or popover with event details when clicked
+                // For example, you can use a library like Bootstrap for modal popups
+                console.log('Event Clicked:', info.event); // Log clicked event details
+
+                // Format start and end dates
+                const startDate = new Date(info.event.start);
+                const endDate = info.event.end ? new Date(info.event.end) : null;
+                const formattedStartDate = startDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }); // Adjust format as needed
+                const formattedEndDate = endDate ? endDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }) : null; // Adjust format as needed
+
+                $('#eventModalTitle').text(info.event.title);
+                $('#eventModalBody').html(`<p>Start: ${formattedStartDate}</p><p>End: ${formattedEndDate}</p><p>${info.event.extendedProps.description}</p>`);
+                $('#eventModal').modal('show');
+            },
+            // Add other options as needed
+        });
+        calendar.render();
+    }
+
+    // Call initializeCalendar for each calendar section
+    document.addEventListener('DOMContentLoaded', function () {
+        const calendarSections = document.querySelectorAll('.calendar-container');
+        calendarSections.forEach(function (section) {
+            const sectionId = section.getAttribute('data-section-id');
+            initializeCalendar(sectionId);
+        });
+    });
+
+</script>
+
+<script>
+
+
+
+    // Function to send email using AJAX
+    function sendEmail(formData) {
+        $.ajax({
+            type: 'POST',
+            url: '/send_email',  // Endpoint to handle email sending
+            data: formData,
+            success: function (response) {
+                console.log('Email sent successfully');
+                // Add your success message handling here
+                $('#contactForm').hide();
+                $('#successMessage').show();
+            },
+            error: function (xhr, status, error) {
+                console.error('Error sending email:', error);
+                // Add your error message handling here
+            }
+        });
+    }
+
+    // Function to handle form submission
+    $('#contactForm').submit(function (event) {
+        event.preventDefault();  // Prevent default form submission
+
+        // Get form data
+        var formData = {
+            senders_email: $('#senders_email').val(),
+            message_subject: $('#message_subject').val(),
+            message_body: $('#message_body').val()
+        };
+
+        // Send email
+        sendEmail(formData);
+    });
+    $(document).ready(function () {
+        // Function to initialize a map
+        function initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel) {
+            // Check if the map container exists
+            var mapContainer = document.getElementById(mapId);
+            if (!mapContainer) {
+                console.log('Map container not found for map:', mapId);
+                return;
+            }
+
+            if (mapEnabled) {
+                var map = L.map(mapId).setView([latitude, longitude], 16);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+                L.marker([latitude, longitude]).addTo(map)
+                    .bindPopup(mapMarkerLabel)
+                    .openPopup();
+            } else {
+                console.log('Map is disabled for map:', mapId);
+                $('#' + mapId).remove(); // Remove the map container if map is disabled
+            }
+        }
+
+        // Parse the JSON data for each map
+        $('[id^="map-data"]').each(function () {
+            var mapId = this.id.replace('map-data', 'map'); // Generate map ID from map-data ID
+            var mapData = JSON.parse($(this).text());
+            var latitude = parseFloat(mapData.latitude);
+            var longitude = parseFloat(mapData.longitude);
+            var mapEnabled = mapData.enabled;
+            var mapMarkerLabel = mapData.marker_label;
+
+            console.log('Map ID:', mapId);
+            console.log('Map data for map ' + mapId + ':', mapData); // Debugging line to check the map data
+
+            initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel);
+        });
+    });
+
+
+</script>
+<!-- <script>
+    // Calculate the height of the banner and set it to the banner background
+    var bannerHeight = document.querySelector('.banner').offsetHeight;
+    document.querySelector('.banner-background').style.height = bannerHeight + 'px';
+</script>
+
+<script>
+    // Calculate the height of the banner and set it to the banner background
+    var bannerHeight = document.querySelector('.banner').offsetHeight;
+    document.querySelector('.banner-background').style.height = bannerHeight + 'px';
+</script> -->
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize slideshows for each section
+        var slideshows = document.querySelectorAll('.slideshow-container');
+        slideshows.forEach(function (slideshow) {
+            var sectionId = slideshow.getAttribute('data-section-id');
+            initializeSlideshow(sectionId);
+        });
+    });
+
+    function initializeSlideshow(sectionId) {
+        var slideIndex = 0;
+        var slideTimer;
+
+        showSlides(sectionId);
+
+        // Thumbnail image controls
+        window.currentSlide = function (sectionId, n) {
+            clearTimeout(slideTimer);
+            showSlides(sectionId, slideIndex = n);
+        };
+
+        function showSlides(sectionId, n) {
+    var i;
+    var slides = document.querySelectorAll('.mySlides[data-section-id="' + sectionId + '"]');
+    if (n === undefined) {
+        n = ++slideIndex;
+    }
+    if (n > slides.length) { slideIndex = 1 }
+    if (n < 1) { slideIndex = slides.length }
+    for (i = 0; i < slides.length; i++) {
+        slides[i].style.display = "none";
+    }
+
+    // Display the first slide without fade animation
+    if (n === 1) {
+        slides[slideIndex - 1].style.display = "block";
+        slides[slideIndex - 1].style.opacity = 1; // Set opacity to 1 for the first slide
+    } else {
+        // Apply fade animation for subsequent slides
+        slides[slideIndex - 1].style.display = "block";
+        slides[slideIndex - 1].style.opacity = 0;
+        var fadeInInterval = setInterval(function () {
+            if (slides[slideIndex - 1].style.opacity >= 1) {
+                clearInterval(fadeInInterval);
+            } else {
+                slides[slideIndex - 1].style.opacity = parseFloat(slides[slideIndex - 1].style.opacity) + 0.01;
+            }
+        }, 20);
+    }
+
+    slideTimer = setTimeout(function () {
+        slides[slideIndex - 1].style.opacity = 0;
+        showSlides(sectionId, slideIndex += 1);
+    }, 10000);
+}
+
+    }
+</script>
+
+</html>

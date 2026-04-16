@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+
+        .content{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .login-container h1 {
+            margin-bottom: 1.5rem;
+        }
+        .login-container label {
+            display: block;
+            text-align: left;
+            margin: 0.5rem 0 0.25rem;
+        }
+        .login-container input {
+    width: 90%;
+    padding: 0.5rem;
+    margin-bottom: 1rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background-color: #2e2e2e;
+    color: #e0e0e0;
+}
+        .login-container button {
+            background-color: #6200ea;
+            color: #fff;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .login-container button:hover {
+            background-color: #3700b3;
+        }
+        .login-container ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 1rem 0 0;
+        }
+        .login-container li {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        .login-container .error {
+            background-color: #cf6679;
+            color: #121212;
+        }
+        .footer {
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #888;
+        }
+        .login-container {
+    background-color: #1e1e1e;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    width: 300px;
+    text-align: center;
+    margin-top: 25px;
+}
+    </style>
+</head>
+<body>
+    {% extends 'base.html' %}
+
+    {% block content %}
+    <div class="login-container">
+        <h1>uwebia Login</h1>
+        <form method="POST" action="{{ url_for('login') }}">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" required>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required>
+            <button type="submit">Login</button>
+        </form>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul>
+                {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+        <div class="footer">© 2024 - uwebia</div>
+    </div>
+</body>
+{% endblock %}
+</html>
+

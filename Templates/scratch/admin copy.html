@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Page</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        form {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="file"],
+        textarea {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        input[type="submit"] {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        #message {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+        }
+
+        .uploaded-images {
+            margin-top: 20px;
+            list-style-type: none;
+            padding: 0;
+
+            height:200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+        }
+
+        .uploaded-images li {
+
+            padding: 3px;
+            background-color: #f9f9f900;
+            border: 1px solid #ddd;
+            cursor: move;
+            z-index: 9999;
+            display: inline-block;
+        }
+
+        .uploaded-images img {
+            width: 100px;
+            display: block;
+            margin: 0 auto;
+            position: relative;
+            z-index: -1;
+            border: 1px solid #ddd;
+        }
+
+        .slideshow-images {
+            border: 1px solid #ddd;
+            margin-top: 20px;
+            list-style-type: none;
+            padding: 0;
+            height:200px;
+            overflow-y: auto;
+        }
+
+        .slideshow-images li {
+            padding: 3px;
+            background-color: #f9f9f900;
+            border: 1px solid #ddd;
+            cursor: move;
+            z-index: 9999;
+            display: inline-block;
+        }
+
+        .slideshow-images img {
+            width: 100px;
+            display: block;
+            margin: 0 auto;
+            position: relative;
+            z-index: -1;
+        }
+    </style>
+</head>
+<body>
+    <h2>Admin Page</h2>
+    <form id="updateImageForm" enctype="multipart/form-data">
+        <label for="picture">Pictures:</label>
+        <input type="file" id="picture" name="picture" accept="image/*" multiple><br><br>
+        <input type="submit" value="Update Images">
+    </form>
+        <!-- Trash can element -->
+        <div id="trashCan" ondrop="handleDropTrash(event)" ondragover="handleDragOver(event)">
+            <img src="trash_icon.png" alt="Trash Can" width="100" height="100">
+        </div>
+        <h3>Uploaded Images:</h3>
+    <div class="uploaded-images" id="uploadedImages" ondrop="handleDropUploaded(event)" ondragover="handleDragOver(event)">
+        
+        <ul id="sortable" >
+            <!-- Images will be displayed here dynamically -->
+        </ul>
+    </div>
+    <h3>Slideshow Images:</h3>
+    <div class="slideshow-images" id="slideshowImages" ondrop="handleDropSlideshow(event)" ondragover="handleDragOver(event)">
+
+        <ul id="slideshowSortable" >
+            <!-- Slideshow images will be displayed here dynamically -->
+        </ul>
+
+    </div>
+    <button onclick="clearSlideshowImages()">Clear Slideshow</button> <!-- Add a button to clear slideshow -->
+
+    <form id="updateTextForm">
+        <label for="text">Text:</label><br>
+        <textarea id="text" name="text" rows="10" cols="50" required>{{ content['text'] }}</textarea><br><br>
+        <input type="submit" value="Update Text">
+    </form>
+    <div>
+        <label for="toggle">Toggle Public Page:</label>
+        <input type="checkbox" id="toggle" {% if content['status'] %}checked{% endif %}>
+    </div>
+    <p></p>
+    <a href="https://3008oldhwy8.uwebia.com/" class="public-page-button">View Public Page</a>
+    <div id="message"></div>
+<!-- JavaScript code -->
+<script>
+    // Function to handle form submission
+    function handleSubmit(formId, endpoint) {
+        document.getElementById(formId).addEventListener("submit", function(event) {
+            event.preventDefault();
+            var formData = new FormData(this);
+
+            fetch(endpoint, {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    document.getElementById("message").innerHTML = data.message;
+                    // Refresh the uploaded images after successful upload
+                    loadUploadedImages();
+                } else {
+                    document.getElementById("message").innerHTML = data.message;
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        });
+    }
+
+    function clearSlideshowImages(pageContentId) {
+    fetch("/clear_slideshow_images", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ page_content_id: pageContentId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Handle success
+            console.log(data.message);
+            // Clear the slideshow images on the webpage
+            clearSlideshowImagesFromPage();
+        } else {
+            // Handle error
+            console.error(data.message);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function clearSlideshowImagesFromPage() {
+    // Get the slideshow container
+    var slideshowContainer = document.getElementById("slideshowSortable");
+    // Clear the slideshow images from the DOM
+    slideshowContainer.innerHTML = "";
+}
+
+
+
+function loadUploadedImages() {
+    fetch("/get_uploaded_images")
+        .then(response => response.json())
+        .then(data => {
+            var uploadedImagesUl = document.getElementById("sortable");
+            uploadedImagesUl.innerHTML = ""; // Clear previous images
+            data.images.forEach((imageData, index) => {
+                var li = document.createElement("li");
+                li.setAttribute("data-index", index); // Set data-index attribute for reordering
+                li.setAttribute("data-id", imageData.id); // Set data-id attribute for image ID
+                li.draggable = true;
+                li.addEventListener("dragstart", handleDragStartUpload);
+                li.addEventListener("dragover", handleDragOver);
+                li.addEventListener("drop", handleDropUploaded);
+                var img = document.createElement("img");
+                img.src = imageData.url;
+                li.appendChild(img);
+                uploadedImagesUl.appendChild(li);
+            });
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+
+    // Load uploaded images when the page loads
+    window.addEventListener("load", function() {
+        loadUploadedImages();
+        loadSlideshowImages();
+    });
+
+    // Handle submission for image update
+    handleSubmit("updateImageForm", "/update_public_images");
+
+    // Handle submission for text update
+    handleSubmit("updateTextForm", "/update_public_text");
+
+    // Handle toggle switch change
+    document.getElementById("toggle").addEventListener("change", function(event) {
+        var status = event.target.checked ? 1 : 0;
+        fetch("/toggle_public_page", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ status: status })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                document.getElementById("message").innerHTML = data.message;
+            } else {
+                document.getElementById("message").innerHTML = data.message;
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    });
+
+    function handleDragStartSlideshow(event) {
+    var isFromSlideshow = event.target.closest(".slideshow-images") !== null;
+    event.dataTransfer.setData("text/plain", event.target.dataset.index);
+    event.dataTransfer.setData("isFromSlideshow", isFromSlideshow);
+}
+
+function handleDragStartUpload(event) {
+    var isFromUploaded = event.target.closest(".uploaded-images") !== null;
+    event.dataTransfer.setData("text/plain", event.target.dataset.index);
+    event.dataTransfer.setData("isFromUploaded", isFromUploaded);
+}
+
+
+    function handleDragOver(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    }
+
+    function handleDropUploaded(event) {
+    event.preventDefault();
+
+    // Get the dragged index
+    var draggedIndex = event.dataTransfer.getData("text/plain");
+
+    // Get the image URL from the dropped data
+    var imageUrl = event.dataTransfer.getData("text/plain");
+
+    // Check if the drop event originates from the slideshow area
+    var isFromSlideshow = event.dataTransfer.getData("isFromSlideshow") === "true";
+
+    if (isFromSlideshow) {
+        // Remove the image from the slideshow if it was dragged from there
+        var slideshowImages = document.getElementById("slideshowSortable").querySelectorAll("li");
+        Array.from(slideshowImages).forEach(li => {
+            if (li.querySelector("img").src === imageUrl) {
+                li.remove();
+                // Optionally, you can also call a function to delete the image from the server here
+            }
+        });
+}
+    }
+
+
+
+    // Function to update the order of images on the server
+    function updateImageOrder(order) {
+        fetch("/update_image_order", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ order: order })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                console.error('Failed to update image order:', data.message);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+    
+// Function to add a slideshow image
+function addSlideshowImage(imageId, imageUrl) {
+    fetch("/add_slideshow_image", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ image_id: imageId, image_url: imageUrl }) // Include the image ID in the payload
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Add the slideshow image with the image ID and URL
+            var slideshowUl = document.getElementById("slideshowSortable");
+            var li = document.createElement("li");
+            var img = document.createElement("img");
+            li.draggable = true;
+            li.addEventListener("dragstart", handleDragStartSlideshow);
+            li.addEventListener("dragover", handleDragOver);
+            li.addEventListener("drop", handleDropSlideshow);
+            img.src = imageUrl;
+            li.appendChild(img);
+            li.setAttribute("data-id", imageId); // Set data-id attribute for image ID
+            slideshowUl.appendChild(li);
+            document.getElementById("message").innerHTML = "Image added to slideshow.";
+        } else {
+            document.getElementById("message").innerHTML = "Failed to add image to slideshow.";
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function handleDropSlideshow(event) {
+    event.preventDefault();
+
+    // Get the dragged index
+    var draggedIndex = event.dataTransfer.getData("text/plain");
+
+    // Check if the drop event originates from the uploaded images area
+    var isFromUploaded = event.dataTransfer.getData("isFromUploaded") === "true";
+
+    // If the drop event originates from the uploaded images area, do nothing
+    if (isFromUploaded) {
+        console.log("Image dragged from uploaded images, ignoring drop in slideshow.");
+        return;
+    }
+
+    // Get the image ID of the dragged image
+    var imageId = document.querySelector(`#sortable li[data-index="${draggedIndex}"]`).getAttribute("data-id");
+
+    // Check if the dropped image is not already in the slideshow
+    var slideshowImages = document.getElementById("slideshowSortable").querySelectorAll("li");
+    var isAlreadyInSlideshow = Array.from(slideshowImages).some(li => li.dataset.id === imageId);
+
+    if (!isAlreadyInSlideshow) {
+        // Get the image URL from the uploaded images section
+        var imageUrl;
+        var uploadedImages = document.getElementById("sortable").querySelectorAll("li");
+        uploadedImages.forEach(li => {
+            if (li.dataset.index === draggedIndex) {
+                imageUrl = li.querySelector("img").src;
+            }
+        });
+
+        // Add the slideshow image with the image ID and URL
+        addSlideshowImage(imageId, imageUrl);
+    } else {
+        console.log("Image already exists in the slideshow.");
+    }
+}
+
+    function swapImages(fromIndex, toIndex) {
+        var images = document.getElementById("sortable").children;
+        var temp = images[fromIndex];
+        images[fromIndex].parentNode.insertBefore(images[toIndex], images[fromIndex]);
+        images[toIndex].parentNode.insertBefore(temp, images[toIndex]);
+
+        // Update the data-index attribute of each list item
+        Array.from(images).forEach((image, index) => {
+            image.dataset.index = index;
+        });
+
+        // Update the order array
+        var order = Array.from(images).map((image) => image.dataset.index);
+        updateImageOrder(order.join(','));
+    }
+
+    // Function to load existing slideshow images
+    function loadSlideshowImages() {
+        fetch("/get_slideshow_images")
+            .then(response => response.json())
+            .then(data => {
+                var slideshowUl = document.getElementById("slideshowSortable");
+                slideshowUl.innerHTML = ""; // Clear previous images
+                data.images.forEach((imageData, index) => {
+                    var li = document.createElement("li");
+                    li.setAttribute("data-index", index); // Set data-index attribute for reordering
+                    li.draggable = true;
+                    li.addEventListener("dragstart", handleDragStartSlideshow);
+                    li.addEventListener("dragover", handleDragOver);
+                    li.addEventListener("drop", handleDropSlideshow);
+                    var img = document.createElement("img");
+                    img.src = imageData.url;
+                    li.appendChild(img);
+                    slideshowUl.appendChild(li);
+                });
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
+// Function to handle deletion of images using the trash can
+function handleDropTrash(event, source) {
+    event.preventDefault();
+    var index = event.dataTransfer.getData("text/plain");
+    var imageToRemove = document.querySelector(`li[data-index="${index}"]`);
+    if (imageToRemove) {
+        if (source === "uploaded") {
+            // Handle images from uploaded images
+            imageToRemove.remove();
+            // Optional: You can also call a function here to delete the image from the server
+        } else if (source === "slideshow") {
+            // Handle images from slideshow
+            // Perform necessary actions here
+        }
+    }
+}
+
+</script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+

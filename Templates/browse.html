@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browse Websites</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script defer src="{{ url_for('static', filename='scripts.js') }}"></script>
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+
+<style>
+    body {
+        font-family: 'Roboto', sans-serif;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        /* overflow: hidden; */
+        background-color: #363339;
+        color: #ffffff;
+        /* Prevent body from scrolling */
+    }
+
+    .navbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 20px;
+        background-color: #1f1f1f;
+        color: white;
+        height: 2vw;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+
+    }
+    .home-button i {
+        color: #ffffff;
+        font-size: 24px;
+    }
+
+    .navbar-title {
+        font-size: 24px;
+        font-weight: bold;
+    }
+
+    h1,
+    h2 {
+        text-align: center;
+        color: #ffffff;
+    }
+
+    .form-container {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+    }
+
+    form {
+        display: flex;
+        align-items: center;
+    }
+
+    input[type="text"] {
+        padding: 10px;
+        margin-right: 10px;
+        border: 1px solid #ffffff;
+        border-radius: 5px;
+        background-color: #2b2b2b;
+        color: #ffffff;
+    }
+
+    button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        background-color: #6200ea;
+        color: #ffffff;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+        background-color: #3700b3;
+    }
+
+    .website-list {
+        list-style-type: none;
+        padding: 0;
+        margin: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .website-list li {
+        background-color: #1f1f1f;
+        border: 1px solid #333;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 10px 0;
+        width: 80%;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    iframe {
+        border: 1px solid #333;
+        border-radius: 10px;
+        width: 100%;
+        height: 400px;
+        margin-top: 10px;
+    }
+
+    /* Your existing CSS styles */
+    .navbar-logo {
+        width: 24px;
+        /* Adjust as needed */
+        height: 24px;
+        /* Adjust as needed */
+    }
+</style>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browse Websites</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script defer src="{{ url_for('static', filename='scripts.js') }}"></script>
+</head>
+
+<style>
+    /* Your CSS styles remain unchanged */
+</style>
+
+<body>
+    <div class="navbar">
+        <a href="{{ url_for('dashboard') }}" class="home-button">
+            <img src="/static/uwebialogo1.svg" alt="Uwebia Logo" class="navbar-logo">
+        </a>
+        <div class="navbar-title">uwebia</div>
+    </div>
+
+    <h1>uwebia browser</h1>
+
+    <div class="form-container">
+        <form class="search-form" id="searchForm" onsubmit="submitSearch(); return false;">
+            <input type="text" id="searchQuery" placeholder="Search by name or tags">
+            <button type="submit" class="search-button"><i class="fas fa-search"></i></button>
+        </form>
+    </div>
+
+    <h2>Results</h2>
+    <ul id="resultsList" class="website-list">
+        <!-- Search results will be appended here -->
+    </ul>
+
+    <!-- Pagination buttons -->
+    <div id="pagination">
+        <button id="prevPage" onclick="prevPage()">Previous</button>
+        <button id="nextPage" onclick="nextPage()">Next</button>
+    </div>
+
+    <h2>Random Websites</h2>
+    <ul id="randomList" class="website-list">
+        <!-- Random websites will be appended here -->
+    </ul>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const query = urlParams.get('query');
+
+            if (query) {
+                document.getElementById('searchQuery').value = query;
+                searchWebsites(query);
+            } else {
+                loadRandomWebsites();
+            }
+        });
+
+    </script>
+    <script>
+        function submitSearch() {
+            const query = document.getElementById('searchQuery').value;
+            const url = `/browse_websites?query=${encodeURIComponent(query)}`;
+            window.location.href = url;
+        }
+
+
+        function searchWebsites(query = '') {
+    fetch(`/search_websites?query=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            const resultsList = document.getElementById('resultsList');
+            resultsList.innerHTML = ''; // Clear previous results
+
+            data.pages.forEach(page => {
+                const li = document.createElement('li');
+                const fullUrl = window.location.origin + page.url;
+                li.innerHTML = `
+                    <a href="${fullUrl}" style="text-decoration: none; color: inherit;">
+                        <strong>${page.name}</strong> - Tags: ${page.tags.join(', ')}
+                        <p>${page.description}</p>
+                        <img src="/capture?url=${encodeURIComponent(fullUrl)}" alt="${page.name}" width="600" height="400">
+                    </a>
+                    <button class="like-btn" data-page-id="${page.id}">Like</button>
+                `;
+                resultsList.appendChild(li);
+            });
+
+            // Add event listeners for like buttons
+            document.querySelectorAll('.like-btn').forEach(button => {
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    const pageId = event.target.dataset.pageId;
+                    likePage(pageId);
+                });
+            });
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+function likePage(pageId) {
+    fetch(`/like_page/${pageId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Page liked successfully!');
+        } else {
+            alert(data.message);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function loadRandomWebsites() {
+    fetch('/random_websites')
+        .then(response => response.json())
+        .then(data => {
+            const randomList = document.getElementById('randomList');
+            randomList.innerHTML = ''; // Clear previous results
+
+            data.websites.forEach(website => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <a href="${website.url}" style="text-decoration: none; color: inherit;">
+                        <strong>${website.name}</strong> - Tags: ${website.tags.join(', ')}
+                        <iframe src="${website.url}" title="${website.name}" width="600" height="400"></iframe>
+                    </a>
+                    <button class="like-btn" data-website-id="${website.id}">Like</button>
+                `;
+                randomList.appendChild(li);
+            });
+
+            // Add event listeners for like buttons
+            document.querySelectorAll('.like-btn').forEach(button => {
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    const websiteId = event.target.dataset.websiteId;
+                    likePage(websiteId);
+                });
+            });
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+function likePage(pageId) {
+    fetch(`/like_page/${pageId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Page liked successfully!');
+        } else {
+            alert(data.message);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                searchWebsites();
+            }
+        }
+
+        function nextPage() {
+            currentPage++;
+            searchWebsites();
+        }
+    </script>
+</body>
+
+</html>

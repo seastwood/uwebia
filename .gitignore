@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Node
+node_modules/
+
+# Environment / secrets
+.env
+
+# Flask instance folder (often contains DB or secrets)
+instance/
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store

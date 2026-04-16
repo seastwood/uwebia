@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <title>Web Builder</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+
+
+
+
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        /* Style the button */
+        #previewButton {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+
+        #previewButton:hover {
+            background-color: #45a049;
+        }
+
+        /* Style the icon */
+        #previewButton i {
+            margin-right: 5px;
+        }
+
+        #refreshButton {
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+            margin-left: 10px;
+            /* Adjust margin as needed */
+        }
+
+        #refreshButton i {
+            font-size: 20px;
+            /* Adjust icon size as needed */
+        }
+
+        .big-content-container {
+            display: flex;
+            flex-direction: column;
+            /* Change to column layout for mobile */
+            height: calc(100vh - 50px);
+            /* Adjust for navbar height */
+            max-width: 100vw;
+            /* Set max width to fill the screen */
+        }
+
+        @media (min-width: 769px) {
+
+            /* Apply desktop layout styles */
+            .big-content-container {
+                flex-direction: row;
+                /* Change to row layout for desktop */
+            }
+        }
+
+
+        .content-container {
+            flex: 1;
+            padding: 0 10px;
+            height: 100%;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .web-preview {
+            width: 50%;
+            /* Set initial width */
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #publicFrame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .resizer {
+            width: 10px;
+            background: #252525;
+            cursor: ew-resize;
+            border-left: 2px solid #646464; /* Left border */
+    border-right: 2px solid #646464; /* Right border */
+
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.5);
+            display: none;
+            z-index: 2;
+        }
+
+        @media (max-width: 768px) {
+            .resizer {
+                display: none;
+            }
+
+            .web-preview {
+                display: none;
+                width: 100%;
+            }
+
+            .web-preview.visible {
+                display: block;
+            }
+        }
+
+        h2 {
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        form {
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="file"],
+        textarea {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        input[type="submit"] {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        #message {
+            position: fixed;
+            bottom: 10px;
+            /* Adjust as needed */
+            left: 50%;
+            /* Position horizontally in the middle */
+            transform: translateX(-50%);
+            /* Center horizontally */
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            display: none;
+            /* Initially hide the message */
+        }
+
+        #closeButton {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            cursor: pointer;
+        }
+
+
+
+        .uploaded-images {
+            margin-top: 5px;
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .uploaded-images li {
+            padding: 3px;
+            background-color: #f9f9f900;
+            border: 1px solid #ddd;
+            cursor: move;
+            z-index: 9999;
+            display: inline-block;
+        }
+
+        .uploaded-images img {
+            max-width: 150px;
+            max-height: 120px;
+            display: block;
+            margin: 0 auto;
+            position: relative;
+            z-index: -1;
+            border: 1px solid #ddd;
+            pointer-events: none;
+        }
+
+        .uploaded-images .drag-over {
+            border: 2px dashed #2dce35;
+        }
+
+        #trashCan {
+            display: inline-block;
+            width: 100px;
+            height: 75px;
+        }
+
+        #trashCan .drag-over {
+            border: 2px dashed #ce682d;
+            /* Add dashed border when dragging over */
+        }
+
+        ul {
+            display: block;
+            list-style-type: disc;
+            margin-block-start: 1em;
+            margin-block-end: 1em;
+            margin-inline-start: 0px;
+            margin-inline-end: 0px;
+            padding-inline-start: 0px;
+        }
+
+        label {
+            /* margin-top: 10px; */
+            font-weight: bold;
+        }
+
+        #updateTextForm,
+        .uploaded-images-container,
+        #updateImageForm,
+        .toggle-page-container,
+        .message,
+        #updateMapMarkerForm,
+        #updateContactForm {
+            width: 90%;
+            margin: 0 auto;
+            /* Center the container horizontally */
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            /* background-color: #f9f9f9; */
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .dynamic-width {
+            width: calc(100% - 24px);
+            /* Adjust the width based on the padding */
+        }
+
+        .editor-wrapper {
+            position: relative;
+            width: 100%;
+            height: 600px;
+            /* Initial height */
+            resize: vertical;
+            overflow: hidden;
+            border: 1px solid #ccc;
+        }
+
+        .CodeMirror {
+            width: 100%;
+            height: 100%;
+        }
+
+        .color-picker-container {
+            display: inline-block;
+            position: relative;
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .color-picker-container:hover {
+            background-color: #f0f0f0;
+        }
+    </style>
+
+    <style>
+        /* Dark mode styles */
+        body.dark-mode {
+            background-color: #121212;
+            color: #ffffff;
+        }
+
+        .navbar.dark-mode {
+            background-color: #333333;
+        }
+
+        input[type="submit"].dark-mode,
+        #previewButton.dark-mode {
+            background-color: #333333;
+            color: #ffffff;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .toggle-switch input[type="checkbox"] {
+            display: none;
+        }
+
+        .toggle-switch label {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+            background-color: #ccc;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+
+        .toggle-switch label::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background-color: #ffffff;
+            border-radius: 50%;
+            top: 1px;
+            left: 1px;
+            transition: all 0.3s;
+        }
+
+        .toggle-switch input[type="checkbox"]:checked+label::after {
+            transform: translateX(20px);
+        }
+
+        .toggle-switch input[type="checkbox"]:checked+label {
+            background-color: #4CAF50;
+        }
+        /* WebKit-based browsers */
+::-webkit-scrollbar {
+    width: 12px; /* Width of the scrollbar */
+    height: 12px; /* Height of the scrollbar */
+}
+
+::-webkit-scrollbar-track {
+    background: #333; /* Dark background for the scrollbar track */
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #555; /* Darker color for the scrollbar thumb */
+    border-radius: 10px; /* Rounded corners for the scrollbar thumb */
+    border: 3px solid #333; /* Adds space around the thumb and makes it look better */
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #777; /* Lighter color when hovering over the scrollbar thumb */
+}
+
+/* Firefox */
+* {
+    scrollbar-width: thin; /* Thin scrollbar width */
+    scrollbar-color: #555 #333; /* Thumb color and track color */
+}
+
+/* Scrollbar for specific elements */
+.scrollable-element {
+    scrollbar-width: thin; /* Thin scrollbar width */
+    scrollbar-color: #555 #333; /* Thumb color and track color */
+}
+
+/* Styling the scrollbar for specific elements in WebKit-based browsers */
+.scrollable-element::-webkit-scrollbar {
+    width: 12px; /* Width of the scrollbar */
+    height: 12px; /* Height of the scrollbar */
+}
+
+.scrollable-element::-webkit-scrollbar-track {
+    background: #333; /* Dark background for the scrollbar track */
+}
+
+.scrollable-element::-webkit-scrollbar-thumb {
+    background-color: #555; /* Darker color for the scrollbar thumb */
+    border-radius: 10px; /* Rounded corners for the scrollbar thumb */
+    border: 3px solid #333; /* Adds space around the thumb and makes it look better */
+}
+
+.scrollable-element::-webkit-scrollbar-thumb:hover {
+    background: #777; /* Lighter color when hovering over the scrollbar thumb */
+}
+
+    </style>
+
+</head>
+
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+    <div class="navbar">
+        <div class="navbar-title">uwebia</div>
+        <button id="previewButton">
+            <i class="fas fa-eye"></i>
+        </button>
+        <button id="refreshButton">
+            <i class="fas fa-sync"></i>
+        </button>
+        <label class="switch">
+            <input type="checkbox" id="darkModeToggle" checked>
+            <span class="slider round"></span>
+        </label>
+    </div>
+
+
+
+    <div class="big-content-container">
+        <div class="content-container">
+            <h2>Admin Page</h2>
+            <form id="updateImageForm" enctype="multipart/form-data">
+                <label for="picture">Pictures:</label>
+                <input type="file" id="picture" name="picture" accept="image/*" multiple><br><br>
+                <input type="submit" value="Upload">
+            </form>
+
+            <div class="uploaded-images-container">
+                <label>Uploaded Images:</label>
+                <div class="uploaded-images" id="uploadedImages" ondrop="handleDrop(event)"
+                    ondragover="handleDragOver(event)">
+
+                    <ul id="sortable">
+                        <!-- Images will be displayed here dynamically -->
+                    </ul>
+                    <!-- Trash can element with SVG icon -->
+                    <div id="trashCan" ondrop="handleDropTrash(event)" ondragover="handleDragOver(event)">
+                        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1"
+                            width="100" height="75" viewBox="0 0 256 256" xml:space="preserve">
+                            <defs></defs>
+                            <g style="pointer-events: none; stroke: none; stroke-width: 0; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: none; fill-rule: nonzero; opacity: 1;"
+                                transform="translate(1.4065934065934016 1.4065934065934016) scale(2.81 2.81)">
+
+                                <path
+                                    d="M68.162 10.398H21.838c-5.38 0-9.742 4.362-9.742 9.742v3.065h65.808V20.14C77.904 14.76 73.542 10.398 68.162 10.398z"
+                                    style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(71,191,88); fill-rule: nonzero; opacity: 1;"
+                                    transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                <path
+                                    d="M57.628 14.469H32.373c-1.104 0-2-0.896-2-2C30.373 5.593 35.966 0 42.841 0h4.318c6.875 0 12.469 5.593 12.469 12.469C59.628 13.573 58.732 14.469 57.628 14.469zM34.611 10.469H55.39C54.488 6.761 51.141 4 47.159 4h-4.318C38.86 4 35.512 6.761 34.611 10.469z"
+                                    style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(71,191,88); fill-rule: nonzero; opacity: 1;"
+                                    transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                <path
+                                    d="M16.154 27.346l3.555 60.704C19.773 89.145 20.679 90 21.776 90h46.449c1.097 0 2.003-0.855 2.068-1.949l3.554-60.704H16.154z"
+                                    style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(71,191,88); fill-rule: nonzero; opacity: 1;"
+                                    transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                <path
+                                    d="M32.87 81.108c-0.04 0.003-0.079 0.004-0.119 0.004c-1.051 0-1.933-0.82-1.995-1.883l-2.275-38.856c-0.064-1.103 0.777-2.049 1.88-2.113c1.088-0.066 2.049 0.777 2.113 1.88l2.275 38.855C34.814 80.098 33.973 81.044 32.87 81.108z"
+                                    style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;"
+                                    transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                <path
+                                    d="M47 79.112c0 1.104-0.896 2-2 2s-2-0.896-2-2V40.256c0-1.104 0.896-2 2-2s2 0.896 2 2V79.112z"
+                                    style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;"
+                                    transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                                <path
+                                    d="M59.244 79.229c-0.063 1.063-0.944 1.883-1.995 1.883c-0.039 0-0.079-0.001-0.119-0.003c-1.103-0.065-1.944-1.012-1.88-2.114l2.275-38.855c0.063-1.103 0.992-1.947 2.113-1.88c1.103 0.064 1.944 1.011 1.879 2.113L59.244 79.229z"
+                                    style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;"
+                                    transform="matrix(1 0 0 1 0 0)" stroke-linecap="round" />
+                            </g>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            <form id="pageHeader">
+                <label for="header_text">Header Text:</label><br>
+                <textarea id="header_text" name="header_text" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['header_text'] }}</textarea><br><br>
+                    <input type="submit" value="Save Changes">
+            </form>
+
+            <form id="updateTextForm">
+                <label for="button_text">Button Text:</label><br>
+                <textarea id="button_text" name="button_text" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['button_text'] }}</textarea><br><br>
+
+                <label for="button_link">Button Link:</label><br>
+                <textarea id="button_link" name="button_link" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['button_link'] }}</textarea><br><br>
+
+                <label for="button_enabled">Enable Button:</label>
+                <input type="checkbox" id="button_enabled" name="button_enabled" {% if content['button_enabled']
+                    %}checked{% endif %}><br><br>
+
+
+
+                <label for="text">Body Text:</label><br>
+                <div class="editor-wrapper">
+                    <textarea id="text" name="text" required>{{ content['text'] }}</textarea>
+                </div>
+                <label for="color-picker">Color Picker:</label>
+                <div id="color-picker"></div>
+                <div id="saved-colors"></div>
+                <br><br>
+
+
+                <input type="submit" value="Save Changes">
+            </form>
+
+            <form id="pageBody">
+                <label for="header_text">Header Text:</label><br>
+                <textarea id="header_text" name="header_text" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['header_text'] }}</textarea><br><br>
+                    <input type="submit" value="Save Changes">
+            </form>
+
+            <!-- Form to update the map marker -->
+            <form id="updateMapMarkerForm">
+                <label for="map_marker_label">Map Marker Label:</label><br>
+                <textarea id="map_marker_label" name="map_marker_label" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['map_marker_label'] }}</textarea><br><br>
+
+                <label for="latitude">Latitude:</label>
+                <input type="number" step="any" id="latitude" name="latitude" value="{{ content['latitude'] }}"
+                    required><br><br>
+
+                <label for="longitude">Longitude:</label>
+                <input type="number" step="any" id="longitude" name="longitude" value="{{ content['longitude'] }}"
+                    required><br><br>
+
+                <label for="map_enabled">Enable Map:</label>
+                <input type="checkbox" id="map_enabled" name="map_enabled" {% if content['map_enabled'] %}checked{%
+                    endif %}><br><br>
+
+                <input type="submit" value="Save Map Marker">
+            </form>
+
+            <!-- Form to update the map marker -->
+            <form id="updateContactForm">
+                <label for="contact_form_title">Contact Form Title:</label><br>
+                <textarea id="contact_form_title" name="contact_form_title" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['contact_form_title'] }}</textarea><br><br>
+
+                <label for="contact_email">Email Recipient:</label><br>
+                <textarea id="contact_email" name="contact_email" rows="1" class="dynamic-width"
+                    style="padding: 10px;">{{ content['contact_email'] }}</textarea><br><br>
+
+                <label for="contact_form_enabled">Enable Contact Form:</label>
+                <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" {% if
+                    content['contact_form_enabled'] %}checked{% endif %}><br><br>
+
+                <input type="submit" value="Update Contact Form">
+            </form>
+
+
+            <div class="toggle-page-container">
+                <div>
+                    <label for="toggle">Toggle Public Page:</label>
+                    <input type="checkbox" id="toggle" {% if content['status'] %}checked{% endif %}>
+                </div>
+                <p></p>
+                <a href="{{ url_for('public_page') }}" class="public-page-button">View Public Page</a>
+            </div>
+            <div id="message">
+                <span id="messageContent"></span>
+                <span id="closeButton" onclick="closeMessage()">x</span>
+            </div>
+        </div>
+        <div class="resizer" id="resizer"></div>
+        <div class="web-preview" id="rightContainer">
+            <iframe id="publicFrame" src="public.html"></iframe>
+            <div class="overlay" id="overlay"></div>
+        </div>
+
+    </div>
+    <!-- JavaScript code -->
+
+    <script>
+        function getRootUrl() {
+            var currentUrl = window.location.href;
+            var parts = currentUrl.split('/'); // Split the URL by '/'
+            var rootUrl = parts.slice(0, 3).join('/'); // Join the first three parts to get the root URL
+            return rootUrl;
+        }
+
+        function updatePublicView() {
+            var publicFrame = document.getElementById('publicFrame');
+            var rootUrl = getRootUrl();
+
+            // Update the iframe source with the root URL
+            publicFrame.src = rootUrl;
+        }
+
+        // Call the updatePublicView function when the page loads
+        window.onload = updatePublicView;
+
+        // Add event listener to the Refresh button
+        document.getElementById("refreshButton").addEventListener("click", reloadIframe);
+
+
+        // Function to reload the iframe and maintain scroll position
+        function reloadIframe() {
+            const iframe = document.getElementById("publicFrame");
+            const scrollPosition = iframe.contentWindow.scrollY;
+
+            iframe.contentWindow.location.reload(true);
+
+            iframe.addEventListener("load", function () {
+                iframe.contentWindow.scrollTo(0, scrollPosition);
+            });
+        }
+
+    </script>
+    <script>
+        const previewButton = document.getElementById('previewButton');
+        const rightContainer = document.getElementById('rightContainer');
+        const resizer = document.getElementById('resizer');
+        const leftSide = document.querySelector('.content-container');
+        const overlay = document.getElementById('overlay');
+        let isResizing = false;
+
+        previewButton.addEventListener('click', () => {
+            rightContainer.classList.toggle('visible');
+            reloadIframe()
+        });
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            overlay.style.display = 'block'; // Show overlay during resizing
+            document.addEventListener('mousemove', resize);
+            document.addEventListener('mouseup', stopResize);
+            e.preventDefault(); // Prevent text selection
+        });
+
+        function resize(e) {
+            if (isResizing) {
+                const containerOffsetLeft = leftSide.getBoundingClientRect().left;
+                const pointerRelativeXpos = e.clientX - containerOffsetLeft;
+                const leftWidth = pointerRelativeXpos;
+                const rightWidth = document.body.offsetWidth - leftWidth - resizer.offsetWidth;
+
+                leftSide.style.width = `${leftWidth}px`;
+                rightContainer.style.width = `${rightWidth}px`;
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            overlay.style.display = 'none'; // Hide overlay after resizing
+            document.removeEventListener('mousemove', resize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            var editor = CodeMirror.fromTextArea(document.getElementById('text'), {
+                mode: 'htmlmixed',
+                theme: 'dracula',
+                lineNumbers: true,
+                matchBrackets: true,
+                autoCloseBrackets: true,
+                lineWrapping: true,
+            });
+
+            var wrapper = document.querySelector('.editor-wrapper');
+            var observer = new ResizeObserver(() => {
+                editor.setSize(wrapper.clientWidth, wrapper.clientHeight);
+            });
+
+            observer.observe(wrapper);
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const pickr = Pickr.create({
+                el: '#color-picker',
+                theme: 'classic', // or 'monolith', or 'nano'
+
+                swatches: [
+                    'rgba(244, 67, 54, 1)',
+                    'rgba(233, 30, 99, 0.95)',
+                    'rgba(156, 39, 176, 0.9)',
+                    'rgba(103, 58, 183, 0.85)',
+                    'rgba(63, 81, 181, 0.8)',
+                    'rgba(33, 150, 243, 0.75)',
+                    'rgba(3, 169, 244, 0.7)',
+                    'rgba(0, 188, 212, 0.7)',
+                    'rgba(0, 150, 136, 0.75)',
+                    'rgba(76, 175, 80, 0.8)',
+                    'rgba(139, 195, 74, 0.85)',
+                    'rgba(205, 220, 57, 0.9)',
+                    'rgba(255, 235, 59, 0.95)',
+                    'rgba(255, 193, 7, 1)'
+                ],
+
+                components: {
+                    // Main components
+                    preview: true,
+                    opacity: true,
+                    hue: true,
+
+                    // Input / output Options
+                    interaction: {
+                        hex: true,
+                        rgba: false,
+                        hsla: false,
+                        hsva: false,
+                        cmyk: false,
+                        input: true,
+                        clear: true,
+                        save: true
+                    }
+                }
+            });
+
+            pickr.on('change', (color, instance) => {
+                const hexColor = color.toHEXA().toString();
+                console.log(hexColor);
+            });
+
+            pickr.on('save', (color, instance) => {
+                const hexColor = color.toHEXA().toString();
+                saveColor(hexColor);
+            });
+
+            function saveColor(color) {
+                const savedColorsContainer = document.getElementById('saved-colors');
+                const colorElement = document.createElement('div');
+                colorElement.style.backgroundColor = color;
+                colorElement.style.width = '50px';
+                colorElement.style.height = '50px';
+                colorElement.style.display = 'inline-block';
+                colorElement.style.margin = '5px';
+                colorElement.style.cursor = 'pointer';
+                colorElement.title = color;
+
+                colorElement.addEventListener('click', () => {
+                    copyToClipboard(color);
+                    alert(`Copied ${color} to clipboard!`);
+                });
+
+                savedColorsContainer.appendChild(colorElement);
+            }
+
+            function copyToClipboard(text) {
+                const tempInput = document.createElement('input');
+                tempInput.value = text;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+            }
+        });
+    </script>
+
+    <script>
+        function showMessage(message) {
+            var messageElement = document.getElementById('message');
+            var messageContent = document.getElementById('messageContent');
+
+            // Set message content
+            messageContent.textContent = message;
+
+            // Show the message
+            messageElement.style.display = 'block';
+        }
+
+        function closeMessage() {
+            var messageElement = document.getElementById('message');
+
+            // Hide the message
+            messageElement.style.display = 'none';
+        }
+
+
+        // Initialize CodeMirror editor for the body text area
+        document.addEventListener("DOMContentLoaded", function () {
+            var textArea = document.getElementById("text");
+            var codeMirrorEditor = CodeMirror.fromTextArea(textArea, {
+                mode: "htmlmixed",
+                lineNumbers: true,
+                theme: "dracula"
+            });
+
+            // Function to show messages
+            function showMessage(message) {
+                alert(message);
+            }
+
+            // Function to handle form submission
+            function handleSubmit(formId, endpoint) {
+                document.getElementById(formId).addEventListener("submit", function (event) {
+                    event.preventDefault();
+
+                    // Sync CodeMirror content with textarea
+                    codeMirrorEditor.save();
+
+                    var formData = new FormData(this);
+
+                    fetch(endpoint, {
+                        method: "POST",
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                showMessage(data.message);
+                                reloadIframe()
+                                // Refresh the uploaded images after successful upload
+                                loadUploadedImages();
+                            } else {
+                                showMessage(data.message);
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                });
+            }
+
+            // Handle submission for image update
+            handleSubmit("updateImageForm", "/update_public_images");
+
+            // Handle submission for text update
+            handleSubmit("updateTextForm", "/update_public_text");
+
+            // Handle submission for map marker update
+            handleSubmit("updateMapMarkerForm", "/update_map_marker");
+
+            // Handle submission for map marker update
+            handleSubmit("updateContactForm", "/update_contact_form");
+
+            handleSubmit("updateContactForm", "/update_page_header");
+
+            handleSubmit("updateContactForm", "/update_page_body");
+
+        });
+
+
+
+        function loadUploadedImages() {
+            fetch("/get_uploaded_images")
+                .then(response => response.json())
+                .then(data => {
+                    var uploadedImagesUl = document.getElementById("sortable");
+                    uploadedImagesUl.innerHTML = ""; // Clear previous images
+                    data.images.forEach(picture => {
+                        var li = document.createElement("li");
+                        li.setAttribute("data-order", picture.order); // Set data-order attribute for reordering
+                        li.setAttribute("data-id", picture.id); // Set data-id attribute for image ID
+                        li.draggable = true;
+                        li.addEventListener("dragstart", handleDragStart);
+                        li.addEventListener("dragover", handleDragOver);
+                        li.addEventListener("drop", handleDrop);
+                        var img = document.createElement("img");
+                        img.src = picture.url;
+                        li.appendChild(img);
+                        uploadedImagesUl.appendChild(li);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+
+        // Function to handle drag start event
+        function handleDragStart(event) {
+            event.dataTransfer.setData("text/plain", event.target.dataset.order);
+        }
+
+        let dropHandled = false;
+
+        function handleDrop(event) {
+            event.preventDefault();
+
+            // Check if the drop event has been handled already
+            if (dropHandled) {
+                return;
+            }
+
+            var sourceOrder = event.dataTransfer.getData("text/plain");
+            var targetOrder = event.target.dataset.order;
+            var targetId = event.target.dataset.id;
+
+            console.log("Source Order:", sourceOrder);
+            console.log("Target Order:", targetOrder);
+            console.log("Target ID:", targetId);
+            console.log("Event Target:", event.target);
+            console.log("Event CurrentTarget:", event.currentTarget);
+
+            // If source and target orders are different
+            if (sourceOrder !== targetOrder) {
+                // Swap images in the UI
+                swapImages(sourceOrder, targetOrder, targetId);
+            }
+
+            // Set dropHandled flag to true to indicate that the drop event has been handled
+            dropHandled = true;
+        }
+        // Reset dropHandled flag when drag over event occurs
+        function handleDragOver(event) {
+            dropHandled = false;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+
+            // Highlight the potential drop target by adding a class to the closest li element
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.add('drag-over');
+            }
+
+        }
+
+        // Add event listeners for dragenter and dragleave on the ul element
+        document.getElementById('sortable').addEventListener('dragenter', function (event) {
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.add('drag-over');
+            }
+        });
+
+        document.getElementById('sortable').addEventListener('dragleave', function (event) {
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.remove('drag-over');
+            }
+        });
+
+        // Add event listeners for dragenter and dragleave on the trash can element
+        document.getElementById('trashCan').addEventListener('dragenter', function (event) {
+            // Add class to the trash can when dragged over
+            var trashCan = document.getElementById('trashCan');
+            trashCan.classList.add('drag-over');
+        });
+
+        document.getElementById('trashCan').addEventListener('dragleave', function (event) {
+            // Remove drag-over class from the trash can
+            var trashCan = document.getElementById('trashCan');
+            trashCan.classList.remove('drag-over');
+        });
+
+
+
+        // Load uploaded images when the page loads
+        window.addEventListener("load", function () {
+            loadUploadedImages();
+
+        });
+
+        // Handle toggle switch change
+        document.getElementById("toggle").addEventListener("change", function (event) {
+            var status = event.target.checked ? 1 : 0;
+            fetch("/toggle_public_page", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ status: status })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showMessage(data.message);
+                    } else {
+                        showMessage(data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        });
+
+
+        // Function to update the order of images on the server
+        function updateImageOrder(order) {
+            fetch("/update_image_order", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(order)  // Send the array of order objects directly
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        showMessage(data.message);
+                    } else {
+                        // If the order update is successful, reload the images
+                        loadUploadedImages();
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+        function swapImages(fromOrder, toOrder, targetId) {
+            var images = document.getElementById("sortable").children;
+            var fromIndex, toIndex;
+
+            // Find the indexes of the source and target images based on their data-order attribute
+            for (var i = 0; i < images.length; i++) {
+                if (images[i].dataset.order === fromOrder) {
+                    fromIndex = i;
+                }
+                if (images[i].dataset.order === toOrder) {
+                    toIndex = i;
+                }
+            }
+
+            // Reorder the images based on their data-order attribute
+            if (fromIndex < toIndex) {
+                // Move the source image after the target image
+                images[toIndex].parentNode.insertBefore(images[fromIndex], images[toIndex].nextSibling);
+            } else {
+                // Move the source image before the target image
+                images[toIndex].parentNode.insertBefore(images[fromIndex], images[toIndex]);
+            }
+
+            // Update the data-order attribute of each list item
+            Array.from(images).forEach((image, index) => {
+                image.dataset.order = index + 1; // Update the data-order attribute based on the new order
+            });
+
+            // Create an array of objects containing picture ID and new order
+            var orderData = Array.from(images).map((image) => {
+                return { id: image.dataset.id, order: image.dataset.order };
+            });
+
+            // Update the image order with the new order associated with each picture
+            updateImageOrder(orderData);
+        }
+
+
+        // Function to handle deletion of images using the trash can
+        function handleDropTrash(event, source) {
+            event.preventDefault();
+            var order = event.dataTransfer.getData("text/plain");
+            var imageToRemove = document.querySelector(`li[data-order="${order}"]`);
+            if (imageToRemove) {
+                // Display a confirmation dialog before deleting the image
+                var confirmation = confirm("Are you sure you want to delete this image?");
+                if (confirmation) {
+                    // If the user confirms, proceed with deletion
+                    var imageId = imageToRemove.dataset.id;
+                    deleteImage(imageId); // Call the function to delete the image
+                    imageToRemove.remove();
+                }
+            }
+        }
+
+        // Function to delete an image
+        function deleteImage(imageId) {
+            fetch("/delete_image", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ id: imageId })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        console.log(data.message); // Log success message
+                        showMessage(data.message);
+                    } else {
+                        console.error('Error:', data.message); // Log error message
+                        showMessage(data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+    </script>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggleSwitch = document.getElementById('darkModeToggle');
+            const body = document.body;
+            const navbar = document.querySelector('.navbar');
+            const contentContainer = document.querySelector('.content-container');
+            const webPreview = document.querySelector('.web-preview');
+
+            // Function to apply dark mode
+            function applyDarkMode() {
+                body.classList.add('dark-mode');
+                navbar.classList.add('dark-mode');
+                contentContainer.classList.add('dark-mode');
+                webPreview.classList.add('dark-mode');
+                document.querySelector('#previewButton').classList.add('dark-mode');
+            }
+
+            // Function to remove dark mode
+            function removeDarkMode() {
+                body.classList.remove('dark-mode');
+                navbar.classList.remove('dark-mode');
+                contentContainer.classList.remove('dark-mode');
+                webPreview.classList.remove('dark-mode');
+                document.querySelector('#previewButton').classList.remove('dark-mode');
+            }
+
+            // Load theme from local storage
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme === 'dark' || !currentTheme) {
+                applyDarkMode();
+                toggleSwitch.checked = true;
+            } else {
+                removeDarkMode();
+                toggleSwitch.checked = false;
+            }
+
+            // Toggle switch event listener
+            toggleSwitch.addEventListener('change', () => {
+                if (toggleSwitch.checked) {
+                    applyDarkMode();
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    removeDarkMode();
+                    localStorage.setItem('theme', 'light');
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

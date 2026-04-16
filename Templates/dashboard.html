@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+
+
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            /* overflow: hidden; */
+            background-color: #363339;
+            color: #ffffff;
+            /* Prevent body from scrolling */
+        }
+
+        h1,
+        h2 {
+            color: #e0e0e0;
+        }
+
+        .form-container,
+        .website-container {
+            margin-bottom: 20px;
+        }
+
+        .form-container input,
+        .form-container button,
+        .page-form input,
+        .page-form button {
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .form-container input,
+        .page-form input {
+            width: calc(100% - 24px);
+        }
+
+        .form-container button,
+        .page-form button {
+            background-color: #6200ea;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        .form-container button:hover,
+        .page-form button:hover {
+            background-color: #3700b3;
+        }
+
+        .website-list {
+            list-style-type: none;
+            padding: 0;
+            padding: 10px;
+        }
+
+        .website-list>li {
+            background-color: #1e1d20;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            border-style: solid;
+            border-color: #5a506c;
+            box-shadow: 0 4px 8px rgba(0, 0, 0.5, .7);
+        }
+
+
+        .website-list .admin-link,
+        .website-list .edit-link {
+            color: #03a9f4;
+            text-decoration: none;
+        }
+
+        .website-list .admin-link:hover,
+        .website-list .edit-link:hover {
+            text-decoration: underline;
+        }
+
+        .page-form {
+            display: none;
+            margin-top: 10px;
+        }
+
+        .page-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+            align-items: center
+        }
+
+        .page-box {
+            background-color: #2c2c2c;
+            padding: 10px;
+            border-radius: 5px;
+            /* flex: 1 1 calc(25% - 10px); */
+            box-sizing: border-box;
+            min-width: 200px;
+            width: 300px;
+            text-align: center;
+            /* overflow: hidden; */
+            height: 250px;
+            border-style: solid;
+            border-color: #5a506c;
+            box-shadow: 0 4px 8px rgba(0, 0, 0.5, .7);
+        }
+
+        .page-box iframe {
+            width: 100%;
+            height: 150px;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .page-box a {
+            color: #03a9f4;
+            text-decoration: none;
+        }
+
+        .page-box a:hover {
+            text-decoration: underline;
+        }
+
+        .tag-container {
+            margin-top: 5px;
+        }
+
+        .tag-container span {
+            background-color: #6200ea;
+            color: #fff;
+            padding: 2px 5px;
+            margin-right: 5px;
+            border-radius: 3px;
+            font-size: 0.8em;
+        }
+
+        .tag-container span:hover {
+            cursor: pointer;
+            background-color: #3700b3;
+        }
+    </style>
+    <style>
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            /* Semi-transparent background */
+            backdrop-filter: blur(4px);
+            /* Apply blur effect to background */
+            z-index: 999;
+            /* Ensure it's above other content */
+        }
+
+        .modal {
+            display: none;
+            /* Hidden by default */
+            position: fixed;
+            /* Stay in place */
+            z-index: 1000;
+            /* Sit on top of overlay */
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            /* Full width */
+            max-width: 80%;
+            /* Limit maximum width */
+            overflow: auto;
+            /* Enable scroll if needed */
+        }
+
+
+        /* Modal Content/Box */
+        .modal-content {
+            background-color: #2a2a2a;
+            /* Dark gray background */
+            margin: auto;
+            /* Center the modal horizontally */
+            padding: 20px;
+            border: none;
+            border-radius: 10px;
+            max-width: 80%;
+            /* Limit maximum width */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+            /* Add shadow */
+            height: fit-content;
+            width: 50%;
+        }
+
+        /* Close Button */
+        .close {
+            color: #ccc;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            transition: color 0.3s;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #fff;
+            /* Change color on hover */
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        /* Modal Header */
+        .modal-header {
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        /* Modal Title */
+        .modal-title {
+            color: #fff;
+            margin: 0;
+        }
+
+        /* Modal Body */
+        .modal-body {
+            color: #ccc;
+            margin-bottom: 20px;
+        }
+
+        /* Modal Footer */
+        .modal-footer {
+            border-top: 1px solid #444;
+            padding-top: 10px;
+            margin-top: 10px;
+            text-align: right;
+        }
+
+        /* Modal Button */
+        .modal-footer button {
+            padding: 8px 20px;
+            margin-left: 10px;
+            background-color: #6200ea;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .modal-footer button:hover {
+            background-color: #3700b3;
+            /* Darker background on hover */
+        }
+
+        /* Form Input */
+        .form-control {
+            padding: 10px;
+            margin-bottom: 10px;
+            width: calc(100% - 20px);
+            border: none;
+            border-radius: 5px;
+            background-color: #444;
+            color: #ccc;
+        }
+
+        .page-box {
+            position: relative;
+            /* Ensure the button is positioned relative to this container */
+        }
+
+        .edit-button-container {
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 1;
+            /* Ensure the button is above other content */
+        }
+
+        .edit-button {
+            background-color: transparent;
+            border: none;
+            color: #ffffff;
+            /* Button text color */
+            cursor: pointer;
+            font-size: 18px;
+        }
+
+        .edit-button:hover {
+            color: #ccfcff;
+            /* Button text color on hover */
+        }
+
+        .editable {
+            color: white;
+            cursor: pointer;
+        }
+
+        .editable:hover {
+            text-decoration: underline;
+        }
+
+        .page-box a {
+            color: #ffffff;
+            text-decoration: none;
+        }
+
+
+        .add-page-box {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #8f7eb2;
+            color: white;
+            /* font-size: 3em; */
+            width: 200px;
+            height: 200px;
+            /* border-radius: 50%; */
+            cursor: pointer;
+            transition: background-color 0.6s;
+
+        }
+
+        .add-page-box:hover {
+            background-color: #683179;
+        }
+
+        .page-form {
+            display: none;
+            margin-top: 10px;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .page-form input,
+        .page-form button {
+            width: 80%;
+            margin-bottom: 10px;
+        }
+
+        .create-website-box {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #8f7eb2;
+            color: white;
+            width: 200px;
+            height: 200px;
+            cursor: pointer;
+            transition: background-color 0.6s;
+            margin: 30px;
+            border-radius: 10px;
+            border-style: solid;
+            border-color: #5a506c;
+            box-shadow: 0 4px 8px rgba(0, 0, 0.5, .7);
+        }
+
+        .create-website-box:hover {
+            background-color: #683179;
+        }
+
+        .create-text {
+            font-size: 1.2em;
+            /* Adjust the font size for the text */
+            margin-bottom: 3px;
+            /* Add margin to separate text from icon */
+        }
+
+        #plus-icon {
+            font-size: 3em;
+        }
+    </style>
+
+</head>
+
+<body>
+    {% extends 'base.html' %}
+
+    {% block content %}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- <div class="navbar">
+        <a href="{{ url_for('dashboard') }}" class="home-button">
+            <img src="/static/uwebialogo1.svg" alt="Uwebia Logo" class="navbar-logo">
+        </a>
+        <div class="navbar-title">uwebia</div>
+        <form class="search-form" id="searchForm" onsubmit="submitSearch(); return false;">
+            <input type="text" id="searchQuery" placeholder="Search by name or tags">
+            <button type="submit" class="search-button"><i class="fas fa-search"></i></button>
+        </form>
+    </div> -->
+
+    <div class="create-website-box" onclick="openModal('createWebsiteModal')">
+        <p class="create-text">Create New Website</p>
+        <i class="fas fa-plus" id="plus-icon"></i>
+    </div>
+
+
+    <!-- <div class="form-container">
+        <h2>Create New Website</h2>
+        <form action="{{ url_for('create_website') }}" method="POST">
+            <input type="text" name="name" placeholder="Website Name" required>
+            <input type="text" name="tags" placeholder="Tags (comma-separated)">
+            <button type="submit">Create</button>
+        </form>
+    </div> -->
+
+    <!-- Create New Website Modal -->
+    <div id="createWebsiteModal" class="modal modal-content">
+        <span class="close" onclick="closeModal('createWebsiteModal')">&times;</span>
+        <h5>Create New Website</h5>
+        <form id="createWebsiteForm" action="{{ url_for('create_website') }}" method="POST">
+            <div class="modal-body">
+                <p>Website Name</p>
+                <input type="text" id="newWebsiteName" name="name" class="form-control" placeholder="Website Name"
+                    required>
+                <p>Website Description</p>
+                <textarea id="newWebsiteDescription" name="description" class="form-control"
+                    placeholder="Website Description"></textarea>
+                <p>Tags (comma-separated)</p>
+                <input type="text" id="newWebsiteTags" name="tags" class="form-control"
+                    placeholder="Tags (comma-separated)">
+            </div>
+            <div class="modal-footer">
+                <button type="button" onclick="closeModal('createWebsiteModal')">Close</button>
+                <button type="submit">Create</button>
+            </div>
+        </form>
+    </div>
+
+
+    <h2>Websites</h2>
+    <ul class="website-list">
+
+        {% for website, pages in website_pages.items() %}
+        <li>
+            <strong>{{ website.name }}</strong>
+            <button onclick="editWebsite('{{ website.id }}')">
+                <i class="fas fa-edit"></i> Edit
+            </button>
+            <div class="tag-container">
+                Tags:
+                {% for tag in website.tags %}
+                <span>{{ tag.name }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="page-container">
+                <!-- Giant plus button for adding a page -->
+                <div class="page-box add-page-box" onclick="openAddPageModal('{{ website.id }}')">
+                    <p class="create-text">Add Page</p>
+                    <i class="fas fa-plus" id="plus-icon"></i>
+                </div>
+
+                <!-- Form for adding a new page -->
+                <form id="createPageForm_{{ website.id }}" class="page-form"
+                    action="{{ url_for('create_page', website_id=website.id) }}" method="POST">
+                    <input type="text" name="name" placeholder="Page Name" required>
+                    <input type="text" name="tags" placeholder="Tags (comma-separated)">
+                    <button type="submit">Create</button>
+                </form>
+                <!-- Add Page Modal -->
+                <div id="addPageModal_{{ website.id }}" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeModal('addPageModal_{{ website.id }}')">&times;</span>
+                        <h5>Add Page</h5>
+                        <form id="addPageForm_{{ website.id }}"
+                            action="{{ url_for('create_page', website_id=website.id) }}" method="POST">
+                            <div class="modal-body">
+                                <p>Page Name</p>
+                                <input type="text" id="addPageName_{{ website.id }}" name="name" class="form-control"
+                                    placeholder="Page Name" required>
+                                <p>Page Description</p>
+                                <textarea id="editPageDescription_{{ website.id }}" name="description"
+                                    class="form-control" placeholder="Page Description"></textarea>
+                                <p>Tags (comma-separated)</p>
+                                <input type="text" id="addPageTags_{{ website.id }}" name="tags" class="form-control"
+                                    placeholder="Tags (comma-separated)">
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button"
+                                    onclick="closeModal('addPageModal_{{ website.id }}')">Close</button>
+                                <button type="submit">Create</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                {% for page in pages %}
+                <div class="page-box">
+                    <div class="edit-button-container">
+                        <!-- Edit button for page -->
+                        <button class="edit-button"
+                            onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
+                            <i class="fas fa-edit"></i> Editor
+                        </button>
+                    </div>
+                    <div><a href="#" onclick="editPage('{{ website.id }}', '{{ page.id }}')"> {{ page.id }} - {{
+                            page.name }}</a></div>
+                    <div>
+                        <iframe src="{{ url_for('public_page', website_id=website.id, page_id=page.id) }}"
+                            title="{{ page.name }}"></iframe>
+                        <div class="tag-container">
+                            <a href="#" onclick="editPage('{{ website.id }}', '{{ page.id }}')"
+                                class="editable">Tags:</a>
+                            {% for tag in page.tags %}
+                            <span><a href="#" onclick="editPage('{{ website.id }}', '{{ page.id }}')" class="editable">
+                                    {{ tag.name }}</a></span>
+                            {% endfor %}
+                        </div>
+                        <!-- QR Code Button -->
+                        <div>
+                            <!-- QR Code Button -->
+                            <button
+                                onclick="generateQRCode('{{ url_for('public_page', website_id=website.id, page_id=page.id) }}', '{{ page.id }}')">Download
+                                QR Code</button>
+                            <div id="qrcode_{{ page.id }}" style="display:none;"></div>
+                        </div>
+                    </div>
+
+
+
+
+
+
+                </div>
+                <!-- Edit Page Modal -->
+                <div id="editPageModal_{{ website.id }}_{{ page.id }}" class="modal modal-content">
+                    <span class="close"
+                        onclick="closeModal('editPageModal_{{ website.id }}_{{ page.id }}')">&times;</span>
+                    <h5>Edit Page</h5>
+                    <form id="editPageForm_{{ website.id }}_{{ page.id }}" onsubmit="return false;">
+                        <div class="modal-body">
+                            <p>Page Name</p>
+                            <input type="text" id="editPageName_{{ website.id }}_{{ page.id }}" name="name"
+                                class="form-control" placeholder="Page Name" required>
+                            <p>Page Description</p>
+                            <textarea id="editPageDescription_{{ website.id }}_{{ page.id }}" name="description"
+                                class="form-control" placeholder="Page Description"></textarea>
+                            <p>Tags (comma-separated)</p>
+                            <input type="text" id="editPageTags_{{ website.id }}_{{ page.id }}" name="tags"
+                                class="form-control" placeholder="Tags (comma-separated)">
+                            <input type="hidden" id="editPageId_{{ website.id }}_{{ page.id }}" name="page_id"
+                                value="{{ page.id }}"> <!-- Hidden input for page ID -->
+                            <input type="hidden" id="editPageWebsiteId_{{ website.id }}_{{ page.id }}" name="website_id"
+                                value="{{ website.id }}"> <!-- Hidden input for website ID -->
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                onclick="closeModal('editPageModal_{{ website.id }}_{{ page.id }}')">Close</button>
+                            <button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">Delete
+                                Page</button>
+                            <button type="button" onclick="savePageChanges('{{ website.id }}', '{{ page.id }}')">Save
+                                Changes</button>
+                        </div>
+
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+        </li>
+        <!-- Edit Website Modal -->
+        <div id="editWebsiteModal_{{ website.id }}" class="modal modal-content">
+            <span class="close" onclick="closeModal('editWebsiteModal_{{ website.id }}')">&times;</span>
+            <h5>Edit Website</h5>
+            <form id="editWebsiteForm_{{ website.id }}" onsubmit="return false;">
+                <div class="modal-body">
+                    <p>Website Name</p>
+                    <input type="text" id="editWebsiteName_{{ website.id }}" name="name" class="form-control"
+                        placeholder="Website Name" required>
+                    <p>Website Description</p>
+                    <textarea id="editWebsiteDescription_{{ website.id }}" name="description" class="form-control"
+                        placeholder="Website Description"></textarea>
+                    <p>Tags (comma-separated)</p>
+                    <input type="text" id="editWebsiteTags_{{ website.id }}" name="tags" class="form-control"
+                        placeholder="Tags (comma-separated)">
+                    <input type="hidden" id="editWebsiteId_{{ website.id }}" name="website_id" value="{{ website.id }}">
+                    <!-- Hidden input for website ID -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" onclick="closeModal('editWebsiteModal_{{ website.id }}')">Close</button>
+                    <button type="button" onclick="deleteWebsite('{{ website.id }}')">Delete Website</button>
+                    <button type="button" onclick="saveWebsiteChanges('{{ website.id }}')">Save Changes</button>
+                </div>
+
+            </form>
+        </div>
+
+
+        {% endfor %}
+
+
+
+        <script>
+
+            // Function to delete a page
+            function deletePage(websiteId, pageId) {
+                if (confirm("Are you sure you want to delete this page?")) {
+                    fetch(`/delete_page/${websiteId}/${pageId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': csrfToken
+                        }
+                    })
+                        .then(response => {
+                            if (response.ok) {
+                                closeModal(`editPageModal_${websiteId}_${pageId}`);
+                                window.location.reload(); // Reload page to reflect changes
+                            } else {
+                                console.error('Failed to delete page');
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                }
+            }
+
+            // Function to delete a website
+            function deleteWebsite(websiteId) {
+                if (confirm("Are you sure you want to delete this website?")) {
+                    fetch(`/delete_website/${websiteId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': csrfToken
+                        }
+                    })
+                        .then(response => {
+                            if (response.ok) {
+                                closeModal(`editWebsiteModal_${websiteId}`);
+                                window.location.reload(); // Reload page to reflect changes
+                            } else {
+                                console.error('Failed to delete website');
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                }
+            }
+
+            function openModal(modalId) {
+                var modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.style.display = "block";
+                }
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.classList.add('modal-overlay');
+                    document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
+                }
+                overlay.style.display = "block"; // Display overlay
+            }
+
+            function closeModal(modalId) {
+                var modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.style.display = "none";
+                }
+            }
+
+            // Close modal when clicking outside of it
+            window.onclick = function (event) {
+                var modals = document.getElementsByClassName('modal');
+                for (var i = 0; i < modals.length; i++) {
+                    if (event.target == modals[i]) {
+                        modals[i].style.display = "none";
+                    }
+                }
+            }
+
+
+            function generateQRCode(relativeUrl, pageId) {
+                var qrCodeDiv = document.getElementById('qrcode_' + pageId);
+                if (!qrCodeDiv) {
+                    console.error('Element not found: qrcode_' + pageId);
+                    return;
+                }
+                qrCodeDiv.innerHTML = ""; // Clear previous QR code
+
+                // Get the root URL of the webpage
+                var rootUrl = window.location.origin;
+
+                // Construct the full URL
+                var fullUrl = rootUrl + relativeUrl;
+
+                // Create QR code
+                var qr = qrcode(4, 'L');
+                qr.addData(fullUrl);
+                qr.make();
+
+                // Define QR code size
+                var qrSize = 512; // Larger size for better resolution
+
+                // Create canvas element for PNG and JPG
+                var canvas = document.createElement('canvas');
+                canvas.width = qrSize;
+                canvas.height = qrSize;
+                var context = canvas.getContext('2d');
+
+                // Draw the QR code on the canvas
+                var cellSize = qrSize / qr.getModuleCount();
+                for (var row = 0; row < qr.getModuleCount(); row++) {
+                    for (var col = 0; col < qr.getModuleCount(); col++) {
+                        context.fillStyle = qr.isDark(row, col) ? '#000000' : '#ffffff';
+                        context.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+                    }
+                }
+
+                // Convert canvas to PNG
+                var pngImg = document.createElement('img');
+                pngImg.src = canvas.toDataURL('image/png');
+                pngImg.id = 'qrPngImg_' + pageId;
+                pngImg.style.display = 'none'; // Hide QR code image
+                qrCodeDiv.appendChild(pngImg);
+
+                // Create a download link for PNG
+                var downloadPngLink = document.createElement('a');
+                downloadPngLink.href = pngImg.src;
+                downloadPngLink.download = 'QRCode_Page_' + pageId + '.png';
+                downloadPngLink.innerHTML = 'Download PNG';
+                qrCodeDiv.appendChild(downloadPngLink);
+
+                // Convert canvas to JPG
+                var jpgImg = document.createElement('img');
+                jpgImg.src = canvas.toDataURL('image/jpeg');
+                jpgImg.id = 'qrJpgImg_' + pageId;
+                jpgImg.style.display = 'none'; // Hide QR code image
+                qrCodeDiv.appendChild(jpgImg);
+
+                // Create a download link for JPG
+                var downloadJpgLink = document.createElement('a');
+                downloadJpgLink.href = jpgImg.src;
+                downloadJpgLink.download = 'QRCode_Page_' + pageId + '.jpg';
+                downloadJpgLink.innerHTML = 'Download JPG';
+                qrCodeDiv.appendChild(downloadJpgLink);
+
+                // Create SVG
+                var svg = qr.createSvgTag({
+                    cellSize: 6 // Adjust cell size for SVG
+                });
+                qrCodeDiv.innerHTML += svg;
+
+                // Extract the SVG element from the innerHTML
+                var svgElement = qrCodeDiv.querySelector('svg');
+                if (svgElement) {
+                    svgElement.id = 'qrSvgImg_' + pageId;
+                    svgElement.style.display = 'none'; // Hide QR code image
+
+                    // Create a download link for SVG
+                    var svgBlob = new Blob([svgElement.outerHTML], { type: 'image/svg+xml' });
+                    var svgUrl = URL.createObjectURL(svgBlob);
+                    var downloadSvgLink = document.createElement('a');
+                    downloadSvgLink.href = svgUrl;
+                    downloadSvgLink.download = 'QRCode_Page_' + pageId + '.svg';
+                    downloadSvgLink.innerHTML = 'Download SVG';
+                    qrCodeDiv.appendChild(downloadSvgLink);
+                }
+
+                // Auto click download links
+                downloadPngLink.click();
+                downloadJpgLink.click();
+                downloadSvgLink.click();
+            }
+
+
+            function openAddPageModal(websiteId) {
+                var modal = document.getElementById('addPageModal_' + websiteId);
+                var overlay = document.querySelector('.modal-overlay');
+                if (modal) {
+                    modal.style.display = "block";
+                }
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.classList.add('modal-overlay');
+                    document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
+                }
+                overlay.style.display = "block"; // Display overlay
+            }
+
+            function closeModal(modalId) {
+                var modal = document.getElementById(modalId);
+                modal.style.display = 'none';
+            }
+
+            // Function to handle form submission for editing website
+            function saveWebsiteChanges(websiteId) {
+                var newName = document.getElementById(`editWebsiteName_${websiteId}`).value;
+                var newTags = document.getElementById(`editWebsiteTags_${websiteId}`).value;
+                var newDescription = document.getElementById(`editWebsiteDescription_${websiteId}`).value;
+
+                console.log("newName: ", newName);
+                console.log("newTags: ", newTags);
+                console.log("newDescription: ", newDescription);
+
+                fetch(`/edit_website/${websiteId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded', // Set content type to form data
+                        'X-CSRFToken': csrfToken // Include CSRF token in the headers
+                    },
+                    body: `name=${encodeURIComponent(newName)}&tags=${encodeURIComponent(newTags)}&description=${encodeURIComponent(newDescription)}` // Encode form data
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            closeModal(`editWebsiteModal_${websiteId}`);
+                            window.location.reload(); // Reload page to reflect changes
+                        } else {
+                            console.error('Failed to edit website');
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+
+            // Function to handle form submission for editing page
+            function savePageChanges(websiteId, pageId) {
+                var newName = document.getElementById(`editPageName_${websiteId}_${pageId}`).value;
+                var newTags = document.getElementById(`editPageTags_${websiteId}_${pageId}`).value;
+                var newDescription = document.getElementById(`editPageDescription_${websiteId}_${pageId}`).value;
+
+                console.log("newName: ", newName);
+                console.log("newTags: ", newTags);
+                console.log("newDescription: ", newDescription);
+
+                fetch(`/edit_page/${websiteId}/${pageId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded', // Set content type to form data
+                        'X-CSRFToken': csrfToken // Include CSRF token in the headers
+                    },
+                    body: `name=${encodeURIComponent(newName)}&tags=${encodeURIComponent(newTags)}&description=${encodeURIComponent(newDescription)}` // Encode form data
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            closeModal(`editPageModal_${websiteId}_${pageId}`);
+                            window.location.reload(); // Reload page to reflect changes
+                        } else {
+                            console.error('Failed to edit page');
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+        </script>
+
+
+
+        <script>
+            var csrfToken = "{{ csrf_token }}";
+
+            function toggleForm(websiteId) {
+                var form = document.getElementById('createPageForm_' + websiteId);
+                form.style.display = form.style.display === 'none' ? 'block' : 'none';
+            }
+
+
+            function removeTag(websiteId, tagName) {
+                // Send AJAX request to remove tag from website
+                fetch(`/remove_tag/website/${websiteId}/${tagName}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken  // Use the csrfToken variable here
+                    },
+                    body: JSON.stringify({})
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            // Reload the page to reflect changes
+                            window.location.reload();
+                        } else {
+                            console.error('Failed to remove tag');
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+        </script>
+        <!-- <script>
+    function submitSearch() {
+        const query = document.getElementById('searchQuery').value;
+        const url = `/browse_websites?query=${encodeURIComponent(query)}`;
+        window.location.href = url;
+    }
+</script> -->
+
+
+        <script>
+
+            // Function to open modal
+            function openModal(modalId) {
+                var modal = document.getElementById(modalId);
+                var overlay = document.querySelector('.modal-overlay');
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.classList.add('modal-overlay');
+                    document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
+                }
+                overlay.style.display = "block"; // Display overlay
+                modal.style.display = "block"; // Display modal
+            }
+
+            // Function to close modal
+            function closeModal(modalId) {
+                var modal = document.getElementById(modalId);
+                var overlay = document.querySelector('.modal-overlay');
+                overlay.style.display = "none"; // Hide overlay
+                modal.style.display = "none"; // Hide modal
+            }
+            function editWebsite(websiteId) {
+                fetch(`/get_website_details/${websiteId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        populateModal(`editWebsiteModal_${websiteId}`, data);
+                        openModal(`editWebsiteModal_${websiteId}`); // Open the modal after populating data
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+
+            function editPage(websiteId, pageId) {
+                fetch(`/get_page_details/${pageId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        populateModal(`editPageModal_${websiteId}_${pageId}`, data);
+                        openModal(`editPageModal_${websiteId}_${pageId}`); // Open the modal after populating data
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+
+            function populateModal(modalId, data) {
+                var modal = document.getElementById(modalId);
+                if (!modal) return; // Check if modal exists
+
+                // Populate name and tags fields based on the modal type (website or page)
+                var nameField = modal.querySelector('.form-control[name="name"]');
+                var descriptionField = modal.querySelector('.form-control[name="description"]');
+                var tagsField = modal.querySelector('.form-control[name="tags"]');
+                var websiteIdField = modal.querySelector('.form-control[name="website_id"]');
+                var pageIdField = modal.querySelector('.form-control[name="page_id"]');
+
+                if (nameField && data.name) {
+                    nameField.value = data.name;
+                }
+
+                if (descriptionField && data.description) {
+                    descriptionField.value = data.description;
+                }
+
+                if (tagsField && data.tags) {
+                    tagsField.value = data.tags.join(', '); // Assuming tags are provided as an array
+                }
+
+                // Adjusting IDs to include dynamic parts
+                var websiteId = modalId.split('_')[1]; // Extract website ID from modal ID
+                var pageId = modalId.split('_')[2]; // Extract page ID from modal ID
+
+                if (websiteIdField && websiteId) {
+                    websiteIdField.value = websiteId;
+                }
+
+                if (pageIdField && pageId) {
+                    pageIdField.value = pageId;
+                }
+            }
+
+
+        </script>
+        {% endblock %}
+</body>
+
+</html>

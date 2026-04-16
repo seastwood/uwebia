@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<style>
+            .content{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .register-container h1 {
+            margin-bottom: 1.5rem;
+        }
+        .register-container label {
+            display: block;
+            text-align: left;
+            margin: 0.5rem 0 0.25rem;
+        }
+        .register-container input {
+    width: 90%;
+    padding: 0.5rem;
+    margin-bottom: 1rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background-color: #2e2e2e;
+    color: #e0e0e0;
+}
+        .register-container button {
+            background-color: #6200ea;
+            color: #fff;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .register-container button:hover {
+            background-color: #3700b3;
+        }
+        .register-container ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 1rem 0 0;
+        }
+        .register-container li {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        .register-container .error {
+            background-color: #cf6679;
+            color: #121212;
+        }
+        .footer {
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #888;
+        }
+        .register-container {
+    background-color: #1e1e1e;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    width: 300px;
+    text-align: center;
+    margin-top: 25px;
+        }
+</style>
+
+<body>
+    {% extends 'base.html' %}
+
+    {% block content %}
+    <div class="register-container">
+    <h1>Create a uwebia account:</h1>
+    <form method="POST" action="{{ url_for('register') }}">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required>
+        <br>
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" required>
+        <br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+        <br>
+        <button type="submit">Register</button>
+    </form>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul>
+            {% for category, message in messages %}
+                <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+    </div>
+</body>
+{% endblock %}
+</html>

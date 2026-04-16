@@ -1,0 +1,4286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <title>Web Builder</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/lint.min.css">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/lint/lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.0/beautify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.0/beautify-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.0/beautify-html.min.js"></script>
+    <!-- Include FullCalendar library -->
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css' rel='stylesheet' />
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+
+</head>
+
+
+
+<style>
+    html,
+    body {
+        font-family: 'Roboto', sans-serif;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background-color: #363339;
+        color: #ffffff;
+        /* Prevent body from scrolling */
+    }
+
+    .editor-navbar {
+        display: flex;
+        /* justify-content: space-between; */
+        align-items: center;
+        padding: 10px 20px;
+        background-color: #363339;
+        color: white;
+        height: 23px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        /* position: fixed; */
+        z-index: 9999;
+        width: 100%;
+    }
+
+    .editor-navbar-item {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* padding-left: 15px;
+            padding-right: 15px; */
+        margin-right: 15px;
+        transition: background-color 0.3s;
+        border-radius: 50px;
+        height: 40px;
+        width: 40px;
+        /* background-color: #1f1f1f; */
+        color: #fff;
+        cursor: pointer;
+    }
+
+
+    .add-section-btn {
+        font-size: 40px;
+        /* Increase font size */
+        color: white;
+        /* padding: 16px 20px; */
+        /* Adjust padding */
+        cursor: pointer;
+        background-color: transparent;
+
+        font-weight: bolder;
+    }
+
+    .add-section-btn-container {
+        cursor: pointer;
+        background-color: transparent;
+        display: flex;
+        /* Use flexbox to center horizontally and vertically */
+        justify-content: center;
+        /* Center horizontally */
+        align-items: center;
+        /* Center vertically */
+        transition: background-color 0.3s;
+        /* Add transition effect */
+        border-radius: 20px;
+
+    }
+
+    .add-section-btn-container:hover {
+        background-color: #6f6a7e;
+        transition: background-color 0.3s;
+    }
+
+    .editor-navbar-item:hover {
+        background-color: #6f6a7e;
+        cursor: pointer;
+        transition: background-color 0.3s;
+        /* padding: 10px 20px; */
+    }
+
+    /* .add-section-btn:hover{
+        background-color: #6f6a7e;
+    } */
+
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgb(0, 0, 0);
+        background-color: rgba(0, 0, 0, 0.4);
+        padding-top: 60px;
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 5% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: black;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    /* Style the button */
+    #previewButton {
+        background-color: transparent;
+        color: white;
+        border: none;
+        /* padding: 2px; */
+        font-size: 20px;
+        /* Increase font size */
+        cursor: pointer;
+        /* border-radius: 5px; */
+        transition: background-color 0.3s;
+    }
+
+    #saveChangesButton {
+        background-color: transparent;
+        color: white;
+        height: 40px;
+        width: 40px;
+        font-size: 24px;
+        border: none;
+        /* Increase font size */
+
+
+    }
+
+    #refreshButton {
+        transition: background-color 0.3s;
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+        /* margin-left: 10px; */
+        color: #ffffff;
+        /* padding: 2px; */
+        /* border-radius: 5px; */
+        /* Adjust margin as needed */
+    }
+
+    #refreshButton i {
+        font-size: 20px;
+
+        /* Adjust icon size as needed */
+    }
+
+    .big-content-container {
+        display: flex;
+        flex-direction: column;
+        /* Change to column layout for mobile */
+        height: calc(91vh);
+        /* height: 100%; */
+        /* Adjust for navbar height */
+        max-width: 100vw;
+        /* Set max width to fill the screen */
+        user-select: none;
+        /* Prevent highlighting */
+    }
+
+    @media (min-width: 769px) {
+
+        /* Apply desktop layout styles */
+        .big-content-container {
+            flex-direction: row;
+            /* Change to row layout for desktop */
+        }
+
+        .content-container {
+            flex-direction: row;
+            /* Change to row layout for desktop */
+        }
+    }
+
+    .content-container {
+        flex: 1;
+        /* height: 100%; */
+        /* overflow-y: auto; */
+        position: relative;
+        user-select: none;
+        /* Prevent highlighting */
+
+    /* text-align: center; */
+    height: auto; /* Ensure height adjusts based on content */
+    overflow: auto; /* Add overflow handling if necessary */
+    /* Additional flex or other layout properties if inside a flex container */
+
+
+    }
+
+    .content-sections-container {
+        flex: 1;
+        /* height: 100%; */
+        /* max-height: calc(80vh); */
+        /* Limit the height */
+        /* overflow-y: auto; */
+        position: relative;
+        padding-bottom: 25vw;
+        user-select: none;
+        /* Prevent highlighting */
+    }
+
+    .web-preview {
+        width: 50%;
+        /* Set initial width */
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+    }
+
+    #publicFrame {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .resizer {
+        width: 10px;
+        background: #252525;
+        cursor: ew-resize;
+        border-left: 2px solid #646464;
+        /* Left border */
+        border-right: 2px solid #646464;
+        /* Right border */
+
+    }
+
+    .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.5);
+        display: none;
+        z-index: 2;
+    }
+
+    @media (max-width: 768px) {
+        .resizer {
+            display: none;
+        }
+
+        .web-preview {
+            display: none;
+            width: 100%;
+        }
+
+        .web-preview.visible {
+            display: block;
+        }
+    }
+
+    h2 {
+        margin-bottom: 10px;
+        text-align: center;
+    }
+
+    form {
+        margin-bottom: 10px;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    input[type="file"],
+    textarea {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+
+    input[type="submit"] {
+        padding: 10px 20px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+
+    input[type="checkbox"] {
+        margin-right: 10px;
+    }
+
+    #message {
+        position: fixed;
+        bottom: 10px;
+        /* Adjust as needed */
+        left: 50%;
+        /* Position horizontally in the middle */
+        transform: translateX(-50%);
+        /* Center horizontally */
+        padding: 10px;
+        background-color: #f0f0f0;
+        border-radius: 5px;
+        display: none;
+        /* Initially hide the message */
+    }
+
+    #closeButton {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        cursor: pointer;
+    }
+
+
+
+    .uploaded-images {
+        margin-top: 5px;
+        list-style-type: none;
+        padding: 0;
+    }
+
+    .uploaded-images li {
+        padding: 3px;
+        /* background-color: #f9f9f900; */
+        border: 1px solid #ddd;
+        cursor: move;
+        z-index: 100;
+        display: inline-block;
+        position: relative;
+        border-radius: 5px
+    }
+
+    .uploaded-images img {
+        max-width: 150px;
+        max-height: 120px;
+        display: block;
+        margin: 0 auto;
+        position: relative;
+        z-index: -1;
+        border: 1px solid #ddd;
+        pointer-events: none;
+    }
+
+    .uploaded-images .drag-over {
+        border: 2px dashed #2dce35;
+    }
+
+    #trashCan {
+        display: inline-block;
+        width: 100px;
+        height: 75px;
+    }
+
+    #trashCan .drag-over {
+        border: 2px dashed #ce682d;
+        /* Add dashed border when dragging over */
+    }
+
+    ul {
+        display: block;
+        list-style-type: disc;
+        margin-block-start: 1em;
+        margin-block-end: 1em;
+        margin-inline-start: 0px;
+        margin-inline-end: 0px;
+        padding-inline-start: 0px;
+    }
+
+    label {
+        /* margin-top: 10px; */
+        font-weight: bold;
+    }
+
+
+
+    .section-title {
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 12px;
+        /* border: 3px solid #ccc; */
+        /* border-style: inset; */
+        border-radius: 5px;
+        /* margin-top: 20px; */
+        box-shadow: 0 4px 4px rgba(0.5, 0.5, 0.6, 0.6);
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+        font-weight: bold;
+        border-style: outset;
+        border-color: #00000091;
+    }
+
+    .section-title:hover {
+        background-color: #292b34;
+        /* Change background color on hover */
+    }
+
+    .section-title.clicked {
+        background-color: #292b34;
+        /* Change background color when clicked */
+        border-style: inset;
+        /* Change border style when clicked */
+    }
+
+    .section-content {
+        visibility: hidden;
+        /* Hide the section content by default */
+        opacity: 0;
+        /* Start with fully transparent */
+        overflow: hidden;
+        /* Hide any overflow content */
+        max-height: 0;
+        /* Start with zero height */
+        transition: max-height 0.3s ease, opacity 0.3s ease;
+        /* Smooth transition for height and opacity change */
+        width: 100%;
+        /* Make section content fill the width of the column */
+        position: absolute;
+        /* Set the section content as absolute positioning */
+        z-index: 99;
+    }
+
+    .section-content.open {
+        width: 90%;
+        padding: 12px;
+        /* border: 1px solid #000; */
+        border-radius: 20px;
+        background-color: #292b34;
+        /* margin-bottom: 20px; */
+        box-shadow: 0 2px 5px rgba(.5, .5, .5, 0.9);
+        visibility: visible;
+        opacity: 1;
+        max-height: 1000px;
+        z-index: 99;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+
+    .row {
+        display: flex;
+        /* flex-wrap: wrap; */
+        max-width: 95vw;
+        /* margin-bottom: 10px */
+        /* align-items: center; */
+    }
+
+    .column {
+        /* position: relative; */
+        /* flex: 1; */
+        border-radius: 5px;
+        background-color: #4d50599c;
+        color: #fff;
+        padding: 15px;
+        margin: 5px;
+        box-shadow: 0 2px 7px rgba(1, 1, 1, 0.9);
+        /* Adjusted properties for resizing */
+        max-width: 100vw;
+        min-width: 10px;
+        max-height: none;
+        /* flex-grow: 1; */
+        user-select: none;
+        /* Prevent highlighting */
+    }
+
+
+
+
+    label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        user-select: none;
+        /* Prevent highlighting */
+    }
+
+    .dynamic-width {
+        width: calc(100% - 24px);
+        /* Adjust the width based on the padding */
+    }
+
+
+
+    .editor-wrapper {
+        height: 600px;
+        overflow-x: auto;
+        /* Add horizontal overflow */
+        overflow-y: auto;
+        /* Add vertical overflow */
+    }
+
+
+    /* Set the height of textareas within section-containers of type code or text */
+    .section-container.text textarea,
+    .text-editor-wrapper textarea {
+        max-height: 1000px;
+        overflow-x: auto;
+        /* Add horizontal overflow */
+        overflow-y: auto;
+        /* Add vertical overflow */
+        white-space: nowrap;
+        z-index: 100;
+        padding: 5px;
+    }
+
+
+
+
+    .CodeMirror {
+        width: 100%;
+        height: 100%;
+    }
+
+    .color-picker-container {
+        display: inline-block;
+        position: relative;
+        padding: 5px 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .color-picker-container:hover {
+        background-color: #f0f0f0;
+    }
+
+    .column-resize-handle {
+        width: 7px;
+        cursor: col-resize;
+        background-color: #7ee2cc;
+        position: relative;
+        display: inline-block;
+        /* height: 65px; */
+        border-radius: 25px;
+        /* top: 11px; */
+    }
+
+    /* Adjust for touch */
+    @media (hover: none) {
+        .column-resize-handle {
+            width: 15px;
+            /* Increase size for touch */
+        }
+    }
+</style>
+
+<style>
+    /* Dark mode styles
+    body.dark-mode {
+        background-color: #363339;
+        color: #ffffff;
+    }
+
+    .navbar.dark-mode {
+        background-color: #3b373b;
+    }
+
+    .dropbtn.dark-mode {
+
+        color: white;
+    } */
+
+    /* input[type="submit"].dark-mode,
+    #previewButton.dark-mode,
+    #refreshButton {
+        color: #ffffff;
+    } */
+
+    .toggle-switch {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .toggle-switch input[type="checkbox"] {
+        display: none;
+    }
+
+    .toggle-switch label {
+        position: relative;
+        display: inline-block;
+        width: 40px;
+        height: 20px;
+        background-color: #ccc;
+        border-radius: 20px;
+        cursor: pointer;
+    }
+
+    .toggle-switch label::after {
+        content: '';
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        background-color: #ffffff;
+        border-radius: 50%;
+        top: 1px;
+        left: 1px;
+        transition: all 0.3s;
+    }
+
+    .toggle-switch input[type="checkbox"]:checked+label::after {
+        transform: translateX(20px);
+    }
+
+    .toggle-switch input[type="checkbox"]:checked+label {
+        background-color: #4CAF50;
+    }
+
+    /* WebKit-based browsers */
+    ::-webkit-scrollbar {
+        width: 12px;
+        /* Width of the scrollbar */
+        height: 12px;
+        /* Height of the scrollbar */
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #333;
+        /* Dark background for the scrollbar track */
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background-color: #555;
+        /* Darker color for the scrollbar thumb */
+        border-radius: 10px;
+        /* Rounded corners for the scrollbar thumb */
+        border: 3px solid #333;
+        /* Adds space around the thumb and makes it look better */
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #777;
+        /* Lighter color when hovering over the scrollbar thumb */
+    }
+
+    /* Firefox */
+    * {
+        scrollbar-width: thin;
+        /* Thin scrollbar width */
+        scrollbar-color: #555 #333;
+        /* Thumb color and track color */
+    }
+
+    /* Scrollbar for specific elements */
+    .scrollable-element {
+        scrollbar-width: thin;
+        /* Thin scrollbar width */
+        scrollbar-color: #555 #333;
+        /* Thumb color and track color */
+    }
+
+    /* Styling the scrollbar for specific elements in WebKit-based browsers */
+    .scrollable-element::-webkit-scrollbar {
+        width: 12px;
+        /* Width of the scrollbar */
+        height: 12px;
+        /* Height of the scrollbar */
+    }
+
+    .scrollable-element::-webkit-scrollbar-track {
+        background: #333;
+        /* Dark background for the scrollbar track */
+    }
+
+    .scrollable-element::-webkit-scrollbar-thumb {
+        background-color: #555;
+        /* Darker color for the scrollbar thumb */
+        border-radius: 10px;
+        /* Rounded corners for the scrollbar thumb */
+        border: 3px solid #333;
+        /* Adds space around the thumb and makes it look better */
+    }
+
+    .scrollable-element::-webkit-scrollbar-thumb:hover {
+        background: #777;
+        /* Lighter color when hovering over the scrollbar thumb */
+    }
+</style>
+
+<style>
+    .dropdown {
+        display: relative;
+        font-size: small;
+    }
+
+    .dropbtn {
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+        color: rgb(126, 226, 204);
+        font-weight: bolder;
+        font-size: 18px;
+    }
+
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        background-color: #3d3d3d;
+        box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+        z-index: 1;
+        right: 0;
+        /* Adjust to move content to the left */
+    }
+
+
+    .dropdown:hover .dropdown-content {
+        display: block;
+    }
+
+    .dropdown-content a {
+        color: rgb(226, 226, 226);
+        padding: 12px 16px;
+        text-decoration: none;
+        display: block;
+    }
+
+    .dropdown-content a:hover {
+        background-color: #616963;
+    }
+
+    /* CSS for the checkbox */
+    .image-checkbox {
+        position: absolute;
+        top: 5px;
+        /* Adjust as needed */
+        right: 5px;
+        /* Adjust as needed */
+        z-index: 1;
+        /* Ensure the checkbox is above the image */
+    }
+
+    /* CSS to style the checkbox when checked */
+    .image-checkbox:checked+img {
+        border: 2px solid #73ff00;
+        /* Change the border color as needed */
+    }
+
+    .arrow {
+        position: static;
+        cursor: pointer;
+        z-index: 9999;
+        transition: all 0.3s ease;
+        border-style: inset;
+        border-radius: 5px;
+        padding: 1px;
+        font-size: 18px;
+        margin-right: 8px;
+        border-color: #86b3a6;
+    }
+
+    .arrow:hover {
+        color: rgb(0, 255, 179);
+        /* Change color on hover */
+    }
+
+    .publish_page {
+        display: flex;
+        align-items: center;
+    }
+
+    .switch-label {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        font-size: 12px;
+        /* Smaller font size */
+    }
+
+    .switch-label input[type="checkbox"] {
+        display: none;
+    }
+
+    .switch-label .slider {
+        position: relative;
+        width: 34px;
+        /* Smaller width */
+        height: 18px;
+        /* Smaller height */
+        background-color: #ccc;
+        border-radius: 18px;
+        /* Match height for perfect circle ends */
+        margin-left: 8px;
+        /* Adjust margin for spacing */
+        transition: background-color 0.2s;
+    }
+
+    .switch-label .slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        /* Smaller handle size */
+        height: 16px;
+        background-color: white;
+        border-radius: 50%;
+        top: 1px;
+        left: 1px;
+        transition: transform 0.2s;
+    }
+
+    .switch-label input[type="checkbox"]:checked+.slider {
+        background-color: #4caf50;
+    }
+
+    .switch-label input[type="checkbox"]:checked+.slider::before {
+        transform: translateX(16px);
+        /* Adjust translation for smaller switch */
+    }
+</style>
+<style>
+    .calendar-container {
+        height: 100%;
+    }
+
+    .add-event-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 10;
+        padding: 8px 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .add-event-button:hover {
+        background-color: #0056b3;
+    }
+
+    .fc-direction-ltr {
+        direction: ltr;
+        text-align: left;
+        height: 425px;
+    }
+
+    .popup-form label {
+        display: block;
+        margin-bottom: 10px;
+    }
+
+    .popup-form input[type="text"],
+    .popup-form input[type="date"],
+    .popup-form input[type="time"],
+    .popup-form input[type="submit"] {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        margin-right: 15px;
+        border: none;
+        border-radius: 5px;
+        background-color: #5b5b5b;
+        color: white;
+    }
+
+    input[type="file"],
+    textarea {
+        width: 100%;
+        margin-bottom: 10px;
+        border-radius: 5px;
+        background-color: #5b5b5b;
+        color: white;
+    }
+
+    .popup-form input[type="submit"] {
+        background-color: #81599f;
+        /* Green submit button */
+        cursor: pointer;
+    }
+
+    .popup-form input[type="submit"]:hover {
+        background-color: #6c29a0;
+    }
+</style>
+<style>
+    .popup-form {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        z-index: 999;
+        border-style: solid;
+        border-color: rgb(126, 126, 126);
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: #333;
+        /* Dark background color */
+        color: white;
+        /* Text color */
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+
+    }
+
+    .form-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .form-row label {
+        margin-right: 10px;
+    }
+
+    .close-btn {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        padding-left: 10px;
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: white;
+    }
+
+    .youtube-url-input {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: none;
+        border-radius: 5px;
+        background-color: #5b5b5b;
+        color: white;
+        box-sizing: border-box;
+        /* Ensure padding and border are included in the width */
+    }
+
+    .form-column {
+        flex-direction: column;
+        padding-right: 20px;
+    }
+
+
+    .options-dropdown {
+        position: absolute;
+        /* top: 50%; */
+        right: 10px;
+        transform: translateY(-50%);
+        margin-top: 6px;
+        /* Add this line */
+        cursor: pointer;
+        z-index: 999;
+    }
+
+
+    /* Styling for the gear icon */
+    .gear-icon {
+        font-size: 16px;
+    }
+
+    /* Dropdown content */
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        background-color: #4e4e4e;
+        min-width: 120px;
+        box-shadow: 0 8px 16px 0 rgba(0, 0, 0, 0.2);
+        z-index: 9999999999;
+        color: white;
+
+    }
+
+    /* Show the dropdown content when hovering over the gear icon */
+    .options-dropdown:hover .dropdown-content {
+        display: block;
+    }
+
+    /* Style the dropdown options */
+    .dropdown-content a {
+        color: white;
+        padding: 12px 16px;
+        text-decoration: none;
+        display: block;
+        z-index: 9999999999;
+    }
+
+    /* Change color of dropdown options on hover */
+    .dropdown-content a:hover {
+        background-color: #636e79;
+    }
+
+
+    /* Dark modal style */
+    /* Dark modal style */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.6);
+        /* Darken background */
+        z-index: 999999;
+    }
+
+    .modal-content {
+        background-color: #333;
+        /* Dark background color */
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 600px;
+        border-radius: 10px;
+        color: #fff;
+        /* Text color */
+    }
+
+    .modal-content.dark {
+        background-color: #222;
+        /* Darker background color */
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: #fff;
+        /* Hover color */
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    label,
+    select {
+        color: #fff;
+        /* Text color */
+        background-color: #444;
+        /* Darker select background color */
+        border: none;
+        padding: 8px;
+        border-radius: 5px;
+    }
+
+    select option {
+        background-color: #444;
+        /* Darker option background color */
+    }
+
+    button[type="submit"]:hover {
+        background-color: #45a049;
+        /* Darker button color on hover */
+    }
+
+    /* Dark theme for Quill editor */
+    .ql-editor {
+        /* background-color: #2b2b2b; */
+        color: #fff;
+    }
+
+    /* Make Quill editor icons white */
+    .ql-toolbar .ql-picker-options svg {
+        fill: #fff;
+        /* Set the fill color to white */
+    }
+
+    /* Make Quill editor icons white */
+    .ql-toolbar {
+        background-color: #dddddd;
+    }
+
+    /* Customize other styles as needed */
+
+
+    /* Customize other styles as needed */
+    .home-button {
+        text-decoration: none;
+        color: white;
+        font-size: 1.5em;
+        margin-right: 10px;
+    }
+
+    .home-button:hover {
+        color: #ddd;
+    }
+
+    .resize-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        display: none;
+        z-index: 2;
+        user-select: none;
+        /* Prevent highlighting */
+    }
+
+    .editor-container {
+        overflow: auto;
+        /* Enable scrolling if content exceeds container height */
+    }
+
+    .color-options {
+    display: flex; /* Use flexbox layout */
+    gap: 10px; /* Adjust the gap between items */
+    flex-wrap: wrap; /* Allow items to wrap to the next line if needed */
+    justify-content: flex-start; /* Align items starting from the left */
+}
+
+.color-option {
+    /* width: 100px; */
+    /* height: 50px; */
+    /* border: 1px solid #ccc; */
+    position: relative;
+    background-color: #4d50599c;
+    color: #fff;
+    padding: 5px;
+    margin: 5px;
+    box-shadow: 0 2px 7px rgba(1, 1, 1, 0.9);
+    /* max-width: 100vw; */
+    min-width: 10px;
+    max-height: none;
+    /* flex-grow: 1; */
+    user-select: none;
+    border-radius: 10px;
+    justify-content: center;
+}
+
+.ai-query-text {
+    width: 100%;
+    max-height: 300px; /* Adjust max height as needed */
+    overflow-y: auto; /* Add vertical scroll when content exceeds max height */
+}
+
+.query-input {
+    width: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    resize: none; /* Prevent resizing by users */
+    border: 1px solid #ccc; /* Example border style */
+    font-size: 16px; /* Example font size */
+    line-height: 1.5; /* Example line height */
+    background-color: #0e0e0e;
+}
+
+
+</style>
+</head>
+
+<body>
+    {% extends 'base.html' %}
+    {% block content %}
+    <!-- Include CodeMirror and Linting Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jshint/2.13.4/jshint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/javascript-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/html-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmlhint/0.11.0/htmlhint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/csslint/1.0.5/csslint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/lint/css-lint.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+
+
+    <div class="editor-navbar">
+        <!-- <div class="navbar-title">uwebia</div> -->
+
+        <!-- <div class="editor-navbar-item">
+            <span class="add-section-btn" id="addSectionBtn">+</span>
+        </div> -->
+        <div class="editor-navbar-item">
+            <button id="saveChangesButton"><i class="fas fa-save"></i></button>
+        </div>
+        <div class="editor-navbar-item">
+            <button id="previewButton">
+                <i class="fas fa-eye"></i>
+            </button>
+        </div>
+        <div class="editor-navbar-item">
+            <button id="refreshButton">
+                <i class="fas fa-sync"></i>
+            </button>
+        </div>
+        <!-- <label class="switch">
+            <input type="checkbox" id="darkModeToggle" checked>
+            <span class="slider round"></span>
+        </label> -->
+        <!-- <div class="editor-navbar-item"> -->
+        <div class="publish_page">
+            <label class="switch-label">
+                Publish
+                <input type="checkbox" class="toggle" data-website-id="{{ website.id }}" data-page-id="{{ page_id }}" {%
+                    if site_active_status %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+            <!-- </div> -->
+        </div>
+
+    </div>
+
+
+    <div class="big-content-container">
+
+        <div class="content-container">
+            <!-- Invisible overlay -->
+            <div class="color-options">
+                <div class=color-option>
+                <label for="background-color">Background Color:</label>
+                <div class="pickr">
+                <input type="color" id="background-color" value="{{ page_content.background_color }}">
+            </div>
+            </div>
+            <div class=color-option>
+                <label for="text-color">Text Color:</label>
+                <div class="pickr">
+                <input type="color" id="text-color" value="{{ page_content.text_color }}">
+            </div>
+            </div>
+            </div>
+
+            <div class="content-sections-container">
+                <a href="{{ url_for('public_page',  website_id=website.id, page_id=page_id) }}"
+                    class="public-page-button" style="color:#a7eaf3">View Public Page</a>
+
+
+
+                <!-- HTML Structure -->
+                <div id="sections-container" class="sections-container">
+
+                    <div class="row" data-row="{{ row }}">
+
+                        <div class="column" data-row="{{ row }}" data-column="{{ column }}">
+                            <!-- Sections will be dynamically loaded here -->
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+            <div id="message">
+                <span id="messageContent"></span>
+                <span id="closeButton" onclick="closeMessage()">x</span>
+            </div>
+            <div class="resize-overlay"></div>
+        </div>
+        <div class="resizer" id="resizer"></div>
+        <!-- Iframe of public page -->
+        <div class="web-preview" id="rightContainer">
+            <iframe id="publicFrame" src="" data-website-id="{{ website.id }}" data-page-id="{{ page_id }}"></iframe>
+            <div class="overlay" id="overlay"></div>
+        </div>
+
+        <div id="add-section-modal" class="modal">
+            <div class="modal-content dark">
+                <span class="close" id="closeModal">&times;</span>
+                <form id="add-section-form">
+                    <input type="hidden" id="row-id-input" name="row_id">
+                    <input type="hidden" id="column-id-input" name="column_id">
+                    <label for="section-type">Section Type:</label>
+                    <select id="section-type" name="section_type">
+                        <option value="navbar">Navbar</option>
+                        <option value="header">Header</option>
+                        <option value="button">Button</option>
+                        <option value="image_gallery">Image Gallery</option>
+                        <option value="image">Image</option>
+                        <option value="text">Text</option>
+                        <option value="code">Code</option>
+                        <option value="map">Map</option>
+                        <option value="contact_form">Contact Form</option>
+                        <option value="calendar">Calendar</option>
+                        <option value="youtube_video">Youtube Video</option>
+
+                    </select><br><br>
+
+                    <!-- Additional inputs for section content can be added here -->
+
+                    <button type="submit">Add Section</button>
+                </form>
+            </div>
+        </div>
+
+
+    </div>
+
+    <!-- JavaScript code -->
+
+    <script>
+        // Get the page_id from the template context
+        const pageId = "{{ page_id }}";
+        const websiteId = "{{ website.id }}";
+
+        function toggleSectionContent(button) {
+            var sectionContent = button.nextElementSibling;
+            sectionContent.classList.toggle("open");
+
+            // Toggle the 'clicked' class on the section-title
+            button.classList.toggle("clicked");
+
+            // Manually adjust the margin of the column when the section content is opened
+            var column = button.closest('.column');
+            if (sectionContent.classList.contains("open")) {
+                // Use scrollHeight to get the full height of the content
+                var sectionContentHeight = sectionContent.scrollHeight;
+                column.style.marginBottom = sectionContentHeight + "px"; // Adjust margin as needed
+                // Manually refresh all CodeMirror instances after opening the section container (if applicable)
+                if (typeof codeMirrorEditors !== 'undefined') {
+                    codeMirrorEditors.forEach(function (editor) {
+                        editor.refresh();
+                    });
+                }
+            } else {
+                // Reset the margin when closing the section content
+                column.style.marginBottom = "";
+            }
+        }
+
+
+
+
+    </script>
+
+
+    <!-- Iframe of public page -->
+    <script>
+        // Function to get the preview URL
+        function getPreviewUrl(websiteId, pageId) {
+            return `${window.location.origin}/preview_page/${websiteId}/${pageId}`;
+        }
+
+        // Function to update the iframe with the preview URL
+        function updatePublicView() {
+            var publicFrame = document.getElementById('publicFrame');
+            var websiteId = publicFrame.getAttribute('data-website-id');
+            var pageId = publicFrame.getAttribute('data-page-id');
+            publicFrame.src = getPreviewUrl(websiteId, pageId);
+        }
+
+        // Set the iframe data attributes for website and page IDs
+        document.addEventListener('DOMContentLoaded', function () {
+            var publicFrame = document.getElementById('publicFrame');
+            publicFrame.setAttribute('data-website-id', '{{ website.id }}');
+            publicFrame.setAttribute('data-page-id', '{{ page_id }}');
+            updatePublicView();
+        });
+
+        // Add event listener to the Refresh button
+        document.getElementById("refreshButton").addEventListener("click", reloadIframe);
+
+        // Function to reload the iframe and maintain scroll position
+        function reloadIframe() {
+            const iframe = document.getElementById("publicFrame");
+            const scrollPosition = iframe.contentWindow.scrollY;
+
+            iframe.addEventListener("load", function () {
+                iframe.contentWindow.scrollTo(0, scrollPosition);
+            }, { once: true });
+
+            iframe.contentWindow.location.reload(true);
+        }
+        // Define the sections array in the global scope
+        let sections = [];
+
+
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Your existing JavaScript code here
+            populateSections();
+        });
+
+
+        // Function to move a section up
+        function moveSectionUp(element) {
+            const sectionId = parseInt(element.getAttribute('data-section-id'));
+            console.log('Moving section up with ID:', sectionId);
+            console.log('Current sections:', sections); // Access the sections array
+
+            // Find the section with the given ID
+            const sectionIndex = sections.findIndex(section => section.id === sectionId);
+
+            if (sectionIndex === -1 || sections[sectionIndex].order === 1) {
+                console.log(`Section not found or already at the top: ${sectionId}`);
+                return;
+            }
+
+            // Find the section with the order one less than the current section
+            const aboveSection = sections.find(section => section.order === sections[sectionIndex].order - 1);
+
+            if (!aboveSection) {
+                console.log("No section found to swap with");
+                return;
+            }
+
+            // Swap the order numbers
+            const tempOrder = sections[sectionIndex].order;
+            sections[sectionIndex].order = aboveSection.order;
+            aboveSection.order = tempOrder;
+
+            // // Update the order numbers in the backend for both sections
+            // updateSectionOrder(sectionId, sections[sectionIndex].order);
+            // updateSectionOrder(aboveSection.id, aboveSection.order);
+
+            // setTimeout(function () {
+            //     populateSections();
+            // }, 1000);
+
+            // Update the order numbers in the backend for both sections
+            Promise.all([
+                updateSectionOrder(sectionId, sections[sectionIndex].order),
+                updateSectionOrder(aboveSection.id, aboveSection.order)
+            ]).then(() => {
+                setTimeout(function () {
+                    populateSections();
+                }, 150);
+            }).catch(error => {
+                console.error('Error updating section orders:', error);
+            });
+
+        }
+
+        // Function to move a section down
+        function moveSectionDown(element) {
+            const sectionId = parseInt(element.getAttribute('data-section-id'));
+            console.log('Moving section down with ID:', sectionId);
+            console.log('Current sections:', sections); // Access the sections array
+
+            // Find the section with the given ID
+            const sectionIndex = sections.findIndex(section => section.id === sectionId);
+
+            if (sectionIndex === -1 || sections[sectionIndex].order === sections.length) {
+                console.log(`Section not found or already at the bottom: ${sectionId}`);
+                return;
+            }
+
+            // Find the section with the order one more than the current section
+            const belowSection = sections.find(section => section.order === sections[sectionIndex].order + 1);
+
+            if (!belowSection) {
+                console.log("No section found to swap with");
+                return;
+            }
+
+            // Swap the order numbers
+            const tempOrder = sections[sectionIndex].order;
+            sections[sectionIndex].order = belowSection.order;
+            belowSection.order = tempOrder;
+
+            // Update the order numbers in the backend for both sections
+            Promise.all([
+                updateSectionOrder(sectionId, sections[sectionIndex].order),
+                updateSectionOrder(belowSection.id, belowSection.order)
+            ]).then(() => {
+                setTimeout(function () {
+                    populateSections();
+                }, 150);
+            }).catch(error => {
+                console.error('Error updating section orders:', error);
+            });
+        }
+
+        // Function to update the section order in the backend
+        function updateSectionOrder(sectionId, newOrder) {
+            console.log("Updating section order for ID:", sectionId, "to new order:", newOrder);
+
+            // Send a request to update the section order to the server
+            fetch(`/update_section_order?section_id=${sectionId}&new_order=${newOrder}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to update section order');
+                    }
+                    console.log('Section order updated successfully.');
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+        // Function to populate the sections array with data fetched from the server
+        function populateSections() {
+            fetch(`/get_sections_and_structure/${pageId}`) // Assuming you have a route to fetch sections along with rows and columns
+                .then(response => response.json())
+                .then(data => {
+                    // Assuming data contains sections, rows, and columns retrieved from the server
+                    const { sections, rows, columns, website } = data;
+
+                    // Sort rows by row_number
+                    rows.sort((a, b) => a.row_number - b.row_number);
+
+                    // Once sections, rows, and columns are populated, render the HTML
+                    reloadSections(sections, rows, columns, website);
+                })
+                .catch(error => {
+                    console.error('Error fetching sections and structure:', error);
+                });
+        }
+
+        function reloadSections(sections, rows, columns, website) {
+            const sectionsContainer = document.getElementById('sections-container');
+            sectionsContainer.innerHTML = ''; // Clear the container
+
+            // Create a nested structure for rows and columns
+            const grid = {};
+
+            // Sort rows based on row_number
+            rows.sort((a, b) => a.row_number - b.row_number);
+
+            // Initialize the grid with rows using row.id as the key
+            rows.forEach(row => {
+                const rowId = row.id; // Use row.id for rowId
+                grid[rowId] = {}; // Initialize the row in the grid
+            });
+
+            // Populate the grid with columns
+            columns.forEach(column => {
+                const matchingRow = rows.find(row => row.id === column.row_id);
+                if (matchingRow) {
+                    const rowId = matchingRow.id;
+                    const columnNumber = column.column_number;
+                    const columnId = column.column_id;
+                    const columnWidth = column.width;
+
+                    // If the column is not populated with a section, mark it as an empty column
+                    if (!grid[rowId][columnNumber]) {
+                        grid[rowId][columnNumber] = { isSection: false, column_id: columnId, width: columnWidth };
+                    }
+                } else {
+                    console.warn(`No matching row found for column with row_id: ${column.row_id}`);
+                }
+            });
+
+            // Populate the grid with sections
+            sections.forEach(section => {
+                const matchingRow = rows.find(row => row.id === section.row_id);
+                if (matchingRow) {
+                    const rowId = matchingRow.id;
+                    const columnNumber = section.column_number;
+                    const columnId = section.column_id;
+
+                    // Ensure the section includes the column_id and width
+                    grid[rowId][columnNumber] = { ...section, column_id: columnId, width: section.width, isSection: true };
+                } else {
+                    console.warn(`No matching row found for section with row_id: ${section.row_id}`);
+                }
+            });
+
+            // Render the grid in the sections container in the order of row_number
+            rows.forEach(row => {
+                const rowId = row.id;
+                console.log('Rows Generating in LOOP: ', rowId);
+                const rowElement = document.createElement('div');
+                rowElement.classList.add('row');
+                rowElement.setAttribute('data-row', rowId);
+                rowElement.id = `row-${rowId}`; // Set row ID
+                rowElement.setAttribute('row-order-number-', row.row_number); // Set row ID
+
+                // Dropdown container for options
+                const optionsDropdown = document.createElement('div');
+                optionsDropdown.classList.add('options-dropdown');
+
+                // Button for options dropdown (styled as an icon)
+                const optionsButton = document.createElement('div');
+                optionsButton.classList.add('options-icon'); // Add custom class for styling
+
+                // Create the gear icon
+                const gearIcon = document.createElement('i');
+                gearIcon.classList.add('fas', 'fa-cog'); // Assuming you're using Font Awesome icons
+                gearIcon.style.color = 'white'; // Set color to white
+
+                // Append the gear icon to the button
+                optionsButton.appendChild(gearIcon);
+
+                optionsButton.onclick = function () {
+                    toggleDropdown(dropdownContent); // Function to toggle dropdown visibility
+                };
+                optionsDropdown.appendChild(optionsButton);
+
+
+                // Dropdown content
+                const dropdownContent = document.createElement('div');
+                dropdownContent.classList.add('dropdown-content');
+
+                const addRowOption = document.createElement('a');
+                addRowOption.textContent = 'Add Row';
+                addRowOption.onclick = function () {
+                    addRowAbove(rowId);
+                };
+                dropdownContent.appendChild(addRowOption);
+
+
+                // Add Column option
+                const addColumnOption = document.createElement('a');
+                addColumnOption.textContent = 'Add Cell';
+                addColumnOption.onclick = function () {
+                    addColumnToRow(rowId);
+                };
+                dropdownContent.appendChild(addColumnOption);
+
+                // Delete Row option
+                const deleteRowOption = document.createElement('a');
+                deleteRowOption.textContent = 'Delete Row';
+                deleteRowOption.onclick = function () {
+                    deleteRow(rowId);
+                };
+                dropdownContent.appendChild(deleteRowOption);
+
+                // Append dropdown content to dropdown container
+                optionsDropdown.appendChild(dropdownContent);
+
+                // Append dropdown container to row
+                rowElement.appendChild(optionsDropdown);
+
+                console.log('Grid row:', grid[rowId]);
+
+                // Initialize a counter variable
+                let columnCounter = 0;
+                for (const column in grid[rowId]) {
+                    console.log("Column Generating...", column)
+                    // Increment the counter
+                    columnCounter++;
+
+                    const section = grid[rowId][column];
+                    const columnElement = document.createElement('div');
+                    columnElement.classList.add('column');
+                    columnElement.setAttribute('data-row', rowId);
+                    columnElement.setAttribute('data-column', column);
+                    // Set the data-column-id attribute
+                    columnElement.setAttribute('data-column-id', section ? section.column_id : null);
+                    // Ensure the width value includes units (e.g., "50%")
+                    if (section && section.width) {
+                        // Convert width to string and append "%" if it's not already present
+                        columnElement.style.width = `${section.width}%`;
+                    } else {
+                        columnElement.style.width = 'auto'; // Default width if section.width is not defined or section is undefined
+                    }
+
+                    // Add more debugging statements here
+                    console.log(`Processing row ${rowId}, column ${column}:`, section);
+
+
+
+                    // Log the column ID to the console
+                    console.log('Column ID:', section ? section.column_id : null);
+
+
+                    if (section && section.isSection) {
+                        console.log("Creating Section: ", section.id)
+                        const sectionElement = document.createElement('div');
+                        sectionElement.classList.add('section-title');
+                        sectionElement.id = `section-title-${section.id}`;
+                        sectionElement.onclick = function () { toggleSectionContent(this); };
+
+                        sectionElement.addEventListener('mousedown', function (event) {
+                            handleColumnMouseDown(event, columnElement);
+                        });
+
+                        const dropdown = document.createElement('div');
+                        dropdown.classList.add('dropdown');
+                        dropdown.style.position = 'relative';
+                        dropdown.style.float = 'right';
+
+                        const dropbtn = document.createElement('button');
+                        dropbtn.classList.add('dropbtn');
+                        dropbtn.textContent = '⋮';
+                        dropbtn.onclick = function (event) {
+                            event.stopPropagation();
+                        };
+
+                        const dropdownContent = document.createElement('div');
+                        dropdownContent.classList.add('dropdown-content');
+
+                        const deleteSectionLink = document.createElement('a');
+                        deleteSectionLink.href = '#';
+                        deleteSectionLink.classList.add('delete-section');
+                        deleteSectionLink.setAttribute('data-section-id', section.id);
+                        deleteSectionLink.setAttribute('data-page-id', section.page_content_id);
+                        deleteSectionLink.textContent = 'Delete Section';
+                        deleteSectionLink.onclick = function (event) {
+                            event.stopPropagation();
+                        };
+
+                        dropdownContent.appendChild(deleteSectionLink);
+
+                        if (section.section_type === 'image_gallery') {
+                            const deleteSelectedImagesLink = document.createElement('a');
+                            deleteSelectedImagesLink.href = '#';
+                            deleteSelectedImagesLink.classList.add('delete-selected-images');
+                            deleteSelectedImagesLink.setAttribute('data-section-id', section.id);
+                            deleteSelectedImagesLink.setAttribute('data-page-id', section.page_content_id);
+                            deleteSelectedImagesLink.textContent = 'Delete Selected Images';
+                            deleteSelectedImagesLink.onclick = function (event) {
+                                event.stopPropagation();
+                            };
+                            dropdownContent.appendChild(deleteSelectedImagesLink);
+                        }
+
+                        dropdown.appendChild(dropbtn);
+                        dropdown.appendChild(dropdownContent);
+
+                        sectionElement.appendChild(document.createTextNode(section.section_type));
+                        sectionElement.appendChild(dropdown);
+
+                        const sectionContent = document.createElement('div');
+                        sectionContent.classList.add('section-content');
+                        sectionContent.id = `section-content-${section.id}`;
+
+                        columnElement.appendChild(sectionElement);
+                        columnElement.appendChild(sectionContent);
+
+                        // Add section-specific content
+                        if (section.section_type === 'image_gallery') {
+                            sectionContent.innerHTML = `
+        <div class="uploaded-images-container section-container">
+            <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
+                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                <input type="hidden" name="section_id" value="${section.id}">
+                <label for="picture">Pictures:</label>
+                <input type="file" name="picture" accept="image/*" multiple><br><br>
+                <input type="submit" value="Upload">
+                <label>Uploaded Images:</label>
+                <div class="uploaded-images" ondrop="handleDrop(event)" ondragover="handleDragOver(event)">
+                    <ul class="sortable" id="sortable-${section.id}">
+                    </ul>
+                </div>
+            </form>
+        </div>`;
+                            // Add section-specific content
+                        } else if (section.section_type === 'image') {
+                            sectionContent.innerHTML = `
+        <div class="uploaded-images-container section-container">
+            <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
+                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                <input type="hidden" name="section_id" value="${section.id}">
+                <label for="picture">Image:</label>
+                <input type="file" name="picture" accept="image/*">
+                <input type="submit" value="Upload">
+                <label>Uploaded Image:</label>
+                <div class="uploaded-images">
+                    <ul class="sortable" id="sortable-${section.id}">
+                    </ul>
+                </div>
+            </form>
+        </div>`;
+    }if (section.section_type === 'navbar') {
+    sectionContent.innerHTML = `
+    <!-- Navbar Section -->
+    <div class="navbar-container section-container">
+        <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+            <label for="navbar_items">Navbar Items:</label><br>
+            <div id="urls-container"></div>
+            <button type="button" id="add-url-button">Add Item</button>
+        </form>
+    </div>
+`;
+                        }
+                        else if (section.section_type === 'header') {
+                            sectionContent.innerHTML = `
+        <div class="page-header-container section-container">
+            <form class="update-section-form" data-section-id="${section.id}"
+                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                <label for="header_text">Header Text:</label><br>
+                <textarea id="header_text" name="header_text" rows="1" class="dynamic-width"
+                    style="padding: 10px;">${section.content['text']}</textarea><br><br>
+            </form>
+        </div>`;
+                        } else if (section.section_type === 'youtube_video') {
+                            sectionContent.innerHTML = `
+        <div class="youtube-video-container section-container">
+            <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}" action="/update_youtube_video" method="POST">
+                <input type="hidden" name="section_id" value="${section.id}">
+                <label for="youtube-url-${section.id}">YouTube Video URL:</label>
+                <input type="text" id="youtube-url-${section.id}" class="youtube-url-input" name="youtube_url" data-section-id="${section.id}" value="${section.content['youtube_url'] || ''}" placeholder="Enter YouTube video URL">
+            </form>
+            <div class="youtube-video-embed" id="youtube-video-embed-${section.id}">
+                ${section.content['youtube_url'] ? `<iframe width="560" height="315" src="${section.content['youtube_url'].replace('watch?v=', 'embed/')}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>` : ''}
+            </div>
+        </div>`;
+                        } else if (section.section_type === 'button') {
+                            sectionContent.innerHTML = `
+        <div class="update-text-container section-container">
+            <form class="update-section-form" data-section-id="${section.id}"
+                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                <label for="button_text">Button Text:</label><br>
+                <textarea id="button_text" name="button_text" rows="1" class="dynamic-width"
+                    style="padding: 10px;">${section.content['text']}</textarea><br><br>
+                <label for="button_link">Button Link:</label><br>
+                <textarea id="button_link" name="button_link" rows="1" class="dynamic-width"
+                    style="padding: 10px;">${section.content['link']}</textarea><br><br>
+                <label for="button_enabled">Enable Button:</label>
+                <input type="checkbox" id="button_enabled" name="button_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+            </form>
+        </div>`;
+                        } else if (section.section_type === 'code') {
+                            sectionContent.innerHTML = `
+                            <div class="page-body-container section-container code">
+    <!-- Querying input textbox with Enter button -->
+    <div class="ai-query-text">
+    <textarea id="text-${section.id}" class="query-input" placeholder="Enter your ai request..."></textarea>
+</div>
+
+    <button type="button" class="query-button" data-section-id="${section.id}">Enter</button>
+    
+    <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+        <button type="button" class="formatCodeButton">Format Code</button><br>
+        <div class="editor-wrapper">
+            <div id="editor-container-${section.id}" class="editor-container">
+                <textarea id="codemirror-text-${section.id}" name="text" required>${section.content['text']}</textarea>
+            </div>
+        </div>
+        <label for="color-picker-${section.id}">Color Picker:</label>
+        <input type="color" class="color-picker" id="color-picker-${section.id}" value="${section.content['color'] || '#ffffff'}">
+        <div id="saved-colors-${section.id}"></div>
+        <br><br>
+    </form>
+    <!-- Response streaming into editor textarea -->
+    <div id="response-container-${section.id}" class="response-container"></div>
+</div>
+`;
+
+                            // Event listener for query button
+                            const queryButton = sectionContent.querySelector('.query-button');
+                            const queryInput = sectionContent.querySelector('.query-input');
+                            const editorTextarea = sectionContent.querySelector(`#codemirror-text-${section.id}`);
+                            const responseContainer = sectionContent.querySelector(`#response-container-${section.id}`);
+
+                            queryButton.addEventListener('click', async () => {
+                                const prompt = queryInput.value.trim();
+                                await fetchAndStreamResponse(section.id, prompt);
+                            });
+
+                            // // Event listener for pressing Enter in query input
+                            // queryInput.addEventListener('keypress', async (e) => {
+                            //     if (e.key === 'Enter') {
+                            //         const prompt = queryInput.value.trim();
+                            //         await fetchAndStreamResponse(section.id, prompt);
+                            //     }
+                            // });
+
+                            async function fetchAndStreamResponse(sectionId, prompt) {
+                                const editorTextarea = sectionContent.querySelector(`#codemirror-text-${sectionId}`);
+                                const currentCode = editorTextarea.value.trim(); // Get current text/code in the textarea
+                                const responseContainer = sectionContent.querySelector(`#response-container-${sectionId}`);
+                                const editor = codeMirrorEditors.find(ed => ed.getTextArea() === editorTextarea);
+
+                                responseContainer.textContent = ''; // Clear previous responses if any
+
+
+
+                                try {
+                                    const response = await fetch('/get_response_stream', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({ prompt: prompt, code: currentCode }),
+                                    });
+                                    editor.setValue('');
+                                    const reader = response.body.getReader();
+                                    const stream = new ReadableStream({
+                                        start(controller) {
+                                            function push() {
+                                                reader.read().then(({ done, value }) => {
+                                                    if (done) {
+                                                        controller.close();
+                                                        return;
+                                                    }
+                                                    const text = new TextDecoder().decode(value);
+
+                                                    // Find the corresponding CodeMirror instance
+
+                                                    if (editor) {
+                                                        editor.setValue(editor.getValue() + text); // Append the response text
+                                                    }
+
+                                                    push();
+                                                })
+                                                    .catch(error => {
+                                                        console.error(error);
+                                                        controller.error(error);
+                                                    });
+                                            }
+                                            push();
+                                        }
+                                    });
+
+                                    const responseStream = new Response(stream, { headers: { 'Content-Type': 'text/plain' } });
+
+                                    await responseStream; // Consume the response stream
+
+                                } catch (error) {
+                                    console.error('Error fetching response:', error);
+                                    responseContainer.textContent = 'Error fetching response. Please try again.';
+                                }
+                            }
+
+
+                        }
+
+                        else if (section.section_type === 'text') {
+                            sectionContent.innerHTML = `
+    <div class="page-body-container section-container">
+        <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+            <div class="text-editor-wrapper">
+                <div id="editor-${section.id}" style="height: 400px;">${section.content['html']}</div>
+                <textarea id="text-${section.id}" name="text" style="display: none;">${section.content['text']}</textarea>
+                <br>
+            </div>
+        </form>
+    </div>`;
+
+
+
+
+                        } else if (section.section_type === 'map') {
+                            sectionContent.innerHTML = `
+        <div class="map-marker-container section-container">
+            <form class="update-section-form" data-section-id="${section.id}"
+                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                <label for="map_marker_label">Map Marker Label:</label><br>
+                <textarea id="map_marker_label" name="map_marker_label" rows="1" class="dynamic-width"
+                    style="padding: 10px;">${section.content['marker_label']}</textarea><br><br>
+                <label for="latitude">Latitude:</label>
+                <input type="number" step="any" id="latitude" name="latitude"
+                    value="${section.content['latitude']}" required><br><br>
+                <label for="longitude">Longitude:</label>
+                <input type="number" step="any" id="longitude" name="longitude"
+                    value="${section.content['longitude']}" required><br><br>
+                <label for="map_enabled">Enable Map:</label>
+                <input type="checkbox" id="map_enabled" name="map_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+            </form>
+        </div>`;
+                        } else if (section.section_type === 'contact_form') {
+                            sectionContent.innerHTML = `
+        <div class="contact-form-container section-container">
+            <form class="update-section-form" data-section-id="${section.id}" data-section-type="contact_form">
+                <input type="hidden" name="section_id" value="${section.id}" data-page-id="${section.page_content_id}">
+                <input type="hidden" name="section_type" value="contact_form">
+                <label for="contact_form_title">Contact Form Title:</label><br>
+                <textarea id="contact_form_title" name="contact_form_title" rows="1" class="dynamic-width"
+                    style="padding: 10px;">${section.content['title']}</textarea><br><br>
+                <label for="contact_email">Email Recipient:</label><br>
+                <textarea id="contact_email" name="contact_email" rows="1" class="dynamic-width"
+                    style="padding: 10px;">${section.content['email']}</textarea><br><br>
+                <label for="contact_form_enabled">Enable Contact Form:</label>
+                <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+            </form>
+        </div>`;
+                        } else if (section.section_type === 'calendar') {
+                            sectionContent.innerHTML = `
+        <div class="calendar-container section-container">
+            <button onclick="addEvent(${section.id})">Add Event</button>
+            <div id="calendar-${section.id}" class="calendar"></div>
+        </div>`;
+                        }
+                    } else {
+                        // Handle empty placeholder column
+                        const placeholder = document.createElement('div');
+                        placeholder.classList.add('placeholder');
+                        // placeholder.textContent = 'Drop here to add a section';
+                        columnElement.appendChild(placeholder);
+                        // Button to delete column
+                        // Create delete column button
+                        const deleteColumnButton = document.createElement('button');
+                        deleteColumnButton.textContent = 'Delete Cell';
+                        deleteColumnButton.classList.add('delete-column-button');
+                        deleteColumnButton.onclick = function () {
+                            deleteColumn(rowId, section.column_id); // Use sectionData.column_id
+                        };
+                        columnElement.appendChild(deleteColumnButton);
+
+                        // Add button for adding a section
+                        const addSectionButton = document.createElement('button');
+                        addSectionButton.textContent = 'Add Section';
+                        addSectionButton.onclick = function () {
+                            openAddSectionModal(rowId, section.column_id); // Function to open the modal for adding a section
+                        };
+                        columnElement.appendChild(addSectionButton);
+                    }
+                    rowElement.appendChild(columnElement);
+                    // columnWrapper.appendChild(columnElement);
+
+                    // Create the resize handle
+                    const resizeHandle = document.createElement('div');
+                    // Check if this is not the last column in the row
+                    const numColumns = Object.keys(grid[rowId]).length;
+                    console.log('NUMBER OF COLUMNS: ', numColumns)
+                    if (columnCounter !== numColumns) {
+                        resizeHandle.classList.add('column-resize-handle');
+
+
+
+                        // Ensure the event handlers are set up correctly for each resize handle
+                        resizeHandle.addEventListener('mousedown', function (event) {
+                            const col1 = resizeHandle.previousElementSibling;
+                            const col2 = resizeHandle.nextElementSibling;
+                            console.log('Resize Handle Start', { col1, col2 });
+                            if (col1 && col2) {
+                                handleResizeMouseDown(event, col1, col2, resizeHandle);
+                            } else {
+                                console.log('Missing columns for resize:', { col1, col2 });
+                            }
+                        });
+
+                        resizeHandle.addEventListener('touchstart', function (event) {
+                            const col1 = resizeHandle.previousElementSibling;
+                            const col2 = resizeHandle.nextElementSibling;
+                            console.log('Resize Handle Start', { col1, col2 });
+                            if (col1 && col2) {
+                                handleResizeTouchStart(event, col1, col2, resizeHandle);
+                            } else {
+                                console.log('Missing columns for resize:', { col1, col2 });
+                            }
+                        });
+
+                        // Append the resize handle to the row element
+                        rowElement.appendChild(resizeHandle);
+                    }
+
+                }
+                sectionsContainer.appendChild(rowElement);
+                // Make sections draggable
+                const sections = document.querySelectorAll('.section-title');
+                sections.forEach(section => {
+                    section.draggable = true;
+                    section.addEventListener('dragstart', handleDragStart);
+                });
+
+                // Make row/column cells droppable
+                const cells = document.querySelectorAll('.column');
+                cells.forEach(cell => {
+                    cell.addEventListener('dragover', handleDragOver);
+                    cell.addEventListener('drop', handleDrop);
+                });
+
+                function handleDragStart(event) {
+                    const sectionIdString = event.target.id.split('-').pop(); // Extract section ID from the title's ID
+                    const sectionId = parseInt(sectionIdString, 10); // Parse the section ID as an integer
+                    event.dataTransfer.setData('text/plain', sectionId);
+                }
+
+                function handleDragOver(event) {
+                    event.preventDefault();
+                }
+
+                function handleDrop(event) {
+                    event.preventDefault();
+                    const sectionId = event.dataTransfer.getData('text/plain');
+                    const sectionElement = document.getElementById(sectionId);
+                    const columnId = event.target.dataset.columnId;
+                    const rowId = event.target.dataset.row;
+
+                    // Get the dropped section's parent column
+                    const droppedColumn = event.target.closest('.column');
+
+                    // If there is no section in the dropped column or the dropped section is being dropped on itself, simply update the section's position
+                    if (!droppedColumn.querySelector('.section-title') || droppedColumn.querySelector('.section-title') === sectionElement) {
+                        // Update the UI
+                        // event.target.appendChild(sectionElement);
+
+                        // Update the database (make an AJAX request to update section's row and column)
+                        fetch(`/update_section_position/${sectionId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ rowId, columnId })
+                        })
+                            .then(response => {
+                                if (response.ok) {
+                                    console.log('Section position updated successfully');
+                                    handleSubmit();
+                                    populateSections();
+                                } else {
+                                    throw new Error('Failed to update section position');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error updating section position:', error);
+                            });
+                    } else {
+                        // Get the ID of the section being dropped over
+                        const droppedOverSectionId = droppedColumn.querySelector('.section-title').id.split('-').pop();
+
+                        // Swap sections' positions in the UI
+                        const draggedSection = document.getElementById(`section-title-${sectionId}`);
+                        const droppedOverSection = document.getElementById(`section-title-${droppedOverSectionId}`);
+
+                        // Swap the sections
+                        const temp = document.createElement('div');
+                        draggedSection.parentNode.insertBefore(temp, draggedSection);
+                        droppedOverSection.parentNode.insertBefore(draggedSection, droppedOverSection);
+                        temp.parentNode.insertBefore(droppedOverSection, temp);
+                        temp.parentNode.removeChild(temp);
+
+                        // Update the database
+                        fetch(`/swap_section_positions/${sectionId}/${droppedOverSectionId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                draggedRowId: rowId,
+                                draggedColumnId: columnId,
+                                droppedOverRowId: droppedColumn.dataset.row,
+                                droppedOverColumnId: droppedColumn.dataset.column
+                            })
+                        })
+                            .then(response => {
+                                if (response.ok) {
+                                    console.log('Sections position swapped successfully');
+                                    // Update any other necessary UI elements or data
+                                    populateSections();
+                                } else {
+                                    throw new Error('Failed to swap sections position');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error swapping sections position:', error);
+                                // Handle the error appropriately
+                            });
+                    }
+                }
+
+
+
+            });
+            // After appending the "Add Section" button to the sectionsContainer
+            const addSectionBtnContainer = document.createElement('div');
+            addSectionBtnContainer.classList.add('add-section-btn-container');
+            addSectionBtnContainer.addEventListener('click', function () {
+                openAddSectionModal(null, null);
+            });
+
+            const addSectionButton = document.createElement('span');
+            addSectionButton.classList.add('add-section-btn');
+            addSectionButton.id = 'addSectionBtn';
+            addSectionButton.textContent = '+';
+
+
+            // Append the button to the container
+            addSectionBtnContainer.appendChild(addSectionButton);
+
+            // Append the container to the sectionsContainer
+            sectionsContainer.appendChild(addSectionBtnContainer);
+
+
+            function addRowAbove(currentRowId) {
+                console.log("ADD ROW ABOVE: ", currentRowId)
+                fetch(`/add_row_above/${currentRowId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            populateSections();
+                        } else {
+                            console.error('Failed to add row:', data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            }
+
+
+            function handleResizeMouseDown(event, col1, col2, resizeHandle) {
+                // Show the resize overlay and block pointer events
+                const resizeOverlay = document.querySelector('.resize-overlay');
+                resizeOverlay.style.display = 'block';
+                const startX = event.clientX;
+                const col1Styles = window.getComputedStyle(col1);
+                const col2Styles = window.getComputedStyle(col2);
+
+                const col1Padding = parseFloat(col1Styles.paddingLeft) + parseFloat(col1Styles.paddingRight);
+                const col2Padding = parseFloat(col2Styles.paddingLeft) + parseFloat(col2Styles.paddingRight);
+
+                const initialCol1Width = col1.getBoundingClientRect().width - col1Padding;
+                const initialCol2Width = col2.getBoundingClientRect().width - col2Padding;
+
+                console.log("Initial col1 width:", initialCol1Width, "Initial col2 width:", initialCol2Width);
+
+                // Create percentage indicators
+                const col1PercentageIndicator = document.createElement('div');
+                col1PercentageIndicator.classList.add('percentage-indicator');
+                col1.appendChild(col1PercentageIndicator);
+
+                const col2PercentageIndicator = document.createElement('div');
+                col2PercentageIndicator.classList.add('percentage-indicator');
+                col2.appendChild(col2PercentageIndicator);
+
+                const updatePercentageIndicators = () => {
+                    const newWidth1Percent = ((col1.offsetWidth / col1.parentElement.offsetWidth) * 100).toFixed(2);
+                    const newWidth2Percent = ((col2.offsetWidth / col2.parentElement.offsetWidth) * 100).toFixed(2);
+                    col1PercentageIndicator.textContent = `${newWidth1Percent}%`;
+                    col2PercentageIndicator.textContent = `${newWidth2Percent}%`;
+                };
+
+                const mouseMoveHandler = (moveEvent) => {
+                    const currentX = moveEvent.clientX;
+                    const dx = currentX - startX;
+                    const newCol1Width = initialCol1Width + dx;
+                    const newCol2Width = initialCol2Width - dx;
+
+                    console.log("currentX:", currentX);
+                    console.log("dx:", dx);
+                    console.log("New col1 width:", newCol1Width);
+                    console.log("New col2 width:", newCol2Width);
+
+                    if (newCol1Width > 1 && newCol2Width > 1) {
+                        col1.style.width = `${newCol1Width + col1Padding}px`;
+                        col2.style.width = `${newCol2Width + col2Padding}px`;
+                        updatePercentageIndicators();
+                    }
+                };
+
+                const mouseUpHandler = () => {
+                    resizeOverlay.style.display = 'none'; // Hide overlay after resizing
+                    document.removeEventListener('mousemove', mouseMoveHandler);
+                    document.removeEventListener('mouseup', mouseUpHandler);
+
+                    col1.removeChild(col1PercentageIndicator);
+                    col2.removeChild(col2PercentageIndicator);
+
+                    const newWidth1Percent = (col1.offsetWidth / col1.parentElement.offsetWidth) * 100;
+                    const newWidth2Percent = (col2.offsetWidth / col2.parentElement.offsetWidth) * 100;
+
+                    const prevColumnId = col1.getAttribute('data-column-id');
+                    const nextColumnId = col2.getAttribute('data-column-id');
+
+                    updateColumnWidths(prevColumnId, newWidth1Percent, nextColumnId, newWidth2Percent);
+                };
+
+                document.addEventListener('mousemove', mouseMoveHandler);
+                document.addEventListener('mouseup', mouseUpHandler);
+
+                updatePercentageIndicators();
+            }
+
+            function handleResizeTouchStart(event, col1, col2, resizeHandle) {
+                // Show the resize overlay and block pointer events
+                const resizeOverlay = document.querySelector('.resize-overlay');
+                resizeOverlay.style.display = 'block';
+                const startX = event.touches[0].clientX;
+                const col1Styles = window.getComputedStyle(col1);
+                const col2Styles = window.getComputedStyle(col2);
+
+                const col1Padding = parseFloat(col1Styles.paddingLeft) + parseFloat(col1Styles.paddingRight);
+                const col2Padding = parseFloat(col2Styles.paddingLeft) + parseFloat(col2Styles.paddingRight);
+
+                const initialCol1Width = col1.getBoundingClientRect().width - col1Padding;
+                const initialCol2Width = col2.getBoundingClientRect().width - col2Padding;
+
+                console.log("Initial col1 width:", initialCol1Width, "Initial col2 width:", initialCol2Width);
+
+                // Create percentage indicators
+                const col1PercentageIndicator = document.createElement('div');
+                col1PercentageIndicator.classList.add('percentage-indicator');
+                col1.appendChild(col1PercentageIndicator);
+
+                const col2PercentageIndicator = document.createElement('div');
+                col2PercentageIndicator.classList.add('percentage-indicator');
+                col2.appendChild(col2PercentageIndicator);
+
+                const updatePercentageIndicators = () => {
+                    const newWidth1Percent = ((col1.offsetWidth / col1.parentElement.offsetWidth) * 100).toFixed(2);
+                    const newWidth2Percent = ((col2.offsetWidth / col2.parentElement.offsetWidth) * 100).toFixed(2);
+                    col1PercentageIndicator.textContent = `${newWidth1Percent}%`;
+                    col2PercentageIndicator.textContent = `${newWidth2Percent}%`;
+                };
+
+                const touchMoveHandler = (moveEvent) => {
+                    const currentX = moveEvent.touches[0].clientX;
+                    const dx = currentX - startX;
+                    const newCol1Width = initialCol1Width + dx;
+                    const newCol2Width = initialCol2Width - dx;
+
+                    console.log("currentX:", currentX);
+                    console.log("dx:", dx);
+                    console.log("New col1 width:", newCol1Width);
+                    console.log("New col2 width:", newCol2Width);
+
+                    if (newCol1Width > 1 && newCol2Width > 1) {
+                        col1.style.width = `${newCol1Width + col1Padding}px`;
+                        col2.style.width = `${newCol2Width + col2Padding}px`;
+                        updatePercentageIndicators();
+                    }
+                };
+
+                const touchEndHandler = () => {
+                    resizeOverlay.style.display = 'none'; // Hide overlay after resizing
+                    document.removeEventListener('touchmove', touchMoveHandler);
+                    document.removeEventListener('touchend', touchEndHandler);
+
+                    col1.removeChild(col1PercentageIndicator);
+                    col2.removeChild(col2PercentageIndicator);
+
+                    const newWidth1Percent = (col1.offsetWidth / col1.parentElement.offsetWidth) * 100;
+                    const newWidth2Percent = (col2.offsetWidth / col2.parentElement.offsetWidth) * 100;
+
+                    const prevColumnId = col1.getAttribute('data-column-id');
+                    const nextColumnId = col2.getAttribute('data-column-id');
+
+                    updateColumnWidths(prevColumnId, newWidth1Percent, nextColumnId, newWidth2Percent);
+                };
+
+                document.addEventListener('touchmove', touchMoveHandler);
+                document.addEventListener('touchend', touchEndHandler);
+
+                updatePercentageIndicators();
+            }
+
+            function updateColumnWidths(prevColumnId, newWidthPrev, nextColumnId, newWidthNext) {
+                fetch('/update-column-widths', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prevColumnId: prevColumnId,
+                        newWidthPrev: newWidthPrev,
+                        nextColumnId: nextColumnId,
+                        newWidthNext: newWidthNext,
+                    }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Column widths updated:', data);
+                    })
+                    .catch((error) => {
+                        console.error('Error updating column widths:', error);
+                    });
+            }
+
+
+
+
+
+            function openAddSectionModal(rowId, columnId) {
+                // Open the modal for adding a section
+                // Set the input values
+                document.getElementById('row-id-input').value = rowId || null;
+                document.getElementById('column-id-input').value = columnId || null;
+                document.getElementById('add-section-modal').style.display = 'block';
+            }
+
+            // Close the modal when the close button is clicked
+            document.getElementById('closeModal').onclick = function () {
+                document.getElementById('add-section-modal').style.display = 'none';
+            };
+
+            // Close the modal when clicking outside of it
+            window.onclick = function (event) {
+                const modal = document.getElementById('add-section-modal');
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            };
+
+
+            function deleteRow(rowId) {
+                fetch(`/delete_row/${rowId}`, {
+                    method: 'DELETE',
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            // Remove the row element from the UI
+                            const rowElement = document.querySelector(`.row[data-row="${rowId}"]`);
+                            if (rowElement) {
+                                rowElement.remove();
+                            }
+                            console.log('Row deleted successfully');
+                        } else {
+                            console.error('Failed to delete row');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error deleting row:', error);
+                    });
+            }
+
+            function deleteColumn(rowId, columnId) {
+                console.log("deleteing column: ", columnId)
+                // // Get the column ID from the grid based on rowId and columnNumber
+                // const columnElementId = `column-${rowId}-${columnNumber}`;
+                const columnElement = document.getElementById(columnId);
+                // if (!columnElement) {
+                //     console.error('Column element not found');
+                //     return;
+                // }
+
+                // const columnId = columnElement.dataset.columnId;
+
+                // Make an AJAX request to delete the column using its ID
+                fetch(`/delete_column/${columnId}`, {
+                    method: 'DELETE',
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            // Remove the column from the grid
+                            // delete grid[rowId][columnNumber];
+
+                            // Remove the column element from the UI
+                            // columnElement.remove();
+
+                            const columnElement = document.querySelector(`.column[data-column-id="${columnId}"]`);
+                            if (columnElement) {
+                                columnElement.remove();
+                            }
+
+                            console.log('Column deleted successfully');
+
+                            // Reload the sections after deletion
+                            populateSections();
+                        } else {
+                            throw new Error('Failed to delete column');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error deleting column:', error);
+                    });
+            }
+
+
+
+
+            function addColumnToRow(rowId) {
+                fetch('/add_column', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ row_id: rowId })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            console.error('Error adding column:', data.error);
+                        } else {
+                            console.log('Column added:', data.column_id);
+                            // Reload sections to reflect changes
+                            populateSections();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            }
+
+
+            let quillEditors = []; // Array to store Quill instances
+
+            // Initialize calendars if any
+            sections.forEach(section => {
+                if (section.section_type === 'calendar') {
+                    console.log('Initializing calendar for section:', section); // Debug logging
+                    initializeCalendar(section.id);
+                }
+                if (section.section_type === 'image_gallery') {
+                    // If it's an image gallery section, load uploaded images
+                    loadUploadedImages(section.id);
+                }
+                if (section.section_type === 'navbar') {
+                    // If it's a navbar section, initialize the navbar
+                    initializeNavbar(website.id, section.id);
+                }
+                if (section.section_type === 'text') {
+                    // Initialize Quill editor for each text section
+                    var quill = new Quill(`#editor-${section.id}`, {
+                        theme: 'snow'
+                    });
+
+                    // Store the Quill instance
+                    quillEditors.push({ id: section.id, quill: quill });
+
+                    // Add an event listener to update the hidden textarea with the editor's HTML content
+                    quill.on('text-change', function (delta, oldDelta, source) {
+                        if (source === 'user') {
+                            var htmlContent = quill.root.innerHTML;
+                            document.querySelector(`#text-${section.id}`).value = htmlContent;
+                        }
+                    });
+                }
+            });
+
+
+            function initializeNavbar(websiteId, sectionId) {
+    const section = sections.find(sec => sec.id === sectionId);
+    const urlsContainer = document.getElementById('urls-container');
+
+    if (!urlsContainer) {
+        console.error('Navbar elements not found');
+        return;
+    }
+
+    // Function to add a new URL and Name input group
+    function addUrlInput(name = '', url = '') {
+        const urlInputGroup = document.createElement('div');
+        urlInputGroup.classList.add('url-input-group');
+        urlInputGroup.innerHTML = `
+            <input type="text" name="navbar_names" placeholder="Name" class="dynamic-width name-input" style="padding: 10px;" value="${name}" />
+            <input type="text" name="navbar_urls" placeholder="URL" class="dynamic-width url-input" style="padding: 10px;" value="${url}" />
+            <button type="button" class="edit-url-button">Edit</button>
+            <button type="button" class="remove-url-button">Remove</button>
+        `;
+        urlsContainer.appendChild(urlInputGroup);
+
+        // Add event listener to the remove button
+        const removeButton = urlInputGroup.querySelector('.remove-url-button');
+        removeButton.addEventListener('click', function () {
+            urlsContainer.removeChild(urlInputGroup);
+        });
+
+        // Add event listener to the edit button
+        const editButton = urlInputGroup.querySelector('.edit-url-button');
+        editButton.addEventListener('click', function () {
+            const nameInput = urlInputGroup.querySelector('.name-input');
+            const urlInput = urlInputGroup.querySelector('.url-input');
+            nameInput.removeAttribute('readonly');
+            urlInput.removeAttribute('readonly');
+        });
+    }
+
+    // Function to fetch page URLs associated with the website from backend
+    async function fetchPageURLs(websiteId) {
+        try {
+            const response = await fetch(`/api/website/${websiteId}/pages`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch page URLs');
+            }
+            const data = await response.json();
+            return data.pages; // Assuming data is structured with pages array
+        } catch (error) {
+            console.error('Error fetching page URLs:', error);
+            return [];
+        }
+    }
+
+    // Function to populate the dropdown with fetched page URLs
+    async function populateDropdown(websiteId) {
+        const pages = await fetchPageURLs(websiteId);
+        const selectDropdown = document.createElement('select');
+        // Get the root URL of the webpage
+        var rootUrl = window.location.origin;
+
+
+        selectDropdown.name = 'navbar_page_urls';
+        selectDropdown.classList.add('dynamic-width', 'url-input');
+        selectDropdown.style.padding = '10px';
+
+        // Add a manual entry option
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '-- Select URL Location --';
+        selectDropdown.appendChild(placeholder);
+
+                // Add a manual entry option
+                const option = document.createElement('option');
+                option.value = 'enter URL here';
+                option.textContent = 'Enter Manually';
+        selectDropdown.appendChild(option);
+
+        // Add existing pages as options
+        pages.forEach(page => {
+            // Construct the full URL
+            var fullUrl = rootUrl + `/website/${websiteId}/${page.id}`;
+            const option = document.createElement('option');
+            option.value = fullUrl; // Adjust URL format as needed
+            option.textContent = page.name;
+            selectDropdown.appendChild(option);
+        });
+
+        // Add event listener to select option
+        selectDropdown.addEventListener('change', function () {
+            const selectedOption = selectDropdown.options[selectDropdown.selectedIndex];
+            if (selectedOption.value !== '') {
+                addUrlInput(selectedOption.textContent, selectedOption.value);
+                selectDropdown.selectedIndex = 0; // Reset dropdown to default option
+            }
+        });
+
+        // Replace the "Add Item" button with the dropdown
+        const addUrlButton = document.getElementById('add-url-button');
+        addUrlButton.parentNode.replaceChild(selectDropdown, addUrlButton);
+    }
+
+    // Initialize the dropdown when initializing the navbar
+    populateDropdown(websiteId);
+
+    // Initialize Sortable.js for the URLs container
+    Sortable.create(urlsContainer, {
+        animation: 150,
+        handle: '.url-input, .name-input',
+        ghostClass: 'sortable-ghost',
+    });
+
+    // Populate existing navbar items if any
+    if (section && section.content && section.content.navbar_items) {
+        section.content.navbar_items.forEach(item => {
+            addUrlInput(item.name, item.url);
+        });
+    }
+}
+
+
+
+
+
+
+            // Adjusted code to handle delete section functionality
+            document.querySelectorAll('.delete-section').forEach(function (element) {
+                element.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation(); // Prevents toggling the section content
+
+                    const sectionId = this.getAttribute('data-section-id');
+                    const pageId = this.getAttribute('data-page-id');
+
+                    fetch(`/page/${pageId}/remove_section/${sectionId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.message === 'Section removed successfully') {
+                                // Find the closest section-title and remove its related content
+                                const sectionTitle = this.closest('.section-title');
+                                const sectionContent = sectionTitle.nextElementSibling;
+
+                                // Remove the section title and content
+                                sectionTitle.parentElement.removeChild(sectionTitle);
+                                if (sectionContent && sectionContent.classList.contains('section-content')) {
+                                    sectionContent.parentElement.removeChild(sectionContent);
+                                }
+
+                                // Optionally, you can call populateSections if you want to reload the sections
+                                populateSections();
+                            } else {
+                                alert('Failed to remove section');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                        });
+                });
+            });
+            // After all sections have been appended, load the uploaded images
+            // sections.forEach(section => {
+            //     if (section.section_type === 'image_gallery') {
+            //         // If it's an image gallery section, load uploaded images
+            //         loadUploadedImages(section.id);
+            //     }
+            // });
+            // Event listener for "Delete Selected Images" option
+            document.querySelectorAll('.delete-selected-images').forEach(function (link) {
+                link.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    var sectionId = this.getAttribute('data-section-id');
+                    deleteSelectedImages(sectionId);
+                });
+            });
+
+
+            // document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll(".updateImageForm").forEach(function (form) {
+                var sectionId = form.getAttribute("data-section-id");
+
+                // Attach the submit event listener to each form
+                form.addEventListener("submit", function (event) {
+                    event.preventDefault(); // Prevent default form submission
+
+                    var formData = new FormData(form);
+
+                    fetch("/update_public_images", {
+                        method: "POST",
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                document.getElementById("message").innerHTML = data.message;
+                                // Refresh the uploaded images after successful upload
+                                loadUploadedImages(sectionId); // Pass the section ID to refresh the specific section
+                            } else {
+                                document.getElementById("message").innerHTML = data.message;
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                });
+
+                // Load images for this section on page load
+                loadUploadedImages(sectionId);
+            });
+            // });
+            // Function to initialize CodeMirror for a textarea
+            // initializeCodeMirror()
+            // Select all textareas within page-body-container and initialize CodeMirror for each
+            const textAreas = document.querySelectorAll(".page-body-container textarea");
+            // Function to fetch and display response stream
+
+
+            textAreas.forEach((textArea, index) => {
+    // Check if the parent section is a code section based on ID
+    const sectionId = textArea.id.replace('codemirror-text-', ''); // Extract section ID
+    if (textArea.id.startsWith('codemirror-text-')) {
+        initializeCodeMirror(textArea);
+    }
+});
+
+            // Initialize color pickers for text sections
+            const colorPickers = document.querySelectorAll('.color-picker');
+            colorPickers.forEach((colorPicker, index) => {
+                const pickr = Pickr.create({
+                    el: colorPicker,
+                    theme: 'classic', // or 'monolith', or 'nano'
+                    swatches: [
+                        'rgba(244, 67, 54, 1)',
+                        'rgba(233, 30, 99, 0.95)',
+                        'rgba(156, 39, 176, 0.9)',
+                        'rgba(103, 58, 183, 0.85)',
+                        'rgba(63, 81, 181, 0.8)',
+                        'rgba(33, 150, 243, 0.75)',
+                        'rgba(3, 169, 244, 0.7)',
+                        'rgba(0, 188, 212, 0.7)',
+                        'rgba(0, 150, 136, 0.75)',
+                        'rgba(76, 175, 80, 0.8)',
+                        'rgba(139, 195, 74, 0.85)',
+                        'rgba(205, 220, 57, 0.9)',
+                        'rgba(255, 235, 59, 0.95)',
+                        'rgba(255, 193, 7, 1)'
+                    ],
+                    components: {
+                        // Main components
+                        preview: true,
+                        opacity: true,
+                        hue: true,
+                        // Input / output Options
+                        interaction: {
+                            hex: true,
+                            rgba: false,
+                            hsla: false,
+                            hsva: false,
+                            cmyk: false,
+                            input: true,
+                            clear: true,
+                            save: true
+                        }
+                    }
+                });
+
+                pickr.on('change', (color, instance) => {
+                    const hexColor = color.toHEXA().toString();
+                    console.log(hexColor);
+                });
+
+                pickr.on('save', (color, instance) => {
+                    const hexColor = color.toHEXA().toString();
+                    saveColor(hexColor, document.getElementById(`saved-colors-${index}`));
+                });
+            });
+            // Attach submit event listeners to forms
+            handleSubmit("update-section-form", "/update_section");
+
+            document.getElementById("saveChangesButton").addEventListener("click", function () {
+                // Ensure all Quill instances save their content back to the textareas
+                quillEditors.forEach(editor => {
+                    var htmlContent = editor.quill.root.innerHTML;
+                    document.querySelector(`#text-${editor.id}`).value = htmlContent;
+                });
+                const forms = document.querySelectorAll(".update-section-form");
+                forms.forEach((form) => {
+                    const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
+                    if (editor) {
+                        editor.save(); // Ensure all CodeMirror instances save their content back to the textareas
+                    }
+                    form.requestSubmit();
+                });
+                setTimeout(function () {
+                    reloadIframe();
+                }, 100);
+            });
+
+        }
+
+
+
+
+        // Initialize an object to hold calendar instances
+        const calendars = {};
+
+        function editEvent(sectionId, event) {
+            const calendar = calendars[sectionId];
+
+            // Create a form for editing event details
+            const formHtml = `
+        <div class="popup-form-overlay" id="popupFormOverlay">
+            <div class="popup-form">
+                <button class="close-btn" id="closeBtn">&times;</button>
+                <form id="eventForm-${sectionId}">
+                    <div class="form-row">
+                        <label for="eventTitle">Title:</label>
+                        <input type="text" id="eventTitle" name="eventTitle" value="${event.title}" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-column">
+                        <label for="startDate">Start Date:</label>
+                        <input type="date" id="startDate" name="startDate" value="${event.startStr.split('T')[0]}" required>
+                        </div>
+                        <div class="form-column">
+                        <label for="endDate">End Date:</label>
+                        <input type="date" id="endDate" name="endDate" value="${event.endStr ? event.endStr.split('T')[0] : ''}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-column">
+                        <label for="startTime">Start Time:</label>
+                        <input type="time" id="startTime" name="startTime" value="${event.startStr.split('T')[1].slice(0, 5)}">
+                        </div>
+                        <div class="form-column">
+                        <label for="endTime">End Time:</label>
+                        <input type="time" id="endTime" name="endTime" value="${event.endStr ? event.endStr.split('T')[1].slice(0, 5) : ''}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="backgroundColor">Background Color:</label>
+                        <input type="color" id="backgroundColor" name="backgroundColor" value="${event.backgroundColor}">
+                    </div>
+                    <div class="form-row-description">
+                        <label for="description">Description:</label>
+                        <textarea id="description" name="description" rows="4">${event.extendedProps.description}</textarea>
+                    </div>
+                    <input type="submit" value="Save Changes">
+                </form>
+                <button id="deleteEventBtn" class="btn btn-danger">Delete Event</button>
+            </div>
+            </div>
+        </div>
+    `;
+
+            // Create a container for the form
+            const formContainer = document.createElement('div');
+            formContainer.innerHTML = formHtml;
+
+            // Append the form to the document body
+            document.body.appendChild(formContainer);
+
+            // Get references to the overlay and close button
+            const overlay = formContainer.querySelector('#popupFormOverlay');
+            const closeButton = formContainer.querySelector('#closeBtn');
+            const deleteButton = formContainer.querySelector('#deleteEventBtn');
+
+            // Add event listener to delete button
+            deleteButton.addEventListener('click', () => {
+                if (confirm(`Do you want to delete the event '${event.title}'?`)) {
+                    event.remove(); // Remove the event from the calendar
+                    deleteEvent(event.id); // Call a function to delete the event from the backend
+                    removeForm(); // Close the form
+                }
+            });
+
+            // Function to remove the form
+            const removeForm = () => {
+                formContainer.remove();
+            };
+
+            // Add event listener to close button
+            closeButton.addEventListener('click', removeForm);
+
+            // Add event listener to overlay to close the form when clicking outside of it
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    removeForm();
+                }
+            });
+
+            // Add event listener for form submission
+            formContainer.querySelector(`#eventForm-${sectionId}`).addEventListener('submit', function (event) {
+                event.preventDefault(); // Prevent default form submission
+
+                // Get form input values
+                const title = this.querySelector('#eventTitle').value;
+                const description = this.querySelector('#description').value;
+                const startDate = this.querySelector('#startDate').value;
+                const startTime = this.querySelector('#startTime').value;
+                const endDate = this.querySelector('#endDate').value;
+                const endTime = this.querySelector('#endTime').value;
+                const backgroundColor = this.querySelector('#backgroundColor').value;
+
+                // Update the event properties
+                event.setProp('title', title);
+                event.setExtendedProp('description', description);
+                event.setStart(startDate + 'T' + startTime);
+                event.setEnd(endDate ? endDate + 'T' + endTime : null);
+                event.setProp('backgroundColor', backgroundColor);
+
+                // Update event on the backend
+                updateEvent(event);
+
+                // Close the form
+                removeForm();
+            });
+        }
+
+
+        function initializeCalendar(sectionId) {
+            const calendarEl = document.getElementById(`calendar-${sectionId}`);
+            const sectionContent = document.getElementById(`section-content-${sectionId}`);
+
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                aspectRatio: 1.5,
+                initialView: 'dayGridMonth',
+                events: (info, successCallback, failureCallback) => {
+                    // Call fetchEvents with the sectionId parameter
+                    fetchEvents(sectionId, successCallback, failureCallback);
+                },
+                editable: true,
+                selectable: true,
+                dateClick: function (info) {
+                    const startDate = info.dateStr; // Get the clicked date
+                    addEvent(sectionId, startDate); // Pass the clicked date to addEvent function
+                },
+                eventClick: function (info) {
+                    editEvent(sectionId, info.event);
+                },
+                eventChange: function (info) {
+                    updateEvent(info.event);
+                }
+            });
+
+            calendar.render();
+
+            calendars[sectionId] = calendar;
+
+            // Create a MutationObserver instance
+            const observer = new MutationObserver((mutationsList, observer) => {
+                for (const mutation of mutationsList) {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                        const classList = mutation.target.classList;
+                        if (classList.contains('open')) {
+                            window.dispatchEvent(new Event('resize'));
+                            observer.disconnect(); // Disconnect the observer to stop observing further mutations
+                        }
+                    }
+                }
+            });
+
+            // Start observing changes in the attributes of sectionContent
+            observer.observe(sectionContent, { attributes: true });
+        }
+
+
+        function addEvent(sectionId, startDate) {
+            const calendar = calendars[sectionId];
+
+            // Create a form for entering event details
+            const formHtml = `
+    <div class="popup-form-overlay" id="popupFormOverlay">
+        <div class="popup-form">
+            <button class="close-btn" id="closeBtn">&times;</button>
+            <form id="eventForm-${sectionId}">
+                <div class="form-row">
+                    <label for="eventTitle">Title:</label>
+                    <input type="text" id="eventTitle" name="eventTitle" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-column">
+                    <label for="startDate">Start Date:</label>
+                    <input type="date" id="startDate" name="startDate" value="${startDate}" required>
+                    </div>
+                    <div class="form-column">
+                    <label for="endDate">End Date:</label>
+                    <input type="date" id="endDate" name="endDate" value="">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-column">
+                    <label for="startTime" id="startTimeLabel">Start Time:</label>
+                    <input type="time" id="startTime" name="startTime" value="00:00"> <!-- Set default start time -->
+                    </div>
+                    <div class="form-column">
+                    <label for="endTime" id="endTimeLabel">End Time:</label>
+                    <input type="time" id="endTime" name="endTime" value="23:59"> <!-- Set default end time -->
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label for="backgroundColor">Background Color:</label>
+                    <input type="color" id="backgroundColor" name="backgroundColor" value="#0000ff">
+                </div>
+
+
+               
+                
+                <div class="form-row-description">
+                    <label for="description">Description:</label>
+                    <textarea id="description" name="description" rows="4"></textarea>
+                </div>
+                <input type="submit" value="Add Event">
+            </form>
+        </div>
+    </div>
+    `;
+
+            // Create a container for the form
+            const formContainer = document.createElement('div');
+            formContainer.innerHTML = formHtml;
+
+            // Append the form to the document body
+            document.body.appendChild(formContainer);
+
+            // Get references to the overlay and close button
+            const overlay = formContainer.querySelector('#popupFormOverlay');
+            const closeButton = formContainer.querySelector('#closeBtn');
+
+            // Function to remove the form
+            const removeForm = () => {
+                formContainer.remove();
+            };
+
+            // Add event listener to close button
+            closeButton.addEventListener('click', removeForm);
+
+            // Add event listener to overlay to close the form when clicking outside of it
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    removeForm();
+                }
+            });
+
+            // Get references to the date and time inputs and their labels
+            const startDateInput = formContainer.querySelector('#startDate');
+            const endDateInput = formContainer.querySelector('#endDate');
+            const startTimeLabel = formContainer.querySelector('#startTimeLabel');
+            const startTimeInput = formContainer.querySelector('#startTime');
+            const endTimeLabel = formContainer.querySelector('#endTimeLabel');
+            const endTimeInput = formContainer.querySelector('#endTime');
+
+            // // Add event listener for the "All Day" checkbox to toggle visibility of time inputs
+            // const allDayCheckbox = formContainer.querySelector('#allDay');
+            // allDayCheckbox.addEventListener('change', function () {
+            //     if (this.checked) {
+            //         // If checkbox is checked (all day), hide the time inputs and labels
+            //         startTimeLabel.style.display = 'none';
+            //         startTimeInput.style.display = 'none';
+            //         endTimeLabel.style.display = 'none';
+            //         endTimeInput.style.display = 'none';
+            //     } else {
+            //         // If checkbox is unchecked (not all day), show the time inputs and labels
+            //         startTimeLabel.style.display = 'inline-block';
+            //         startTimeInput.style.display = 'inline-block';
+            //         endTimeLabel.style.display = 'inline-block';
+            //         endTimeInput.style.display = 'inline-block';
+            //     }
+            // });
+
+            // Add event listener to start date input to set end date if not already set
+            startDateInput.addEventListener('change', function () {
+                if (!endDateInput.value) {
+                    endDateInput.value = startDateInput.value;
+                }
+            });
+
+            // Add event listener for form submission
+            formContainer.querySelector(`#eventForm-${sectionId}`).addEventListener('submit', function (event) {
+                event.preventDefault(); // Prevent default form submission
+
+                // Get form input values
+                const title = this.querySelector('#eventTitle').value;
+                const description = this.querySelector('#description').value;  // Get description value
+                // const allDay = this.querySelector('#allDay').checked;
+                const startDate = this.querySelector('#startDate').value;
+                const startTime = this.querySelector('#startTime').value;
+                const endDate = this.querySelector('#endDate').value;
+                const endTime = this.querySelector('#endTime').value;
+
+                // Create Date objects for start and end times
+                const startDateTime = new Date(startDate + 'T' + (startTime));
+                // Check if endDate exists
+                const endDateTime = endDate ? new Date(endDate + 'T' + (endTime)) : new Date(startDate + 'T' + (endTime));
+
+
+                // Log start and end Date objects
+                console.log('Start Date:', startDateTime);
+                console.log('End Date:', endDateTime);
+
+                // Get background color value
+                const backgroundColor = this.querySelector('#backgroundColor').value;
+
+                // Extend the newEvent object with backgroundColor property
+                const newEvent = {
+                    title: title,
+                    description: description,
+                    start: startDateTime.toISOString(),
+                    end: endDateTime.toISOString(),
+                    // allDay: allDay,
+                    backgroundColor: backgroundColor  // Add backgroundColor property
+                };
+
+                console.log('newEvent:', newEvent);
+
+                // Debug: Log the data before passing it to saveEvent
+                console.log('New Event Data:', newEvent);
+
+                // Add event to calendar
+                calendar.addEvent(newEvent);
+
+                // Save event to backend
+                saveEvent(newEvent, sectionId);
+
+                // Remove the form from the DOM
+                formContainer.remove();
+            });
+        }
+
+
+
+
+        // Function to fetch events from the backend
+        function fetchEvents(sectionId, successCallback, failureCallback) {
+            // Fetch events from the backend using the provided sectionId
+            return fetch(`/page/${sectionId}/events`)
+                .then(response => response.json())
+                .then(events => {
+                    console.log('Fetched Events:', events); // Log fetched events
+                    // Invoke the success callback with the fetched events
+                    successCallback(events);
+                })
+                .catch(error => {
+                    // Invoke the failure callback if an error occurs
+                    failureCallback(error);
+                });
+        }
+
+
+        function saveEvent(event, sectionId) {
+            console.log('Event to be sent to backend:', event); // Debug log
+            fetch(`/page/${sectionId}/add_event`, { // Adjust the page ID as necessary
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(event)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Response from backend:', data); // Debug log
+                    if (!response.ok) {
+                        console.error('Error saving event:', data);
+                    }
+                })
+                .catch(error => console.error('Error saving event:', error));
+        }
+
+
+        function updateEvent(event) {
+            fetch(`/page/${sectionId}/update_event`, { // Adjust the page ID as necessary
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    id: event.id,
+                    title: event.title,
+                    start: event.start,
+                    end: event.end
+                })
+            })
+                .then(response => response.json())
+                .catch(error => console.error('Error updating event:', error));
+        }
+
+        function deleteEvent(eventId) {
+            fetch(`/page/${sectionId}/delete_event`, { // Adjust the page ID as necessary
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ id: eventId })
+            })
+                .then(response => response.json())
+                .catch(error => console.error('Error deleting event:', error));
+        }
+
+    </script>
+
+
+    <!-- Preview and Resizing -->
+    <script>
+        const previewButton = document.getElementById('previewButton');
+        const rightContainer = document.getElementById('rightContainer');
+        const resizer = document.getElementById('resizer');
+        const leftSide = document.querySelector('.content-container');
+        const overlay = document.getElementById('overlay');
+        let isResizing = false;
+
+        previewButton.addEventListener('click', () => {
+            rightContainer.classList.toggle('visible');
+            reloadIframe()
+        });
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            overlay.style.display = 'block'; // Show overlay during resizing
+            document.addEventListener('mousemove', resize);
+            document.addEventListener('mouseup', stopResize);
+            e.preventDefault(); // Prevent text selection
+        });
+
+        function resize(e) {
+            if (isResizing) {
+                const containerOffsetLeft = leftSide.getBoundingClientRect().left;
+                const pointerRelativeXpos = e.clientX - containerOffsetLeft;
+                const leftWidth = pointerRelativeXpos;
+                const rightWidth = document.body.offsetWidth - leftWidth - resizer.offsetWidth;
+
+                leftSide.style.width = `${leftWidth}px`;
+                rightContainer.style.width = `${rightWidth}px`;
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            overlay.style.display = 'none'; // Hide overlay after resizing
+            document.removeEventListener('mousemove', resize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+    </script>
+
+    <!-- Color Picker -->
+    <script>
+
+        // Function to save color to the list of saved colors
+        function saveColor(color, savedColorsContainer) {
+            const colorElement = document.createElement('div');
+            colorElement.style.backgroundColor = color;
+            colorElement.style.width = '50px';
+            colorElement.style.height = '50px';
+            colorElement.style.display = 'inline-block';
+            colorElement.style.margin = '5px';
+            colorElement.style.cursor = 'pointer';
+            colorElement.title = color;
+
+            colorElement.addEventListener('click', () => {
+                copyToClipboard(color);
+                alert(`Copied ${color} to clipboard!`);
+            });
+
+            savedColorsContainer.appendChild(colorElement);
+        }
+
+        // Function to copy color value to clipboard
+        function copyToClipboard(text) {
+            const tempInput = document.createElement('input');
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+        }
+    </script>
+
+
+    <!-- Image Functions -->
+    <script>
+
+        // Function to delete selected images for a specific section
+        function deleteSelectedImages(sectionId) {
+            // Check if there are selected images for this section
+            if (selectedImages[sectionId] && selectedImages[sectionId].length > 0) {
+                // Make a server request to delete the selected images for this section
+                fetch("/delete_selected_images", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        sectionId: sectionId,
+                        imageIds: selectedImages[sectionId]
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            console.log("Selected images deleted successfully for section", sectionId);
+                            // Remove deleted images from the UI
+                            selectedImages[sectionId] = []; // Clear the selected images list for this section
+                            loadUploadedImages(sectionId); // Reload the uploaded images for this section
+                        } else {
+                            console.error("Failed to delete selected images for section", sectionId, ":", data.message);
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            } else {
+                console.log("No selected images to delete for section", sectionId);
+            }
+        }
+
+        var selectedImages = {};
+
+        // Function to load uploaded images for a specific section
+        function loadUploadedImages(sectionId) {
+            fetch(`/get_uploaded_images?section_id=${sectionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    var uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
+                    uploadedImagesUl.innerHTML = ""; // Clear previous images
+
+                    // Check if the selected images list for this section exists, if not, create it
+                    if (!selectedImages[sectionId]) {
+                        selectedImages[sectionId] = [];
+                    }
+
+                    data.images.forEach(picture => {
+                        var li = document.createElement("li");
+                        li.setAttribute("data-order", picture.order); // Set data-order attribute for reordering
+                        li.setAttribute("data-id", picture.id); // Set data-id attribute for image ID
+                        li.setAttribute("data-section-id", sectionId); // Set data-section-id attribute for section ID
+                        li.draggable = true;
+                        li.addEventListener("dragstart", handleDragStart);
+                        li.addEventListener("dragover", handleDragOver);
+                        li.addEventListener("drop", handleDrop);
+                        var img = document.createElement("img");
+                        img.src = picture.url;
+
+                        // Create checkbox element
+                        var checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'image-checkbox';
+                        checkbox.style.position = 'relative';
+                        checkbox.style.top = '5px'; // Adjust top position as needed
+                        checkbox.style.right = '5px'; // Adjust right position as needed
+                        checkbox.addEventListener('change', function () {
+                            if (this.checked) {
+                                // Add image to selected list for this section
+                                addToSelectedImages(sectionId, picture.id);
+                            } else {
+                                // Remove image from selected list for this section
+                                removeFromSelectedImages(sectionId, picture.id);
+                            }
+                        });
+
+                        // Append image and checkbox to list item
+                        li.appendChild(img);
+                        li.appendChild(checkbox);
+                        // Append list item to ul
+                        uploadedImagesUl.appendChild(li);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Function to add image to the list of selected images for a specific section
+        function addToSelectedImages(sectionId, imageId) {
+            // Add image ID to the selected images list for this section
+            selectedImages[sectionId].push(imageId);
+            console.log('Image added to selected list for section', sectionId, ':', imageId);
+        }
+
+        // Function to remove image from the list of selected images for a specific section
+        function removeFromSelectedImages(sectionId, imageId) {
+            // Remove image ID from the selected images list for this section
+            var index = selectedImages[sectionId].indexOf(imageId);
+            if (index !== -1) {
+                selectedImages[sectionId].splice(index, 1);
+            }
+            console.log('Image removed from selected list for section', sectionId, ':', imageId);
+        }
+
+
+        // Function to handle drag start event
+        function handleDragStart(event) {
+            event.dataTransfer.setData("text/plain", JSON.stringify({
+                sourceOrder: event.target.dataset.order,
+                sourceSection: event.target.dataset.sectionId
+            }));
+        }
+
+        let dropHandled = false;
+
+        function handleDrop(event) {
+            event.preventDefault();
+
+            // Check if the drop event has been handled already
+            if (dropHandled) {
+                return;
+            }
+
+            var sourceData = JSON.parse(event.dataTransfer.getData("text/plain"));
+            var sourceOrder = sourceData.sourceOrder;
+            var sourceSection = sourceData.sourceSection;
+
+            var targetOrder = event.target.dataset.order;
+            var targetId = event.target.dataset.id;
+            var targetSection = event.target.dataset.sectionId;
+
+            console.log("Source Order:", sourceOrder);
+            console.log("Target Order:", targetOrder);
+            console.log("Source Section:", sourceSection);
+            console.log("Target Section:", targetSection);
+            console.log("Target ID:", targetId);
+            console.log("Event Target:", event.target);
+            console.log("Event CurrentTarget:", event.currentTarget);
+            // Check if the drop occurred on a different section
+            if (sourceSection !== targetSection) {
+                // Move the image to the target section
+                moveImageToSection(sourceOrder, sourceSection, targetSection);
+            } else if (sourceOrder !== targetOrder && sourceSection === targetSection) {
+                // Swap images in the UI
+                swapImages(sourceOrder, targetOrder, targetId, targetSection);
+            }
+
+            // Set dropHandled flag to true to indicate that the drop event has been handled
+            dropHandled = true;
+        }
+
+        // Reset dropHandled flag when drag over event occurs
+        function handleDragOver(event) {
+            dropHandled = false;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+
+            // Highlight the potential drop target by adding a class to the closest li element
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.add('drag-over');
+            }
+
+        }
+
+        // Add event listeners for dragenter and dragleave on the ul element
+        document.getElementById('sortable').addEventListener('dragenter', function (event) {
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.add('drag-over');
+            }
+        });
+
+        document.getElementById('sortable').addEventListener('dragleave', function (event) {
+            var closestLi = event.target.closest('li');
+            if (closestLi) {
+                closestLi.classList.remove('drag-over');
+            }
+        });
+
+        // Load uploaded images when the page loads
+        window.addEventListener("load", function () {
+            loadUploadedImages();
+
+        });
+
+
+        // Function to add a slideshow image
+        function addSlideshowImage(imageId, imageUrl, sectionId) {
+            var formData = new FormData(document.getElementById("updateImageForm"));
+            formData.append('section_id', sectionId); // Append sectionId to form data
+
+            fetch("/update_public_images", {
+                method: "POST",
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Add the slideshow image with the image ID and URL
+                        var slideshowUl = document.getElementById("slideshowSortable");
+                        var li = document.createElement("li");
+                        var img = document.createElement("img");
+                        li.draggable = true;
+                        li.addEventListener("dragstart", handleDragStartSlideshow);
+                        li.addEventListener("dragover", handleDragOver);
+                        li.addEventListener("drop", handleDropSlideshow);
+                        img.src = imageUrl;
+                        li.appendChild(img);
+                        li.setAttribute("data-id", imageId); // Set data-id attribute for image ID
+                        slideshowUl.appendChild(li);
+                        document.getElementById("message").innerHTML = "Image added to slideshow.";
+                    } else {
+                        document.getElementById("message").innerHTML = "Failed to add image to slideshow.";
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+
+        function handleDropSlideshow(event) {
+            event.preventDefault();
+
+            // Get the dragged index
+            var draggedIndex = event.dataTransfer.getData("text/plain");
+
+            // Check if the drop event originates from the uploaded images area
+            var isFromUploaded = event.dataTransfer.getData("isFromUploaded") === "true";
+
+            // If the drop event originates from the uploaded images area, do nothing
+            if (isFromUploaded) {
+                console.log("Image dragged from uploaded images, ignoring drop in slideshow.");
+                return;
+            }
+
+            // Get the image ID of the dragged image
+            var imageId = document.querySelector(`#sortable li[data-index="${draggedIndex}"]`).getAttribute("data-id");
+            var sectionId = document.querySelector(`#sortable li[data-index="${draggedIndex}"]`).getAttribute("data-section-id");
+
+            // Check if the dropped image is not already in the slideshow
+            var slideshowImages = document.getElementById("slideshowSortable").querySelectorAll("li");
+            var isAlreadyInSlideshow = Array.from(slideshowImages).some(li => li.dataset.id === imageId);
+
+            if (!isAlreadyInSlideshow) {
+                // Get the image URL from the uploaded images section
+                var imageUrl;
+                var uploadedImages = document.getElementById("sortable").querySelectorAll("li");
+                uploadedImages.forEach(li => {
+                    if (li.dataset.index === draggedIndex) {
+                        imageUrl = li.querySelector("img").src;
+                    }
+                });
+
+                // Add the slideshow image with the image ID and URL
+                addSlideshowImage(imageId, imageUrl, sectionId);
+            } else {
+                console.log("Image already exists in the slideshow.");
+            }
+        }
+
+        // Function to update the order of images on the server
+        function updateImageOrder(order) {
+            fetch("/update_image_order", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(order)  // Send the array of order objects directly
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        showMessage(data.message);
+                    } else {
+                        // If the order update is successful, reload the images
+                        loadUploadedImages();
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function moveImageToSection(sourceOrder, sourceSection, targetSection) {
+            // Make a server request to update the database with the new section ID for the image
+            fetch("/move_image_to_section", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    sourceOrder: sourceOrder,
+                    sourceSection: sourceSection,
+                    targetSection: targetSection
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        console.log("Image moved successfully from section", sourceSection, "to section", targetSection);
+                        // Update UI
+                        updateUIAfterMove(sourceOrder, sourceSection, targetSection);
+                    } else {
+                        console.error("Failed to move image:", data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function updateUIAfterMove(sourceOrder, sourceSection, targetSection) {
+            // Remove the image from the source section
+            var sourceSectionContainer = document.getElementById(`sortable-${sourceSection}`);
+            var sourceImage = sourceSectionContainer.querySelector(`li[data-order="${sourceOrder}"]`);
+            sourceImage.remove();
+
+            // Reload images for the source section
+            loadUploadedImages(sourceSection);
+
+            // Reload images for the target section
+            loadUploadedImages(targetSection);
+        }
+
+        function swapImages(fromOrder, toOrder, targetId, sectionId) {
+            var sortableId = "sortable-" + sectionId;
+            var sortableContainer = document.getElementById(sortableId);
+            if (!sortableContainer) {
+                console.error("Sortable container not found for section ID:", sectionId);
+                return;
+            }
+
+            var children = sortableContainer.children;
+            if (!children) {
+                console.error("Children of sortable container not found");
+                return;
+            }
+            var fromIndex, toIndex;
+
+            // Find the indexes of the source and target images based on their data-order attribute
+            for (var i = 0; i < children.length; i++) {
+                if (children[i].dataset.order === fromOrder) {
+                    fromIndex = i;
+                }
+                if (children[i].dataset.order === toOrder) {
+                    toIndex = i;
+                }
+            }
+
+            // Reorder the images based on their data-order attribute
+            if (fromIndex < toIndex) {
+                // Move the source image after the target image
+                sortableContainer.insertBefore(children[fromIndex], children[toIndex].nextSibling);
+            } else {
+                // Move the source image before the target image
+                sortableContainer.insertBefore(children[fromIndex], children[toIndex]);
+            }
+
+            // Update the data-order attribute of each list item
+            Array.from(children).forEach((image, index) => {
+                image.dataset.order = index + 1; // Update the data-order attribute based on the new order
+            });
+
+            // Create an array of objects containing picture ID, new order, and section ID
+            var orderData = Array.from(children).map((image) => {
+                return { id: image.dataset.id, order: image.dataset.order, sectionId: sectionId };
+            });
+
+            // Update the image order with the new order associated with each picture
+            updateImageOrder(orderData);
+        }
+
+
+
+        // Function to handle deletion of images using the trash can
+        function handleDropTrash(event, source) {
+            event.preventDefault();
+            var order = event.dataTransfer.getData("text/plain");
+            var imageToRemove = document.querySelector(`li[data-order="${order}"]`);
+            if (imageToRemove) {
+                // Display a confirmation dialog before deleting the image
+                var confirmation = confirm("Are you sure you want to delete this image?");
+                if (confirmation) {
+                    // If the user confirms, proceed with deletion
+                    var imageId = imageToRemove.dataset.id;
+                    deleteImage(imageId); // Call the function to delete the image
+                    imageToRemove.remove();
+                }
+            }
+        }
+
+        // Function to delete an image
+        function deleteImage(imageId) {
+            fetch("/delete_image", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ id: imageId })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        console.log(data.message); // Log success message
+                        showMessage(data.message);
+                    } else {
+                        console.error('Error:', data.message); // Log error message
+                        showMessage(data.message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+
+        // Function to add a selectable checkbox to each image
+        function addCheckboxToImage(imageElement) {
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'image-checkbox';
+            checkbox.style.position = 'absolute';
+            checkbox.style.top = '5px'; // Adjust top position as needed
+            checkbox.style.right = '5px'; // Adjust right position as needed
+            checkbox.addEventListener('change', function () {
+                if (this.checked) {
+                    // Add image to selected list
+                    addToSelectedImages(imageElement);
+                } else {
+                    // Remove image from selected list
+                    removeFromSelectedImages(imageElement);
+                }
+            });
+            imageElement.appendChild(checkbox);
+        }
+
+        // Call this function when the page is loaded to add checkboxes to all existing images
+        function addCheckboxesToExistingImages() {
+            var sections = document.querySelectorAll('.uploaded-images');
+            sections.forEach(function (section) {
+                var images = section.querySelectorAll('.sortable li img');
+                images.forEach(function (image) {
+                    addCheckboxToImage(image.parentElement);
+                });
+            });
+        }
+
+        // Call this function to initialize checkboxes for existing images and new images added dynamically
+        document.addEventListener('DOMContentLoaded', function () {
+            addCheckboxesToExistingImages();
+        });
+
+    </script>
+
+
+
+    <!-- Text/Code Editor and Save Function -->
+    <script>
+        function showMessage(message) {
+            var messageElement = document.getElementById('message');
+            var messageContent = document.getElementById('messageContent');
+
+            // Set message content
+            messageContent.textContent = message;
+
+            // Show the message
+            messageElement.style.display = 'block';
+        }
+
+        function closeMessage() {
+            var messageElement = document.getElementById('message');
+
+            // Hide the message
+            messageElement.style.display = 'none';
+        }
+
+        function initializeCodeMirror(textArea) {
+            const editor = CodeMirror.fromTextArea(textArea, {
+                mode: "htmlmixed",
+                lineNumbers: true,
+                theme: "dracula",
+                autoCloseBrackets: true,
+                lineWrapping: false,
+                gutters: ["CodeMirror-lint-markers"],
+                lint: {
+                    getAnnotations: function (content) {
+                        var result = []; // Initialize an empty array to store linting results
+
+                        // Check for unclosed HTML tags
+                        var tagRegex = /<([^\/!][^\s>]*)\b[^>]*>(?![\s\S]*?<\/\1>)/g;
+                        var match;
+                        while ((match = tagRegex.exec(content)) !== null) {
+                            result.push({
+                                message: "Unclosed tag: <" + match[1] + ">",
+                                severity: "error",
+                                from: CodeMirror.Pos(content.substr(0, match.index).split('\n').length - 1, match.index - content.lastIndexOf('\n', match.index - 1) - 1),
+                                to: CodeMirror.Pos(content.substr(0, match.index).split('\n').length - 1, match.index - content.lastIndexOf('\n', match.index - 1))
+                            });
+                        }
+
+                        // Check for unclosed curly braces
+                        var braceStack = [];
+                        for (var i = 0; i < content.length; i++) {
+                            if (content[i] === '{') {
+                                braceStack.push(i);
+                            } else if (content[i] === '}') {
+                                if (braceStack.length > 0) {
+                                    braceStack.pop();
+                                } else {
+                                    result.push({
+                                        message: "Unmatched closing brace: }",
+                                        severity: "error",
+                                        from: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1) - 1),
+                                        to: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1))
+                                    });
+                                }
+                            }
+                        }
+
+                        while (braceStack.length > 0) {
+                            var unmatchedIndex = braceStack.pop();
+                            result.push({
+                                message: "Unclosed brace: {",
+                                severity: "error",
+                                from: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1) - 1),
+                                to: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1))
+                            });
+                        }
+
+                        // Check for unclosed parentheses
+                        var parenStack = [];
+                        for (var i = 0; i < content.length; i++) {
+                            if (content[i] === '(') {
+                                parenStack.push(i);
+                            } else if (content[i] === ')') {
+                                if (parenStack.length > 0) {
+                                    parenStack.pop();
+                                } else {
+                                    result.push({
+                                        message: "Unmatched closing parenthesis: )",
+                                        severity: "error",
+                                        from: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1) - 1),
+                                        to: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1))
+                                    });
+                                }
+                            }
+                        }
+
+                        while (parenStack.length > 0) {
+                            var unmatchedIndex = parenStack.pop();
+                            result.push({
+                                message: "Unclosed parenthesis: (",
+                                severity: "error",
+                                from: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1) - 1),
+                                to: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1))
+                            });
+                        }
+                        // Check for missing semicolons only in JavaScript and CSS
+                        var lines = content.split('\n');
+                        for (var i = 0; i < lines.length; i++) {
+                            var line = lines[i].trim();
+                            if (!line.includes('<') && !line.includes('>')) { // Exclude lines containing < and >
+                                // Check if the line is a continuation of an expression or a template literal
+                                if (line && !line.endsWith(';') && !line.endsWith('}') && !line.endsWith('{') && !line.endsWith(')') && !line.endsWith(',') && !/[\+\-\*\/=]$/.test(line) && !/\$\{[^}]+\}$/.test(line)) {
+                                    result.push({
+                                        message: "Missing semicolon or incorrect line termination",
+                                        severity: "error",
+                                        from: CodeMirror.Pos(i, 0),
+                                        to: CodeMirror.Pos(i, lines[i].length)
+                                    });
+                                }
+                            }
+                        }
+
+                        return result;
+                    }
+                }
+            });
+            codeMirrorEditors.push(editor);
+
+            // Attach format code button to this specific CodeMirror instance
+            const formatCodeButton = textArea.closest('.page-body-container').querySelector('.formatCodeButton');
+            formatCodeButton.addEventListener('click', function () {
+                formatCode(editor);
+            });
+            return editor;
+        }
+        const codeMirrorEditors = [];
+
+        function formatCode(editor) {
+            if (editor) {
+                var content = editor.getValue();
+                var mode = editor.getOption("mode");
+                var formattedContent;
+
+                if (mode === "htmlmixed") {
+                    formattedContent = html_beautify(content, {
+                        indent_size: 4,
+                        indent_char: ' ',
+                        max_preserve_newlines: 1,
+                        preserve_newlines: true,
+                        indent_inner_html: true,
+                        wrap_line_length: 80,
+                        end_with_newline: true
+                    });
+                } else if (mode === "css") {
+                    formattedContent = css_beautify(content, {
+                        indent_size: 4,
+                        indent_char: ' ',
+                        max_preserve_newlines: 1,
+                        preserve_newlines: true,
+                        wrap_line_length: 80,
+                        end_with_newline: true
+                    });
+                } else {
+                    formattedContent = js_beautify(content, {
+                        indent_size: 4,
+                        indent_char: ' ',
+                        max_preserve_newlines: 1,
+                        preserve_newlines: true,
+                        brace_style: "collapse",
+                        wrap_line_length: 80,
+                        end_with_newline: true
+                    });
+                }
+
+                editor.setValue(formattedContent);
+            }
+        }
+
+        function showMessage(message) {
+            alert(message);
+        }
+
+        function handleSubmit(classSelector, endpoint) {
+            const forms = document.querySelectorAll(`.${classSelector}`);
+
+            forms.forEach((form) => {
+                form.addEventListener("submit", function (event) {
+                    event.preventDefault();
+
+                    // Save content from the correct CodeMirror instance
+                    const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
+                    if (editor) {
+                        editor.save(); // This will save the CodeMirror content back into the textarea
+                    }
+
+                    const formData = new FormData(this);
+                    formData.append("section_id", this.dataset.sectionId);
+                    formData.append("section_type", this.dataset.sectionType);
+
+                    fetch(endpoint, {
+                        method: "POST",
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // showMessage(data.message);
+                                // loadUploadedImages();
+                            } else {
+                                showMessage(data.message);
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                });
+            });
+            // reloadIframe();
+        }
+
+        // handleSubmit("update-section-form", "/update_section");
+
+        // document.getElementById("saveChangesButton").addEventListener("click", function () {
+        //     const forms = document.querySelectorAll(".update-section-form");
+        //     forms.forEach((form) => {
+        //         const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
+        //         if (editor) {
+        //             editor.save(); // Ensure all CodeMirror instances save their content back to the textareas
+        //         }
+        //         form.requestSubmit();
+        //     });
+        //     setTimeout(function () {
+        //         reloadIframe();
+        //     }, 100);
+
+        // });
+
+        // document.addEventListener("DOMContentLoaded", function () {
+        //     // Function to initialize CodeMirror for a textarea
+        //     // initializeCodeMirror()
+        //     // Select all textareas within page-body-container and initialize CodeMirror for each
+        //     const textAreas = document.querySelectorAll(".page-body-container textarea");
+
+
+        //     textAreas.forEach((textArea, index) => {
+        //         initializeCodeMirror(textArea);
+        //     });
+
+
+
+
+
+
+        // });
+
+
+
+
+
+
+    </script>
+
+
+    <!-- Dark Mode Toggle -->
+    <!-- <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggleSwitch = document.getElementById('darkModeToggle');
+            const body = document.body;
+            const navbar = document.querySelector('.navbar');
+            const contentContainer = document.querySelector('.content-container');
+            const webPreview = document.querySelector('.web-preview');
+            const sectionOptions = document.querySelectorAll('.dropbtn');
+
+            // Function to apply dark mode
+            function applyDarkMode() {
+                body.classList.add('dark-mode');
+                navbar.classList.add('dark-mode');
+                contentContainer.classList.add('dark-mode');
+                webPreview.classList.add('dark-mode');
+                document.querySelector('#previewButton').classList.add('dark-mode');
+                sectionOptions.forEach(option => option.classList.add('dark-mode'));
+            }
+
+            // Function to remove dark mode
+            function removeDarkMode() {
+                body.classList.remove('dark-mode');
+                navbar.classList.remove('dark-mode');
+                contentContainer.classList.remove('dark-mode');
+                webPreview.classList.remove('dark-mode');
+                document.querySelector('#previewButton').classList.remove('dark-mode');
+                sectionOptions.forEach(option => option.classList.remove('dark-mode'));
+            }
+
+            // Load theme from local storage
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme === 'dark' || !currentTheme) {
+                applyDarkMode();
+                toggleSwitch.checked = true;
+            } else {
+                removeDarkMode();
+                toggleSwitch.checked = false;
+            }
+
+            // Toggle switch event listener
+            toggleSwitch.addEventListener('change', () => {
+                if (toggleSwitch.checked) {
+                    applyDarkMode();
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    removeDarkMode();
+                    localStorage.setItem('theme', 'light');
+                }
+            });
+        });
+    </script> -->
+
+
+    <!-- Add Section -->
+    <script>
+        // Get the modal
+        // var modal = document.getElementById("add-section-modal");
+
+        // // Get the button that opens the modal
+        // // var addSectionButtonModal = document.getElementById("addSectionBtn");
+
+        // // Get the <span> element that closes the modal
+        // var span = document.getElementById("closeModal");
+
+        // // When the user clicks the button, open the modal
+        // // addSectionButtonModal.onclick = function () {
+        // //     modal.style.display = "block";
+        // // }
+
+        // // When the user clicks on <span> (x), close the modal
+        // span.onclick = function () {
+        //     modal.style.display = "none";
+        // }
+
+        // // When the user clicks anywhere outside of the modal, close it
+        // window.onclick = function (event) {
+        //     if (event.target == modal) {
+        //         modal.style.display = "none";
+        //     }
+        // }
+
+
+        document.getElementById('add-section-form').addEventListener('submit', function (event) {
+            const pageId = "{{page_id}}";
+            event.preventDefault();
+
+            const sectionType = document.getElementById('section-type').value;
+            const rowId = document.getElementById('row-id-input').value || null;
+            const columnId = document.getElementById('column-id-input').value || null;
+            const content = {};
+
+            const data = {
+                section_type: sectionType,
+                order: document.querySelectorAll('.page-section').length,
+                content: content,
+                row_id: rowId,
+                column_id: columnId
+            };
+
+            fetch(`/page/${pageId}/add_section`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message === 'Section added successfully') {
+                        document.getElementById('add-section-modal').style.display = 'none';
+                        setTimeout(function () {
+                            populateSections();
+                        }, 100);
+                    } else {
+                        alert('Failed to add section');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                })
+                .finally(() => {
+                    // Reset row-id-input and column-id-input to null
+                    document.getElementById('row-id-input').value = null;
+                    document.getElementById('column-id-input').value = null;
+                });
+        });
+
+
+        function saveScrollPosition() {
+            sessionStorage.setItem('scrollPosition', window.scrollY);
+        }
+
+        function reloadWindow() {
+            saveScrollPosition();
+            window.location.reload();
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const scrollPosition = sessionStorage.getItem('scrollPosition');
+            if (scrollPosition !== null) {
+                window.scrollTo(0, parseInt(scrollPosition));
+                sessionStorage.removeItem('scrollPosition');
+            }
+        });
+
+        function saveScrollPosition() {
+            sessionStorage.setItem('scrollPosition', window.scrollY);
+        }
+
+        function reloadWindow() {
+            saveScrollPosition();
+            window.location.reload();
+        }
+
+    </script>
+    <!-- toggle public page -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            // Handle toggle switch change
+            document.querySelectorAll(".toggle").forEach(function (toggle) {
+                toggle.addEventListener("change", function (event) {
+                    var site_active_status = event.target.checked ? 1 : 0;
+                    var website_id = event.target.getAttribute("data-website-id");
+                    var page_id = event.target.getAttribute("data-page-id");
+
+                    fetch("/toggle_public_page", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            site_active_status: site_active_status,
+                            website_id: website_id,
+                            page_id: page_id // Include the page ID in the request body
+                        })
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                showMessage(data.message);
+                            } else {
+                                showMessage(data.message);
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                });
+            });
+        });
+
+    </script>
+    <script>
+        const backgroundColorPicker = document.getElementById('background-color');
+        const textColorPicker = document.getElementById('text-color');
+
+        let timer = null; // Timer variable to hold the timeout
+
+        backgroundColorPicker.addEventListener('input', function () {
+            clearTimeout(timer); // Clear previous timer
+
+            // Start a new timer for 500ms (adjust this value as needed)
+            timer = setTimeout(function () {
+                updatePageColors();
+            }, 500); // 500ms delay before triggering update
+        });
+
+        textColorPicker.addEventListener('input', function () {
+            clearTimeout(timer); // Clear previous timer
+
+            // Start a new timer for 500ms (adjust this value as needed)
+            timer = setTimeout(function () {
+                updatePageColors();
+            }, 500); // 500ms delay before triggering update
+        });
+
+        function updatePageColors() {
+            const pageId = "{{ page_content.id }}";
+            const background_color = backgroundColorPicker.value;
+            const text_color = textColorPicker.value;
+
+            fetch(`/update_page_colors/${pageId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ background_color, text_color })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Colors updated:', data.message);
+                    reloadIframe();
+                })
+                .catch(error => {
+                    console.error('Error updating colors:', error);
+                });
+        }
+    </script>
+
+    {% endblock %}
+</body>
+
+</html>
