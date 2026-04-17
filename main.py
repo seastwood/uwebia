@@ -303,60 +303,60 @@ def update_page_colors(page_id):
 
     return jsonify({'message': 'Page colors updated successfully'}), 200
 
-
-@app.route('/get_response_stream', methods=['POST'])
-@login_required
-def get_response_stream():
-    try:
-        # Get user input (prompt) from request JSON
-        request_data = request.get_json()
-        prompt = request_data.get('prompt', '')
-        code = request_data.get('code', '')
-        print("PROMPT: ", prompt)
-
-        adjusted_prompt = (
-                              "Generate code that includes embedded HTML, CSS, and JavaScript. Include all necessary "
-                              "header link sources, script sources, and stylesheets within the HTML code itself (no separate files). "
-                              "Ensure everything is encapsulated within <html>, <head>, <body>, <style>, <script> and tags. Your response should consist "
-                              "solely of code; do not include any explanatory text or comments. Do not wrap your code in the ``` marks. Here is the prompt: ") + prompt + (
-                              " Here is my current code for you to edit, only remove code if necessary to achieve the desired functionality: " + code)
-
-        # Construct payload with user-provided prompt
-        payload = {
-            "model": "deepseek-coder:6.7b",
-            "prompt": adjusted_prompt,
-            "stream": True  # Set stream to true to receive responses in a stream
-        }
-
-
-        # Send POST request to Ollama API with JSON payload and stream the response
-        response = requests.post(ollama_url, json=payload, stream=True)
-
-        # Ensure the request was successful (status code 200)
-        if response.status_code == 200:
-            # Stream the response content line by line
-            def generate_response():
-                text = ''
-                for line in response.iter_lines():
-                    if line:
-                        # Decode JSON from each line
-                        data = json.loads(line)
-
-                        # Extract the response portion from each JSON object
-                        if 'response' in data:
-                            yield data['response']
-                            print(data['response'], end='')
-                        else:
-                            yield "No response received\n"
-
-            # Return a streaming response to the client
-            return Response(generate_response(), content_type='text/plain')
-
-        else:
-            return f"Error: {response.status_code} - {response.text}"
-
-    except requests.exceptions.RequestException as e:
-        return f"Request failed: {e}"
+#
+# @app.route('/get_response_stream', methods=['POST'])
+# @login_required
+# def get_response_stream():
+#     try:
+#         # Get user input (prompt) from request JSON
+#         request_data = request.get_json()
+#         prompt = request_data.get('prompt', '')
+#         code = request_data.get('code', '')
+#         print("PROMPT: ", prompt)
+#
+#         adjusted_prompt = (
+#                               "Generate code that includes embedded HTML, CSS, and JavaScript. Include all necessary "
+#                               "header link sources, script sources, and stylesheets within the HTML code itself (no separate files). "
+#                               "Ensure everything is encapsulated within <html>, <head>, <body>, <style>, <script> and tags. Your response should consist "
+#                               "solely of code; do not include any explanatory text or comments. Do not wrap your code in the ``` marks. Here is the prompt: ") + prompt + (
+#                               " Here is my current code for you to edit, only remove code if necessary to achieve the desired functionality: " + code)
+#
+#         # Construct payload with user-provided prompt
+#         payload = {
+#             "model": "deepseek-coder:6.7b",
+#             "prompt": adjusted_prompt,
+#             "stream": True  # Set stream to true to receive responses in a stream
+#         }
+#
+#
+#         # Send POST request to Ollama API with JSON payload and stream the response
+#         response = requests.post(ollama_url, json=payload, stream=True)
+#
+#         # Ensure the request was successful (status code 200)
+#         if response.status_code == 200:
+#             # Stream the response content line by line
+#             def generate_response():
+#                 text = ''
+#                 for line in response.iter_lines():
+#                     if line:
+#                         # Decode JSON from each line
+#                         data = json.loads(line)
+#
+#                         # Extract the response portion from each JSON object
+#                         if 'response' in data:
+#                             yield data['response']
+#                             print(data['response'], end='')
+#                         else:
+#                             yield "No response received\n"
+#
+#             # Return a streaming response to the client
+#             return Response(generate_response(), content_type='text/plain')
+#
+#         else:
+#             return f"Error: {response.status_code} - {response.text}"
+#
+#     except requests.exceptions.RequestException as e:
+#         return f"Request failed: {e}"
 
 
 @app.route('/user_collections')
@@ -401,109 +401,109 @@ def capture_webpage():
 def browse_websites():
     return render_template('browse.html')
 
+#
+# @app.route('/search_websites', methods=['GET'])
+# def search_websites():
+#     query = request.args.get('query', '')
+#     page = request.args.get('page', 1, type=int)
+#
+#     page_query = PublicPageContent.query.filter(PublicPageContent.site_active_status == True)
+#
+#     if query:
+#         keywords = query.split()
+#
+#         # Filter by either tag names, page names, or descriptions
+#         tag_filters = [func.lower(Tag.name).like(f"%{keyword.lower()}%") for keyword in keywords]
+#         name_filters = [func.lower(PublicPageContent.name).like(f"%{keyword.lower()}%") for keyword in keywords]
+#         description_filters = [func.lower(PublicPageContent.description).like(f"%{keyword.lower()}%") for keyword in keywords]
+#         website_description_filters = [func.lower(Website.description).like(f"%{keyword.lower()}%") for keyword in keywords]
+#
+#         page_query = (
+#             page_query
+#             .join(PageTag)
+#             .join(Tag)
+#             .join(Website)
+#             .filter(
+#                 or_(
+#                     *tag_filters,
+#                     *name_filters,
+#                     *description_filters,
+#                     *website_description_filters
+#                 )
+#             )
+#             .group_by(PublicPageContent.id)
+#         )
+#
+#     print("PAGE QUERY: ", page_query)  # Debugging: Print the SQL query
+#     pages = page_query.paginate(page=page, per_page=10)
+#
+#     results = []
+#     for page_content in pages.items:
+#         website_url = url_for('public_page', website_id=page_content.website_id, page_id=page_content.id)
+#         tags = [tag.name for tag in page_content.tags]
+#         results.append({
+#             'id': page_content.id,
+#             'name': page_content.name,
+#             'description': page_content.description,
+#             'tags': tags,
+#             'url': website_url
+#         })
+#
+#     print("RESULTS: ", results)  # Debugging: Print the results
+#
+#     # If no results found, generate random websites
+#     if not results:
+#         return generate_random_websites()  # Directly return the generated random websites
+#
+#     return jsonify({
+#         'pages': results,
+#         'total': pages.total,
+#         'num_pages': pages.pages,
+#         'current_page': pages.page
+#     })
 
-@app.route('/search_websites', methods=['GET'])
-def search_websites():
-    query = request.args.get('query', '')
-    page = request.args.get('page', 1, type=int)
+# def generate_random_websites():
+#     websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
+#     if not websites:
+#         return jsonify({'websites': []})  # Return an empty list in the expected format
+#
+#     random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
+#
+#     results = []
+#     for website in random_websites:
+#         website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
+#         results.append({
+#             'id': website.id,
+#             'name': website.name,
+#             'description': website.description,
+#             'tags': [tag.name for tag in website.tags],
+#             'url': website_url
+#         })
+#
+#     return jsonify({
+#         'pages': results,
+#     })
 
-    page_query = PublicPageContent.query.filter(PublicPageContent.site_active_status == True)
-
-    if query:
-        keywords = query.split()
-
-        # Filter by either tag names, page names, or descriptions
-        tag_filters = [func.lower(Tag.name).like(f"%{keyword.lower()}%") for keyword in keywords]
-        name_filters = [func.lower(PublicPageContent.name).like(f"%{keyword.lower()}%") for keyword in keywords]
-        description_filters = [func.lower(PublicPageContent.description).like(f"%{keyword.lower()}%") for keyword in keywords]
-        website_description_filters = [func.lower(Website.description).like(f"%{keyword.lower()}%") for keyword in keywords]
-
-        page_query = (
-            page_query
-            .join(PageTag)
-            .join(Tag)
-            .join(Website)
-            .filter(
-                or_(
-                    *tag_filters,
-                    *name_filters,
-                    *description_filters,
-                    *website_description_filters
-                )
-            )
-            .group_by(PublicPageContent.id)
-        )
-
-    print("PAGE QUERY: ", page_query)  # Debugging: Print the SQL query
-    pages = page_query.paginate(page=page, per_page=10)
-
-    results = []
-    for page_content in pages.items:
-        website_url = url_for('public_page', website_id=page_content.website_id, page_id=page_content.id)
-        tags = [tag.name for tag in page_content.tags]
-        results.append({
-            'id': page_content.id,
-            'name': page_content.name,
-            'description': page_content.description,
-            'tags': tags,
-            'url': website_url
-        })
-
-    print("RESULTS: ", results)  # Debugging: Print the results
-
-    # If no results found, generate random websites
-    if not results:
-        return generate_random_websites()  # Directly return the generated random websites
-
-    return jsonify({
-        'pages': results,
-        'total': pages.total,
-        'num_pages': pages.pages,
-        'current_page': pages.page
-    })
-
-def generate_random_websites():
-    websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
-    if not websites:
-        return jsonify({'websites': []})  # Return an empty list in the expected format
-
-    random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
-
-    results = []
-    for website in random_websites:
-        website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
-        results.append({
-            'id': website.id,
-            'name': website.name,
-            'description': website.description,
-            'tags': [tag.name for tag in website.tags],
-            'url': website_url
-        })
-
-    return jsonify({
-        'pages': results,
-    })
-
-@app.route('/random_websites', methods=['GET'])
-def random_websites():
-    websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
-    if not websites:
-        return jsonify({'websites': []})  # Return an empty list in the expected format
-
-    random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
-
-    results = []
-    for website in random_websites:
-        website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
-        results.append({
-            'id': website.id,  # Include the page ID in the results
-            'name': website.name,
-            'description': website.description,
-            'tags': [tag.name for tag in website.tags],
-            'url': website_url
-        })
-
-    return jsonify({'websites': results})  # Return random websites in the expected format
+# @app.route('/random_websites', methods=['GET'])
+# def random_websites():
+#     websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
+#     if not websites:
+#         return jsonify({'websites': []})  # Return an empty list in the expected format
+#
+#     random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
+#
+#     results = []
+#     for website in random_websites:
+#         website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
+#         results.append({
+#             'id': website.id,  # Include the page ID in the results
+#             'name': website.name,
+#             'description': website.description,
+#             'tags': [tag.name for tag in website.tags],
+#             'url': website_url
+#         })
+#
+#     return jsonify({'websites': results})  # Return random websites in the expected format
 
 
 # Like page route
@@ -893,25 +893,31 @@ def logout():
 from flask_wtf.csrf import generate_csrf
 
 
-@app.route('/dashboard')
+@app.route('/admin/dashboard')
 @login_required
 def dashboard():
     user = current_user
-    print(f"LOGGED IN USER: {user}")
 
+    # This currently returns a list because of your model relationship
     websites = user.websites
-    print(f"USER'S WEBSITES: {websites}")
 
-    # Retrieve all pages for each website
+    # Logic: If they have at least one, has_site is True
+    has_site = len(websites) > 0
+
     website_pages = {}
     for website in websites:
         pages = PublicPageContent.query.filter_by(website_id=website.id).all()
-        print(f"WEBSITE {website.id} PAGES: {pages}")
         website_pages[website] = pages
 
-    csrf_token = generate_csrf()  # Generate CSRF token
-    return render_template('dashboard.html', websites=websites, website_pages=website_pages, csrf_token=csrf_token)
+    csrf_token = generate_csrf()
 
+    return render_template(
+        'dashboard.html',
+        websites=websites,
+        website_pages=website_pages,
+        user_has_website=has_site,  # Now this matches your template check
+        csrf_token=csrf_token
+    )
 
 # Route to handle sending email
 @app.route('/send_email', methods=['POST'])
@@ -955,6 +961,12 @@ def send_email():
 @app.route('/create_website', methods=['POST'])
 @login_required
 def create_website():
+    # Check if a website already exists for this user
+    existing_site = Website.query.filter_by(user_id=current_user.id).first()
+
+    if existing_site:
+        # You could flash a message or redirect back to their existing site
+        return "You already have a website!", 400
     name = request.form['name']
     description = request.form['description']
     tags = request.form.get('tags', '')  # Get tags from the form, default to empty string if not provided
@@ -1752,7 +1764,42 @@ def serve_static(filename):
 
 @app.route('/')
 def home_page():
-    return render_template('home.html')
+    # Assuming you want to show the current logged-in user's site
+    # or a specific 'primary' site if no one is logged in
+    website = Website.query.first()  # Or filter by specific owner logic
+
+    if not website:
+        return render_template('no_site_found.html')
+
+    # Get the "home" page (usually the first page created or id=1)
+    page = PublicPageContent.query.filter_by(website_id=website.id).first()
+
+    if not page or not page.site_active_status:
+        return "Site Inactive", 404
+
+    # Reuse your existing logic to get sections and pictures
+    sections = PageSection.query.filter_by(page_content_id=page.id).order_by(PageSection.order).all()
+
+    pictures_by_section = {}
+    for section in sections:
+        section_pictures = Picture.query.filter_by(section_id=section.id).order_by(Picture.order).all()
+        pictures_by_section[section.id] = [picture.url for picture in section_pictures]
+
+    sections_dict = [section.to_dict() for section in sections]
+
+    public_page_content = {
+        'page_id': page.id,
+        'sections': sections_dict,
+        'pictures_by_section': pictures_by_section,
+        'background_color': page.background_color,
+        'text_color': page.text_color
+    }
+
+    print("Sections Data:", sections_dict)
+    print("Pictures by Section:", pictures_by_section)
+    print("COLORS: ", page.background_color, ", ", page.text_color)
+
+    return render_template('public.html', content=public_page_content)
 
 
 @app.route('/website/<int:website_id>/<int:page_id>')
@@ -2244,4 +2291,4 @@ if __name__ == '__main__':
 
     # Get the port from the environment variable or default to 5000
     port = int(os.environ.get('PORT', 5772))
-    app.run(debug=False, host='192.168.1.230', port=port)
+    app.run(debug=False, host='0.0.0.0', port=port)

@@ -324,8 +324,8 @@
             background-color: #8f7eb2;
             color: white;
             /* font-size: 3em; */
-            width: 200px;
-            height: 200px;
+            width: 300px;
+            height: 250px;
             /* border-radius: 50%; */
             cursor: pointer;
             transition: background-color 0.6s;
@@ -402,11 +402,12 @@
         </form>
     </div> -->
 
-    <div class="create-website-box" onclick="openModal('createWebsiteModal')">
-        <p class="create-text">Create New Website</p>
-        <i class="fas fa-plus" id="plus-icon"></i>
-    </div>
-
+    {% if not user_has_website %}
+        <div class="create-website-box" onclick="openModal('createWebsiteModal')">
+            <p class="create-text">Create New Website</p>
+            <i class="fas fa-plus" id="plus-icon"></i>
+        </div>
+    {% endif %}
 
     <!-- <div class="form-container">
         <h2>Create New Website</h2>
@@ -441,7 +442,7 @@
     </div>
 
 
-    <h2>Websites</h2>
+    <!-- <h2>Websites</h2> -->
     <ul class="website-list">
 
         {% for website, pages in website_pages.items() %}

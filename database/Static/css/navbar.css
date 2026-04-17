@@ -1,6 +1,7 @@
 .navbar {
     display: flex;
     align-items: center;
+    justify-content: space-between; /* This pushes items to opposite ends */
     padding: 10px 20px;
     background-color: #1f1f1f;
     color: white;
@@ -102,6 +103,8 @@
     color: white;
     font-size: 24px;
     cursor: pointer;
+    display: flex;       /* Ensures the <i> tag inside is centered */
+    align-items: center;
 }
 
 #profileDropdownContent {
