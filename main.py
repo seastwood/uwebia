@@ -187,7 +187,7 @@ class PublicPageContent(db.Model):
     site_active_status = db.Column(db.Boolean, default=False)
     tags = db.relationship('Tag', secondary='page_tag', backref=db.backref('pages', lazy=True))
     liked_by = db.relationship('User', secondary='user_likes', back_populates='liked_pages')
-    background_color = db.Column(db.String(20), default='#ffffff')  # Default to white
+    background_color = db.Column(db.String(200), default='#ffffff')  # Default to white
     text_color = db.Column(db.String(20), default='#000000')  # Default to black
 
     def __repr__(self):
@@ -324,24 +324,34 @@ import json
 
 # API endpoint
 ollama_url = 'http://192.168.1.214:11434/api/generate'
-
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
 def update_page_colors(page_id):
-    data = request.json
-    background_color = data.get('background_color')
-    text_color = data.get('text_color')
+    data = request.get_json()
+
+    background_color = (data.get('background_color') or '').strip()
+    text_color = (data.get('text_color') or '').strip()
 
     page_content = PublicPageContent.query.get(page_id)
     if not page_content:
         return jsonify({'error': 'Page not found'}), 404
 
+    if not background_color:
+        return jsonify({'error': 'Background color is required'}), 400
+
+    if not text_color:
+        return jsonify({'error': 'Text color is required'}), 400
+
     page_content.background_color = background_color
     page_content.text_color = text_color
+
     db.session.commit()
 
-    return jsonify({'message': 'Page colors updated successfully'}), 200
-
+    return jsonify({
+        'message': 'Page colors updated successfully',
+        'background_color': page_content.background_color,
+        'text_color': page_content.text_color
+    }), 200
 #
 # @app.route('/get_response_stream', methods=['POST'])
 # @login_required
@@ -2580,24 +2590,33 @@ def download_calendar_events(section_id):
     # Return the iCal feed as a response
     return Response(cal.to_ical(), mimetype='text/calendar')
 
-
 @app.route('/page/<int:section_id>/add_event', methods=['POST'])
 @login_required
 def add_event(section_id):
     try:
-        data = request.json
+        data = request.get_json()
+
         title = data.get('title')
         description = data.get('description')
         start_str = data.get('start')
         end_str = data.get('end')
         background_color = data.get('backgroundColor')
 
-        # Set the local time zone to Central Standard Time (CST)
         local_timezone = pytz.timezone('America/Chicago')
 
-        # Parse datetime strings and convert to local timezone
-        start = parser.parse(str(start_str)).astimezone(local_timezone)
-        end = parser.parse(str(end_str)).astimezone(local_timezone)
+        start = parser.parse(str(start_str))
+        end = parser.parse(str(end_str)) if end_str else None
+
+        if start.tzinfo is None:
+            start = local_timezone.localize(start)
+        else:
+            start = start.astimezone(local_timezone)
+
+        if end:
+            if end.tzinfo is None:
+                end = local_timezone.localize(end)
+            else:
+                end = end.astimezone(local_timezone)
 
         event = CalendarEvent(
             title=title,
@@ -2610,14 +2629,15 @@ def add_event(section_id):
 
         db.session.add(event)
         db.session.commit()
-        return jsonify({'message': 'Event added successfully'}), 201
-    except KeyError as e:
-        return jsonify({'error': f'Missing key in request data: {e}'}), 400
-    except ValueError as e:
-        return jsonify({'error': f'Invalid date format: {e}'}), 400
-    except Exception as e:
-        return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
 
+        return jsonify({
+            'message': 'Event added successfully',
+            'event': event.to_dict()
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/page/<int:section_id>/events', methods=['GET'])
 def get_events(section_id):
@@ -2628,28 +2648,71 @@ def get_events(section_id):
 @app.route('/page/<int:section_id>/update_event', methods=['POST'])
 @login_required
 def update_event(section_id):
-    data = request.json
-    event = CalendarEvent.query.get(data['id'])
-    if event:
-        event.title = data['title']
-        event.start = data['start']
-        event.end = data['end']
-        db.session.commit()
-        return jsonify({'message': 'Event updated successfully'}), 200
-    return jsonify({'message': 'Event not found'}), 404
+    try:
+        data = request.get_json()
+        event_id = data.get('id')
 
+        if not event_id:
+            return jsonify({'message': 'Event id is required'}), 400
+
+        event = CalendarEvent.query.filter_by(id=event_id, section_id=section_id).first()
+        if not event:
+            return jsonify({'message': 'Event not found'}), 404
+
+        local_timezone = pytz.timezone('America/Chicago')
+
+        start = parser.parse(str(data.get('start'))) if data.get('start') else None
+        end = parser.parse(str(data.get('end'))) if data.get('end') else None
+
+        if start:
+            if start.tzinfo is None:
+                start = local_timezone.localize(start)
+            else:
+                start = start.astimezone(local_timezone)
+
+        if end:
+            if end.tzinfo is None:
+                end = local_timezone.localize(end)
+            else:
+                end = end.astimezone(local_timezone)
+
+        event.title = data.get('title', event.title)
+        event.description = data.get('description', event.description)
+        event.start = start or event.start
+        event.end = end
+        event.background_color = data.get('backgroundColor', event.background_color)
+
+        db.session.commit()
+        return jsonify({
+            'message': 'Event updated successfully',
+            'event': event.to_dict()
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/page/<int:section_id>/delete_event', methods=['POST'])
 @login_required
 def delete_event(section_id):
-    data = request.json
-    event = CalendarEvent.query.get(data['id'])
-    if event:
-        db.session.delete(event)
-        db.session.commit()
-        return jsonify({'message': 'Event deleted successfully'}), 200
-    return jsonify({'message': 'Event not found'}), 404
+    try:
+        data = request.get_json()
+        event_id = data.get('id')
 
+        if not event_id:
+            return jsonify({'message': 'Event id is required'}), 400
+
+        event = CalendarEvent.query.filter_by(id=event_id, section_id=section_id).first()
+        if event:
+            db.session.delete(event)
+            db.session.commit()
+            return jsonify({'message': 'Event deleted successfully'}), 200
+
+        return jsonify({'message': 'Event not found'}), 404
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Run migrations

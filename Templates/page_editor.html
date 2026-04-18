@@ -494,37 +494,38 @@
         z-index: 99;
     }
 
-.section-content.open {
-    width: 90%;
-    padding: 12px;
-    background-color: #292b34;
+    .section-content.open {
+        width: 90%;
+        padding: 12px;
+        background-color: #292b34;
 
-    border-bottom-left-radius: 20px;
-    border-bottom-right-radius: 20px;
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
+        border-bottom-left-radius: 20px;
+        border-bottom-right-radius: 20px;
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
 
-    box-shadow: 0 2px 5px rgba(.5, .5, .5, 0.9);
-    visibility: visible;
-    opacity: 1;
-    max-height: 1000px;
-    z-index: 99;
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-}
+        box-shadow: 0 2px 5px rgba(.5, .5, .5, 0.9);
+        visibility: visible;
+        opacity: 1;
+        max-height: 1000px;
+        z-index: 99;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+    }
 
 
-.row {
-    background-color: #4d50599c;
-    border-radius: 8px;
-    min-height: 40px;
-    display: flex;
-    max-width: 95vw;
+    .row {
+        background-color: #4d50599c;
+        border-radius: 8px;
+        min-height: 40px;
+        display: flex;
+        max-width: 95vw;
 
-    border: 2px solid #595d69; /* ← add this */
-    box-shadow: 0 2px 7px rgba(.9, .9, .9, 1.2);
-}
+        border: 2px solid #595d69;
+        /* ← add this */
+        box-shadow: 0 2px 7px rgba(.9, .9, .9, 1.2);
+    }
 
     .column {
         /* position: relative; */
@@ -1410,12 +1411,22 @@
         <div class="content-container">
             <!-- Invisible overlay -->
             <div class="color-options">
-                <div class=color-option>
-                    <label for="background-color">Background Color:</label>
-                    <div class="pickr">
-                        <input type="color" id="background-color" value="{{ page_content.background_color }}">
+                <div class="color-option">
+                    <label>Background:</label>
+
+                    <div class="gradient-controls">
+                        <select id="gradient-direction">
+                            <option value="to right">Left → Right</option>
+                            <option value="to bottom">Top → Bottom</option>
+                            <option value="to bottom right">Diagonal</option>
+                        </select>
+
+                        <button type="button" id="add-color-stop">+ Add Color</button>
                     </div>
+
+                    <div id="gradient-colors"></div>
                 </div>
+
                 <div class=color-option>
                     <label for="text-color">Text Color:</label>
                     <div class="pickr">
@@ -1743,40 +1754,40 @@
             event.dataTransfer.dropEffect = 'move';
         }
 
-function handleRowDrop(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.classList.remove('drag-over');
+        function handleRowDrop(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.classList.remove('drag-over');
 
-    const raw = event.dataTransfer.getData("application/json");
-    if (!raw) return;
+            const raw = event.dataTransfer.getData("application/json");
+            if (!raw) return;
 
-    const data = JSON.parse(raw);
-    if (data.type !== "section") return;
+            const data = JSON.parse(raw);
+            if (data.type !== "section") return;
 
-    const draggedSectionId = data.sectionId;
-    const targetRowId = parseInt(event.currentTarget.dataset.rowId, 10);
-    if (!targetRowId) return;
+            const draggedSectionId = data.sectionId;
+            const targetRowId = parseInt(event.currentTarget.dataset.rowId, 10);
+            if (!targetRowId) return;
 
-    fetch(`/insert_section_before_row/${draggedSectionId}`, {
-        method: "PUT",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            targetRowId: targetRowId
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            console.error(data.error);
-        } else {
-            populateSections();
+            fetch(`/insert_section_before_row/${draggedSectionId}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    targetRowId: targetRowId
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error(data.error);
+                    } else {
+                        populateSections();
+                    }
+                })
+                .catch(error => console.error(error));
         }
-    })
-    .catch(error => console.error(error));
-}
 
         function handleRowDragLeave(event) {
             event.currentTarget.classList.remove('drag-over');
@@ -3164,119 +3175,113 @@ function handleRowDrop(event) {
         // Initialize an object to hold calendar instances
         const calendars = {};
 
-        function editEvent(sectionId, event) {
-            const calendar = calendars[sectionId];
+        function editEvent(sectionId, calendarEvent) {
+    const calendar = calendars[sectionId];
 
-            // Create a form for editing event details
-            const formHtml = `
+    const formHtml = `
         <div class="popup-form-overlay" id="popupFormOverlay">
             <div class="popup-form">
                 <button class="close-btn" id="closeBtn">&times;</button>
                 <form id="eventForm-${sectionId}">
                     <div class="form-row">
                         <label for="eventTitle">Title:</label>
-                        <input type="text" id="eventTitle" name="eventTitle" value="${event.title}" required>
+                        <input type="text" id="eventTitle" name="eventTitle" value="${calendarEvent.title}" required>
                     </div>
                     <div class="form-row">
                         <div class="form-column">
-                        <label for="startDate">Start Date:</label>
-                        <input type="date" id="startDate" name="startDate" value="${event.startStr.split('T')[0]}" required>
+                            <label for="startDate">Start Date:</label>
+                            <input type="date" id="startDate" name="startDate" value="${calendarEvent.startStr.split('T')[0]}" required>
                         </div>
                         <div class="form-column">
-                        <label for="endDate">End Date:</label>
-                        <input type="date" id="endDate" name="endDate" value="${event.endStr ? event.endStr.split('T')[0] : ''}">
+                            <label for="endDate">End Date:</label>
+                            <input type="date" id="endDate" name="endDate" value="${calendarEvent.endStr ? calendarEvent.endStr.split('T')[0] : ''}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-column">
-                        <label for="startTime">Start Time:</label>
-                        <input type="time" id="startTime" name="startTime" value="${event.startStr.split('T')[1].slice(0, 5)}">
+                            <label for="startTime">Start Time:</label>
+                            <input type="time" id="startTime" name="startTime" value="${calendarEvent.startStr.split('T')[1] ? calendarEvent.startStr.split('T')[1].slice(0, 5) : '00:00'}">
                         </div>
                         <div class="form-column">
-                        <label for="endTime">End Time:</label>
-                        <input type="time" id="endTime" name="endTime" value="${event.endStr ? event.endStr.split('T')[1].slice(0, 5) : ''}">
+                            <label for="endTime">End Time:</label>
+                            <input type="time" id="endTime" name="endTime" value="${calendarEvent.endStr && calendarEvent.endStr.split('T')[1] ? calendarEvent.endStr.split('T')[1].slice(0, 5) : '23:59'}">
                         </div>
                     </div>
                     <div class="form-row">
                         <label for="backgroundColor">Background Color:</label>
-                        <input type="color" id="backgroundColor" name="backgroundColor" value="${event.backgroundColor}">
+                        <input type="color" id="backgroundColor" name="backgroundColor" value="${calendarEvent.backgroundColor || '#0000ff'}">
                     </div>
                     <div class="form-row-description">
                         <label for="description">Description:</label>
-                        <textarea id="description" name="description" rows="4">${event.extendedProps.description}</textarea>
+                        <textarea id="description" name="description" rows="4">${calendarEvent.extendedProps.description || ''}</textarea>
                     </div>
                     <input type="submit" value="Save Changes">
                 </form>
                 <button id="deleteEventBtn" class="btn btn-danger">Delete Event</button>
             </div>
-            </div>
         </div>
     `;
 
-            // Create a container for the form
-            const formContainer = document.createElement('div');
-            formContainer.innerHTML = formHtml;
+    const formContainer = document.createElement('div');
+    formContainer.innerHTML = formHtml;
+    document.body.appendChild(formContainer);
 
-            // Append the form to the document body
-            document.body.appendChild(formContainer);
+    const overlay = formContainer.querySelector('#popupFormOverlay');
+    const closeButton = formContainer.querySelector('#closeBtn');
+    const deleteButton = formContainer.querySelector('#deleteEventBtn');
 
-            // Get references to the overlay and close button
-            const overlay = formContainer.querySelector('#popupFormOverlay');
-            const closeButton = formContainer.querySelector('#closeBtn');
-            const deleteButton = formContainer.querySelector('#deleteEventBtn');
+    const removeForm = () => {
+        formContainer.remove();
+    };
 
-            // Add event listener to delete button
-            deleteButton.addEventListener('click', () => {
-                if (confirm(`Do you want to delete the event '${event.title}'?`)) {
-                    event.remove(); // Remove the event from the calendar
-                    deleteEvent(event.id); // Call a function to delete the event from the backend
-                    removeForm(); // Close the form
-                }
-            });
+    closeButton.addEventListener('click', removeForm);
 
-            // Function to remove the form
-            const removeForm = () => {
-                formContainer.remove();
-            };
-
-            // Add event listener to close button
-            closeButton.addEventListener('click', removeForm);
-
-            // Add event listener to overlay to close the form when clicking outside of it
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) {
-                    removeForm();
-                }
-            });
-
-            // Add event listener for form submission
-            formContainer.querySelector(`#eventForm-${sectionId}`).addEventListener('submit', function (event) {
-                event.preventDefault(); // Prevent default form submission
-
-                // Get form input values
-                const title = this.querySelector('#eventTitle').value;
-                const description = this.querySelector('#description').value;
-                const startDate = this.querySelector('#startDate').value;
-                const startTime = this.querySelector('#startTime').value;
-                const endDate = this.querySelector('#endDate').value;
-                const endTime = this.querySelector('#endTime').value;
-                const backgroundColor = this.querySelector('#backgroundColor').value;
-
-                // Update the event properties
-                event.setProp('title', title);
-                event.setExtendedProp('description', description);
-                event.setStart(startDate + 'T' + startTime);
-                event.setEnd(endDate ? endDate + 'T' + endTime : null);
-                event.setProp('backgroundColor', backgroundColor);
-
-                // Update event on the backend
-                updateEvent(event);
-
-                // Close the form
-                removeForm();
-            });
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            removeForm();
         }
+    });
 
+    deleteButton.addEventListener('click', async () => {
+        if (confirm(`Do you want to delete the event '${calendarEvent.title}'?`)) {
+            try {
+                await deleteEvent(calendarEvent.id, sectionId);
+                calendarEvent.remove();
+                removeForm();
+            } catch (error) {
+                console.error('Error deleting event:', error);
+            }
+        }
+    });
+
+    formContainer.querySelector(`#eventForm-${sectionId}`).addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        const title = this.querySelector('#eventTitle').value;
+        const description = this.querySelector('#description').value;
+        const startDate = this.querySelector('#startDate').value;
+        const startTime = this.querySelector('#startTime').value;
+        const endDate = this.querySelector('#endDate').value;
+        const endTime = this.querySelector('#endTime').value;
+        const backgroundColor = this.querySelector('#backgroundColor').value;
+
+        const newStart = `${startDate}T${startTime}`;
+        const newEnd = endDate ? `${endDate}T${endTime}` : null;
+
+        calendarEvent.setProp('title', title);
+        calendarEvent.setExtendedProp('description', description);
+        calendarEvent.setStart(newStart);
+        calendarEvent.setEnd(newEnd);
+        calendarEvent.setProp('backgroundColor', backgroundColor);
+
+        try {
+            await updateEvent(calendarEvent, sectionId);
+            removeForm();
+        } catch (error) {
+            console.error('Error updating event:', error);
+        }
+    });
+}
 
         function initializeCalendar(sectionId) {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
@@ -3299,7 +3304,7 @@ function handleRowDrop(event) {
                     editEvent(sectionId, info.event);
                 },
                 eventChange: function (info) {
-                    updateEvent(info.event);
+                    updateEvent(info.event, sectionId);
                 }
             });
 
@@ -3435,56 +3440,40 @@ function handleRowDrop(event) {
                 }
             });
 
-            // Add event listener for form submission
-            formContainer.querySelector(`#eventForm-${sectionId}`).addEventListener('submit', function (event) {
-                event.preventDefault(); // Prevent default form submission
+            formContainer.querySelector(`#eventForm-${sectionId}`).addEventListener('submit', async function (event) {
+                event.preventDefault();
 
-                // Get form input values
                 const title = this.querySelector('#eventTitle').value;
-                const description = this.querySelector('#description').value;  // Get description value
-                // const allDay = this.querySelector('#allDay').checked;
+                const description = this.querySelector('#description').value;
                 const startDate = this.querySelector('#startDate').value;
                 const startTime = this.querySelector('#startTime').value;
                 const endDate = this.querySelector('#endDate').value;
                 const endTime = this.querySelector('#endTime').value;
-
-                // Create Date objects for start and end times
-                const startDateTime = new Date(startDate + 'T' + (startTime));
-                // Check if endDate exists
-                const endDateTime = endDate ? new Date(endDate + 'T' + (endTime)) : new Date(startDate + 'T' + (endTime));
-
-
-                // Log start and end Date objects
-                console.log('Start Date:', startDateTime);
-                console.log('End Date:', endDateTime);
-
-                // Get background color value
                 const backgroundColor = this.querySelector('#backgroundColor').value;
 
-                // Extend the newEvent object with backgroundColor property
+                const startDateTime = new Date(startDate + 'T' + startTime);
+                const endDateTime = endDate
+                    ? new Date(endDate + 'T' + endTime)
+                    : new Date(startDate + 'T' + endTime);
+
                 const newEvent = {
                     title: title,
                     description: description,
                     start: startDateTime.toISOString(),
                     end: endDateTime.toISOString(),
-                    // allDay: allDay,
-                    backgroundColor: backgroundColor  // Add backgroundColor property
+                    backgroundColor: backgroundColor
                 };
 
-                console.log('newEvent:', newEvent);
-
-                // Debug: Log the data before passing it to saveEvent
-                console.log('New Event Data:', newEvent);
-
-                // Add event to calendar
-                calendar.addEvent(newEvent);
-
-                // Save event to backend
-                saveEvent(newEvent, sectionId);
-
-                // Remove the form from the DOM
-                formContainer.remove();
+                try {
+                    const savedEvent = await saveEvent(newEvent, sectionId);
+                    calendar.addEvent(savedEvent);
+                    formContainer.remove();
+                } catch (error) {
+                    console.error('Error saving event:', error);
+                }
             });
+
+
         }
 
 
@@ -3507,28 +3496,34 @@ function handleRowDrop(event) {
         }
 
 
-        function saveEvent(event, sectionId) {
-            console.log('Event to be sent to backend:', event); // Debug log
-            fetch(`/page/${sectionId}/add_event`, { // Adjust the page ID as necessary
+        async function saveEvent(event, sectionId) {
+            const response = await fetch(`/page/${sectionId}/add_event`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(event)
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Response from backend:', data); // Debug log
-                    if (!response.ok) {
-                        console.error('Error saving event:', data);
-                    }
-                })
-                .catch(error => console.error('Error saving event:', error));
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to save event');
+            }
+
+            return {
+                id: String(data.event.id),
+                title: data.event.title,
+                start: data.event.start,
+                end: data.event.end,
+                description: data.event.description,
+                backgroundColor: data.event.backgroundColor
+            };
         }
 
 
-        function updateEvent(event) {
-            fetch(`/page/${sectionId}/update_event`, { // Adjust the page ID as necessary
+        function updateEvent(event, sectionId) {
+            fetch(`/page/${sectionId}/update_event`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -3536,16 +3531,19 @@ function handleRowDrop(event) {
                 body: JSON.stringify({
                     id: event.id,
                     title: event.title,
-                    start: event.start,
-                    end: event.end
+                    description: event.extendedProps.description,
+                    start: event.start ? event.start.toISOString() : null,
+                    end: event.end ? event.end.toISOString() : null,
+                    backgroundColor: event.backgroundColor
                 })
             })
                 .then(response => response.json())
+                .then(data => console.log('Update response:', data))
                 .catch(error => console.error('Error updating event:', error));
         }
 
-        function deleteEvent(eventId) {
-            fetch(`/page/${sectionId}/delete_event`, { // Adjust the page ID as necessary
+        function deleteEvent(eventId, sectionId) {
+            fetch(`/page/${sectionId}/delete_event`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -3553,6 +3551,7 @@ function handleRowDrop(event) {
                 body: JSON.stringify({ id: eventId })
             })
                 .then(response => response.json())
+                .then(data => console.log('Delete response:', data))
                 .catch(error => console.error('Error deleting event:', error));
         }
 
@@ -4761,34 +4760,130 @@ function handleRowDrop(event) {
         });
 
     </script>
+
+
     <script>
-        const backgroundColorPicker = document.getElementById('background-color');
+        const savedBackground = {{ page_content.background_color| tojson }};
+        const savedTextColor = {{ page_content.text_color| tojson }};
+
+        const gradientContainer = document.getElementById('gradient-colors');
+        const addColorBtn = document.getElementById('add-color-stop');
+        const directionSelect = document.getElementById('gradient-direction');
         const textColorPicker = document.getElementById('text-color');
 
-        let timer = null; // Timer variable to hold the timeout
+        let timer = null;
 
-        backgroundColorPicker.addEventListener('input', function () {
-            clearTimeout(timer); // Clear previous timer
+        function debounceUpdate() {
+            clearTimeout(timer);
+            timer = setTimeout(updatePageColors, 500);
+        }
 
-            // Start a new timer for 500ms (adjust this value as needed)
-            timer = setTimeout(function () {
-                updatePageColors();
-            }, 500); // 500ms delay before triggering update
+        function createColorInput(value = '#ffffff') {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gradient-stop';
+
+            const input = document.createElement('input');
+            input.type = 'color';
+            input.className = 'gradient-color';
+            input.value = value;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '×';
+
+            removeBtn.addEventListener('click', () => {
+                const allStops = gradientContainer.querySelectorAll('.gradient-stop');
+                if (allStops.length > 1) {
+                    wrapper.remove();
+                    debounceUpdate();
+                }
+            });
+
+            input.addEventListener('input', debounceUpdate);
+
+            wrapper.appendChild(input);
+            wrapper.appendChild(removeBtn);
+            gradientContainer.appendChild(wrapper);
+        }
+
+        function parseSavedBackground(backgroundValue) {
+            if (!backgroundValue) {
+                return {
+                    direction: 'to right',
+                    colors: ['#ffffff', '#000000']
+                };
+            }
+
+            const trimmed = backgroundValue.trim();
+
+            if (!trimmed.startsWith('linear-gradient(')) {
+                return {
+                    direction: 'to right',
+                    colors: [trimmed]
+                };
+            }
+
+            const inside = trimmed.slice('linear-gradient('.length, -1);
+            const parts = inside.split(',').map(p => p.trim());
+
+            let direction = 'to right';
+            let colors = parts;
+
+            if (
+                parts[0].startsWith('to ') ||
+                parts[0].includes('deg')
+            ) {
+                direction = parts[0];
+                colors = parts.slice(1);
+            }
+
+            return {
+                direction,
+                colors
+            };
+        }
+
+        function initializeBackgroundControls() {
+            gradientContainer.innerHTML = '';
+
+            const parsed = parseSavedBackground(savedBackground);
+
+            if ([...directionSelect.options].some(opt => opt.value === parsed.direction)) {
+                directionSelect.value = parsed.direction;
+            } else {
+                directionSelect.value = 'to right';
+            }
+
+            parsed.colors.forEach(color => {
+                createColorInput(color);
+            });
+
+            if (parsed.colors.length === 0) {
+                createColorInput('#ffffff');
+                createColorInput('#000000');
+            }
+
+            textColorPicker.value = savedTextColor || '#000000';
+        }
+
+        addColorBtn.addEventListener('click', () => {
+            createColorInput('#ffffff');
+            debounceUpdate();
         });
 
-        textColorPicker.addEventListener('input', function () {
-            clearTimeout(timer); // Clear previous timer
-
-            // Start a new timer for 500ms (adjust this value as needed)
-            timer = setTimeout(function () {
-                updatePageColors();
-            }, 500); // 500ms delay before triggering update
-        });
+        directionSelect.addEventListener('change', debounceUpdate);
+        textColorPicker.addEventListener('input', debounceUpdate);
 
         function updatePageColors() {
             const pageId = "{{ page_content.id }}";
-            const background_color = backgroundColorPicker.value;
+            const colors = Array.from(document.querySelectorAll('.gradient-color')).map(input => input.value);
             const text_color = textColorPicker.value;
+
+            let background_color = colors[0] || '#ffffff';
+
+            if (colors.length > 1) {
+                background_color = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+            }
 
             fetch(`/update_page_colors/${pageId}`, {
                 method: 'PUT',
@@ -4806,6 +4901,8 @@ function handleRowDrop(event) {
                     console.error('Error updating colors:', error);
                 });
         }
+
+        document.addEventListener('DOMContentLoaded', initializeBackgroundControls);
     </script>
 
     {% endblock %}
