@@ -387,7 +387,7 @@
 
 <body>
     {% extends 'base.html' %}
-
+    {% include 'components/navbar.html' %}
     {% block content %}
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 

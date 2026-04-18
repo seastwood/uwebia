@@ -1,32 +1,31 @@
 <div class="navbar">
-    <div class="base-navbar-item">
-    <a href="{{ url_for('dashboard') }}" class="base-navbar-home-button">
-        <img src="/static/orange-uw.svg" alt="Uwebia Logo" class="navbar-logo">
-    </a>
+    <div class="nav-left">
+        <a href="{{ url_for('dashboard') }}" class="base-navbar-home-button">
+            <img src="/static/orange-uw.svg" alt="Uwebia Logo" class="navbar-logo">
+        </a>
     </div>
-    <div class="base-navbar-item">
-    <button class="search-icon" id="searchIcon"><i class="fas fa-search"></i></button>
-    <div class="search-container">
-        <form class="search-form" id="searchForm" onsubmit="submitSearch(); return false;">
-            <input type="text" id="searchQuery" placeholder="Search">
-            <button type="submit" class="search-button"><i class="fas fa-chevron-right"></i></button>
-        </form>
+
+    <div class="nav-home">
+        <a href="{{ url_for('dashboard') }}" class="nav-link-btn">
+            <i class="fas fa-home"></i>
+        </a>
     </div>
+
+    <div class="nav-photo">
+        <a href="{{ url_for('photo_library') }}" class="photo-library-btn">
+            <i class="fas fa-images"></i>
+        </a>
     </div>
-    <div class="base-navbar-item">
-    <a href="{{ url_for('user_collections') }}" class="collections-icon">
-        <i class="fas fa-star"></i> <!-- Star icon for collections -->
-    </a>
-    </div>
-    <div class="base-navbar-item">
-    <div class="profile-dropdown">
-        <button class="profile-icon" id="profileIcon">
-            <i class="fas fa-user-circle"></i> <!-- User icon for profile -->
-        </button>
-        <div class="dropdown-content" id="profileDropdownContent">
-            <a href="{{ url_for('logout') }}">Logout</a>
+
+    <div class="nav-right">
+        <div class="profile-dropdown">
+            <button class="profile-icon" id="profileIcon">
+                <i class="fas fa-user-circle"></i>
+            </button>
+            <div class="dropdown-content" id="profileDropdownContent">
+                <a href="{{ url_for('logout') }}">Logout</a>
+            </div>
         </div>
-    </div>
     </div>
 </div>
 

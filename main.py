@@ -174,7 +174,15 @@ class PublicPageContent(db.Model):
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500), nullable=True)  # Add description field
-    all_pictures = db.relationship('Picture', backref='page_content', lazy=True)
+    # all_pictures = db.relationship('Picture', backref='page_content', lazy=True)
+    # Use a 'secondary' join to find pictures through sections and then through section_images
+    all_pictures = db.relationship(
+        'Picture',
+        secondary='join(PageSection, SectionImage, PageSection.id == SectionImage.section_id)',
+        primaryjoin='PublicPageContent.id == PageSection.page_content_id',
+        secondaryjoin='SectionImage.picture_id == Picture.id',
+        viewonly=True
+    )
     sections = db.relationship('PageSection', backref='public_page_content', lazy=True, cascade="all, delete-orphan")
     site_active_status = db.Column(db.Boolean, default=False)
     tags = db.relationship('Tag', secondary='page_tag', backref=db.backref('pages', lazy=True))
@@ -237,16 +245,47 @@ class PageSection(db.Model):
         return f"<PageSection {self.id} - {self.section_type}>"
 
 
+# class Picture(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     url = db.Column(db.String(1000))
+#     order = db.Column(db.Integer)
+#     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
+#     section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_picture_section_id'))
+#
+#     def __repr__(self):
+#         return f"<Picture {self.id}>"
+
 class Picture(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    url = db.Column(db.String(1000))
-    order = db.Column(db.Integer)
-    page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
-    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_picture_section_id'))
+    url = db.Column(db.String(1000), nullable=False)
+    # Track who owns the image
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Folder organization (Optional, can be null for "Main Dropbox")
+    folder_id = db.Column(db.Integer, db.ForeignKey('folder.id'), nullable=True)
+    # Metadata
+    upload_date = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+    # Relationship to the "Junction" table below
+    section_usages = db.relationship('SectionImage', backref='image', cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<Picture {self.id}>"
+        return f"<Picture {self.id} - {self.url}>"
 
+class Folder(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # This allows pictures to be grouped
+    pictures = db.relationship('Picture', backref='parent_folder', lazy=True)
+
+class SectionImage(db.Model):
+    __tablename__ = 'section_images'
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False)
+    picture_id = db.Column(db.Integer, db.ForeignKey('picture.id'), nullable=False)
+    # This is where 'order' lives now, so an image can be 1st in Section A
+    # but 5th in Section B
+    order = db.Column(db.Integer, default=0)
 
 class CalendarEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -519,15 +558,14 @@ def like_page(page_id):
         return jsonify(success=False, message="Page already liked"), 400
 
 
-def delete_associated_pictures(section_id):
+def delete_associated_section_images(section_id):
     try:
-        # Delete associated pictures
-        pictures = Picture.query.filter_by(section_id=section_id).all()
-        for picture in pictures:
-            db.session.delete(picture)
+        links = SectionImage.query.filter_by(section_id=section_id).all()
+        for link in links:
+            db.session.delete(link)
         db.session.commit()
     except Exception as e:
-        db.session.rollback()  # Rollback changes in case of error
+        db.session.rollback()
         raise e
 
 
@@ -610,6 +648,15 @@ def delete_column(column_id):
         db.session.rollback()  # Rollback changes in case of error
         return jsonify({'error': str(e)}), 500
 
+def delete_associated_pictures(section_id):
+    try:
+        links = SectionImage.query.filter_by(section_id=section_id).all()
+        for link in links:
+            db.session.delete(link)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        raise e
 
 def check_for_undefined_columns():
     rows = Row.query.all()
@@ -808,9 +855,14 @@ def update_column_width_in_db(column_id, new_width):
     else:
         print(f'Column {column_id} not found')
 
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    # 1. Block registration if any user already exists
+    user_count = User.query.count()
+    if user_count >= 1:
+        flash('Registration is disabled. An admin account already exists.', 'error')
+        return redirect(url_for('login'))
+
     if request.method == 'POST':
         username = request.form['username']
         email = request.form['email']
@@ -820,21 +872,21 @@ def register():
             flash('Please fill out all fields', 'error')
             return redirect(url_for('register'))
 
-        # Check if user already exists
+        # Standard check for duplicate emails (though technically redundant if only 1 user allowed)
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
             flash('Email address already in use', 'error')
             return redirect(url_for('register'))
 
-        # Create new user
+        # Create the one and only user
         new_user = User(username=username, email=email)
         new_user.set_password(password)
 
         db.session.add(new_user)
         db.session.commit()
 
-        flash('Account created successfully. Please log in.', 'success')
-        return redirect(url_for('login'))  # Adjust this as per your login route
+        flash('Admin account created successfully. Please log in.', 'success')
+        return redirect(url_for('login'))
 
     return render_template('register.html')
 
@@ -865,19 +917,24 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # 1. Force setup if no user exists
+    if User.query.count() == 0:
+        return redirect(url_for('register'))
+
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
         user = User.query.filter_by(username=username).first()
+
         print("USER OBJECT RETRIEVED FROM DATABASE: ", user)
 
         if user and user.check_password(password):
-            login_user(user)  # Log in the user using Flask-Login
+            login_user(user)
             flash('Logged in successfully', 'success')
-            return redirect(url_for('dashboard'))  # Redirect to the dashboard
+            return redirect(url_for('dashboard'))
         else:
             flash('Invalid username or password', 'error')
-            return redirect(url_for('login'))  # Redirect back to login on failure
+            return redirect(url_for('login'))
 
     return render_template('login.html')
 
@@ -1224,47 +1281,152 @@ def allowed_file(filename):
 @app.route('/swap_section_positions/<int:first_section_id>/<int:second_section_id>', methods=['PUT'])
 @login_required
 def swap_section_positions(first_section_id, second_section_id):
-    # Get the sections from the database
-    first_section = PageSection.query.get(first_section_id)
-    second_section = PageSection.query.get(second_section_id)
+    first_column = Column.query.filter_by(section_id=first_section_id).first()
+    second_column = Column.query.filter_by(section_id=second_section_id).first()
 
-    if first_section and second_section:
-        # Swap the sections' column references
-        first_section.column, second_section.column = second_section.column, first_section.column
+    if not first_column or not second_column:
+        return jsonify({'error': 'One or both sections not found in columns'}), 404
 
-        # Commit changes to the database
-        db.session.commit()
+    first_column.section_id, second_column.section_id = second_column.section_id, first_column.section_id
 
-        return jsonify({'message': 'Sections position swapped successfully'}), 200
-    else:
-        return jsonify({'error': 'One or both sections not found'}), 404
+    db.session.commit()
+    return jsonify({'message': 'Sections position swapped successfully'}), 200
 
 
 @app.route('/update_section_position/<int:section_id>', methods=['PUT'])
 @login_required
 def update_section_position(section_id):
-    data = request.json
+    data = request.get_json()
     column_id = data.get('columnId')
-    column = Column.query.get(column_id)
-
-    # Check if the target column already contains any sections
-    existing_sections_in_column = PageSection.query.filter_by(column=column).first()
-    if existing_sections_in_column and existing_sections_in_column.id != section_id:
-        return jsonify({'error': 'Column already contains a section'}), 400
 
     section = PageSection.query.get(section_id)
-    if section:
-        # Check if the column is not None before updating
-        if column:
-            section.column = column
-        # Check if the row is not None before updating
-        if column and column.row:
-            section.row = column.row
-        db.session.commit()
-        return jsonify({'message': 'Section position updated successfully'}), 200
-    else:
+    target_column = Column.query.get(column_id)
+
+    if not section:
         return jsonify({'error': 'Section not found'}), 404
 
+    if not target_column:
+        return jsonify({'error': 'Target column not found'}), 404
+
+    if target_column.section_id is not None and target_column.section_id != section_id:
+        return jsonify({'error': 'Column already contains a section'}), 400
+
+    current_column = Column.query.filter_by(section_id=section_id).first()
+
+    if current_column and current_column.id != target_column.id:
+        current_column.section_id = None
+
+    target_column.section_id = section_id
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Section position updated successfully',
+        'row_id': target_column.row_id,
+        'column_id': target_column.id
+    }), 200
+
+@app.route('/move_section_to_new_row/<int:section_id>', methods=['PUT'])
+@login_required
+def move_section_to_new_row(section_id):
+    data = request.get_json()
+    target_row_id = data.get('targetRowId')
+
+    section = PageSection.query.get(section_id)
+    target_row = Row.query.get(target_row_id)
+
+    if not section:
+        return jsonify({'error': 'Section not found'}), 404
+
+    if not target_row:
+        return jsonify({'error': 'Target row not found'}), 404
+
+    empty_column = None
+    for col in target_row.columns:
+        if col.section_id is None:
+            empty_column = col
+            break
+
+    if not empty_column:
+        next_col_num = max([c.column_number for c in target_row.columns], default=0) + 1
+        empty_column = Column(
+            row_id=target_row.id,
+            column_number=next_col_num,
+            section_id=None,
+            width=100
+        )
+        db.session.add(empty_column)
+        db.session.flush()
+
+    current_column = Column.query.filter_by(section_id=section_id).first()
+    if current_column:
+        current_column.section_id = None
+
+    empty_column.section_id = section_id
+
+    db.session.commit()
+
+    return jsonify({'message': 'Section moved successfully'})
+@app.route('/insert_section_before_row/<int:section_id>', methods=['PUT'])
+@login_required
+def insert_section_before_row(section_id):
+    data = request.get_json()
+    target_row_id = data.get('targetRowId')
+
+    section = PageSection.query.get(section_id)
+    target_row = Row.query.get(target_row_id)
+
+    if not section:
+        return jsonify({'error': 'Section not found'}), 404
+
+    if not target_row:
+        return jsonify({'error': 'Target row not found'}), 404
+
+    try:
+        insert_row_number = target_row.row_number
+        page_content_id = target_row.page_content_id
+
+        rows_to_shift = (
+            Row.query
+            .filter(
+                Row.page_content_id == page_content_id,
+                Row.row_number >= insert_row_number
+            )
+            .order_by(Row.row_number.desc())
+            .all()
+        )
+
+        for row in rows_to_shift:
+            row.row_number += 1
+
+        new_row = Row(
+            page_content_id=page_content_id,
+            row_number=insert_row_number
+        )
+        db.session.add(new_row)
+        db.session.flush()
+
+        new_column = Column(
+            row_id=new_row.id,
+            column_number=1,
+            section_id=None,
+            width=100
+        )
+        db.session.add(new_column)
+        db.session.flush()
+
+        current_column = Column.query.filter_by(section_id=section_id).first()
+        if current_column:
+            current_column.section_id = None
+
+        new_column.section_id = section_id
+
+        db.session.commit()
+        return jsonify({'message': 'Section inserted into new row successfully'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 # Assuming you have a Flask app instance named 'app'
 @app.route('/get_sections/<int:page_content_id>', methods=['GET'])
@@ -1395,26 +1557,27 @@ def add_row_above(row_id):
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/page/<int:page_id>/remove_section/<int:section_id>', methods=['DELETE'])
 @login_required
 def remove_section(page_id, section_id):
     section = PageSection.query.get_or_404(section_id)
-    # Get the order of the section to be removed
     removed_order = section.order
-    delete_associated_pictures(section.id)
+
+    delete_associated_section_images(section.id)
+
     db.session.delete(section)
     db.session.commit()
 
-    # Update the order numbers of remaining sections with order greater than the removed section
-    remaining_sections = PageSection.query.filter(PageSection.page_content_id == page_id,
-                                                  PageSection.order > removed_order).all()
+    remaining_sections = PageSection.query.filter(
+        PageSection.page_content_id == page_id,
+        PageSection.order > removed_order
+    ).all()
+
     for s in remaining_sections:
         s.order -= 1
 
     db.session.commit()
     return jsonify({'message': 'Section removed successfully'}), 200
-
 
 @app.route('/page/<int:page_id>/reorder_sections', methods=['POST'])
 @login_required
@@ -1454,6 +1617,85 @@ def update_section_order():
     else:
         return 'Section not found', 404
 
+
+@app.route('/library/upload', methods=['POST'])
+@login_required
+def library_upload():
+    files = request.files.getlist('picture')
+    folder_id = request.form.get('folder_id')  # Optional folder sorting
+
+    user_folder = os.path.join(uploads_folder, str(current_user.id))
+    os.makedirs(user_folder, exist_ok=True)
+
+    for file in files:
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(user_folder, filename))
+
+            picture_url = url_for('static', filename=f'uploads/{current_user.id}/{filename}')
+
+            new_pic = Picture(
+                url=picture_url,
+                user_id=current_user.id,
+                folder_id=folder_id
+            )
+            db.session.add(new_pic)
+
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+
+@app.route('/get_library_root', methods=['GET'])
+@login_required
+def get_library_root():
+    all_folders = Folder.query.filter_by(user_id=current_user.id).all()
+    root_images = Picture.query.filter_by(user_id=current_user.id, folder_id=None).all()
+    return jsonify({
+        'folders': [{'id': f.id, 'name': f.name} for f in all_folders],
+        'images': [{'id': i.id, 'url': i.url} for i in root_images]
+    })
+
+
+@app.route('/get_library_folder/<int:folder_id>', methods=['GET'])
+@login_required
+def get_library_folder(folder_id):
+    # Verify the folder belongs to the user
+    folder = Folder.query.filter_by(id=folder_id, user_id=current_user.id).first_or_404()
+
+    # Get images inside this specific folder
+    images = Picture.query.filter_by(user_id=current_user.id, folder_id=folder_id).all()
+
+    return jsonify({
+        'folders': [],  # Assuming no nested folders for now
+        'images': [{'id': i.id, 'url': i.url} for i in images]
+    })
+
+@app.route('/dashboard/library')
+@login_required
+def photo_library():
+    # Fetch top-level folders and pictures not in a folder (the "Dropbox")
+    folders = Folder.query.filter_by(user_id=current_user.id).all()
+    root_pictures = Picture.query.filter_by(
+        user_id=current_user.id,
+        folder_id=None
+    ).order_by(Picture.upload_date.desc()).all()
+
+    return render_template('photo_library.html',
+                           folders=folders,
+                           root_pictures=root_pictures)
+
+@app.route('/section/add_image', methods=['POST'])
+@login_required
+def link_image_to_section():
+    data = request.json
+    section_id = data.get('section_id')
+    picture_id = data.get('picture_id')
+
+    # Add to junction table
+    link = SectionImage(section_id=section_id, picture_id=picture_id)
+    db.session.add(link)
+    db.session.commit()
+    return jsonify({'status': 'success'})
 
 @app.route('/update_public_images', methods=['POST'])
 @login_required
@@ -1564,13 +1806,26 @@ def update_public_images():
 
 
 @app.route('/get_uploaded_images')
+@login_required
 def get_uploaded_images():
-    section_id = request.args.get('section_id')
+    section_id = request.args.get('section_id', type=int)
     if not section_id:
         return jsonify({'status': 'error', 'message': 'Section ID is missing'})
 
-    pictures = Picture.query.filter_by(section_id=section_id).order_by(Picture.order).all()
-    images_data = [{'id': picture.id, 'url': picture.url, 'order': picture.order} for picture in pictures]
+    results = (
+        db.session.query(Picture, SectionImage)
+        .join(SectionImage, Picture.id == SectionImage.picture_id)
+        .filter(SectionImage.section_id == section_id)
+        .order_by(SectionImage.order)
+        .all()
+    )
+
+    images_data = [{
+        'id': pic.id,          # Picture ID
+        'link_id': link.id,    # SectionImage ID
+        'url': pic.url,
+        'order': link.order
+    } for pic, link in results]
 
     return jsonify({'images': images_data})
 
@@ -1623,6 +1878,104 @@ def delete_image():
     else:
         return jsonify({'status': 'error', 'message': 'Image not found'})
 
+
+from flask import render_template, request, jsonify, url_for
+from flask_login import login_required, current_user
+import os
+
+
+@app.route('/add_images_from_library', methods=['POST'])
+@login_required
+def add_images_from_library():
+    data = request.json
+    section_id = data.get('section_id')
+    image_ids = data.get('image_ids')  # IDs from the Picture table
+
+    for img_id in image_ids:
+        lib_pic = Picture.query.get(img_id)
+        # Create a new reference or copy the entry for this section
+        # Logic depends on if your SectionImages table is separate
+        new_entry = SectionImage(section_id=section_id, picture_id=lib_pic.id)
+        db.session.add(new_entry)
+
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+# Create a new folder
+@app.route('/library/create_folder', methods=['POST'])
+@login_required
+def create_folder():
+    data = request.json
+    name = data.get('name')
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Name is required'}), 400
+
+    new_folder = Folder(name=name, user_id=current_user.id)
+    db.session.add(new_folder)
+    db.session.commit()
+    return jsonify({'status': 'success', 'folder_id': new_folder.id})
+
+
+# View a specific folder
+@app.route('/dashboard/library/folder/<int:folder_id>')
+@login_required
+def view_folder(folder_id):
+    folder = Folder.query.filter_by(id=folder_id, user_id=current_user.id).first_or_404()
+    folders = Folder.query.filter_by(user_id=current_user.id).all()  # For sidebar/navigation
+    pictures = Picture.query.filter_by(folder_id=folder_id).all()
+
+    return render_template('photo_library.html',
+                           folders=folders,
+                           root_pictures=pictures,
+                           current_folder=folder)
+
+
+# Move image to folder
+@app.route('/library/move_image', methods=['POST'])
+@login_required
+def move_image():
+    data = request.json
+    image_id = data.get('image_id')
+    folder_id = data.get('folder_id')
+
+    # If dropped on 'Main Library', set folder_id to None
+    if folder_id == "root":
+        folder_id = None
+
+    image = Picture.query.filter_by(id=image_id, user_id=current_user.id).first()
+    if image:
+        image.folder_id = folder_id
+        db.session.commit()
+        return jsonify({'status': 'success'})
+    return jsonify({'status': 'error'}), 404
+
+
+# Revamped Delete (Handles database and physical file)
+@app.route('/library/delete_image/<int:image_id>', methods=['POST'])
+@login_required
+def delete_library_image(image_id):
+    image = Picture.query.filter_by(id=image_id, user_id=current_user.id).first()
+    if not image:
+        return jsonify({'status': 'error', 'message': 'Not found'}), 404
+
+    try:
+        # 1. Determine local path from URL
+        # URL is usually: /static/uploads/1/image.jpg
+        # We need: project_root/static/uploads/1/image.jpg
+        relative_path = image.url.lstrip('/')
+        full_path = os.path.join(app.root_path, relative_path)
+
+        # 2. Delete file from disk
+        if os.path.exists(full_path):
+            os.remove(full_path)
+
+        # 3. Delete from DB (cascades to section_usages)
+        db.session.delete(image)
+        db.session.commit()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/update_public_text', methods=['POST'])
 @login_required
@@ -1761,29 +2114,31 @@ def serve_static(filename):
     print("Request for static file:", filename)
     return send_from_directory(app.static_folder, filename)
 
-
 @app.route('/')
 def home_page():
-    # Assuming you want to show the current logged-in user's site
-    # or a specific 'primary' site if no one is logged in
-    website = Website.query.first()  # Or filter by specific owner logic
+    website = Website.query.first()
 
     if not website:
         return render_template('no_site_found.html')
 
-    # Get the "home" page (usually the first page created or id=1)
     page = PublicPageContent.query.filter_by(website_id=website.id).first()
 
     if not page or not page.site_active_status:
         return "Site Inactive", 404
 
-    # Reuse your existing logic to get sections and pictures
     sections = PageSection.query.filter_by(page_content_id=page.id).order_by(PageSection.order).all()
 
     pictures_by_section = {}
     for section in sections:
-        section_pictures = Picture.query.filter_by(section_id=section.id).order_by(Picture.order).all()
-        pictures_by_section[section.id] = [picture.url for picture in section_pictures]
+        results = (
+            db.session.query(Picture, SectionImage)
+            .join(SectionImage, Picture.id == SectionImage.picture_id)
+            .filter(SectionImage.section_id == section.id)
+            .order_by(SectionImage.order)
+            .all()
+        )
+
+        pictures_by_section[section.id] = [picture.url for picture, link in results]
 
     sections_dict = [section.to_dict() for section in sections]
 
@@ -1801,8 +2156,7 @@ def home_page():
 
     return render_template('public.html', content=public_page_content)
 
-
-@app.route('/website/<int:website_id>/<int:page_id>')
+@app.route('/page/<int:website_id>/<int:page_id>')
 def public_page(website_id, page_id):
     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
 
@@ -1816,8 +2170,15 @@ def public_page(website_id, page_id):
 
     pictures_by_section = {}
     for section in sections:
-        section_pictures = Picture.query.filter_by(section_id=section.id).order_by(Picture.order).all()
-        pictures_by_section[section.id] = [picture.url for picture in section_pictures]
+        results = (
+            db.session.query(Picture, SectionImage)
+            .join(SectionImage, Picture.id == SectionImage.picture_id)
+            .filter(SectionImage.section_id == section.id)
+            .order_by(SectionImage.order)
+            .all()
+        )
+
+        pictures_by_section[section.id] = [picture.url for picture, link in results]
 
     sections_dict = [section.to_dict() for section in sections]
 
@@ -1835,13 +2196,13 @@ def public_page(website_id, page_id):
 
     return render_template('public.html', content=public_page_content)
 
-
 @app.route('/preview_page/<int:website_id>/<int:page_id>')
 @login_required
 def preview_page(website_id, page_id):
-    website = Website.query.get_or_404(website_id)
-    if website.user_id != current_user.id:
-        return jsonify({'status': 'error', 'message': 'Unauthorized access'})
+    # Use db.session.get for SQLAlchemy 2.0 compatibility
+    website = db.session.get(Website, website_id)
+    if not website or website.user_id != current_user.id:
+        return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 
     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
 
@@ -1852,8 +2213,18 @@ def preview_page(website_id, page_id):
 
     pictures_by_section = {}
     for section in sections:
-        section_pictures = Picture.query.filter_by(section_id=section.id).order_by(Picture.order).all()
-        pictures_by_section[section.id] = [picture.url for picture in section_pictures]
+        # NEW LOGIC: Join SectionImage and Picture to get the URLs for this specific section
+        section_pictures = db.session.query(Picture.url).join(
+            SectionImage, Picture.id == SectionImage.picture_id
+        ).filter(
+            SectionImage.section_id == section.id
+        ).order_by(
+            SectionImage.order
+        ).all()
+
+        # .all() returns a list of tuples, e.g., [('url1',), ('url2',)],
+        # so we flatten it to a list of strings
+        pictures_by_section[section.id] = [p.url for p in section_pictures]
 
     sections_dict = [section.to_dict() for section in sections]
 
@@ -1865,12 +2236,7 @@ def preview_page(website_id, page_id):
         'text_color': content.text_color
     }
 
-    print("Sections Data:", sections_dict)
-    print("Pictures by Section:", pictures_by_section)
-    print("COLORS: ", content.background_color, ", ", content.text_color)
-
     return render_template('public.html', content=public_page_content)
-
 
 def update_map_section(section, form_data):
     latitude = form_data.get('latitude')
@@ -2046,35 +2412,60 @@ def toggle_public_page():
         return jsonify({'status': 'error', 'message': 'Failed to update public page status'})
 
 
+@app.route('/remove_images_from_section', methods=['POST'])
+@login_required
+def remove_images_from_section():
+    data = request.json
+    section_id = data.get('sectionId')
+    link_ids = data.get('linkIds')  # These are SectionImage IDs
+
+    if not link_ids:
+        return jsonify({'status': 'error', 'message': 'No images selected'})
+
+    # Delete the links, not the pictures
+    SectionImage.query.filter(
+        SectionImage.id.in_(link_ids),
+        SectionImage.section_id == section_id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Images removed from section'})
+
+
 def update_image_order(order_list):
     try:
-        # Update the order of images in the database
-        for order in order_list:
-            picture_id = order.get('id')
-            new_order = order.get('order')
-            section_id = order.get('sectionId')  # Get the section ID
+        # order_list expected format: [{'link_id': 12, 'order': 1, 'sectionId': 5}, ...]
+        for item in order_list:
+            link_id = item.get('link_id')
+            new_order = item.get('order')
+            new_section_id = item.get('sectionId')
 
-            # Check if the picture exists
-            picture = Picture.query.get(picture_id)
-            if not picture:
-                return {'status': 'error', 'message': f'Picture with ID {picture_id} does not exist'}
+            # Query the SectionImage (the link), not the Picture itself
+            link = db.session.get(SectionImage, link_id)
 
-            # Check if the section exists
-            section = PageSection.query.get(section_id)
-            if not section:
-                return {'status': 'error', 'message': f'Section with ID {section_id} does not exist'}
+            if not link:
+                # Fallback: if link_id isn't provided, try to find it via picture_id and section_id
+                # (This helps if your JS is still sending 'id' instead of 'link_id')
+                picture_id = item.get('id')
+                link = SectionImage.query.filter_by(
+                    picture_id=picture_id,
+                    section_id=new_section_id
+                ).first()
 
-            # Update the picture's order and section ID
-            print(f"Updating order for picture {picture_id} to {new_order} in section {section_id}")  # Debug statement
-            picture.order = new_order
-            picture.section_id = section_id
+            if link:
+                print(f"Moving link {link.id}: Section {link.section_id} -> {new_section_id}, Order -> {new_order}")
+                link.order = new_order
+                link.section_id = new_section_id
+            else:
+                print(f"Link not found for item: {item}")
+                continue
 
-        # Commit the changes to the database
         db.session.commit()
-        return {'status': 'success', 'message': 'Image order updated'}
+        return {'status': 'success', 'message': 'Image order and sections updated'}
+
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating image order: {str(e)}")  # Debug statement
+        print(f"Error updating image order: {str(e)}")
         return {'status': 'error', 'message': str(e)}
 
 
@@ -2121,43 +2512,45 @@ def delete_selected_images():
         error_message = str(e)
         return {'status': 'error', 'message': error_message}
 
-
 @app.route('/move_image_to_section', methods=['POST'])
 @login_required
 def move_image_to_section():
     data = request.json
 
-    if not data or 'sourceOrder' not in data or 'sourceSection' not in data or 'targetSection' not in data:
+    if not data or 'sourceLinkId' not in data or 'sourceSection' not in data or 'targetSection' not in data:
         return jsonify({'status': 'error', 'message': 'Invalid request format'})
 
-    source_order = data['sourceOrder']
-    source_section_id = data['sourceSection']
-    target_section_id = data['targetSection']
+    source_link_id = data['sourceLinkId']
+    source_section_id = int(data['sourceSection'])
+    target_section_id = int(data['targetSection'])
 
     try:
-        # Find the picture to be moved
-        picture = Picture.query.filter_by(order=source_order, section_id=source_section_id).first()
+        link = db.session.get(SectionImage, source_link_id)
 
-        if picture:
-            # Update the section ID of the picture
-            picture.section_id = target_section_id
+        if not link:
+            return jsonify({'status': 'error', 'message': 'SectionImage link not found'})
 
-            # Get all pictures in the source section and update their orders
-            source_section_pictures = Picture.query.filter_by(section_id=source_section_id).order_by(
-                Picture.order).all()
-            for index, pic in enumerate(source_section_pictures, start=1):
-                pic.order = index
+        if link.section_id != source_section_id:
+            return jsonify({'status': 'error', 'message': 'Source section mismatch'})
 
-            # Get all pictures in the target section and update their orders
-            target_section_pictures = Picture.query.filter_by(section_id=target_section_id).order_by(
-                Picture.order).all()
-            for index, pic in enumerate(target_section_pictures, start=len(source_section_pictures) + 1):
-                pic.order = index
+        # Move link to new section
+        link.section_id = target_section_id
 
-            db.session.commit()
-            return jsonify({'status': 'success', 'message': 'Image moved successfully'})
-        else:
-            return jsonify({'status': 'error', 'message': 'Image not found'})
+        db.session.flush()
+
+        # Re-number source section
+        source_links = SectionImage.query.filter_by(section_id=source_section_id).order_by(SectionImage.order).all()
+        for index, item in enumerate(source_links, start=1):
+            item.order = index
+
+        # Put moved image at end of target section
+        target_links = SectionImage.query.filter_by(section_id=target_section_id).order_by(SectionImage.order).all()
+        for index, item in enumerate(target_links, start=1):
+            item.order = index
+
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'Image moved successfully'})
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)})
@@ -2291,4 +2684,4 @@ if __name__ == '__main__':
 
     # Get the port from the environment variable or default to 5000
     port = int(os.environ.get('PORT', 5772))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(debug=False, host='192.168.1.230', port=port)

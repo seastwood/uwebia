@@ -1,8 +1,3 @@
-function submitSearch() {
-    const query = document.getElementById('searchQuery').value;
-    const url = `/browse_websites?query=${encodeURIComponent(query)}`;
-    window.location.href = url;
-}
 
 // document.addEventListener('DOMContentLoaded', function() {
 //     const searchContainer = document.querySelector('.search-container');
@@ -12,12 +7,6 @@ function submitSearch() {
 //         searchContainer.classList.toggle('active');
 //     });
 // });
-
-document.getElementById('searchIcon').addEventListener('click', function() {
-    // this.classList.toggle('active');
-    const searchContainer = document.querySelector('.search-container');
-    searchContainer.classList.toggle('active');
-});
 
 document.addEventListener('DOMContentLoaded', function () {
     const profileIcon = document.getElementById('profileIcon');

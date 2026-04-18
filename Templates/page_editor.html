@@ -241,10 +241,12 @@
         user-select: none;
         /* Prevent highlighting */
 
-    /* text-align: center; */
-    height: auto; /* Ensure height adjusts based on content */
-    overflow: auto; /* Add overflow handling if necessary */
-    /* Additional flex or other layout properties if inside a flex container */
+        /* text-align: center; */
+        height: auto;
+        /* Ensure height adjusts based on content */
+        overflow: auto;
+        /* Add overflow handling if necessary */
+        /* Additional flex or other layout properties if inside a flex container */
 
 
     }
@@ -401,6 +403,23 @@
         border: 2px dashed #2dce35;
     }
 
+    .image-drop-placeholder {
+        display: inline-block;
+        width: 150px;
+        height: 120px;
+        margin: 0;
+        padding: 3px;
+        border: 2px dashed #2dce35;
+        border-radius: 5px;
+        background: rgba(45, 206, 53, 0.08);
+        vertical-align: top;
+        box-sizing: border-box;
+    }
+
+    .uploaded-images li.dragging {
+        opacity: 0.4;
+    }
+
     #trashCan {
         display: inline-block;
         width: 100px;
@@ -475,31 +494,37 @@
         z-index: 99;
     }
 
-    .section-content.open {
-        width: 90%;
-        padding: 12px;
-        /* border: 1px solid #000; */
-        border-radius: 20px;
-        background-color: #292b34;
-        /* margin-bottom: 20px; */
-        box-shadow: 0 2px 5px rgba(.5, .5, .5, 0.9);
-        visibility: visible;
-        opacity: 1;
-        max-height: 1000px;
-        z-index: 99;
-        position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-    }
+.section-content.open {
+    width: 90%;
+    padding: 12px;
+    background-color: #292b34;
+
+    border-bottom-left-radius: 20px;
+    border-bottom-right-radius: 20px;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+
+    box-shadow: 0 2px 5px rgba(.5, .5, .5, 0.9);
+    visibility: visible;
+    opacity: 1;
+    max-height: 1000px;
+    z-index: 99;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}
 
 
-    .row {
-        display: flex;
-        /* flex-wrap: wrap; */
-        max-width: 95vw;
-        /* margin-bottom: 10px */
-        /* align-items: center; */
-    }
+.row {
+    background-color: #4d50599c;
+    border-radius: 8px;
+    min-height: 40px;
+    display: flex;
+    max-width: 95vw;
+
+    border: 2px solid #595d69; /* ← add this */
+    box-shadow: 0 2px 7px rgba(.9, .9, .9, 1.2);
+}
 
     .column {
         /* position: relative; */
@@ -507,9 +532,9 @@
         border-radius: 5px;
         background-color: #4d50599c;
         color: #fff;
-        padding: 15px;
+        /* padding: 15px; */
         margin: 5px;
-        box-shadow: 0 2px 7px rgba(1, 1, 1, 0.9);
+        box-shadow: 0 2px 7px rgba(.5, .5, .5, 0.4);
         /* Adjusted properties for resizing */
         max-width: 100vw;
         min-width: 10px;
@@ -1161,54 +1186,168 @@
     }
 
     .color-options {
-    display: flex; /* Use flexbox layout */
-    gap: 10px; /* Adjust the gap between items */
-    flex-wrap: wrap; /* Allow items to wrap to the next line if needed */
-    justify-content: flex-start; /* Align items starting from the left */
-}
+        display: flex;
+        /* Use flexbox layout */
+        gap: 10px;
+        /* Adjust the gap between items */
+        flex-wrap: wrap;
+        /* Allow items to wrap to the next line if needed */
+        justify-content: flex-start;
+        /* Align items starting from the left */
+    }
 
-.color-option {
-    /* width: 100px; */
-    /* height: 50px; */
-    /* border: 1px solid #ccc; */
-    position: relative;
-    background-color: #4d50599c;
-    color: #fff;
-    padding: 5px;
-    margin: 5px;
-    box-shadow: 0 2px 7px rgba(1, 1, 1, 0.9);
-    /* max-width: 100vw; */
-    min-width: 10px;
-    max-height: none;
-    /* flex-grow: 1; */
-    user-select: none;
-    border-radius: 10px;
-    justify-content: center;
-}
+    .color-option {
+        /* width: 100px; */
+        /* height: 50px; */
+        /* border: 1px solid #ccc; */
+        position: relative;
+        background-color: #4d50599c;
+        color: #fff;
+        padding: 5px;
+        margin: 5px;
+        box-shadow: 0 2px 7px rgba(1, 1, 1, 0.9);
+        /* max-width: 100vw; */
+        min-width: 10px;
+        max-height: none;
+        /* flex-grow: 1; */
+        user-select: none;
+        border-radius: 10px;
+        justify-content: center;
+    }
 
-.ai-query-text {
-    width: 100%;
-    max-height: 300px; /* Adjust max height as needed */
-    overflow-y: auto; /* Add vertical scroll when content exceeds max height */
-}
+    .ai-query-text {
+        width: 100%;
+        max-height: 300px;
+        /* Adjust max height as needed */
+        overflow-y: auto;
+        /* Add vertical scroll when content exceeds max height */
+    }
 
-.query-input {
-    width: 100%;
-    padding: 10px;
-    box-sizing: border-box;
-    resize: none; /* Prevent resizing by users */
-    border: 1px solid #ccc; /* Example border style */
-    font-size: 16px; /* Example font size */
-    line-height: 1.5; /* Example line height */
-    background-color: #0e0e0e;
-}
+    .query-input {
+        width: 100%;
+        padding: 10px;
+        box-sizing: border-box;
+        resize: none;
+        /* Prevent resizing by users */
+        border: 1px solid #ccc;
+        /* Example border style */
+        font-size: 16px;
+        /* Example font size */
+        line-height: 1.5;
+        /* Example line height */
+        background-color: #0e0e0e;
+    }
 
+    /* Modal specific styling */
+    #libraryModal {
+        color: #333;
+        /* Force dark text for the white modal */
+    }
 
+    #modalFolderGrid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        min-height: 50px;
+        /* Ensures it's visible even when empty */
+    }
+
+    /* Specific folder style for inside the modal */
+    #modalFolderGrid .folder-item {
+        width: 100px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: white;
+        text-align: center;
+        transition: transform 0.1s;
+    }
+
+    #modalFolderGrid .folder-item:hover {
+        transform: translateY(-2px);
+        border-color: #f39c12;
+    }
+
+    #modalFolderGrid .folder-item i {
+        color: #f39c12;
+        /* Bright orange for visibility */
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    #modalFolderGrid .folder-item p {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #333;
+        word-break: break-all;
+    }
+
+    /* Back button styling */
+    #modalFolderGrid button {
+        padding: 5px 12px;
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        align-self: center;
+    }
+
+    /* Modal-specific image constraints */
+    #modalImageGrid .image-card {
+        width: 100%;
+        height: 150px;
+        /* Fixed height for the card */
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #f0f0f0;
+    }
+
+    #modalImageGrid .image-card img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        /* This prevents the "full size" stretching */
+        display: block;
+    }
+
+    /* Ensure the grid doesn't expand the cards too much */
+    #modalImageGrid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 15px;
+    }
+
+    .row-drop-zone {
+        /* height: 18px; */
+        /* margin: 8px 0; */
+        border: 2px dashed transparent;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: transparent;
+        font-size: 12px;
+    }
+
+    .row-drop-zone.drag-over {
+        height: 30px;
+        border-color: #7ee2cc;
+        background: rgba(126, 226, 204, 0.12);
+        color: #7ee2cc;
+    }
 </style>
 </head>
 
 <body>
     {% extends 'base.html' %}
+    {% include 'components/navbar.html' %}
     {% block content %}
     <!-- Include CodeMirror and Linting Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
@@ -1272,17 +1411,17 @@
             <!-- Invisible overlay -->
             <div class="color-options">
                 <div class=color-option>
-                <label for="background-color">Background Color:</label>
-                <div class="pickr">
-                <input type="color" id="background-color" value="{{ page_content.background_color }}">
-            </div>
-            </div>
-            <div class=color-option>
-                <label for="text-color">Text Color:</label>
-                <div class="pickr">
-                <input type="color" id="text-color" value="{{ page_content.text_color }}">
-            </div>
-            </div>
+                    <label for="background-color">Background Color:</label>
+                    <div class="pickr">
+                        <input type="color" id="background-color" value="{{ page_content.background_color }}">
+                    </div>
+                </div>
+                <div class=color-option>
+                    <label for="text-color">Text Color:</label>
+                    <div class="pickr">
+                        <input type="color" id="text-color" value="{{ page_content.text_color }}">
+                    </div>
+                </div>
             </div>
 
             <div class="content-sections-container">
@@ -1348,7 +1487,40 @@
 
 
     </div>
+    <div id="libraryModal" class="modal"
+        style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.85);">
+        <div class="modal-content"
+            style="background:#fff; margin:2% auto; width:90%; max-width:1100px; height:90vh; border-radius:15px; overflow-y:auto; padding:30px; position:relative;">
+            <span class="close" onclick="closeLibraryModal()"
+                style="position:absolute; top:20px; right:25px; cursor:pointer; font-size:30px; color:#999;">&times;</span>
 
+            <div class="library-container" style="padding:0;">
+                <div class="library-header">
+                    <h2><i class="fas fa-images"></i> Select from Photo Library</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Choose images to add to your page section.</p>
+                </div>
+
+                <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
+                <div id="modalFolderGrid" class="folder-grid">
+                </div>
+
+                <hr style="margin: 30px 0;">
+
+                <div id="modalCurrentFolderName" style="margin: 10px 0; font-weight: bold;">Root Images</div>
+
+                <div id="modalImageGrid" class="image-grid">
+                </div>
+
+                <div
+                    style="position: sticky; bottom: -30px; margin: 30px -30px -30px -30px; padding: 20px; background: #f8f9fa; border-top: 1px solid #eee; text-align: right; border-radius: 0 0 15px 15px;">
+                    <span id="selectionCount" style="margin-right:20px; font-weight: bold; color: #555;">0 images
+                        selected</span>
+                    <button class="btn-primary" onclick="confirmLibrarySelection()" style="padding: 10px 25px;">Add
+                        Selected to Section</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- JavaScript code -->
 
     <script>
@@ -1564,6 +1736,52 @@
                 });
         }
 
+
+        function handleRowDragOver(event) {
+            event.preventDefault();
+            event.currentTarget.classList.add('drag-over');
+            event.dataTransfer.dropEffect = 'move';
+        }
+
+function handleRowDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.remove('drag-over');
+
+    const raw = event.dataTransfer.getData("application/json");
+    if (!raw) return;
+
+    const data = JSON.parse(raw);
+    if (data.type !== "section") return;
+
+    const draggedSectionId = data.sectionId;
+    const targetRowId = parseInt(event.currentTarget.dataset.rowId, 10);
+    if (!targetRowId) return;
+
+    fetch(`/insert_section_before_row/${draggedSectionId}`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            targetRowId: targetRowId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            console.error(data.error);
+        } else {
+            populateSections();
+        }
+    })
+    .catch(error => console.error(error));
+}
+
+        function handleRowDragLeave(event) {
+            event.currentTarget.classList.remove('drag-over');
+        }
+
         function reloadSections(sections, rows, columns, website) {
             const sectionsContainer = document.getElementById('sections-container');
             sectionsContainer.innerHTML = ''; // Clear the container
@@ -1676,6 +1894,19 @@
                 // Append dropdown content to dropdown container
                 optionsDropdown.appendChild(dropdownContent);
 
+
+                const rowDropZone = document.createElement('div');
+                rowDropZone.classList.add('row-drop-zone');
+                rowDropZone.setAttribute('data-row-id', rowId);
+                rowDropZone.innerHTML = '<span>Drop section here</span>';
+
+                rowDropZone.addEventListener('dragover', handleRowDragOver);
+                rowDropZone.addEventListener('drop', handleRowDrop);
+                rowDropZone.addEventListener('dragleave', handleRowDragLeave);
+
+                sectionsContainer.appendChild(rowDropZone);
+
+
                 // Append dropdown container to row
                 rowElement.appendChild(optionsDropdown);
 
@@ -1779,39 +2010,41 @@
                         // Add section-specific content
                         if (section.section_type === 'image_gallery') {
                             sectionContent.innerHTML = `
-        <div class="uploaded-images-container section-container">
-            <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
-                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-                <input type="hidden" name="section_id" value="${section.id}">
-                <label for="picture">Pictures:</label>
-                <input type="file" name="picture" accept="image/*" multiple><br><br>
-                <input type="submit" value="Upload">
-                <label>Uploaded Images:</label>
-                <div class="uploaded-images" ondrop="handleDrop(event)" ondragover="handleDragOver(event)">
-                    <ul class="sortable" id="sortable-${section.id}">
-                    </ul>
-                </div>
-            </form>
-        </div>`;
+    <div class="uploaded-images-container section-container">
+        <form class="updateImageForm" data-section-id="${section.id}">
+            <label>Add Content:</label>
+            <div class="editor-controls">
+                <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
+                    <i class="fas fa-th"></i> Pick from Library
+                </button>
+            </div>
+
+            <label>Section Images:</label>
+            <div class="uploaded-images">
+                <ul class="sortable" id="sortable-${section.id}"></ul>
+            </div>
+        </form>
+    </div>`;
                             // Add section-specific content
                         } else if (section.section_type === 'image') {
                             sectionContent.innerHTML = `
         <div class="uploaded-images-container section-container">
             <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
                 data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-                <input type="hidden" name="section_id" value="${section.id}">
-                <label for="picture">Image:</label>
-                <input type="file" name="picture" accept="image/*">
-                <input type="submit" value="Upload">
-                <label>Uploaded Image:</label>
+                <div class="editor-controls">
+                    <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
+                        <i class="fas fa-th"></i> Pick Image from Library
+                    </button>
+                </div>
+                <label>Selected Image:</label>
                 <div class="uploaded-images">
                     <ul class="sortable" id="sortable-${section.id}">
                     </ul>
                 </div>
             </form>
         </div>`;
-    }if (section.section_type === 'navbar') {
-    sectionContent.innerHTML = `
+                        } if (section.section_type === 'navbar') {
+                            sectionContent.innerHTML = `
     <!-- Navbar Section -->
     <div class="navbar-container section-container">
         <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
@@ -1868,7 +2101,7 @@
 </div>
 
     <button type="button" class="query-button" data-section-id="${section.id}">Enter</button>
-    
+
     <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
         <button type="button" class="formatCodeButton">Format Code</button><br>
         <div class="editor-wrapper">
@@ -2088,106 +2321,176 @@
                 }
                 sectionsContainer.appendChild(rowElement);
                 // Make sections draggable
-                const sections = document.querySelectorAll('.section-title');
-                sections.forEach(section => {
+                const sectionTitles = document.querySelectorAll('.section-title');
+                sectionTitles.forEach(section => {
                     section.draggable = true;
-                    section.addEventListener('dragstart', handleDragStart);
+                    section.addEventListener('dragstart', handleSectionDragStart);
                 });
 
-                // Make row/column cells droppable
                 const cells = document.querySelectorAll('.column');
                 cells.forEach(cell => {
-                    cell.addEventListener('dragover', handleDragOver);
-                    cell.addEventListener('drop', handleDrop);
+                    cell.addEventListener('dragover', handleSectionDragOver);
+                    cell.addEventListener('drop', handleSectionDrop);
                 });
 
-                function handleDragStart(event) {
-                    const sectionIdString = event.target.id.split('-').pop(); // Extract section ID from the title's ID
-                    const sectionId = parseInt(sectionIdString, 10); // Parse the section ID as an integer
-                    event.dataTransfer.setData('text/plain', sectionId);
+                function handleSectionDragStart(event) {
+                    const sectionEl = event.currentTarget;
+                    const sectionId = sectionEl.id.replace('section-title-', '');
+
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("application/json", JSON.stringify({
+                        type: "section",
+                        sectionId: parseInt(sectionId, 10)
+                    }));
                 }
+
+                function handleSectionDragOver(event) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                }
+
+                function handleSectionDrop(event) {
+                    event.preventDefault();
+
+                    const raw = event.dataTransfer.getData("application/json");
+                    if (!raw) return;
+
+                    const data = JSON.parse(raw);
+                    if (data.type !== "section") return;
+
+                    const draggedSectionId = data.sectionId;
+                    const targetColumn = event.currentTarget.closest(".column");
+                    if (!targetColumn) return;
+
+                    const targetColumnId = parseInt(targetColumn.dataset.columnId, 10);
+                    if (!targetColumnId) return;
+
+                    fetch(`/update_section_position/${draggedSectionId}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ columnId: targetColumnId })
+                    })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.error) {
+                                console.error(data.error);
+                            } else {
+                                populateSections();
+                            }
+                        })
+                        .catch(err => console.error(err));
+                }
+
+
+                function handleDragStart(event) {
+                    const li = event.target.closest("li");
+                    if (!li) return;
+
+                    currentDraggedLi = li;
+                    li.classList.add("dragging");
+
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", JSON.stringify({
+                        sourceOrder: li.dataset.order,
+                        sourceSection: li.dataset.sectionId,
+                        sourceLinkId: li.dataset.linkId
+                    }));
+
+                    if (!currentPlaceholder) {
+                        currentPlaceholder = createPlaceholder();
+                    }
+                }
+
+
 
                 function handleDragOver(event) {
                     event.preventDefault();
+
+                    const targetLi = event.target.closest("li");
+                    const targetList = event.currentTarget.closest("ul") || event.target.closest("ul");
+
+                    if (!targetList || !currentDraggedLi || !currentPlaceholder) return;
+
+                    event.dataTransfer.dropEffect = "move";
+
+                    // If dragging over the UL but not a specific LI, append placeholder at end
+                    if (!targetLi || targetLi === currentDraggedLi || targetLi === currentPlaceholder) {
+                        if (!targetList.contains(currentPlaceholder)) {
+                            targetList.appendChild(currentPlaceholder);
+                        }
+                        return;
+                    }
+
+                    const rect = targetLi.getBoundingClientRect();
+                    const midpoint = rect.left + rect.width / 2;
+
+                    // For horizontal thumbnail layout, compare X instead of Y
+                    const insertAfter = event.clientX > midpoint;
+
+                    if (insertAfter) {
+                        targetLi.parentNode.insertBefore(currentPlaceholder, targetLi.nextSibling);
+                    } else {
+                        targetLi.parentNode.insertBefore(currentPlaceholder, targetLi);
+                    }
                 }
 
                 function handleDrop(event) {
                     event.preventDefault();
-                    const sectionId = event.dataTransfer.getData('text/plain');
-                    const sectionElement = document.getElementById(sectionId);
-                    const columnId = event.target.dataset.columnId;
-                    const rowId = event.target.dataset.row;
 
-                    // Get the dropped section's parent column
-                    const droppedColumn = event.target.closest('.column');
+                    if (!currentDraggedLi || !currentPlaceholder) return;
 
-                    // If there is no section in the dropped column or the dropped section is being dropped on itself, simply update the section's position
-                    if (!droppedColumn.querySelector('.section-title') || droppedColumn.querySelector('.section-title') === sectionElement) {
-                        // Update the UI
-                        // event.target.appendChild(sectionElement);
+                    const sourceData = JSON.parse(event.dataTransfer.getData("text/plain"));
+                    const sourceSection = sourceData.sourceSection;
+                    const sourceLinkId = sourceData.sourceLinkId;
 
-                        // Update the database (make an AJAX request to update section's row and column)
-                        fetch(`/update_section_position/${sectionId}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ rowId, columnId })
-                        })
-                            .then(response => {
-                                if (response.ok) {
-                                    console.log('Section position updated successfully');
-                                    handleSubmit();
-                                    populateSections();
-                                } else {
-                                    throw new Error('Failed to update section position');
-                                }
-                            })
-                            .catch(error => {
-                                console.error('Error updating section position:', error);
-                            });
-                    } else {
-                        // Get the ID of the section being dropped over
-                        const droppedOverSectionId = droppedColumn.querySelector('.section-title').id.split('-').pop();
+                    const targetList = currentPlaceholder.closest("ul");
+                    if (!targetList) return;
 
-                        // Swap sections' positions in the UI
-                        const draggedSection = document.getElementById(`section-title-${sectionId}`);
-                        const droppedOverSection = document.getElementById(`section-title-${droppedOverSectionId}`);
+                    const targetSection = targetList.id.replace("sortable-", "");
 
-                        // Swap the sections
-                        const temp = document.createElement('div');
-                        draggedSection.parentNode.insertBefore(temp, draggedSection);
-                        droppedOverSection.parentNode.insertBefore(draggedSection, droppedOverSection);
-                        temp.parentNode.insertBefore(droppedOverSection, temp);
-                        temp.parentNode.removeChild(temp);
-
-                        // Update the database
-                        fetch(`/swap_section_positions/${sectionId}/${droppedOverSectionId}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                draggedRowId: rowId,
-                                draggedColumnId: columnId,
-                                droppedOverRowId: droppedColumn.dataset.row,
-                                droppedOverColumnId: droppedColumn.dataset.column
-                            })
-                        })
-                            .then(response => {
-                                if (response.ok) {
-                                    console.log('Sections position swapped successfully');
-                                    // Update any other necessary UI elements or data
-                                    populateSections();
-                                } else {
-                                    throw new Error('Failed to swap sections position');
-                                }
-                            })
-                            .catch(error => {
-                                console.error('Error swapping sections position:', error);
-                                // Handle the error appropriately
-                            });
+                    if (sourceSection !== targetSection) {
+                        moveImageToSection(sourceLinkId, sourceSection, targetSection);
+                        handleDragEnd();
+                        return;
                     }
+
+                    targetList.insertBefore(currentDraggedLi, currentPlaceholder);
+                    currentPlaceholder.remove();
+
+                    const orderData = Array.from(targetList.querySelectorAll("li:not(.image-drop-placeholder)")).map((li, index) => ({
+                        link_id: parseInt(li.dataset.linkId, 10),
+                        order: index + 1,
+                        sectionId: parseInt(targetSection, 10)
+                    }));
+
+                    updateImageOrder(orderData);
+                    handleDragEnd();
+                }
+
+                function reorderImagesByDropPosition(sourceLinkId, targetLi, sectionId, event) {
+                    const sortableContainer = document.getElementById(`sortable-${sectionId}`);
+                    if (!sortableContainer) return;
+
+                    const fromLi = sortableContainer.querySelector(`li[data-link-id="${sourceLinkId}"]`);
+                    if (!fromLi || !targetLi || fromLi === targetLi) return;
+
+                    const rect = targetLi.getBoundingClientRect();
+                    const midpoint = rect.top + rect.height / 2;
+                    const dropAfter = event.clientY > midpoint;
+
+                    if (dropAfter) {
+                        sortableContainer.insertBefore(fromLi, targetLi.nextSibling);
+                    } else {
+                        sortableContainer.insertBefore(fromLi, targetLi);
+                    }
+
+                    const orderData = Array.from(sortableContainer.children).map((li, index) => ({
+                        link_id: parseInt(li.dataset.linkId, 10),
+                        order: index + 1,
+                        sectionId: parseInt(sectionId, 10)
+                    }));
+
+                    updateImageOrder(orderData);
                 }
 
 
@@ -2556,122 +2859,122 @@
 
 
             function initializeNavbar(websiteId, sectionId) {
-    const section = sections.find(sec => sec.id === sectionId);
-    const urlsContainer = document.getElementById('urls-container');
+                const section = sections.find(sec => sec.id === sectionId);
+                const urlsContainer = document.getElementById('urls-container');
 
-    if (!urlsContainer) {
-        console.error('Navbar elements not found');
-        return;
-    }
+                if (!urlsContainer) {
+                    console.error('Navbar elements not found');
+                    return;
+                }
 
-    // Function to add a new URL and Name input group
-    function addUrlInput(name = '', url = '') {
-        const urlInputGroup = document.createElement('div');
-        urlInputGroup.classList.add('url-input-group');
-        urlInputGroup.innerHTML = `
+                // Function to add a new URL and Name input group
+                function addUrlInput(name = '', url = '') {
+                    const urlInputGroup = document.createElement('div');
+                    urlInputGroup.classList.add('url-input-group');
+                    urlInputGroup.innerHTML = `
             <input type="text" name="navbar_names" placeholder="Name" class="dynamic-width name-input" style="padding: 10px;" value="${name}" />
             <input type="text" name="navbar_urls" placeholder="URL" class="dynamic-width url-input" style="padding: 10px;" value="${url}" />
             <button type="button" class="edit-url-button">Edit</button>
             <button type="button" class="remove-url-button">Remove</button>
         `;
-        urlsContainer.appendChild(urlInputGroup);
+                    urlsContainer.appendChild(urlInputGroup);
 
-        // Add event listener to the remove button
-        const removeButton = urlInputGroup.querySelector('.remove-url-button');
-        removeButton.addEventListener('click', function () {
-            urlsContainer.removeChild(urlInputGroup);
-        });
+                    // Add event listener to the remove button
+                    const removeButton = urlInputGroup.querySelector('.remove-url-button');
+                    removeButton.addEventListener('click', function () {
+                        urlsContainer.removeChild(urlInputGroup);
+                    });
 
-        // Add event listener to the edit button
-        const editButton = urlInputGroup.querySelector('.edit-url-button');
-        editButton.addEventListener('click', function () {
-            const nameInput = urlInputGroup.querySelector('.name-input');
-            const urlInput = urlInputGroup.querySelector('.url-input');
-            nameInput.removeAttribute('readonly');
-            urlInput.removeAttribute('readonly');
-        });
-    }
+                    // Add event listener to the edit button
+                    const editButton = urlInputGroup.querySelector('.edit-url-button');
+                    editButton.addEventListener('click', function () {
+                        const nameInput = urlInputGroup.querySelector('.name-input');
+                        const urlInput = urlInputGroup.querySelector('.url-input');
+                        nameInput.removeAttribute('readonly');
+                        urlInput.removeAttribute('readonly');
+                    });
+                }
 
-    // Function to fetch page URLs associated with the website from backend
-    async function fetchPageURLs(websiteId) {
-        try {
-            const response = await fetch(`/api/website/${websiteId}/pages`);
-            if (!response.ok) {
-                throw new Error('Failed to fetch page URLs');
+                // Function to fetch page URLs associated with the website from backend
+                async function fetchPageURLs(websiteId) {
+                    try {
+                        const response = await fetch(`/api/website/${websiteId}/pages`);
+                        if (!response.ok) {
+                            throw new Error('Failed to fetch page URLs');
+                        }
+                        const data = await response.json();
+                        return data.pages; // Assuming data is structured with pages array
+                    } catch (error) {
+                        console.error('Error fetching page URLs:', error);
+                        return [];
+                    }
+                }
+
+                // Function to populate the dropdown with fetched page URLs
+                async function populateDropdown(websiteId) {
+                    const pages = await fetchPageURLs(websiteId);
+                    const selectDropdown = document.createElement('select');
+                    // Get the root URL of the webpage
+                    var rootUrl = window.location.origin;
+
+
+                    selectDropdown.name = 'navbar_page_urls';
+                    selectDropdown.classList.add('dynamic-width', 'url-input');
+                    selectDropdown.style.padding = '10px';
+
+                    // Add a manual entry option
+                    const placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = '-- Select URL Location --';
+                    selectDropdown.appendChild(placeholder);
+
+                    // Add a manual entry option
+                    const option = document.createElement('option');
+                    option.value = 'enter URL here';
+                    option.textContent = 'Enter Manually';
+                    selectDropdown.appendChild(option);
+
+                    // Add existing pages as options
+                    pages.forEach(page => {
+                        // Construct the full URL
+                        var fullUrl = rootUrl + `/website/${websiteId}/${page.id}`;
+                        const option = document.createElement('option');
+                        option.value = fullUrl; // Adjust URL format as needed
+                        option.textContent = page.name;
+                        selectDropdown.appendChild(option);
+                    });
+
+                    // Add event listener to select option
+                    selectDropdown.addEventListener('change', function () {
+                        const selectedOption = selectDropdown.options[selectDropdown.selectedIndex];
+                        if (selectedOption.value !== '') {
+                            addUrlInput(selectedOption.textContent, selectedOption.value);
+                            selectDropdown.selectedIndex = 0; // Reset dropdown to default option
+                        }
+                    });
+
+                    // Replace the "Add Item" button with the dropdown
+                    const addUrlButton = document.getElementById('add-url-button');
+                    addUrlButton.parentNode.replaceChild(selectDropdown, addUrlButton);
+                }
+
+                // Initialize the dropdown when initializing the navbar
+                populateDropdown(websiteId);
+
+                // Initialize Sortable.js for the URLs container
+                Sortable.create(urlsContainer, {
+                    animation: 150,
+                    handle: '.url-input, .name-input',
+                    ghostClass: 'sortable-ghost',
+                });
+
+                // Populate existing navbar items if any
+                if (section && section.content && section.content.navbar_items) {
+                    section.content.navbar_items.forEach(item => {
+                        addUrlInput(item.name, item.url);
+                    });
+                }
             }
-            const data = await response.json();
-            return data.pages; // Assuming data is structured with pages array
-        } catch (error) {
-            console.error('Error fetching page URLs:', error);
-            return [];
-        }
-    }
-
-    // Function to populate the dropdown with fetched page URLs
-    async function populateDropdown(websiteId) {
-        const pages = await fetchPageURLs(websiteId);
-        const selectDropdown = document.createElement('select');
-        // Get the root URL of the webpage
-        var rootUrl = window.location.origin;
-
-
-        selectDropdown.name = 'navbar_page_urls';
-        selectDropdown.classList.add('dynamic-width', 'url-input');
-        selectDropdown.style.padding = '10px';
-
-        // Add a manual entry option
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = '-- Select URL Location --';
-        selectDropdown.appendChild(placeholder);
-
-                // Add a manual entry option
-                const option = document.createElement('option');
-                option.value = 'enter URL here';
-                option.textContent = 'Enter Manually';
-        selectDropdown.appendChild(option);
-
-        // Add existing pages as options
-        pages.forEach(page => {
-            // Construct the full URL
-            var fullUrl = rootUrl + `/website/${websiteId}/${page.id}`;
-            const option = document.createElement('option');
-            option.value = fullUrl; // Adjust URL format as needed
-            option.textContent = page.name;
-            selectDropdown.appendChild(option);
-        });
-
-        // Add event listener to select option
-        selectDropdown.addEventListener('change', function () {
-            const selectedOption = selectDropdown.options[selectDropdown.selectedIndex];
-            if (selectedOption.value !== '') {
-                addUrlInput(selectedOption.textContent, selectedOption.value);
-                selectDropdown.selectedIndex = 0; // Reset dropdown to default option
-            }
-        });
-
-        // Replace the "Add Item" button with the dropdown
-        const addUrlButton = document.getElementById('add-url-button');
-        addUrlButton.parentNode.replaceChild(selectDropdown, addUrlButton);
-    }
-
-    // Initialize the dropdown when initializing the navbar
-    populateDropdown(websiteId);
-
-    // Initialize Sortable.js for the URLs container
-    Sortable.create(urlsContainer, {
-        animation: 150,
-        handle: '.url-input, .name-input',
-        ghostClass: 'sortable-ghost',
-    });
-
-    // Populate existing navbar items if any
-    if (section && section.content && section.content.navbar_items) {
-        section.content.navbar_items.forEach(item => {
-            addUrlInput(item.name, item.url);
-        });
-    }
-}
 
 
 
@@ -2773,12 +3076,12 @@
 
 
             textAreas.forEach((textArea, index) => {
-    // Check if the parent section is a code section based on ID
-    const sectionId = textArea.id.replace('codemirror-text-', ''); // Extract section ID
-    if (textArea.id.startsWith('codemirror-text-')) {
-        initializeCodeMirror(textArea);
-    }
-});
+                // Check if the parent section is a code section based on ID
+                const sectionId = textArea.id.replace('codemirror-text-', ''); // Extract section ID
+                if (textArea.id.startsWith('codemirror-text-')) {
+                    initializeCodeMirror(textArea);
+                }
+            });
 
             // Initialize color pickers for text sections
             const colorPickers = document.querySelectorAll('.color-picker');
@@ -3061,8 +3364,8 @@
                 </div>
 
 
-               
-                
+
+
                 <div class="form-row-description">
                     <label for="description">Description:</label>
                     <textarea id="description" name="description" rows="4"></textarea>
@@ -3331,94 +3634,292 @@
         }
     </script>
 
+    <!-- NEW Image Functions -->
+    <script>
+        let currentTargetSection = null;
+        let selectedLibraryImages = [];
+
+        let currentActiveFolderId = null;
+
+        // Store folders globally once the modal opens so they never disappear
+        let globalFoldersCache = [];
+
+        async function openLibraryPicker(sectionId) {
+            currentTargetSection = sectionId;
+            selectedLibraryImages = [];
+            document.getElementById('libraryModal').style.display = 'block';
+
+            // Initial fetch to get the folder list
+            const response = await fetch('/get_library_root');
+            const data = await response.json();
+            globalFoldersCache = data.folders; // Save them here
+
+            loadLibraryUI(null);
+        }
+
+        async function loadLibraryUI(folderId = null) {
+            // 1. Always render the FULL folder list from cache
+            renderModalFolders(globalFoldersCache, folderId);
+
+            // 2. Fetch the images for the specific folder
+            const url = folderId ? `/get_library_folder/${folderId}` : '/get_library_root';
+            const response = await fetch(url);
+            const data = await response.json();
+
+            // 3. Update Name
+            document.getElementById('modalCurrentFolderName').innerText =
+                folderId ? `Images in ${data.current_folder_name || 'Folder'}` : "Root Images";
+
+            // 4. Render Images (Simplified to use the CSS card class)
+            const imageGrid = document.getElementById('modalImageGrid');
+            imageGrid.innerHTML = '';
+
+            data.images.forEach(img => {
+                const isSelected = selectedLibraryImages.includes(img.id.toString());
+                const card = document.createElement('div');
+                card.className = 'image-card';
+                if (isSelected) card.style.border = "3px solid #f39c12";
+
+                card.onclick = () => toggleLibrarySelection(img.id.toString(), card);
+                card.innerHTML = `<img src="${img.url}">`;
+                imageGrid.appendChild(card);
+            });
+        }
+
+        function renderModalFolders(folders, activeId) {
+            const grid = document.getElementById('modalFolderGrid');
+            grid.innerHTML = '';
+
+            // Main Library (always show)
+            const rootDiv = document.createElement('div');
+            rootDiv.className = `folder-item ${activeId === null ? 'active-folder' : ''}`;
+            rootDiv.onclick = () => loadLibraryUI(null);
+            rootDiv.innerHTML = `<i class="fas fa-home fa-3x"></i><p>Main Library</p>`;
+            grid.appendChild(rootDiv);
+
+            // Dynamic Folders (always show all)
+            folders.forEach(f => {
+                const folderDiv = document.createElement('div');
+                folderDiv.className = `folder-item ${activeId == f.id ? 'active-folder' : ''}`;
+                folderDiv.onclick = () => loadLibraryUI(f.id);
+                folderDiv.innerHTML = `<i class="fas fa-folder fa-3x"></i><p>${f.name}</p>`;
+                grid.appendChild(folderDiv);
+            });
+        }
+
+        function toggleLibrarySelection(id, element) {
+            const index = selectedLibraryImages.indexOf(id);
+            if (index > -1) {
+                selectedLibraryImages.splice(index, 1);
+                element.style.border = "none";
+            } else {
+                selectedLibraryImages.push(id);
+                element.style.border = "3px solid #f39c12";
+            }
+            document.getElementById('selectionCount').innerText = `${selectedLibraryImages.length} images selected`;
+            // Re-render to show/hide checkmark badges if desired, or just use the border
+        }
+
+        function closeLibraryModal() {
+            document.getElementById('libraryModal').style.display = 'none';
+        }
+
+        async function loadLibraryContent(folderId = null) {
+            const url = folderId ? `/get_library_folder/${folderId}` : '/get_library_root';
+            const response = await fetch(url);
+            const data = await response.json();
+
+            const imageGrid = document.getElementById('modalImageGrid');
+            const folderGrid = document.getElementById('modalFolderGrid');
+
+            imageGrid.innerHTML = '';
+            // Clear and add the "Back" button if we are inside a folder
+            folderGrid.innerHTML = folderId ?
+                `<button onclick="loadLibraryContent()"><i class="fas fa-arrow-left"></i> Back</button>` : '';
+
+            // Render Folders (only show if we are in the root)
+            if (!folderId) {
+                data.folders.forEach(f => {
+                    const folderDiv = document.createElement('div');
+                    folderDiv.className = 'folder-item';
+                    folderDiv.onclick = () => loadLibraryContent(f.id);
+                    folderDiv.innerHTML = `
+                <i class="fas fa-folder fa-2x"></i>
+                <p>${f.name}</p>
+            `;
+                    folderGrid.appendChild(folderDiv);
+                });
+            }
+
+            // Render Images
+            if (data.images.length === 0) {
+                imageGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #999;">No images found in this section.</p>';
+            } else {
+                data.images.forEach(img => {
+                    imageGrid.innerHTML += `
+                <div class="library-item" style="position:relative; cursor:pointer;" onclick="this.querySelector('input').click()">
+                    <img src="${img.url}" style="width:100%; height:100px; object-fit:cover; border-radius:4px; border: 2px solid transparent;">
+                    <input type="checkbox" value="${img.id}"
+                           onchange="toggleLibrarySelection('${img.id}', this)"
+                           onclick="event.stopPropagation()"
+                           style="position:absolute; top:5px; right:5px; transform: scale(1.2);">
+                </div>`;
+                });
+            }
+        }
+
+
+
+        async function confirmLibrarySelection() {
+            if (selectedLibraryImages.length === 0) return;
+
+            try {
+                const response = await fetch('/add_images_from_library', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        section_id: currentTargetSection,
+                        image_ids: selectedLibraryImages
+                    })
+                });
+
+                if (response.ok) {
+                    closeLibraryModal();
+                    loadUploadedImages(currentTargetSection); // Refresh the editor section
+                }
+            } catch (error) {
+                console.error("Error adding images:", error);
+            }
+        }
+    </script>
 
     <!-- Image Functions -->
     <script>
 
         // Function to delete selected images for a specific section
         function deleteSelectedImages(sectionId) {
-            // Check if there are selected images for this section
             if (selectedImages[sectionId] && selectedImages[sectionId].length > 0) {
-                // Make a server request to delete the selected images for this section
-                fetch("/delete_selected_images", {
+                if (!confirm("Remove selected images from this section? (They will stay in your library)")) return;
+
+                fetch("/remove_images_from_section", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         sectionId: sectionId,
-                        imageIds: selectedImages[sectionId]
+                        linkIds: selectedImages[sectionId] // Sending link IDs
                     })
                 })
                     .then(response => response.json())
                     .then(data => {
                         if (data.status === 'success') {
-                            console.log("Selected images deleted successfully for section", sectionId);
-                            // Remove deleted images from the UI
-                            selectedImages[sectionId] = []; // Clear the selected images list for this section
-                            loadUploadedImages(sectionId); // Reload the uploaded images for this section
-                        } else {
-                            console.error("Failed to delete selected images for section", sectionId, ":", data.message);
+                            selectedImages[sectionId] = [];
+                            loadUploadedImages(sectionId);
                         }
-                    })
-                    .catch(error => console.error('Error:', error));
-            } else {
-                console.log("No selected images to delete for section", sectionId);
+                    });
             }
+        }
+
+        let currentDraggedLi = null;
+        let currentPlaceholder = null;
+
+        function createPlaceholder() {
+            const ph = document.createElement("li");
+            ph.className = "image-drop-placeholder";
+            return ph;
+        }
+
+        function handleDragStart(event) {
+            const li = event.target.closest("li");
+            if (!li) return;
+
+            currentDraggedLi = li;
+            li.classList.add("dragging");
+
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", JSON.stringify({
+                sourceOrder: li.dataset.order,
+                sourceSection: li.dataset.sectionId,
+                sourceLinkId: li.dataset.linkId
+            }));
+
+            if (!currentPlaceholder) {
+                currentPlaceholder = createPlaceholder();
+            }
+        }
+
+        function handleDragEnd() {
+            if (currentDraggedLi) {
+                currentDraggedLi.classList.remove("dragging");
+            }
+            if (currentPlaceholder && currentPlaceholder.parentNode) {
+                currentPlaceholder.parentNode.removeChild(currentPlaceholder);
+            }
+            currentDraggedLi = null;
         }
 
         var selectedImages = {};
 
-        // Function to load uploaded images for a specific section
         function loadUploadedImages(sectionId) {
+            if (!sectionId) return;
+
             fetch(`/get_uploaded_images?section_id=${sectionId}`)
                 .then(response => response.json())
                 .then(data => {
-                    var uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
-                    uploadedImagesUl.innerHTML = ""; // Clear previous images
+                    const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
+                    if (!uploadedImagesUl) return;
 
-                    // Check if the selected images list for this section exists, if not, create it
+                    uploadedImagesUl.innerHTML = "";
+
                     if (!selectedImages[sectionId]) {
                         selectedImages[sectionId] = [];
                     }
 
+                    // Optional: let the UL itself accept drops
+                    uploadedImagesUl.addEventListener("dragover", handleDragOver);
+                    uploadedImagesUl.addEventListener("drop", handleDrop);
+
                     data.images.forEach(picture => {
-                        var li = document.createElement("li");
-                        li.setAttribute("data-order", picture.order); // Set data-order attribute for reordering
-                        li.setAttribute("data-id", picture.id); // Set data-id attribute for image ID
-                        li.setAttribute("data-section-id", sectionId); // Set data-section-id attribute for section ID
+                        const li = document.createElement("li");
+                        li.setAttribute("data-link-id", picture.link_id);
+                        li.setAttribute("data-order", picture.order);
+                        li.setAttribute("data-id", picture.id);
+                        li.setAttribute("data-section-id", sectionId);
                         li.draggable = true;
+
                         li.addEventListener("dragstart", handleDragStart);
                         li.addEventListener("dragover", handleDragOver);
                         li.addEventListener("drop", handleDrop);
-                        var img = document.createElement("img");
-                        img.src = picture.url;
+                        li.addEventListener("dragenter", (event) => {
+                            const targetLi = event.target.closest("li");
+                            if (targetLi) targetLi.classList.add("drag-over");
+                        });
+                        li.addEventListener("dragleave", (event) => {
+                            const targetLi = event.target.closest("li");
+                            if (targetLi) targetLi.classList.remove("drag-over");
+                        });
+                        li.addEventListener("dragend", handleDragEnd);
 
-                        // Create checkbox element
-                        var checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        checkbox.className = 'image-checkbox';
-                        checkbox.style.position = 'relative';
-                        checkbox.style.top = '5px'; // Adjust top position as needed
-                        checkbox.style.right = '5px'; // Adjust right position as needed
-                        checkbox.addEventListener('change', function () {
+                        const img = document.createElement("img");
+                        img.src = picture.url;
+                        img.draggable = false; // important
+
+                        const checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.className = "image-checkbox";
+                        checkbox.addEventListener("change", function () {
                             if (this.checked) {
-                                // Add image to selected list for this section
-                                addToSelectedImages(sectionId, picture.id);
+                                addToSelectedImages(sectionId, picture.link_id);
                             } else {
-                                // Remove image from selected list for this section
-                                removeFromSelectedImages(sectionId, picture.id);
+                                removeFromSelectedImages(sectionId, picture.link_id);
                             }
                         });
 
-                        // Append image and checkbox to list item
                         li.appendChild(img);
                         li.appendChild(checkbox);
-                        // Append list item to ul
                         uploadedImagesUl.appendChild(li);
                     });
                 })
-                .catch(error => console.error('Error:', error));
+                .catch(error => console.error("Error:", error));
         }
 
         // Function to add image to the list of selected images for a specific section
@@ -3439,80 +3940,116 @@
         }
 
 
-        // Function to handle drag start event
-        function handleDragStart(event) {
-            event.dataTransfer.setData("text/plain", JSON.stringify({
-                sourceOrder: event.target.dataset.order,
-                sourceSection: event.target.dataset.sectionId
-            }));
-        }
-
-        let dropHandled = false;
+        // let dropHandled = false;
 
         function handleDrop(event) {
             event.preventDefault();
 
-            // Check if the drop event has been handled already
-            if (dropHandled) {
+            if (!currentDraggedLi || !currentPlaceholder) return;
+
+            const sourceData = JSON.parse(event.dataTransfer.getData("text/plain"));
+            const sourceSection = sourceData.sourceSection;
+            const sourceLinkId = sourceData.sourceLinkId;
+
+            const targetList = currentPlaceholder.closest("ul");
+            if (!targetList) return;
+
+            const targetSection = targetList.id.replace("sortable-", "");
+
+            if (sourceSection !== targetSection) {
+                moveImageToSection(sourceLinkId, sourceSection, targetSection);
+                handleDragEnd();
                 return;
             }
 
-            var sourceData = JSON.parse(event.dataTransfer.getData("text/plain"));
-            var sourceOrder = sourceData.sourceOrder;
-            var sourceSection = sourceData.sourceSection;
+            targetList.insertBefore(currentDraggedLi, currentPlaceholder);
+            currentPlaceholder.remove();
 
-            var targetOrder = event.target.dataset.order;
-            var targetId = event.target.dataset.id;
-            var targetSection = event.target.dataset.sectionId;
+            const orderData = Array.from(targetList.querySelectorAll("li:not(.image-drop-placeholder)")).map((li, index) => ({
+                link_id: parseInt(li.dataset.linkId, 10),
+                order: index + 1,
+                sectionId: parseInt(targetSection, 10)
+            }));
 
-            console.log("Source Order:", sourceOrder);
-            console.log("Target Order:", targetOrder);
-            console.log("Source Section:", sourceSection);
-            console.log("Target Section:", targetSection);
-            console.log("Target ID:", targetId);
-            console.log("Event Target:", event.target);
-            console.log("Event CurrentTarget:", event.currentTarget);
-            // Check if the drop occurred on a different section
-            if (sourceSection !== targetSection) {
-                // Move the image to the target section
-                moveImageToSection(sourceOrder, sourceSection, targetSection);
-            } else if (sourceOrder !== targetOrder && sourceSection === targetSection) {
-                // Swap images in the UI
-                swapImages(sourceOrder, targetOrder, targetId, targetSection);
-            }
-
-            // Set dropHandled flag to true to indicate that the drop event has been handled
-            dropHandled = true;
+            updateImageOrder(orderData);
+            handleDragEnd();
         }
 
-        // Reset dropHandled flag when drag over event occurs
+        function reorderImagesByDropPosition(sourceLinkId, targetLi, sectionId, event) {
+            const sortableContainer = document.getElementById(`sortable-${sectionId}`);
+            if (!sortableContainer) return;
+
+            const fromLi = sortableContainer.querySelector(`li[data-link-id="${sourceLinkId}"]`);
+            if (!fromLi || !targetLi || fromLi === targetLi) return;
+
+            const rect = targetLi.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+            const dropAfter = event.clientY > midpoint;
+
+            if (dropAfter) {
+                sortableContainer.insertBefore(fromLi, targetLi.nextSibling);
+            } else {
+                sortableContainer.insertBefore(fromLi, targetLi);
+            }
+
+            const orderData = Array.from(sortableContainer.children).map((li, index) => ({
+                link_id: parseInt(li.dataset.linkId, 10),
+                order: index + 1,
+                sectionId: parseInt(sectionId, 10)
+            }));
+
+            updateImageOrder(orderData);
+        }
+
         function handleDragOver(event) {
-            dropHandled = false;
             event.preventDefault();
+
+            const targetLi = event.target.closest("li");
+            const targetList = event.currentTarget.closest("ul") || event.target.closest("ul");
+
+            if (!targetList || !currentDraggedLi || !currentPlaceholder) return;
+
             event.dataTransfer.dropEffect = "move";
 
-            // Highlight the potential drop target by adding a class to the closest li element
-            var closestLi = event.target.closest('li');
-            if (closestLi) {
-                closestLi.classList.add('drag-over');
+            // If dragging over the UL but not a specific LI, append placeholder at end
+            if (!targetLi || targetLi === currentDraggedLi || targetLi === currentPlaceholder) {
+                if (!targetList.contains(currentPlaceholder)) {
+                    targetList.appendChild(currentPlaceholder);
+                }
+                return;
             }
 
+            const rect = targetLi.getBoundingClientRect();
+            const midpoint = rect.left + rect.width / 2;
+
+            // For horizontal thumbnail layout, compare X instead of Y
+            const insertAfter = event.clientX > midpoint;
+
+            if (insertAfter) {
+                targetLi.parentNode.insertBefore(currentPlaceholder, targetLi.nextSibling);
+            } else {
+                targetLi.parentNode.insertBefore(currentPlaceholder, targetLi);
+            }
         }
 
-        // Add event listeners for dragenter and dragleave on the ul element
-        document.getElementById('sortable').addEventListener('dragenter', function (event) {
-            var closestLi = event.target.closest('li');
-            if (closestLi) {
-                closestLi.classList.add('drag-over');
-            }
-        });
+        // {
+        //     
+        //     // Add event listeners for dragenter and dragleave on the ul element
+        //     document.getElementById('sortable').addEventListener('dragenter', function (event) {
+        //         var closestLi = event.target.closest('li');
+        //         if (closestLi) {
+        //             closestLi.classList.add('drag-over');
+        //         }
+        //     });
 
-        document.getElementById('sortable').addEventListener('dragleave', function (event) {
-            var closestLi = event.target.closest('li');
-            if (closestLi) {
-                closestLi.classList.remove('drag-over');
-            }
-        });
+        //     document.getElementById('sortable').addEventListener('dragleave', function (event) {
+        //         var closestLi = event.target.closest('li');
+        //         if (closestLi) {
+        //             closestLi.classList.remove('drag-over');
+        //         }
+        //     });
+        //     
+        // }
 
         // Load uploaded images when the page loads
         window.addEventListener("load", function () {
@@ -3597,34 +4134,47 @@
 
         // Function to update the order of images on the server
         function updateImageOrder(order) {
+            // Extract the sectionId from the first item in the order array
+            // so we know which specific section to reload later.
+            const sectionId = order.length > 0 ? order[0].sectionId : null;
+
             fetch("/update_image_order", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify(order)  // Send the array of order objects directly
+                body: JSON.stringify(order)
             })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status !== 'success') {
-                        showMessage(data.message);
+                        // Check if showMessage exists, otherwise use alert or console
+                        if (typeof showMessage === "function") {
+                            showMessage(data.message);
+                        } else {
+                            console.error(data.message);
+                        }
                     } else {
-                        // If the order update is successful, reload the images
-                        loadUploadedImages();
+                        // CRITICAL: Reload ONLY the section that was changed
+                        if (sectionId) {
+                            loadUploadedImages(sectionId);
+                        } else {
+                            // Fallback if no ID was found
+                            console.log("Order updated, but no sectionId found to reload.");
+                        }
                     }
                 })
                 .catch(error => console.error('Error:', error));
         }
 
-        function moveImageToSection(sourceOrder, sourceSection, targetSection) {
-            // Make a server request to update the database with the new section ID for the image
+        function moveImageToSection(sourceLinkId, sourceSection, targetSection) {
             fetch("/move_image_to_section", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    sourceOrder: sourceOrder,
+                    sourceLinkId: sourceLinkId,
                     sourceSection: sourceSection,
                     targetSection: targetSection
                 })
@@ -3632,9 +4182,8 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        console.log("Image moved successfully from section", sourceSection, "to section", targetSection);
-                        // Update UI
-                        updateUIAfterMove(sourceOrder, sourceSection, targetSection);
+                        loadUploadedImages(sourceSection);
+                        loadUploadedImages(targetSection);
                     } else {
                         console.error("Failed to move image:", data.message);
                     }
@@ -3655,54 +4204,33 @@
             loadUploadedImages(targetSection);
         }
 
-        function swapImages(fromOrder, toOrder, targetId, sectionId) {
-            var sortableId = "sortable-" + sectionId;
-            var sortableContainer = document.getElementById(sortableId);
-            if (!sortableContainer) {
-                console.error("Sortable container not found for section ID:", sectionId);
-                return;
-            }
+        function swapImages(fromLinkId, toLinkId, sectionId) {
+            const sortableContainer = document.getElementById(`sortable-${sectionId}`);
+            if (!sortableContainer) return;
 
-            var children = sortableContainer.children;
-            if (!children) {
-                console.error("Children of sortable container not found");
-                return;
-            }
-            var fromIndex, toIndex;
+            const fromLi = sortableContainer.querySelector(`li[data-link-id="${fromLinkId}"]`);
+            const toLi = sortableContainer.querySelector(`li[data-link-id="${toLinkId}"]`);
 
-            // Find the indexes of the source and target images based on their data-order attribute
-            for (var i = 0; i < children.length; i++) {
-                if (children[i].dataset.order === fromOrder) {
-                    fromIndex = i;
-                }
-                if (children[i].dataset.order === toOrder) {
-                    toIndex = i;
-                }
-            }
+            if (!fromLi || !toLi || fromLi === toLi) return;
 
-            // Reorder the images based on their data-order attribute
+            const children = Array.from(sortableContainer.children);
+            const fromIndex = children.indexOf(fromLi);
+            const toIndex = children.indexOf(toLi);
+
             if (fromIndex < toIndex) {
-                // Move the source image after the target image
-                sortableContainer.insertBefore(children[fromIndex], children[toIndex].nextSibling);
+                sortableContainer.insertBefore(fromLi, toLi.nextSibling);
             } else {
-                // Move the source image before the target image
-                sortableContainer.insertBefore(children[fromIndex], children[toIndex]);
+                sortableContainer.insertBefore(fromLi, toLi);
             }
 
-            // Update the data-order attribute of each list item
-            Array.from(children).forEach((image, index) => {
-                image.dataset.order = index + 1; // Update the data-order attribute based on the new order
-            });
+            const orderData = Array.from(sortableContainer.children).map((li, index) => ({
+                link_id: parseInt(li.dataset.linkId, 10),
+                order: index + 1,
+                sectionId: parseInt(sectionId, 10)
+            }));
 
-            // Create an array of objects containing picture ID, new order, and section ID
-            var orderData = Array.from(children).map((image) => {
-                return { id: image.dataset.id, order: image.dataset.order, sectionId: sectionId };
-            });
-
-            // Update the image order with the new order associated with each picture
             updateImageOrder(orderData);
         }
-
 
 
         // Function to handle deletion of images using the trash can

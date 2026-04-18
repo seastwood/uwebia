@@ -1,7 +1,7 @@
 .navbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto auto 1fr;
     align-items: center;
-    justify-content: space-between; /* This pushes items to opposite ends */
     padding: 10px 20px;
     background-color: #1f1f1f;
     color: white;
@@ -9,101 +9,70 @@
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
-.navbar-title {
-    font-size: 1.5em;
+.nav-left {
+    justify-self: start;
+    display: flex;
+    align-items: center;
+}
+
+.nav-home {
+    justify-self: center;
+    display: flex;
+    align-items: center;
+    margin-right: 8px;
+}
+
+.nav-photo {
+    justify-self: center;
+    display: flex;
+    align-items: center;
+}
+
+.nav-right {
+    justify-self: end;
+    display: flex;
+    align-items: center;
 }
 
 .navbar-logo {
     width: 24px;
     height: 24px;
+    display: block;
 }
 
 .base-navbar-home-button {
     text-decoration: none;
     color: white;
     font-size: 1.5em;
-    /* margin-right: 10px; */
+    display: inline-flex;
+    align-items: center;
 }
 
-.home-button:hover {
-    color: #ddd;
-}
-
-.search-container {
-    position: relative;
-}
-
-.search-container.active .search-form {
-    display: block;
-}
-
-.search-form {
-    display: none;
-    position: absolute;
-    top: 10px;
-    /* left: 0; */
-    background-color: #101010;
-    padding: 10px;
-    left: -55px;
-    flex: auto;
-    flex-direction: row;
-    width: 200px;
-    /* border-style: solid; */
-    /* border-color: #5a506c; */
-    border-radius: 4px;
-}
-
-.fa-star:before {
-    content: "\f005";
-    color: aqua;
-    font-size: 21px;
-}
-
-.search-icon {
-    background: none;
-    border: none;
-    color: white;
-    font-size: 1.2em;
-    cursor: pointer;
-
-}
-
-.search-icon:hover {
-    color: #5eeef8;
-}
-
-#searchQuery {
-    border: none;
-    border-bottom: 1px solid #fff;
-    background-color: transparent;
-    color: #fff;
-    padding: 5px 0;
-    outline: none;
-}
-
-#searchQuery::placeholder {
-    color: #fff;
-}
-
-.search-button {
-    background: none;
-    border: none;
-    color: white;
-    cursor: pointer;
-}
-
-.profile-dropdown {
-    position: relative;
-    display: inline-block;
-}
-
+.nav-link-btn,
+.photo-library-btn,
 .profile-icon {
     background: none;
     border: none;
     color: white;
-    font-size: 24px;
     cursor: pointer;
-    display: flex;       /* Ensures the <i> tag inside is centered */
+    font-size: 1.5em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
+    text-decoration: none;
+    line-height: 1;
+}
+
+.nav-link-btn:hover,
+.photo-library-btn:hover,
+.profile-icon:hover {
+    color: #5eeef8;
+}
+
+.profile-dropdown {
+    position: relative;
+    display: inline-flex;
     align-items: center;
 }
 
@@ -111,6 +80,7 @@
     display: none;
     position: absolute;
     right: 0;
+    top: 100%;
     background-color: white;
     min-width: 100px;
     box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
@@ -130,8 +100,4 @@
 
 #profileDropdownContent.show {
     display: block;
-}
-
-.base-navbar-item {
-    margin-right: 10px;
 }
