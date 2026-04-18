@@ -1154,7 +1154,7 @@ def edit_page(website_id, page_id):
     return jsonify({'message': 'Page updated successfully'})
 
 
-@app.route('/remove_tag/website/<int:website_id>/<string:tag_name>', methods=['POST'])
+@app.route('/remove_tag/page/<int:website_id>/<string:tag_name>', methods=['POST'])
 @login_required
 def remove_website_tag(website_id, tag_name):
     if 'user_id' not in session:
@@ -1189,7 +1189,7 @@ def get_page_details(page_id):
     return jsonify({'name': page.name, 'description': page.description, 'tags': [tag.name for tag in page.tags]})
 
 
-@app.route('/api/website/<int:website_id>/pages', methods=['GET'])
+@app.route('/api/page/<int:website_id>/pages', methods=['GET'])
 def get_pages_for_website(website_id):
     try:
         website = Website.query.get_or_404(website_id)
@@ -2254,15 +2254,29 @@ def update_map_section(section, form_data):
     map_marker_label = form_data.get('map_marker_label')
     map_enabled = form_data.get('map_enabled') == 'on'
 
+    def parse_coordinate(value, min_val, max_val):
+        try:
+            val = float(value)
+            if val < min_val or val > max_val:
+                return None
+            return val
+        except (TypeError, ValueError):
+            return None
+
+    lat = parse_coordinate(latitude, -90, 90)
+    lng = parse_coordinate(longitude, -180, 180)
+
+    # Optional: fallback to previous values if invalid
+    existing = section.content or {}
+
     section.content = {
-        'latitude': latitude,
-        'longitude': longitude,
+        'latitude': lat if lat is not None else existing.get('latitude'),
+        'longitude': lng if lng is not None else existing.get('longitude'),
         'marker_label': map_marker_label,
         'enabled': map_enabled
     }
+
     return section
-
-
 
 
 def update_text_section(section, form_data):
@@ -2288,10 +2302,10 @@ def update_text_section(section, form_data):
     return section
 
 
-def update_code_section(section, form_data):
-    text_content = form_data.get('text')
-    section.content = {'text': text_content}
-    return section
+# def update_code_section(section, form_data):
+#     text_content = form_data.get('text')
+#     section.content = {'text': text_content}
+#     return section
 
 
 def update_button_section(section, form_data):
@@ -2376,8 +2390,8 @@ def update_section():
 
     if section_type == 'map':
         section = update_map_section(section, form_data)
-    elif section_type == 'code':
-        section = update_code_section(section, form_data)
+    # elif section_type == 'code':
+    #     section = update_code_section(section, form_data)
     elif section_type == 'text':
         section = update_text_section(section, form_data)
     elif section_type == 'button':
@@ -2747,4 +2761,4 @@ if __name__ == '__main__':
 
     # Get the port from the environment variable or default to 5000
     port = int(os.environ.get('PORT', 5772))
-    app.run(debug=False, host='192.168.1.230', port=port)
+    app.run(debug=False, host='0.0.0.0', port=port)

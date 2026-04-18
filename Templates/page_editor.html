@@ -1481,7 +1481,7 @@
                         <option value="image_gallery">Image Gallery</option>
                         <option value="image">Image</option>
                         <option value="text">Text</option>
-                        <option value="code">Code</option>
+                        <!-- <option value="code">Code</option> -->
                         <option value="map">Map</option>
                         <option value="contact_form">Contact Form</option>
                         <option value="calendar">Calendar</option>
@@ -1501,7 +1501,7 @@
     <div id="libraryModal" class="modal"
         style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.85);">
         <div class="modal-content"
-            style="background:#fff; margin:2% auto; width:90%; max-width:1100px; height:90vh; border-radius:15px; overflow-y:auto; padding:30px; position:relative;">
+            style="background:#fff; margin:2% auto; width:90%; max-width:1100px; height:75vh; border-radius:15px; overflow-y:auto; padding:30px; position:relative;">
             <span class="close" onclick="closeLibraryModal()"
                 style="position:absolute; top:20px; right:25px; cursor:pointer; font-size:30px; color:#999;">&times;</span>
 
@@ -2103,111 +2103,114 @@
                 <input type="checkbox" id="button_enabled" name="button_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
             </form>
         </div>`;
-                        } else if (section.section_type === 'code') {
-                            sectionContent.innerHTML = `
-                            <div class="page-body-container section-container code">
-    <!-- Querying input textbox with Enter button -->
-    <div class="ai-query-text">
-    <textarea id="text-${section.id}" class="query-input" placeholder="Enter your ai request..."></textarea>
-</div>
+                        } 
+                        
+                        
+//                         else if (section.section_type === 'code') {
+//                             sectionContent.innerHTML = `
+//                             <div class="page-body-container section-container code">
+//     <!-- Querying input textbox with Enter button -->
+//     <div class="ai-query-text">
+//     <textarea id="text-${section.id}" class="query-input" placeholder="Enter your ai request..."></textarea>
+// </div>
 
-    <button type="button" class="query-button" data-section-id="${section.id}">Enter</button>
+//     <button type="button" class="query-button" data-section-id="${section.id}">Enter</button>
 
-    <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-        <button type="button" class="formatCodeButton">Format Code</button><br>
-        <div class="editor-wrapper">
-            <div id="editor-container-${section.id}" class="editor-container">
-                <textarea id="codemirror-text-${section.id}" name="text" required>${section.content['text']}</textarea>
-            </div>
-        </div>
-        <label for="color-picker-${section.id}">Color Picker:</label>
-        <input type="color" class="color-picker" id="color-picker-${section.id}" value="${section.content['color'] || '#ffffff'}">
-        <div id="saved-colors-${section.id}"></div>
-        <br><br>
-    </form>
-    <!-- Response streaming into editor textarea -->
-    <div id="response-container-${section.id}" class="response-container"></div>
-</div>
-`;
+//     <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+//         <button type="button" class="formatCodeButton">Format Code</button><br>
+//         <div class="editor-wrapper">
+//             <div id="editor-container-${section.id}" class="editor-container">
+//                 <textarea id="codemirror-text-${section.id}" name="text" required>${section.content['text']}</textarea>
+//             </div>
+//         </div>
+//         <label for="color-picker-${section.id}">Color Picker:</label>
+//         <input type="color" class="color-picker" id="color-picker-${section.id}" value="${section.content['color'] || '#ffffff'}">
+//         <div id="saved-colors-${section.id}"></div>
+//         <br><br>
+//     </form>
+//     <!-- Response streaming into editor textarea -->
+//     <div id="response-container-${section.id}" class="response-container"></div>
+// </div>
+// `;
 
-                            // Event listener for query button
-                            const queryButton = sectionContent.querySelector('.query-button');
-                            const queryInput = sectionContent.querySelector('.query-input');
-                            const editorTextarea = sectionContent.querySelector(`#codemirror-text-${section.id}`);
-                            const responseContainer = sectionContent.querySelector(`#response-container-${section.id}`);
+//                             // Event listener for query button
+//                             const queryButton = sectionContent.querySelector('.query-button');
+//                             const queryInput = sectionContent.querySelector('.query-input');
+//                             const editorTextarea = sectionContent.querySelector(`#codemirror-text-${section.id}`);
+//                             const responseContainer = sectionContent.querySelector(`#response-container-${section.id}`);
 
-                            queryButton.addEventListener('click', async () => {
-                                const prompt = queryInput.value.trim();
-                                await fetchAndStreamResponse(section.id, prompt);
-                            });
+//                             queryButton.addEventListener('click', async () => {
+//                                 const prompt = queryInput.value.trim();
+//                                 await fetchAndStreamResponse(section.id, prompt);
+//                             });
 
-                            // // Event listener for pressing Enter in query input
-                            // queryInput.addEventListener('keypress', async (e) => {
-                            //     if (e.key === 'Enter') {
-                            //         const prompt = queryInput.value.trim();
-                            //         await fetchAndStreamResponse(section.id, prompt);
-                            //     }
-                            // });
+//                             // // Event listener for pressing Enter in query input
+//                             // queryInput.addEventListener('keypress', async (e) => {
+//                             //     if (e.key === 'Enter') {
+//                             //         const prompt = queryInput.value.trim();
+//                             //         await fetchAndStreamResponse(section.id, prompt);
+//                             //     }
+//                             // });
 
-                            async function fetchAndStreamResponse(sectionId, prompt) {
-                                const editorTextarea = sectionContent.querySelector(`#codemirror-text-${sectionId}`);
-                                const currentCode = editorTextarea.value.trim(); // Get current text/code in the textarea
-                                const responseContainer = sectionContent.querySelector(`#response-container-${sectionId}`);
-                                const editor = codeMirrorEditors.find(ed => ed.getTextArea() === editorTextarea);
+//                             async function fetchAndStreamResponse(sectionId, prompt) {
+//                                 const editorTextarea = sectionContent.querySelector(`#codemirror-text-${sectionId}`);
+//                                 const currentCode = editorTextarea.value.trim(); // Get current text/code in the textarea
+//                                 const responseContainer = sectionContent.querySelector(`#response-container-${sectionId}`);
+//                                 const editor = codeMirrorEditors.find(ed => ed.getTextArea() === editorTextarea);
 
-                                responseContainer.textContent = ''; // Clear previous responses if any
-
-
-
-                                try {
-                                    const response = await fetch('/get_response_stream', {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                        },
-                                        body: JSON.stringify({ prompt: prompt, code: currentCode }),
-                                    });
-                                    editor.setValue('');
-                                    const reader = response.body.getReader();
-                                    const stream = new ReadableStream({
-                                        start(controller) {
-                                            function push() {
-                                                reader.read().then(({ done, value }) => {
-                                                    if (done) {
-                                                        controller.close();
-                                                        return;
-                                                    }
-                                                    const text = new TextDecoder().decode(value);
-
-                                                    // Find the corresponding CodeMirror instance
-
-                                                    if (editor) {
-                                                        editor.setValue(editor.getValue() + text); // Append the response text
-                                                    }
-
-                                                    push();
-                                                })
-                                                    .catch(error => {
-                                                        console.error(error);
-                                                        controller.error(error);
-                                                    });
-                                            }
-                                            push();
-                                        }
-                                    });
-
-                                    const responseStream = new Response(stream, { headers: { 'Content-Type': 'text/plain' } });
-
-                                    await responseStream; // Consume the response stream
-
-                                } catch (error) {
-                                    console.error('Error fetching response:', error);
-                                    responseContainer.textContent = 'Error fetching response. Please try again.';
-                                }
-                            }
+//                                 responseContainer.textContent = ''; // Clear previous responses if any
 
 
-                        }
+
+//                                 try {
+//                                     const response = await fetch('/get_response_stream', {
+//                                         method: 'POST',
+//                                         headers: {
+//                                             'Content-Type': 'application/json',
+//                                         },
+//                                         body: JSON.stringify({ prompt: prompt, code: currentCode }),
+//                                     });
+//                                     editor.setValue('');
+//                                     const reader = response.body.getReader();
+//                                     const stream = new ReadableStream({
+//                                         start(controller) {
+//                                             function push() {
+//                                                 reader.read().then(({ done, value }) => {
+//                                                     if (done) {
+//                                                         controller.close();
+//                                                         return;
+//                                                     }
+//                                                     const text = new TextDecoder().decode(value);
+
+//                                                     // Find the corresponding CodeMirror instance
+
+//                                                     if (editor) {
+//                                                         editor.setValue(editor.getValue() + text); // Append the response text
+//                                                     }
+
+//                                                     push();
+//                                                 })
+//                                                     .catch(error => {
+//                                                         console.error(error);
+//                                                         controller.error(error);
+//                                                     });
+//                                             }
+//                                             push();
+//                                         }
+//                                     });
+
+//                                     const responseStream = new Response(stream, { headers: { 'Content-Type': 'text/plain' } });
+
+//                                     await responseStream; // Consume the response stream
+
+//                                 } catch (error) {
+//                                     console.error('Error fetching response:', error);
+//                                     responseContainer.textContent = 'Error fetching response. Please try again.';
+//                                 }
+//                             }
+
+
+//                         }
 
                         else if (section.section_type === 'text') {
                             sectionContent.innerHTML = `
@@ -2232,12 +2235,37 @@
                 <label for="map_marker_label">Map Marker Label:</label><br>
                 <textarea id="map_marker_label" name="map_marker_label" rows="1" class="dynamic-width"
                     style="padding: 10px;">${section.content['marker_label']}</textarea><br><br>
-                <label for="latitude">Latitude:</label>
-                <input type="number" step="any" id="latitude" name="latitude"
-                    value="${section.content['latitude']}" required><br><br>
-                <label for="longitude">Longitude:</label>
-                <input type="number" step="any" id="longitude" name="longitude"
-                    value="${section.content['longitude']}" required><br><br>
+<div class="map-input-group">
+    <div class="map-field">
+        <label for="latitude">Latitude</label>
+        <input 
+            type="number" 
+            step="any" 
+            min="-90" 
+            max="90" 
+            name="latitude"
+            value="${section.content['latitude'] || ''}"
+            placeholder="e.g. 44.9778"
+            required
+        >
+        <small>Range: -90 to 90</small>
+    </div>
+
+    <div class="map-field">
+        <label for="longitude">Longitude</label>
+        <input 
+            type="number" 
+            step="any" 
+            min="-180" 
+            max="180" 
+            name="longitude"
+            value="${section.content['longitude'] || ''}"
+            placeholder="-93.2650"
+            required
+        >
+        <small>Range: -180 to 180</small>
+    </div>
+</div>
                 <label for="map_enabled">Enable Map:</label>
                 <input type="checkbox" id="map_enabled" name="map_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
             </form>
@@ -2909,7 +2937,7 @@
                 // Function to fetch page URLs associated with the website from backend
                 async function fetchPageURLs(websiteId) {
                     try {
-                        const response = await fetch(`/api/website/${websiteId}/pages`);
+                        const response = await fetch(`/api/page/${websiteId}/pages`);
                         if (!response.ok) {
                             throw new Error('Failed to fetch page URLs');
                         }
@@ -2948,7 +2976,7 @@
                     // Add existing pages as options
                     pages.forEach(page => {
                         // Construct the full URL
-                        var fullUrl = rootUrl + `/website/${websiteId}/${page.id}`;
+                        var fullUrl = rootUrl + `/page/${websiteId}/${page.id}`;
                         const option = document.createElement('option');
                         option.value = fullUrl; // Adjust URL format as needed
                         option.textContent = page.name;
@@ -3086,13 +3114,13 @@
             // Function to fetch and display response stream
 
 
-            textAreas.forEach((textArea, index) => {
-                // Check if the parent section is a code section based on ID
-                const sectionId = textArea.id.replace('codemirror-text-', ''); // Extract section ID
-                if (textArea.id.startsWith('codemirror-text-')) {
-                    initializeCodeMirror(textArea);
-                }
-            });
+            // textAreas.forEach((textArea, index) => {
+            //     // Check if the parent section is a code section based on ID
+            //     const sectionId = textArea.id.replace('codemirror-text-', ''); // Extract section ID
+            //     if (textArea.id.startsWith('codemirror-text-')) {
+            //         initializeCodeMirror(textArea);
+            //     }
+            // });
 
             // Initialize color pickers for text sections
             const colorPickers = document.querySelectorAll('.color-picker');
@@ -3156,10 +3184,6 @@
                 });
                 const forms = document.querySelectorAll(".update-section-form");
                 forms.forEach((form) => {
-                    const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
-                    if (editor) {
-                        editor.save(); // Ensure all CodeMirror instances save their content back to the textareas
-                    }
                     form.requestSubmit();
                 });
                 setTimeout(function () {
@@ -4332,159 +4356,8 @@
             messageElement.style.display = 'none';
         }
 
-        function initializeCodeMirror(textArea) {
-            const editor = CodeMirror.fromTextArea(textArea, {
-                mode: "htmlmixed",
-                lineNumbers: true,
-                theme: "dracula",
-                autoCloseBrackets: true,
-                lineWrapping: false,
-                gutters: ["CodeMirror-lint-markers"],
-                lint: {
-                    getAnnotations: function (content) {
-                        var result = []; // Initialize an empty array to store linting results
-
-                        // Check for unclosed HTML tags
-                        var tagRegex = /<([^\/!][^\s>]*)\b[^>]*>(?![\s\S]*?<\/\1>)/g;
-                        var match;
-                        while ((match = tagRegex.exec(content)) !== null) {
-                            result.push({
-                                message: "Unclosed tag: <" + match[1] + ">",
-                                severity: "error",
-                                from: CodeMirror.Pos(content.substr(0, match.index).split('\n').length - 1, match.index - content.lastIndexOf('\n', match.index - 1) - 1),
-                                to: CodeMirror.Pos(content.substr(0, match.index).split('\n').length - 1, match.index - content.lastIndexOf('\n', match.index - 1))
-                            });
-                        }
-
-                        // Check for unclosed curly braces
-                        var braceStack = [];
-                        for (var i = 0; i < content.length; i++) {
-                            if (content[i] === '{') {
-                                braceStack.push(i);
-                            } else if (content[i] === '}') {
-                                if (braceStack.length > 0) {
-                                    braceStack.pop();
-                                } else {
-                                    result.push({
-                                        message: "Unmatched closing brace: }",
-                                        severity: "error",
-                                        from: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1) - 1),
-                                        to: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1))
-                                    });
-                                }
-                            }
-                        }
-
-                        while (braceStack.length > 0) {
-                            var unmatchedIndex = braceStack.pop();
-                            result.push({
-                                message: "Unclosed brace: {",
-                                severity: "error",
-                                from: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1) - 1),
-                                to: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1))
-                            });
-                        }
-
-                        // Check for unclosed parentheses
-                        var parenStack = [];
-                        for (var i = 0; i < content.length; i++) {
-                            if (content[i] === '(') {
-                                parenStack.push(i);
-                            } else if (content[i] === ')') {
-                                if (parenStack.length > 0) {
-                                    parenStack.pop();
-                                } else {
-                                    result.push({
-                                        message: "Unmatched closing parenthesis: )",
-                                        severity: "error",
-                                        from: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1) - 1),
-                                        to: CodeMirror.Pos(content.substr(0, i).split('\n').length - 1, i - content.lastIndexOf('\n', i - 1))
-                                    });
-                                }
-                            }
-                        }
-
-                        while (parenStack.length > 0) {
-                            var unmatchedIndex = parenStack.pop();
-                            result.push({
-                                message: "Unclosed parenthesis: (",
-                                severity: "error",
-                                from: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1) - 1),
-                                to: CodeMirror.Pos(content.substr(0, unmatchedIndex).split('\n').length - 1, unmatchedIndex - content.lastIndexOf('\n', unmatchedIndex - 1))
-                            });
-                        }
-                        // Check for missing semicolons only in JavaScript and CSS
-                        var lines = content.split('\n');
-                        for (var i = 0; i < lines.length; i++) {
-                            var line = lines[i].trim();
-                            if (!line.includes('<') && !line.includes('>')) { // Exclude lines containing < and >
-                                // Check if the line is a continuation of an expression or a template literal
-                                if (line && !line.endsWith(';') && !line.endsWith('}') && !line.endsWith('{') && !line.endsWith(')') && !line.endsWith(',') && !/[\+\-\*\/=]$/.test(line) && !/\$\{[^}]+\}$/.test(line)) {
-                                    result.push({
-                                        message: "Missing semicolon or incorrect line termination",
-                                        severity: "error",
-                                        from: CodeMirror.Pos(i, 0),
-                                        to: CodeMirror.Pos(i, lines[i].length)
-                                    });
-                                }
-                            }
-                        }
-
-                        return result;
-                    }
-                }
-            });
-            codeMirrorEditors.push(editor);
-
-            // Attach format code button to this specific CodeMirror instance
-            const formatCodeButton = textArea.closest('.page-body-container').querySelector('.formatCodeButton');
-            formatCodeButton.addEventListener('click', function () {
-                formatCode(editor);
-            });
-            return editor;
-        }
         const codeMirrorEditors = [];
 
-        function formatCode(editor) {
-            if (editor) {
-                var content = editor.getValue();
-                var mode = editor.getOption("mode");
-                var formattedContent;
-
-                if (mode === "htmlmixed") {
-                    formattedContent = html_beautify(content, {
-                        indent_size: 4,
-                        indent_char: ' ',
-                        max_preserve_newlines: 1,
-                        preserve_newlines: true,
-                        indent_inner_html: true,
-                        wrap_line_length: 80,
-                        end_with_newline: true
-                    });
-                } else if (mode === "css") {
-                    formattedContent = css_beautify(content, {
-                        indent_size: 4,
-                        indent_char: ' ',
-                        max_preserve_newlines: 1,
-                        preserve_newlines: true,
-                        wrap_line_length: 80,
-                        end_with_newline: true
-                    });
-                } else {
-                    formattedContent = js_beautify(content, {
-                        indent_size: 4,
-                        indent_char: ' ',
-                        max_preserve_newlines: 1,
-                        preserve_newlines: true,
-                        brace_style: "collapse",
-                        wrap_line_length: 80,
-                        end_with_newline: true
-                    });
-                }
-
-                editor.setValue(formattedContent);
-            }
-        }
 
         function showMessage(message) {
             alert(message);
@@ -4525,41 +4398,6 @@
             });
             // reloadIframe();
         }
-
-        // handleSubmit("update-section-form", "/update_section");
-
-        // document.getElementById("saveChangesButton").addEventListener("click", function () {
-        //     const forms = document.querySelectorAll(".update-section-form");
-        //     forms.forEach((form) => {
-        //         const editor = codeMirrorEditors.find(ed => ed.getTextArea() === form.querySelector('textarea'));
-        //         if (editor) {
-        //             editor.save(); // Ensure all CodeMirror instances save their content back to the textareas
-        //         }
-        //         form.requestSubmit();
-        //     });
-        //     setTimeout(function () {
-        //         reloadIframe();
-        //     }, 100);
-
-        // });
-
-        // document.addEventListener("DOMContentLoaded", function () {
-        //     // Function to initialize CodeMirror for a textarea
-        //     // initializeCodeMirror()
-        //     // Select all textareas within page-body-container and initialize CodeMirror for each
-        //     const textAreas = document.querySelectorAll(".page-body-container textarea");
-
-
-        //     textAreas.forEach((textArea, index) => {
-        //         initializeCodeMirror(textArea);
-        //     });
-
-
-
-
-
-
-        // });
 
 
 

@@ -2,102 +2,126 @@
     display: grid;
     grid-template-columns: 1fr auto auto 1fr;
     align-items: center;
-    padding: 10px 20px;
-    background-color: #1f1f1f;
+    padding: 10px 24px;
+    background: rgba(25, 25, 25, 0.9);
+    backdrop-filter: blur(8px);
     color: white;
-    height: 40px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    height: 52px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
 }
 
-.nav-left {
-    justify-self: start;
-    display: flex;
-    align-items: center;
-}
-
-.nav-home {
-    justify-self: center;
-    display: flex;
-    align-items: center;
-    margin-right: 8px;
-}
-
-.nav-photo {
-    justify-self: center;
-    display: flex;
-    align-items: center;
-}
-
+/* Layout */
+.nav-left,
+.nav-home,
+.nav-photo,
 .nav-right {
-    justify-self: end;
     display: flex;
     align-items: center;
+    gap: 10px;
 }
 
+.nav-left { justify-self: start; }
+.nav-home,
+.nav-photo { justify-self: center; }
+.nav-right { justify-self: end; }
+
+/* Logo */
 .navbar-logo {
-    width: 24px;
-    height: 24px;
-    display: block;
+    width: 28px;
+    height: 28px;
+    opacity: 0.9;
+    transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.base-navbar-home-button {
-    text-decoration: none;
-    color: white;
-    font-size: 1.5em;
-    display: inline-flex;
-    align-items: center;
+.navbar-logo:hover {
+    transform: scale(1.08);
+    opacity: 1;
 }
 
+/* Buttons */
 .nav-link-btn,
 .photo-library-btn,
-.profile-icon {
-    background: none;
+.profile-icon,
+.base-navbar-home-button {
+    background: transparent;
     border: none;
     color: white;
     cursor: pointer;
-    font-size: 1.5em;
+    font-size: 1.3em;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 6px;
+    padding: 6px 10px;
+    border-radius: 8px;
     text-decoration: none;
-    line-height: 1;
+    transition: all 0.2s ease;
 }
 
+/* Hover effect */
 .nav-link-btn:hover,
 .photo-library-btn:hover,
-.profile-icon:hover {
+.profile-icon:hover,
+.base-navbar-home-button:hover {
+    background: rgba(255, 255, 255, 0.08);
     color: #5eeef8;
+    transform: translateY(-1px);
 }
 
+/* Profile dropdown */
 .profile-dropdown {
     position: relative;
-    display: inline-flex;
-    align-items: center;
 }
 
+/* Dropdown menu */
 #profileDropdownContent {
     display: none;
     position: absolute;
     right: 0;
-    top: 100%;
-    background-color: white;
-    min-width: 100px;
-    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-    z-index: 1;
+    top: calc(100% + 8px);
+    background: rgba(30, 30, 30, 0.95);
+    backdrop-filter: blur(10px);
+    min-width: 140px;
+    border-radius: 10px;
+    padding: 6px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
 }
 
+/* Dropdown items */
 #profileDropdownContent a {
-    color: black;
-    padding: 12px 16px;
+    color: #eaeaea;
+    padding: 10px 12px;
+    border-radius: 6px;
     text-decoration: none;
     display: block;
+    font-size: 0.95em;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
 #profileDropdownContent a:hover {
-    background-color: #f1f1f1;
+    background: rgba(255, 255, 255, 0.08);
+    color: #5eeef8;
+}
+
+/* Show state */
+#profileDropdownContent.show {
+    display: block;
+}
+.nav-link-btn.active {
+    color: #5eeef8;
+}
+
+#profileDropdownContent {
+    opacity: 0;
+    transform: translateY(-5px);
+    transition: all 0.2s ease;
 }
 
 #profileDropdownContent.show {
     display: block;
+    opacity: 1;
+    transform: translateY(0);
 }
