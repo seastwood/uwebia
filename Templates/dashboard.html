@@ -199,7 +199,27 @@
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
             /* Add shadow */
             height: fit-content;
-            width: 50%;
+            /* width: 50%; */
+            max-height: 85vh;
+            overflow-y: scroll;
+        }
+
+        .modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .modal-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .modal-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            transition: background 0.2s ease;
+        }
+
+        .modal-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
 
         /* Close Button */
@@ -403,10 +423,10 @@
     </div> -->
 
     {% if not user_has_website %}
-        <div class="create-website-box" onclick="openModal('createWebsiteModal')">
-            <p class="create-text">Create New Website</p>
-            <i class="fas fa-plus" id="plus-icon"></i>
-        </div>
+    <div class="create-website-box" onclick="openModal('createWebsiteModal')">
+        <p class="create-text">Create New Website</p>
+        <i class="fas fa-plus" id="plus-icon"></i>
+    </div>
     {% endif %}
 
     <!-- <div class="form-container">
@@ -417,6 +437,82 @@
             <button type="submit">Create</button>
         </form>
     </div> -->
+
+    <button type="button" onclick="openModal('emailSettingsModal')">
+        <i class="fas fa-envelope"></i> Email Server Setup
+    </button>
+
+    <div id="emailSettingsModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('emailSettingsModal')">&times;</span>
+            <h5>Email Server Setup</h5>
+
+            <form id="emailSettingsForm">
+                <div class="modal-body">
+                    <p>SMTP Host</p>
+                    <input type="text" name="smtp_host" class="form-control"
+                        value="{{ email_settings.smtp_host if email_settings else '' }}" placeholder="smtp.example.com"
+                        required>
+
+                    <p>SMTP Port</p>
+                    <input type="number" name="smtp_port" class="form-control"
+                        value="{{ email_settings.smtp_port if email_settings else 587 }}" placeholder="587" required>
+
+                    <p>SMTP Username</p>
+                    <input type="text" name="smtp_username" class="form-control"
+                        value="{{ email_settings.smtp_username if email_settings else '' }}"
+                        placeholder="username@example.com" required>
+
+                    <p>SMTP Password</p>
+                    <input type="password" name="smtp_password" class="form-control"
+                        value="{{ email_settings.smtp_password if email_settings else '' }}" placeholder="SMTP password"
+                        required>
+
+                    <p>From Email</p>
+                    <input type="email" name="from_email" class="form-control"
+                        value="{{ email_settings.from_email if email_settings else '' }}"
+                        placeholder="noreply@example.com" required>
+
+                    <p>From Name</p>
+                    <input type="text" name="from_name" class="form-control"
+                        value="{{ email_settings.from_name if email_settings else '' }}" placeholder="My Website">
+
+                    <div style="margin-top: 15px;">
+                        <label style="display:flex; align-items:center; gap:8px; background:none; padding:0;">
+                            <input type="checkbox" name="use_tls" {% if not email_settings or email_settings.use_tls
+                                %}checked{% endif %}>
+                            Use TLS
+                        </label>
+                    </div>
+
+                    <div style="margin-top: 10px;">
+                        <label style="display:flex; align-items:center; gap:8px; background:none; padding:0;">
+                            <input type="checkbox" name="use_ssl" {% if email_settings and email_settings.use_ssl
+                                %}checked{% endif %}>
+                            Use SSL
+                        </label>
+                    </div>
+
+                    <div style="margin-top: 10px;">
+                        <label style="display:flex; align-items:center; gap:8px; background:none; padding:0;">
+                            <input type="checkbox" name="is_active" {% if not email_settings or email_settings.is_active
+                                %}checked{% endif %}>
+                            Enable email sending
+                        </label>
+                    </div>
+                </div>
+
+                <p>Send Test Email To</p>
+                <input type="email" id="testEmailInput" class="form-control" placeholder="you@example.com">
+
+                <div class="modal-footer">
+                    <button type="button" onclick="closeModal('emailSettingsModal')">Close</button>
+                    <button type="button" id="sendTestEmailButton">Send Test Email</button>
+                    <button type="submit">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Create New Website Modal -->
     <div id="createWebsiteModal" class="modal modal-content">
@@ -971,9 +1067,69 @@
                 }
             }
 
+const emailSettingsForm = document.getElementById('emailSettingsForm');
+            const sendTestEmailButton = document.getElementById('sendTestEmailButton');
+
+            if (emailSettingsForm) {
+                emailSettingsForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    const formData = new FormData(emailSettingsForm);
+
+                    fetch(`/save_email_settings`, {
+                        method: 'POST',
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                alert(data.message);
+                                closeModal('emailSettingsModal');
+                            } else {
+                                alert(data.message || 'Failed to save email settings');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error saving email settings:', error);
+                            alert('Failed to save email settings');
+                        });
+                });
+            }
+
+            if (sendTestEmailButton) {
+                sendTestEmailButton.addEventListener('click', function () {
+                    const formData = new FormData(emailSettingsForm);
+                    const testEmail = document.getElementById('testEmailInput').value.trim();
+
+                    if (!testEmail) {
+                        alert('Please enter a test email address first.');
+                        return;
+                    }
+
+                    formData.append('test_email', testEmail);
+
+                    fetch('/send_test_email', {
+                        method: 'POST',
+                        body: formData
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            alert(data.message || 'Finished test email request');
+                        })
+                        .catch(error => {
+                            console.error('Error sending test email:', error);
+                            alert('Failed to send test email');
+                        });
+                });
+            }
 
         </script>
         {% endblock %}
+
+        <script>
+            
+        </script>
+
 </body>
 
 </html>

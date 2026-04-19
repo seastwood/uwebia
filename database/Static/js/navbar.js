@@ -25,4 +25,33 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+document.addEventListener('DOMContentLoaded', function () {
+    const profileIcon = document.getElementById('profileIcon');
+    const profileDropdownContent = document.getElementById('profileDropdownContent');
 
+    if (profileIcon && profileDropdownContent) {
+        profileIcon.addEventListener('click', function (e) {
+            e.stopPropagation();
+            profileDropdownContent.classList.toggle('show');
+        });
+    }
+
+    const pagesBtn = document.querySelector('.pages-btn');
+    const pagesDropdown = document.querySelector('.pages-dropdown');
+
+    if (pagesBtn && pagesDropdown) {
+        pagesBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            pagesDropdown.classList.toggle('open');
+        });
+    }
+
+    document.addEventListener('click', function () {
+        if (profileDropdownContent) {
+            profileDropdownContent.classList.remove('show');
+        }
+        if (pagesDropdown) {
+            pagesDropdown.classList.remove('open');
+        }
+    });
+});

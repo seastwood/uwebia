@@ -723,30 +723,36 @@
                         </div>
                         {% elif section.section_type == 'contact_form' %}
                         {% if section.content['enabled'] %}
-                        <div class="contact-form-container">
-                            <h2>{{ section.content['title'] }}</h2>
-                            <form id="contactForm" class="contact-form">
-                                <div class="form-group">
-                                    <label for="senders_email">Your Email:</label><br>
-                                    <input type="email" id="senders_email" name="senders_email"
-                                        class="dynamic-width form-control" style="padding: 10px;">
-                                </div>
-                                <div class="form-group">
-                                    <label for="message_subject">Subject:</label><br>
-                                    <input type="text" id="message_subject" name="message_subject"
-                                        class="dynamic-width form-control" style="padding: 10px;">
-                                </div>
-                                <div class="form-group">
-                                    <label for="message_body">Message:</label><br>
-                                    <textarea id="message_body" name="message_body" rows="5"
-                                        class="dynamic-width form-control" style="padding: 10px;"></textarea>
-                                </div>
-                                <button type="submit" class="btn btn-primary">Submit</button>
-                            </form>
-                            <div id="successMessage" style="display: none;">
-                                <h2>Message Sent!</h2>
-                            </div>
-                        </div>
+<div class="contact-form-container">
+    <h2>{{ section.content['title'] }}</h2>
+    <form id="contactForm-{{ section.id }}" class="contact-form">
+        <input type="hidden" name="section_id" value="{{ section.id }}">
+
+        <div class="form-group">
+            <label for="senders_email_{{ section.id }}">Your Email:</label><br>
+            <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
+                class="dynamic-width form-control" style="padding: 10px;" required>
+        </div>
+
+        <div class="form-group">
+            <label for="message_subject_{{ section.id }}">Subject:</label><br>
+            <input type="text" id="message_subject_{{ section.id }}" name="message_subject"
+                class="dynamic-width form-control" style="padding: 10px;" required>
+        </div>
+
+        <div class="form-group">
+            <label for="message_body_{{ section.id }}">Message:</label><br>
+            <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
+                class="dynamic-width form-control" style="padding: 10px;" required></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Submit</button>
+    </form>
+
+    <div id="successMessage-{{ section.id }}" style="display: none;">
+        <h2>Message Sent!</h2>
+    </div>
+</div>
                         {% endif %}
                         {% elif section.section_type == 'youtube_video' %}
                         <div class="youtube-video-container">
@@ -891,20 +897,35 @@ window.addEventListener('resize', adjustContentOffset);
             });
         }
 
-        // Function to handle form submission
-        $('#contactForm').submit(function (event) {
-            event.preventDefault();  // Prevent default form submission
+$('.contact-form').on('submit', function (event) {
+    event.preventDefault();
 
-            // Get form data
-            var formData = {
-                senders_email: $('#senders_email').val(),
-                message_subject: $('#message_subject').val(),
-                message_body: $('#message_body').val()
-            };
+    const $form = $(this);
+    const sectionId = $form.find('input[name="section_id"]').val();
 
-            // Send email
-            sendEmail(formData);
-        });
+    const formData = {
+        section_id: sectionId,
+        senders_email: $form.find('input[name="senders_email"]').val(),
+        message_subject: $form.find('input[name="message_subject"]').val(),
+        message_body: $form.find('textarea[name="message_body"]').val()
+    };
+
+    $.ajax({
+        type: 'POST',
+        url: '/send_email',
+        data: formData,
+        success: function (response) {
+            console.log('Email sent successfully');
+            $form.hide();
+            $('#successMessage-' + sectionId).show();
+        },
+        error: function (xhr, status, error) {
+            console.error('Error sending email:', error);
+        }
+    });
+});
+
+
         $(document).ready(function () {
             // Function to initialize a map
             function initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel) {

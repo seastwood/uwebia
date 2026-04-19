@@ -1,6 +1,6 @@
 .navbar {
     display: grid;
-    grid-template-columns: 1fr auto auto 1fr;
+    grid-template-columns: 1fr auto auto auto 1fr;
     align-items: center;
     padding: 10px 24px;
     background: rgba(25, 25, 25, 0.9);
@@ -13,26 +13,25 @@
     z-index: 1000;
 }
 
-/* Layout */
 .nav-left,
 .nav-home,
+.nav-pages,
 .nav-photo,
 .nav-right {
     display: flex;
     align-items: center;
-    gap: 10px;
 }
 
 .nav-left { justify-self: start; }
 .nav-home,
+.nav-pages,
 .nav-photo { justify-self: center; }
 .nav-right { justify-self: end; }
 
-/* Logo */
 .navbar-logo {
     width: 28px;
     height: 28px;
-    opacity: 0.9;
+    display: block;
     transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
@@ -41,48 +40,99 @@
     opacity: 1;
 }
 
-/* Buttons */
+.base-navbar-home-button,
 .nav-link-btn,
 .photo-library-btn,
 .profile-icon,
-.base-navbar-home-button {
+.pages-btn {
     background: transparent;
     border: none;
     color: white;
     cursor: pointer;
-    font-size: 1.3em;
+    font-size: 1.5rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     padding: 6px 10px;
     border-radius: 8px;
     text-decoration: none;
     transition: all 0.2s ease;
 }
 
-/* Hover effect */
 .nav-link-btn:hover,
 .photo-library-btn:hover,
 .profile-icon:hover,
-.base-navbar-home-button:hover {
+.base-navbar-home-button:hover,
+.pages-btn:hover {
     background: rgba(255, 255, 255, 0.08);
     color: #5eeef8;
     transform: translateY(-1px);
 }
 
-/* Profile dropdown */
+.pages-dropdown {
+    position: relative;
+}
+
+.pages-caret {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+.pages-dropdown-content {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 220px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: rgba(30, 30, 30, 0.96);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    z-index: 1100;
+}
+
+.pages-dropdown:hover .pages-dropdown-content,
+.pages-dropdown:focus-within .pages-dropdown-content {
+    display: block;
+}
+
+.pages-dropdown-content a {
+    display: block;
+    color: #eaeaea;
+    text-decoration: none;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: background 0.2s ease, color 0.2s ease;
+    white-space: nowrap;
+}
+
+.pages-dropdown-content a:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #5eeef8;
+}
+
+.pages-empty {
+    padding: 10px 12px;
+    color: #a0a0a0;
+    font-size: 0.92rem;
+}
+
 .profile-dropdown {
     position: relative;
 }
 
-/* Dropdown menu */
 #profileDropdownContent {
     display: none;
     position: absolute;
     right: 0;
     top: calc(100% + 8px);
-    background: rgba(30, 30, 30, 0.95);
-    backdrop-filter: blur(10px);
+    background: rgba(30, 30, 30, 0.96);
     min-width: 140px;
     border-radius: 10px;
     padding: 6px;
@@ -90,38 +140,20 @@
     z-index: 1000;
 }
 
-/* Dropdown items */
+.profile-dropdown:hover #profileDropdownContent,
+.profile-dropdown:focus-within #profileDropdownContent {
+    display: block;
+}
+
 #profileDropdownContent a {
     color: #eaeaea;
     padding: 10px 12px;
     border-radius: 6px;
     text-decoration: none;
     display: block;
-    font-size: 0.95em;
-    transition: background 0.2s ease, color 0.2s ease;
 }
 
 #profileDropdownContent a:hover {
     background: rgba(255, 255, 255, 0.08);
     color: #5eeef8;
-}
-
-/* Show state */
-#profileDropdownContent.show {
-    display: block;
-}
-.nav-link-btn.active {
-    color: #5eeef8;
-}
-
-#profileDropdownContent {
-    opacity: 0;
-    transform: translateY(-5px);
-    transition: all 0.2s ease;
-}
-
-#profileDropdownContent.show {
-    display: block;
-    opacity: 1;
-    transform: translateY(0);
 }

@@ -11,6 +11,27 @@
         </a>
     </div>
 
+<div class="nav-pages">
+    <div class="pages-dropdown" data-website-id="{{ current_website.id if current_website else '' }}">
+        <button class="nav-link-btn pages-btn" type="button">
+            <i class="fas fa-layer-group"></i>
+        </button>
+
+        <div class="pages-dropdown-content" id="pagesDropdownContent">
+            {% if current_website_pages %}
+                {% for page in current_website_pages %}
+                    <a href="{{ url_for('page_editor', website_id=current_website.id, page_id=page.id) }}"
+                       class="{% if page.id == page_id %}active-page{% endif %}">
+                        {{ page.name }}
+                    </a>
+                {% endfor %}
+            {% else %}
+                <div class="pages-empty">No pages found</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
     <div class="nav-photo">
         <a href="{{ url_for('photo_library') }}" class="photo-library-btn">
             <i class="fas fa-images"></i>

@@ -3,8 +3,11 @@ import logging
 import os
 import random
 import shutil
+import smtplib
 import subprocess
 from calendar import Calendar
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import pytz
 from dateutil import parser
@@ -19,6 +22,7 @@ from icalendar import Calendar, Event
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from sqlalchemy import func, or_
+from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -62,15 +66,6 @@ app.secret_key = 'your_secret_key'  # Secret key for session management
 # Set the SQLAlchemy database URI to use the database in the database folder
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{database_path}'
 
-# Configure Flask-Mail
-app.config['MAIL_SERVER'] = '24.118.2.29'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USERNAME'] = 'code@nodaro.com'
-app.config['MAIL_PASSWORD'] = '2857'
-app.config['MAIL_DEFAULT_SENDER'] = 'uwebia-inquiry@nodaro.com'
-
 db = SQLAlchemy(app)
 
 login_manager = LoginManager(app)
@@ -79,9 +74,6 @@ login_manager.login_view = 'login'
 mail = Mail(app)
 migrate = Migrate(app, db)  # Add this line to initialize Flask-Migrate
 
-# Define the host and port of ollama3
-HOST = '192.168.1.214'
-PORT = 11435
 
 # Run Flask-Migrate commands to initialize and apply migrations
 def run_migrations():
@@ -130,7 +122,24 @@ class User(UserMixin, db.Model):
     def __repr__(self):
         return f"<User {self.username}>"
 
+class EmailServerSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
 
+    smtp_host = db.Column(db.String(255), nullable=False)
+    smtp_port = db.Column(db.Integer, nullable=False, default=587)
+    smtp_username = db.Column(db.String(255), nullable=False)
+    smtp_password = db.Column(db.String(255), nullable=False)
+
+    use_tls = db.Column(db.Boolean, default=True)
+    use_ssl = db.Column(db.Boolean, default=False)
+
+    from_email = db.Column(db.String(255), nullable=False)
+    from_name = db.Column(db.String(255), nullable=True)
+
+    is_active = db.Column(db.Boolean, default=True)
+
+    def __repr__(self):
+        return f"<EmailServerSettings {self.id}>"
 
 user_likes = db.Table('user_likes',
                       db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
@@ -271,12 +280,14 @@ class Picture(db.Model):
     def __repr__(self):
         return f"<Picture {self.id} - {self.url}>"
 
+
 class Folder(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     # This allows pictures to be grouped
     pictures = db.relationship('Picture', backref='parent_folder', lazy=True)
+
 
 class SectionImage(db.Model):
     __tablename__ = 'section_images'
@@ -286,6 +297,7 @@ class SectionImage(db.Model):
     # This is where 'order' lives now, so an image can be 1st in Section A
     # but 5th in Section B
     order = db.Column(db.Integer, default=0)
+
 
 class CalendarEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -324,6 +336,10 @@ import json
 
 # API endpoint
 ollama_url = 'http://192.168.1.214:11434/api/generate'
+
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
 def update_page_colors(page_id):
@@ -352,6 +368,8 @@ def update_page_colors(page_id):
         'background_color': page_content.background_color,
         'text_color': page_content.text_color
     }), 200
+
+
 #
 # @app.route('/get_response_stream', methods=['POST'])
 # @login_required
@@ -449,6 +467,7 @@ def capture_webpage():
 @app.route('/browse_websites')
 def browse_websites():
     return render_template('browse.html')
+
 
 #
 # @app.route('/search_websites', methods=['GET'])
@@ -658,6 +677,7 @@ def delete_column(column_id):
         db.session.rollback()  # Rollback changes in case of error
         return jsonify({'error': str(e)}), 500
 
+
 def delete_associated_pictures(section_id):
     try:
         links = SectionImage.query.filter_by(section_id=section_id).all()
@@ -667,6 +687,7 @@ def delete_associated_pictures(section_id):
     except Exception as e:
         db.session.rollback()
         raise e
+
 
 def check_for_undefined_columns():
     rows = Row.query.all()
@@ -805,6 +826,7 @@ def get_sections_and_structure(page_content_id):
         print(f"Error retrieving sections and structure: {str(e)}")
         return jsonify({'error': 'Internal Server Error'}), 500
 
+
 @app.route('/add_column', methods=['POST'])
 @login_required
 def add_column():
@@ -864,6 +886,7 @@ def update_column_width_in_db(column_id, new_width):
         print(f'Updated column {column_id} to width {new_width}%')
     else:
         print(f'Column {column_id} not found')
+
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -960,6 +983,31 @@ def logout():
 from flask_wtf.csrf import generate_csrf
 
 
+@app.context_processor
+def inject_current_website():
+    if not current_user.is_authenticated:
+        return {
+            'current_website': None,
+            'current_website_pages': []
+        }
+
+    website = Website.query.filter_by(user_id=current_user.id).first()
+
+    if not website:
+        return {
+            'current_website': None,
+            'current_website_pages': []
+        }
+
+    pages = PublicPageContent.query.filter_by(website_id=website.id) \
+        .order_by(PublicPageContent.id).all()
+
+    return {
+        'current_website': website,
+        'current_website_pages': pages
+    }
+
+
 @app.route('/admin/dashboard')
 @login_required
 def dashboard():
@@ -978,52 +1026,163 @@ def dashboard():
 
     csrf_token = generate_csrf()
 
+    email_settings = get_email_settings()
+
     return render_template(
         'dashboard.html',
         websites=websites,
         website_pages=website_pages,
         user_has_website=has_site,  # Now this matches your template check
-        csrf_token=csrf_token
+        csrf_token=csrf_token,
+        email_settings = email_settings
     )
 
-# Route to handle sending email
+def get_email_settings():
+    return EmailServerSettings.query.first()
+
+@app.route('/save_email_settings', methods=['POST'])
+@login_required
+def save_email_settings():
+    settings = EmailServerSettings.query.first()
+
+    if not settings:
+        settings = EmailServerSettings()
+        db.session.add(settings)
+
+    settings.smtp_host = request.form.get('smtp_host', '').strip()
+    settings.smtp_port = int(request.form.get('smtp_port', 587))
+    settings.smtp_username = request.form.get('smtp_username', '').strip()
+
+    raw_password = request.form.get('smtp_password', '').strip()
+    if raw_password:
+        settings.smtp_password = raw_password
+
+    settings.from_email = request.form.get('from_email', '').strip()
+    settings.from_name = request.form.get('from_name', '').strip()
+    settings.use_tls = request.form.get('use_tls') == 'on'
+    settings.use_ssl = request.form.get('use_ssl') == 'on'
+    settings.is_active = request.form.get('is_active') == 'on'
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Email settings saved successfully'
+    })
+
+
 @app.route('/send_email', methods=['POST'])
 def send_email():
-    # Get form data
-    sender_email = request.form['senders_email']
-    subject = request.form['message_subject']
-    body = request.form['message_body']
+    sender_email = request.form.get('senders_email', '').strip()
+    subject = request.form.get('message_subject', '').strip()
+    body = request.form.get('message_body', '').strip()
+    section_id = request.form.get('section_id')
 
-    # Get the contact email from the database
-    contact_content = PublicPageContent.query.first()
-    if contact_content is None:
-        return jsonify({'status': 'error', 'message': 'No contact email found'})
-    # Construct the email body with the sender's email included
-    formatted_body = f"""
-    You have received a new message from your uwebia website contact form.
+    if not sender_email or not subject or not body or not section_id:
+        return jsonify({
+            'status': 'error',
+            'message': 'Missing required fields'
+        }), 400
 
-    Here are the details:
-
-    Sender Email: {sender_email}
-    Subject: {subject}
-    Message Body:
-    {body}
-    """
-
-    recipient_email = contact_content.contact_email
-
-    # Create message
-    message = Message(subject=subject,
-                      # sender=sender_email,
-                      recipients=[recipient_email],
-                      body=formatted_body)
-
-    # Send email
     try:
-        mail.send(message)
-        return jsonify({'status': 'success', 'message': 'Email sent successfully'})
+        section_id = int(section_id)
+    except ValueError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid section id'
+        }), 400
+
+    email_settings = EmailServerSettings.query.first()
+
+    if not email_settings or not email_settings.is_active:
+        return jsonify({
+            'status': 'error',
+            'message': 'Email server is not configured'
+        }), 400
+
+    section = PageSection.query.get(section_id)
+    if not section or section.section_type != 'contact_form':
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid contact form section'
+        }), 404
+
+    recipient_email = None
+    if section.content and isinstance(section.content, dict):
+        recipient_email = section.content.get('email')
+
+    if not recipient_email:
+        return jsonify({
+            'status': 'error',
+            'message': 'No contact email found for this form'
+        }), 400
+
+    formatted_body = f"""
+You have received a new message from your uwebia website contact form.
+
+Sender Email: {sender_email}
+Subject: {subject}
+
+Message Body:
+{body}
+"""
+
+    msg = MIMEMultipart()
+    msg['From'] = (
+        f"{email_settings.from_name} <{email_settings.from_email}>"
+        if email_settings.from_name else email_settings.from_email
+    )
+    msg['To'] = recipient_email
+    msg['Subject'] = subject
+    msg['Reply-To'] = sender_email
+    msg.attach(MIMEText(formatted_body, 'plain'))
+
+    try:
+        if email_settings.use_ssl:
+            server = smtplib.SMTP_SSL(email_settings.smtp_host, email_settings.smtp_port)
+        else:
+            server = smtplib.SMTP(email_settings.smtp_host, email_settings.smtp_port)
+            if email_settings.use_tls:
+                server.starttls()
+
+        server.login(email_settings.smtp_username, email_settings.smtp_password)
+        server.sendmail(email_settings.from_email, [recipient_email], msg.as_string())
+        server.quit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Email sent successfully'
+        })
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Failed to send email: {str(e)}'})
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to send email: {str(e)}'
+        }), 500
+
+@app.route('/send_test_email', methods=['POST'])
+@login_required
+def send_test_email():
+    settings = EmailServerSettings.query.first()
+
+    if not settings or not settings.is_active:
+        return jsonify({
+            'status': 'error',
+            'message': 'No active email settings found'
+        }), 400
+
+    test_recipient = request.form.get('test_email', '').strip()
+
+    if not test_recipient:
+        return jsonify({
+            'status': 'error',
+            'message': 'Test email address is required'
+        }), 400
+
+    # send using settings here...
+    return jsonify({
+        'status': 'success',
+        'message': f'Test email sent to {test_recipient}'
+    })
 
 @app.route('/create_website', methods=['POST'])
 @login_required
@@ -1212,26 +1371,29 @@ def page_editor(website_id, page_id):
         return jsonify({'status': 'error', 'message': 'Page does not belong to this website'})
 
     site_active_status = content.site_active_status
-    sections = PageSection.query.filter_by(page_content_id=page_id).order_by(
-        PageSection.order).all()  # Filter sections by page_id
+    sections = PageSection.query.filter_by(page_content_id=page_id).order_by(PageSection.order).all()
 
-    # Example: Set max_columns to a fixed value, e.g., 3
-    max_columns = 10
+    navbar_pages = PublicPageContent.query.filter_by(
+        website_id=website.id
+    ).order_by(PublicPageContent.name).all()
 
     for section in sections:
-        if section.column:  # Check if the section is associated with a column
+        if section.column:
             section.row_id = section.column.row_id
             section.row_number = section.column.row.row_number
             section.column_id = section.column.id
             section.column_number = section.column.column_number
 
-    return render_template('page_editor.html',
-                           site_active_status=site_active_status,
-                           sections=sections,
-                           page_id=page_id,
-                           website=website,
-                           page_content=content
-                           )
+    return render_template(
+        'page_editor.html',
+        site_active_status=site_active_status,
+        sections=sections,
+        page_id=page_id,
+        website=website,
+        page_content=content,
+        navbar_pages=navbar_pages
+    )
+
 
 @app.route('/delete_page/<int:website_id>/<int:page_id>', methods=['POST'])
 @login_required
@@ -1258,6 +1420,7 @@ def delete_page(website_id, page_id):
             return jsonify({'error': 'You are not authorized to delete this page'}), 403
     else:
         return jsonify({'error': 'Page not found'}), 404
+
 
 @app.route('/delete_website/<int:website_id>', methods=['POST'])
 @login_required
@@ -1336,6 +1499,7 @@ def update_section_position(section_id):
         'column_id': target_column.id
     }), 200
 
+
 @app.route('/move_section_to_new_row/<int:section_id>', methods=['PUT'])
 @login_required
 def move_section_to_new_row(section_id):
@@ -1377,6 +1541,8 @@ def move_section_to_new_row(section_id):
     db.session.commit()
 
     return jsonify({'message': 'Section moved successfully'})
+
+
 @app.route('/insert_section_before_row/<int:section_id>', methods=['PUT'])
 @login_required
 def insert_section_before_row(section_id):
@@ -1437,6 +1603,7 @@ def insert_section_before_row(section_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
 
 # Assuming you have a Flask app instance named 'app'
 @app.route('/get_sections/<int:page_content_id>', methods=['GET'])
@@ -1567,6 +1734,7 @@ def add_row_above(row_id):
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/page/<int:page_id>/remove_section/<int:section_id>', methods=['DELETE'])
 @login_required
 def remove_section(page_id, section_id):
@@ -1588,6 +1756,7 @@ def remove_section(page_id, section_id):
 
     db.session.commit()
     return jsonify({'message': 'Section removed successfully'}), 200
+
 
 @app.route('/page/<int:page_id>/reorder_sections', methods=['POST'])
 @login_required
@@ -1680,6 +1849,7 @@ def get_library_folder(folder_id):
         'images': [{'id': i.id, 'url': i.url} for i in images]
     })
 
+
 @app.route('/dashboard/library')
 @login_required
 def photo_library():
@@ -1694,6 +1864,7 @@ def photo_library():
                            folders=folders,
                            root_pictures=root_pictures)
 
+
 @app.route('/section/add_image', methods=['POST'])
 @login_required
 def link_image_to_section():
@@ -1706,6 +1877,7 @@ def link_image_to_section():
     db.session.add(link)
     db.session.commit()
     return jsonify({'status': 'success'})
+
 
 @app.route('/update_public_images', methods=['POST'])
 @login_required
@@ -1831,8 +2003,8 @@ def get_uploaded_images():
     )
 
     images_data = [{
-        'id': pic.id,          # Picture ID
-        'link_id': link.id,    # SectionImage ID
+        'id': pic.id,  # Picture ID
+        'link_id': link.id,  # SectionImage ID
         'url': pic.url,
         'order': link.order
     } for pic, link in results]
@@ -1911,6 +2083,7 @@ def add_images_from_library():
     db.session.commit()
     return jsonify({'status': 'success'})
 
+
 # Create a new folder
 @app.route('/library/create_folder', methods=['POST'])
 @login_required
@@ -1986,6 +2159,7 @@ def delete_library_image(image_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @app.route('/update_public_text', methods=['POST'])
 @login_required
@@ -2124,6 +2298,7 @@ def serve_static(filename):
     print("Request for static file:", filename)
     return send_from_directory(app.static_folder, filename)
 
+
 @app.route('/')
 def home_page():
     website = Website.query.first()
@@ -2166,6 +2341,7 @@ def home_page():
 
     return render_template('public.html', content=public_page_content)
 
+
 @app.route('/page/<int:website_id>/<int:page_id>')
 def public_page(website_id, page_id):
     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
@@ -2205,6 +2381,7 @@ def public_page(website_id, page_id):
     print("COLORS: ", content.background_color, ", ", content.text_color)
 
     return render_template('public.html', content=public_page_content)
+
 
 @app.route('/preview_page/<int:website_id>/<int:page_id>')
 @login_required
@@ -2247,6 +2424,7 @@ def preview_page(website_id, page_id):
     }
 
     return render_template('public.html', content=public_page_content)
+
 
 def update_map_section(section, form_data):
     latitude = form_data.get('latitude')
@@ -2373,8 +2551,6 @@ def update_navbar_section(section, form_data):
 @app.route('/update_section', methods=['POST'])
 @login_required
 def update_section():
-
-
     section_id = request.form.get('section_id')
     section_type = request.form.get('section_type')
 
@@ -2536,6 +2712,7 @@ def delete_selected_images():
         error_message = str(e)
         return {'status': 'error', 'message': error_message}
 
+
 @app.route('/move_image_to_section', methods=['POST'])
 @login_required
 def move_image_to_section():
@@ -2604,6 +2781,7 @@ def download_calendar_events(section_id):
     # Return the iCal feed as a response
     return Response(cal.to_ical(), mimetype='text/calendar')
 
+
 @app.route('/page/<int:section_id>/add_event', methods=['POST'])
 @login_required
 def add_event(section_id):
@@ -2652,6 +2830,7 @@ def add_event(section_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/page/<int:section_id>/events', methods=['GET'])
 def get_events(section_id):
@@ -2706,6 +2885,7 @@ def update_event(section_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/page/<int:section_id>/delete_event', methods=['POST'])
 @login_required
 def delete_event(section_id):
@@ -2727,6 +2907,7 @@ def delete_event(section_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     # Run migrations
