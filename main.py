@@ -5,6 +5,7 @@ import random
 import shutil
 import smtplib
 import subprocess
+import ssl
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1092,8 +1093,7 @@ def send_email():
             'message': 'Invalid section id'
         }), 400
 
-    email_settings = EmailServerSettings.query.first()
-
+    email_settings = get_email_settings()
     if not email_settings or not email_settings.is_active:
         return jsonify({
             'status': 'error',
@@ -1114,7 +1114,7 @@ def send_email():
     if not recipient_email:
         return jsonify({
             'status': 'error',
-            'message': 'No contact email found for this form'
+            'message': 'No recipient email found for this contact form'
         }), 400
 
     formatted_body = f"""
@@ -1139,24 +1139,64 @@ Message Body:
 
     try:
         if email_settings.use_ssl:
-            server = smtplib.SMTP_SSL(email_settings.smtp_host, email_settings.smtp_port)
+            server = smtplib.SMTP_SSL(
+                email_settings.smtp_host,
+                email_settings.smtp_port,
+                timeout=10
+            )
         else:
-            server = smtplib.SMTP(email_settings.smtp_host, email_settings.smtp_port)
+            server = smtplib.SMTP(
+                email_settings.smtp_host,
+                email_settings.smtp_port,
+                timeout=10
+            )
             if email_settings.use_tls:
                 server.starttls()
 
         server.login(email_settings.smtp_username, email_settings.smtp_password)
-        server.sendmail(email_settings.from_email, [recipient_email], msg.as_string())
+
+        server.sendmail(
+            email_settings.from_email,
+            [recipient_email],
+            msg.as_string()
+        )
+
         server.quit()
 
         return jsonify({
             'status': 'success',
-            'message': 'Email sent successfully'
+            'message': 'Message sent successfully'
         })
-    except Exception as e:
+
+    except smtplib.SMTPAuthenticationError:
         return jsonify({
             'status': 'error',
-            'message': f'Failed to send email: {str(e)}'
+            'message': 'Email login failed. Check your username or app password.'
+        }), 400
+
+    except smtplib.SMTPConnectError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Could not connect to the email server. Check host and port.'
+        }), 400
+
+    except smtplib.SMTPException as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Email sending failed: {str(e)}'
+        }), 400
+    except ssl.SSLError as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
+        }), 400
+
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': 'Unexpected server error while sending email.'
         }), 500
 
 @app.route('/send_test_email', methods=['POST'])
