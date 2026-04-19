@@ -2498,27 +2498,31 @@ def update_map_section(section, form_data):
 
 
 def update_text_section(section, form_data):
-    html_content = form_data.get('text')
+    html_content = form_data.get('text', '')
+    background_color = form_data.get('background_color', '#000000')
+    background_opacity = form_data.get('background_opacity', '0')
+    padding = form_data.get('padding', '20')
+    border_radius = form_data.get('border_radius', '10')
+    box_shadow = form_data.get('box_shadow', 'medium')
 
-    # Parse the HTML content
     soup = BeautifulSoup(html_content, 'html.parser')
 
-    # Remove the ql-clipboard div
-    ql_clipboard = soup.find('div', class_='ql-clipboard')
-    if ql_clipboard:
-        ql_clipboard.decompose()
+    for clipboard in soup.find_all('div', class_='ql-clipboard'):
+        clipboard.decompose()
 
-    # Remove the ql-tooltip ql-hidden div
-    ql_tooltip = soup.find('div', class_='ql-tooltip ql-hidden')
-    if ql_tooltip:
-        ql_tooltip.decompose()
+    for tooltip in soup.find_all('div', class_='ql-tooltip'):
+        tooltip.decompose()
 
-    # Save the modified HTML content
-    section.content = {'html': str(soup)}
-    print("HTML CONTENT SAVED: ", section.content['html'])
+    section.content = {
+        'html': str(soup),
+        'background_color': background_color,
+        'background_opacity': background_opacity,
+        'padding': padding,
+        'border_radius': border_radius,
+        'box_shadow': box_shadow
+    }
 
     return section
-
 
 # def update_code_section(section, form_data):
 #     text_content = form_data.get('text')

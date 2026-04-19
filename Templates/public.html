@@ -217,12 +217,18 @@
         left: 0;
         width: 100%;
         height: 100%;
+
+    }
+
+    .img {
+        border-radius: 5px;
     }
 
     .mySlides img {
         width: 100%;
         height: 100%;
         object-fit: contain;
+   
         /* Ensure images cover the entire container */
     }
 
@@ -574,6 +580,41 @@
     .navbar.open .bar:nth-child(3) {
         transform: translateY(-8px) rotate(-45deg);
     }
+
+ .ql-align-center {
+    text-align: center;
+}
+.ql-align-right {
+    text-align: right;
+}
+.ql-align-justify {
+    text-align: justify;
+}
+
+.ql-font-arial {
+    font-family: Arial, sans-serif;
+}
+.ql-font-georgia {
+    font-family: Georgia, serif;
+}
+.ql-font-times {
+    font-family: "Times New Roman", serif;
+}
+.ql-font-verdana {
+    font-family: Verdana, sans-serif;
+}
+.ql-font-trebuchet {
+    font-family: "Trebuchet MS", sans-serif;
+}
+.ql-font-garamond {
+    font-family: Garamond, serif;
+}
+.ql-font-courier {
+    font-family: "Courier New", monospace;
+}
+.ql-font-monospace {
+    font-family: monospace;
+}
 </style>
 
 <body>
@@ -678,9 +719,29 @@
                             {{ section.content['text'] | safe }}
                         </div>
                         {% elif section.section_type == 'text' %}
-                        <div class="text-area">
-                            {{ section.content['html'] | safe }}
-                        </div>
+{% set bg = section.content.get('background_color', '#000000') %}
+{% set opacity = section.content.get('background_opacity', '0')|float %}
+{% set padding = section.content.get('padding', '20') %}
+{% set radius = section.content.get('border_radius', '10') %}
+{% set shadow = section.content.get('box_shadow', 'medium') %}
+{% set shadow_css = {
+    'none': 'none',
+    'light': '0 2px 8px rgba(0,0,0,0.18)',
+    'medium': '0 6px 18px rgba(0,0,0,0.28)',
+    'heavy': '0 10px 28px rgba(0,0,0,0.4)'
+}[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px rgba(0,0,0,0.28)' %}
+{% set bg_hex = bg.lstrip('#') %}
+{% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
+{% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
+{% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
+
+<div class="text-area"
+     style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+            padding: {{ padding }}px;
+            border-radius: {{ radius }}px;
+            box-shadow: {{ shadow_css }};">
+    {{ section.content['html'] | safe }}
+</div>
 
                         {% elif section.section_type == 'button' %}
                         {% if section.content['enabled'] %}
