@@ -490,6 +490,8 @@
 
 
     .section-title {
+        position: relative;
+        z-index: 10;
         max-width: 100%;
         margin: 0 auto;
         padding: 12px;
@@ -517,76 +519,105 @@
         /* Change border style when clicked */
     }
 
-    .section-content {
-        visibility: hidden;
-        /* Hide the section content by default */
-        opacity: 0;
-        /* Start with fully transparent */
-        overflow: hidden;
-        /* Hide any overflow content */
-        max-height: 0;
-        /* Start with zero height */
-        transition: max-height 0.3s ease, opacity 0.3s ease;
-        /* Smooth transition for height and opacity change */
-        width: 100%;
-        /* Make section content fill the width of the column */
-        position: absolute;
-        /* Set the section content as absolute positioning */
-        z-index: 99;
-    }
+.row {
+    position: relative;
+    min-height: 40px;
+    display: flex;
+    max-width: 95vw;
+    padding: 5px;
+    gap: 6px;
+    box-sizing: border-box;
+    transition: padding-bottom 0.3s ease;
+    /* overflow: visible; */
+}
 
-    .section-content.open {
-        width: 90%;
-        padding: 12px;
-        background-color: #292b34;
+.column {
+    position: relative;
+    border-radius: 5px;
+    background-color: #4d50599c;
+    color: #fff;
+    margin: 0;
+    box-shadow: 0 2px 7px rgba(.5, .5, .5, 0.4);
+    min-width: 10px;
+    user-select: none;
+    box-sizing: border-box;
+}
 
-        border-bottom-left-radius: 20px;
-        border-bottom-right-radius: 20px;
-        border-top-left-radius: 0;
-        border-top-right-radius: 0;
+.section-title {
+    position: relative;
+    max-width: 100%;
+    margin: 0;
+    padding: 12px;
+    border-radius: 10px;
+    box-shadow: 0 4px 4px rgba(0.5, 0.5, 0.6, 0.6);
+    cursor: pointer;
+    transition: background-color 0.25s ease, border-radius 0.25s ease;
+    font-weight: bold;
+    border-style: outset;
+    border-color: #00000091;
+    background-color: #3a3c46;
+}
 
-        box-shadow: 0 2px 5px rgba(.5, .5, .5, 0.9);
-        visibility: visible;
-        opacity: 1;
-        max-height: 1000px;
-        z-index: 99;
-        position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-    }
+.section-title:hover {
+    background-color: #292b34;
+}
 
+/* highest when the 3-dot menu is being hovered/focused */
+.section-title:has(.dropdown:hover),
+.section-title:has(.dropdown:focus-within) {
+    z-index: 9999;
+}
 
-    .row {
-        background-color: #4d50599c;
-        border-radius: 8px;
-        min-height: 40px;
-        display: flex;
-        max-width: 95vw;
+.section-title.clicked {
+        z-index: 60;
+    background-color: #292b34;
 
-        border: 2px solid #595d69;
-        /* ← add this */
-        box-shadow: 0 2px 7px rgba(.9, .9, .9, 1.2);
-    }
+    /* remove inset look */
+    border-style: solid;
+    border-color: transparent;
 
-    .column {
-        /* position: relative; */
-        /* flex: 1; */
-        border-radius: 5px;
-        background-color: #4d50599c;
-        color: #fff;
-        /* padding: 15px; */
-        margin: 5px;
-        box-shadow: 0 2px 7px rgba(.5, .5, .5, 0.4);
-        /* Adjusted properties for resizing */
-        max-width: 100vw;
-        min-width: 10px;
-        max-height: none;
-        /* flex-grow: 1; */
-        user-select: none;
-        /* Prevent highlighting */
-    }
+    /* keep top rounded, flatten bottom */
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
 
+    /* visually connect to panel */
+    box-shadow:
+        0 2px 4px rgba(0,0,0,0.0),
+        0 6px 12px rgba(0,0,0,0);
 
+    /* slight lift */
+    transform: translateY(2px);
+
+    /* remove bottom separation */
+    /* border-bottom: 2px solid #292b34; */
+}
+
+.section-content {
+    position: absolute;
+    z-index: 4;
+    top: calc(100% - 2px);
+    left: 0;
+    width: 100%;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    padding: 0 12px;
+    background-color: #292b34;
+    border-radius: 0 0 20px 20px;
+/* Change the 2nd value (offset-y) to be equal to or greater than the 3rd value (blur) */
+    box-shadow: 0 5px 5px rgba(0, 0, 0, 0.9);
+    transition: max-height 0.4s ease, opacity 0.4s ease, padding 0.4s ease;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.section-content.open {
+    max-height: 1000px;
+    opacity: 1;
+    padding: 12px;
+    pointer-events: auto;
+    margin-top: -2px;
+}
 
 
     label {
@@ -692,7 +723,7 @@
         cursor: col-resize;
         background-color: #7ee2cc;
         position: relative;
-        display: inline-block;
+        /* display: inline-block; */
         /* height: 65px; */
         border-radius: 25px;
         /* top: 11px; */
@@ -842,32 +873,35 @@
 
 <style>
     .dropdown {
-        display: relative;
+        position: relative;
         font-size: small;
+        display: inline-block;
+
     }
 
-    .dropbtn {
-        background-color: transparent;
-        border: none;
-        cursor: pointer;
-        color: rgb(126, 226, 204);
-        font-weight: bolder;
-        font-size: 18px;
-    }
+.dropbtn {
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    color: rgb(126, 226, 204);
+    font-weight: bolder;
+    font-size: 18px;
+}
 
-    .dropdown-content {
-        display: none;
-        position: absolute;
-        background-color: #3d3d3d;
-        box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
-        z-index: 1;
-        right: 0;
-        /* Adjust to move content to the left */
-    }
+/* Ensure the dropdown content itself has a high index */
+.dropdown-content {
+    display: none;
+
+    background-color: #3d3d3d;
+    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+    right: 0;
+    z-index: 100; /* Force it above section-content */
+}
 
 
     .dropdown:hover .dropdown-content {
         display: block;
+        z-index: 100;
     }
 
     .dropdown-content a {
@@ -2021,30 +2055,65 @@
         const pageId = "{{ page_id }}";
         const websiteId = "{{ website.id }}";
 
-        function toggleSectionContent(button) {
-            var sectionContent = button.nextElementSibling;
-            sectionContent.classList.toggle("open");
+function toggleSectionContent(button) {
+    const sectionContent = button.nextElementSibling;
+    const column = button.closest('.column');
+    const row = button.closest('.row');
+    const isOpen = sectionContent.classList.contains("open");
 
-            // Toggle the 'clicked' class on the section-title
-            button.classList.toggle("clicked");
-
-            // Manually adjust the margin of the column when the section content is opened
-            var column = button.closest('.column');
-            if (sectionContent.classList.contains("open")) {
-                // Use scrollHeight to get the full height of the content
-                var sectionContentHeight = sectionContent.scrollHeight;
-                column.style.marginBottom = sectionContentHeight + "px"; // Adjust margin as needed
-                // Manually refresh all CodeMirror instances after opening the section container (if applicable)
-                if (typeof codeMirrorEditors !== 'undefined') {
-                    codeMirrorEditors.forEach(function (editor) {
-                        editor.refresh();
-                    });
-                }
-            } else {
-                // Reset the margin when closing the section content
-                column.style.marginBottom = "";
+    // close other open sections in this row
+    row.querySelectorAll('.section-content.open').forEach(content => {
+        if (content !== sectionContent) {
+            const otherTitle = content.previousElementSibling;
+            if (otherTitle && otherTitle.classList.contains('section-title')) {
+                otherTitle.classList.remove('clicked');
             }
+
+            content.classList.remove('open');
+
+            content.addEventListener('transitionend', function handler(e) {
+                if (e.propertyName === 'max-height') {
+                    content.style.left = '0px';
+                    content.style.width = '100%';
+                    content.removeEventListener('transitionend', handler);
+                }
+            });
         }
+    });
+
+    if (isOpen) {
+        button.classList.remove("clicked");
+        sectionContent.classList.remove("open");
+
+        sectionContent.addEventListener('transitionend', function handler(e) {
+            if (e.propertyName === 'max-height') {
+                sectionContent.style.left = '0px';
+                sectionContent.style.width = '100%';
+                row.style.paddingBottom = "5px";
+                sectionContent.removeEventListener('transitionend', handler);
+            }
+        });
+
+        return;
+    }
+
+    // open this one
+    button.classList.add("clicked");
+    sectionContent.classList.add("open");
+
+    const rowRect = row.getBoundingClientRect();
+    const columnRect = column.getBoundingClientRect();
+
+    const leftOffset = rowRect.left - columnRect.left + 5;
+    const panelWidth = row.clientWidth - 10;
+
+    sectionContent.style.left = `${leftOffset}px`;
+    sectionContent.style.width = `${panelWidth}px`;
+
+    requestAnimationFrame(() => {
+        row.style.paddingBottom = `${sectionContent.scrollHeight + 20}px`;
+    });
+}
 
 
 
@@ -2882,7 +2951,7 @@
         <div class="text-style-group">
             <label>Padding</label>
             <input type="range" name="padding" min="0" max="60" step="2"
-                value="${section.content['padding'] || '20'}">
+                value="${section.content['padding'] || '0'}">
             <span class="range-value">${section.content['padding'] || '20'}px</span>
         </div>
 
@@ -2896,9 +2965,9 @@
         <div class="text-style-group">
             <label>Shadow</label>
             <select name="box_shadow">
-                <option value="none" ${section.content['box_shadow'] === 'none' ? 'selected' : ''}>None</option>
+                <option value="none" ${section.content['box_shadow'] === 'none' || !section.content['box_shadow'] ? 'selected' : ''}>None</option>
                 <option value="light" ${section.content['box_shadow'] === 'light' ? 'selected' : ''}>Light</option>
-                <option value="medium" ${section.content['box_shadow'] === 'medium' || !section.content['box_shadow'] ? 'selected' : ''}>Medium</option>
+                <option value="medium" ${section.content['box_shadow'] === 'medium' ? 'selected' : ''}>Medium</option>
                 <option value="heavy" ${section.content['box_shadow'] === 'heavy' ? 'selected' : ''}>Heavy</option>
             </select>
         </div>
@@ -3430,150 +3499,141 @@
 
 
                 function handleResizeMouseDown(event, col1, col2, resizeHandle) {
-                    // Show the resize overlay and block pointer events
-                    const resizeOverlay = document.querySelector('.resize-overlay');
-                    resizeOverlay.style.display = 'block';
-                    const startX = event.clientX;
-                    const col1Styles = window.getComputedStyle(col1);
-                    const col2Styles = window.getComputedStyle(col2);
+    const resizeOverlay = document.querySelector('.resize-overlay');
+    resizeOverlay.style.display = 'block';
 
-                    const col1Padding = parseFloat(col1Styles.paddingLeft) + parseFloat(col1Styles.paddingRight);
-                    const col2Padding = parseFloat(col2Styles.paddingLeft) + parseFloat(col2Styles.paddingRight);
+    const startX = event.clientX;
+    const initialCol1Width = col1.getBoundingClientRect().width;
+    const initialCol2Width = col2.getBoundingClientRect().width;
+    const totalWidth = initialCol1Width + initialCol2Width;
 
-                    const initialCol1Width = col1.getBoundingClientRect().width - col1Padding;
-                    const initialCol2Width = col2.getBoundingClientRect().width - col2Padding;
+    const col1PercentageIndicator = document.createElement('div');
+    col1PercentageIndicator.classList.add('percentage-indicator');
+    col1.appendChild(col1PercentageIndicator);
 
-                    console.log("Initial col1 width:", initialCol1Width, "Initial col2 width:", initialCol2Width);
+    const col2PercentageIndicator = document.createElement('div');
+    col2PercentageIndicator.classList.add('percentage-indicator');
+    col2.appendChild(col2PercentageIndicator);
 
-                    // Create percentage indicators
-                    const col1PercentageIndicator = document.createElement('div');
-                    col1PercentageIndicator.classList.add('percentage-indicator');
-                    col1.appendChild(col1PercentageIndicator);
+const updatePercentageIndicators = () => {
+    const col1Width = col1.getBoundingClientRect().width;
+    const col2Width = col2.getBoundingClientRect().width;
+    const pairWidth = col1Width + col2Width;
 
-                    const col2PercentageIndicator = document.createElement('div');
-                    col2PercentageIndicator.classList.add('percentage-indicator');
-                    col2.appendChild(col2PercentageIndicator);
+    const newWidth1Percent = ((col1Width / pairWidth) * 100).toFixed(2);
+    const newWidth2Percent = ((col2Width / pairWidth) * 100).toFixed(2);
 
-                    const updatePercentageIndicators = () => {
-                        const newWidth1Percent = ((col1.offsetWidth / col1.parentElement.offsetWidth) * 100).toFixed(2);
-                        const newWidth2Percent = ((col2.offsetWidth / col2.parentElement.offsetWidth) * 100).toFixed(2);
-                        col1PercentageIndicator.textContent = `${newWidth1Percent}%`;
-                        col2PercentageIndicator.textContent = `${newWidth2Percent}%`;
-                    };
+    col1PercentageIndicator.textContent = `${newWidth1Percent}%`;
+    col2PercentageIndicator.textContent = `${newWidth2Percent}%`;
+};
+    const mouseMoveHandler = (moveEvent) => {
+        const dx = moveEvent.clientX - startX;
 
-                    const mouseMoveHandler = (moveEvent) => {
-                        const currentX = moveEvent.clientX;
-                        const dx = currentX - startX;
-                        const newCol1Width = initialCol1Width + dx;
-                        const newCol2Width = initialCol2Width - dx;
+        let newCol1Width = initialCol1Width + dx;
+        let newCol2Width = totalWidth - newCol1Width;
 
-                        console.log("currentX:", currentX);
-                        console.log("dx:", dx);
-                        console.log("New col1 width:", newCol1Width);
-                        console.log("New col2 width:", newCol2Width);
+        const minWidth = 40;
+        if (newCol1Width < minWidth || newCol2Width < minWidth) return;
 
-                        if (newCol1Width > 1 && newCol2Width > 1) {
-                            col1.style.width = `${newCol1Width + col1Padding}px`;
-                            col2.style.width = `${newCol2Width + col2Padding}px`;
-                            updatePercentageIndicators();
-                        }
-                    };
+        col1.style.width = `${newCol1Width}px`;
+        col2.style.width = `${newCol2Width}px`;
 
-                    const mouseUpHandler = () => {
-                        resizeOverlay.style.display = 'none'; // Hide overlay after resizing
-                        document.removeEventListener('mousemove', mouseMoveHandler);
-                        document.removeEventListener('mouseup', mouseUpHandler);
+        updatePercentageIndicators();
+    };
 
-                        col1.removeChild(col1PercentageIndicator);
-                        col2.removeChild(col2PercentageIndicator);
+const mouseUpHandler = () => {
+    resizeOverlay.style.display = 'none';
+    document.removeEventListener('mousemove', mouseMoveHandler);
+    document.removeEventListener('mouseup', mouseUpHandler);
 
-                        const newWidth1Percent = (col1.offsetWidth / col1.parentElement.offsetWidth) * 100;
-                        const newWidth2Percent = (col2.offsetWidth / col2.parentElement.offsetWidth) * 100;
+    col1.removeChild(col1PercentageIndicator);
+    col2.removeChild(col2PercentageIndicator);
 
-                        const prevColumnId = col1.getAttribute('data-column-id');
-                        const nextColumnId = col2.getAttribute('data-column-id');
+    const col1Width = col1.getBoundingClientRect().width;
+    const col2Width = col2.getBoundingClientRect().width;
+    const pairWidth = col1Width + col2Width;
 
-                        updateColumnWidths(prevColumnId, newWidth1Percent, nextColumnId, newWidth2Percent);
-                    };
+    const newWidth1Percent = (col1Width / pairWidth) * 100;
+    const newWidth2Percent = (col2Width / pairWidth) * 100;
 
-                    document.addEventListener('mousemove', mouseMoveHandler);
-                    document.addEventListener('mouseup', mouseUpHandler);
+    const prevColumnId = col1.getAttribute('data-column-id');
+    const nextColumnId = col2.getAttribute('data-column-id');
 
-                    updatePercentageIndicators();
-                }
+    updateColumnWidths(prevColumnId, newWidth1Percent, nextColumnId, newWidth2Percent);
+};
+
+    document.addEventListener('mousemove', mouseMoveHandler);
+    document.addEventListener('mouseup', mouseUpHandler);
+
+    updatePercentageIndicators();
+}
 
                 function handleResizeTouchStart(event, col1, col2, resizeHandle) {
-                    // Show the resize overlay and block pointer events
-                    const resizeOverlay = document.querySelector('.resize-overlay');
-                    resizeOverlay.style.display = 'block';
-                    const startX = event.touches[0].clientX;
-                    const col1Styles = window.getComputedStyle(col1);
-                    const col2Styles = window.getComputedStyle(col2);
+    const resizeOverlay = document.querySelector('.resize-overlay');
+    resizeOverlay.style.display = 'block';
 
-                    const col1Padding = parseFloat(col1Styles.paddingLeft) + parseFloat(col1Styles.paddingRight);
-                    const col2Padding = parseFloat(col2Styles.paddingLeft) + parseFloat(col2Styles.paddingRight);
+    const startX = event.touches[0].clientX;
+    const initialCol1Width = col1.getBoundingClientRect().width;
+    const initialCol2Width = col2.getBoundingClientRect().width;
+    const totalWidth = initialCol1Width + initialCol2Width;
 
-                    const initialCol1Width = col1.getBoundingClientRect().width - col1Padding;
-                    const initialCol2Width = col2.getBoundingClientRect().width - col2Padding;
+    const col1PercentageIndicator = document.createElement('div');
+    col1PercentageIndicator.classList.add('percentage-indicator');
+    col1.appendChild(col1PercentageIndicator);
 
-                    console.log("Initial col1 width:", initialCol1Width, "Initial col2 width:", initialCol2Width);
+    const col2PercentageIndicator = document.createElement('div');
+    col2PercentageIndicator.classList.add('percentage-indicator');
+    col2.appendChild(col2PercentageIndicator);
 
-                    // Create percentage indicators
-                    const col1PercentageIndicator = document.createElement('div');
-                    col1PercentageIndicator.classList.add('percentage-indicator');
-                    col1.appendChild(col1PercentageIndicator);
+    const updatePercentageIndicators = () => {
+        const parentWidth = col1.parentElement.getBoundingClientRect().width;
+        const newWidth1Percent = ((col1.getBoundingClientRect().width / parentWidth) * 100).toFixed(2);
+        const newWidth2Percent = ((col2.getBoundingClientRect().width / parentWidth) * 100).toFixed(2);
+        col1PercentageIndicator.textContent = `${newWidth1Percent}%`;
+        col2PercentageIndicator.textContent = `${newWidth2Percent}%`;
+    };
 
-                    const col2PercentageIndicator = document.createElement('div');
-                    col2PercentageIndicator.classList.add('percentage-indicator');
-                    col2.appendChild(col2PercentageIndicator);
+    const touchMoveHandler = (moveEvent) => {
+        const dx = moveEvent.touches[0].clientX - startX;
 
-                    const updatePercentageIndicators = () => {
-                        const newWidth1Percent = ((col1.offsetWidth / col1.parentElement.offsetWidth) * 100).toFixed(2);
-                        const newWidth2Percent = ((col2.offsetWidth / col2.parentElement.offsetWidth) * 100).toFixed(2);
-                        col1PercentageIndicator.textContent = `${newWidth1Percent}%`;
-                        col2PercentageIndicator.textContent = `${newWidth2Percent}%`;
-                    };
+        let newCol1Width = initialCol1Width + dx;
+        let newCol2Width = totalWidth - newCol1Width;
 
-                    const touchMoveHandler = (moveEvent) => {
-                        const currentX = moveEvent.touches[0].clientX;
-                        const dx = currentX - startX;
-                        const newCol1Width = initialCol1Width + dx;
-                        const newCol2Width = initialCol2Width - dx;
+        const minWidth = 40;
+        if (newCol1Width < minWidth || newCol2Width < minWidth) return;
 
-                        console.log("currentX:", currentX);
-                        console.log("dx:", dx);
-                        console.log("New col1 width:", newCol1Width);
-                        console.log("New col2 width:", newCol2Width);
+        col1.style.width = `${newCol1Width}px`;
+        col2.style.width = `${newCol2Width}px`;
 
-                        if (newCol1Width > 1 && newCol2Width > 1) {
-                            col1.style.width = `${newCol1Width + col1Padding}px`;
-                            col2.style.width = `${newCol2Width + col2Padding}px`;
-                            updatePercentageIndicators();
-                        }
-                    };
+        updatePercentageIndicators();
+    };
 
-                    const touchEndHandler = () => {
-                        resizeOverlay.style.display = 'none'; // Hide overlay after resizing
-                        document.removeEventListener('touchmove', touchMoveHandler);
-                        document.removeEventListener('touchend', touchEndHandler);
+const touchEndHandler = () => {
+    resizeOverlay.style.display = 'none';
+    document.removeEventListener('touchmove', touchMoveHandler);
+    document.removeEventListener('touchend', touchEndHandler);
 
-                        col1.removeChild(col1PercentageIndicator);
-                        col2.removeChild(col2PercentageIndicator);
+    col1.removeChild(col1PercentageIndicator);
+    col2.removeChild(col2PercentageIndicator);
 
-                        const newWidth1Percent = (col1.offsetWidth / col1.parentElement.offsetWidth) * 100;
-                        const newWidth2Percent = (col2.offsetWidth / col2.parentElement.offsetWidth) * 100;
+    const col1Width = col1.getBoundingClientRect().width;
+    const col2Width = col2.getBoundingClientRect().width;
+    const pairWidth = col1Width + col2Width;
 
-                        const prevColumnId = col1.getAttribute('data-column-id');
-                        const nextColumnId = col2.getAttribute('data-column-id');
+    const newWidth1Percent = (col1Width / pairWidth) * 100;
+    const newWidth2Percent = (col2Width / pairWidth) * 100;
 
-                        updateColumnWidths(prevColumnId, newWidth1Percent, nextColumnId, newWidth2Percent);
-                    };
+    const prevColumnId = col1.getAttribute('data-column-id');
+    const nextColumnId = col2.getAttribute('data-column-id');
 
-                    document.addEventListener('touchmove', touchMoveHandler);
-                    document.addEventListener('touchend', touchEndHandler);
+    updateColumnWidths(prevColumnId, newWidth1Percent, nextColumnId, newWidthNext);
+};
 
-                    updatePercentageIndicators();
-                }
+    document.addEventListener('touchmove', touchMoveHandler);
+    document.addEventListener('touchend', touchEndHandler);
+
+    updatePercentageIndicators();
+}
 
                 function updateColumnWidths(prevColumnId, newWidthPrev, nextColumnId, newWidthNext) {
                     fetch('/update-column-widths', {
@@ -3846,7 +3906,11 @@
 
                         // Replace the "Add Item" button with the dropdown
                         const addUrlButton = document.getElementById('add-url-button');
-                        addUrlButton.parentNode.replaceChild(selectDropdown, addUrlButton);
+                        if (addUrlButton && addUrlButton.parentNode) {
+    addUrlButton.parentNode.replaceChild(selectDropdown, addUrlButton);
+} else {
+    console.warn("Parent node not found. Is the button attached to the document?");
+}
                     }
 
                     // Initialize the dropdown when initializing the navbar
