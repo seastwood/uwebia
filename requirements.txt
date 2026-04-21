@@ -24,3 +24,4 @@ selenium
 beautifulsoup4
 requests
 flask-wtf
+pillow
