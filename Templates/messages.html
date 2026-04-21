@@ -1,0 +1,549 @@
+{% extends 'base.html' %}
+{% include 'components/navbar.html' %}
+
+{% block content %}
+<style>
+    .messages-page {
+        max-width: 1400px;
+        margin: 24px auto;
+        padding: 0 20px 24px;
+        color: #fff;
+    }
+
+    .messages-shell {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 18px;
+        min-height: 72vh;
+    }
+
+    .messages-sidebar,
+    .messages-main {
+        background: #2b2e36;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+    }
+
+    .messages-sidebar {
+        padding: 16px;
+    }
+
+    .messages-main {
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .messages-title {
+        margin: 0 0 14px 0;
+        font-size: 1.4rem;
+    }
+
+    .messages-subtitle {
+        color: #aeb5c1;
+        font-size: 0.95rem;
+        margin-bottom: 18px;
+    }
+
+    .messages-filter-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .messages-filter-form input,
+    .messages-filter-form select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: #3a3d44;
+        color: #fff;
+    }
+
+    .messages-filter-form button {
+        padding: 10px 14px;
+        border: none;
+        border-radius: 10px;
+        background: #6200ea;
+        color: #fff;
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .messages-filter-form button:hover {
+        background: #3700b3;
+    }
+
+    .messages-summary {
+        margin-top: 18px;
+        color: #cfd5df;
+        font-size: 0.92rem;
+    }
+
+    .messages-list {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        max-height: 360px;
+        overflow-y: auto;
+    }
+
+    .message-row {
+        padding: 14px 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        cursor: pointer;
+        transition: background 0.18s ease;
+    }
+
+    .message-row:hover {
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .message-row.active {
+        background: rgba(126, 226, 204, 0.08);
+    }
+
+    .message-row.unread {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .message-row-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+    }
+
+    .message-row-email {
+        font-weight: 700;
+        color: #7ee2cc;
+    }
+
+    .message-row-date {
+        color: #a7adb8;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    .message-row-subject {
+        font-size: 14px;
+        margin-bottom: 4px;
+    }
+
+    .message-row-preview {
+        color: #c5cad3;
+        font-size: 13px;
+    }
+
+    .message-unread-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #7ee2cc;
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+
+    .message-detail {
+        padding: 22px;
+    }
+
+    .message-detail.empty {
+        color: #aeb5c1;
+    }
+
+    .message-detail-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+
+    .message-detail-subject {
+        margin: 0 0 10px 0;
+        font-size: 1.25rem;
+    }
+
+    .message-detail-meta {
+        color: #b5bcc8;
+        font-size: 0.92rem;
+        line-height: 1.7;
+    }
+
+    .message-detail-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .message-detail-actions button {
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .btn-mark {
+        background: #4b5563;
+        color: #fff;
+    }
+
+    .btn-delete {
+        background: #7a2e2e;
+        color: #fff;
+    }
+
+    .message-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        margin-top: 10px;
+    }
+
+    .status-sent {
+        background: #1f6f4a;
+        color: #dff7ea;
+    }
+
+    .status-failed {
+        background: #7a2e2e;
+        color: #ffe1e1;
+    }
+
+    .message-body {
+        margin-top: 18px;
+        background: #1f2229;
+        border-radius: 12px;
+        padding: 16px;
+        white-space: pre-wrap;
+        line-height: 1.65;
+    }
+
+    .message-error {
+        margin-top: 14px;
+        color: #ff9d9d;
+        background: rgba(122, 46, 46, 0.16);
+        padding: 12px;
+        border-radius: 10px;
+    }
+
+    @media (max-width: 900px) {
+        .messages-shell {
+            grid-template-columns: 1fr;
+        }
+
+        .messages-list {
+            max-height: 260px;
+        }
+    }
+</style>
+
+<div class="messages-page">
+    <div class="messages-shell">
+        <aside class="messages-sidebar">
+            <h1 class="messages-title">Messages</h1>
+            <div class="messages-subtitle">
+                {{ unread_count }} unread
+            </div>
+
+            <form class="messages-filter-form" method="GET" action="{{ url_for('messages_page') }}">
+                <input type="text" name="q" placeholder="Search email, subject, body..." value="{{ search }}">
+
+                <select name="status">
+                    <option value="all" {% if status_filter=='all' %}selected{% endif %}>All statuses</option>
+                    <option value="sent" {% if status_filter=='sent' %}selected{% endif %}>Sent</option>
+                    <option value="failed" {% if status_filter=='failed' %}selected{% endif %}>Failed</option>
+                </select>
+
+                <select name="read">
+                    <option value="all" {% if read_filter=='all' %}selected{% endif %}>All messages</option>
+                    <option value="unread" {% if read_filter=='unread' %}selected{% endif %}>Unread</option>
+                    <option value="read" {% if read_filter=='read' %}selected{% endif %}>Read</option>
+                </select>
+
+                <button type="submit">Apply Filters</button>
+            </form>
+
+            <div class="messages-summary">
+                {{ messages|length }} message{{ '' if messages|length == 1 else 's' }}
+            </div>
+        </aside>
+
+        <section class="messages-main">
+            <div class="messages-list" id="messagesList">
+                {% for msg in messages %}
+                <div class="message-row {% if not msg.is_read %}unread{% endif %}" data-message-id="{{ msg.id }}"
+                    data-is-read="{{ 'true' if msg.is_read else 'false' }}" data-sender="{{ msg.sender_email }}"
+                    data-recipient="{{ msg.recipient_email or '' }}" data-subject="{{ msg.subject }}"
+                    data-body="{{ msg.body | e }}" data-status="{{ msg.status }}"
+                    data-error="{{ msg.error_message or '' }}"
+                    data-created="{{ msg.created_at.strftime('%b %d, %Y %I:%M %p') }}"
+                    data-ip="{{ msg.ip_address or '' }}" data-referrer="{{ msg.referrer or '' }}"
+                    data-form-title="{{ msg.contact_form_title or '' }}">
+                    <div class="message-row-top">
+                        <div class="message-row-email">
+                            {% if not msg.is_read %}<span class="message-unread-dot"></span>{% endif %}
+                            {{ msg.sender_email }}
+                        </div>
+                        <div class="message-row-date">
+                            {{ msg.created_at.strftime('%b %d, %Y %I:%M %p') }}
+                        </div>
+                    </div>
+                    <div class="message-row-subject">{{ msg.subject }}</div>
+                    <div class="message-row-preview">
+                        {{ msg.body[:120] }}{% if msg.body|length > 120 %}...{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="message-detail {% if not messages %}empty{% endif %}" id="messageDetail">
+                {% if not messages %}
+                No messages yet.
+                {% else %}
+                Select a message to view details.
+                {% endif %}
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+    let activeMessageId = null;
+    const messageRows = document.querySelectorAll('.message-row');
+    const messageDetail = document.getElementById('messageDetail');
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    }
+
+function renderMessageDetail(row) {
+    activeMessageId = row.dataset.messageId;
+
+    document.querySelectorAll('.message-row.active').forEach(r => {
+        r.classList.remove('active');
+    });
+    row.classList.add('active');
+
+    const id = row.dataset.messageId;
+    const isRead = row.dataset.isRead === 'true';
+    const sender = row.dataset.sender;
+    const recipient = row.dataset.recipient;
+    const subject = row.dataset.subject;
+    const body = row.dataset.body;
+    const status = row.dataset.status;
+    const error = row.dataset.error;
+    const created = row.dataset.created;
+    const ip = row.dataset.ip;
+    const referrer = row.dataset.referrer;
+    const formTitle = row.dataset.formTitle;
+
+    messageDetail.classList.remove('empty');
+    messageDetail.innerHTML = `
+        <div class="message-detail-header">
+            <div>
+                <h2 class="message-detail-subject">${escapeHtml(subject)}</h2>
+                <div class="message-detail-meta">
+                    <div><strong>From:</strong> ${escapeHtml(sender)}</div>
+                    <div><strong>To:</strong> ${escapeHtml(recipient)}</div>
+                    <div><strong>Date:</strong> ${escapeHtml(created)}</div>
+                    <div><strong>Contact Form:</strong> ${escapeHtml(formTitle)}</div>
+                    <div><strong>IP:</strong> ${escapeHtml(ip)}</div>
+                    <div><strong>Referrer:</strong> ${escapeHtml(referrer)}</div>
+                </div>
+                <div class="message-status ${status === 'sent' ? 'status-sent' : 'status-failed'}">
+                    ${escapeHtml(status)}
+                </div>
+            </div>
+
+            <div class="message-detail-actions">
+                ${
+                    isRead
+                    ? `<button class="btn-mark" onclick="markUnread(${id})">Mark Unread</button>`
+                    : `<button class="btn-mark" onclick="markRead(${id})">Mark Read</button>`
+                }
+                <button class="btn-delete" onclick="deleteMessage(${id})">Delete</button>
+            </div>
+        </div>
+
+        <div class="message-body">${escapeHtml(body)}</div>
+        ${error ? `<div class="message-error"><strong>Error:</strong> ${escapeHtml(error)}</div>` : ''}
+    `;
+}
+
+    async function markRead(messageId) {
+        const response = await fetch(`/dashboard/messages/${messageId}/read`, { method: 'POST' });
+        if (response.ok) {
+            const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
+            if (row) {
+                row.dataset.isRead = 'true';
+                row.classList.remove('unread');
+                const emailBlock = row.querySelector('.message-row-email');
+                const dot = emailBlock.querySelector('.message-unread-dot');
+                if (dot) dot.remove();
+                renderMessageDetail(row);
+                location.reload();
+            }
+        }
+    }
+
+    async function markUnread(messageId) {
+        const response = await fetch(`/dashboard/messages/${messageId}/unread`, { method: 'POST' });
+        if (response.ok) {
+            const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
+            if (row) {
+                row.dataset.isRead = 'false';
+                row.classList.add('unread');
+                const emailBlock = row.querySelector('.message-row-email');
+                if (!emailBlock.querySelector('.message-unread-dot')) {
+                    emailBlock.insertAdjacentHTML('afterbegin', '<span class="message-unread-dot"></span>');
+                }
+                renderMessageDetail(row);
+                location.reload();
+            }
+        }
+    }
+
+    async function deleteMessage(messageId) {
+        const confirmed = confirm('Delete this message?');
+        if (!confirmed) return;
+
+        const response = await fetch(`/dashboard/messages/${messageId}/delete`, { method: 'POST' });
+        if (response.ok) {
+            location.reload();
+        }
+    }
+
+    messageRows.forEach(row => {
+        row.addEventListener('click', async function () {
+            renderMessageDetail(this);
+
+            if (this.dataset.isRead === 'false') {
+                await fetch(`/dashboard/messages/${this.dataset.messageId}/read`, { method: 'POST' });
+                this.dataset.isRead = 'true';
+                this.classList.remove('unread');
+                const emailBlock = this.querySelector('.message-row-email');
+                const dot = emailBlock.querySelector('.message-unread-dot');
+                if (dot) dot.remove();
+            }
+        });
+    });
+
+    function updateUnreadMessagesBadge(count) {
+        const badge = document.getElementById('unreadMessagesBadge');
+        if (!badge) return;
+
+        if (count > 0) {
+            badge.textContent = count;
+            badge.style.display = 'inline-flex';
+        } else {
+            badge.textContent = '0';
+            badge.style.display = 'none';
+        }
+    }
+function renderMessagesList(messages) {
+    const list = document.getElementById('messagesList');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!messages.length) {
+        list.innerHTML = '<div style="padding:18px; color:#aaa;">No messages yet.</div>';
+        return;
+    }
+
+    messages.forEach(msg => {
+        const row = document.createElement('div');
+        row.className = `message-row ${msg.is_read ? '' : 'unread'} ${String(msg.id) === String(activeMessageId) ? 'active' : ''}`;
+        row.dataset.messageId = msg.id;
+        row.dataset.isRead = msg.is_read ? 'true' : 'false';
+        row.dataset.sender = msg.sender_email;
+        row.dataset.recipient = msg.recipient_email || '';
+        row.dataset.subject = msg.subject;
+        row.dataset.body = msg.body || msg.body_preview || '';
+        row.dataset.status = msg.status;
+        row.dataset.error = msg.error_message || '';
+        row.dataset.created = msg.created_at;
+        row.dataset.ip = msg.ip_address || '';
+        row.dataset.referrer = msg.referrer || '';
+        row.dataset.formTitle = msg.contact_form_title || '';
+
+        row.innerHTML = `
+            <div class="message-row-top">
+                <div class="message-row-email">
+                    ${msg.is_read ? '' : '<span class="message-unread-dot"></span>'}
+                    ${msg.sender_email}
+                </div>
+                <div class="message-row-date">${msg.created_at}</div>
+            </div>
+            <div class="message-row-subject">${msg.subject}</div>
+            <div class="message-row-preview">${msg.body_preview}</div>
+        `;
+
+row.addEventListener('click', async function () {
+    // clear old active row immediately
+    document.querySelectorAll('.message-row.active').forEach(r => {
+        r.classList.remove('active');
+    });
+
+    row.classList.add('active');
+    activeMessageId = row.dataset.messageId;
+
+    renderMessageDetail(row);
+
+    if (row.dataset.isRead === 'false') {
+        await fetch(`/dashboard/messages/${msg.id}/read`, { method: 'POST' });
+
+        row.dataset.isRead = 'true';
+        row.classList.remove('unread');
+
+        const emailBlock = row.querySelector('.message-row-email');
+        const dot = emailBlock.querySelector('.message-unread-dot');
+        if (dot) dot.remove();
+
+        const currentBadge = document.getElementById('unreadMessagesBadge');
+        if (currentBadge) {
+            const currentCount = parseInt(currentBadge.textContent || '0', 10);
+            updateUnreadMessagesBadge(Math.max(0, currentCount - 1));
+        }
+    }
+});
+
+        list.appendChild(row);
+
+        if (String(msg.id) === String(activeMessageId)) {
+            renderMessageDetail(row);
+        }
+    });
+}
+
+    async function pollMessagesLive() {
+        try {
+            const response = await fetch('/dashboard/messages/live', {
+                cache: 'no-store'
+            });
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+            updateUnreadMessagesBadge(data.unread_count);
+            renderMessagesList(data.messages);
+        } catch (error) {
+            console.error('Live message polling failed:', error);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        pollMessagesLive();
+        setInterval(pollMessagesLive, 5000); // every 5 seconds
+    });
+</script>
+{% endblock %}

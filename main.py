@@ -1,3 +1,4 @@
+
 import io
 import logging
 import os
@@ -6,10 +7,12 @@ import shutil
 import smtplib
 import subprocess
 import ssl
+import uuid
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
+from datetime import datetime
+from PIL import Image, ImageOps
 import pytz
 from dateutil import parser
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, Response, \
@@ -72,9 +75,15 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-mail = Mail(app)
 migrate = Migrate(app, db)  # Add this line to initialize Flask-Migrate
 
+MAX_UPLOAD_MB = 10
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
+PUBLIC_MAX_WIDTH = 1600
+THUMB_SIZE = (500, 500)
+PUBLIC_QUALITY = 82
+THUMB_QUALITY = 75
 
 # Run Flask-Migrate commands to initialize and apply migrations
 def run_migrations():
@@ -96,7 +105,6 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(150), nullable=False)
     websites = db.relationship('Website', backref='owner', lazy=True, cascade="all, delete-orphan")
-    liked_pages = db.relationship('PublicPageContent', secondary='user_likes', back_populates='liked_by')
     _is_active = db.Column(db.Boolean, default=True)  # Use a different attribute name
 
     def get_id(self):
@@ -142,12 +150,38 @@ class EmailServerSettings(db.Model):
     def __repr__(self):
         return f"<EmailServerSettings {self.id}>"
 
-user_likes = db.Table('user_likes',
-                      db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
-                      db.Column('page_content_id', db.Integer, db.ForeignKey('public_page_content.id'),
-                                primary_key=True)
-                      )
 
+from datetime import datetime
+
+class ContactMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=True)
+    page_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False)
+
+    sender_email = db.Column(db.String(255), nullable=False)
+    recipient_email = db.Column(db.String(255), nullable=True)
+    subject = db.Column(db.String(255), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+
+    contact_form_title = db.Column(db.String(255), nullable=True)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    referrer = db.Column(db.Text, nullable=True)
+
+    status = db.Column(db.String(50), nullable=False, default='pending')
+    error_message = db.Column(db.Text, nullable=True)
+
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<ContactMessage {self.id} {self.sender_email} {self.subject}>"
 
 class WebsiteTag(db.Model):
     __tablename__ = 'website_tag'
@@ -196,9 +230,9 @@ class PublicPageContent(db.Model):
     sections = db.relationship('PageSection', backref='public_page_content', lazy=True, cascade="all, delete-orphan")
     site_active_status = db.Column(db.Boolean, default=False)
     tags = db.relationship('Tag', secondary='page_tag', backref=db.backref('pages', lazy=True))
-    liked_by = db.relationship('User', secondary='user_likes', back_populates='liked_pages')
     background_color = db.Column(db.String(200), default='#ffffff')  # Default to white
     text_color = db.Column(db.String(20), default='#000000')  # Default to black
+    messages = db.relationship('ContactMessage', backref='page', lazy=True)
 
     def __repr__(self):
         return f"<PublicPageContent {self.id}>"
@@ -232,6 +266,7 @@ class PageSection(db.Model):
     order = db.Column(db.Integer)
     content = db.Column(db.JSON)
     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
+    messages = db.relationship('ContactMessage', backref='section', lazy=True, cascade='all, delete-orphan')
 
     # Define a one-to-one relationship with Column
     column = db.relationship('Column', backref='section', uselist=False)
@@ -267,7 +302,9 @@ class PageSection(db.Model):
 
 class Picture(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    url = db.Column(db.String(1000), nullable=False)
+    url = db.Column(db.String(500), nullable=False)          # optimized public image
+    thumbnail_url = db.Column(db.String(500), nullable=True) # library/grid thumbnail
+    original_url = db.Column(db.String(500), nullable=True)  # optional original
     # Track who owns the image
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     # Folder organization (Optional, can be null for "Main Dropbox")
@@ -327,7 +364,7 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 
 # Set the upload folder path
 UPLOAD_FOLDER = os.path.join(static_folder, 'uploads')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -427,15 +464,6 @@ def update_page_colors(page_id):
 #         return f"Request failed: {e}"
 
 
-@app.route('/user_collections')
-@login_required
-def user_collections():
-    # Fetch the user's liked pages from the database
-    user = current_user  # Assuming you are using Flask-Login for user management
-    print("CURRENT USER LOADING COLLECTIONS: ", user)
-    liked_pages = user.liked_pages  # Fetch liked pages associated with the current user
-    return render_template('user_collections.html', liked_pages=liked_pages)
-
 
 @app.route('/capture', methods=['GET'])
 def capture_webpage():
@@ -464,128 +492,6 @@ def capture_webpage():
         # Quit the WebDriver to free resources
         driver.quit()
 
-
-@app.route('/browse_websites')
-def browse_websites():
-    return render_template('browse.html')
-
-
-#
-# @app.route('/search_websites', methods=['GET'])
-# def search_websites():
-#     query = request.args.get('query', '')
-#     page = request.args.get('page', 1, type=int)
-#
-#     page_query = PublicPageContent.query.filter(PublicPageContent.site_active_status == True)
-#
-#     if query:
-#         keywords = query.split()
-#
-#         # Filter by either tag names, page names, or descriptions
-#         tag_filters = [func.lower(Tag.name).like(f"%{keyword.lower()}%") for keyword in keywords]
-#         name_filters = [func.lower(PublicPageContent.name).like(f"%{keyword.lower()}%") for keyword in keywords]
-#         description_filters = [func.lower(PublicPageContent.description).like(f"%{keyword.lower()}%") for keyword in keywords]
-#         website_description_filters = [func.lower(Website.description).like(f"%{keyword.lower()}%") for keyword in keywords]
-#
-#         page_query = (
-#             page_query
-#             .join(PageTag)
-#             .join(Tag)
-#             .join(Website)
-#             .filter(
-#                 or_(
-#                     *tag_filters,
-#                     *name_filters,
-#                     *description_filters,
-#                     *website_description_filters
-#                 )
-#             )
-#             .group_by(PublicPageContent.id)
-#         )
-#
-#     print("PAGE QUERY: ", page_query)  # Debugging: Print the SQL query
-#     pages = page_query.paginate(page=page, per_page=10)
-#
-#     results = []
-#     for page_content in pages.items:
-#         website_url = url_for('public_page', website_id=page_content.website_id, page_id=page_content.id)
-#         tags = [tag.name for tag in page_content.tags]
-#         results.append({
-#             'id': page_content.id,
-#             'name': page_content.name,
-#             'description': page_content.description,
-#             'tags': tags,
-#             'url': website_url
-#         })
-#
-#     print("RESULTS: ", results)  # Debugging: Print the results
-#
-#     # If no results found, generate random websites
-#     if not results:
-#         return generate_random_websites()  # Directly return the generated random websites
-#
-#     return jsonify({
-#         'pages': results,
-#         'total': pages.total,
-#         'num_pages': pages.pages,
-#         'current_page': pages.page
-#     })
-
-# def generate_random_websites():
-#     websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
-#     if not websites:
-#         return jsonify({'websites': []})  # Return an empty list in the expected format
-#
-#     random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
-#
-#     results = []
-#     for website in random_websites:
-#         website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
-#         results.append({
-#             'id': website.id,
-#             'name': website.name,
-#             'description': website.description,
-#             'tags': [tag.name for tag in website.tags],
-#             'url': website_url
-#         })
-#
-#     return jsonify({
-#         'pages': results,
-#     })
-
-# @app.route('/random_websites', methods=['GET'])
-# def random_websites():
-#     websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
-#     if not websites:
-#         return jsonify({'websites': []})  # Return an empty list in the expected format
-#
-#     random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
-#
-#     results = []
-#     for website in random_websites:
-#         website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
-#         results.append({
-#             'id': website.id,  # Include the page ID in the results
-#             'name': website.name,
-#             'description': website.description,
-#             'tags': [tag.name for tag in website.tags],
-#             'url': website_url
-#         })
-#
-#     return jsonify({'websites': results})  # Return random websites in the expected format
-
-
-# Like page route
-@app.route('/like_page/<int:page_id>', methods=['POST'])
-@login_required  # Ensure the user is logged in before they can like a page
-def like_page(page_id):
-    page = PublicPageContent.query.get_or_404(page_id)
-    if page not in current_user.liked_pages:
-        current_user.liked_pages.append(page)
-        db.session.commit()
-        return jsonify(success=True, message="Page liked"), 200
-    else:
-        return jsonify(success=False, message="Page already liked"), 400
 
 
 def delete_associated_section_images(section_id):
@@ -1038,6 +944,22 @@ def dashboard():
         email_settings = email_settings
     )
 
+
+@app.route('/admin/email_server_settings')
+@login_required
+def email_server_settings():
+    user = current_user
+    csrf_token = generate_csrf()
+
+    email_settings = get_email_settings()
+
+    return render_template(
+        'email_server_settings.html',
+        csrf_token=csrf_token,
+        email_settings = email_settings
+    )
+
+
 def get_email_settings():
     return EmailServerSettings.query.first()
 
@@ -1071,6 +993,127 @@ def save_email_settings():
         'message': 'Email settings saved successfully'
     })
 
+
+@app.route('/dashboard/messages')
+@login_required
+def messages_page():
+    status_filter = request.args.get('status', 'all')
+    read_filter = request.args.get('read', 'all')
+    search = request.args.get('q', '').strip()
+
+    query = ContactMessage.query.order_by(ContactMessage.created_at.desc())
+
+    if status_filter != 'all':
+        query = query.filter(ContactMessage.status == status_filter)
+
+    if read_filter == 'unread':
+        query = query.filter(ContactMessage.is_read == False)
+    elif read_filter == 'read':
+        query = query.filter(ContactMessage.is_read == True)
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            or_(
+                ContactMessage.sender_email.ilike(like),
+                ContactMessage.subject.ilike(like),
+                ContactMessage.body.ilike(like),
+                ContactMessage.recipient_email.ilike(like)
+            )
+        )
+
+    messages = query.all()
+    unread_count = ContactMessage.query.filter_by(is_read=False).count()
+
+    return render_template(
+        'messages.html',
+        messages=messages,
+        unread_count=unread_count,
+        status_filter=status_filter,
+        read_filter=read_filter,
+        search=search
+    )
+
+@app.route('/dashboard/messages/<int:message_id>/read', methods=['POST'])
+@login_required
+def mark_message_read(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+
+    if not msg.is_read:
+        msg.is_read = True
+        msg.read_at = datetime.utcnow()
+        db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+@app.route('/dashboard/messages/<int:message_id>/unread', methods=['POST'])
+@login_required
+def mark_message_unread(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+
+    msg.is_read = False
+    msg.read_at = None
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+@app.route('/dashboard/messages/unread_count')
+@login_required
+def unread_messages_count():
+    count = ContactMessage.query.filter_by(is_read=False).count()
+    return jsonify({'count': count})
+
+@app.route('/dashboard/messages/live')
+@login_required
+def messages_live():
+    unread_count = ContactMessage.query.filter_by(is_read=False).count()
+
+    latest_messages = (
+        ContactMessage.query
+        .order_by(ContactMessage.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    return jsonify({
+        'unread_count': unread_count,
+        'messages': [
+            {
+                'id': msg.id,
+                'sender_email': msg.sender_email,
+                'recipient_email': msg.recipient_email,
+                'subject': msg.subject,
+                'body': msg.body,
+                'body_preview': (msg.body[:120] + '...') if len(msg.body) > 120 else msg.body,
+                'created_at': msg.created_at.strftime('%b %d, %Y %I:%M %p'),
+                'is_read': msg.is_read,
+                'status': msg.status,
+                'error_message': msg.error_message,
+                'ip_address': msg.ip_address,
+                'referrer': msg.referrer,
+                'contact_form_title': msg.contact_form_title,
+            }
+            for msg in latest_messages
+        ]
+    })
+
+
+@app.route('/dashboard/messages/<int:message_id>/delete', methods=['POST'])
+@login_required
+def delete_message(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+    db.session.delete(msg)
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.context_processor
+def inject_unread_message_count():
+    if current_user.is_authenticated:
+        unread_message_count = ContactMessage.query.filter_by(is_read=False).count()
+    else:
+        unread_message_count = 0
+
+    return dict(unread_message_count=unread_message_count)
 
 @app.route('/send_email', methods=['POST'])
 def send_email():
@@ -1108,14 +1151,28 @@ def send_email():
         }), 404
 
     recipient_email = None
+    contact_form_title = None
     if section.content and isinstance(section.content, dict):
         recipient_email = section.content.get('email')
+        contact_form_title = section.content.get('title')
 
     if not recipient_email:
         return jsonify({
             'status': 'error',
             'message': 'No recipient email found for this contact form'
         }), 400
+
+    page_id = getattr(section, 'page_content_id', None)
+    website_id = None
+    if section.public_page_content:
+        website_id = section.public_page_content.website_id
+
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+
+    user_agent = request.headers.get('User-Agent')
+    referrer = request.referrer
 
     formatted_body = f"""
 You have received a new message from your uwebia website contact form.
@@ -1127,6 +1184,23 @@ Message Body:
 {body}
 """
 
+    contact_message = ContactMessage(
+        website_id=website_id,
+        page_id=page_id,
+        section_id=section_id,
+        sender_email=sender_email,
+        recipient_email=recipient_email,
+        subject=subject,
+        body=body,
+        contact_form_title=contact_form_title,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        referrer=referrer,
+        status='pending'
+    )
+    db.session.add(contact_message)
+    db.session.commit()
+
     msg = MIMEMultipart()
     msg['From'] = (
         f"{email_settings.from_name} <{email_settings.from_email}>"
@@ -1135,7 +1209,7 @@ Message Body:
     msg['To'] = recipient_email
     msg['Subject'] = subject
     msg['Reply-To'] = sender_email
-    msg.attach(MIMEText(formatted_body, 'plain'))
+    msg.attach(MIMEText(formatted_body, 'plain', 'utf-8'))
 
     try:
         if email_settings.use_ssl:
@@ -1155,17 +1229,154 @@ Message Body:
 
         server.login(email_settings.smtp_username, email_settings.smtp_password)
 
-        server.sendmail(
-            email_settings.from_email,
-            [recipient_email],
-            msg.as_string()
-        )
+        server.send_message(msg)
 
         server.quit()
+
+        contact_message.status = 'sent'
+        contact_message.sent_at = datetime.utcnow()
+        contact_message.error_message = None
+        db.session.commit()
 
         return jsonify({
             'status': 'success',
             'message': 'Message sent successfully'
+        })
+
+    except smtplib.SMTPAuthenticationError:
+        contact_message.status = 'failed'
+        contact_message.error_message = 'Email login failed. Check your username or app password.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Email login failed. Check your username or app password.'
+        }), 400
+
+    except smtplib.SMTPConnectError:
+        contact_message.status = 'failed'
+        contact_message.error_message = 'Could not connect to the email server. Check host and port.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Could not connect to the email server. Check host and port.'
+        }), 400
+
+    except smtplib.SMTPException as e:
+        contact_message.status = 'failed'
+        contact_message.error_message = f'Email sending failed: {str(e)}'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'error',
+            'message': f'Email sending failed: {str(e)}'
+        }), 400
+
+    except ssl.SSLError:
+        contact_message.status = 'failed'
+        contact_message.error_message = 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'error',
+            'message': 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
+        }), 400
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+
+        contact_message.status = 'failed'
+        contact_message.error_message = f'Unexpected server error: {str(e)}'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Unexpected server error while sending email.'
+        }), 500
+@app.route('/send_test_email', methods=['POST'])
+@login_required
+def send_test_email():
+    smtp_host = request.form.get('smtp_host', '').strip()
+    smtp_port = request.form.get('smtp_port', '').strip()
+    smtp_username = request.form.get('smtp_username', '').strip()
+    smtp_password = request.form.get('smtp_password', '').strip()
+    from_email = request.form.get('from_email', '').strip()
+    from_name = request.form.get('from_name', '').strip()
+    test_recipient = request.form.get('test_email', '').strip()
+
+    use_tls = request.form.get('use_tls') == 'on'
+    use_ssl = request.form.get('use_ssl') == 'on'
+    is_active = request.form.get('is_active') == 'on'
+
+    if not is_active:
+        return jsonify({
+            'status': 'error',
+            'message': 'Email sending is currently disabled.'
+        }), 400
+
+    if not test_recipient:
+        return jsonify({
+            'status': 'error',
+            'message': 'Test email address is required.'
+        }), 400
+
+    if not smtp_host or not smtp_port or not smtp_username or not smtp_password or not from_email:
+        return jsonify({
+            'status': 'error',
+            'message': 'Missing required SMTP settings.'
+        }), 400
+
+    try:
+        smtp_port = int(smtp_port)
+    except ValueError:
+        return jsonify({
+            'status': 'error',
+            'message': 'SMTP port must be a valid number.'
+        }), 400
+
+    if use_tls and use_ssl:
+        return jsonify({
+            'status': 'error',
+            'message': 'Choose either TLS or SSL, not both.'
+        }), 400
+
+    subject = 'Uwebia Test Email'
+    body = """This is a test email from your Uwebia email server configuration.
+
+If you received this, your SMTP settings are working.
+"""
+
+    msg = MIMEMultipart()
+    msg['From'] = f"{from_name} <{from_email}>" if from_name else from_email
+    msg['To'] = test_recipient
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    try:
+        if use_ssl:
+            server = smtplib.SMTP_SSL(
+                smtp_host,
+                smtp_port,
+                timeout=10
+            )
+        else:
+            server = smtplib.SMTP(
+                smtp_host,
+                smtp_port,
+                timeout=10
+            )
+            if use_tls:
+                server.starttls()
+
+        server.login(smtp_username, smtp_password)
+        server.send_message(msg)
+        server.quit()
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Test email sent successfully to {test_recipient}.'
         })
 
     except smtplib.SMTPAuthenticationError:
@@ -1180,49 +1391,37 @@ Message Body:
             'message': 'Could not connect to the email server. Check host and port.'
         }), 400
 
+    except smtplib.SMTPServerDisconnected:
+        return jsonify({
+            'status': 'error',
+            'message': 'The email server disconnected unexpectedly. Check TLS/SSL settings and port.'
+        }), 400
+
+    except smtplib.SMTPRecipientsRefused:
+        return jsonify({
+            'status': 'error',
+            'message': 'The test recipient email address was refused by the server.'
+        }), 400
+
     except smtplib.SMTPException as e:
         return jsonify({
             'status': 'error',
             'message': f'Email sending failed: {str(e)}'
         }), 400
-    except ssl.SSLError as e:
+
+    except ssl.SSLError:
         return jsonify({
             'status': 'error',
             'message': 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
         }), 400
 
-    except Exception:
+    except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({
             'status': 'error',
-            'message': 'Unexpected server error while sending email.'
+            'message': f'Unexpected server error while sending test email: {str(e)}'
         }), 500
-
-@app.route('/send_test_email', methods=['POST'])
-@login_required
-def send_test_email():
-    settings = EmailServerSettings.query.first()
-
-    if not settings or not settings.is_active:
-        return jsonify({
-            'status': 'error',
-            'message': 'No active email settings found'
-        }), 400
-
-    test_recipient = request.form.get('test_email', '').strip()
-
-    if not test_recipient:
-        return jsonify({
-            'status': 'error',
-            'message': 'Test email address is required'
-        }), 400
-
-    # send using settings here...
-    return jsonify({
-        'status': 'success',
-        'message': f'Test email sent to {test_recipient}'
-    })
 
 @app.route('/create_website', methods=['POST'])
 @login_required
@@ -1841,28 +2040,97 @@ def update_section_order():
 @login_required
 def library_upload():
     files = request.files.getlist('picture')
-    folder_id = request.form.get('folder_id')  # Optional folder sorting
+    folder_id = request.form.get('folder_id')
 
     user_folder = os.path.join(uploads_folder, str(current_user.id))
     os.makedirs(user_folder, exist_ok=True)
 
     for file in files:
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(user_folder, filename))
+        if not file or not allowed_file(file.filename):
+            continue
 
-            picture_url = url_for('static', filename=f'uploads/{current_user.id}/{filename}')
+        # size check
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+
+        if file_size > MAX_UPLOAD_BYTES:
+            return jsonify({
+                'status': 'error',
+                'error': f'"{file.filename}" exceeds the {MAX_UPLOAD_MB} MB limit.'
+            }), 400
+
+        try:
+            saved = save_optimized_versions(file, user_folder)
+
+            public_url = url_for(
+                'static',
+                filename=f'uploads/{current_user.id}/{saved["public_filename"]}'
+            )
+            thumb_url = url_for(
+                'static',
+                filename=f'uploads/{current_user.id}/{saved["thumb_filename"]}'
+            )
 
             new_pic = Picture(
-                url=picture_url,
+                url=public_url,
+                thumbnail_url=thumb_url,
                 user_id=current_user.id,
                 folder_id=folder_id
             )
             db.session.add(new_pic)
 
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'error': f'Failed to process "{file.filename}": {str(e)}'
+            }), 400
+
     db.session.commit()
     return jsonify({'status': 'success'})
 
+def ensure_rgb(image: Image.Image) -> Image.Image:
+    if image.mode in ("RGBA", "LA"):
+        background = Image.new("RGB", image.size, (255, 255, 255))
+        background.paste(image, mask=image.getchannel("A"))
+        return background
+    if image.mode != "RGB":
+        return image.convert("RGB")
+    return image
+
+
+def save_optimized_versions(file_storage, output_dir: str) -> dict:
+    os.makedirs(output_dir, exist_ok=True)
+
+    base_name = uuid.uuid4().hex
+
+    with Image.open(file_storage.stream) as img:
+        img = ImageOps.exif_transpose(img)
+        img = ensure_rgb(img)
+
+        # Public image
+        public_img = img.copy()
+        if public_img.width > PUBLIC_MAX_WIDTH:
+            ratio = PUBLIC_MAX_WIDTH / public_img.width
+            new_height = int(public_img.height * ratio)
+            public_img = public_img.resize((PUBLIC_MAX_WIDTH, new_height), Image.LANCZOS)
+
+        public_filename = f"{base_name}.webp"
+        public_path = os.path.join(output_dir, public_filename)
+        public_img.save(public_path, "WEBP", quality=PUBLIC_QUALITY, method=6)
+
+        # Thumbnail
+        thumb_img = img.copy()
+        thumb_img.thumbnail(THUMB_SIZE, Image.LANCZOS)
+
+        thumb_filename = f"{base_name}_thumb.webp"
+        thumb_path = os.path.join(output_dir, thumb_filename)
+        thumb_img.save(thumb_path, "WEBP", quality=THUMB_QUALITY, method=6)
+
+    return {
+        "public_filename": public_filename,
+        "thumb_filename": thumb_filename,
+    }
 
 @app.route('/get_library_root', methods=['GET'])
 @login_required

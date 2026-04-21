@@ -17,6 +17,7 @@
 .nav-home,
 .nav-pages,
 .nav-photo,
+.nav-messages,
 .nav-right {
     display: flex;
     align-items: center;
@@ -25,6 +26,7 @@
 .nav-left { justify-self: start; }
 .nav-home,
 .nav-pages,
+.nav-messages,
 .nav-photo { justify-self: center; }
 .nav-right { justify-self: end; }
 
@@ -44,6 +46,7 @@
 .nav-link-btn,
 .photo-library-btn,
 .profile-icon,
+.nav-messages,
 .pages-btn {
     background: transparent;
     border: none;
@@ -61,6 +64,7 @@
 }
 
 .nav-link-btn:hover,
+.nav-messages:hover,
 .photo-library-btn:hover,
 .profile-icon:hover,
 .base-navbar-home-button:hover,
@@ -131,7 +135,6 @@
     display: none;
     position: absolute;
     right: 0;
-    top: calc(100% + 8px);
     background: rgba(30, 30, 30, 0.96);
     min-width: 140px;
     border-radius: 10px;
@@ -156,4 +159,23 @@
 #profileDropdownContent a:hover {
     background: rgba(255, 255, 255, 0.08);
     color: #5eeef8;
+}
+.profile-menu-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.nav-badge {
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #7ee2cc;
+    color: #1f2328;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }

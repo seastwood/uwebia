@@ -64,6 +64,40 @@
     border-radius: 10px;
     border: 1px solid #f39c12;
     }
+
+    .upload-help {
+    margin-top: 8px;
+    margin-bottom: 14px;
+    color: #cfcfcf;
+    font-size: 0.92rem;
+}
+
+.upload-progress-wrapper {
+    margin-top: 12px;
+    max-width: 420px;
+}
+
+.upload-progress-bar {
+    width: 100%;
+    height: 12px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.upload-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+.upload-progress-text {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: #d7d7d7;
+}
 </style>
 
 
@@ -77,6 +111,15 @@
         <button onclick="createFolder()" class="btn-secondary">New Folder</button>
         <input type="file" id="fileInput" multiple style="display:none" onchange="handleUpload(event)">
     </div>
+    <div class="upload-help">
+    Max file size: 10 MB per image. Best results: under 2–3 MB.
+</div>
+<div class="upload-progress-wrapper" id="uploadProgressWrapper" style="display:none;">
+    <div class="upload-progress-bar">
+        <div class="upload-progress-fill" id="uploadProgressFill"></div>
+    </div>
+    <div class="upload-progress-text" id="uploadProgressText">0%</div>
+</div>
 
     <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
 <div class="folder-grid">
@@ -110,7 +153,7 @@
     <div class="image-grid">
         {% for pic in root_pictures %}
         <div class="image-card" draggable="true" ondragstart="dragStart(event, '{{ pic.id }}')">
-            <img src="{{ pic.url }}" alt="Library Image">
+            <img src="{{ pic.thumbnail_url or pic.url }}" loading="lazy" alt="Library Image">
             <button class="delete-btn" onclick="deleteImage('{{ pic.id }}')">
                 <i class="fas fa-trash"></i>
             </button>
@@ -166,15 +209,68 @@ async function dropToFolder(event, folderId) {
 
 async function handleUpload(event) {
     const files = event.target.files;
-    if (files.length === 0) return;
+    if (!files || files.length === 0) return;
+
+    const MAX_FILE_SIZE_MB = 10;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+    for (const file of files) {
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            alert(`"${file.name}" is too large. Max allowed size is ${MAX_FILE_SIZE_MB} MB per image.`);
+            event.target.value = '';
+            return;
+        }
+    }
+
     const formData = new FormData();
-    for (let i = 0; i < files.length; i++) { formData.append('picture', files[i]); }
-    
+    for (let i = 0; i < files.length; i++) {
+        formData.append('picture', files[i]);
+    }
+
     const folderId = "{{ current_folder.id if current_folder else '' }}";
     if (folderId) formData.append('folder_id', folderId);
 
-    const response = await fetch('/library/upload', { method: 'POST', body: formData });
-    if (response.ok) location.reload();
+    const progressWrapper = document.getElementById('uploadProgressWrapper');
+    const progressFill = document.getElementById('uploadProgressFill');
+    const progressText = document.getElementById('uploadProgressText');
+
+    progressWrapper.style.display = 'block';
+    progressFill.style.width = '0%';
+    progressText.textContent = '0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/library/upload', true);
+
+    xhr.upload.addEventListener('progress', function (e) {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = `${percent}%`;
+            progressText.textContent = `${percent}%`;
+        }
+    });
+
+    xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            progressFill.style.width = '100%';
+            progressText.textContent = 'Upload complete';
+            location.reload();
+        } else {
+            let message = 'Upload failed.';
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.error) message = data.error;
+            } catch (_) {}
+            alert(message);
+            progressWrapper.style.display = 'none';
+        }
+    };
+
+    xhr.onerror = function () {
+        alert('Upload failed.');
+        progressWrapper.style.display = 'none';
+    };
+
+    xhr.send(formData);
 }
 
 async function createFolder() {

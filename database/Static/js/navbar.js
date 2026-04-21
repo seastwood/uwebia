@@ -55,3 +55,36 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
+
+
+    function updateUnreadMessagesBadge(count) {
+        const badge = document.getElementById('unreadMessagesBadge');
+        if (!badge) return;
+
+        if (count > 0) {
+            badge.textContent = count;
+            badge.style.display = 'inline-flex';
+        } else {
+            badge.textContent = '0';
+            badge.style.display = 'none';
+        }
+    }
+
+    async function fetchUnreadMessagesCount() {
+        try {
+            const response = await fetch('/dashboard/messages/unread_count');
+            if (!response.ok) return;
+
+            const data = await response.json();
+            updateUnreadMessagesBadge(data.count);
+        } catch (error) {
+            console.error('Failed to fetch unread message count:', error);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        fetchUnreadMessagesCount();
+
+        // refresh every 10 seconds
+        setInterval(fetchUnreadMessagesCount, 10000);
+    });

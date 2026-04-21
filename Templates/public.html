@@ -82,7 +82,7 @@
         /* display: flex; */
         /* flex-direction: column; */
         align-items: center;
-        /* margin-bottom: 50px; */
+        margin-bottom: 50px;
         /* text-align: center; */
         height: auto;
         overflow: hidden;
@@ -231,7 +231,7 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
-   
+
         /* Ensure images cover the entire container */
     }
 
@@ -334,6 +334,8 @@
         /* border-color: #797979; */
         /* border-style: solid; */
         background-color: #00000045;
+        margin-left: 20px;
+        margin-right: 20px;
     }
 
     /* Contact Form Title */
@@ -584,40 +586,49 @@
         transform: translateY(-8px) rotate(-45deg);
     }
 
- .ql-align-center {
-    text-align: center;
-}
-.ql-align-right {
-    text-align: right;
-}
-.ql-align-justify {
-    text-align: justify;
-}
+    .ql-align-center {
+        text-align: center;
+    }
 
-.ql-font-arial {
-    font-family: Arial, sans-serif;
-}
-.ql-font-georgia {
-    font-family: Georgia, serif;
-}
-.ql-font-times {
-    font-family: "Times New Roman", serif;
-}
-.ql-font-verdana {
-    font-family: Verdana, sans-serif;
-}
-.ql-font-trebuchet {
-    font-family: "Trebuchet MS", sans-serif;
-}
-.ql-font-garamond {
-    font-family: Garamond, serif;
-}
-.ql-font-courier {
-    font-family: "Courier New", monospace;
-}
-.ql-font-monospace {
-    font-family: monospace;
-}
+    .ql-align-right {
+        text-align: right;
+    }
+
+    .ql-align-justify {
+        text-align: justify;
+    }
+
+    .ql-font-arial {
+        font-family: Arial, sans-serif;
+    }
+
+    .ql-font-georgia {
+        font-family: Georgia, serif;
+    }
+
+    .ql-font-times {
+        font-family: "Times New Roman", serif;
+    }
+
+    .ql-font-verdana {
+        font-family: Verdana, sans-serif;
+    }
+
+    .ql-font-trebuchet {
+        font-family: "Trebuchet MS", sans-serif;
+    }
+
+    .ql-font-garamond {
+        font-family: Garamond, serif;
+    }
+
+    .ql-font-courier {
+        font-family: "Courier New", monospace;
+    }
+
+    .ql-font-monospace {
+        font-family: monospace;
+    }
 </style>
 
 <body>
@@ -683,7 +694,8 @@
                                     {% if section.id in content.pictures_by_section %}
                                     {% for imageUrl in content.pictures_by_section[section.id] %}
                                     <div class="thumbnail">
-                                        <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
+                                        <img src="{{ imageUrl }}" loading="lazy"
+                                            style="max-width:100px;max-height:75px;"
                                             onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
                                     </div>
                                     {% endfor %}
@@ -697,7 +709,7 @@
                             {% if section.id in content.pictures_by_section %}
                             <!-- {% for imageUrl in content.pictures_by_section[section.id] %} -->
                             <!-- <div class="mySlides fade" data-section-id="{{ section.id }}"> -->
-                            <img src="{{ imageUrl }}">
+                            <img src="{{ imageUrl }}" loading="lazy">
                             <!-- </div> -->
                             <!-- {% endfor %} -->
                             {% else %}
@@ -722,29 +734,29 @@
                             {{ section.content['text'] | safe }}
                         </div>
                         {% elif section.section_type == 'text' %}
-{% set bg = section.content.get('background_color', '#000000') %}
-{% set opacity = section.content.get('background_opacity', '0')|float %}
-{% set padding = section.content.get('padding', '20') %}
-{% set radius = section.content.get('border_radius', '10') %}
-{% set shadow = section.content.get('box_shadow', 'medium') %}
-{% set shadow_css = {
-    'none': 'none',
-    'light': '0 2px 8px rgba(0,0,0,0.18)',
-    'medium': '0 6px 18px rgba(0,0,0,0.28)',
-    'heavy': '0 10px 28px rgba(0,0,0,0.4)'
-}[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px rgba(0,0,0,0.28)' %}
-{% set bg_hex = bg.lstrip('#') %}
-{% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
-{% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
-{% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                        {% set bg = section.content.get('background_color', '#000000') %}
+                        {% set opacity = section.content.get('background_opacity', '0')|float %}
+                        {% set padding = section.content.get('padding', '20') %}
+                        {% set radius = section.content.get('border_radius', '10') %}
+                        {% set shadow = section.content.get('box_shadow', 'medium') %}
+                        {% set shadow_css = {
+                        'none': 'none',
+                        'light': '0 2px 8px rgba(0,0,0,0.18)',
+                        'medium': '0 6px 18px rgba(0,0,0,0.28)',
+                        'heavy': '0 10px 28px rgba(0,0,0,0.4)'
+                        }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px rgba(0,0,0,0.28)'
+                        %}
+                        {% set bg_hex = bg.lstrip('#') %}
+                        {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                        {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                        {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
 
-<div class="text-area"
-     style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+                        <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
             padding: {{ padding }}px;
             border-radius: {{ radius }}px;
             box-shadow: {{ shadow_css }};">
-    {{ section.content['html'] | safe }}
-</div>
+                            {{ section.content['html'] | safe }}
+                        </div>
 
                         {% elif section.section_type == 'button' %}
                         {% if section.content['enabled'] %}
@@ -962,46 +974,46 @@ document.body.style.color = text_color;
             });
         }
 
-$('.contact-form').on('submit', function (event) {
-    event.preventDefault();
+        $('.contact-form').on('submit', function (event) {
+            event.preventDefault();
 
-    const $form = $(this);
-    const sectionId = $form.find('input[name="section_id"]').val();
-    const $successMessage = $('#successMessage-' + sectionId);
+            const $form = $(this);
+            const sectionId = $form.find('input[name="section_id"]').val();
+            const $successMessage = $('#successMessage-' + sectionId);
 
-    const formData = {
-        section_id: sectionId,
-        senders_email: $form.find('input[name="senders_email"]').val(),
-        message_subject: $form.find('input[name="message_subject"]').val(),
-        message_body: $form.find('textarea[name="message_body"]').val()
-    };
+            const formData = {
+                section_id: sectionId,
+                senders_email: $form.find('input[name="senders_email"]').val(),
+                message_subject: $form.find('input[name="message_subject"]').val(),
+                message_body: $form.find('textarea[name="message_body"]').val()
+            };
 
-    $.ajax({
-        type: 'POST',
-        url: '/send_email',
-        data: formData,
-        success: function (response) {
-            console.log('Send email response:', response);
+            $.ajax({
+                type: 'POST',
+                url: '/send_email',
+                data: formData,
+                success: function (response) {
+                    console.log('Send email response:', response);
 
-            if (response.status === 'success') {
-                $form.hide();
-                $successMessage.text(response.message || 'Message sent!').show();
-            } else {
-                alert(response.message || 'Something went wrong.');
-            }
-        },
-        error: function (xhr) {
-            console.error('Error sending email:', xhr);
+                    if (response.status === 'success') {
+                        $form.hide();
+                        $successMessage.text(response.message || 'Message sent!').show();
+                    } else {
+                        alert(response.message || 'Something went wrong.');
+                    }
+                },
+                error: function (xhr) {
+                    console.error('Error sending email:', xhr);
 
-            let message = 'Something went wrong. Please try again.';
-            if (xhr.responseJSON && xhr.responseJSON.message) {
-                message = xhr.responseJSON.message;
-            }
+                    let message = 'Something went wrong. Please try again.';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        message = xhr.responseJSON.message;
+                    }
 
-            alert(message);
-        }
-    });
-});
+                    alert(message);
+                }
+            });
+        });
 
 
         $(document).ready(function () {
