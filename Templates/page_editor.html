@@ -37,7 +37,9 @@
 </head>
 
 
-
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
 <style>
     html,
     body {
@@ -1462,8 +1464,8 @@
         font-weight: 600;
         letter-spacing: 0.02em;
         color: #eaeaea;
-    background: linear-gradient(135deg, #5c5f6b, #6c7280);
-        width:fit-content
+        background: linear-gradient(135deg, #5c5f6b, #6c7280);
+        width: fit-content
     }
 
     .gradient-controls {
@@ -1474,7 +1476,7 @@
     }
 
     .gradient-controls select {
-    background: linear-gradient(135deg, #5c5f6b, #6c7280);
+        background: linear-gradient(135deg, #5c5f6b, #6c7280);
         color: #f3f3f3;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 10px;
@@ -1519,7 +1521,7 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-    background: linear-gradient(135deg, #5c5f6b, #6c7280);
+        background: linear-gradient(135deg, #5c5f6b, #6c7280);
         border: 1px solid rgba(255, 255, 255, 0.08);
         padding: 6px 8px;
         border-radius: 12px;
@@ -1999,9 +2001,8 @@
 </head>
 
 <body>
-    {% extends 'base.html' %}
-    {% include 'components/navbar.html' %}
-    {% block content %}
+
+
     <!-- Include CodeMirror and Linting Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>

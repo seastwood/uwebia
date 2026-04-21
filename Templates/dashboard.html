@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 
+    {% extends 'base.html' %}
+    {% block content %}
+    {% include 'components/navbar.html' %}
 
     <style>
         body {
@@ -406,9 +410,6 @@
 </head>
 
 <body>
-    {% extends 'base.html' %}
-    {% include 'components/navbar.html' %}
-    {% block content %}
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <!-- <div class="navbar">
