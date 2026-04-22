@@ -26,6 +26,7 @@ from icalendar import Calendar, Event
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from sqlalchemy import func, or_
+from sqlalchemy.orm import validates
 from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -106,6 +107,14 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(150), nullable=False)
     websites = db.relationship('Website', backref='owner', lazy=True, cascade="all, delete-orphan")
     _is_active = db.Column(db.Boolean, default=True)  # Use a different attribute name
+
+    @validates('username')
+    def normalize_username(self, key, value):
+        return value.strip().lower()
+
+    @validates('email')
+    def normalize_email(self, key, value):
+        return value.strip().lower()
 
     def get_id(self):
         return str(self.id)
@@ -817,11 +826,11 @@ def register():
         if existing_user:
             flash('Email address already in use', 'error')
             return redirect(url_for('register'))
-
-        # Create the one and only user
-        new_user = User(username=username, email=email)
+        new_user = User(
+            username=username,
+            email=email
+        )
         new_user.set_password(password)
-
         db.session.add(new_user)
         db.session.commit()
 
@@ -829,7 +838,6 @@ def register():
         return redirect(url_for('login'))
 
     return render_template('register.html')
-
 
 # @app.route('/login', methods=['GET', 'POST'])
 # def login():
@@ -862,8 +870,9 @@ def login():
         return redirect(url_for('register'))
 
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '').strip().lower()
+        password = request.form.get('password', '')
+
         user = User.query.filter_by(username=username).first()
 
         print("USER OBJECT RETRIEVED FROM DATABASE: ", user)

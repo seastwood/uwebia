@@ -3,7 +3,7 @@
     grid-template-columns: 1fr auto auto auto 1fr;
     align-items: center;
     padding: 10px 24px;
-    background: rgba(25, 25, 25, 0.9);
+    /* background: rgba(25, 25, 25, 0.9); */
     backdrop-filter: blur(8px);
     color: white;
     height: 52px;
@@ -11,6 +11,7 @@
     position: sticky;
     top: 0;
     z-index: 1000;
+    background: linear-gradient(to bottom right, #362a22, #222222);
 }
 
 .nav-left,
