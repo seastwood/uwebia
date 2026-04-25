@@ -205,7 +205,9 @@
             height: fit-content;
             /* width: 50%; */
             max-height: 85vh;
-            overflow-y: scroll;
+            overflow-y: auto;
+            overflow-x: visible;
+            overflow: visible;
         }
 
         .modal-content::-webkit-scrollbar {
@@ -268,6 +270,8 @@
             padding-top: 10px;
             margin-top: 10px;
             text-align: right;
+            position: relative;
+            overflow: visible;
         }
 
         /* Modal Button */
@@ -404,6 +408,64 @@
 
         #plus-icon {
             font-size: 3em;
+        }
+
+        .more-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-toggle {
+            background-color: #444;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .dropdown-toggle:hover {
+            background-color: #555;
+        }
+
+
+        .dropdown-menu.show {
+            display: block;
+        }
+
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            right: 0;
+            bottom: 110%;
+            top: auto;
+            background-color: #2c2c2c;
+            min-width: 220px;
+            border-radius: 8px;
+            border: 1px solid #555;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+            z-index: 9999;
+            overflow: hidden;
+        }
+
+        .dropdown-menu button {
+            width: 100%;
+            background: none;
+            border: none;
+            color: white;
+            text-align: left;
+            padding: 12px 16px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .dropdown-menu button:hover {
+            background-color: #3d3d3d;
+        }
+
+        .more-dropdown:hover .dropdown-menu {
+            display: block;
         }
     </style>
 
@@ -574,12 +636,64 @@
                                 onclick="closeModal('editPageModal_{{ website.id }}_{{ page.id }}')">Close</button>
                             <button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">Delete
                                 Page</button>
+
                             <button type="button" onclick="savePageChanges('{{ website.id }}', '{{ page.id }}')">Save
                                 Changes</button>
+                            <div class="more-dropdown">
+                                <button type="button" class="dropdown-toggle" onclick="toggleMoreMenu('{{ page.id }}')">
+                                    More <i class="fas fa-chevron-down"></i>
+                                </button>
+
+                                <div id="moreMenu_{{ page.id }}" class="dropdown-menu">
+                                    <button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
+                                        Duplicate Page
+                                    </button>
+
+                                    <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
+                                        Replace Page
+                                    </button>
+
+                                    <button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
+                                        Delete Page
+                                    </button>
+                                </div>
+                            </div>
+
                         </div>
 
                     </form>
                 </div>
+                <div id="replacePageModal_{{ page.id }}" class="modal modal-content">
+    <span class="close" onclick="closeModal('replacePageModal_{{ page.id }}')">&times;</span>
+
+    <h5>Replace Page</h5>
+
+    <div class="modal-body">
+        <p>Select page to copy from</p>
+
+        <select id="replacePageSelect_{{ page.id }}" class="form-control">
+            <option value="">Select page...</option>
+
+            {% for replacement_page in pages %}
+                {% if replacement_page.id != page.id %}
+                    <option value="{{ replacement_page.id }}">
+                        {{ replacement_page.name }}
+                    </option>
+                {% endif %}
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="modal-footer">
+        <button type="button" onclick="closeModal('replacePageModal_{{ page.id }}')">
+            Cancel
+        </button>
+
+        <button type="button" onclick="replacePage('{{ page.id }}')">
+            Replace Page
+        </button>
+    </div>
+</div>
                 {% endfor %}
             </div>
         </li>
@@ -601,6 +715,7 @@
                     <input type="hidden" id="editWebsiteId_{{ website.id }}" name="website_id" value="{{ website.id }}">
                     <!-- Hidden input for website ID -->
                 </div>
+                <p>Replace this page with another page</p>
                 <div class="modal-footer">
                     <button type="button" onclick="closeModal('editWebsiteModal_{{ website.id }}')">Close</button>
                     <button type="button" onclick="deleteWebsite('{{ website.id }}')">Delete Website</button>
@@ -611,10 +726,99 @@
         </div>
 
 
+
         {% endfor %}
 
+        <script>
+            function duplicatePage(websiteId, pageId) {
+                fetch(`/duplicate_page/${websiteId}/${pageId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrfToken
+                    }
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            closeModal(`editPageModal_${websiteId}_${pageId}`);
+                            window.location.reload();
+                        } else {
+                            console.error('Failed to duplicate page');
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
 
+        </script>
 
+        <script>
+            function replacePage(targetPageId) {
+                const select = document.getElementById(`replacePageSelect_${targetPageId}`);
+
+                if (!select) {
+                    alert(`Could not find dropdown for page ${targetPageId}`);
+                    return;
+                }
+
+                const sourcePageId = select.value;
+
+                if (!sourcePageId) {
+                    alert("Please select a page to copy from.");
+                    return;
+                }
+
+                if (!confirm("This will overwrite this page with the selected page's content. Continue?")) {
+                    return;
+                }
+
+                fetch(`/replace_page/${targetPageId}/${sourcePageId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrfToken
+                    }
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            alert(data.error || "Failed to replace page.");
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+        </script>
+        <script>
+            function toggleMoreMenu(pageId) {
+                const menu = document.getElementById(`moreMenu_${pageId}`);
+
+                document.querySelectorAll('.dropdown-menu.show').forEach(openMenu => {
+                    if (openMenu !== menu) {
+                        openMenu.classList.remove('show');
+                    }
+                });
+
+                menu.classList.toggle('show');
+            }
+
+            function openReplacePageModal(pageId) {
+                const menu = document.getElementById(`moreMenu_${pageId}`);
+                if (menu) {
+                    menu.classList.remove('show');
+                }
+
+                openModal(`replacePageModal_${pageId}`);
+            }
+
+            document.addEventListener('click', function (event) {
+                if (!event.target.closest('.more-dropdown')) {
+                    document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
+                        menu.classList.remove('show');
+                    });
+                }
+            });
+        </script>
         <script>
 
             // Function to delete a page
@@ -987,7 +1191,7 @@
         {% endblock %}
 
         <script>
-            
+
         </script>
 
 </body>

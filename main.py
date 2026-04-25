@@ -8,6 +8,7 @@ import smtplib
 import subprocess
 import ssl
 import uuid
+import copy
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1560,6 +1561,218 @@ def edit_page(website_id, page_id):
     db.session.commit()
     return jsonify({'message': 'Page updated successfully'})
 
+@app.route('/duplicate_page/<int:website_id>/<int:page_id>', methods=['POST'])
+@login_required
+def duplicate_page(website_id, page_id):
+    original_page = PublicPageContent.query.filter_by(
+        id=page_id,
+        website_id=website_id
+    ).first_or_404()
+
+    # Create copied page
+    new_page = PublicPageContent(
+        website_id=original_page.website_id,
+        name=f"{original_page.name} Copy",
+        description=original_page.description,
+        site_active_status=False,
+        background_color=original_page.background_color,
+        text_color=original_page.text_color
+    )
+    db.session.add(new_page)
+    db.session.flush()  # get new_page.id
+
+    # Copy tags
+    for tag in original_page.tags:
+        new_page.tags.append(tag)
+
+    # -----------------------------
+    # Copy sections first
+    # -----------------------------
+    section_map = {}
+
+    original_sections = PageSection.query.filter_by(
+        page_content_id=original_page.id
+    ).all()
+
+
+    for old_section in original_sections:
+        new_section = PageSection(
+            section_type=old_section.section_type,
+            order=old_section.order,
+            content=copy.deepcopy(old_section.content),
+            page_content_id=new_page.id
+        )
+        db.session.add(new_section)
+        db.session.flush()
+
+        section_map[old_section.id] = new_section.id
+
+        # Copy section images
+        original_images = SectionImage.query.filter_by(section_id=old_section.id).all()
+        for old_img in original_images:
+            new_img = SectionImage(
+                section_id=new_section.id,
+                picture_id=old_img.picture_id,
+                order=old_img.order
+            )
+            db.session.add(new_img)
+
+        # Copy calendar events
+        original_events = CalendarEvent.query.filter_by(section_id=old_section.id).all()
+        for old_event in original_events:
+            new_event = CalendarEvent(
+                title=old_event.title,
+                description=old_event.description,
+                start=old_event.start,
+                end=old_event.end,
+                background_color=old_event.background_color,
+                section_id=new_section.id
+            )
+            db.session.add(new_event)
+
+    # -----------------------------
+    # Copy rows and columns
+    # -----------------------------
+    original_rows = Row.query.filter_by(page_content_id=original_page.id).all()
+
+    for old_row in original_rows:
+        new_row = Row(
+            page_content_id=new_page.id,
+            row_number=old_row.row_number
+        )
+        db.session.add(new_row)
+        db.session.flush()
+
+        original_columns = Column.query.filter_by(row_id=old_row.id).all()
+        for old_column in original_columns:
+            new_column = Column(
+                row_id=new_row.id,
+                column_number=old_column.column_number,
+                width=old_column.width,
+                section_id=section_map.get(old_column.section_id) if old_column.section_id else None
+            )
+            db.session.add(new_column)
+
+    db.session.commit()
+    return '', 200
+
+
+@app.route('/replace_page/<int:target_page_id>/<int:source_page_id>', methods=['POST'])
+@login_required
+def replace_page(target_page_id, source_page_id):
+    target_page = PublicPageContent.query.get_or_404(target_page_id)
+    source_page = PublicPageContent.query.get_or_404(source_page_id)
+
+    target_website = Website.query.get_or_404(target_page.website_id)
+    source_website = Website.query.get_or_404(source_page.website_id)
+
+    if target_website.user_id != current_user.id or source_website.user_id != current_user.id:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    # Optional: prevent replacing a page with itself
+    if target_page.id == source_page.id:
+        return jsonify({"error": "Cannot replace a page with itself."}), 400
+
+    # Update page-level fields
+    target_page.name = source_page.name
+    target_page.description = source_page.description
+    target_page.background_color = source_page.background_color
+    target_page.text_color = source_page.text_color
+    target_page.site_active_status = source_page.site_active_status
+
+    # Replace tags
+    target_page.tags.clear()
+    for tag in source_page.tags:
+        target_page.tags.append(tag)
+
+    # Delete target page’s existing layout/content
+    Row.query.filter_by(page_content_id=target_page.id).delete()
+
+    old_target_sections = PageSection.query.filter_by(page_content_id=target_page.id).all()
+    for section in old_target_sections:
+        SectionImage.query.filter_by(section_id=section.id).delete()
+        CalendarEvent.query.filter_by(section_id=section.id).delete()
+        db.session.delete(section)
+
+    db.session.flush()
+
+    # Copy source sections
+    section_map = {}
+
+    source_sections = PageSection.query.filter_by(page_content_id=source_page.id).all()
+
+    for old_section in source_sections:
+        new_section = PageSection(
+            section_type=old_section.section_type,
+            order=old_section.order,
+            content=copy.deepcopy(old_section.content),
+            page_content_id=target_page.id
+        )
+        db.session.add(new_section)
+        db.session.flush()
+
+        section_map[old_section.id] = new_section.id
+
+        # Copy section images
+        source_images = SectionImage.query.filter_by(section_id=old_section.id).all()
+        for old_img in source_images:
+            db.session.add(SectionImage(
+                section_id=new_section.id,
+                picture_id=old_img.picture_id,
+                order=old_img.order
+            ))
+
+        # Copy calendar events
+        source_events = CalendarEvent.query.filter_by(section_id=old_section.id).all()
+        for old_event in source_events:
+            db.session.add(CalendarEvent(
+                title=old_event.title,
+                description=old_event.description,
+                start=old_event.start,
+                end=old_event.end,
+                background_color=old_event.background_color,
+                section_id=new_section.id
+            ))
+
+    # Copy source rows and columns
+    source_rows = Row.query.filter_by(page_content_id=source_page.id).all()
+
+    for old_row in source_rows:
+        new_row = Row(
+            page_content_id=target_page.id,
+            row_number=old_row.row_number
+        )
+        db.session.add(new_row)
+        db.session.flush()
+
+        source_columns = Column.query.filter_by(row_id=old_row.id).all()
+
+        for old_column in source_columns:
+            db.session.add(Column(
+                row_id=new_row.id,
+                column_number=old_column.column_number,
+                width=old_column.width,
+                section_id=section_map.get(old_column.section_id) if old_column.section_id else None
+            ))
+
+    db.session.commit()
+
+    return jsonify({"success": True})
+
+def get_copy_name(website_id, original_name):
+    base_name = f"{original_name} Copy"
+    existing_names = {
+        p.name for p in PublicPageContent.query.filter_by(website_id=website_id).all()
+    }
+
+    if base_name not in existing_names:
+        return base_name
+
+    i = 2
+    while f"{base_name} {i}" in existing_names:
+        i += 1
+
+    return f"{base_name} {i}"
 
 @app.route('/remove_tag/page/<int:website_id>/<string:tag_name>', methods=['POST'])
 @login_required
