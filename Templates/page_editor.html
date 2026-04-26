@@ -703,14 +703,14 @@
         border: none !important;
     }
 
-    .ql-editor {
+    /* .ql-editor {
         background: transparent !important;
         color: inherit;
         padding: 0px !important;
-    }
+    } */
 
     .ql-editor {
-        color: white;
+        color: var(--website-text-color, #ffffff);
     }
 
     .editor-wrapper {
@@ -1326,11 +1326,6 @@
         /* Darker button color on hover */
     }
 
-    /* Dark theme for Quill editor */
-    .ql-editor {
-        /* background-color: #2b2b2b; */
-        color: #fff;
-    }
 
     /* Make Quill editor icons white */
     .ql-toolbar .ql-picker-options svg {
@@ -1997,6 +1992,14 @@
         font-size: 12px;
         color: #aeb5c1;
         font-weight: 600;
+    }
+
+    .ql-editor p.preserved-blank-line {
+        min-height: 1.6em;
+    }
+
+    .ql-editor p {
+        min-height: 1.6em;
     }
 </style>
 </head>
@@ -3132,7 +3135,10 @@
                         <button type="button" class="ql-clean"></button>
 <div class="toolbar-group">
     <span class="toolbar-label">Text</span>
-    <input type="color" class="ql-text-color-picker" value="#ffffff" title="Solid Text Color">
+<input type="color"
+    class="ql-text-color-picker"
+    value="{{ website.text_color or '#ffffff' }}"
+    title="Solid Text Color">
     <button type="button" class="ql-clear-text-color-btn">Solid</button>
 </div>
 
@@ -3334,16 +3340,18 @@
                                     toolbar: toolbarEl
                                 }
                             });
+                            const defaultTextColor = "{{ website.text_color or '#ffffff' }}";
+                            quill.format('color', defaultTextColor);
                             quill.root.style.whiteSpace = 'pre-wrap';
 
                             if (section.content['delta']) {
-    quill.setContents(section.content['delta']);
-} else {
-    const savedHtml = section.content['html'] || section.content['text'] || '';
-    quill.clipboard.dangerouslyPasteHTML(savedHtml);
-}
+                                quill.setContents(section.content['delta']);
+                            } else {
+                                const savedHtml = section.content['html'] || section.content['text'] || '';
+                                quill.clipboard.dangerouslyPasteHTML(savedHtml);
+                            }
 
-syncEditor();
+                            syncEditor();
 
                             hiddenTextarea.value = quill.root.innerHTML;
 
@@ -3375,7 +3383,27 @@ syncEditor();
                                 return range.length === 0 ? { index: range.index, length: 1 } : range;
                             }
 
+                            function preserveBlankLines(quill) {
+                                const paragraphs = quill.root.querySelectorAll('p');
+
+                                paragraphs.forEach(p => {
+                                    const html = p.innerHTML.trim();
+
+                                    if (html === '<br>' || html === '<br/>') {
+                                        p.innerHTML = '&nbsp;';
+                                        p.classList.add('preserved-blank-line');
+                                    }
+
+                                    if (p.textContent === ' ') {
+                                        p.innerHTML = '&nbsp;';
+                                        p.classList.add('preserved-blank-line');
+                                    }
+                                });
+                            }
+
                             function syncEditor() {
+                                preserveBlankLines(quill);
+
                                 hiddenTextarea.value = quill.root.innerHTML;
 
                                 if (hiddenDeltaTextarea) {
@@ -4838,6 +4866,8 @@ syncEditor();
         }
         const initialBg = "{{ page_content.background_color or '#2d2d2d' }}";
         document.documentElement.style.setProperty('--page-editor-background', initialBg);
+        const initialTextColor = "{{ website.text_color or '#ffffff' }}";
+        document.documentElement.style.setProperty('--website-text-color', initialTextColor);
 
     </script>
 
