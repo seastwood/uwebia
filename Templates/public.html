@@ -26,8 +26,6 @@
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
-
-
 </head>
 <title>Public Page</title>
 <style>
@@ -163,7 +161,7 @@
         padding-right: 20px;
         margin-left: 20px;
         margin-right: 20px;
-        margin-top: 40px
+        margin-top: 20px
     }
 
     .single-image-container {
@@ -643,13 +641,17 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 </style>
 
-<body>
+
+
+<body style="background: {{ website.background_color }}; color: {{ website.text_color }};">
+    {% include 'components/public_navbar.html' %}
     {% if content.is_preview %}
     <div class="preview-banner">Preview</div>
     {% endif %}
     {% set navbar_rendered = False %}
     {% for section in content['sections'] %}
-    {% if section.section_type == 'navbar' and not navbar_rendered %}
+
+    <!-- {% if section.section_type == 'navbar' and not navbar_rendered %}
     <div class="navbar">
         <div class="navbar-toggle" onclick="toggleMenu()">
             <div class="bar"></div>
@@ -662,23 +664,28 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             {% endfor %}
         </div>
     </div>
-    {% set navbar_rendered = True %}
+    {% set navbar_rendered = True %} -->
+
     {% endif %}
     {% endfor %}
 
+
+
     <!-- Public Page Content -->
+
     <div class="content-area">
 
-        {% for section in content['sections'] %}
+        <!-- {% for section in content['sections'] %}
+
         {% if section.section_type == 'header' %}
         <div class="banner-background">
         </div>
-        <!-- Banner -->
         <div class="banner">
             <span class="banner-text">{{ section.content['text'] }}</span>
         </div>
         {% endif %}
-        {% endfor %}
+        
+        {% endfor %} -->
 
         <div class="main-content">
             {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
@@ -880,7 +887,7 @@ document.body.style.color = text_color;
 
 
 
-<body style="background: {{ content.background_color }}; color: {{ content.text_color }};">
+<body style="background: {{ website.background_color }}; color: {{ website.text_color }};">
     <script>
         function toggleMenu() {
             var navbarMenu = document.getElementById("navbarMenu");

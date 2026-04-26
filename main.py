@@ -9,6 +9,7 @@ import subprocess
 import ssl
 import uuid
 import copy
+import re
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -219,6 +220,12 @@ class Website(db.Model):
                                            cascade="all, delete-orphan")
     tags = db.relationship('Tag', secondary='website_tag', backref=db.backref('websites', lazy=True))
 
+    background_color = db.Column(db.String(500), default='#ffffff')
+    text_color = db.Column(db.String(20), default='#000000')
+
+    public_navbar_items = db.Column(db.JSON, default=list)
+    public_navbar_style = db.Column(db.JSON, default=dict)
+
     def __repr__(self):
         return f"<Website {self.id} - {self.name}>"
 
@@ -228,6 +235,11 @@ class PublicPageContent(db.Model):
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500), nullable=True)  # Add description field
+    sort_order = db.Column(db.Integer, default=0)
+    slug = db.Column(db.String(120), nullable=False)
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'slug', name='unique_page_slug_per_website'),
+    )
     # all_pictures = db.relationship('Picture', backref='page_content', lazy=True)
     # Use a 'secondary' join to find pictures through sections and then through section_images
     all_pictures = db.relationship(
@@ -239,9 +251,11 @@ class PublicPageContent(db.Model):
     )
     sections = db.relationship('PageSection', backref='public_page_content', lazy=True, cascade="all, delete-orphan")
     site_active_status = db.Column(db.Boolean, default=False)
+
     tags = db.relationship('Tag', secondary='page_tag', backref=db.backref('pages', lazy=True))
     background_color = db.Column(db.String(200), default='#ffffff')  # Default to white
     text_color = db.Column(db.String(20), default='#000000')  # Default to black
+
     messages = db.relationship('ContactMessage', backref='page', lazy=True)
 
     def __repr__(self):
@@ -374,7 +388,7 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 
 # Set the upload folder path
 UPLOAD_FOLDER = os.path.join(static_folder, 'uploads')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -387,6 +401,35 @@ ollama_url = 'http://192.168.1.214:11434/api/generate'
 
 from cryptography.fernet import Fernet
 print(Fernet.generate_key().decode())
+
+def slugify(value):
+    value = value.lower().strip()
+    value = re.sub(r'[^a-z0-9\s-]', '', value)
+    value = re.sub(r'[\s-]+', '-', value)
+    return value.strip('-') or 'page'
+
+
+def get_unique_slug(website_id, name, current_page_id=None):
+    base_slug = slugify(name)
+    slug = base_slug
+    counter = 2
+
+    while True:
+        query = PublicPageContent.query.filter_by(
+            website_id=website_id,
+            slug=slug
+        )
+
+        if current_page_id:
+            query = query.filter(PublicPageContent.id != current_page_id)
+
+        existing = query.first()
+
+        if not existing:
+            return slug
+
+        slug = f"{base_slug}-{counter}"
+        counter += 1
 
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
@@ -938,7 +981,10 @@ def dashboard():
 
     website_pages = {}
     for website in websites:
-        pages = PublicPageContent.query.filter_by(website_id=website.id).all()
+        # pages = PublicPageContent.query.filter_by(website_id=website.id).all()
+        pages = PublicPageContent.query.filter_by(
+            website_id=website.id
+        ).order_by(PublicPageContent.sort_order, PublicPageContent.id).all()
         website_pages[website] = pages
 
     csrf_token = generate_csrf()
@@ -954,6 +1000,29 @@ def dashboard():
         email_settings = email_settings
     )
 
+@app.route('/reorder_pages/<int:website_id>', methods=['POST'])
+@login_required
+def reorder_pages(website_id):
+    website = Website.query.filter_by(
+        id=website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    page_ids = data.get('page_ids', [])
+
+    for index, page_id in enumerate(page_ids):
+        page = PublicPageContent.query.filter_by(
+            id=page_id,
+            website_id=website.id
+        ).first()
+
+        if page:
+            page.sort_order = index
+
+    db.session.commit()
+
+    return jsonify({'success': True})
 
 @app.route('/admin/email_server_settings')
 @login_required
@@ -1466,6 +1535,25 @@ def create_website():
 
     return redirect(url_for('dashboard'))
 
+@app.route('/<string:page_slug>')
+def public_page_by_slug(page_slug):
+    website = Website.query.first()
+
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    page = PublicPageContent.query.filter_by(
+        website_id=website.id,
+        slug=page_slug
+    ).first()
+
+    if not page:
+        return "Page Not Found", 404
+
+    if not page.site_active_status:
+        return "Site Inactive", 404
+
+    return render_public_page(website, page)
 
 @app.route('/create_page/<int:website_id>', methods=['GET', 'POST'])
 @login_required
@@ -1480,7 +1568,7 @@ def create_page(website_id):
         description = request.form['description']
         tags = request.form.get('tags', '')  # Get tags from the form, default to empty string if not provided
 
-        new_content = PublicPageContent(name=name, description=description, website_id=website_id)
+        new_content = PublicPageContent(name=name, description=description, website_id=website_id, slug=get_unique_slug(website_id, name))
         db.session.add(new_content)
         db.session.commit()
 
@@ -1502,37 +1590,72 @@ def create_page(website_id):
     # Render template for GET request
     return render_template('create_page.html', website=website)
 
-
 @app.route('/edit_website/<int:website_id>', methods=['POST'])
 @login_required
 def edit_website(website_id):
     website = Website.query.get_or_404(website_id)
-    if website.owner.id != current_user.id:
-        return jsonify({'status': 'error', 'message': 'Unauthorized access'})
 
-    new_name = request.form.get('name')
-    new_tags = request.form.get('tags')
-    new_description = request.form.get('description')  # Get the updated description from the form
+    if website.user_id != current_user.id:
+        return jsonify({
+            'status': 'error',
+            'message': 'Unauthorized access'
+        }), 403
 
-    # Update website name
-    if new_name:
-        website.name = new_name
+    data = request.get_json()
 
-    # Update website description
-    if new_description:
-        website.description = new_description
+    website.name = data.get('name', website.name)
+    website.description = data.get('description', website.description)
+    website.background_color = data.get('background_color', website.background_color)
+    website.text_color = data.get('text_color', website.text_color)
+    website.public_navbar_items = data.get(
+        'public_navbar_items',
+        website.public_navbar_items
+    )
 
-    # Update website tags
-    if new_tags:
-        tag_names = [tag.strip() for tag in new_tags.split(',')]
-        website.tags.clear()
-        for tag_name in tag_names:
-            tag = Tag.query.filter_by(name=tag_name).first() or Tag(name=tag_name)
-            website.tags.append(tag)
+    # Replace tags
+    new_tags = data.get('tags', '')
+    tag_names = [tag.strip() for tag in new_tags.split(',') if tag.strip()]
+
+    website.tags.clear()
+
+    for tag_name in tag_names:
+        tag = Tag.query.filter_by(name=tag_name).first()
+
+        if not tag:
+            tag = Tag(name=tag_name)
+            db.session.add(tag)
+
+        website.tags.append(tag)
 
     db.session.commit()
-    return jsonify({'message': 'Website updated successfully'})
 
+    return jsonify({
+        'success': True,
+        'message': 'Website updated successfully'
+    })
+
+@app.route('/edit_website_style/<int:website_id>', methods=['POST'])
+@login_required
+def edit_website_style(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized access'
+        }), 403
+
+    data = request.get_json()
+
+    website.background_color = data.get('background_color', website.background_color)
+    website.text_color = data.get('text_color', website.text_color)
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Website style updated successfully'
+    })
 
 @app.route('/edit_page/<int:website_id>/<int:page_id>', methods=['POST'])
 @login_required
@@ -1545,6 +1668,7 @@ def edit_page(website_id, page_id):
     # Update page name
     if new_name:
         page.name = new_name
+        page.slug = get_unique_slug(website_id, new_name, current_page_id=page.id)
 
     # Update page description
     if new_description:
@@ -1576,7 +1700,8 @@ def duplicate_page(website_id, page_id):
         description=original_page.description,
         site_active_status=False,
         background_color=original_page.background_color,
-        text_color=original_page.text_color
+        text_color=original_page.text_color,
+        slug=get_unique_slug(original_page.website_id, f"{original_page.name} Copy")
     )
     db.session.add(new_page)
     db.session.flush()  # get new_page.id
@@ -1674,11 +1799,11 @@ def replace_page(target_page_id, source_page_id):
         return jsonify({"error": "Cannot replace a page with itself."}), 400
 
     # Update page-level fields
-    target_page.name = source_page.name
+    # target_page.name = source_page.name
     target_page.description = source_page.description
     target_page.background_color = source_page.background_color
     target_page.text_color = source_page.text_color
-    target_page.site_active_status = source_page.site_active_status
+    # target_page.site_active_status = source_page.site_active_status
 
     # Replace tags
     target_page.tags.clear()
@@ -2828,90 +2953,111 @@ def serve_static(filename):
     print("Request for static file:", filename)
     return send_from_directory(app.static_folder, filename)
 
+def render_public_page(website, page, is_preview=False):
+    sections = PageSection.query.filter_by(
+        page_content_id=page.id
+    ).order_by(PageSection.order).all()
+
+    pictures_by_section = {}
+
+    for section in sections:
+        results = (
+            db.session.query(Picture, SectionImage)
+            .join(SectionImage, Picture.id == SectionImage.picture_id)
+            .filter(SectionImage.section_id == section.id)
+            .order_by(SectionImage.order)
+            .all()
+        )
+
+        pictures_by_section[section.id] = [
+            picture.url for picture, link in results
+        ]
+
+    public_page_content = {
+        'page_id': page.id,
+        'sections': [section.to_dict() for section in sections],
+        'pictures_by_section': pictures_by_section,
+        'is_preview': is_preview
+    }
+
+    return render_template(
+        'public.html',
+        website=website,
+        content=public_page_content
+    )
 
 @app.route('/')
 def home_page():
     website = Website.query.first()
 
     if not website:
-        return render_template('no_site_found.html')
+        return render_template('no_site_found.html'), 404
 
-    page = PublicPageContent.query.filter_by(website_id=website.id).first()
+    page = PublicPageContent.query.filter_by(
+        website_id=website.id,
+        slug='home'
+    ).first()
+
+    if not page:
+        page = PublicPageContent.query.filter_by(
+            website_id=website.id,
+            site_active_status=True
+        ).order_by(PublicPageContent.sort_order, PublicPageContent.id).first()
 
     if not page or not page.site_active_status:
         return "Site Inactive", 404
 
-    sections = PageSection.query.filter_by(page_content_id=page.id).order_by(PageSection.order).all()
+    return render_public_page(website, page)
 
-    pictures_by_section = {}
-    for section in sections:
-        results = (
-            db.session.query(Picture, SectionImage)
-            .join(SectionImage, Picture.id == SectionImage.picture_id)
-            .filter(SectionImage.section_id == section.id)
-            .order_by(SectionImage.order)
-            .all()
-        )
-
-        pictures_by_section[section.id] = [picture.url for picture, link in results]
-
-    sections_dict = [section.to_dict() for section in sections]
-
-    public_page_content = {
-        'page_id': page.id,
-        'sections': sections_dict,
-        'pictures_by_section': pictures_by_section,
-        'background_color': page.background_color,
-        'text_color': page.text_color
-    }
-
-    print("Sections Data:", sections_dict)
-    print("Pictures by Section:", pictures_by_section)
-    print("COLORS: ", page.background_color, ", ", page.text_color)
-
-    return render_template('public.html', content=public_page_content)
-
+#
+# @app.route('/page/<int:website_id>/<int:page_id>')
+# def public_page(website_id, page_id):
+#     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+#
+#     if content is None:
+#         return jsonify({'status': 'error', 'message': 'Public page content not found'})
+#
+#     if not content.site_active_status:
+#         return jsonify({'status': 'error', 'message': 'Public page is currently inactive'})
+#
+#     sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
+#
+#     pictures_by_section = {}
+#     for section in sections:
+#         results = (
+#             db.session.query(Picture, SectionImage)
+#             .join(SectionImage, Picture.id == SectionImage.picture_id)
+#             .filter(SectionImage.section_id == section.id)
+#             .order_by(SectionImage.order)
+#             .all()
+#         )
+#
+#         pictures_by_section[section.id] = [picture.url for picture, link in results]
+#
+#     sections_dict = [section.to_dict() for section in sections]
+#
+#     public_page_content = {
+#         'page_id': content.id,
+#         'sections': sections_dict,
+#         'pictures_by_section': pictures_by_section,
+#         'background_color': content.background_color,
+#         'text_color': content.text_color
+#     }
+#
+#     print("Sections Data:", sections_dict)
+#     print("Pictures by Section:", pictures_by_section)
+#     print("COLORS: ", content.background_color, ", ", content.text_color)
+#
+#     return render_template('public.html', content=public_page_content)
 
 @app.route('/page/<int:website_id>/<int:page_id>')
 def public_page(website_id, page_id):
-    content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+    page = PublicPageContent.query.filter_by(
+        website_id=website_id,
+        id=page_id
+    ).first_or_404()
 
-    if content is None:
-        return jsonify({'status': 'error', 'message': 'Public page content not found'})
-
-    if not content.site_active_status:
-        return jsonify({'status': 'error', 'message': 'Public page is currently inactive'})
-
-    sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
-
-    pictures_by_section = {}
-    for section in sections:
-        results = (
-            db.session.query(Picture, SectionImage)
-            .join(SectionImage, Picture.id == SectionImage.picture_id)
-            .filter(SectionImage.section_id == section.id)
-            .order_by(SectionImage.order)
-            .all()
-        )
-
-        pictures_by_section[section.id] = [picture.url for picture, link in results]
-
-    sections_dict = [section.to_dict() for section in sections]
-
-    public_page_content = {
-        'page_id': content.id,
-        'sections': sections_dict,
-        'pictures_by_section': pictures_by_section,
-        'background_color': content.background_color,
-        'text_color': content.text_color
-    }
-
-    print("Sections Data:", sections_dict)
-    print("Pictures by Section:", pictures_by_section)
-    print("COLORS: ", content.background_color, ", ", content.text_color)
-
-    return render_template('public.html', content=public_page_content)
-
+    return redirect(url_for('public_page_by_slug', page_slug=page.slug))
 
 @app.route('/preview_page/<int:website_id>/<int:page_id>')
 @login_required
@@ -2945,15 +3091,28 @@ def preview_page(website_id, page_id):
 
     sections_dict = [section.to_dict() for section in sections]
 
+    # public_page_content = {
+    #     'page_id': content.id,
+    #     'sections': sections_dict,
+    #     'pictures_by_section': pictures_by_section,
+    #     'background_color': content.background_color,
+    #     'text_color': content.text_color
+    # }
+    #
+    # return render_template('public.html', content=public_page_content)
+
     public_page_content = {
         'page_id': content.id,
         'sections': sections_dict,
         'pictures_by_section': pictures_by_section,
-        'background_color': content.background_color,
-        'text_color': content.text_color
+        'is_preview': True
     }
 
-    return render_template('public.html', content=public_page_content)
+    return render_template(
+        'public.html',
+        website=website,
+        content=public_page_content
+    )
 
 
 def update_map_section(section, form_data):
@@ -2986,9 +3145,24 @@ def update_map_section(section, form_data):
 
     return section
 
+@app.route('/preview_navbar/<int:website_id>')
+@login_required
+def preview_navbar(website_id):
+    website = db.session.get(Website, website_id)
 
+    if not website or website.user_id != current_user.id:
+        return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
+
+    return render_template(
+        'navbar_preview.html',
+        website=website
+    )
 def update_text_section(section, form_data):
+    import json
+
     html_content = form_data.get('text', '')
+    delta_raw = form_data.get('delta')
+
     background_color = form_data.get('background_color', '#000000')
     background_opacity = form_data.get('background_opacity', '0')
     padding = form_data.get('padding', '20')
@@ -3003,8 +3177,14 @@ def update_text_section(section, form_data):
     for tooltip in soup.find_all('div', class_='ql-tooltip'):
         tooltip.decompose()
 
+    try:
+        delta_data = json.loads(delta_raw) if delta_raw else None
+    except json.JSONDecodeError:
+        delta_data = None
+
     section.content = {
         'html': str(soup),
+        'delta': delta_data,
         'background_color': background_color,
         'background_opacity': background_opacity,
         'padding': padding,
@@ -3070,6 +3250,29 @@ def update_contact_section(section, form_data):
     }
     return section
 
+@app.route('/edit_public_navbar/<int:website_id>', methods=['POST'])
+@login_required
+def edit_public_navbar(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized access'
+        }), 403
+
+    data = request.get_json() or {}
+    navbar_items = data.get('public_navbar_items', [])
+
+    website.public_navbar_items = navbar_items
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Public navbar updated successfully',
+        'public_navbar_items': website.public_navbar_items
+    })
 
 def update_navbar_section(section, form_data):
     navbar_names = form_data.getlist('navbar_names')
@@ -3081,6 +3284,86 @@ def update_navbar_section(section, form_data):
     section.content = {'navbar_items': navbar_items}
     return section
 
+@app.route('/edit_public_navbar_style/<int:website_id>', methods=['POST'])
+@login_required
+def edit_public_navbar_style(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
+
+    data = request.get_json() or {}
+
+    website.public_navbar_style = {
+        'title': data.get('title', website.name),
+        'icon_url': data.get('icon_url', ''),
+        'background': data.get('background', 'rgba(20,20,20,0.9)'),
+        'text_color': data.get('text_color', '#ffffff'),
+        'opacity': data.get('opacity', 0.9),
+        'blur': data.get('blur', 14),
+        'border_radius': data.get('border_radius', 0),
+        'shadow': data.get('shadow', True),
+        'sticky': data.get('sticky', True),
+        'title_alignment': data.get('title_alignment', 'left')
+    }
+
+    db.session.commit()
+
+    return jsonify({'success': True})
+
+@app.route('/upload_public_navbar_icon/<int:website_id>', methods=['POST'])
+@login_required
+def upload_public_navbar_icon(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
+
+    if 'icon' not in request.files:
+        return jsonify({'success': False, 'message': 'No icon file uploaded'}), 400
+
+    file = request.files['icon']
+
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'No selected file'}), 400
+
+    if not (
+            file.filename.lower().endswith('.svg') or
+            file.filename.lower().endswith('.png')
+    ):
+        return jsonify({'success': False, 'message': 'Only SVG and PNG files are allowed'}), 400
+
+    extension = file.filename.rsplit('.', 1)[1].lower()
+
+
+    user_icon_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id), 'navbar')
+    os.makedirs(user_icon_folder, exist_ok=True)
+
+    filename = f'public-icon.{extension}'
+    filepath = os.path.join(user_icon_folder, filename)
+
+    for old_filename in ['public-icon.svg', 'public-icon.png']:
+        old_path = os.path.join(user_icon_folder, old_filename)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    file.save(filepath)
+
+    icon_url = url_for(
+        'static',
+        filename=f'uploads/{current_user.id}/navbar/{filename}'
+    )
+
+    style = website.public_navbar_style or {}
+    style['icon_url'] = icon_url
+    website.public_navbar_style = style
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'icon_url': icon_url
+    })
 
 @app.route('/update_section', methods=['POST'])
 @login_required

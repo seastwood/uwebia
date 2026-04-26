@@ -1,0 +1,291 @@
+{% set nav_style = website.public_navbar_style or {} %}
+{% set navbar_items = website.public_navbar_items or [] %}
+
+<nav class="public-navbar"
+     style="
+        background: {{ nav_style.get('background', 'rgba(20,20,20,0.9)') }};
+        color: {{ nav_style.get('text_color', '#ffffff') }};
+        opacity: {{ nav_style.get('opacity', 0.9) }};
+        backdrop-filter: blur({{ nav_style.get('blur', 14) }}px);
+        -webkit-backdrop-filter: blur({{ nav_style.get('blur', 14) }}px);
+        border-radius: {{ nav_style.get('border_radius', 0) }}px;
+        box-shadow: {% if nav_style.get('shadow', True) %}0 6px 18px rgba(0,0,0,0.25){% else %}none{% endif %};
+        position: {% if nav_style.get('sticky', True) %}fixed{% else %}relative{% endif %};
+     ">
+
+<div class="public-navbar-left">
+
+        {% if navbar_items %}
+        <button
+            type="button"
+            class="public-navbar-toggle"
+            onclick="togglePublicNavbarMenu(event)"
+            aria-label="Open navigation menu">
+            <svg
+                class="hamburger-icon"
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg">
+                <path
+                    d="M4 7H20M4 12H20M4 17H20"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round" />
+            </svg>
+        </button>
+        {% endif %}
+
+<div class="public-navbar-brand title-align-{{ nav_style.get('title_alignment', 'left') }}">
+
+            {% if nav_style.get('icon_url') %}
+                <img src="{{ nav_style.get('icon_url') }}" class="public-navbar-icon" alt="">
+            {% endif %}
+
+            {{ nav_style.get('title', website.name) }}
+        </div>
+    </div>
+
+    {% if navbar_items %}
+    <div class="public-navbar-right">
+        {% for item in navbar_items %}
+            {% if item.type == 'link' %}
+                <a href="{{ item.url }}">{{ item.name }}</a>
+            {% elif item.type == 'group' %}
+                <div class="public-navbar-dropdown">
+                    <button type="button">{{ item.name }} ▾</button>
+
+                    <div class="public-navbar-dropdown-menu">
+                        {% for child in item.children %}
+                            <a href="{{ child.url }}">{{ child.name }}</a>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <div id="publicNavbarMenu" class="public-navbar-menu">
+        {% for item in navbar_items %}
+            {% if item.type == 'link' %}
+                <a href="{{ item.url }}">{{ item.name }}</a>
+            {% elif item.type == 'group' %}
+                <div class="public-navbar-menu-group">
+                    <div class="public-navbar-menu-group-title">{{ item.name }}</div>
+
+                    {% for child in item.children %}
+                        <a href="{{ child.url }}">{{ child.name }}</a>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</nav>
+
+<style>
+.public-navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    min-height: 58px;
+    padding: 0 5px;
+    background: rgba(20, 20, 20, 0.9);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+}
+
+.public-navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.public-navbar {
+    position: fixed;
+}
+
+.public-navbar-left {
+    display: flex;
+    align-items: center;
+    z-index: 2;
+}
+
+.public-navbar-brand {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 1rem;
+    z-index: 1;
+}
+
+.public-navbar-brand.title-align-left {
+    left: 62px;
+}
+
+.public-navbar-brand.title-align-center {
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.public-navbar-brand.title-align-right {
+    right: 18px;
+}
+
+.public-navbar-brand {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.public-navbar-toggle {
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.public-navbar-toggle:hover {
+    background: rgba(255,255,255,0.16);
+    transform: translateY(-1px);
+}
+
+.public-navbar-toggle:active {
+    transform: translateY(0);
+}
+
+.hamburger-icon {
+    display: block;
+}
+
+.public-navbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.public-navbar a,
+.public-navbar-dropdown button {
+    color: white;
+    text-decoration: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    padding: 10px 12px;
+    border-radius: 8px;
+}
+
+.public-navbar a:hover,
+.public-navbar-dropdown button:hover {
+    background: rgba(255,255,255,0.12);
+}
+
+.public-navbar-dropdown {
+    position: relative;
+}
+
+.public-navbar-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    min-width: 190px;
+    background: rgba(20,20,20,0.96);
+    padding: 8px;
+    border-radius: 10px;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.35);
+}
+
+.public-navbar-dropdown:hover .public-navbar-dropdown-menu {
+    display: block;
+}
+
+.public-navbar-dropdown-menu a {
+    display: block;
+}
+
+.public-navbar-menu {
+    display: none;
+    position: absolute;
+    top: 64px;
+    left: 12px;
+    width: 260px;
+    background: rgba(20,20,20,0.98);
+    padding: 10px;
+    border-radius: 12px;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.35);
+}
+
+.public-navbar-menu.show {
+    display: block;
+}
+
+.public-navbar-menu a {
+    display: block;
+}
+
+.public-navbar-menu-group-title {
+    color: rgba(255,255,255,0.65);
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 10px 12px 4px;
+    text-transform: uppercase;
+}
+
+body {
+    padding-top: 58px;
+}
+
+@media (max-width: 800px) {
+    .public-navbar-right {
+        display: none;
+    }
+}
+.public-navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.public-navbar-icon {
+    width: 32px;
+    /* height: 28px; */
+    object-fit: contain;
+}
+</style>
+
+<script>
+function togglePublicNavbarMenu(event) {
+    event.stopPropagation();
+
+    const menu = document.getElementById('publicNavbarMenu');
+    if (menu) {
+        menu.classList.toggle('show');
+    }
+}
+
+document.addEventListener('click', function(event) {
+    const menu = document.getElementById('publicNavbarMenu');
+    const navbar = document.querySelector('.public-navbar');
+
+    if (menu && navbar && !navbar.contains(event.target)) {
+        menu.classList.remove('show');
+    }
+});
+</script>

@@ -2068,7 +2068,7 @@
 
         <div class="content-container">
 
-            <div class="page-style-accordion">
+            <!-- <div class="page-style-accordion">
                 <button type="button" class="page-style-toggle" aria-expanded="false">
                     <span>Page Colors</span>
                     <span class="page-style-chevron"><i class="fas fa-chevron-down"></i></span>
@@ -2139,7 +2139,7 @@
                 textColorInput.addEventListener('input', updateTextPreview);
 
 
-            </script>
+            </script> -->
 
 
             <div class="content-sections-container">
@@ -2180,8 +2180,8 @@
                     <input type="hidden" id="column-id-input" name="column_id">
                     <label for="section-type">Section Type:</label>
                     <select id="section-type" name="section_type">
-                        <option value="navbar">Navbar</option>
-                        <option value="header">Header</option>
+                        <!-- <option value="navbar">Navbar</option> -->
+                        <!-- <option value="header">Header</option> -->
                         <option value="button">Button</option>
                         <option value="image_gallery">Image Gallery</option>
                         <option value="image">Image</option>
@@ -2923,29 +2923,31 @@
                 </div>
             </form>
         </div>`;
-                        } if (section.section_type === 'navbar') {
-                            sectionContent.innerHTML = `
-    <!-- Navbar Section -->
-    <div class="navbar-container section-container">
-        <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-            <label for="navbar_items">Navbar Items:</label><br>
-            <div id="urls-container"></div>
-            <button type="button" id="add-url-button">Add Item</button>
-        </form>
-    </div>
-`;
                         }
-                        else if (section.section_type === 'header') {
-                            sectionContent.innerHTML = `
-        <div class="page-header-container section-container">
-            <form class="update-section-form" data-section-id="${section.id}"
-                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-                <label for="header_text">Header Text:</label><br>
-                <textarea id="header_text" name="header_text" rows="1" class="dynamic-width"
-                    style="padding: 10px;">${section.content['text']}</textarea><br><br>
-            </form>
-        </div>`;
-                        } else if (section.section_type === 'youtube_video') {
+                        //                         if (section.section_type === 'navbar') {
+                        //                             sectionContent.innerHTML = `
+                        //     <!-- Navbar Section -->
+                        //     <div class="navbar-container section-container">
+                        //         <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                        //             <label for="navbar_items">Navbar Items:</label><br>
+                        //             <div id="urls-container"></div>
+                        //             <button type="button" id="add-url-button">Add Item</button>
+                        //         </form>
+                        //     </div>
+                        // `;
+                        //                         }
+                        //                 else if (section.section_type === 'header') {
+                        //                     sectionContent.innerHTML = `
+                        // <div class="page-header-container section-container">
+                        //     <form class="update-section-form" data-section-id="${section.id}"
+                        //         data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                        //         <label for="header_text">Header Text:</label><br>
+                        //         <textarea id="header_text" name="header_text" rows="1" class="dynamic-width"
+                        //             style="padding: 10px;">${section.content['text']}</textarea><br><br>
+                        //     </form>
+                        // </div>`;
+                        //                 } 
+                        else if (section.section_type === 'youtube_video') {
                             sectionContent.innerHTML = `
         <div class="youtube-video-container section-container">
             <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}" action="/update_youtube_video" method="POST">
@@ -3193,18 +3195,20 @@
         </div>
     </div>
 </div>
-<div class="editor-background-shell" id="editor-shell-${section.id}">
+<div class="editor-background-shell" id="editor-shell-${section.id}" style="--page-editor-background: {{ website.background_color or '#2d2d2d' }};">
     <div class="editor-surface" id="editor-surface-${section.id}">
         <div id="editor-${section.id}" style="height: 400px;"></div>
     </div>
 </div>
 <textarea id="text-${section.id}" name="text" style="display:none;">${section.content['html'] || section.content['text'] || ''}</textarea>
-            </form>
+<textarea id="delta-${section.id}" name="delta" style="display:none;"></textarea>
+</form>
         </div>`;
 
                             const editorEl = sectionContent.querySelector(`#editor-${section.id}`);
                             const toolbarEl = sectionContent.querySelector(`#toolbar-${section.id}`);
                             const hiddenTextarea = sectionContent.querySelector(`#text-${section.id}`);
+                            const hiddenDeltaTextarea = sectionContent.querySelector(`#delta-${section.id}`);
 
                             const editorShell = sectionContent.querySelector(`#editor-shell-${section.id}`);
                             const editorSurface = sectionContent.querySelector(`#editor-surface-${section.id}`);
@@ -3330,9 +3334,17 @@
                                     toolbar: toolbarEl
                                 }
                             });
+                            quill.root.style.whiteSpace = 'pre-wrap';
 
-                            const savedHtml = section.content['html'] || section.content['text'] || '';
-                            quill.clipboard.dangerouslyPasteHTML(savedHtml);
+                            if (section.content['delta']) {
+    quill.setContents(section.content['delta']);
+} else {
+    const savedHtml = section.content['html'] || section.content['text'] || '';
+    quill.clipboard.dangerouslyPasteHTML(savedHtml);
+}
+
+syncEditor();
+
                             hiddenTextarea.value = quill.root.innerHTML;
 
                             quillEditors.push({
@@ -3342,7 +3354,7 @@
                             });
 
                             quill.on('text-change', function () {
-                                hiddenTextarea.value = quill.root.innerHTML;
+                                syncEditor();
                             });
 
                             const textColorPicker = toolbarEl.querySelector('.ql-text-color-picker');
@@ -3365,6 +3377,10 @@
 
                             function syncEditor() {
                                 hiddenTextarea.value = quill.root.innerHTML;
+
+                                if (hiddenDeltaTextarea) {
+                                    hiddenDeltaTextarea.value = JSON.stringify(quill.getContents());
+                                }
                             }
 
                             function clearGradientStylesFromSelection(range) {
@@ -3378,11 +3394,23 @@
                             }
 
                             textColorPicker.addEventListener('input', function () {
-                                const range = getActiveRange(quill);
+                                const range = quill.getSelection(true);
+                                const color = this.value;
+
+                                quill.focus();
+
                                 if (!range) return;
 
-                                clearGradientStylesFromSelection(range);
-                                quill.formatText(range.index, range.length, 'color', this.value);
+                                if (range.length === 0) {
+                                    // This makes future/new typing use this color
+                                    quill.format('gradientText', false);
+                                    quill.format('color', color);
+                                } else {
+                                    // This colors selected existing text
+                                    quill.formatText(range.index, range.length, 'gradientText', false);
+                                    quill.formatText(range.index, range.length, 'color', color);
+                                }
+
                                 syncEditor();
                             });
 
