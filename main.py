@@ -267,6 +267,7 @@ class Row(db.Model):
     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=False)
     row_number = db.Column(db.Integer, nullable=False)
     columns = db.relationship('Column', backref='row', cascade='all, delete-orphan', lazy=True)
+    section_group_id = db.Column(db.Integer, db.ForeignKey('section_group.id'), nullable=True)
 
     def __repr__(self):
         return f"<Row {self.id} - Page Content: {self.page_content_id}, Row Number: {self.row_number}>"
@@ -307,12 +308,30 @@ class PageSection(db.Model):
             'column_number': column.column_number if column else None,
             'row_id': column.row.id if column else None,
             'row_number': column.row.row_number if column else None,
+            'section_group_id': column.row.section_group_id if column and column.row else None,
             'width': column.width if column else None  # Include width
         }
 
     def __repr__(self):
         return f"<PageSection {self.id} - {self.section_type}>"
 
+class SectionGroup(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    page_content_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_page_content.id'),
+        nullable=False
+    )
+
+    name = db.Column(db.String(100), default='Section Group')
+    anchor_slug = db.Column(db.String(120), nullable=True)
+    group_order = db.Column(db.Integer, default=0)
+
+    background_color = db.Column(db.String(255), default='transparent')
+    background_opacity = db.Column(db.Float, default=1)
+    padding = db.Column(db.Integer, default=20)
+    border_radius = db.Column(db.Integer, default=0)
 
 # class Picture(db.Model):
 #     id = db.Column(db.Integer, primary_key=True)
@@ -430,6 +449,12 @@ def get_unique_slug(website_id, name, current_page_id=None):
 
         slug = f"{base_slug}-{counter}"
         counter += 1
+
+def slugify_anchor(value):
+    value = (value or '').strip().lower()
+    value = re.sub(r'[^a-z0-9]+', '-', value)
+    value = value.strip('-')
+    return value or 'section-group'
 
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
@@ -732,51 +757,88 @@ def get_rows_and_columns(page_content_id):
     columns_data = [column.to_dict() for column in columns]
     return jsonify({'rows': rows_data, 'columns': columns_data})
 
-
 @app.route('/get_sections_and_structure/<int:page_content_id>', methods=['GET'])
 @login_required
 def get_sections_and_structure(page_content_id):
     try:
-        # Query PublicPageContent object by id and include the associated Website
         page_content = PublicPageContent.query.filter_by(id=page_content_id).first()
         if not page_content:
             return jsonify({'error': 'Page content not found'}), 404
 
-        # Query PageSection objects filtered by page_content_id and sort them by order number
-        sections = PageSection.query.filter_by(page_content_id=page_content_id).order_by(PageSection.order).all()
+        sections = PageSection.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(PageSection.order).all()
 
-        # Query rows associated with the given page_content_id and sort them by row_number
-        rows = Row.query.filter_by(page_content_id=page_content_id).order_by(Row.row_number).all()
+        rows = Row.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(Row.row_number).all()
 
-        # Query columns associated with the given rows and sort them by row_number and column_number
-        columns = Column.query.join(Row).filter(Column.row_id == Row.id).filter(
-            Row.page_content_id == page_content_id).order_by(Row.row_number, Column.column_number).all()
+        columns = Column.query.join(Row).filter(
+            Column.row_id == Row.id,
+            Row.page_content_id == page_content_id
+        ).order_by(Row.row_number, Column.column_number).all()
 
-        # Sort sections by row_number
-        sections.sort(key=lambda x: x.column.row.row_number)
+        section_groups = SectionGroup.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(SectionGroup.group_order).all()
 
-        # Convert each Section, Row, and Column object to a dictionary
+        sections.sort(
+            key=lambda x: (
+                x.column.row.section_group_id or 0,
+                x.column.row.row_number,
+                x.order
+            )
+        )
+
         sections_data = [section.to_dict() for section in sections]
-        rows_data = [{'id': row.id, 'row_number': row.row_number} for row in rows]
-        columns_data = [{'row_id': column.row_id, 'row_number': column.row.row_number,
-                         'column_number': column.column_number, 'column_id': column.id,
-                         'width': column.width} for column in columns]
 
-        # Serialize the associated Website object
+        rows_data = [
+            {
+                'id': row.id,
+                'row_number': row.row_number,
+                'section_group_id': row.section_group_id
+            }
+            for row in rows
+        ]
+
+        columns_data = [
+            {
+                'row_id': column.row_id,
+                'row_number': column.row.row_number,
+                'section_group_id': column.row.section_group_id,
+                'column_number': column.column_number,
+                'column_id': column.id,
+                'width': column.width
+            }
+            for column in columns
+        ]
+
+        groups_data = [
+            {
+                'id': group.id,
+                'name': group.name,
+                'group_order': group.group_order,
+                'background_color': group.background_color,
+                'background_opacity': group.background_opacity,
+                'padding': group.padding,
+                'border_radius': group.border_radius
+            }
+            for group in section_groups
+        ]
+
         website_data = {
             'id': page_content.website.id,
             'name': page_content.website.name,
             'description': page_content.website.description,
             'user_id': page_content.website.user_id,
             'tags': [tag.name for tag in page_content.website.tags]
-            # Add more fields as needed
         }
 
-        # Combine all data into a single response JSON object
         response_data = {
             'sections': sections_data,
             'rows': rows_data,
             'columns': columns_data,
+            'groups': groups_data,
             'website': website_data
         }
 
@@ -786,6 +848,181 @@ def get_sections_and_structure(page_content_id):
         print(f"Error retrieving sections and structure: {str(e)}")
         return jsonify({'error': 'Internal Server Error'}), 500
 
+@app.route('/create_section_group/<int:page_content_id>', methods=['POST'])
+@login_required
+def create_section_group(page_content_id):
+    try:
+        page_content = PublicPageContent.query.get_or_404(page_content_id)
+
+        group_count = SectionGroup.query.filter_by(
+            page_content_id=page_content.id
+        ).count()
+
+        new_group = SectionGroup(
+            page_content_id=page_content.id,
+            name=f'Section Group {group_count + 1}',
+            group_order=group_count + 1,
+            background_color='rgba(255,255,255,0.08)',
+            padding=0,
+            border_radius=0
+        )
+
+        db.session.add(new_group)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'group_id': new_group.id
+        })
+
+    except Exception as e:
+        print(f"Error creating section group: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/delete_section_group/<int:group_id>', methods=['DELETE'])
+@login_required
+def delete_section_group(group_id):
+    try:
+        group = SectionGroup.query.get_or_404(group_id)
+
+        # Ungroup rows instead of deleting the rows
+        rows = Row.query.filter_by(section_group_id=group.id).all()
+        for row in rows:
+            row.section_group_id = None
+
+        db.session.delete(group)
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error deleting section group: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/update_section_group/<int:group_id>', methods=['PUT'])
+@login_required
+def update_section_group(group_id):
+    try:
+        group = SectionGroup.query.get_or_404(group_id)
+        data = request.get_json()
+
+        name = data.get('name')
+        background_color = data.get('background_color')
+        padding = data.get('padding')
+        border_radius = data.get('border_radius')
+
+        if name is not None:
+            group.name = name
+            group.anchor_slug = slugify_anchor(name)
+
+        if background_color is not None:
+            group.background_color = background_color
+
+        if padding is not None:
+            group.padding = int(padding)
+
+        if border_radius is not None:
+            group.border_radius = int(border_radius)
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'group': {
+                'id': group.id,
+                'name': group.name,
+                'anchor_slug': group.anchor_slug
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print("Error updating section group:", str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/move_row_to_group/<int:row_id>', methods=['PUT'])
+@login_required
+def move_row_to_group(row_id):
+    row = Row.query.get_or_404(row_id)
+    data = request.json
+
+    row.section_group_id = data.get('section_group_id')
+    db.session.commit()
+
+    return jsonify({"success": True})
+
+@app.route('/update_section_group_order', methods=['POST'])
+@login_required
+def update_section_group_order():
+    try:
+        data = request.get_json()
+        group_ids = data.get('group_ids', [])
+
+        for index, group_id in enumerate(group_ids, start=1):
+            group = SectionGroup.query.get(group_id)
+            if group:
+                group.group_order = index
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error updating group order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/update_row_order_and_groups', methods=['POST'])
+@login_required
+def update_row_order_and_groups():
+    try:
+        data = request.get_json()
+        rows = data.get('rows', [])
+
+        for row_item in rows:
+            row = Row.query.get(row_item.get('row_id'))
+
+            if row:
+                row.row_number = row_item.get('row_number')
+                row.section_group_id = row_item.get('section_group_id')
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error updating row order and groups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/update_editor_group_and_row_order', methods=['POST'])
+@login_required
+def update_editor_group_and_row_order():
+    try:
+        data = request.get_json()
+
+        group_ids = data.get('group_ids', [])
+        rows = data.get('rows', [])
+
+        for index, group_id in enumerate(group_ids, start=1):
+            group = SectionGroup.query.get(group_id)
+            if group:
+                group.group_order = index
+
+        for row_item in rows:
+            row = Row.query.get(row_item.get('row_id'))
+            if row:
+                row.row_number = row_item.get('row_number')
+                row.section_group_id = row_item.get('section_group_id')
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error updating editor order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/add_column', methods=['POST'])
 @login_required
@@ -820,6 +1057,41 @@ def add_column():
 
     return jsonify({'message': 'Column added successfully', 'column_id': new_column.id}), 200
 
+@app.route('/add_row_to_group/<int:page_content_id>/<int:group_id>', methods=['POST'])
+@login_required
+def add_row_to_group(page_content_id, group_id):
+    try:
+        group = SectionGroup.query.get_or_404(group_id)
+
+        last_row = Row.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(Row.row_number.desc()).first()
+
+        new_row_number = (last_row.row_number + 1) if last_row else 1
+
+        new_row = Row(
+            page_content_id=page_content_id,
+            row_number=new_row_number,
+            section_group_id=group.id
+        )
+
+        db.session.add(new_row)
+        db.session.flush()
+
+        new_column = Column(
+            row_id=new_row.id,
+            column_number=1,
+            width=100
+        )
+
+        db.session.add(new_column)
+        db.session.commit()
+
+        return jsonify({'success': True, 'row_id': new_row.id})
+
+    except Exception as e:
+        print(f"Error adding row to group: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/update-column-widths', methods=['POST'])
 @login_required
@@ -980,12 +1252,31 @@ def dashboard():
     has_site = len(websites) > 0
 
     website_pages = {}
+    website_page_groups = {}
+
     for website in websites:
-        # pages = PublicPageContent.query.filter_by(website_id=website.id).all()
         pages = PublicPageContent.query.filter_by(
             website_id=website.id
         ).order_by(PublicPageContent.sort_order, PublicPageContent.id).all()
+
         website_pages[website] = pages
+
+        website_page_groups[website.id] = {}
+
+        for page in pages:
+            groups = SectionGroup.query.filter_by(
+                page_content_id=page.id
+            ).order_by(SectionGroup.group_order).all()
+
+            website_page_groups[website.id][page.id] = [
+                {
+                    'id': group.id,
+                    'name': group.name,
+                    'anchor_slug': group.anchor_slug
+                }
+                for group in groups
+                if group.anchor_slug
+            ]
 
     csrf_token = generate_csrf()
 
@@ -995,9 +1286,10 @@ def dashboard():
         'dashboard.html',
         websites=websites,
         website_pages=website_pages,
-        user_has_website=has_site,  # Now this matches your template check
+        website_page_groups=website_page_groups,
+        user_has_website=has_site,
         csrf_token=csrf_token,
-        email_settings = email_settings
+        email_settings=email_settings
     )
 
 @app.route('/reorder_pages/<int:website_id>', methods=['POST'])
@@ -2973,12 +3265,30 @@ def render_public_page(website, page, is_preview=False):
             picture.url for picture, link in results
         ]
 
+    section_groups = SectionGroup.query.filter_by(
+        page_content_id=page.id
+    ).order_by(SectionGroup.group_order).all()
+
     public_page_content = {
         'page_id': page.id,
         'sections': [section.to_dict() for section in sections],
+        'groups': [
+            {
+                'id': group.id,
+                'name': group.name,
+                'anchor_slug': group.anchor_slug,
+                'group_order': group.group_order,
+                'background_color': group.background_color,
+                'background_opacity': group.background_opacity,
+                'padding': group.padding,
+                'border_radius': group.border_radius
+            }
+            for group in section_groups
+        ],
         'pictures_by_section': pictures_by_section,
         'is_preview': is_preview
     }
+
 
     return render_template(
         'public.html',
@@ -3101,9 +3411,26 @@ def preview_page(website_id, page_id):
     #
     # return render_template('public.html', content=public_page_content)
 
+    section_groups = SectionGroup.query.filter_by(
+        page_content_id=content.id
+    ).order_by(SectionGroup.group_order).all()
+
     public_page_content = {
         'page_id': content.id,
         'sections': sections_dict,
+        'groups': [
+            {
+                'id': group.id,
+                'name': group.name,
+                'anchor_slug': group.anchor_slug,
+                'group_order': group.group_order,
+                'background_color': group.background_color,
+                'background_opacity': group.background_opacity,
+                'padding': group.padding,
+                'border_radius': group.border_radius
+            }
+            for group in section_groups
+        ],
         'pictures_by_section': pictures_by_section,
         'is_preview': True
     }

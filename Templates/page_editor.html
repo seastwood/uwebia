@@ -2001,6 +2001,90 @@
     .ql-editor p {
         min-height: 1.6em;
     }
+
+    .section-group {
+        margin: 14px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 16px;
+    }
+
+    .section-group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: white;
+        background: rgba(0, 0, 0, 0.25);
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        border-radius: 12px;
+    }
+
+    .add-section-group-btn {
+        margin: 12px;
+        padding: 10px 14px;
+        background: #6f6a7e;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+    }
+
+    .add-section-group-btn:hover {
+        background: #817b94;
+    }
+
+    .section-group-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .section-group-actions button {
+        background: rgba(255, 255, 255, 0.12);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 6px 9px;
+        cursor: pointer;
+    }
+
+    .section-group-actions button:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .group-drag-handle,
+    .row-drag-handle {
+        cursor: grab;
+        color: #7ee2cc;
+        font-size: 18px;
+        padding: 4px 8px;
+        user-select: none;
+    }
+
+    .group-drag-handle:active,
+    .row-drag-handle:active {
+        cursor: grabbing;
+    }
+
+    .row-drag-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 8px;
+        margin-right: 4px;
+    }
+
+    .group-rows {
+        min-height: 40px;
+    }
+
+    .sortable-ghost {
+        opacity: 0.4;
+    }
+
+    .sortable-chosen {
+        box-shadow: 0 0 0 2px #7ee2cc;
+    }
 </style>
 </head>
 
@@ -2038,6 +2122,11 @@
             <div class="editor-navbar-item">
                 <button id="refreshButton">
                     <i class="fas fa-sync"></i>
+                </button>
+            </div>
+            <div class="editor-navbar-item">
+                <button type="button" id="add-section-group-btn" class="add-section-group-btn">
+                    +
                 </button>
             </div>
         </div>
@@ -2201,6 +2290,66 @@
 
                     <button type="submit">Add Section</button>
                 </form>
+            </div>
+        </div>
+
+        <div id="groupStyleModal" class="modal">
+            <div class="modal-content dark">
+                <span class="close" onclick="closeGroupStyleModal()">&times;</span>
+
+                <h5>Group Style</h5>
+
+                <div class="modal-body">
+                    <input type="hidden" id="groupStyleGroupId">
+
+                    <div class="color-options">
+                        <div class="color-option">
+                            <label>Group Label</label>
+                            <input type="text" id="groupName" class="form-control"
+                                placeholder="About, Services, Contact">
+                        </div>
+                        <div class="color-option">
+                            <label>Background</label>
+
+                            <div class="gradient-controls">
+                                <select id="groupGradientDirection">
+                                    <option value="to right">Left → Right</option>
+                                    <option value="to bottom">Top → Bottom</option>
+                                    <option value="to bottom right">Diagonal</option>
+                                </select>
+
+                                <button type="button" onclick="addGroupColorStop()">
+                                    + Add Color
+                                </button>
+                            </div>
+
+                            <div id="groupGradientColors"></div>
+
+                            <input type="hidden" id="groupBackgroundColor">
+                        </div>
+
+                        <div class="color-option">
+                            <label>Padding</label>
+                            <input type="range" id="groupPadding" min="0" max="80" step="2" value="0">
+                            <span id="groupPaddingValue" class="range-value">0px</span>
+                        </div>
+
+                        <div class="color-option">
+                            <label>Corner Radius</label>
+                            <input type="range" id="groupBorderRadius" min="0" max="60" step="2" value="0">
+                            <span id="groupBorderRadiusValue" class="range-value">0px</span>
+                        </div>
+                    </div>
+
+                    <div id="groupStylePreview" style="margin-top: 20px; padding: 24px; border-radius: 16px;">
+                        Group preview
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" onclick="closeGroupStyleModal()">Cancel</button>
+                    <button type="button" onclick="saveGroupStyle()">Save Style</button>
+                </div>
             </div>
         </div>
 
@@ -2492,14 +2641,14 @@
             fetch(`/get_sections_and_structure/${pageId}`) // Assuming you have a route to fetch sections along with rows and columns
                 .then(response => response.json())
                 .then(data => {
-                    // Assuming data contains sections, rows, and columns retrieved from the server
-                    const { sections, rows, columns, website } = data;
+                    const { sections, rows, columns, website, groups } = data;
 
                     // Sort rows by row_number
                     rows.sort((a, b) => a.row_number - b.row_number);
 
                     // Once sections, rows, and columns are populated, render the HTML
-                    reloadSections(sections, rows, columns, website);
+
+                    reloadSections(sections, rows, columns, website, groups);
                 })
                 .catch(error => {
                     console.error('Error fetching sections and structure:', error);
@@ -2648,12 +2797,60 @@
         GradientTextBlot.blotName = 'gradientText';
         GradientTextBlot.tagName = 'span';
         Quill.register(GradientTextBlot);
+        let currentGroups = [];
 
-        function reloadSections(sections, rows, columns, website) {
+        function reloadSections(sections, rows, columns, website, groups = []) {
+            setCurrentGroups(groups);
             quillEditors = [];
             const sectionsContainer = document.getElementById('sections-container');
+
+
             sectionsContainer.innerHTML = ''; // Clear the container
 
+            const groupContainersById = {};
+
+            groups
+                .slice()
+                .sort((a, b) => (a.group_order || 0) - (b.group_order || 0))
+                .forEach(group => {
+                    const groupContainer = document.createElement('div');
+                    groupContainer.classList.add('section-group');
+                    groupContainer.id = `section-group-${group.id}`;
+                    groupContainer.setAttribute('data-group-id', group.id);
+
+                    groupContainer.style.background = group.background_color || 'rgba(255,255,255,0.08)';
+                    groupContainer.style.padding = `${group.padding || 20}px`;
+                    groupContainer.style.borderRadius = `${group.border_radius || 16}px`;
+
+                    groupContainer.innerHTML = `
+            <div class="section-group-header">
+                <span class="group-drag-handle">☰</span>
+                <span>${group.name || 'Section Group'}</span>
+
+
+                    <button type="button" onclick="openGroupStyleModal(${group.id})" title="Group Style">
+    <i class="fas fa-palette"></i>
+</button>
+                    <button type="button" onclick="addRowToGroup(${group.id})">
+                        Add Row
+                    </button>
+
+                    <button type="button" onclick="deleteSectionGroup(${group.id})">
+                        Delete Group
+                    </button>
+                </div>
+            </div>
+
+            <div class="group-rows" data-group-id="${group.id}">
+                <div class="empty-group-message" style="color:white; opacity:0.7; padding:12px;">
+                    Empty group. Add a row to start using it.
+                </div>
+            </div>
+        `;
+
+                    groupContainersById[group.id] = groupContainer;
+                    sectionsContainer.appendChild(groupContainer);
+                });
             // Create a nested structure for rows and columns
             const grid = {};
 
@@ -2701,11 +2898,25 @@
 
             // Render the grid in the sections container in the order of row_number
             rows.forEach(row => {
+                let parentContainer = sectionsContainer;
+
+                if (row.section_group_id && groupContainersById[row.section_group_id]) {
+                    const groupContainer = groupContainersById[row.section_group_id];
+                    const groupRowsContainer = groupContainer.querySelector('.group-rows');
+
+                    const emptyMessage = groupRowsContainer.querySelector('.empty-group-message');
+                    if (emptyMessage) {
+                        emptyMessage.remove();
+                    }
+
+                    parentContainer = groupRowsContainer;
+                }
                 const rowId = row.id;
                 console.log('Rows Generating in LOOP: ', rowId);
                 const rowElement = document.createElement('div');
                 rowElement.classList.add('row');
-                rowElement.setAttribute('data-row', rowId);
+                rowElement.setAttribute('data-row-id', rowId);
+                // rowElement.setAttribute('data-row', rowId);
                 rowElement.id = `row-${rowId}`; // Set row ID
                 rowElement.setAttribute('row-order-number-', row.row_number); // Set row ID
 
@@ -2778,11 +2989,17 @@
                 rowDropZone.addEventListener('drop', handleRowDrop);
                 rowDropZone.addEventListener('dragleave', handleRowDragLeave);
 
-                sectionsContainer.appendChild(rowDropZone);
+                // sectionsContainer.appendChild(rowDropZone);
+                parentContainer.appendChild(rowDropZone);
 
 
                 // Append dropdown container to row
                 rowElement.appendChild(optionsDropdown);
+
+                const rowDragHandle = document.createElement('div');
+                rowDragHandle.classList.add('row-drag-handle');
+                rowDragHandle.innerHTML = '☰';
+                rowElement.insertBefore(rowDragHandle, rowElement.firstChild);
 
                 console.log('Grid row:', grid[rowId]);
 
@@ -3645,7 +3862,8 @@
                     }
 
                 }
-                sectionsContainer.appendChild(rowElement);
+                // sectionsContainer.appendChild(rowElement);
+                parentContainer.appendChild(rowElement);
 
                 // Make sections draggable
                 const sectionTitles = document.querySelectorAll('.section-title');
@@ -3841,6 +4059,7 @@
 
             // Append the container to the sectionsContainer
             sectionsContainer.appendChild(addSectionBtnContainer);
+            initializeGroupAndRowSorting();
 
 
             function addRowAbove(currentRowId) {
@@ -4054,16 +4273,13 @@
                 fetch(`/delete_row/${rowId}`, {
                     method: 'DELETE',
                 })
-                    .then(response => {
-                        if (response.ok) {
-                            // Remove the row element from the UI
-                            const rowElement = document.querySelector(`.row[data-row="${rowId}"]`);
-                            if (rowElement) {
-                                rowElement.remove();
-                            }
-                            console.log('Row deleted successfully');
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success || data.message) {
+                            populateSections();
+                            reloadIframe();
                         } else {
-                            console.error('Failed to delete row');
+                            alert(data.error || 'Failed to delete row.');
                         }
                     })
                     .catch(error => {
@@ -5889,116 +6105,7 @@
 
 
     <script>
-        const savedBackground = {{ page_content.background_color| tojson }};
-        const savedTextColor = {{ page_content.text_color| tojson }};
 
-        const gradientContainer = document.getElementById('gradient-colors');
-        const addColorBtn = document.getElementById('add-color-stop');
-        const directionSelect = document.getElementById('gradient-direction');
-        const textColorPicker = document.getElementById('text-color');
-
-        let timer = null;
-
-        function debounceUpdate() {
-            clearTimeout(timer);
-            timer = setTimeout(updatePageColors, 500);
-        }
-
-        function createColorInput(value = '#ffffff') {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'gradient-stop';
-
-            const input = document.createElement('input');
-            input.type = 'color';
-            input.className = 'gradient-color';
-            input.value = value;
-
-            const removeBtn = document.createElement('button');
-            removeBtn.type = 'button';
-            removeBtn.textContent = '×';
-
-            removeBtn.addEventListener('click', () => {
-                const allStops = gradientContainer.querySelectorAll('.gradient-stop');
-                if (allStops.length > 1) {
-                    wrapper.remove();
-                    debounceUpdate();
-                }
-            });
-
-            input.addEventListener('input', debounceUpdate);
-
-            wrapper.appendChild(input);
-            wrapper.appendChild(removeBtn);
-            gradientContainer.appendChild(wrapper);
-        }
-
-        function parseSavedBackground(backgroundValue) {
-            if (!backgroundValue) {
-                return {
-                    direction: 'to right',
-                    colors: ['#ffffff', '#000000']
-                };
-            }
-
-            const trimmed = backgroundValue.trim();
-
-            if (!trimmed.startsWith('linear-gradient(')) {
-                return {
-                    direction: 'to right',
-                    colors: [trimmed]
-                };
-            }
-
-            const inside = trimmed.slice('linear-gradient('.length, -1);
-            const parts = inside.split(',').map(p => p.trim());
-
-            let direction = 'to right';
-            let colors = parts;
-
-            if (
-                parts[0].startsWith('to ') ||
-                parts[0].includes('deg')
-            ) {
-                direction = parts[0];
-                colors = parts.slice(1);
-            }
-
-            return {
-                direction,
-                colors
-            };
-        }
-
-        function initializeBackgroundControls() {
-            gradientContainer.innerHTML = '';
-
-            const parsed = parseSavedBackground(savedBackground);
-
-            if ([...directionSelect.options].some(opt => opt.value === parsed.direction)) {
-                directionSelect.value = parsed.direction;
-            } else {
-                directionSelect.value = 'to right';
-            }
-
-            parsed.colors.forEach(color => {
-                createColorInput(color);
-            });
-
-            if (parsed.colors.length === 0) {
-                createColorInput('#ffffff');
-                createColorInput('#000000');
-            }
-
-            textColorPicker.value = savedTextColor || '#000000';
-        }
-
-        addColorBtn.addEventListener('click', () => {
-            createColorInput('#ffffff');
-            debounceUpdate();
-        });
-
-        directionSelect.addEventListener('change', debounceUpdate);
-        textColorPicker.addEventListener('input', debounceUpdate);
 
         function updatePageColors() {
             const pageId = "{{ page_content.id }}";
@@ -6030,7 +6137,327 @@
                 });
         }
 
-        document.addEventListener('DOMContentLoaded', initializeBackgroundControls);
+    </script>
+
+    <script>
+        function addRowToGroup(groupId) {
+            fetch(`/add_row_to_group/${pageId}/${groupId}`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateSections();
+                    } else {
+                        alert(data.error || 'Failed to add row to group.');
+                    }
+                })
+                .catch(error => console.error('Error adding row to group:', error));
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const addGroupBtn = document.getElementById('add-section-group-btn');
+
+            if (addGroupBtn) {
+                addGroupBtn.addEventListener('click', function () {
+                    createSectionGroup();
+                });
+            }
+        });
+
+        function createSectionGroup() {
+            fetch(`/create_section_group/${pageId}`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateSections();
+                    } else {
+                        alert(data.error || 'Failed to create section group.');
+                    }
+                })
+                .catch(error => console.error('Error creating section group:', error));
+        }
+
+        function deleteSectionGroup(groupId) {
+            if (!confirm('Delete this group? Rows inside it will be ungrouped, not deleted.')) {
+                return;
+            }
+
+            fetch(`/delete_section_group/${groupId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateSections();
+                    } else {
+                        alert(data.error || 'Failed to delete section group.');
+                    }
+                })
+                .catch(error => console.error('Error deleting section group:', error));
+        }
+
+        function initializeGroupAndRowSorting() {
+            const sectionsContainer = document.getElementById('sections-container');
+            if (!sectionsContainer) return;
+
+            Sortable.create(sectionsContainer, {
+                animation: 150,
+                handle: '.group-drag-handle, .row-drag-handle',
+                draggable: '.section-group, #sections-container > .row',
+                ghostClass: 'sortable-ghost',
+                chosenClass: 'sortable-chosen',
+
+                onEnd: function () {
+                    saveFullEditorOrder();
+                }
+            });
+
+            document.querySelectorAll('.group-rows').forEach(groupRows => {
+                Sortable.create(groupRows, {
+                    animation: 150,
+                    handle: '.row-drag-handle',
+                    draggable: '.row',
+                    group: {
+                        name: 'page-rows',
+                        pull: true,
+                        put: true
+                    },
+                    ghostClass: 'sortable-ghost',
+                    chosenClass: 'sortable-chosen',
+
+                    onEnd: function () {
+                        saveFullEditorOrder();
+                    }
+                });
+            });
+        }
+
+        function saveFullEditorOrder() {
+            const groupIds = [];
+            const rowData = [];
+            let rowNumber = 1;
+
+            const topLevelItems = Array.from(
+                document.querySelectorAll('#sections-container > .section-group, #sections-container > .row')
+            );
+
+            topLevelItems.forEach(item => {
+                if (item.classList.contains('section-group')) {
+                    const groupId = parseInt(item.dataset.groupId, 10);
+
+                    if (groupId) {
+                        groupIds.push(groupId);
+                    }
+
+                    const groupRows = item.querySelectorAll('.group-rows > .row');
+
+                    groupRows.forEach(rowEl => {
+                        const rowId = parseInt(rowEl.dataset.rowId, 10);
+                        if (!rowId) return;
+
+                        rowData.push({
+                            row_id: rowId,
+                            row_number: rowNumber++,
+                            section_group_id: groupId
+                        });
+                    });
+                }
+
+                if (item.classList.contains('row')) {
+                    const rowId = parseInt(item.dataset.rowId, 10);
+                    if (!rowId) return;
+
+                    rowData.push({
+                        row_id: rowId,
+                        row_number: rowNumber++,
+                        section_group_id: null
+                    });
+                }
+            });
+
+            fetch('/update_editor_group_and_row_order', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    group_ids: groupIds,
+                    rows: rowData
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateSections();
+                    } else {
+                        alert(data.error || 'Failed to save editor order.');
+                    }
+                })
+                .catch(error => console.error('Error saving editor order:', error));
+        }
+
+
+
+        function setCurrentGroups(groups) {
+            currentGroups = groups || [];
+        }
+
+        function openGroupStyleModal(groupId) {
+
+            const group = currentGroups.find(g => Number(g.id) === Number(groupId));
+            if (!group) return;
+            document.getElementById('groupName').value = group.name || '';
+            document.getElementById('groupStyleGroupId').value = group.id;
+            const padding = group.padding ?? 0;
+            const borderRadius = group.border_radius ?? 0;
+
+            document.getElementById('groupPadding').value = padding;
+            document.getElementById('groupBorderRadius').value = borderRadius;
+
+            document.getElementById('groupPaddingValue').textContent = `${padding}px`;
+            document.getElementById('groupBorderRadiusValue').textContent = `${borderRadius}px`;
+
+            initializeGroupStyleBackground(group.background_color || 'rgba(255,255,255,0.08)');
+
+            document.getElementById('groupStyleModal').style.display = 'block';
+        }
+
+        function closeGroupStyleModal() {
+            document.getElementById('groupStyleModal').style.display = 'none';
+        }
+
+        function addGroupColorStop(color = '#ffffff') {
+            const container = document.getElementById('groupGradientColors');
+            if (!container) return;
+
+            const stop = document.createElement('div');
+            stop.classList.add('gradient-stop');
+
+            stop.innerHTML = `
+        <input type="color" value="${color}">
+        <button type="button">×</button>
+    `;
+
+            const colorInput = stop.querySelector('input');
+            const removeButton = stop.querySelector('button');
+
+            colorInput.addEventListener('input', updateGroupBackgroundPreview);
+
+            removeButton.addEventListener('click', function () {
+                stop.remove();
+                updateGroupBackgroundPreview();
+            });
+
+            container.appendChild(stop);
+            updateGroupBackgroundPreview();
+        }
+
+        function initializeGroupStyleBackground(savedBackground) {
+            const container = document.getElementById('groupGradientColors');
+            const directionSelect = document.getElementById('groupGradientDirection');
+
+            container.innerHTML = '';
+
+            if (savedBackground && savedBackground.startsWith('linear-gradient')) {
+                const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
+                const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+
+                directionSelect.value = direction;
+
+                const colorsPart = savedBackground
+                    .replace(/^linear-gradient\((.*?),/, '')
+                    .replace(/\)$/, '');
+
+                colorsPart.split(',').map(c => c.trim()).forEach(color => {
+                    addGroupColorStop(color);
+                });
+            } else {
+                addGroupColorStop(savedBackground || '#ffffff');
+            }
+
+            updateGroupBackgroundPreview();
+        }
+
+        function updateGroupBackgroundPreview() {
+            const directionSelect = document.getElementById('groupGradientDirection');
+            const backgroundInput = document.getElementById('groupBackgroundColor');
+            const preview = document.getElementById('groupStylePreview');
+
+            const colorInputs = document.querySelectorAll('#groupGradientColors input[type="color"]');
+            const colors = Array.from(colorInputs).map(input => input.value);
+
+            let background = '#ffffff';
+
+            if (colors.length === 1) {
+                background = colors[0];
+            } else if (colors.length > 1) {
+                background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+            }
+
+            backgroundInput.value = background;
+            preview.style.background = background;
+
+            const padding = document.getElementById('groupPadding').value;
+            const radius = document.getElementById('groupBorderRadius').value;
+
+            preview.style.padding = `${padding || 0}px`;
+            preview.style.borderRadius = `${radius || 0}px`;
+
+            document.getElementById('groupPaddingValue').textContent = `${padding}px`;
+            document.getElementById('groupBorderRadiusValue').textContent = `${radius}px`;
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const direction = document.getElementById('groupGradientDirection');
+            const padding = document.getElementById('groupPadding');
+            const radius = document.getElementById('groupBorderRadius');
+
+            if (direction) direction.addEventListener('change', updateGroupBackgroundPreview);
+            if (padding) padding.addEventListener('input', updateGroupBackgroundPreview);
+            if (radius) radius.addEventListener('input', updateGroupBackgroundPreview);
+        });
+
+        function saveGroupStyle() {
+            const groupId = document.getElementById('groupStyleGroupId').value;
+
+            fetch(`/update_section_group/${groupId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    name: document.getElementById('groupName').value,
+                    background_color: document.getElementById('groupBackgroundColor').value,
+                    padding: document.getElementById('groupPadding').value,
+                    border_radius: document.getElementById('groupBorderRadius').value
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        closeGroupStyleModal();
+                        populateSections();
+                        reloadIframe();
+                    } else {
+                        alert(data.error || 'Failed to save group style.');
+                    }
+                })
+                .catch(error => console.error('Error saving group style:', error));
+        }
     </script>
 
     {% endblock %}

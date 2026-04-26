@@ -1337,18 +1337,23 @@
                     <div class="navbar-builder-card">
                         <h6>Add Page Link</h6>
 
-                        <select id="navbarPageSelect_{{ website.id }}" class="form-control">
-                            <option value="">Select page...</option>
+<select id="navbarPageSelect_{{ website.id }}" class="form-control">
+    <option value="">Select page...</option>
 
-                            {% for page in pages %}
-                            <option value="{{ url_for('public_page_by_slug', page_slug=page.slug) }}"
-                                data-name="{{ page.name }}">
-                                {{ page.name }}
-                            </option>
-                            {% endfor %}
+    {% for page in pages %}
+    <option value="{{ url_for('public_page_by_slug', page_slug=page.slug) }}"
+        data-name="{{ page.name }}"
+        data-page-id="{{ page.id }}">
+        {{ page.name }}
+    </option>
+    {% endfor %}
 
-                            <option value="manual">Enter manually</option>
-                        </select>
+    <option value="manual">Enter manually</option>
+</select>
+
+<select id="navbarGroupSelect_{{ website.id }}" class="form-control" style="display:none;">
+    <option value="">Select group...</option>
+</select>
 
                         <select id="navbarDestinationSelect_{{ website.id }}" class="form-control">
                             <option value="top">Add to top level</option>
@@ -1632,6 +1637,10 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 });
+</script>
+
+<script>
+    const websitePageGroups = {{ website_page_groups | tojson }};
 </script>
 
         <script>
@@ -2066,29 +2075,76 @@ alert('Navbar style saved.');
                 addNavbarItem(websiteId, '', '', container);
             }
 
+            
+
             function addSelectedNavbarPage(websiteId) {
-                const select = document.getElementById(`navbarPageSelect_${websiteId}`);
-                const selectedOption = select.options[select.selectedIndex];
-                const destinationSelect = document.getElementById(`navbarDestinationSelect_${websiteId}`);
+    const select = document.getElementById(`navbarPageSelect_${websiteId}`);
+    const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
+    const selectedOption = select.options[select.selectedIndex];
+    const destinationSelect = document.getElementById(`navbarDestinationSelect_${websiteId}`);
 
-                if (!select.value) {
-                    alert("Please select a page.");
-                    return;
-                }
+    if (!select.value) {
+        alert("Please select a page.");
+        return;
+    }
 
-                if (select.value === "manual") {
-                    document.getElementById(`manualNavbarName_${websiteId}`).focus();
-                    return;
-                }
+    if (select.value === "manual") {
+        document.getElementById(`manualNavbarName_${websiteId}`).focus();
+        return;
+    }
 
-                const name = selectedOption.dataset.name;
-                const url = select.value;
-                const destinationContainer = getNavbarDestinationContainer(websiteId, destinationSelect.value);
+    let name = selectedOption.dataset.name;
+    let url = select.value;
 
-                addNavbarItem(websiteId, name, url, destinationContainer);
+    if (groupSelect && groupSelect.value) {
+        const selectedGroupOption = groupSelect.options[groupSelect.selectedIndex];
+        name = selectedGroupOption.textContent;
+        url = `${url}#${groupSelect.value}`;
+    }
 
-                select.value = "";
-            }
+    const destinationContainer = getNavbarDestinationContainer(websiteId, destinationSelect.value);
+
+    addNavbarItem(websiteId, name, url, destinationContainer);
+
+    select.value = "";
+    if (groupSelect) {
+        groupSelect.innerHTML = `<option value="">Select group...</option>`;
+        groupSelect.style.display = 'none';
+    }
+}
+
+            function updateNavbarGroupSelect(websiteId) {
+    const pageSelect = document.getElementById(`navbarPageSelect_${websiteId}`);
+    const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
+
+    if (!pageSelect || !groupSelect) return;
+
+    const selectedOption = pageSelect.options[pageSelect.selectedIndex];
+    const pageId = selectedOption?.dataset?.pageId;
+
+    groupSelect.innerHTML = `<option value="">Select group...</option>`;
+
+    if (!pageId || pageSelect.value === 'manual') {
+        groupSelect.style.display = 'none';
+        return;
+    }
+
+    const groups = websitePageGroups?.[websiteId]?.[pageId] || [];
+
+    if (!groups.length) {
+        groupSelect.style.display = 'none';
+        return;
+    }
+
+    groups.forEach(group => {
+        const option = document.createElement('option');
+        option.value = group.anchor_slug;
+        option.textContent = group.name || group.anchor_slug;
+        groupSelect.appendChild(option);
+    });
+
+    groupSelect.style.display = 'block';
+}
 
             function addManualNavbarItem(websiteId) {
                 const nameInput = document.getElementById(`manualNavbarName_${websiteId}`);
@@ -2196,11 +2252,20 @@ alert('Navbar style saved.');
             }
         </script>
 
-        <script>
+<script>
 document.addEventListener('DOMContentLoaded', function () {
     {% for website, pages in website_pages.items() %}
         const savedNavbarItems_{{ website.id }} = {{ (website.public_navbar_items or []) | tojson }};
+
         loadNavbarItems('{{ website.id }}', savedNavbarItems_{{ website.id }});
+
+        const pageSelect_{{ website.id }} = document.getElementById('navbarPageSelect_{{ website.id }}');
+
+        if (pageSelect_{{ website.id }}) {
+            pageSelect_{{ website.id }}.addEventListener('change', function () {
+                updateNavbarGroupSelect('{{ website.id }}');
+            });
+        }
     {% endfor %}
 });
 </script>

@@ -223,27 +223,27 @@
 
     img {
         border-radius: 5px;
-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
-.mySlides img {
-    /* 1. The Rounding */
-    /* border-radius: 10px; */
+    .mySlides img {
+        /* 1. The Rounding */
+        /* border-radius: 10px; */
 
-    /* 2. The Fix: Force the image to behave like a block */
-    display: block; 
+        /* 2. The Fix: Force the image to behave like a block */
+        display: block;
 
-    /* 3. The Sizing: Ensure it fits the container without "leaking" out */
-    max-width: 100%;
-    height: 100%;
+        /* 3. The Sizing: Ensure it fits the container without "leaking" out */
+        max-width: 100%;
+        height: 100%;
 
-    /* 4. The Alignment: If it doesn't fill the width, center it */
-    margin: 0 auto;
-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
+        /* 4. The Alignment: If it doesn't fill the width, center it */
+        margin: 0 auto;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
 
-    
+
 
     .thumbnail-container {
         overflow-x: auto;
@@ -645,9 +645,9 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 
 <body style="background: {{ website.background_color }}; color: {{ website.text_color }};">
     {% include 'components/public_navbar.html' %}
-    {% if content.is_preview %}
+    <!-- {% if content.is_preview %}
     <div class="preview-banner">Preview</div>
-    {% endif %}
+    {% endif %} -->
     {% set navbar_rendered = False %}
     {% for section in content['sections'] %}
 
@@ -674,25 +674,223 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     <!-- Public Page Content -->
 
     <div class="content-area">
-
-        <!-- {% for section in content['sections'] %}
-
-        {% if section.section_type == 'header' %}
-        <div class="banner-background">
-        </div>
-        <div class="banner">
-            <span class="banner-text">{{ section.content['text'] }}</span>
-        </div>
-        {% endif %}
-        
-        {% endfor %} -->
-
         <div class="main-content">
+
+            {% for group in content.get('groups', []) %}
+            <section class="public-section-group" id="{{ group.anchor_slug or ('section-group-' ~ group.id) }}" style="
+            background: {{ group.background_color or 'transparent' }};
+padding: {{ group.padding if group.padding is not none else 0 }}px;
+border-radius: {{ group.border_radius if group.border_radius is not none else 0 }}px;
+            margin: 20px auto;
+            box-sizing: border-box;
+            width: 100%;
+        ">
+
+                {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
+                {% set first_section = sections_in_row[0] %}
+
+                {% if first_section.section_group_id == group.id %}
+                <div class="row-container">
+                    <div class="row">
+                        {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
+                        {% for section in sorted_sections %}
+
+                        <!-- paste your full section-container block here -->
+                        <div class="section-container" style="width: {{ section.width }}%;">
+
+                            {% if section.section_type == 'image_gallery' %}
+                            <div class="slideshow-thumbnail-container">
+                                <div class="slideshow-container" data-section-id="{{ section.id }}">
+                                    {% if section.id in content.pictures_by_section %}
+                                    {% for imageUrl in content.pictures_by_section[section.id] %}
+                                    <div class="mySlides fade" data-section-id="{{ section.id }}">
+                                        <img src="{{ imageUrl }}">
+                                    </div>
+                                    {% endfor %}
+                                    {% else %}
+                                    <p>No images in this section.</p>
+                                    {% endif %}
+                                </div>
+                                <div style="text-align:center">
+                                    <div class="thumbnail-container" data-section-id="{{ section.id }}">
+                                        {% if section.id in content.pictures_by_section %}
+                                        {% for imageUrl in content.pictures_by_section[section.id] %}
+                                        <div class="thumbnail">
+                                            <img src="{{ imageUrl }}" loading="lazy"
+                                                style="max-width:100px;max-height:75px;"
+                                                onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
+                                        </div>
+                                        {% endfor %}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% elif section.section_type == 'image' %}
+                            <div class="single-image-container">
+                                <!-- <div class="slideshow-container" data-section-id="{{ section.id }}"> -->
+                                {% if section.id in content.pictures_by_section %}
+                                <!-- {% for imageUrl in content.pictures_by_section[section.id] %} -->
+                                <!-- <div class="mySlides fade" data-section-id="{{ section.id }}"> -->
+                                <img src="{{ imageUrl }}" loading="lazy">
+                                <!-- </div> -->
+                                <!-- {% endfor %} -->
+                                {% else %}
+                                <p>No images in this section.</p>
+                                {% endif %}
+                                <!-- </div>
+                    <div style="text-align:center">
+                        <div class="thumbnail-container" data-section-id="{{ section.id }}">
+                            {% if section.id in content.pictures_by_section %}
+                            {% for imageUrl in content.pictures_by_section[section.id] %}
+                            <div class="thumbnail">
+                                <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
+                                    onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
+                            </div>
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div> -->
+                            </div>
+                            {% elif section.section_type == 'code' %}
+                            <div class="text-area">
+                                {{ section.content['text'] | safe }}
+                            </div>
+                            {% elif section.section_type == 'text' %}
+                            {% set bg = section.content.get('background_color', '#000000') %}
+                            {% set opacity = section.content.get('background_opacity', '0')|float %}
+                            {% set padding = section.content.get('padding', '20') %}
+                            {% set radius = section.content.get('border_radius', '10') %}
+                            {% set shadow = section.content.get('box_shadow', 'medium') %}
+                            {% set shadow_css = {
+                            'none': 'none',
+                            'light': '0 2px 8px rgba(0,0,0,0.18)',
+                            'medium': '0 6px 18px rgba(0,0,0,0.28)',
+                            'heavy': '0 10px 28px rgba(0,0,0,0.4)'
+                            }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
+                            rgba(0,0,0,0.28)'
+                            %}
+                            {% set bg_hex = bg.lstrip('#') %}
+                            {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                            {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                            {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
+
+                            <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+            padding: {{ padding }}px;
+            border-radius: {{ radius }}px;
+            box-shadow: {{ shadow_css }};">
+                                {{ section.content['html'] | safe }}
+                            </div>
+
+                            {% elif section.section_type == 'button' %}
+                            {% if section.content['enabled'] %}
+                            <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
+                                section.content['text']
+                                }}</a>
+                            {% endif %}
+                            {% elif section.section_type == 'map' %}
+                            {% if section.content['enabled'] %}
+                            <div id="map_{{ section.id }}" style="height: 400px;"></div>
+                            <script id="map-data_{{ section.id }}" type="application/json">
+                    {{ section.content | tojson }}
+                </script>
+                            {% endif %}
+                            {% elif section.section_type == 'calendar' %}
+                            <div class="calendar-container section-container" data-section-id="{{ section.id }}">
+                                <div id="calendar-{{ section.id }}" class="calendar"></div>
+                                <!-- Add a button to subscribe to this section's calendar -->
+                                <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download
+                                    class="button">Download
+                                    Calendar</a>
+                            </div>
+                            <!-- Event Modal -->
+                            <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
+                                aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content modal-dark">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="eventModalTitle"></h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                                aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body" id="eventModalBody">
+                                            <!-- Event details will be populated here -->
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary"
+                                                data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% elif section.section_type == 'contact_form' %}
+                            {% if section.content['enabled'] %}
+                            <div class="contact-form-container">
+                                <h2>{{ section.content['title'] }}</h2>
+                                <form id="contactForm-{{ section.id }}" class="contact-form">
+                                    <input type="hidden" name="section_id" value="{{ section.id }}">
+
+                                    <div class="form-group">
+                                        <label for="senders_email_{{ section.id }}">Your Email:</label><br>
+                                        <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
+                                            class="dynamic-width form-control" style="padding: 10px;" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="message_subject_{{ section.id }}">Subject:</label><br>
+                                        <input type="text" id="message_subject_{{ section.id }}" name="message_subject"
+                                            class="dynamic-width form-control" style="padding: 10px;" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="message_body_{{ section.id }}">Message:</label><br>
+                                        <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
+                                            class="dynamic-width form-control" style="padding: 10px;"
+                                            required></textarea>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-primary">Submit</button>
+                                </form>
+
+                                <div id="successMessage-{{ section.id }}" style="display: none;">
+                                    <h2>Message Sent!</h2>
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% elif section.section_type == 'youtube_video' %}
+                            <div class="youtube-video-container">
+                                <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
+                                    {% if section.content['youtube_url'] %}
+                                    <iframe width="100%" height="100%"
+                                        src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}"
+                                        frameborder="0"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowfullscreen></iframe>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+
+            </section>
+            {% endfor %}
+
+
             {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
+            {% set first_section = sections_in_row[0] %}
+
+            {% if not first_section.section_group_id %}
             <div class="row-container">
                 <div class="row">
                     {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
                     {% for section in sorted_sections %}
+
+                    <!-- paste your full section-container block here too -->
                     <div class="section-container" style="width: {{ section.width }}%;">
 
                         {% if section.section_type == 'image_gallery' %}
@@ -763,7 +961,8 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
                         'light': '0 2px 8px rgba(0,0,0,0.18)',
                         'medium': '0 6px 18px rgba(0,0,0,0.28)',
                         'heavy': '0 10px 28px rgba(0,0,0,0.4)'
-                        }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px rgba(0,0,0,0.28)'
+                        }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
+                        rgba(0,0,0,0.28)'
                         %}
                         {% set bg_hex = bg.lstrip('#') %}
                         {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
@@ -779,7 +978,8 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 
                         {% elif section.section_type == 'button' %}
                         {% if section.content['enabled'] %}
-                        <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{ section.content['text']
+                        <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
+                            section.content['text']
                             }}</a>
                         {% endif %}
                         {% elif section.section_type == 'map' %}
@@ -864,11 +1064,16 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
                         </div>
                         {% endif %}
                     </div>
+
                     {% endfor %}
                 </div>
             </div>
+            {% endif %}
             {% endfor %}
+
         </div>
+
+
     </div>
 </body>
 

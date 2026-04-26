@@ -28,3 +28,5 @@ scratch/
 
 # OS junk
 .DS_Store
+
+database/Static/uploads/
