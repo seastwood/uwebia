@@ -1308,6 +1308,9 @@
                     </div>
                 </div>
 
+                                {% set palette_context = 'website_' ~ website.id %}
+{% include 'components/color_palette.html' %}
+
                 <div id="websiteStylePreview_{{ website.id }}"
                     style="margin-top: 20px; padding: 20px; border-radius: 12px;">
                     Website preview text
@@ -1486,7 +1489,8 @@
                 <input type="color"
                     id="navbarTextColor_{{ website.id }}"
                     value="{{ (website.public_navbar_style or {}).get('text_color', '#ffffff') }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')">
+                    oninput="updateFullNavbarPreview('{{ website.id }}')"
+                    oninput="lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
             </div>
 
             <div class="navbar-style-card">
@@ -1802,9 +1806,10 @@ alert('Navbar style saved.');
                 const colorInput = stop.querySelector('input');
                 const removeButton = stop.querySelector('button');
 
-                colorInput.addEventListener('input', function () {
-                    updateNavbarBackgroundPreview(websiteId);
-                });
+colorInput.addEventListener('input', function () {
+    lastSelectedColor = this.value;
+    updateWebsiteBackgroundPreview(websiteId);
+});
 
                 removeButton.addEventListener('click', function () {
                     stop.remove();
@@ -1813,6 +1818,8 @@ alert('Navbar style saved.');
 
                 container.appendChild(stop);
                 updateNavbarBackgroundPreview(websiteId);
+                enableColorPickerDropTargets();
+enableDraggingFromColorInputs();
             }
 
             function updateNavbarBackgroundPreview(websiteId) {
@@ -2259,6 +2266,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         loadNavbarItems('{{ website.id }}', savedNavbarItems_{{ website.id }});
 
+        renderSavedColors('website_{{ website.id }}');
+        enableSavedColorDropZone('website_{{ website.id }}');
+
         const pageSelect_{{ website.id }} = document.getElementById('navbarPageSelect_{{ website.id }}');
 
         if (pageSelect_{{ website.id }}) {
@@ -2294,10 +2304,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     previewText.style.color = textColorInput.value;
                 }
 
-                textColorInput.addEventListener('input', updateTextPreview);
-                updateTextPreview();
+if (textColorInput) {
+    textColorInput.addEventListener('input', updateTextPreview);
+    updateTextPreview();
+}
 
-                initializeWebsiteBackground();
+if (typeof initializeWebsiteBackground === 'function') {
+    initializeWebsiteBackground();
+}
             });
         </script>
 
@@ -2321,9 +2335,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 const colorInput = stop.querySelector('input');
                 const removeButton = stop.querySelector('button');
 
-                colorInput.addEventListener('input', function () {
-                    updateWebsiteBackgroundPreview(websiteId);
-                });
+colorInput.addEventListener('input', function () {
+    lastSelectedColor = this.value;
+    updateWebsiteBackgroundPreview(websiteId);
+});
 
                 removeButton.addEventListener('click', function () {
                     stop.remove();
@@ -2332,6 +2347,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 container.appendChild(stop);
                 updateWebsiteBackgroundPreview(websiteId);
+                enableColorPickerDropTargets();
+                enableDraggingFromColorInputs();
             }
 
             function updateWebsiteBackgroundPreview(websiteId) {
@@ -2968,11 +2985,26 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
         </script>
+                <script>
+function enableDraggingFromColorInputs() {
+    document.querySelectorAll('input[type="color"]').forEach(input => {
+        if (input.dataset.colorDragReady === 'true') return;
+
+        input.dataset.colorDragReady = 'true';
+        input.setAttribute('draggable', 'true');
+
+        input.addEventListener('dragstart', function (event) {
+            event.dataTransfer.setData('text/plain', this.value);
+            event.dataTransfer.effectAllowed = 'copy';
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', enableDraggingFromColorInputs);
+        </script>
         {% endblock %}
 
-        <script>
 
-        </script>
 
 </body>
 

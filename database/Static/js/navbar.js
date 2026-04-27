@@ -88,3 +88,71 @@ document.addEventListener('DOMContentLoaded', function () {
         // refresh every 10 seconds
         setInterval(fetchUnreadMessagesCount, 10000);
     });
+
+    function toggleGlobalColorPalette() {
+    const panel = document.getElementById('globalColorPalettePanel');
+    if (!panel) return;
+
+    panel.classList.toggle('open');
+
+    renderSavedColors('global_palette');
+    enableSavedColorDropZone('global_palette');
+    enableColorPickerDropTargets();
+    enableDraggingFromColorInputs();
+}
+
+function makeGlobalColorPaletteDraggable() {
+    const panel = document.getElementById('globalColorPalettePanel');
+    const handle = document.getElementById('globalColorPaletteDragHandle');
+
+    if (!panel || !handle || panel.dataset.draggableReady === 'true') return;
+
+    panel.dataset.draggableReady = 'true';
+
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    handle.addEventListener('mousedown', function (event) {
+        isDragging = true;
+
+        const rect = panel.getBoundingClientRect();
+        offsetX = event.clientX - rect.left;
+        offsetY = event.clientY - rect.top;
+
+        panel.style.right = 'auto';
+        panel.style.left = `${rect.left}px`;
+        panel.style.top = `${rect.top}px`;
+
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function (event) {
+        if (!isDragging) return;
+
+        const left = Math.max(8, Math.min(window.innerWidth - panel.offsetWidth - 8, event.clientX - offsetX));
+        const top = Math.max(8, Math.min(window.innerHeight - panel.offsetHeight - 8, event.clientY - offsetY));
+
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+    });
+
+    document.addEventListener('mouseup', function () {
+        if (!isDragging) return;
+        isDragging = false;
+        document.body.style.userSelect = '';
+    });
+}
+
+function toggleGlobalColorPalette() {
+    const panel = document.getElementById('globalColorPalettePanel');
+    if (!panel) return;
+
+    panel.classList.toggle('open');
+
+    renderSavedColors('global_palette');
+    enableSavedColorDropZone('global_palette');
+    enableColorPickerDropTargets();
+    enableDraggingFromColorInputs();
+    makeGlobalColorPaletteDraggable();
+}

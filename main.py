@@ -400,6 +400,12 @@ class CalendarEvent(db.Model):
             'section_id': self.section_id
         }
 
+class SavedColor(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    color = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -4104,6 +4110,39 @@ def delete_event(section_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/saved_colors', methods=['GET'])
+@login_required
+def get_saved_colors():
+    colors = SavedColor.query.filter_by(user_id=current_user.id).order_by(SavedColor.created_at.desc()).all()
+    return jsonify({'colors': [c.color for c in colors]})
+
+@app.route('/saved_colors', methods=['POST'])
+@login_required
+def save_color():
+    data = request.get_json()
+    color = data.get('color')
+
+    if not color:
+        return jsonify({'success': False, 'error': 'Missing color'}), 400
+
+    exists = SavedColor.query.filter_by(user_id=current_user.id, color=color).first()
+    if not exists:
+        db.session.add(SavedColor(user_id=current_user.id, color=color))
+        db.session.commit()
+
+    return jsonify({'success': True})
+
+@app.route('/saved_colors', methods=['DELETE'])
+@login_required
+def delete_saved_color():
+    data = request.get_json()
+    color = data.get('color')
+
+    SavedColor.query.filter_by(user_id=current_user.id, color=color).delete()
+    db.session.commit()
+
+    return jsonify({'success': True})
 
 
 if __name__ == '__main__':

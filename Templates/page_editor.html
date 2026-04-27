@@ -630,6 +630,7 @@
         padding: 12px;
         pointer-events: auto;
         margin-top: -2px;
+        border-top-left-radius: 10px;
     }
 
 
@@ -2085,6 +2086,153 @@
     .sortable-chosen {
         box-shadow: 0 0 0 2px #7ee2cc;
     }
+
+    .group-style-content {
+    max-width: 920px;
+    width: 90%;
+    border-radius: 22px;
+    background: linear-gradient(145deg, #202126, #2d2f36);
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+    padding: 24px;
+}
+
+.group-style-content h5 {
+    margin: 0 0 18px;
+    font-size: 1.35rem;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+}
+
+.group-style-content .close {
+    color: #cfd3d6;
+    background: rgba(255,255,255,0.08);
+    border-radius: 999px;
+    width: 34px;
+    height: 34px;
+    line-height: 30px;
+    text-align: center;
+}
+
+.group-style-content .close:hover {
+    color: #ffffff;
+    background: rgba(255,255,255,0.16);
+}
+
+.group-style-content .modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.group-style-content .color-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+}
+
+.group-style-content .color-option {
+    background: rgba(255,255,255,0.065);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 12px 26px rgba(0,0,0,0.25);
+}
+
+.group-style-content .color-option label {
+    background: transparent;
+    padding: 0;
+    color: #e9edf2;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.group-style-content .form-control,
+.group-style-content select {
+    width: 100%;
+    box-sizing: border-box;
+    background: #3a3d45;
+    color: #ffffff;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 11px 12px;
+}
+
+.group-style-content input[type="range"] {
+    width: 100%;
+    accent-color: #7ee2cc;
+}
+
+.group-style-content .range-value {
+    color: #aeb5c1;
+    font-weight: 700;
+}
+
+.group-style-content .gradient-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.group-style-content .gradient-controls button {
+    white-space: nowrap;
+    background: #6f6a7e;
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.group-style-content .gradient-controls button:hover {
+    background: #817b94;
+}
+
+#groupGradientColors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.group-style-preview-wrap {
+    background: rgba(0,0,0,0.22);
+    border: 1px dashed rgba(255,255,255,0.16);
+    border-radius: 20px;
+    padding: 16px;
+}
+
+.group-style-preview-label {
+    margin: 0 0 10px;
+    color: #bfc4cc;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.group-style-preview {
+    min-height: 90px;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.08);
+    border-radius: 0;
+    padding: 0;
+    transition: all 0.2s ease;
+}
+
+.group-style-content .modal-footer {
+    border-top: 1px solid rgba(255,255,255,0.1);
+    margin-top: 18px;
+    padding-top: 16px;
+}
+
+.group-style-content .modal-footer button {
+    border-radius: 12px;
+    padding: 10px 16px;
+}
 </style>
 </head>
 
@@ -2293,8 +2441,8 @@
             </div>
         </div>
 
-        <div id="groupStyleModal" class="modal">
-            <div class="modal-content dark">
+<div id="groupStyleModal" class="modal group-style-modal">
+    <div class="modal-content dark group-style-content">
                 <span class="close" onclick="closeGroupStyleModal()">&times;</span>
 
                 <h5>Group Style</h5>
@@ -2326,7 +2474,12 @@
                             <div id="groupGradientColors"></div>
 
                             <input type="hidden" id="groupBackgroundColor">
+
                         </div>
+                                                <div class="color-option">
+                                                    {% set palette_context = 'page_editor_group' %}
+{% include 'components/color_palette.html' %}
+</div>
 
                         <div class="color-option">
                             <label>Padding</label>
@@ -2339,11 +2492,15 @@
                             <input type="range" id="groupBorderRadius" min="0" max="60" step="2" value="0">
                             <span id="groupBorderRadiusValue" class="range-value">0px</span>
                         </div>
+
                     </div>
 
-                    <div id="groupStylePreview" style="margin-top: 20px; padding: 24px; border-radius: 16px;">
-                        Group preview
-                    </div>
+<div class="group-style-preview-wrap">
+    <p class="group-style-preview-label">Live Preview</p>
+    <div id="groupStylePreview" class="group-style-preview">
+        Group preview
+    </div>
+</div>
                 </div>
 
                 <div class="modal-footer">
@@ -3196,113 +3353,6 @@
         </div>`;
                         }
 
-
-                        //                         else if (section.section_type === 'code') {
-                        //                             sectionContent.innerHTML = `
-                        //                             <div class="page-body-container section-container code">
-                        //     <!-- Querying input textbox with Enter button -->
-                        //     <div class="ai-query-text">
-                        //     <textarea id="text-${section.id}" class="query-input" placeholder="Enter your ai request..."></textarea>
-                        // </div>
-
-                        //     <button type="button" class="query-button" data-section-id="${section.id}">Enter</button>
-
-                        //     <form class="update-section-form" data-section-id="${section.id}" data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-                        //         <button type="button" class="formatCodeButton">Format Code</button><br>
-                        //         <div class="editor-wrapper">
-                        //             <div id="editor-container-${section.id}" class="editor-container">
-                        //                 <textarea id="codemirror-text-${section.id}" name="text" required>${section.content['text']}</textarea>
-                        //             </div>
-                        //         </div>
-                        //         <label for="color-picker-${section.id}">Color Picker:</label>
-                        //         <input type="color" class="color-picker" id="color-picker-${section.id}" value="${section.content['color'] || '#ffffff'}">
-                        //         <div id="saved-colors-${section.id}"></div>
-                        //         <br><br>
-                        //     </form>
-                        //     <!-- Response streaming into editor textarea -->
-                        //     <div id="response-container-${section.id}" class="response-container"></div>
-                        // </div>
-                        // `;
-
-                        //                             // Event listener for query button
-                        //                             const queryButton = sectionContent.querySelector('.query-button');
-                        //                             const queryInput = sectionContent.querySelector('.query-input');
-                        //                             const editorTextarea = sectionContent.querySelector(`#codemirror-text-${section.id}`);
-                        //                             const responseContainer = sectionContent.querySelector(`#response-container-${section.id}`);
-
-                        //                             queryButton.addEventListener('click', async () => {
-                        //                                 const prompt = queryInput.value.trim();
-                        //                                 await fetchAndStreamResponse(section.id, prompt);
-                        //                             });
-
-                        //                             // // Event listener for pressing Enter in query input
-                        //                             // queryInput.addEventListener('keypress', async (e) => {
-                        //                             //     if (e.key === 'Enter') {
-                        //                             //         const prompt = queryInput.value.trim();
-                        //                             //         await fetchAndStreamResponse(section.id, prompt);
-                        //                             //     }
-                        //                             // });
-
-                        //                             async function fetchAndStreamResponse(sectionId, prompt) {
-                        //                                 const editorTextarea = sectionContent.querySelector(`#codemirror-text-${sectionId}`);
-                        //                                 const currentCode = editorTextarea.value.trim(); // Get current text/code in the textarea
-                        //                                 const responseContainer = sectionContent.querySelector(`#response-container-${sectionId}`);
-                        //                                 const editor = codeMirrorEditors.find(ed => ed.getTextArea() === editorTextarea);
-
-                        //                                 responseContainer.textContent = ''; // Clear previous responses if any
-
-
-
-                        //                                 try {
-                        //                                     const response = await fetch('/get_response_stream', {
-                        //                                         method: 'POST',
-                        //                                         headers: {
-                        //                                             'Content-Type': 'application/json',
-                        //                                         },
-                        //                                         body: JSON.stringify({ prompt: prompt, code: currentCode }),
-                        //                                     });
-                        //                                     editor.setValue('');
-                        //                                     const reader = response.body.getReader();
-                        //                                     const stream = new ReadableStream({
-                        //                                         start(controller) {
-                        //                                             function push() {
-                        //                                                 reader.read().then(({ done, value }) => {
-                        //                                                     if (done) {
-                        //                                                         controller.close();
-                        //                                                         return;
-                        //                                                     }
-                        //                                                     const text = new TextDecoder().decode(value);
-
-                        //                                                     // Find the corresponding CodeMirror instance
-
-                        //                                                     if (editor) {
-                        //                                                         editor.setValue(editor.getValue() + text); // Append the response text
-                        //                                                     }
-
-                        //                                                     push();
-                        //                                                 })
-                        //                                                     .catch(error => {
-                        //                                                         console.error(error);
-                        //                                                         controller.error(error);
-                        //                                                     });
-                        //                                             }
-                        //                                             push();
-                        //                                         }
-                        //                                     });
-
-                        //                                     const responseStream = new Response(stream, { headers: { 'Content-Type': 'text/plain' } });
-
-                        //                                     await responseStream; // Consume the response stream
-
-                        //                                 } catch (error) {
-                        //                                     console.error('Error fetching response:', error);
-                        //                                     responseContainer.textContent = 'Error fetching response. Please try again.';
-                        //                                 }
-                        //                             }
-
-
-                        //                         }
-
                         else if (section.section_type === 'text') {
                             sectionContent.innerHTML = `
         <div class="page-body-container section-container">
@@ -3355,7 +3405,8 @@
 <input type="color"
     class="ql-text-color-picker"
     value="{{ website.text_color or '#ffffff' }}"
-    title="Solid Text Color">
+    title="Solid Text Color"
+    oninput="lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
     <button type="button" class="ql-clear-text-color-btn">Solid</button>
 </div>
 
@@ -3373,7 +3424,9 @@
     <button type="button" class="ql-apply-gradient-btn">Apply</button>
     <button type="button" class="ql-clear-gradient-btn">Clear</button>
 </div>
+
                     </div>
+
 <div class="text-style-accordion">
     <button type="button" class="text-style-toggle" aria-expanded="false">
         <span>Background / Container Style</span>
@@ -3418,6 +3471,7 @@
         </div>
     </div>
 </div>
+
 <div class="editor-background-shell" id="editor-shell-${section.id}" style="--page-editor-background: {{ website.background_color or '#2d2d2d' }};">
     <div class="editor-surface" id="editor-surface-${section.id}">
         <div id="editor-${section.id}" style="height: 400px;"></div>
@@ -3427,7 +3481,6 @@
 <textarea id="delta-${section.id}" name="delta" style="display:none;"></textarea>
 </form>
         </div>`;
-
                             const editorEl = sectionContent.querySelector(`#editor-${section.id}`);
                             const toolbarEl = sectionContent.querySelector(`#toolbar-${section.id}`);
                             const hiddenTextarea = sectionContent.querySelector(`#text-${section.id}`);
@@ -3729,7 +3782,6 @@
 
                             applyGradientBtn.addEventListener('click', applyGradient);
                             clearGradientBtn.addEventListener('click', clearGradient);
-
 
                         } else if (section.section_type === 'map') {
                             sectionContent.innerHTML = `
@@ -6354,15 +6406,26 @@
             const colorInput = stop.querySelector('input');
             const removeButton = stop.querySelector('button');
 
-            colorInput.addEventListener('input', updateGroupBackgroundPreview);
+            colorInput.addEventListener('input', function () {
+    lastSelectedColor = this.value;
+    updateGroupBackgroundPreview();
+});
 
             removeButton.addEventListener('click', function () {
                 stop.remove();
                 updateGroupBackgroundPreview();
             });
 
-            container.appendChild(stop);
-            updateGroupBackgroundPreview();
+container.appendChild(stop);
+updateGroupBackgroundPreview();
+
+if (typeof enableColorPickerDropTargets === 'function') {
+    enableColorPickerDropTargets();
+}
+
+if (typeof enableDraggingFromColorInputs === 'function') {
+    enableDraggingFromColorInputs();
+}
         }
 
         function initializeGroupStyleBackground(savedBackground) {
@@ -6459,7 +6522,35 @@
                 .catch(error => console.error('Error saving group style:', error));
         }
     </script>
+    <script>
+document.addEventListener('DOMContentLoaded', function () {
+    renderSavedColors('page_editor_group');
+    enableSavedColorDropZone('page_editor_group');
+});
+</script>
+<script>
+function enableDraggingFromColorInputs() {
+    document.querySelectorAll('input[type="color"]').forEach(input => {
+        if (input.dataset.colorDragReady === 'true') return;
 
+        input.dataset.colorDragReady = 'true';
+        input.setAttribute('draggable', 'true');
+
+        input.addEventListener('dragstart', function (event) {
+            event.dataTransfer.setData('text/plain', this.value);
+            event.dataTransfer.effectAllowed = 'copy';
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    enableColorPickerDropTargets();
+    enableDraggingFromColorInputs();
+
+    renderSavedColors('page_editor_group');
+    enableSavedColorDropZone('page_editor_group');
+});
+</script>
     {% endblock %}
 </body>
 
