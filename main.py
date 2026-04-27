@@ -2003,7 +2003,32 @@ def duplicate_page(website_id, page_id):
         new_page.tags.append(tag)
 
     # -----------------------------
-    # Copy sections first
+    # Copy section groups first
+    # -----------------------------
+    group_map = {}
+
+    original_groups = SectionGroup.query.filter_by(
+        page_content_id=original_page.id
+    ).all()
+
+    for old_group in original_groups:
+        new_group = SectionGroup(
+            page_content_id=new_page.id,
+            name=old_group.name,
+            anchor_slug=old_group.anchor_slug,
+            group_order=old_group.group_order,
+            background_color=old_group.background_color,
+            background_opacity=old_group.background_opacity,
+            padding=old_group.padding,
+            border_radius=old_group.border_radius
+        )
+        db.session.add(new_group)
+        db.session.flush()
+
+        group_map[old_group.id] = new_group.id
+
+    # -----------------------------
+    # Copy sections second
     # -----------------------------
     section_map = {}
 
@@ -2055,7 +2080,8 @@ def duplicate_page(website_id, page_id):
     for old_row in original_rows:
         new_row = Row(
             page_content_id=new_page.id,
-            row_number=old_row.row_number
+            row_number=old_row.row_number,
+            section_group_id=group_map.get(old_row.section_group_id) if old_row.section_group_id else None
         )
         db.session.add(new_row)
         db.session.flush()
@@ -2104,6 +2130,7 @@ def replace_page(target_page_id, source_page_id):
 
     # Delete target page’s existing layout/content
     Row.query.filter_by(page_content_id=target_page.id).delete()
+    SectionGroup.query.filter_by(page_content_id=target_page.id).delete()
 
     old_target_sections = PageSection.query.filter_by(page_content_id=target_page.id).all()
     for section in old_target_sections:
@@ -2112,6 +2139,31 @@ def replace_page(target_page_id, source_page_id):
         db.session.delete(section)
 
     db.session.flush()
+
+    # -----------------------------
+    # Copy source groups first
+    # -----------------------------
+    group_map = {}
+
+    source_groups = SectionGroup.query.filter_by(
+        page_content_id=source_page.id
+    ).all()
+
+    for old_group in source_groups:
+        new_group = SectionGroup(
+            page_content_id=target_page.id,
+            name=old_group.name,
+            anchor_slug=old_group.anchor_slug,
+            group_order=old_group.group_order,
+            background_color=old_group.background_color,
+            background_opacity=old_group.background_opacity,
+            padding=old_group.padding,
+            border_radius=old_group.border_radius
+        )
+        db.session.add(new_group)
+        db.session.flush()
+
+        group_map[old_group.id] = new_group.id
 
     # Copy source sections
     section_map = {}
@@ -2157,7 +2209,8 @@ def replace_page(target_page_id, source_page_id):
     for old_row in source_rows:
         new_row = Row(
             page_content_id=target_page.id,
-            row_number=old_row.row_number
+            row_number=old_row.row_number,
+            section_group_id=group_map.get(old_row.section_group_id) if old_row.section_group_id else None
         )
         db.session.add(new_row)
         db.session.flush()
