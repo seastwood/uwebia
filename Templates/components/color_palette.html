@@ -1,0 +1,236 @@
+<style>
+    .saved-color-palette {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.055);
+    border: 1px solid rgba(255,255,255,0.09);
+}
+
+.saved-color-palette-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.saved-color-palette-header p {
+    margin: 0;
+    color: #fff;
+    font-weight: 800;
+}
+
+.saved-color-palette-header button {
+    background: #6200ea;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 11px;
+    cursor: pointer;
+}
+
+.saved-color-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.saved-color-swatch {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.25);
+    cursor: pointer;
+}
+
+.color-drop-active {
+    outline: 3px solid #7ee2cc !important;
+    outline-offset: 3px;
+}
+.saved-color-item {
+    position: relative;
+    display: inline-flex;
+}
+
+.saved-color-delete {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: none;
+    background: #d9534f;
+    color: white;
+    font-size: 13px;
+    line-height: 16px;
+    cursor: pointer;
+    display: none;
+}
+
+.saved-color-item:hover .saved-color-delete {
+    display: block;
+}
+.saved-color-palette.color-drop-active {
+    outline: 3px dashed #7ee2cc;
+    outline-offset: 4px;
+    background: rgba(126, 226, 204, 0.12);
+}
+</style>
+<div class="saved-color-palette" data-palette-context="{{ palette_context }}">
+    <div class="saved-color-palette-header">
+        <p>Saved Colors</p>
+
+        <button type="button" onclick="saveCurrentPaletteColor('{{ palette_context }}')">
+            <i class="fas fa-plus"></i> Save Color
+        </button>
+    </div>
+
+    <div id="savedColorList_{{ palette_context }}" class="saved-color-list"></div>
+</div>
+
+<script>
+let lastSelectedColor = '#ffffff';
+
+async function getSavedColors() {
+    const response = await fetch('/saved_colors');
+    const data = await response.json();
+    return data.colors || [];
+}
+
+
+async function saveCurrentPaletteColor(context) {
+    const color = lastSelectedColor || '#ffffff';
+
+    await fetch('/saved_colors', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            color: color
+        })
+    });
+
+    renderSavedColors(context);
+}
+
+
+function copySavedColor(color) {
+    navigator.clipboard.writeText(color);
+}
+
+function handleSavedColorDragStart(event, color) {
+    event.dataTransfer.setData('text/plain', color);
+    event.dataTransfer.effectAllowed = 'copy';
+}
+
+function enableColorPickerDropTargets() {
+    document.querySelectorAll('input[type="color"]').forEach(input => {
+        if (input.dataset.colorDropReady === 'true') return;
+
+        input.dataset.colorDropReady = 'true';
+
+        input.addEventListener('dragover', function (event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            this.classList.add('color-drop-active');
+        });
+
+        input.addEventListener('dragleave', function () {
+            this.classList.remove('color-drop-active');
+        });
+
+        input.addEventListener('drop', function (event) {
+            event.preventDefault();
+            this.classList.remove('color-drop-active');
+
+            const color = event.dataTransfer.getData('text/plain');
+
+            if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+
+            this.value = color;
+            lastSelectedColor = color;
+
+            this.dispatchEvent(new Event('input', { bubbles: true }));
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    });
+}
+
+async function renderSavedColors(context) {
+    const list = document.getElementById(`savedColorList_${context}`);
+    if (!list) return;
+
+    const colors = await getSavedColors();
+
+    list.innerHTML = colors.map(color => `
+        <div class="saved-color-item">
+            <button
+                type="button"
+                class="saved-color-swatch"
+                title="${color}"
+                style="background:${color}"
+                draggable="true"
+                ondragstart="handleSavedColorDragStart(event, '${color}')"
+                onclick="copySavedColor('${color}')">
+            </button>
+
+            <button
+                type="button"
+                class="saved-color-delete"
+                title="Delete color"
+                onclick="deleteSavedColor('${color}', '${context}')">
+                ×
+            </button>
+        </div>
+    `).join('');
+}
+
+async function deleteSavedColor(color, context) {
+    await fetch('/saved_colors', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            color: color
+        })
+    });
+
+    renderSavedColors(context);
+}
+
+function enableSavedColorDropZone(context) {
+    const palette = document.querySelector(`.saved-color-palette[data-palette-context="${context}"]`);
+    if (!palette || palette.dataset.saveDropReady === 'true') return;
+
+    palette.dataset.saveDropReady = 'true';
+
+    palette.addEventListener('dragover', function (event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        palette.classList.add('color-drop-active');
+    });
+
+    palette.addEventListener('dragleave', function () {
+        palette.classList.remove('color-drop-active');
+    });
+
+    palette.addEventListener('drop', async function (event) {
+        event.preventDefault();
+        palette.classList.remove('color-drop-active');
+
+        const color = event.dataTransfer.getData('text/plain');
+
+        if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+
+        lastSelectedColor = color;
+        await saveCurrentPaletteColor(context);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', enableColorPickerDropTargets);
+</script>
+
