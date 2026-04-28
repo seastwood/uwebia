@@ -2394,6 +2394,94 @@
     body.is-sorting .section-content {
         display: none !important;
     }
+
+    .image-editor-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+
+    padding: 12px;
+    margin-bottom: 12px;
+
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 14px;
+}
+
+.image-editor-header label {
+    margin: 0;
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 850;
+    background: transparent;
+    padding: 0;
+}
+
+.image-editor-header small {
+    display: block;
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 0.76rem;
+    line-height: 1.3;
+}
+
+.image-layout-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+
+    padding: 12px;
+    margin-bottom: 12px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 14px;
+}
+
+.image-layout-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.image-layout-field label,
+.image-toggle-row {
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 0.78rem;
+    font-weight: 800;
+    background: transparent;
+    padding: 0;
+}
+
+.image-layout-field select,
+.image-layout-field input[type="range"] {
+    width: 100%;
+}
+
+.image-layout-field select {
+    min-height: 36px;
+    padding: 8px 10px;
+
+    color: #ffffff;
+    background: #3a3d44;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+
+.image-toggle-row {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+
+    margin: 0;
+    padding: 9px 10px !important;
+
+    background: rgba(255, 255, 255, 0.055) !important;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+}
 </style>
 </head>
 
@@ -2581,8 +2669,9 @@
                         <!-- <option value="navbar">Navbar</option> -->
                         <!-- <option value="header">Header</option> -->
                         <option value="button">Button</option>
-                        <option value="image_gallery">Image Gallery</option>
-                        <option value="image">Image</option>
+                        <!-- <option value="image_gallery">Image Gallery</option>
+                        <option value="image">Image</option> -->
+                        <option value="images">Images</option>
                         <option value="text">Text</option>
                         <!-- <option value="code">Code</option> -->
                         <option value="map">Map</option>
@@ -3408,8 +3497,9 @@
                         };
 
                         dropdownContent.appendChild(deleteSectionLink);
+const isImageSection = ['images', 'image_gallery', 'image'].includes(section.section_type);
 
-                        if (section.section_type === 'image_gallery') {
+                        if (section.section_type === 'isImageSection') {
                             const deleteSelectedImagesLink = document.createElement('a');
                             deleteSelectedImagesLink.href = '#';
                             deleteSelectedImagesLink.classList.add('delete-selected-images');
@@ -3435,43 +3525,112 @@
                         columnElement.appendChild(sectionElement);
                         columnElement.appendChild(sectionContent);
 
-                        // Add section-specific content
-                        if (section.section_type === 'image_gallery') {
-                            sectionContent.innerHTML = `
-    <div class="uploaded-images-container section-container">
-        <form class="updateImageForm" data-section-id="${section.id}">
-            <label>Add Content:</label>
-            <div class="editor-controls">
-                <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
-                    <i class="fas fa-th"></i> Pick from Library
-                </button>
-            </div>
-
-            <label>Section Images:</label>
-            <div class="uploaded-images">
-                <ul class="sortable" id="sortable-${section.id}"></ul>
-            </div>
-        </form>
-    </div>`;
-                            // Add section-specific content
-                        } else if (section.section_type === 'image') {
-                            sectionContent.innerHTML = `
+                        if (isImageSection) {
+    sectionContent.innerHTML = `
         <div class="uploaded-images-container section-container">
-            <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
-                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-                <div class="editor-controls">
+            <form class="update-section-form image-section-form"
+                  data-section-id="${section.id}"
+                  data-section-type="images"
+                  data-page-id="${section.page_content_id}">
+
+                <div class="image-editor-header">
+                    <div>
+                        <label>Images</label>
+                        <small>Choose how this image section should display on the public page.</small>
+                    </div>
+
                     <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
-                        <i class="fas fa-th"></i> Pick Image from Library
+                        <i class="fas fa-th"></i> Pick from Library
                     </button>
                 </div>
-                <label>Selected Image:</label>
+
+                <div class="image-layout-panel">
+                    <div class="image-layout-field">
+                        <label>Display Type</label>
+                        <select name="image_layout" class="image-layout-select">
+                            <option value="single" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'single' ? 'selected' : ''}>Single Image</option>
+                            <option value="grid" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'grid' ? 'selected' : ''}>Side-by-Side Grid</option>
+                            <option value="masonry" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'masonry' ? 'selected' : ''}>Masonry Gallery</option>
+                            <option value="slideshow" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'slideshow' ? 'selected' : ''}>Slideshow with Arrows</option>
+                            <option value="fade_slideshow" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'fade_slideshow' ? 'selected' : ''}>Auto Fade Slideshow</option>
+                            <option value="carousel" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'carousel' ? 'selected' : ''}>Horizontal Carousel</option>
+                            <option value="feature_grid" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'feature_grid' ? 'selected' : ''}>Feature Grid</option>
+                        </select>
+                    </div>
+
+                    <div class="image-layout-field">
+                        <label>Image Fit</label>
+                        <select name="image_fit">
+                            <option value="cover" ${(section.content?.image_fit || 'cover') === 'cover' ? 'selected' : ''}>Cover</option>
+                            <option value="contain" ${(section.content?.image_fit || 'cover') === 'contain' ? 'selected' : ''}>Contain</option>
+                        </select>
+                    </div>
+
+                    <div class="image-layout-field">
+                        <label>Corner Radius</label>
+                        <input type="range" name="image_radius" min="0" max="40" step="2" value="${section.content?.image_radius || 10}">
+                        <span class="range-value">${section.content?.image_radius || 10}px</span>
+                    </div>
+
+                    <label class="image-toggle-row">
+                        <input type="checkbox" name="show_thumbnails" ${section.content?.show_thumbnails !== false ? 'checked' : ''}>
+                        Show thumbnails
+                    </label>
+
+                    <label class="image-toggle-row">
+                        <input type="checkbox" name="autoplay" ${section.content?.autoplay ? 'checked' : ''}>
+                        Autoplay slideshow
+                    </label>
+                </div>
+
+                <label>Selected Images</label>
                 <div class="uploaded-images">
-                    <ul class="sortable" id="sortable-${section.id}">
-                    </ul>
+                    <ul class="sortable" id="sortable-${section.id}"></ul>
                 </div>
             </form>
-        </div>`;
-                        }
+        </div>
+    `;
+
+    sectionElement.childNodes[0].nodeValue = 'Images';
+}
+
+    //                     // Add section-specific content
+    //                     if (section.section_type === 'isImageSection') {
+    //                         sectionContent.innerHTML = `
+    // <div class="uploaded-images-container section-container">
+    //     <form class="updateImageForm" data-section-id="${section.id}">
+    //         <label>Add Content:</label>
+    //         <div class="editor-controls">
+    //             <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
+    //                 <i class="fas fa-th"></i> Pick from Library
+    //             </button>
+    //         </div>
+
+    //         <label>Section Images:</label>
+    //         <div class="uploaded-images">
+    //             <ul class="sortable" id="sortable-${section.id}"></ul>
+    //         </div>
+    //     </form>
+    // </div>`;
+    //                         // Add section-specific content
+    //                     } else if (section.section_type === 'isImageSection') {
+    //                         sectionContent.innerHTML = `
+    //     <div class="uploaded-images-container section-container">
+    //         <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
+    //             data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+    //             <div class="editor-controls">
+    //                 <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
+    //                     <i class="fas fa-th"></i> Pick Image from Library
+    //                 </button>
+    //             </div>
+    //             <label>Selected Image:</label>
+    //             <div class="uploaded-images">
+    //                 <ul class="sortable" id="sortable-${section.id}">
+    //                 </ul>
+    //             </div>
+    //         </form>
+    //     </div>`;
+    //                     }
                         //                         if (section.section_type === 'navbar') {
                         //                             sectionContent.innerHTML = `
                         //     <!-- Navbar Section -->
@@ -4589,10 +4748,9 @@
                     // console.log('Initializing calendar for section:', section);
                     initializeCalendar(section.id);
                 }
-                if (section.section_type === 'image_gallery') {
-                    // If it's an image gallery section, load uploaded images
-                    loadUploadedImages(section.id);
-                }
+if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
+    loadUploadedImages(section.id);
+}
                 if (section.section_type === 'navbar') {
                     // If it's a navbar section, initialize the navbar
                     initializeNavbar(website.id, section.id);
@@ -6813,6 +6971,14 @@ colorInput.addEventListener('input', function () {
             renderSavedColors('page_editor_group');
             enableSavedColorDropZone('page_editor_group');
         });
+    </script>
+
+    <script>
+        function defaultImageLayout(sectionType) {
+    if (sectionType === 'image') return 'single';
+    if (sectionType === 'image_gallery') return 'fade_slideshow';
+    return 'single';
+}
     </script>
     {% endblock %}
 </body>

@@ -1,33 +1,216 @@
 <style>
     .saved-color-palette {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .saved-color-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .saved-color-swatch {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        cursor: pointer;
+    }
+
+    .color-drop-active {
+        outline: 3px solid #7ee2cc !important;
+        outline-offset: 3px;
+    }
+
+    .saved-color-item {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .saved-color-delete {
+        position: absolute;
+        top: -7px;
+        right: -7px;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        border: none;
+        background: #d9534f;
+        color: white;
+        font-size: 13px;
+        line-height: 16px;
+        cursor: pointer;
+        display: none;
+    }
+
+    .saved-color-item:hover .saved-color-delete {
+        display: block;
+    }
+
+    .saved-color-palette.color-drop-active {
+        outline: 3px dashed #7ee2cc;
+        outline-offset: 4px;
+        background: rgba(126, 226, 204, 0.12);
+    }
+.saved-color-palette {
     margin-top: 14px;
     padding: 14px;
     border-radius: 16px;
-    background: rgba(255,255,255,0.055);
-    border: 1px solid rgba(255,255,255,0.09);
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
 }
 
 .saved-color-palette-header {
     display: flex;
+    align-items: flex-start;
     justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
+    gap: 14px;
+
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.saved-color-palette-header p {
+.saved-color-title-block {
+    min-width: 0;
+}
+
+.saved-color-title-block p {
     margin: 0;
-    color: #fff;
-    font-weight: 800;
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 850;
+    letter-spacing: -0.01em;
 }
 
-.saved-color-palette-header button {
-    background: #6200ea;
-    color: white;
-    border: none;
+.saved-color-title-block span {
+    display: block;
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.75rem;
+    line-height: 1.25;
+}
+
+.save-current-color-button,
+.saved-color-tools button,
+.fallback-color-picker-shell {
+    width: 95px;
+    height: 36px;
+    min-height: 36px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    padding: 0 10px;
+    box-sizing: border-box;
+
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.075);
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
     border-radius: 10px;
-    padding: 8px 11px;
+
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1;
+    text-decoration: none;
+
     cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.save-current-color-button:hover,
+.saved-color-tools button:hover,
+.fallback-color-picker-shell:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.14);
+    border-color: rgba(126, 226, 204, 0.36);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.save-current-color-button {
+    flex: 0 0 auto;
+}
+
+.saved-color-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    margin-bottom: 12px;
+}
+
+.fallback-color-picker-shell {
+    position: relative;
+    overflow: hidden;
+}
+
+.fallback-color-picker {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+
+    opacity: 0;
+    cursor: pointer;
+}
+
+.fallback-color-picker-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    pointer-events: none;
+}
+
+.manual-color-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manual-color-input {
+    width: 96px;
+    height: 34px;
+    padding: 0 10px;
+
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.075);
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 10px;
+
+    font-size: 0.78rem;
+    font-weight: 750;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.manual-color-input:focus {
+    border-color: rgba(126, 226, 204, 0.55);
+    box-shadow: 0 0 0 3px rgba(126, 226, 204, 0.12);
+}
+
+.manual-color-input.valid-color {
+    border-color: rgba(126, 226, 204, 0.65);
+}
+
+.manual-color-input.invalid-color {
+    border-color: rgba(217, 83, 79, 0.75);
 }
 
 .saved-color-list {
@@ -40,132 +223,154 @@
     width: 34px;
     height: 34px;
     border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.25);
+    border: 1px solid rgba(255, 255, 255, 0.25);
     cursor: pointer;
 }
 
-.color-drop-active {
-    outline: 3px solid #7ee2cc !important;
-    outline-offset: 3px;
-}
-.saved-color-item {
-    position: relative;
-    display: inline-flex;
+@media (max-width: 700px) {
+    .saved-color-palette-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .save-current-color-button {
+        width: fit-content;
+    }
+
+    .saved-color-tools,
+    .manual-color-group {
+        width: 100%;
+    }
+
+    .manual-color-input {
+        flex: 1;
+        width: auto;
+    }
 }
 
-.saved-color-delete {
-    position: absolute;
-    top: -7px;
-    right: -7px;
-    width: 18px;
-    height: 18px;
-    border-radius: 999px;
-    border: none;
-    background: #d9534f;
-    color: white;
-    font-size: 13px;
-    line-height: 16px;
-    cursor: pointer;
-    display: none;
-}
-
-.saved-color-item:hover .saved-color-delete {
-    display: block;
-}
-.saved-color-palette.color-drop-active {
-    outline: 3px dashed #7ee2cc;
-    outline-offset: 4px;
-    background: rgba(126, 226, 204, 0.12);
-}
 </style>
 <div class="saved-color-palette" data-palette-context="{{ palette_context }}">
     <div class="saved-color-palette-header">
+    <div class="saved-color-title-block">
         <p>Saved Colors</p>
+        <span>Pick, paste, save, or drag colors into color fields.</span>
+    </div>
 
-        <button type="button" onclick="saveCurrentPaletteColor('{{ palette_context }}')">
-            <i class="fas fa-plus"></i> Save Color
+    <button type="button" class="save-current-color-button" onclick="saveCurrentPaletteColor('{{ palette_context }}')">
+        <i class="fas fa-bookmark"></i>
+        Save Current
+    </button>
+</div>
+
+<div class="saved-color-tools">
+    <label class="fallback-color-picker-shell" title="Open color picker">
+        <input
+            type="color"
+            id="fallbackColorPicker_{{ palette_context }}"
+            class="fallback-color-picker"
+            value="#ffffff"
+            onchange="saveFallbackPickedColor('{{ palette_context }}', this.value)">
+        <span class="fallback-color-picker-label">
+            <i class="fas fa-eye-dropper"></i>
+            Pick Color
+        </span>
+    </label>
+
+    <div class="manual-color-group">
+        <input
+            type="text"
+            id="manualColorInput_{{ palette_context }}"
+            class="manual-color-input"
+            placeholder="#7ee2cc"
+            maxlength="7"
+            oninput="previewManualColor('{{ palette_context }}')">
+
+        <button type="button" onclick="saveManualPaletteColor('{{ palette_context }}')">
+            <i class="fas fa-plus"></i>
+            Add Hex
         </button>
     </div>
+</div>
 
     <div id="savedColorList_{{ palette_context }}" class="saved-color-list"></div>
 </div>
 
 <script>
-window.lastSelectedColor = window.lastSelectedColor || '#ffffff';
+    window.lastSelectedColor = window.lastSelectedColor || '#ffffff';
 
-async function getSavedColors() {
-    const response = await fetch('/saved_colors');
-    const data = await response.json();
-    return data.colors || [];
-}
-
-
-async function saveCurrentPaletteColor(context) {
-    const color = window.lastSelectedColor || '#ffffff';
-
-    await fetch('/saved_colors', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            color: color
-        })
-    });
-
-    renderSavedColors(context);
-}
+    async function getSavedColors() {
+        const response = await fetch('/saved_colors');
+        const data = await response.json();
+        return data.colors || [];
+    }
 
 
-function copySavedColor(color) {
-    navigator.clipboard.writeText(color);
-}
+    async function saveCurrentPaletteColor(context) {
+        const color = window.lastSelectedColor || '#ffffff';
 
-function handleSavedColorDragStart(event, color) {
-    event.dataTransfer.setData('text/plain', color);
-    event.dataTransfer.effectAllowed = 'copy';
-}
-
-function enableColorPickerDropTargets() {
-    document.querySelectorAll('input[type="color"]').forEach(input => {
-        if (input.dataset.colorDropReady === 'true') return;
-
-        input.dataset.colorDropReady = 'true';
-
-        input.addEventListener('dragover', function (event) {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-            this.classList.add('color-drop-active');
+        await fetch('/saved_colors', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                color: color
+            })
         });
 
-        input.addEventListener('dragleave', function () {
-            this.classList.remove('color-drop-active');
+        renderSavedColors(context);
+    }
+
+
+    function copySavedColor(color) {
+        navigator.clipboard.writeText(color);
+    }
+
+    function handleSavedColorDragStart(event, color) {
+        event.dataTransfer.setData('text/plain', color);
+        event.dataTransfer.effectAllowed = 'copy';
+    }
+
+    function enableColorPickerDropTargets() {
+        document.querySelectorAll('input[type="color"]').forEach(input => {
+            if (input.dataset.colorDropReady === 'true') return;
+
+            input.dataset.colorDropReady = 'true';
+
+            input.addEventListener('dragover', function (event) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+                this.classList.add('color-drop-active');
+            });
+
+            input.addEventListener('dragleave', function () {
+                this.classList.remove('color-drop-active');
+            });
+
+            input.addEventListener('drop', function (event) {
+                event.preventDefault();
+                this.classList.remove('color-drop-active');
+
+                const color = event.dataTransfer.getData('text/plain');
+
+                if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+
+                this.value = color;
+                window.lastSelectedColor = color;
+
+                this.dispatchEvent(new Event('input', { bubbles: true }));
+                this.dispatchEvent(new Event('change', { bubbles: true }));
+            });
         });
+    }
 
-        input.addEventListener('drop', function (event) {
-            event.preventDefault();
-            this.classList.remove('color-drop-active');
+    async function renderSavedColors(context) {
+        const list = document.getElementById(`savedColorList_${context}`);
+        if (!list) return;
 
-            const color = event.dataTransfer.getData('text/plain');
+        const colors = await getSavedColors();
 
-            if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
-
-            this.value = color;
-            window.lastSelectedColor = color;
-
-            this.dispatchEvent(new Event('input', { bubbles: true }));
-            this.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-    });
-}
-
-async function renderSavedColors(context) {
-    const list = document.getElementById(`savedColorList_${context}`);
-    if (!list) return;
-
-    const colors = await getSavedColors();
-
-    list.innerHTML = colors.map(color => `
+        list.innerHTML = colors.map(color => `
         <div class="saved-color-item">
             <button
                 type="button"
@@ -186,51 +391,201 @@ async function renderSavedColors(context) {
             </button>
         </div>
     `).join('');
-}
+    }
 
-async function deleteSavedColor(color, context) {
-    await fetch('/saved_colors', {
-        method: 'DELETE',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            color: color
-        })
-    });
+    async function deleteSavedColor(color, context) {
+        await fetch('/saved_colors', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                color: color
+            })
+        });
 
-    renderSavedColors(context);
-}
+        renderSavedColors(context);
+    }
 
-function enableSavedColorDropZone(context) {
-    const palette = document.querySelector(`.saved-color-palette[data-palette-context="${context}"]`);
-    if (!palette || palette.dataset.saveDropReady === 'true') return;
+    function enableSavedColorDropZone(context) {
+        const palette = document.querySelector(`.saved-color-palette[data-palette-context="${context}"]`);
+        if (!palette || palette.dataset.saveDropReady === 'true') return;
 
-    palette.dataset.saveDropReady = 'true';
+        palette.dataset.saveDropReady = 'true';
 
-    palette.addEventListener('dragover', function (event) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        palette.classList.add('color-drop-active');
-    });
+        palette.addEventListener('dragover', function (event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            palette.classList.add('color-drop-active');
+        });
 
-    palette.addEventListener('dragleave', function () {
-        palette.classList.remove('color-drop-active');
-    });
+        palette.addEventListener('dragleave', function () {
+            palette.classList.remove('color-drop-active');
+        });
 
-    palette.addEventListener('drop', async function (event) {
-        event.preventDefault();
-        palette.classList.remove('color-drop-active');
+        palette.addEventListener('drop', async function (event) {
+            event.preventDefault();
+            palette.classList.remove('color-drop-active');
 
-        const color = event.dataTransfer.getData('text/plain');
+            const color = event.dataTransfer.getData('text/plain');
 
-        if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+            if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+
+            window.lastSelectedColor = color;
+            await saveCurrentPaletteColor(context);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', enableColorPickerDropTargets);
+
+    function normalizeHexColor(value) {
+        let color = String(value || '').trim();
+
+        if (!color) return null;
+
+        if (!color.startsWith('#')) {
+            color = `#${color}`;
+        }
+
+        if (/^#[0-9A-Fa-f]{3}$/.test(color)) {
+            color = `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
+        }
+
+        if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+            return null;
+        }
+
+        return color.toLowerCase();
+    }
+
+    function previewManualColor(context) {
+        const input = document.getElementById(`manualColorInput_${context}`);
+        if (!input) return;
+
+        const color = normalizeHexColor(input.value);
+
+        input.classList.toggle('valid-color', !!color);
+        input.classList.toggle('invalid-color', input.value.trim().length > 0 && !color);
+
+        if (color) {
+            input.style.background = color;
+            input.style.color = getReadableTextColor(color);
+            window.lastSelectedColor = color;
+        } else {
+            input.style.background = '';
+            input.style.color = '';
+        }
+    }
+
+    async function saveManualPaletteColor(context) {
+        const input = document.getElementById(`manualColorInput_${context}`);
+        if (!input) return;
+
+        const color = normalizeHexColor(input.value);
+
+        if (!color) {
+            alert('Enter a valid hex color, like #7ee2cc.');
+            return;
+        }
 
         window.lastSelectedColor = color;
+        applyPickedColorToActiveInput(color);
+
         await saveCurrentPaletteColor(context);
-    });
+
+        input.value = '';
+        input.style.background = '';
+        input.style.color = '';
+        input.classList.remove('valid-color', 'invalid-color');
+    }
+
+    function getReadableTextColor(hexColor) {
+        const color = normalizeHexColor(hexColor);
+        if (!color) return '#ffffff';
+
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+
+        return brightness > 145 ? '#111111' : '#ffffff';
+    }
+
+    async function pickScreenColor(context) {
+    const fallbackPicker = document.getElementById(`fallbackColorPicker_${context}`);
+
+    if (window.EyeDropper) {
+        try {
+            const eyeDropper = new EyeDropper();
+            const result = await eyeDropper.open();
+
+            if (!result || !result.sRGBHex) return;
+
+            const color = result.sRGBHex.toLowerCase();
+
+            await savePickedColor(context, color);
+            return;
+        } catch (error) {
+            if (error && error.name !== 'AbortError') {
+                console.error('Error using EyeDropper:', error);
+            }
+            return;
+        }
+    }
+
+    if (fallbackPicker) {
+        fallbackPicker.click();
+    } else {
+        alert('Use the hex input to add a color, like #7ee2cc.');
+    }
 }
 
-document.addEventListener('DOMContentLoaded', enableColorPickerDropTargets);
-</script>
+async function saveFallbackPickedColor(context, color) {
+    const normalizedColor = normalizeHexColor(color);
 
+    if (!normalizedColor) return;
+
+    await savePickedColor(context, normalizedColor);
+}
+
+async function savePickedColor(context, color) {
+    window.lastSelectedColor = color;
+
+    applyPickedColorToActiveInput(color);
+
+    await saveCurrentPaletteColor(context);
+}
+
+function applyPickedColorToActiveInput(color) {
+    const activeColorInput =
+        document.activeElement &&
+        document.activeElement.matches &&
+        document.activeElement.matches('input[type="color"]')
+            ? document.activeElement
+            : null;
+
+    if (activeColorInput && !activeColorInput.classList.contains('fallback-color-picker')) {
+        activeColorInput.value = color;
+        activeColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+        activeColorInput.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+    }
+
+    const palette = document.querySelector('.saved-color-palette');
+    const visibleColorInputs = Array.from(document.querySelectorAll('input[type="color"]'))
+        .filter(input =>
+            input.offsetParent !== null &&
+            !input.classList.contains('fallback-color-picker') &&
+            (!palette || !palette.contains(input))
+        );
+
+    const firstVisibleInput = visibleColorInputs[0];
+
+    if (firstVisibleInput) {
+        firstVisibleInput.value = color;
+        firstVisibleInput.dispatchEvent(new Event('input', { bubbles: true }));
+        firstVisibleInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+}
+</script>

@@ -233,6 +233,12 @@ class Website(db.Model):
 class PublicPageContent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+
+    page_folder_id = db.Column(db.Integer, db.ForeignKey('page_folder.id'), nullable=True)
+    folder_sort_order = db.Column(db.Integer, default=0)
+
+    page_folder = db.relationship('PageFolder', backref=db.backref('pages', lazy=True))
+
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500), nullable=True)  # Add description field
     sort_order = db.Column(db.Integer, default=0)
@@ -406,6 +412,27 @@ class SavedColor(db.Model):
     color = db.Column(db.String(20), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class PageFolder(db.Model):
+    __tablename__ = 'page_folder'
+
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    name = db.Column(db.String(120), nullable=False, default='New Folder')
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    website = db.relationship('Website', backref=db.backref('page_folders', lazy=True, cascade='all, delete-orphan'))
+
+    def active_page_count(self):
+        return PublicPageContent.query.filter_by(
+            page_folder_id=self.id,
+            site_active_status=True
+        ).count()
+
+    def total_page_count(self):
+        return PublicPageContent.query.filter_by(
+            page_folder_id=self.id
+        ).count()
 
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -1259,13 +1286,37 @@ def dashboard():
 
     website_pages = {}
     website_page_groups = {}
+    website_page_folders = {}
 
     for website in websites:
         pages = PublicPageContent.query.filter_by(
             website_id=website.id
-        ).order_by(PublicPageContent.sort_order, PublicPageContent.id).all()
+        ).order_by(
+            PublicPageContent.sort_order,
+            PublicPageContent.folder_sort_order,
+            PublicPageContent.id
+        ).all()
+
+        folders = PageFolder.query.filter_by(
+            website_id=website.id
+        ).order_by(
+            PageFolder.sort_order,
+            PageFolder.id
+        ).all()
 
         website_pages[website] = pages
+
+        website_page_folders[website.id] = [
+            {
+                'id': folder.id,
+                'name': folder.name,
+                'sort_order': folder.sort_order,
+                'active_count': sum(
+                    1 for page in pages if page.page_folder_id == folder.id and page.site_active_status),
+                'total_count': sum(1 for page in pages if page.page_folder_id == folder.id)
+            }
+            for folder in folders
+        ]
 
         website_page_groups[website.id] = {}
 
@@ -1293,10 +1344,141 @@ def dashboard():
         websites=websites,
         website_pages=website_pages,
         website_page_groups=website_page_groups,
+        website_page_folders=website_page_folders,
         user_has_website=has_site,
         csrf_token=csrf_token,
         email_settings=email_settings
     )
+
+@app.route('/create_page_folder/<int:website_id>', methods=['POST'])
+@login_required
+def create_page_folder(website_id):
+    website = Website.query.filter_by(
+        id=website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    name = (data.get('name') or 'New Folder').strip() or 'New Folder'
+
+    max_order = db.session.query(func.max(PageFolder.sort_order)).filter_by(
+        website_id=website.id
+    ).scalar() or 0
+
+    folder = PageFolder(
+        website_id=website.id,
+        name=name,
+        sort_order=max_order + 1
+    )
+
+    db.session.add(folder)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'folder': {
+            'id': folder.id,
+            'name': folder.name,
+            'active_count': 0,
+            'total_count': 0
+        }
+    })
+
+@app.route('/rename_page_folder/<int:folder_id>', methods=['POST'])
+@login_required
+def rename_page_folder(folder_id):
+    folder = PageFolder.query.get_or_404(folder_id)
+    website = Website.query.filter_by(
+        id=folder.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Folder name is required.'}), 400
+
+    folder.name = name
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'folder': {
+            'id': folder.id,
+            'name': folder.name
+        }
+    })
+
+@app.route('/move_page_to_folder/<int:page_id>', methods=['POST'])
+@login_required
+def move_page_to_folder(page_id):
+    page = PublicPageContent.query.get_or_404(page_id)
+    website = Website.query.filter_by(
+        id=page.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    folder_id = data.get('folder_id')
+
+    if folder_id in ('', None, 'root'):
+        page.page_folder_id = None
+
+        max_order = db.session.query(func.max(PublicPageContent.sort_order)).filter_by(
+            website_id=website.id,
+            page_folder_id=None
+        ).scalar() or 0
+
+        page.sort_order = max_order + 1
+        page.folder_sort_order = 0
+
+    else:
+        folder = PageFolder.query.filter_by(
+            id=folder_id,
+            website_id=website.id
+        ).first_or_404()
+
+        max_order = db.session.query(func.max(PublicPageContent.folder_sort_order)).filter_by(
+            website_id=website.id,
+            page_folder_id=folder.id
+        ).scalar() or 0
+
+        page.page_folder_id = folder.id
+        page.folder_sort_order = max_order + 1
+
+    db.session.commit()
+
+    return jsonify({'success': True})
+
+
+@app.route('/delete_page_folder/<int:folder_id>', methods=['POST'])
+@login_required
+def delete_page_folder(folder_id):
+    folder = PageFolder.query.get_or_404(folder_id)
+    website = Website.query.filter_by(
+        id=folder.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    pages = PublicPageContent.query.filter_by(
+        page_folder_id=folder.id
+    ).all()
+
+    max_order = db.session.query(func.max(PublicPageContent.sort_order)).filter_by(
+        website_id=website.id,
+        page_folder_id=None
+    ).scalar() or 0
+
+    for index, page in enumerate(pages, start=1):
+        page.page_folder_id = None
+        page.sort_order = max_order + index
+        page.folder_sort_order = 0
+
+    db.session.delete(folder)
+    db.session.commit()
+
+    return jsonify({'success': True})
 
 @app.route('/reorder_pages/<int:website_id>', methods=['POST'])
 @login_required
@@ -1308,6 +1490,17 @@ def reorder_pages(website_id):
 
     data = request.get_json() or {}
     page_ids = data.get('page_ids', [])
+    folder_id = data.get('folder_id', 'root')
+
+    resolved_folder_id = None
+
+    if folder_id not in ('root', '', None):
+        folder = PageFolder.query.filter_by(
+            id=folder_id,
+            website_id=website.id
+        ).first_or_404()
+
+        resolved_folder_id = folder.id
 
     for index, page_id in enumerate(page_ids):
         page = PublicPageContent.query.filter_by(
@@ -1315,8 +1508,16 @@ def reorder_pages(website_id):
             website_id=website.id
         ).first()
 
-        if page:
+        if not page:
+            continue
+
+        page.page_folder_id = resolved_folder_id
+
+        if resolved_folder_id:
+            page.folder_sort_order = index
+        else:
             page.sort_order = index
+            page.folder_sort_order = 0
 
     db.session.commit()
 
@@ -1818,6 +2019,18 @@ def create_website():
     db.session.add(new_website)
     db.session.commit()
 
+    home_page = PublicPageContent(
+        website_id=new_website.id,
+        name='Home',
+        description='Root page',
+        slug='home',
+        sort_order=0,
+        site_active_status=False
+    )
+
+    db.session.add(home_page)
+    db.session.commit()
+
     # Process tags
     if tags:
         tag_names = [tag.strip() for tag in tags.split(',')]
@@ -1966,7 +2179,9 @@ def edit_page(website_id, page_id):
     # Update page name
     if new_name:
         page.name = new_name
-        page.slug = get_unique_slug(website_id, new_name, current_page_id=page.id)
+
+        if page.slug != 'home':
+            page.slug = get_unique_slug(website_id, new_name, current_page_id=page.id)
 
     # Update page description
     if new_description:
@@ -2337,6 +2552,10 @@ def page_editor(website_id, page_id):
 def delete_page(website_id, page_id):
     page = PublicPageContent.query.filter_by(id=page_id, website_id=website_id).first()
     if page:
+        if page.slug == 'home':
+            return jsonify({
+                'error': 'The root page cannot be deleted. Use Replace Page to change its content or edit it directly.'
+            }), 400
         # Check if the user owns the website
         website = Website.query.filter_by(id=website_id, user_id=current_user.id).first()
         if website:
@@ -2871,6 +3090,20 @@ def photo_library():
                            root_pictures=root_pictures)
 
 
+def update_images_section(section, form_data):
+    section.content = {
+        'image_layout': form_data.get('image_layout', 'single'),
+        'image_fit': form_data.get('image_fit', 'cover'),
+        'image_radius': form_data.get('image_radius', '10'),
+        'show_thumbnails': form_data.get('show_thumbnails') == 'on',
+        'autoplay': form_data.get('autoplay') == 'on'
+    }
+
+    # Optional but recommended: migrate old section types forward.
+    section.section_type = 'images'
+
+    return section
+
 @app.route('/section/add_image', methods=['POST'])
 @login_required
 def link_image_to_section():
@@ -3368,16 +3601,12 @@ def home_page():
     ).first()
 
     if not page:
-        page = PublicPageContent.query.filter_by(
-            website_id=website.id,
-            site_active_status=True
-        ).order_by(PublicPageContent.sort_order, PublicPageContent.id).first()
+        return "Root page not found. Please create a page with the slug /home.", 404
 
-    if not page or not page.site_active_status:
-        return "Site Inactive", 404
+    if not page.site_active_status:
+        return "Root page is not published.", 404
 
     return render_public_page(website, page)
-
 #
 # @app.route('/page/<int:website_id>/<int:page_id>')
 # def public_page(website_id, page_id):
@@ -3771,18 +4000,20 @@ def update_section():
         section = update_map_section(section, form_data)
     # elif section_type == 'code':
     #     section = update_code_section(section, form_data)
+    elif section_type == 'images':
+        section = update_images_section(section, form_data)
     elif section_type == 'text':
         section = update_text_section(section, form_data)
     elif section_type == 'button':
         section = update_button_section(section, form_data)
     elif section_type == 'contact_form':
-        section = update_contact_section(section, form_data)
-    elif section_type == 'header':
+    #     section = update_contact_section(section, form_data)
+    # elif section_type == 'header':
         section = update_header_section(section, form_data)
     elif section_type == 'youtube_video':
         section = update_youtube_video_section(section, form_data)
-    elif section_type == 'navbar':
-        section = update_navbar_section(section, form_data)
+    # elif section_type == 'navbar':
+    #     section = update_navbar_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 

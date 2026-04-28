@@ -657,6 +657,200 @@
     .ql-font-monospace {
         font-family: monospace;
     }
+
+    .uwebia-images {
+    width: calc(100% - 40px);
+    max-width: 1100px;
+    margin: 20px auto;
+    box-sizing: border-box;
+}
+
+.uwebia-images img {
+    border-radius: var(--image-radius, 10px);
+    object-fit: var(--image-fit, cover);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Single */
+.uwebia-single-image {
+    width: 100%;
+    max-height: 720px;
+    display: block;
+}
+
+/* Side-by-side grid */
+.uwebia-image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+.uwebia-image-grid img {
+    width: 100%;
+    height: 260px;
+    display: block;
+}
+
+/* Masonry */
+.uwebia-image-masonry {
+    columns: 3 220px;
+    column-gap: 12px;
+}
+
+.uwebia-image-masonry img {
+    width: 100%;
+    height: auto;
+    display: block;
+    margin: 0 0 12px;
+    break-inside: avoid;
+}
+
+/* Carousel strip */
+.uwebia-image-carousel {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 10px;
+}
+
+.uwebia-image-carousel img {
+    flex: 0 0 min(78vw, 420px);
+    height: 300px;
+    scroll-snap-align: center;
+}
+
+/* Feature grid */
+.uwebia-feature-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    grid-auto-rows: 180px;
+    gap: 12px;
+}
+
+.uwebia-feature-grid img {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.uwebia-feature-grid img.featured {
+    grid-row: span 2;
+}
+
+/* Slideshow */
+.uwebia-slideshow {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: var(--image-radius, 10px);
+}
+
+.uwebia-slide {
+    position: absolute;
+    inset: 0;
+    display: none;
+}
+
+.uwebia-slide.active {
+    display: block;
+}
+
+.uwebia-images-fade_slideshow .uwebia-slide {
+    opacity: 0;
+    display: block;
+    transition: opacity 0.8s ease;
+}
+
+.uwebia-images-fade_slideshow .uwebia-slide.active {
+    opacity: 1;
+}
+
+.uwebia-slide img {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.uwebia-slide-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+
+    width: 42px;
+    height: 42px;
+
+    border: none;
+    border-radius: 999px;
+
+    background: rgba(0, 0, 0, 0.45);
+    color: #ffffff;
+
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 5;
+}
+
+.uwebia-slide-arrow:hover {
+    background: rgba(0, 0, 0, 0.68);
+}
+
+.uwebia-slide-arrow.prev {
+    left: 12px;
+}
+
+.uwebia-slide-arrow.next {
+    right: 12px;
+}
+
+.uwebia-image-thumbnails {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    justify-content: center;
+    padding: 10px 0 0;
+}
+
+.uwebia-image-thumbnails button {
+    width: 72px;
+    height: 54px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.uwebia-image-thumbnails button.active {
+    border-color: rgba(126, 226, 204, 0.85);
+}
+
+.uwebia-image-thumbnails img {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+@media (max-width: 700px) {
+    .uwebia-images {
+        width: calc(100% - 24px);
+    }
+
+    .uwebia-feature-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .uwebia-feature-grid img.featured {
+        grid-row: span 1;
+    }
+
+    .uwebia-image-grid img,
+    .uwebia-image-carousel img {
+        height: 220px;
+    }
+}
 </style>
 
 
@@ -716,58 +910,85 @@ border-radius: {{ group.border_radius if group.border_radius is not none else 0 
                         <!-- paste your full section-container block here -->
                         <div class="section-container" style="width: {{ section.width }}%;">
 
-                            {% if section.section_type == 'image_gallery' %}
-                            <div class="slideshow-thumbnail-container">
-                                <div class="slideshow-container" data-section-id="{{ section.id }}">
-                                    {% if section.id in content.pictures_by_section %}
-                                    {% for imageUrl in content.pictures_by_section[section.id] %}
-                                    <div class="mySlides fade" data-section-id="{{ section.id }}">
-                                        <img src="{{ imageUrl }}">
-                                    </div>
-                                    {% endfor %}
-                                    {% else %}
-                                    <p>No images in this section.</p>
-                                    {% endif %}
-                                </div>
-                                <div style="text-align:center">
-                                    <div class="thumbnail-container" data-section-id="{{ section.id }}">
-                                        {% if section.id in content.pictures_by_section %}
-                                        {% for imageUrl in content.pictures_by_section[section.id] %}
-                                        <div class="thumbnail">
-                                            <img src="{{ imageUrl }}" loading="lazy"
-                                                style="max-width:100px;max-height:75px;"
-                                                onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
-                                        </div>
-                                        {% endfor %}
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            </div>
-                            {% elif section.section_type == 'image' %}
-                            <div class="single-image-container">
-                                <!-- <div class="slideshow-container" data-section-id="{{ section.id }}"> -->
-                                {% if section.id in content.pictures_by_section %}
-                                <!-- {% for imageUrl in content.pictures_by_section[section.id] %} -->
-                                <!-- <div class="mySlides fade" data-section-id="{{ section.id }}"> -->
-                                <img src="{{ imageUrl }}" loading="lazy">
-                                <!-- </div> -->
-                                <!-- {% endfor %} -->
-                                {% else %}
-                                <p>No images in this section.</p>
-                                {% endif %}
-                                <!-- </div>
-                    <div style="text-align:center">
-                        <div class="thumbnail-container" data-section-id="{{ section.id }}">
-                            {% if section.id in content.pictures_by_section %}
-                            {% for imageUrl in content.pictures_by_section[section.id] %}
-                            <div class="thumbnail">
-                                <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
-                                    onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
-                            </div>
-                            {% endfor %}
-                            {% endif %}
+                            {% if section.section_type in ['images', 'image_gallery', 'image'] %}
+    {% set images = content.pictures_by_section.get(section.id, []) %}
+    {% set image_layout = section.content.get('image_layout') or ('single' if section.section_type == 'image' else 'fade_slideshow') %}
+    {% set image_fit = section.content.get('image_fit', 'cover') %}
+    {% set image_radius = section.content.get('image_radius', '10') %}
+    {% set show_thumbnails = section.content.get('show_thumbnails', True) %}
+    {% set autoplay = section.content.get('autoplay', False) %}
+
+    <div class="uwebia-images uwebia-images-{{ image_layout }}"
+         data-section-id="{{ section.id }}"
+         data-layout="{{ image_layout }}"
+         data-autoplay="{{ 'true' if autoplay else 'false' }}"
+         style="--image-fit: {{ image_fit }}; --image-radius: {{ image_radius }}px;">
+
+        {% if images %}
+            {% if image_layout == 'single' %}
+                <img class="uwebia-single-image" src="{{ images[0] }}" loading="lazy">
+
+            {% elif image_layout == 'grid' %}
+                <div class="uwebia-image-grid">
+                    {% for imageUrl in images %}
+                        <img src="{{ imageUrl }}" loading="lazy">
+                    {% endfor %}
+                </div>
+
+            {% elif image_layout == 'masonry' %}
+                <div class="uwebia-image-masonry">
+                    {% for imageUrl in images %}
+                        <img src="{{ imageUrl }}" loading="lazy">
+                    {% endfor %}
+                </div>
+
+            {% elif image_layout == 'carousel' %}
+                <div class="uwebia-image-carousel">
+                    {% for imageUrl in images %}
+                        <img src="{{ imageUrl }}" loading="lazy">
+                    {% endfor %}
+                </div>
+
+            {% elif image_layout == 'feature_grid' %}
+                <div class="uwebia-feature-grid">
+                    {% for imageUrl in images %}
+                        <img src="{{ imageUrl }}" loading="lazy" class="{% if loop.first %}featured{% endif %}">
+                    {% endfor %}
+                </div>
+
+            {% elif image_layout in ['slideshow', 'fade_slideshow'] %}
+                <div class="uwebia-slideshow" data-section-id="{{ section.id }}">
+                    {% for imageUrl in images %}
+                        <div class="uwebia-slide {% if loop.first %}active{% endif %}">
+                            <img src="{{ imageUrl }}" loading="lazy">
                         </div>
-                    </div> -->
+                    {% endfor %}
+
+                    {% if image_layout == 'slideshow' %}
+                        <button type="button" class="uwebia-slide-arrow prev" onclick="moveUwebiaSlide('{{ section.id }}', -1)">
+                            &#10094;
+                        </button>
+
+                        <button type="button" class="uwebia-slide-arrow next" onclick="moveUwebiaSlide('{{ section.id }}', 1)">
+                            &#10095;
+                        </button>
+                    {% endif %}
+                </div>
+
+                {% if show_thumbnails %}
+                    <div class="uwebia-image-thumbnails">
+                        {% for imageUrl in images %}
+                            <button type="button" onclick="showUwebiaSlide('{{ section.id }}', {{ loop.index0 }})">
+                                <img src="{{ imageUrl }}" loading="lazy">
+                            </button>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endif %}
+        {% else %}
+            <p>No images in this section.</p>
+        {% endif %}
+    </div>
                             </div>
                             {% elif section.section_type == 'code' %}
                             <div class="text-area">
@@ -1312,6 +1533,52 @@ document.body.style.color = text_color;
     document.querySelector('.banner-background').style.height = bannerHeight + 'px';
 </script> -->
 
+<script>
+const uwebiaSlideIndexes = {};
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.uwebia-images[data-layout="slideshow"], .uwebia-images[data-layout="fade_slideshow"]').forEach(section => {
+        const sectionId = section.dataset.sectionId;
+        uwebiaSlideIndexes[sectionId] = 0;
+        showUwebiaSlide(sectionId, 0);
+
+        const shouldAutoplay = section.dataset.autoplay === 'true' || section.dataset.layout === 'fade_slideshow';
+
+        if (shouldAutoplay) {
+            setInterval(function () {
+                moveUwebiaSlide(sectionId, 1);
+            }, 6500);
+        }
+    });
+});
+
+function showUwebiaSlide(sectionId, index) {
+    const wrapper = document.querySelector(`.uwebia-images[data-section-id="${sectionId}"]`);
+    if (!wrapper) return;
+
+    const slides = wrapper.querySelectorAll('.uwebia-slide');
+    const thumbs = wrapper.querySelectorAll('.uwebia-image-thumbnails button');
+
+    if (!slides.length) return;
+
+    const normalizedIndex = (index + slides.length) % slides.length;
+    uwebiaSlideIndexes[sectionId] = normalizedIndex;
+
+    slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === normalizedIndex);
+    });
+
+    thumbs.forEach((thumb, i) => {
+        thumb.classList.toggle('active', i === normalizedIndex);
+    });
+}
+
+function moveUwebiaSlide(sectionId, direction) {
+    const currentIndex = uwebiaSlideIndexes[sectionId] || 0;
+    showUwebiaSlide(sectionId, currentIndex + direction);
+}
+</script>
+<!-- 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             // Initialize slideshows for each section
@@ -1370,6 +1637,6 @@ document.body.style.color = text_color;
             }
 
         }
-    </script>
+    </script> -->
 
 </html>
