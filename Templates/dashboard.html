@@ -64,7 +64,7 @@
             background-color: #3700b3;
         }
 
-        .website-list {
+        /* .website-list {
             list-style-type: none;
             padding: 0;
             padding: 10px;
@@ -90,70 +90,239 @@
         .website-list .admin-link:hover,
         .website-list .edit-link:hover {
             text-decoration: underline;
-        }
+        } */
+
+
+        .website-list {
+    list-style: none;
+    width: min(1400px, calc(100% - 32px));
+    margin: 22px auto 40px;
+    padding: 0;
+}
+
+.website-dashboard-card {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+        #1e1d20;
+
+    padding: 18px;
+    margin-bottom: 18px;
+
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.09);
+
+    box-shadow:
+        0 18px 40px rgba(0,0,0,0.32),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.website-dashboard-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+
+    padding-bottom: 16px;
+    margin-bottom: 14px;
+
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.website-title-block {
+    min-width: 0;
+}
+
+.website-kicker {
+    margin: 0 0 5px;
+
+    color: rgba(255,255,255,0.52);
+
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.website-dashboard-title {
+    margin: 0;
+
+    color: #ffffff;
+
+    font-size: clamp(1.45rem, 2vw, 2.15rem);
+    font-weight: 850;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.website-action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.website-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    min-height: 36px;
+    padding: 8px 11px;
+
+    color: rgba(255,255,255,0.88);
+    background: rgba(255,255,255,0.065);
+
+    border: 1px solid rgba(255,255,255,0.105);
+    border-radius: 10px;
+
+    font-size: 0.82rem;
+    font-weight: 750;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.website-action-button:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.22);
+}
+
+.website-action-button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.website-action-button i {
+    font-size: 0.9rem;
+    opacity: 0.92;
+}
+
+@media (max-width: 800px) {
+    .website-dashboard-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .website-action-bar {
+        justify-content: flex-start;
+    }
+
+    .website-action-button {
+        flex: 1 1 auto;
+    }
+
+    .website-dashboard-title {
+        white-space: normal;
+    }
+}
+
+.website-action-button-primary {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #9cf4df);
+    border-color: rgba(126, 226, 204, 0.7);
+}
+
+.website-action-button-primary:hover {
+    color: #071512;
+    background: linear-gradient(135deg, #8ff5dd, #b4ffec);
+    border-color: rgba(180, 255, 236, 0.95);
+}
 
         .page-form {
             display: none;
             margin-top: 10px;
         }
+.page-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 18px;
+    align-items: stretch;
+}
 
-        .page-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
-            align-items: center
-        }
+.page-box {
+    position: relative;
 
-        .page-box {
-            background-color: #2c2c2c;
-            padding: 10px;
-            border-radius: 5px;
-            /* flex: 1 1 calc(25% - 10px); */
-            box-sizing: border-box;
-            min-width: 200px;
-            width: 300px;
-            text-align: center;
-            /* overflow: hidden; */
-            height: 250px;
-            border-style: solid;
-            border-color: #5a506c;
-            box-shadow: 0 4px 8px rgba(0, 0, 0.5, .7);
-        }
+    width: 300px;
+    min-width: 260px;
+    height: auto;
+    min-height: 285px;
 
-        .page-box iframe {
-            width: 100%;
-            height: 150px;
-            border: none;
-            border-radius: 5px;
-        }
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 
-        .page-box a {
-            color: #03a9f4;
-            text-decoration: none;
-        }
+    padding: 12px;
+    box-sizing: border-box;
 
-        .page-box a:hover {
-            text-decoration: underline;
-        }
+    text-align: center;
 
-        .tag-container {
-            margin-top: 5px;
-        }
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025)),
+        #252429;
 
-        .tag-container span {
-            background-color: #6200ea;
-            color: #fff;
-            padding: 2px 5px;
-            margin-right: 5px;
-            border-radius: 3px;
-            font-size: 0.8em;
-        }
+    border: 2px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
 
-        .tag-container span:hover {
-            cursor: pointer;
-            background-color: #3700b3;
-        }
+    box-shadow:
+        0 14px 30px rgba(0,0,0,0.28),
+        inset 0 1px 0 rgba(255,255,255,0.045);
+
+    transition:
+        border-color 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.18s ease,
+        background 0.18s ease;
+}
+
+.page-box:hover {
+    transform: translateY(-2px);
+    border-color: rgba(126, 226, 204, 0.28);
+    box-shadow:
+        0 18px 38px rgba(0,0,0,0.34),
+        inset 0 1px 0 rgba(255,255,255,0.055);
+}
+
+.page-box.page-published {
+    border-color: rgba(126, 226, 204, 0.78);
+    box-shadow:
+        0 0 0 1px rgba(126, 226, 204, 0.16),
+        0 16px 34px rgba(0,0,0,0.34),
+        inset 0 1px 0 rgba(255,255,255,0.055);
+}
+
+.page-box.page-draft {
+    border-color: rgba(255,255,255,0.09);
+}
+
+.page-box.sortable-ghost {
+    opacity: 0.42;
+}
+
+.page-box.sortable-chosen {
+    transform: scale(1.015);
+    border-color: rgba(126, 226, 204, 0.65);
+    box-shadow:
+        0 0 0 2px rgba(126, 226, 204, 0.22),
+        0 18px 42px rgba(0,0,0,0.45);
+}
+
     </style>
     <style>
         .modal-overlay {
@@ -468,65 +637,212 @@
         .more-dropdown:hover .dropdown-menu {
             display: block;
         }
+.page-menu-container {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 20;
+}
 
-        .page-menu-container {
-            position: absolute;
-            top: 8px;
-            left: 8px;
-            z-index: 20;
-        }
+/* .page-drag-handle {
+    position: absolute;
+    top: 10px;
+    left: 50px;
+    z-index: 20;
 
-        .page-menu-toggle {
-            background-color: rgba(0, 0, 0, 0.45);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 7px 9px;
-            cursor: pointer;
-        }
+    width: 34px;
+    height: 34px;
+    padding: 0;
 
-        .page-menu-toggle:hover {
-            background-color: rgba(0, 0, 0, 0.65);
-        }
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
-        .page-menu {
-            display: none;
-            position: absolute;
-            top: 36px;
-            left: 0;
-            background-color: #2c2c2c;
-            min-width: 220px;
-            border-radius: 8px;
-            border: 1px solid #555;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-            z-index: 9999;
-            overflow: hidden;
-        }
+    color: rgba(255,255,255,0.84);
+    background: rgba(255,255,255,0.065);
 
-        .page-menu.show {
-            display: block;
-        }
+    border: 1px solid rgba(255,255,255,0.105);
+    border-radius: 10px;
 
-        .page-menu button {
-            width: 100%;
-            background: none;
-            border: none;
-            color: white;
-            text-align: left;
-            padding: 12px 16px;
-            cursor: pointer;
-            font-size: 14px;
-        }
+    cursor: grab;
 
-        .page-menu button:hover {
-            background-color: #3d3d3d;
-        }
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
 
-        .page-title {
-            font-weight: bold;
-            margin-top: 8px;
-            padding: 0 32px;
-        }
+.page-drag-handle:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.22);
+}
+
+.page-drag-handle:active {
+    cursor: grabbing;
+    transform: translateY(0);
+    box-shadow: none;
+} */
+
+.page-box {
+    cursor: grab;
+}
+
+.page-box:active {
+    cursor: grabbing;
+}
+
+.page-box button,
+.page-box a,
+.page-box input,
+.page-box select,
+.page-box textarea,
+.page-box iframe,
+.page-menu,
+.publish-badge-toggle {
+    cursor: auto;
+}
+
+.page-box .page-menu-toggle,
+.page-box .edit-button,
+.page-box .publish-badge-toggle,
+.page-box .page-preview-placeholder button {
+    cursor: pointer;
+}
+
+body.is-dragging-page .page-box {
+    transition: none !important;
+}
+
+body.is-dragging-page .page-preview-shell iframe {
+    pointer-events: none;
+}
+
+.page-menu-toggle,
+.edit-button {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: rgba(255,255,255,0.84);
+    background: rgba(255,255,255,0.065);
+
+    border: 1px solid rgba(255,255,255,0.105);
+    border-radius: 10px;
+
+    font-size: 0.9rem;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.page-menu-toggle:hover,
+.edit-button:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.22);
+}
+
+.page-menu-toggle:active,
+.edit-button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.edit-button-container {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 20;
+}
+.page-menu {
+    display: none;
+    position: absolute;
+    top: 40px;
+    left: 0;
+
+    min-width: 220px;
+    padding: 6px;
+
+    background: rgba(30, 29, 32, 0.98);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+
+    box-shadow: 0 16px 34px rgba(0,0,0,0.38);
+    z-index: 9999;
+    overflow: hidden;
+
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.page-menu.show {
+    display: block;
+}
+
+.page-menu button {
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.86);
+
+    text-align: left;
+    padding: 10px 11px;
+
+    border-radius: 8px;
+
+    cursor: pointer;
+    font-size: 0.84rem;
+    font-weight: 650;
+
+    transition:
+        background 0.15s ease,
+        color 0.15s ease,
+        transform 0.15s ease;
+}
+
+.page-menu button:hover {
+    background: rgba(126, 226, 204, 0.12);
+    color: #ffffff;
+    transform: translateX(2px);
+}
+
+.page-title {
+    margin: 5px 34px 0;
+    padding: 0;
+
+    color: #ffffff;
+    font-size: 1rem;
+    font-weight: 850;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
 
 
@@ -828,158 +1144,315 @@
             margin-bottom: 0;
         }
 
-.navbar-preview-frame {
-    margin-top: 18px;
-    height: 120px;
-    /* border-radius: 16px; */
-    overflow: hidden;
-    background: #181818;
-    border: 1px solid rgba(255,255,255,0.12);
-}
+        .navbar-preview-frame {
+            margin-top: 18px;
+            height: 120px;
+            /* border-radius: 16px; */
+            overflow: hidden;
+            background: #181818;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
 
-.navbar-real-preview {
-    width: 100%;
-    height: 120px;
-    border: none;
-    display: block;
-}
+        .navbar-real-preview {
+            width: 100%;
+            height: 120px;
+            border: none;
+            display: block;
+        }
 
-.public-navbar-preview {
-    position: absolute !important;
-    top: 16px !important;
-    left: 16px !important;
-    right: 16px !important;
-    width: auto !important;
-}
+        .public-navbar-preview {
+            position: absolute !important;
+            top: 16px !important;
+            left: 16px !important;
+            right: 16px !important;
+            width: auto !important;
+        }
 
-/* .navbar-style-modal {
+        /* .navbar-style-modal {
     max-width: 980px;
 } */
 
-.navbar-style-body {
+        .navbar-style-body {
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .navbar-style-preview-section {
+            background: rgba(255, 255, 255, 0.045);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 18px;
+            padding: 16px;
+        }
+
+        .navbar-style-section-title {
+            margin: 0 0 10px;
+            color: #ffffff;
+            font-weight: 700;
+        }
+
+        .public-navbar-preview {
+            position: absolute !important;
+            top: 18px !important;
+            left: 18px !important;
+            right: 18px !important;
+            width: auto !important;
+        }
+
+        .navbar-style-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .navbar-style-card {
+            background: rgba(255, 255, 255, 0.055);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+        }
+
+        .navbar-style-card h6 {
+            margin: 0 0 14px;
+            color: #ffffff;
+            font-size: 0.95rem;
+            font-weight: 800;
+        }
+
+        .navbar-style-card label {
+            display: block;
+            margin: 12px 0 6px;
+            color: #dedede;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .navbar-style-card input[type="color"] {
+            width: 52px;
+            height: 42px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .navbar-style-card input[type="range"] {
+            width: 100%;
+        }
+
+        .navbar-style-checkbox {
+            display: flex !important;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px !important;
+        }
+
+        .navbar-style-checkbox input {
+            width: auto;
+        }
+
+        .navbar-style-secondary-button,
+        .navbar-style-card .gradient-controls button {
+            background: #6200ea;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 9px 12px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        .navbar-style-secondary-button:hover,
+        .navbar-style-card .gradient-controls button:hover {
+            background: #3700b3;
+        }
+
+        .navbar-gradient-colors {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .page-drag-handle {
+            position: absolute;
+            top: 8px;
+            left: 42px;
+            z-index: 25;
+            background: rgba(0, 0, 0, 0.45);
+            color: white;
+            border-radius: 6px;
+            padding: 7px 9px;
+            cursor: grab;
+        }
+
+        .page-drag-handle:active {
+            cursor: grabbing;
+        }
+
+        .page-box.sortable-ghost {
+            opacity: 0.45;
+        }
+
+        .page-box.sortable-chosen {
+            box-shadow: 0 0 0 2px #8f7eb2, 0 10px 28px rgba(0, 0, 0, 0.5);
+        }
+
+.page-preview-shell {
+    position: relative;
+
+    width: 100%;
+    height: 150px;
+
+    margin-top: 2px;
+
+    border-radius: 12px;
+    overflow: hidden;
+
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018)),
+        rgba(0,0,0,0.28);
+
+    border: 1px solid rgba(255,255,255,0.08);
+    box-sizing: border-box;
+}
+
+.page-preview-shell iframe {
+    width: 100%;
+    height: 150px;
+    border: none;
+    display: block;
+    background: white;
+}
+
+.page-preview-placeholder {
+    height: 100%;
+
     display: flex;
     flex-direction: column;
-    gap: 22px;
-}
-
-.navbar-style-preview-section {
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 18px;
-    padding: 16px;
-}
-
-.navbar-style-section-title {
-    margin: 0 0 10px;
-    color: #ffffff;
-    font-weight: 700;
-}
-
-.public-navbar-preview {
-    position: absolute !important;
-    top: 18px !important;
-    left: 18px !important;
-    right: 18px !important;
-    width: auto !important;
-}
-
-.navbar-style-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
-}
-
-.navbar-style-card {
-    background: rgba(255, 255, 255, 0.055);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
-}
-
-.navbar-style-card h6 {
-    margin: 0 0 14px;
-    color: #ffffff;
-    font-size: 0.95rem;
-    font-weight: 800;
-}
-
-.navbar-style-card label {
-    display: block;
-    margin: 12px 0 6px;
-    color: #dedede;
-    font-size: 0.82rem;
-    font-weight: 700;
-}
-
-.navbar-style-card input[type="color"] {
-    width: 52px;
-    height: 42px;
-    border: none;
-    border-radius: 10px;
-    background: transparent;
-    cursor: pointer;
-}
-
-.navbar-style-card input[type="range"] {
-    width: 100%;
-}
-
-.navbar-style-checkbox {
-    display: flex !important;
     align-items: center;
-    gap: 8px;
-    margin-top: 14px !important;
+    justify-content: center;
+    gap: 7px;
+
+    color: rgba(255,255,255,0.68);
+    font-size: 0.8rem;
 }
 
-.navbar-style-checkbox input {
-    width: auto;
+.page-preview-placeholder i {
+    font-size: 1.25rem;
+    opacity: 0.8;
 }
 
-.navbar-style-secondary-button,
-.navbar-style-card .gradient-controls button {
-    background: #6200ea;
-    color: #fff;
-    border: none;
-    border-radius: 10px;
-    padding: 9px 12px;
+.page-preview-placeholder button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 6px 10px;
+
+    color: rgba(255,255,255,0.88);
+    background: rgba(255,255,255,0.07);
+
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 9px;
+
+    font-size: 0.76rem;
+    font-weight: 750;
+
     cursor: pointer;
-    margin-bottom: 10px;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease;
 }
 
-.navbar-style-secondary-button:hover,
-.navbar-style-card .gradient-controls button:hover {
-    background: #3700b3;
+.page-preview-placeholder button:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
 }
 
-.navbar-gradient-colors {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 12px;
+.page-box {
+    border-width: 2px;
+    transition:
+        border-color 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.18s ease;
 }
-        .page-drag-handle {
+
+.page-box.page-published {
+    border-color: rgba(126, 226, 204, 0.75);
+    box-shadow:
+        0 0 0 1px rgba(126, 226, 204, 0.18),
+        0 8px 22px rgba(0, 0, 0, 0.42);
+}
+
+.page-box.page-draft {
+    border-color: #5a506c;
+}
+
+.publish-badge-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    width: fit-content;
+    margin: 2px auto 2px;
+    padding: 5px 10px;
+
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.13);
+
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+
+    cursor: pointer;
+    user-select: none;
+
+    transition:
+        background 0.18s ease,
+        border-color 0.18s ease,
+        color 0.18s ease,
+        transform 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+.publish-badge-toggle:hover {
+    transform: translateY(-1px);
+}
+
+.publish-badge-toggle.published {
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.145);
+    border-color: rgba(126, 226, 204, 0.55);
+    box-shadow: 0 0 18px rgba(126, 226, 204, 0.08);
+}
+
+.publish-badge-toggle.draft {
+    color: rgba(255,255,255,0.66);
+    background: rgba(255,255,255,0.065);
+    border-color: rgba(255,255,255,0.12);
+}
+
+.publish-badge-toggle input {
     position: absolute;
-    top: 8px;
-    left: 42px;
-    z-index: 25;
-    background: rgba(0, 0, 0, 0.45);
-    color: white;
-    border-radius: 6px;
-    padding: 7px 9px;
-    cursor: grab;
+    opacity: 0;
+    pointer-events: none;
 }
 
-.page-drag-handle:active {
-    cursor: grabbing;
-}
-
-.page-box.sortable-ghost {
-    opacity: 0.45;
-}
-
-.page-box.sortable-chosen {
-    box-shadow: 0 0 0 2px #8f7eb2, 0 10px 28px rgba(0,0,0,0.5);
+.publish-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 10px currentColor;
 }
     </style>
 
@@ -1035,33 +1508,53 @@
 
 
         {% for website, pages in website_pages.items() %}
-        <li>
-            <strong>{{ website.name }}</strong>
-            <button onclick="editWebsite('{{ website.id }}')">
-                <i class="fas fa-edit"></i> Edit
+        <li class="website-dashboard-card">
+    <div class="website-dashboard-header">
+        <div class="website-title-block">
+            <p class="website-kicker">Website</p>
+            <h2 class="website-dashboard-title">{{ website.name }}</h2>
+        </div>
+
+        <div class="website-action-bar">
+            <button type="button" class="website-action-button website-action-button-primary" onclick="openAddPageModal('{{ website.id }}')">
+    <i class="fas fa-plus"></i>
+    <span>Add Page</span>
+</button>
+            <button type="button" class="website-action-button" onclick="editWebsite('{{ website.id }}')">
+                <i class="fas fa-edit"></i>
+                <span>Edit</span>
             </button>
-            <button type="button" onclick="openModal('websiteStyleModal_{{ website.id }}')">
-                <i class="fas fa-palette"></i> Website Style
+
+            <button type="button" class="website-action-button" onclick="openModal('websiteStyleModal_{{ website.id }}')">
+                <i class="fas fa-palette"></i>
+                <span>Website Style</span>
             </button>
-            <button type="button" onclick="openModal('publicNavbarModal_{{ website.id }}')">
-                <i class="fas fa-bars"></i> Public Navbar
+
+            <button type="button" class="website-action-button" onclick="openModal('publicNavbarModal_{{ website.id }}')">
+                <i class="fas fa-bars"></i>
+                <span>Navbar Routing</span>
             </button>
-            <button type="button" onclick="openModal('publicNavbarStyleModal_{{ website.id }}')">
-                <i class="fas fa-paint-brush"></i> Navbar Style
+
+            <button type="button" class="website-action-button" onclick="openModal('publicNavbarStyleModal_{{ website.id }}')">
+                <i class="fas fa-paint-brush"></i>
+                <span>Navbar Style</span>
             </button>
-            <div class="tag-container">
+            
+        </div>
+    </div>
+            <!-- <div class="tag-container">
                 Tags:
                 {% for tag in website.tags %}
                 <span>{{ tag.name }}</span>
                 {% endfor %}
-            </div>
+            </div> -->
 
-<div class="page-container" id="pageContainer_{{ website.id }}" data-website-id="{{ website.id }}">
+            <div class="page-container" id="pageContainer_{{ website.id }}" data-website-id="{{ website.id }}">
                 <!-- Giant plus button for adding a page -->
-                <div class="page-box add-page-box" onclick="openAddPageModal('{{ website.id }}')">
+                <!-- <div class="page-box add-page-box" onclick="openAddPageModal('{{ website.id }}')">
                     <p class="create-text">Add Page</p>
                     <i class="fas fa-plus" id="plus-icon"></i>
-                </div>
+                </div> -->
 
                 <!-- Form for adding a new page -->
                 <form id="createPageForm_{{ website.id }}" class="page-form"
@@ -1097,10 +1590,11 @@
                     </div>
                 </div>
                 {% for page in pages %}
-<div class="page-box" data-page-id="{{ page.id }}">
-    <div class="page-drag-handle" title="Drag to reorder">
-    <i class="fas fa-grip-vertical"></i>
-</div>
+<div class="page-box {% if page.site_active_status %}page-published{% else %}page-draft{% endif %}"
+     data-page-id="{{ page.id }}">
+                    <!-- <div class="page-drag-handle" title="Drag to reorder">
+                        <i class="fas fa-grip-vertical"></i>
+                    </div> -->
                     <div class="page-menu-container">
                         <button type="button" class="page-menu-toggle" onclick="togglePageMenu('{{ page.id }}')">
                             <i class="fas fa-bars"></i>
@@ -1108,38 +1602,67 @@
 
                         <div id="pageMenu_{{ page.id }}" class="page-menu">
                             <button type="button" onclick="editPage('{{ website.id }}', '{{ page.id }}')">
-                                Edit Page Details
-                            </button>
+    <i class="fas fa-pen"></i>
+    Edit Page Details
+</button>
 
-                            <button type="button"
-                                onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
-                                Open Editor
-                            </button>
+<button type="button"
+    onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
+    <i class="fas fa-edit"></i>
+    Open Editor
+</button>
 
-                            <button type="button"
-                                onclick="generateQRCode('{{ url_for('public_page_by_slug', page_slug=page.slug) }}', '{{ page.id }}')">
-                                Download QR Code
-                            </button>
+<button type="button"
+    onclick="document.querySelector('.dashboard-publish-toggle[data-page-id=\'{{ page.id }}\']').click()">
+    <i class="fas fa-broadcast-tower"></i>
+    {% if page.site_active_status %}Unpublish Page{% else %}Publish Page{% endif %}
+</button>
 
-                            <button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
-                                Duplicate Page
-                            </button>
+<button type="button"
+    onclick="generateQRCode('{{ url_for('public_page_by_slug', page_slug=page.slug) }}', '{{ page.id }}')">
+    <i class="fas fa-qrcode"></i>
+    Download QR Code
+</button>
 
-                            <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
-                                Replace Page
-                            </button>
+<button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
+    <i class="fas fa-copy"></i>
+    Duplicate Page
+</button>
 
-                            <button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
-                                Delete Page
-                            </button>
+<button type="button" onclick="openReplacePageModal('{{ page.id }}')">
+    <i class="fas fa-random"></i>
+    Replace Page
+</button>
+
+<button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
+    <i class="fas fa-trash"></i>
+    Delete Page
+</button>
                         </div>
                     </div>
 
+<label class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
+       id="pagePublishBadge_{{ page.id }}"
+       title="Click to toggle publishing">
 
+    <input type="checkbox"
+           class="dashboard-publish-toggle"
+           data-website-id="{{ website.id }}"
+           data-page-id="{{ page.id }}"
+           {% if page.site_active_status %}checked{% endif %}>
+
+    <span class="publish-badge-dot"></span>
+
+    <span id="pagePublishText_{{ page.id }}">
+        {% if page.site_active_status %}Published{% else %}Draft{% endif %}
+    </span>
+</label>
 
                     <div class="page-title">
                         {{ page.name }}
                     </div>
+
+
                     <div class="edit-button-container">
                         <!-- Edit button for page -->
                         <button class="edit-button"
@@ -1147,15 +1670,25 @@
                             <i class="fas fa-edit"></i>
                         </button>
                     </div>
-                    <iframe src="{{ url_for('public_page_by_slug', page_slug=page.slug) }}"
-                        title="{{ page.name }}"></iframe>
-                    <div class="tag-container">
+                    <div class="page-preview-shell"
+                        data-preview-url="{{ url_for('public_page_by_slug', page_slug=page.slug) }}">
+
+
+                        <div class="page-preview-placeholder">
+                            <i class="fas fa-window-maximize"></i>
+                            <span>Preview disabled</span>
+                            <button type="button" onclick="enablePagePreview(this)">
+                                Enable Preview
+                            </button>
+                        </div>
+                    </div>
+                    <!-- <div class="tag-container">
                         <a href="#" onclick="editPage('{{ website.id }}', '{{ page.id }}')" class="editable">Tags:</a>
                         {% for tag in page.tags %}
                         <span><a href="#" onclick="editPage('{{ website.id }}', '{{ page.id }}')" class="editable">
                                 {{ tag.name }}</a></span>
                         {% endfor %}
-                    </div>
+                    </div> -->
 
 
 
@@ -1308,8 +1841,8 @@
                     </div>
                 </div>
 
-                                {% set palette_context = 'website_' ~ website.id %}
-{% include 'components/color_palette.html' %}
+                {% set palette_context = 'website_' ~ website.id %}
+                {% include 'components/color_palette.html' %}
 
                 <div id="websiteStylePreview_{{ website.id }}"
                     style="margin-top: 20px; padding: 20px; border-radius: 12px;">
@@ -1340,23 +1873,22 @@
                     <div class="navbar-builder-card">
                         <h6>Add Page Link</h6>
 
-<select id="navbarPageSelect_{{ website.id }}" class="form-control">
-    <option value="">Select page...</option>
+                        <select id="navbarPageSelect_{{ website.id }}" class="form-control">
+                            <option value="">Select page...</option>
 
-    {% for page in pages %}
-    <option value="{{ url_for('public_page_by_slug', page_slug=page.slug) }}"
-        data-name="{{ page.name }}"
-        data-page-id="{{ page.id }}">
-        {{ page.name }}
-    </option>
-    {% endfor %}
+                            {% for page in pages %}
+                            <option value="{{ url_for('public_page_by_slug', page_slug=page.slug) }}"
+                                data-name="{{ page.name }}" data-page-id="{{ page.id }}">
+                                {{ page.name }}
+                            </option>
+                            {% endfor %}
 
-    <option value="manual">Enter manually</option>
-</select>
+                            <option value="manual">Enter manually</option>
+                        </select>
 
-<select id="navbarGroupSelect_{{ website.id }}" class="form-control" style="display:none;">
-    <option value="">Select group...</option>
-</select>
+                        <select id="navbarGroupSelect_{{ website.id }}" class="form-control" style="display:none;">
+                            <option value="">Select group...</option>
+                        </select>
 
                         <select id="navbarDestinationSelect_{{ website.id }}" class="form-control">
                             <option value="top">Add to top level</option>
@@ -1415,14 +1947,14 @@
             </div>
         </div>
 
-<div id="publicNavbarStyleModal_{{ website.id }}" class="modal modal-content navbar-style-modal">
-    <span class="close" onclick="closeModal('publicNavbarStyleModal_{{ website.id }}')">&times;</span>
+        <div id="publicNavbarStyleModal_{{ website.id }}" class="modal modal-content navbar-style-modal">
+            <span class="close" onclick="closeModal('publicNavbarStyleModal_{{ website.id }}')">&times;</span>
 
-    <h5>Navbar Style</h5>
+            <h5>Navbar Style</h5>
 
-    <div class="modal-body navbar-style-body">
+            <div class="modal-body navbar-style-body">
 
-        <!-- <div class="navbar-style-preview-section">
+                <!-- <div class="navbar-style-preview-section">
             <p class="navbar-style-section-title">Live Preview</p>
 
             <div class="navbar-preview-frame">
@@ -1457,293 +1989,280 @@
             </div>
         </div> -->
 
-        <div class="navbar-preview-frame">
-<iframe
-    id="navbarRealPreview_{{ website.id }}"
-    class="navbar-real-preview"
-    src="{{ url_for('preview_navbar', website_id=website.id) }}">
-</iframe>
-</div>
-
-        <div class="navbar-style-grid">
-            <div class="navbar-style-card">
-                <h6>Title</h6>
-
-                <label>Navbar Title</label>
-                <input type="text"
-                    id="navbarTitle_{{ website.id }}"
-                    class="form-control"
-                    value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')">
-
-                <label>Title Alignment</label>
-                <select id="navbarTitleAlignment_{{ website.id }}"
-                    class="form-control"
-                    onchange="updateFullNavbarPreview('{{ website.id }}')">
-                    <option value="left" {% if (website.public_navbar_style or {}).get('title_alignment', 'left') == 'left' %}selected{% endif %}>Left</option>
-                    <option value="center" {% if (website.public_navbar_style or {}).get('title_alignment', 'left') == 'center' %}selected{% endif %}>Center</option>
-                    <option value="right" {% if (website.public_navbar_style or {}).get('title_alignment', 'left') == 'right' %}selected{% endif %}>Right</option>
-                </select>
-
-                <label>Navbar Text Color</label>
-                <input type="color"
-                    id="navbarTextColor_{{ website.id }}"
-                    value="{{ (website.public_navbar_style or {}).get('text_color', '#ffffff') }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')"
-                    oninput="lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
-            </div>
-
-            <div class="navbar-style-card">
-                <h6>Icon</h6>
-
-<label>Upload Icon</label>
-<input type="file"
-    id="navbarIconUpload_{{ website.id }}"
-    class="form-control"
-    accept=".svg,.png,image/svg+xml,image/png">
-
-                <button type="button" class="navbar-style-secondary-button"
-                    onclick="uploadPublicNavbarIcon('{{ website.id }}')">
-                    Upload Icon
-                </button>
-
-                <label>Icon URL</label>
-                <input type="text"
-                    id="navbarIconUrl_{{ website.id }}"
-                    class="form-control"
-                    placeholder="/static/uploads/logo.svg or image URL"
-                    value="{{ (website.public_navbar_style or {}).get('icon_url', '') }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')">
-            </div>
-
-            <div class="navbar-style-card">
-                <h6>Background</h6>
-
-                <label>Gradient Direction</label>
-                <div class="gradient-controls">
-                    <select id="navbarGradientDirection_{{ website.id }}"
-                        onchange="updateFullNavbarPreview('{{ website.id }}')">
-                        <option value="to right">Left → Right</option>
-                        <option value="to bottom">Top → Bottom</option>
-                        <option value="to bottom right">Diagonal</option>
-                    </select>
-
-                    <button type="button" onclick="addNavbarColorStop('{{ website.id }}')">
-                        + Add Color
-                    </button>
+                <div class="navbar-preview-frame">
+                    <iframe id="navbarRealPreview_{{ website.id }}" class="navbar-real-preview"
+                        src="{{ url_for('preview_navbar', website_id=website.id) }}">
+                    </iframe>
                 </div>
 
-                <div id="navbarGradientColors_{{ website.id }}" class="navbar-gradient-colors"></div>
+                <div class="navbar-style-grid">
+                    <div class="navbar-style-card">
+                        <h6>Title</h6>
 
-                <input type="hidden"
-                    id="navbarBackground_{{ website.id }}"
-                    value="{{ (website.public_navbar_style or {}).get('background', 'rgba(20,20,20,0.9)') }}">
+                        <label>Navbar Title</label>
+                        <input type="text" id="navbarTitle_{{ website.id }}" class="form-control"
+                            value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
+                            oninput="updateFullNavbarPreview('{{ website.id }}')">
+
+                        <label>Title Alignment</label>
+                        <select id="navbarTitleAlignment_{{ website.id }}" class="form-control"
+                            onchange="updateFullNavbarPreview('{{ website.id }}')">
+                            <option value="left" {% if (website.public_navbar_style or {}).get('title_alignment', 'left'
+                                )=='left' %}selected{% endif %}>Left</option>
+                            <option value="center" {% if (website.public_navbar_style or
+                                {}).get('title_alignment', 'left' )=='center' %}selected{% endif %}>Center</option>
+                            <option value="right" {% if (website.public_navbar_style or
+                                {}).get('title_alignment', 'left' )=='right' %}selected{% endif %}>Right</option>
+                        </select>
+
+                        <label>Navbar Text Color</label>
+<input type="color"
+    id="navbarTextColor_{{ website.id }}"
+    value="{{ (website.public_navbar_style or {}).get('text_color', '#ffffff') }}"
+    oninput="window.lastSelectedColor=this.value; updateNavbarTextPreview('{{ website.id }}')">
+                    </div>
+
+                    <div class="navbar-style-card">
+                        <h6>Icon</h6>
+
+                        <label>Upload Icon</label>
+                        <input type="file" id="navbarIconUpload_{{ website.id }}" class="form-control"
+                            accept=".svg,.png,image/svg+xml,image/png">
+
+                        <button type="button" class="navbar-style-secondary-button"
+                            onclick="uploadPublicNavbarIcon('{{ website.id }}')">
+                            Upload Icon
+                        </button>
+
+                        <label>Icon URL</label>
+                        <input type="text" id="navbarIconUrl_{{ website.id }}" class="form-control"
+                            placeholder="/static/uploads/logo.svg or image URL"
+                            value="{{ (website.public_navbar_style or {}).get('icon_url', '') }}"
+                            oninput="updateFullNavbarPreview('{{ website.id }}')">
+                    </div>
+
+                    <div class="navbar-style-card">
+                        <h6>Background</h6>
+
+                        <label>Gradient Direction</label>
+                        <div class="gradient-controls">
+                            <select id="navbarGradientDirection_{{ website.id }}"
+                                onchange="updateFullNavbarPreview('{{ website.id }}')">
+                                <option value="to right">Left → Right</option>
+                                <option value="to bottom">Top → Bottom</option>
+                                <option value="to bottom right">Diagonal</option>
+                            </select>
+
+                            <button type="button" onclick="addNavbarColorStop('{{ website.id }}')">
+                                + Add Color
+                            </button>
+                        </div>
+
+                        <div id="navbarGradientColors_{{ website.id }}" class="navbar-gradient-colors"></div>
+
+                        <input type="hidden" id="navbarBackground_{{ website.id }}"
+                            value="{{ (website.public_navbar_style or {}).get('background', 'rgba(20,20,20,0.9)') }}">
+                    </div>
+
+                    <div class="navbar-style-card">
+                        <h6>Effects</h6>
+
+                        <label>Transparency</label>
+                        <input type="range" id="navbarOpacity_{{ website.id }}" min="0" max="1" step="0.05"
+                            value="{{ (website.public_navbar_style or {}).get('opacity', 0.9) }}"
+                            oninput="updateFullNavbarPreview('{{ website.id }}')">
+
+                        <label>Blur</label>
+                        <input type="range" id="navbarBlur_{{ website.id }}" min="0" max="30" step="1"
+                            value="{{ (website.public_navbar_style or {}).get('blur', 14) }}"
+                            oninput="updateFullNavbarPreview('{{ website.id }}')">
+
+                        <label>Corner Radius</label>
+                        <input type="range" id="navbarBorderRadius_{{ website.id }}" min="0" max="30" step="1"
+                            value="{{ (website.public_navbar_style or {}).get('border_radius', 0) }}"
+                            oninput="updateFullNavbarPreview('{{ website.id }}')">
+
+                        <label class="navbar-style-checkbox">
+                            <input type="checkbox" id="navbarShadow_{{ website.id }}" {% if (website.public_navbar_style
+                                or {}).get('shadow', True) %}checked{% endif %}
+                                onchange="updateFullNavbarPreview('{{ website.id }}')">
+                            Show Shadow
+                        </label>
+
+                        <label class="navbar-style-checkbox">
+                            <input type="checkbox" id="navbarSticky_{{ website.id }}" {% if (website.public_navbar_style
+                                or {}).get('sticky', True) %}checked{% endif %}
+                                onchange="updateFullNavbarPreview('{{ website.id }}')">
+                            Stick to Top
+                        </label>
+                    </div>
+                </div>
             </div>
 
-            <div class="navbar-style-card">
-                <h6>Effects</h6>
+            <div class="modal-footer">
+                <button type="button" onclick="closeModal('publicNavbarStyleModal_{{ website.id }}')">
+                    Close
+                </button>
 
-                <label>Transparency</label>
-                <input type="range"
-                    id="navbarOpacity_{{ website.id }}"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value="{{ (website.public_navbar_style or {}).get('opacity', 0.9) }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')">
-
-                <label>Blur</label>
-                <input type="range"
-                    id="navbarBlur_{{ website.id }}"
-                    min="0"
-                    max="30"
-                    step="1"
-                    value="{{ (website.public_navbar_style or {}).get('blur', 14) }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')">
-
-                <label>Corner Radius</label>
-                <input type="range"
-                    id="navbarBorderRadius_{{ website.id }}"
-                    min="0"
-                    max="30"
-                    step="1"
-                    value="{{ (website.public_navbar_style or {}).get('border_radius', 0) }}"
-                    oninput="updateFullNavbarPreview('{{ website.id }}')">
-
-                <label class="navbar-style-checkbox">
-                    <input type="checkbox"
-                        id="navbarShadow_{{ website.id }}"
-                        {% if (website.public_navbar_style or {}).get('shadow', True) %}checked{% endif %}
-                        onchange="updateFullNavbarPreview('{{ website.id }}')">
-                    Show Shadow
-                </label>
-
-                <label class="navbar-style-checkbox">
-                    <input type="checkbox"
-                        id="navbarSticky_{{ website.id }}"
-                        {% if (website.public_navbar_style or {}).get('sticky', True) %}checked{% endif %}
-                        onchange="updateFullNavbarPreview('{{ website.id }}')">
-                    Stick to Top
-                </label>
+                <button type="button" onclick="savePublicNavbarStyle('{{ website.id }}')">
+                    Save Navbar Style
+                </button>
             </div>
         </div>
-    </div>
 
-    <div class="modal-footer">
-        <button type="button" onclick="closeModal('publicNavbarStyleModal_{{ website.id }}')">
-            Close
-        </button>
-
-        <button type="button" onclick="savePublicNavbarStyle('{{ website.id }}')">
-            Save Navbar Style
-        </button>
-    </div>
-</div>
-               
         {% endfor %}
         <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
         <script>
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.page-container').forEach(container => {
-        const websiteId = container.dataset.websiteId;
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('.page-container').forEach(container => {
+                    const websiteId = container.dataset.websiteId;
 
-        Sortable.create(container, {
-            animation: 150,
-            handle: '.page-drag-handle',
-            draggable: '.page-box:not(.add-page-box)',
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
+                    Sortable.create(container, {
+    animation: 150,
+    draggable: '.page-box:not(.add-page-box)',
+    ghostClass: 'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    dragClass: 'sortable-drag',
 
-            onEnd: function () {
-                const pageIds = Array.from(
-                    container.querySelectorAll('.page-box:not(.add-page-box)')
-                ).map(box => box.dataset.pageId);
+    filter: '.page-menu-container, .page-menu, .edit-button-container, .publish-badge-toggle, .page-preview-placeholder button, iframe, input, button, a, select, textarea',
+    preventOnFilter: false,
 
-                fetch(`/reorder_pages/${websiteId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({
-                        page_ids: pageIds
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (!data.success) {
-                        alert('Failed to save page order.');
-                    }
-                })
-                .catch(error => console.error('Error saving page order:', error));
-            }
-        });
-    });
+    onStart: function () {
+        document.body.classList.add('is-dragging-page');
+    },
+
+    onEnd: function () {
+        document.body.classList.remove('is-dragging-page');
+
+        const pageIds = Array.from(
+            container.querySelectorAll('.page-box:not(.add-page-box)')
+        ).map(box => box.dataset.pageId);
+
+        fetch(`/reorder_pages/${websiteId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({
+                page_ids: pageIds
+            })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('Failed to save page order.');
+                }
+            })
+            .catch(error => console.error('Error saving page order:', error));
+    }
 });
-</script>
+                });
+            });
+        </script>
 
-<script>
-    const websitePageGroups = {{ website_page_groups | tojson }};
-</script>
+        <script>
+            const websitePageGroups = {{ website_page_groups | tojson }};
+        </script>
 
         <script>
             function refreshNavbarIframePreview(websiteId) {
-    const iframe = document.getElementById(`navbarRealPreview_${websiteId}`);
-    if (!iframe) return;
+                const iframe = document.getElementById(`navbarRealPreview_${websiteId}`);
+                if (!iframe) return;
 
-    const baseSrc = iframe.dataset.baseSrc || iframe.src.split('?')[0];
-    iframe.dataset.baseSrc = baseSrc;
+                const baseSrc = iframe.dataset.baseSrc || iframe.src.split('?')[0];
+                iframe.dataset.baseSrc = baseSrc;
 
-    iframe.src = `${baseSrc}?t=${Date.now()}`;
-}
+                iframe.src = `${baseSrc}?t=${Date.now()}`;
+            }
 
 
-function uploadPublicNavbarIcon(websiteId) {
-    const input = document.getElementById(`navbarIconUpload_${websiteId}`);
-    const iconUrlInput = document.getElementById(`navbarIconUrl_${websiteId}`);
+            function uploadPublicNavbarIcon(websiteId) {
+                const input = document.getElementById(`navbarIconUpload_${websiteId}`);
+                const iconUrlInput = document.getElementById(`navbarIconUrl_${websiteId}`);
 
-    if (!input || !input.files || input.files.length === 0) {
-        alert('Please choose an SVG file.');
-        return;
-    }
+                if (!input || !input.files || input.files.length === 0) {
+                    alert('Please choose an SVG file.');
+                    return;
+                }
 
-    const file = input.files[0];
+                const file = input.files[0];
 
-const allowedIconTypes = ['svg', 'png'];
-const extension = file.name.split('.').pop().toLowerCase();
+                const allowedIconTypes = ['svg', 'png'];
+                const extension = file.name.split('.').pop().toLowerCase();
 
-if (!allowedIconTypes.includes(extension)) {
-    alert('Only SVG and PNG files are allowed.');
-    return;
-}
+                if (!allowedIconTypes.includes(extension)) {
+                    alert('Only SVG and PNG files are allowed.');
+                    return;
+                }
 
-    const formData = new FormData();
-    formData.append('icon', file);
+                const formData = new FormData();
+                formData.append('icon', file);
 
-    fetch(`/upload_public_navbar_icon/${websiteId}`, {
-        method: 'POST',
-        headers: {
-            'X-CSRFToken': csrfToken
-        },
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            iconUrlInput.value = data.icon_url;
-            updateNavbarIconPreview(websiteId);
-            alert('Icon uploaded successfully.');
-        } else {
-            alert(data.message || 'Failed to upload icon.');
-        }
-    })
-    .catch(error => console.error('Error:', error));
-}
+                fetch(`/upload_public_navbar_icon/${websiteId}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: formData
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            iconUrlInput.value = data.icon_url;
+                            updateNavbarIconPreview(websiteId);
+                            alert('Icon uploaded successfully.');
+                        } else {
+                            alert(data.message || 'Failed to upload icon.');
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
 
-function updateNavbarIconPreview(websiteId) {
-    const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
-    const preview = document.getElementById(`navbarIconPreview_${websiteId}`);
+            function updateNavbarIconPreview(websiteId) {
+                const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
+                const preview = document.getElementById(`navbarIconPreview_${websiteId}`);
 
-    if (!preview) return;
+                if (!preview) return;
 
-    preview.innerHTML = iconUrl
-        ? `<img src="${iconUrl}" style="width:28px;height:28px;object-fit:contain;">`
-        : '';
-}
-</script>
+                preview.innerHTML = iconUrl
+                    ? `<img src="${iconUrl}" style="width:28px;height:28px;object-fit:contain;">`
+                    : '';
+            }
+        </script>
         <script>
-function updateFullNavbarPreview(websiteId) {
-    // updateNavbarBackgroundPreview(websiteId);
-    // updateNavbarTextPreview(websiteId);
-    // updateNavbarIconPreview(websiteId);
+            function updateFullNavbarPreview(websiteId) {
+                // updateNavbarBackgroundPreview(websiteId);
+                // updateNavbarTextPreview(websiteId);
+                // updateNavbarIconPreview(websiteId);
 
-        // refreshNavbarIframePreview(websiteId);
+                // refreshNavbarIframePreview(websiteId);
 
-    const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
-    const titleText = document.getElementById(`navbarTitleTextPreview_${websiteId}`);
-    const titleWrapper = document.getElementById(`navbarTitlePreview_${websiteId}`);
+                const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+                const titleText = document.getElementById(`navbarTitleTextPreview_${websiteId}`);
+                const titleWrapper = document.getElementById(`navbarTitlePreview_${websiteId}`);
 
-    if (!preview || !titleText || !titleWrapper) return;
+                if (!preview || !titleText || !titleWrapper) return;
 
-    const title = document.getElementById(`navbarTitle_${websiteId}`).value || 'Preview Title';
-    const opacity = document.getElementById(`navbarOpacity_${websiteId}`)?.value || 0.9;
-    const blur = document.getElementById(`navbarBlur_${websiteId}`)?.value || 14;
-    const radius = document.getElementById(`navbarBorderRadius_${websiteId}`)?.value || 0;
-    const shadow = document.getElementById(`navbarShadow_${websiteId}`)?.checked ?? true;
-    const alignment = document.getElementById(`navbarTitleAlignment_${websiteId}`)?.value || 'left';
+                const title = document.getElementById(`navbarTitle_${websiteId}`).value || 'Preview Title';
+                const opacity = document.getElementById(`navbarOpacity_${websiteId}`)?.value || 0.9;
+                const blur = document.getElementById(`navbarBlur_${websiteId}`)?.value || 14;
+                const radius = document.getElementById(`navbarBorderRadius_${websiteId}`)?.value || 0;
+                const shadow = document.getElementById(`navbarShadow_${websiteId}`)?.checked ?? true;
+                const alignment = document.getElementById(`navbarTitleAlignment_${websiteId}`)?.value || 'left';
 
-    titleText.textContent = title;
+                titleText.textContent = title;
 
-    preview.style.opacity = opacity;
-    preview.style.backdropFilter = `blur(${blur}px)`;
-    preview.style.webkitBackdropFilter = `blur(${blur}px)`;
-    preview.style.borderRadius = `${radius}px`;
-    preview.style.boxShadow = shadow ? '0 6px 18px rgba(0,0,0,0.25)' : 'none';
+                preview.style.opacity = opacity;
+                preview.style.backdropFilter = `blur(${blur}px)`;
+                preview.style.webkitBackdropFilter = `blur(${blur}px)`;
+                preview.style.borderRadius = `${radius}px`;
+                preview.style.boxShadow = shadow ? '0 6px 18px rgba(0,0,0,0.25)' : 'none';
 
-    titleWrapper.classList.remove('title-align-left', 'title-align-center', 'title-align-right');
-    titleWrapper.classList.add(`title-align-${alignment}`);
-}
+                titleWrapper.classList.remove('title-align-left', 'title-align-center', 'title-align-right');
+                titleWrapper.classList.add(`title-align-${alignment}`);
+            }
 
             function savePublicNavbarStyle(websiteId) {
                 const title = document.getElementById(`navbarTitle_${websiteId}`).value;
@@ -1763,18 +2282,18 @@ function updateFullNavbarPreview(websiteId) {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': csrfToken
                     },
-body: JSON.stringify({
-    title: title,
-    icon_url: iconUrl,
-    text_color: textColor,
-    background: background,
-    opacity: opacity,
-    blur: blur,
-    border_radius: borderRadius,
-    shadow: shadow,
-    sticky: sticky,
-    title_alignment: titleAlignment
-})
+                    body: JSON.stringify({
+                        title: title,
+                        icon_url: iconUrl,
+                        text_color: textColor,
+                        background: background,
+                        opacity: opacity,
+                        blur: blur,
+                        border_radius: borderRadius,
+                        shadow: shadow,
+                        sticky: sticky,
+                        title_alignment: titleAlignment
+                    })
                 })
                     .then(response => response.json())
                     .then(data => {
@@ -1782,7 +2301,7 @@ body: JSON.stringify({
                             // closeModal(`publicNavbarStyleModal_${websiteId}`);
                             // window.location.reload();
                             refreshNavbarIframePreview(websiteId);
-alert('Navbar style saved.');
+                            alert('Navbar style saved.');
                         } else {
                             alert(data.message || 'Failed to save navbar style.');
                         }
@@ -1806,10 +2325,10 @@ alert('Navbar style saved.');
                 const colorInput = stop.querySelector('input');
                 const removeButton = stop.querySelector('button');
 
-colorInput.addEventListener('input', function () {
-    lastSelectedColor = this.value;
-    updateWebsiteBackgroundPreview(websiteId);
-});
+                colorInput.addEventListener('input', function () {
+                    window.lastSelectedColor = this.value;
+                    updateWebsiteBackgroundPreview(websiteId);
+                });
 
                 removeButton.addEventListener('click', function () {
                     stop.remove();
@@ -1819,7 +2338,7 @@ colorInput.addEventListener('input', function () {
                 container.appendChild(stop);
                 updateNavbarBackgroundPreview(websiteId);
                 enableColorPickerDropTargets();
-enableDraggingFromColorInputs();
+                enableDraggingFromColorInputs();
             }
 
             function updateNavbarBackgroundPreview(websiteId) {
@@ -1900,24 +2419,27 @@ enableDraggingFromColorInputs();
                 updateNavbarTextPreview(websiteId);
             }
 
-            document.addEventListener('DOMContentLoaded', function () {
-                {% for website, pages in website_pages.items() %}
-                initializeNavbarStyle(
-                    '{{ website.id }}',
-                    {{ ((website.public_navbar_style or {}).get('background', '#222222')) | tojson
-            }}
-            );
-            {% endfor %}
-});
+function updateNavbarTextPreview(websiteId) {
+    const textInput = document.getElementById(`navbarTextColor_${websiteId}`);
+    const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+    const realPreviewIframe = document.getElementById(`navbarRealPreview_${websiteId}`);
 
-            function updateNavbarTextPreview(websiteId) {
-                const textInput = document.getElementById(`navbarTextColor_${websiteId}`);
-                const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+    if (!textInput) return;
 
-                if (!textInput || !preview) return;
+    if (preview) {
+        preview.style.color = textInput.value;
 
-                preview.style.color = textInput.value;
-            }
+        preview.querySelectorAll('a, button, .public-navbar-brand').forEach(el => {
+            el.style.color = textInput.value;
+        });
+    }
+
+    // Optional: if you are using the iframe preview only,
+    // it cannot live-update unless you save or rebuild the iframe.
+    if (realPreviewIframe) {
+        realPreviewIframe.dataset.pendingTextColor = textInput.value;
+    }
+}
 
         </script>
         <script>
@@ -2082,76 +2604,76 @@ enableDraggingFromColorInputs();
                 addNavbarItem(websiteId, '', '', container);
             }
 
-            
+
 
             function addSelectedNavbarPage(websiteId) {
-    const select = document.getElementById(`navbarPageSelect_${websiteId}`);
-    const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
-    const selectedOption = select.options[select.selectedIndex];
-    const destinationSelect = document.getElementById(`navbarDestinationSelect_${websiteId}`);
+                const select = document.getElementById(`navbarPageSelect_${websiteId}`);
+                const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
+                const selectedOption = select.options[select.selectedIndex];
+                const destinationSelect = document.getElementById(`navbarDestinationSelect_${websiteId}`);
 
-    if (!select.value) {
-        alert("Please select a page.");
-        return;
-    }
+                if (!select.value) {
+                    alert("Please select a page.");
+                    return;
+                }
 
-    if (select.value === "manual") {
-        document.getElementById(`manualNavbarName_${websiteId}`).focus();
-        return;
-    }
+                if (select.value === "manual") {
+                    document.getElementById(`manualNavbarName_${websiteId}`).focus();
+                    return;
+                }
 
-    let name = selectedOption.dataset.name;
-    let url = select.value;
+                let name = selectedOption.dataset.name;
+                let url = select.value;
 
-    if (groupSelect && groupSelect.value) {
-        const selectedGroupOption = groupSelect.options[groupSelect.selectedIndex];
-        name = selectedGroupOption.textContent;
-        url = `${url}#${groupSelect.value}`;
-    }
+                if (groupSelect && groupSelect.value) {
+                    const selectedGroupOption = groupSelect.options[groupSelect.selectedIndex];
+                    name = selectedGroupOption.textContent;
+                    url = `${url}#${groupSelect.value}`;
+                }
 
-    const destinationContainer = getNavbarDestinationContainer(websiteId, destinationSelect.value);
+                const destinationContainer = getNavbarDestinationContainer(websiteId, destinationSelect.value);
 
-    addNavbarItem(websiteId, name, url, destinationContainer);
+                addNavbarItem(websiteId, name, url, destinationContainer);
 
-    select.value = "";
-    if (groupSelect) {
-        groupSelect.innerHTML = `<option value="">Select group...</option>`;
-        groupSelect.style.display = 'none';
-    }
-}
+                select.value = "";
+                if (groupSelect) {
+                    groupSelect.innerHTML = `<option value="">Select group...</option>`;
+                    groupSelect.style.display = 'none';
+                }
+            }
 
             function updateNavbarGroupSelect(websiteId) {
-    const pageSelect = document.getElementById(`navbarPageSelect_${websiteId}`);
-    const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
+                const pageSelect = document.getElementById(`navbarPageSelect_${websiteId}`);
+                const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
 
-    if (!pageSelect || !groupSelect) return;
+                if (!pageSelect || !groupSelect) return;
 
-    const selectedOption = pageSelect.options[pageSelect.selectedIndex];
-    const pageId = selectedOption?.dataset?.pageId;
+                const selectedOption = pageSelect.options[pageSelect.selectedIndex];
+                const pageId = selectedOption?.dataset?.pageId;
 
-    groupSelect.innerHTML = `<option value="">Select group...</option>`;
+                groupSelect.innerHTML = `<option value="">Select group...</option>`;
 
-    if (!pageId || pageSelect.value === 'manual') {
-        groupSelect.style.display = 'none';
-        return;
-    }
+                if (!pageId || pageSelect.value === 'manual') {
+                    groupSelect.style.display = 'none';
+                    return;
+                }
 
-    const groups = websitePageGroups?.[websiteId]?.[pageId] || [];
+                const groups = websitePageGroups?.[websiteId]?.[pageId] || [];
 
-    if (!groups.length) {
-        groupSelect.style.display = 'none';
-        return;
-    }
+                if (!groups.length) {
+                    groupSelect.style.display = 'none';
+                    return;
+                }
 
-    groups.forEach(group => {
-        const option = document.createElement('option');
-        option.value = group.anchor_slug;
-        option.textContent = group.name || group.anchor_slug;
-        groupSelect.appendChild(option);
-    });
+                groups.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.anchor_slug;
+                    option.textContent = group.name || group.anchor_slug;
+                    groupSelect.appendChild(option);
+                });
 
-    groupSelect.style.display = 'block';
-}
+                groupSelect.style.display = 'block';
+            }
 
             function addManualNavbarItem(websiteId) {
                 const nameInput = document.getElementById(`manualNavbarName_${websiteId}`);
@@ -2259,26 +2781,46 @@ enableDraggingFromColorInputs();
             }
         </script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    {% for website, pages in website_pages.items() %}
-        const savedNavbarItems_{{ website.id }} = {{ (website.public_navbar_items or []) | tojson }};
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const dataScript = document.getElementById('dashboardWebsiteData');
+                if (!dataScript) return;
 
-        loadNavbarItems('{{ website.id }}', savedNavbarItems_{{ website.id }});
+                const dashboardData = JSON.parse(dataScript.textContent || '{}');
+                const websites = dashboardData.websites || [];
 
-        renderSavedColors('website_{{ website.id }}');
-        enableSavedColorDropZone('website_{{ website.id }}');
+                websites.forEach(function (website) {
+                    const websiteId = String(website.id);
 
-        const pageSelect_{{ website.id }} = document.getElementById('navbarPageSelect_{{ website.id }}');
+                    initializeWebsiteStyle(
+                        websiteId,
+                        website.background_color || '#ffffff',
+                        website.text_color || '#000000'
+                    );
 
-        if (pageSelect_{{ website.id }}) {
-            pageSelect_{{ website.id }}.addEventListener('change', function () {
-                updateNavbarGroupSelect('{{ website.id }}');
+                    initializeNavbarStyle(
+                        websiteId,
+                        website.navbar_background || '#222222'
+                    );
+
+                    loadNavbarItems(
+                        websiteId,
+                        website.public_navbar_items || []
+                    );
+
+                    renderSavedColors(`website_${websiteId}`);
+                    enableSavedColorDropZone(`website_${websiteId}`);
+
+                    const pageSelect = document.getElementById(`navbarPageSelect_${websiteId}`);
+
+                    if (pageSelect) {
+                        pageSelect.addEventListener('change', function () {
+                            updateNavbarGroupSelect(websiteId);
+                        });
+                    }
+                });
             });
-        }
-    {% endfor %}
-});
-</script>
+        </script>
         <script>
 
             document.addEventListener('DOMContentLoaded', function () {
@@ -2304,14 +2846,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     previewText.style.color = textColorInput.value;
                 }
 
-if (textColorInput) {
-    textColorInput.addEventListener('input', updateTextPreview);
-    updateTextPreview();
-}
+                if (textColorInput) {
+                    textColorInput.addEventListener('input', updateTextPreview);
+                    updateTextPreview();
+                }
 
-if (typeof initializeWebsiteBackground === 'function') {
-    initializeWebsiteBackground();
-}
+                if (typeof initializeWebsiteBackground === 'function') {
+                    initializeWebsiteBackground();
+                }
             });
         </script>
 
@@ -2335,10 +2877,10 @@ if (typeof initializeWebsiteBackground === 'function') {
                 const colorInput = stop.querySelector('input');
                 const removeButton = stop.querySelector('button');
 
-colorInput.addEventListener('input', function () {
-    lastSelectedColor = this.value;
-    updateWebsiteBackgroundPreview(websiteId);
-});
+                colorInput.addEventListener('input', function () {
+                    window.lastSelectedColor = this.value;
+                    updateWebsiteBackgroundPreview(websiteId);
+                });
 
                 removeButton.addEventListener('click', function () {
                     stop.remove();
@@ -2455,17 +2997,23 @@ colorInput.addEventListener('input', function () {
                     })
                     .catch(error => console.error('Error:', error));
             }
-
-            document.addEventListener('DOMContentLoaded', function () {
-                {% for website, pages in website_pages.items() %}
-                initializeWebsiteStyle(
-                    '{{ website.id }}',
-                    {{ (website.background_color or '#ffffff') | tojson }},
-                {{ (website.text_color or '#000000') | tojson }}
-            );
-            {% endfor %}
-});
         </script>
+
+<script id="dashboardWebsiteData" type="application/json">
+{
+    "websites": [
+        {% for website, pages in website_pages.items() %}
+        {
+            "id": {{ website.id | tojson }},
+            "background_color": {{ (website.background_color or "#ffffff") | tojson }},
+            "text_color": {{ (website.text_color or "#000000") | tojson }},
+            "public_navbar_items": {{ (website.public_navbar_items or []) | tojson }},
+            "navbar_background": {{ ((website.public_navbar_style or {}).get("background", "#222222")) | tojson }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]
+}
+</script>
 
         <script>
             //         function addNavbarItem(websiteId, name = '', url = '') {
@@ -2985,22 +3533,100 @@ colorInput.addEventListener('input', function () {
             }
 
         </script>
-                <script>
-function enableDraggingFromColorInputs() {
-    document.querySelectorAll('input[type="color"]').forEach(input => {
-        if (input.dataset.colorDragReady === 'true') return;
+        <script>
+            function enableDraggingFromColorInputs() {
+                document.querySelectorAll('input[type="color"]').forEach(input => {
+                    if (input.dataset.colorDragReady === 'true') return;
 
-        input.dataset.colorDragReady = 'true';
-        input.setAttribute('draggable', 'true');
+                    input.dataset.colorDragReady = 'true';
+                    input.setAttribute('draggable', 'true');
 
-        input.addEventListener('dragstart', function (event) {
-            event.dataTransfer.setData('text/plain', this.value);
-            event.dataTransfer.effectAllowed = 'copy';
-        });
-    });
+                    input.addEventListener('dragstart', function (event) {
+                        event.dataTransfer.setData('text/plain', this.value);
+                        event.dataTransfer.effectAllowed = 'copy';
+                    });
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', enableDraggingFromColorInputs);
+
+
+            function enablePagePreview(button) {
+                const shell = button.closest('.page-preview-shell');
+                if (!shell) return;
+
+                const previewUrl = shell.dataset.previewUrl;
+                if (!previewUrl) return;
+
+                const placeholder = shell.querySelector('.page-preview-placeholder');
+                if (placeholder) {
+                    placeholder.remove();
+                }
+
+                const iframe = document.createElement('iframe');
+                iframe.src = previewUrl;
+                iframe.title = 'Page preview';
+
+                shell.appendChild(iframe);
+            }
+
+
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('.dashboard-publish-toggle').forEach(toggle => {
+                    toggle.addEventListener('change', function () {
+                        const websiteId = this.dataset.websiteId;
+                        const pageId = this.dataset.pageId;
+                        const isPublished = this.checked ? 1 : 0;
+
+                        fetch('/toggle_public_page', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': csrfToken
+                            },
+                            body: JSON.stringify({
+                                website_id: websiteId,
+                                page_id: pageId,
+                                site_active_status: isPublished
+                            })
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    updateDashboardPublishStatus(pageId, this.checked);
+                                } else {
+                                    this.checked = !this.checked;
+                                    alert(data.message || 'Failed to update publish status.');
+                                }
+                            })
+                            .catch(error => {
+                                this.checked = !this.checked;
+                                console.error('Error updating publish status:', error);
+                                alert('Failed to update publish status.');
+                            });
+                    });
+                });
+            });
+
+function updateDashboardPublishStatus(pageId, isPublished) {
+    const pageBox = document.querySelector(`.page-box[data-page-id="${pageId}"]`);
+    const badge = document.getElementById(`pagePublishBadge_${pageId}`);
+    const text = document.getElementById(`pagePublishText_${pageId}`);
+
+    if (text) {
+        text.textContent = isPublished ? 'Published' : 'Draft';
+    }
+
+    if (badge) {
+        badge.classList.toggle('published', isPublished);
+        badge.classList.toggle('draft', !isPublished);
+    }
+
+    if (pageBox) {
+        pageBox.classList.toggle('page-published', isPublished);
+        pageBox.classList.toggle('page-draft', !isPublished);
+    }
 }
-
-document.addEventListener('DOMContentLoaded', enableDraggingFromColorInputs);
         </script>
         {% endblock %}
 

@@ -91,7 +91,7 @@
 </div>
 
 <script>
-let lastSelectedColor = '#ffffff';
+window.lastSelectedColor = window.lastSelectedColor || '#ffffff';
 
 async function getSavedColors() {
     const response = await fetch('/saved_colors');
@@ -101,7 +101,7 @@ async function getSavedColors() {
 
 
 async function saveCurrentPaletteColor(context) {
-    const color = lastSelectedColor || '#ffffff';
+    const color = window.lastSelectedColor || '#ffffff';
 
     await fetch('/saved_colors', {
         method: 'POST',
@@ -151,7 +151,7 @@ function enableColorPickerDropTargets() {
             if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
 
             this.value = color;
-            lastSelectedColor = color;
+            window.lastSelectedColor = color;
 
             this.dispatchEvent(new Event('input', { bubbles: true }));
             this.dispatchEvent(new Event('change', { bubbles: true }));
@@ -226,7 +226,7 @@ function enableSavedColorDropZone(context) {
 
         if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
 
-        lastSelectedColor = color;
+        window.lastSelectedColor = color;
         await saveCurrentPaletteColor(context);
     });
 }

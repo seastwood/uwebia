@@ -66,24 +66,32 @@
     }
 
     .editor-navbar {
+        position: sticky;
+        top: var(--main-navbar-height, 56px);
         display: grid;
-        grid-template-columns: 1fr auto 1fr;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
         align-items: center;
-        padding: 10px 20px;
-        /* background-color: #363637; */
-        color: white;
-        min-height: 43px;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-        z-index: 9999;
+        gap: 12px;
+
         width: 100%;
+        min-height: 52px;
+        padding: 6px 14px;
         box-sizing: border-box;
-        background: linear-gradient(to bottom right, #282828, #343030);
+
+        color: #f4f4f5;
+        background: linear-gradient(180deg, #25272d 0%, #1d1f24 100%);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+
+        z-index: 999;
     }
 
     .editor-navbar-left,
     .editor-navbar-right {
         display: flex;
         align-items: center;
+        gap: 4px;
+        min-width: 0;
     }
 
     .editor-navbar-left {
@@ -102,47 +110,178 @@
         min-width: 0;
     }
 
-    .editor-navbar-item {
-        display: flex;
+    /* Same exact size for every square navbar button */
+    .editor-navbar button,
+    .editor-navbar .public-page-button {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+
+        display: inline-flex !important;
         align-items: center;
         justify-content: center;
-        margin-right: 15px;
-        transition: background-color 0.3s;
-        border-radius: 50px;
-        height: 40px;
-        width: 40px;
-        color: #fff;
+
+        padding: 0 !important;
+        margin: 0 !important;
+
+        box-sizing: border-box;
+        border-radius: 7px;
+        border: 1px solid rgb(98, 100, 101);
+
+        background: rgba(255, 255, 255, 0.055);
+        color: #e8eaed;
+
+        font-size: 16px;
+        line-height: 1;
+        text-decoration: none;
         cursor: pointer;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            color 0.16s ease,
+            transform 0.16s ease,
+            box-shadow 0.16s ease;
     }
 
-    .editor-navbar-item:hover {
-        background-color: #6f6a7e;
-        cursor: pointer;
-        transition: background-color 0.3s;
+    /* Hover effect for ALL navbar buttons */
+    .editor-navbar button:hover,
+    .editor-navbar .public-page-button:hover {
+        background: rgba(126, 226, 204, 0.16);
+        border-color: rgba(126, 226, 204, 0.42);
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22);
     }
 
+    .editor-navbar button:active,
+    .editor-navbar .public-page-button:active {
+        transform: translateY(0);
+        box-shadow: none;
+    }
+
+    /* Icon sizing */
+    .editor-navbar button i,
+    .editor-navbar .public-page-button i {
+        font-size: 15px;
+        line-height: 1;
+    }
+
+    /* Make + visually match the icons */
+    .editor-navbar #add-section-group-btn {
+        font-size: 21px;
+        font-weight: 600;
+    }
+
+    /* Page title */
     .editor-page-title {
-        padding: 6px 14px;
-        border-radius: 999px;
+        max-width: 360px;
+        padding: 7px 14px;
+
+        color: #f5f5f5;
         background: rgba(255, 255, 255, 0.06);
-        color: #f2f2f2;
-        font-size: 0.95rem;
-        font-weight: 500;
-        letter-spacing: 0.2px;
+        border: 1px solid rgba(255, 255, 255, 0.085);
+        border-radius: 7px;
+
+        font-size: 0.9rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        line-height: 1.2;
+
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 320px;
         text-align: center;
     }
 
-    .editor-navbar-item button {
-        background: transparent;
-        border: none;
-        color: inherit;
-        cursor: pointer;
-        font-size: 20px;
+    /* Publish pill */
+    .editor-navbar .publish_page {
+        height: 36px;
+        display: inline-flex;
+        align-items: center;
+
+        padding: 0 10px;
+        margin: 0;
+
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 7px;
+    }
+
+    .editor-navbar .switch-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+
+        margin: 0;
         padding: 0;
+
+        color: #d9dde3;
+        background: transparent;
+
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+    }
+
+    .editor-navbar .switch-label input[type="checkbox"] {
+        display: none;
+    }
+
+    .editor-navbar .switch-label .slider {
+        position: relative;
+        width: 32px;
+        height: 17px;
+        margin-left: 0;
+        background-color: #5d616b;
+        border-radius: 999px;
+        transition: background-color 0.16s ease;
+    }
+
+    .editor-navbar .switch-label .slider::before {
+        content: "";
+        position: absolute;
+        width: 15px;
+        height: 15px;
+        top: 1px;
+        left: 1px;
+        background-color: #ffffff;
+        border-radius: 50%;
+        transition: transform 0.16s ease;
+    }
+
+    .editor-navbar .switch-label input[type="checkbox"]:checked+.slider {
+        background-color: #7ee2cc;
+    }
+
+    .editor-navbar .switch-label input[type="checkbox"]:checked+.slider::before {
+        transform: translateX(15px);
+    }
+
+    @media (max-width: 768px) {
+        .editor-navbar {
+            grid-template-columns: 1fr;
+            gap: 8px;
+            padding: 8px;
+        }
+
+        .editor-navbar-left,
+        .editor-navbar-center,
+        .editor-navbar-right {
+            justify-self: center;
+        }
+
+        .editor-navbar-left,
+        .editor-navbar-right {
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .editor-page-title {
+            max-width: 90vw;
+        }
     }
 
     .add-section-btn {
@@ -217,50 +356,9 @@
         cursor: pointer;
     }
 
-    /* Style the button */
-    #previewButton {
-        background-color: transparent;
-        color: white;
-        border: none;
-        /* padding: 2px; */
-        font-size: 20px;
-        /* Increase font size */
-        cursor: pointer;
-        /* border-radius: 5px; */
-        transition: background-color 0.3s;
-    }
-
-    #saveChangesButton {
-        background-color: transparent;
-        color: white;
-        height: 40px;
-        width: 40px;
-        font-size: 24px;
-        border: none;
-        /* Increase font size */
-
-
-    }
-
-    #refreshButton {
-        transition: background-color 0.3s;
-        background-color: transparent;
-        border: none;
-        cursor: pointer;
-        /* margin-left: 10px; */
-        color: #ffffff;
-        /* padding: 2px; */
-        /* border-radius: 5px; */
-        /* Adjust margin as needed */
-    }
-
-    #refreshButton i {
-        font-size: 20px;
-
-        /* Adjust icon size as needed */
-    }
 
     .big-content-container {
+
         display: flex;
         flex-direction: column;
         /* Change to column layout for mobile */
@@ -2009,6 +2107,10 @@
         border-radius: 16px;
     }
 
+    /* .section-group[style*="transparent"] {
+    border-color: transparent;
+} */
+
     .section-group-header {
         display: flex;
         justify-content: space-between;
@@ -2018,20 +2120,6 @@
         padding: 10px 12px;
         margin-bottom: 10px;
         border-radius: 12px;
-    }
-
-    .add-section-group-btn {
-        margin: 12px;
-        padding: 10px 14px;
-        background: #6f6a7e;
-        color: white;
-        border: none;
-        border-radius: 10px;
-        cursor: pointer;
-    }
-
-    .add-section-group-btn:hover {
-        background: #817b94;
     }
 
     .section-group-actions {
@@ -2072,7 +2160,7 @@
         justify-content: center;
         background: rgba(0, 0, 0, 0.25);
         border-radius: 8px;
-        margin-right: 4px;
+        /* margin-right: 4px; */
     }
 
     .group-rows {
@@ -2088,151 +2176,224 @@
     }
 
     .group-style-content {
-    max-width: 920px;
-    width: 90%;
-    border-radius: 22px;
-    background: linear-gradient(145deg, #202126, #2d2f36);
-    border: 1px solid rgba(255,255,255,0.1);
-    box-shadow: 0 24px 80px rgba(0,0,0,0.55);
-    padding: 24px;
-}
+        max-width: 920px;
+        width: 90%;
+        border-radius: 22px;
+        background: linear-gradient(145deg, #202126, #2d2f36);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+        padding: 24px;
+    }
 
-.group-style-content h5 {
-    margin: 0 0 18px;
-    font-size: 1.35rem;
-    letter-spacing: 0.02em;
-    color: #ffffff;
-}
+    .group-style-content h5 {
+        margin: 0 0 18px;
+        font-size: 1.35rem;
+        letter-spacing: 0.02em;
+        color: #ffffff;
+    }
 
-.group-style-content .close {
-    color: #cfd3d6;
-    background: rgba(255,255,255,0.08);
-    border-radius: 999px;
-    width: 34px;
-    height: 34px;
-    line-height: 30px;
-    text-align: center;
-}
+    .group-style-content .close {
+        color: #cfd3d6;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        width: 34px;
+        height: 34px;
+        line-height: 30px;
+        text-align: center;
+    }
 
-.group-style-content .close:hover {
-    color: #ffffff;
-    background: rgba(255,255,255,0.16);
-}
+    .group-style-content .close:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.16);
+    }
 
-.group-style-content .modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-}
+    .group-style-content .modal-body {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
 
-.group-style-content .color-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-    gap: 16px;
-}
+    .group-style-content .color-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 16px;
+    }
 
-.group-style-content .color-option {
-    background: rgba(255,255,255,0.065);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 18px;
-    padding: 16px;
-    box-shadow: 0 12px 26px rgba(0,0,0,0.25);
-}
+    .group-style-content .color-option {
+        background: rgba(255, 255, 255, 0.065);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 12px 26px rgba(0, 0, 0, 0.25);
+    }
 
-.group-style-content .color-option label {
-    background: transparent;
-    padding: 0;
-    color: #e9edf2;
-    font-size: 0.82rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
+    .group-style-content .color-option label {
+        background: transparent;
+        padding: 0;
+        color: #e9edf2;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
 
-.group-style-content .form-control,
-.group-style-content select {
-    width: 100%;
-    box-sizing: border-box;
-    background: #3a3d45;
-    color: #ffffff;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 12px;
-    padding: 11px 12px;
-}
+    .group-style-content .form-control,
+    .group-style-content select {
+        width: 100%;
+        box-sizing: border-box;
+        background: #3a3d45;
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        padding: 11px 12px;
+    }
 
-.group-style-content input[type="range"] {
-    width: 100%;
-    accent-color: #7ee2cc;
-}
+    .group-style-content input[type="range"] {
+        width: 100%;
+        accent-color: #7ee2cc;
+    }
 
-.group-style-content .range-value {
-    color: #aeb5c1;
-    font-weight: 700;
-}
+    .group-style-content .range-value {
+        color: #aeb5c1;
+        font-weight: 700;
+    }
 
-.group-style-content .gradient-controls {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
+    .group-style-content .gradient-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
 
-.group-style-content .gradient-controls button {
-    white-space: nowrap;
-    background: #6f6a7e;
-    color: #ffffff;
-    border: none;
-    border-radius: 12px;
-    padding: 10px 12px;
-    cursor: pointer;
-}
+    .group-style-content .gradient-controls button {
+        white-space: nowrap;
+        background: #6f6a7e;
+        color: #ffffff;
+        border: none;
+        border-radius: 12px;
+        padding: 10px 12px;
+        cursor: pointer;
+    }
 
-.group-style-content .gradient-controls button:hover {
-    background: #817b94;
-}
+    .group-style-content .gradient-controls button:hover {
+        background: #817b94;
+    }
 
-#groupGradientColors {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
+    #groupGradientColors {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
 
-.group-style-preview-wrap {
-    background: rgba(0,0,0,0.22);
-    border: 1px dashed rgba(255,255,255,0.16);
-    border-radius: 20px;
-    padding: 16px;
-}
+    .group-style-preview-wrap {
+        background: rgba(0, 0, 0, 0.22);
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+        border-radius: 20px;
+        padding: 16px;
+    }
 
-.group-style-preview-label {
-    margin: 0 0 10px;
-    color: #bfc4cc;
-    font-size: 0.82rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
+    .group-style-preview-label {
+        margin: 0 0 10px;
+        color: #bfc4cc;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
 
-.group-style-preview {
-    min-height: 90px;
-    color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255,255,255,0.08);
-    border-radius: 0;
-    padding: 0;
-    transition: all 0.2s ease;
-}
+    .group-style-preview {
+        min-height: 90px;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 0;
+        padding: 0;
+        transition: all 0.2s ease;
+    }
 
-.group-style-content .modal-footer {
-    border-top: 1px solid rgba(255,255,255,0.1);
-    margin-top: 18px;
-    padding-top: 16px;
-}
+    .group-style-content .modal-footer {
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        margin-top: 18px;
+        padding-top: 16px;
+    }
 
-.group-style-content .modal-footer button {
-    border-radius: 12px;
-    padding: 10px 16px;
-}
+    .group-style-content .modal-footer button {
+        border-radius: 12px;
+        padding: 10px 16px;
+    }
+
+    .transparent-bg-toggle {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 8px;
+
+        margin-top: 10px;
+        padding: 8px 10px !important;
+
+        width: fit-content;
+
+        background: rgba(255, 255, 255, 0.07) !important;
+        color: #e9edf2 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+
+        font-size: 0.82rem !important;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+    }
+
+    .transparent-bg-toggle input {
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .editable-group-label {
+        flex: 1;
+        min-width: 80px;
+        max-width: 360px;
+
+        padding: 6px 9px;
+        border-radius: 8px;
+
+        color: #ffffff;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+
+        outline: none;
+        cursor: text;
+
+        transition:
+            background 0.16s ease,
+            box-shadow 0.16s ease,
+            color 0.16s ease;
+    }
+
+    .editable-group-label:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .editable-group-label:focus {
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.35);
+    }
+
+    .editable-group-label:empty::before {
+        content: "Section Group";
+        color: rgba(255, 255, 255, 0.45);
+    }
+
+    body.is-sorting .section-group,
+    body.is-sorting .row,
+    body.is-sorting .column,
+    body.is-sorting .section-title {
+        transition: none !important;
+        box-shadow: none !important;
+    }
+
+    body.is-sorting .section-content {
+        display: none !important;
+    }
 </style>
 </head>
 
@@ -2259,24 +2420,21 @@
 
     <div class="editor-navbar">
         <div class="editor-navbar-left">
-            <div class="editor-navbar-item">
-                <button id="saveChangesButton"><i class="fas fa-save"></i></button>
-            </div>
-            <div class="editor-navbar-item">
-                <button id="previewButton">
-                    <i class="fas fa-eye"></i>
-                </button>
-            </div>
-            <div class="editor-navbar-item">
-                <button id="refreshButton">
-                    <i class="fas fa-sync"></i>
-                </button>
-            </div>
-            <div class="editor-navbar-item">
-                <button type="button" id="add-section-group-btn" class="add-section-group-btn">
-                    +
-                </button>
-            </div>
+            <button id="saveChangesButton" title="Save changes">
+                <i class="fas fa-save"></i>
+            </button>
+
+            <button id="previewButton" title="Toggle preview">
+                <i class="fas fa-eye"></i>
+            </button>
+
+            <button id="refreshButton" title="Refresh preview">
+                <i class="fas fa-sync"></i>
+            </button>
+
+            <button type="button" id="add-section-group-btn" class="add-section-group-btn" title="Add section group">
+                +
+            </button>
         </div>
 
         <div class="editor-navbar-center">
@@ -2287,9 +2445,9 @@
 
         <div class="editor-navbar-right">
 
-            <a href="{{ url_for('public_page', website_id=website.id, page_id=page_id) }}" class="public-page-button">
+            <a href="{{ url_for('public_page', website_id=website.id, page_id=page_id) }}" class="public-page-button"
+                title="Open public page">
                 <i class="fas fa-external-link-alt"></i>
-
             </a>
 
             <div class="publish_page">
@@ -2441,8 +2599,8 @@
             </div>
         </div>
 
-<div id="groupStyleModal" class="modal group-style-modal">
-    <div class="modal-content dark group-style-content">
+        <div id="groupStyleModal" class="modal group-style-modal">
+            <div class="modal-content dark group-style-content">
                 <span class="close" onclick="closeGroupStyleModal()">&times;</span>
 
                 <h5>Group Style</h5>
@@ -2451,11 +2609,11 @@
                     <input type="hidden" id="groupStyleGroupId">
 
                     <div class="color-options">
-                        <div class="color-option">
+                        <!-- <div class="color-option">
                             <label>Group Label</label>
                             <input type="text" id="groupName" class="form-control"
                                 placeholder="About, Services, Contact">
-                        </div>
+                        </div> -->
                         <div class="color-option">
                             <label>Background</label>
 
@@ -2473,13 +2631,17 @@
 
                             <div id="groupGradientColors"></div>
 
+                            <input type="checkbox" id="groupTransparentBackground">
+                            Transparent background
+                            </label>
+
                             <input type="hidden" id="groupBackgroundColor">
 
                         </div>
-                                                <div class="color-option">
-                                                    {% set palette_context = 'page_editor_group' %}
-{% include 'components/color_palette.html' %}
-</div>
+                        <div class="color-option">
+                            {% set palette_context = 'page_editor_group' %}
+                            {% include 'components/color_palette.html' %}
+                        </div>
 
                         <div class="color-option">
                             <label>Padding</label>
@@ -2495,12 +2657,12 @@
 
                     </div>
 
-<div class="group-style-preview-wrap">
-    <p class="group-style-preview-label">Live Preview</p>
-    <div id="groupStylePreview" class="group-style-preview">
-        Group preview
-    </div>
-</div>
+                    <div class="group-style-preview-wrap">
+                        <p class="group-style-preview-label">Live Preview</p>
+                        <div id="groupStylePreview" class="group-style-preview">
+                            Group preview
+                        </div>
+                    </div>
                 </div>
 
                 <div class="modal-footer">
@@ -2552,6 +2714,7 @@
         // Get the page_id from the template context
         const pageId = "{{ page_id }}";
         const websiteId = "{{ website.id }}";
+        let sortableInstances = [];
 
         function toggleSectionContent(button) {
             const sectionContent = button.nextElementSibling;
@@ -2686,14 +2849,14 @@
         // Function to move a section up
         function moveSectionUp(element) {
             const sectionId = parseInt(element.getAttribute('data-section-id'));
-            console.log('Moving section up with ID:', sectionId);
-            console.log('Current sections:', sections); // Access the sections array
+            // console.log('Moving section up with ID:', sectionId);
+            // console.log('Current sections:', sections);
 
             // Find the section with the given ID
             const sectionIndex = sections.findIndex(section => section.id === sectionId);
 
             if (sectionIndex === -1 || sections[sectionIndex].order === 1) {
-                console.log(`Section not found or already at the top: ${sectionId}`);
+                // console.log(`Section not found or already at the top: ${sectionId}`);
                 return;
             }
 
@@ -2701,7 +2864,7 @@
             const aboveSection = sections.find(section => section.order === sections[sectionIndex].order - 1);
 
             if (!aboveSection) {
-                console.log("No section found to swap with");
+                // console.log("No section found to swap with");
                 return;
             }
 
@@ -2735,14 +2898,14 @@
         // Function to move a section down
         function moveSectionDown(element) {
             const sectionId = parseInt(element.getAttribute('data-section-id'));
-            console.log('Moving section down with ID:', sectionId);
-            console.log('Current sections:', sections); // Access the sections array
+            // console.log('Moving section down with ID:', sectionId);
+            // console.log('Current sections:', sections); 
 
             // Find the section with the given ID
             const sectionIndex = sections.findIndex(section => section.id === sectionId);
 
             if (sectionIndex === -1 || sections[sectionIndex].order === sections.length) {
-                console.log(`Section not found or already at the bottom: ${sectionId}`);
+                // console.log(`Section not found or already at the bottom: ${sectionId}`);
                 return;
             }
 
@@ -2750,7 +2913,7 @@
             const belowSection = sections.find(section => section.order === sections[sectionIndex].order + 1);
 
             if (!belowSection) {
-                console.log("No section found to swap with");
+                // console.log("No section found to swap with");
                 return;
             }
 
@@ -2774,7 +2937,7 @@
 
         // Function to update the section order in the backend
         function updateSectionOrder(sectionId, newOrder) {
-            console.log("Updating section order for ID:", sectionId, "to new order:", newOrder);
+            // console.log("Updating section order for ID:", sectionId, "to new order:", newOrder);
 
             // Send a request to update the section order to the server
             fetch(`/update_section_order?section_id=${sectionId}&new_order=${newOrder}`, {
@@ -2787,7 +2950,7 @@
                     if (!response.ok) {
                         throw new Error('Failed to update section order');
                     }
-                    console.log('Section order updated successfully.');
+                    // console.log('Section order updated successfully.');
                 })
                 .catch(error => console.error('Error:', error));
         }
@@ -2982,7 +3145,15 @@
                     groupContainer.innerHTML = `
             <div class="section-group-header">
                 <span class="group-drag-handle">☰</span>
-                <span>${group.name || 'Section Group'}</span>
+                <span 
+    class="editable-group-label"
+    contenteditable="true"
+    data-group-id="${group.id}"
+    spellcheck="false"
+    title="Click to edit group label"
+>
+    ${group.name || 'Section Group'}
+</span>
 
 
                     <button type="button" onclick="openGroupStyleModal(${group.id})" title="Group Style">
@@ -3069,7 +3240,7 @@
                     parentContainer = groupRowsContainer;
                 }
                 const rowId = row.id;
-                console.log('Rows Generating in LOOP: ', rowId);
+                // console.log('Rows Generating in LOOP: ', rowId);
                 const rowElement = document.createElement('div');
                 rowElement.classList.add('row');
                 rowElement.setAttribute('data-row-id', rowId);
@@ -3158,12 +3329,12 @@
                 rowDragHandle.innerHTML = '☰';
                 rowElement.insertBefore(rowDragHandle, rowElement.firstChild);
 
-                console.log('Grid row:', grid[rowId]);
+                // console.log('Grid row:', grid[rowId]);
 
                 // Initialize a counter variable
                 let columnCounter = 0;
                 for (const column in grid[rowId]) {
-                    console.log("Column Generating...", column)
+                    // console.log("Column Generating...", column)
                     // Increment the counter
                     columnCounter++;
 
@@ -3183,16 +3354,16 @@
                     }
 
                     // Add more debugging statements here
-                    console.log(`Processing row ${rowId}, column ${column}:`, section);
+                    // console.log(`Processing row ${rowId}, column ${column}:`, section);
 
 
 
                     // Log the column ID to the console
-                    console.log('Column ID:', section ? section.column_id : null);
+                    // console.log('Column ID:', section ? section.column_id : null);
 
 
                     if (section && section.isSection) {
-                        console.log("Creating Section: ", section.id)
+                        // console.log("Creating Section: ", section.id)
                         const sectionElement = document.createElement('div');
                         sectionElement.classList.add('section-title');
                         sectionElement.id = `section-title-${section.id}`;
@@ -3406,7 +3577,7 @@
     class="ql-text-color-picker"
     value="{{ website.text_color or '#ffffff' }}"
     title="Solid Text Color"
-    oninput="lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
+    oninput="window.lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
     <button type="button" class="ql-clear-text-color-btn">Solid</button>
 </div>
 
@@ -3880,7 +4051,7 @@
                     const resizeHandle = document.createElement('div');
                     // Check if this is not the last column in the row
                     const numColumns = Object.keys(grid[rowId]).length;
-                    console.log('NUMBER OF COLUMNS: ', numColumns)
+                    // console.log('NUMBER OF COLUMNS: ', numColumns)
                     if (columnCounter !== numColumns) {
                         resizeHandle.classList.add('column-resize-handle');
 
@@ -3890,22 +4061,22 @@
                         resizeHandle.addEventListener('mousedown', function (event) {
                             const col1 = resizeHandle.previousElementSibling;
                             const col2 = resizeHandle.nextElementSibling;
-                            console.log('Resize Handle Start', { col1, col2 });
+                            // console.log('Resize Handle Start', { col1, col2 });
                             if (col1 && col2) {
                                 handleResizeMouseDown(event, col1, col2, resizeHandle);
                             } else {
-                                console.log('Missing columns for resize:', { col1, col2 });
+                                // console.log('Missing columns for resize:', { col1, col2 });
                             }
                         });
 
                         resizeHandle.addEventListener('touchstart', function (event) {
                             const col1 = resizeHandle.previousElementSibling;
                             const col2 = resizeHandle.nextElementSibling;
-                            console.log('Resize Handle Start', { col1, col2 });
+                            // console.log('Resize Handle Start', { col1, col2 });
                             if (col1 && col2) {
                                 handleResizeTouchStart(event, col1, col2, resizeHandle);
                             } else {
-                                console.log('Missing columns for resize:', { col1, col2 });
+                                // console.log('Missing columns for resize:', { col1, col2 });
                             }
                         });
 
@@ -4093,6 +4264,7 @@
 
 
             });
+
             // After appending the "Add Section" button to the sectionsContainer
             const addSectionBtnContainer = document.createElement('div');
             addSectionBtnContainer.classList.add('add-section-btn-container');
@@ -4112,10 +4284,11 @@
             // Append the container to the sectionsContainer
             sectionsContainer.appendChild(addSectionBtnContainer);
             initializeGroupAndRowSorting();
+            initializeEditableGroupLabels();
 
 
             function addRowAbove(currentRowId) {
-                console.log("ADD ROW ABOVE: ", currentRowId)
+                // console.log("ADD ROW ABOVE: ", currentRowId)
                 fetch(`/add_row_above/${currentRowId}`, {
                     method: 'POST',
                     headers: {
@@ -4288,7 +4461,7 @@
                 })
                     .then(response => response.json())
                     .then(data => {
-                        console.log('Column widths updated:', data);
+                        // console.log('Column widths updated:', data);
                     })
                     .catch((error) => {
                         console.error('Error updating column widths:', error);
@@ -4340,7 +4513,7 @@
             }
 
             function deleteColumn(rowId, columnId) {
-                console.log("deleteing column: ", columnId)
+                // console.log("deleteing column: ", columnId)
                 // // Get the column ID from the grid based on rowId and columnNumber
                 // const columnElementId = `column-${rowId}-${columnNumber}`;
                 const columnElement = document.getElementById(columnId);
@@ -4368,7 +4541,7 @@
                                 columnElement.remove();
                             }
 
-                            console.log('Column deleted successfully');
+                            // console.log('Column deleted successfully');
 
                             // Reload the sections after deletion
                             populateSections();
@@ -4397,7 +4570,7 @@
                         if (data.error) {
                             console.error('Error adding column:', data.error);
                         } else {
-                            console.log('Column added:', data.column_id);
+                            // console.log('Column added:', data.column_id);
                             // Reload sections to reflect changes
                             populateSections();
                         }
@@ -4413,7 +4586,7 @@
             // Initialize calendars if any
             sections.forEach(section => {
                 if (section.section_type === 'calendar') {
-                    console.log('Initializing calendar for section:', section); // Debug logging
+                    // console.log('Initializing calendar for section:', section);
                     initializeCalendar(section.id);
                 }
                 if (section.section_type === 'image_gallery') {
@@ -4568,48 +4741,6 @@
 
 
 
-
-
-
-            // Adjusted code to handle delete section functionality
-            document.querySelectorAll('.delete-section').forEach(function (element) {
-                element.addEventListener('click', function (event) {
-                    event.preventDefault();
-                    event.stopPropagation(); // Prevents toggling the section content
-
-                    const sectionId = this.getAttribute('data-section-id');
-                    const pageId = this.getAttribute('data-page-id');
-
-                    fetch(`/page/${pageId}/remove_section/${sectionId}`, {
-                        method: 'DELETE',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.message === 'Section removed successfully') {
-                                // Find the closest section-title and remove its related content
-                                const sectionTitle = this.closest('.section-title');
-                                const sectionContent = sectionTitle.nextElementSibling;
-
-                                // Remove the section title and content
-                                sectionTitle.parentElement.removeChild(sectionTitle);
-                                if (sectionContent && sectionContent.classList.contains('section-content')) {
-                                    sectionContent.parentElement.removeChild(sectionContent);
-                                }
-
-                                // Optionally, you can call populateSections if you want to reload the sections
-                                populateSections();
-                            } else {
-                                alert('Failed to remove section');
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                        });
-                });
-            });
             // After all sections have been appended, load the uploaded images
             // sections.forEach(section => {
             //     if (section.section_type === 'image_gallery') {
@@ -4716,7 +4847,7 @@
 
                 pickr.on('change', (color, instance) => {
                     const hexColor = color.toHEXA().toString();
-                    console.log(hexColor);
+                    // console.log(hexColor);
                 });
 
                 pickr.on('save', (color, instance) => {
@@ -5063,7 +5194,7 @@
             return fetch(`/page/${sectionId}/events`)
                 .then(response => response.json())
                 .then(events => {
-                    console.log('Fetched Events:', events); // Log fetched events
+                    console.log('Fetched Events:', events);
                     // Invoke the success callback with the fetched events
                     successCallback(events);
                 })
@@ -5507,7 +5638,7 @@
         function addToSelectedImages(sectionId, imageId) {
             // Add image ID to the selected images list for this section
             selectedImages[sectionId].push(imageId);
-            console.log('Image added to selected list for section', sectionId, ':', imageId);
+            // console.log('Image added to selected list for section', sectionId, ':', imageId);
         }
 
         // Function to remove image from the list of selected images for a specific section
@@ -5517,7 +5648,7 @@
             if (index !== -1) {
                 selectedImages[sectionId].splice(index, 1);
             }
-            console.log('Image removed from selected list for section', sectionId, ':', imageId);
+            // console.log('Image removed from selected list for section', sectionId, ':', imageId);
         }
 
 
@@ -5684,7 +5815,7 @@
 
             // If the drop event originates from the uploaded images area, do nothing
             if (isFromUploaded) {
-                console.log("Image dragged from uploaded images, ignoring drop in slideshow.");
+                // console.log("Image dragged from uploaded images, ignoring drop in slideshow.");
                 return;
             }
 
@@ -5709,7 +5840,7 @@
                 // Add the slideshow image with the image ID and URL
                 addSlideshowImage(imageId, imageUrl, sectionId);
             } else {
-                console.log("Image already exists in the slideshow.");
+                // console.log("Image already exists in the slideshow.");
             }
         }
 
@@ -5741,7 +5872,7 @@
                             loadUploadedImages(sectionId);
                         } else {
                             // Fallback if no ID was found
-                            console.log("Order updated, but no sectionId found to reload.");
+                            // console.log("Order updated, but no sectionId found to reload.");
                         }
                     }
                 })
@@ -5843,7 +5974,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        console.log(data.message); // Log success message
+                        // console.log(data.message);
                         showMessage(data.message);
                     } else {
                         console.error('Error:', data.message); // Log error message
@@ -6181,7 +6312,7 @@
             })
                 .then(response => response.json())
                 .then(data => {
-                    console.log('Colors updated:', data.message);
+                    // console.log('Colors updated:', data.message);
                     reloadIframe();
                 })
                 .catch(error => {
@@ -6261,24 +6392,34 @@
         }
 
         function initializeGroupAndRowSorting() {
+            sortableInstances.forEach(instance => instance.destroy());
+            sortableInstances = [];
+
             const sectionsContainer = document.getElementById('sections-container');
             if (!sectionsContainer) return;
 
-            Sortable.create(sectionsContainer, {
-                animation: 150,
+            const mainSortable = Sortable.create(sectionsContainer, {
+                animation: 100,
                 handle: '.group-drag-handle, .row-drag-handle',
                 draggable: '.section-group, #sections-container > .row',
                 ghostClass: 'sortable-ghost',
                 chosenClass: 'sortable-chosen',
 
+                onStart: function () {
+                    document.body.classList.add('is-sorting');
+                },
+
                 onEnd: function () {
+                    document.body.classList.remove('is-sorting');
                     saveFullEditorOrder();
                 }
             });
 
+            sortableInstances.push(mainSortable);
+
             document.querySelectorAll('.group-rows').forEach(groupRows => {
-                Sortable.create(groupRows, {
-                    animation: 150,
+                const groupSortable = Sortable.create(groupRows, {
+                    animation: 100,
                     handle: '.row-drag-handle',
                     draggable: '.row',
                     group: {
@@ -6289,10 +6430,17 @@
                     ghostClass: 'sortable-ghost',
                     chosenClass: 'sortable-chosen',
 
+                    onStart: function () {
+                        document.body.classList.add('is-sorting');
+                    },
+
                     onEnd: function () {
+                        document.body.classList.remove('is-sorting');
                         saveFullEditorOrder();
                     }
                 });
+
+                sortableInstances.push(groupSortable);
             });
         }
 
@@ -6353,7 +6501,9 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        populateSections();
+                        // populateSections();
+                        console.log('Editor order saved.');
+                        reloadIframe();
                     } else {
                         alert(data.error || 'Failed to save editor order.');
                     }
@@ -6371,7 +6521,7 @@
 
             const group = currentGroups.find(g => Number(g.id) === Number(groupId));
             if (!group) return;
-            document.getElementById('groupName').value = group.name || '';
+            // document.getElementById('groupName').value = group.name || '';
             document.getElementById('groupStyleGroupId').value = group.id;
             const padding = group.padding ?? 0;
             const borderRadius = group.border_radius ?? 0;
@@ -6406,8 +6556,8 @@
             const colorInput = stop.querySelector('input');
             const removeButton = stop.querySelector('button');
 
-            colorInput.addEventListener('input', function () {
-    lastSelectedColor = this.value;
+colorInput.addEventListener('input', function () {
+    window.lastSelectedColor = this.value;
     updateGroupBackgroundPreview();
 });
 
@@ -6416,25 +6566,38 @@
                 updateGroupBackgroundPreview();
             });
 
-container.appendChild(stop);
-updateGroupBackgroundPreview();
+            container.appendChild(stop);
+            updateGroupBackgroundPreview();
 
-if (typeof enableColorPickerDropTargets === 'function') {
-    enableColorPickerDropTargets();
-}
+            if (typeof enableColorPickerDropTargets === 'function') {
+                enableColorPickerDropTargets();
+            }
 
-if (typeof enableDraggingFromColorInputs === 'function') {
-    enableDraggingFromColorInputs();
-}
+            if (typeof enableDraggingFromColorInputs === 'function') {
+                enableDraggingFromColorInputs();
+            }
         }
 
         function initializeGroupStyleBackground(savedBackground) {
             const container = document.getElementById('groupGradientColors');
             const directionSelect = document.getElementById('groupGradientDirection');
+            const transparentToggle = document.getElementById('groupTransparentBackground');
 
             container.innerHTML = '';
 
-            if (savedBackground && savedBackground.startsWith('linear-gradient')) {
+            const isTransparent =
+                !savedBackground ||
+                savedBackground === 'transparent' ||
+                savedBackground === 'rgba(0,0,0,0)' ||
+                savedBackground === 'rgba(0, 0, 0, 0)';
+
+            if (transparentToggle) {
+                transparentToggle.checked = isTransparent;
+            }
+
+            if (isTransparent) {
+                addGroupColorStop('#ffffff');
+            } else if (savedBackground && savedBackground.startsWith('linear-gradient')) {
                 const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
                 const direction = directionMatch ? directionMatch[1].trim() : 'to right';
 
@@ -6458,20 +6621,36 @@ if (typeof enableDraggingFromColorInputs === 'function') {
             const directionSelect = document.getElementById('groupGradientDirection');
             const backgroundInput = document.getElementById('groupBackgroundColor');
             const preview = document.getElementById('groupStylePreview');
+            const transparentToggle = document.getElementById('groupTransparentBackground');
 
             const colorInputs = document.querySelectorAll('#groupGradientColors input[type="color"]');
             const colors = Array.from(colorInputs).map(input => input.value);
 
             let background = '#ffffff';
 
-            if (colors.length === 1) {
+            if (transparentToggle && transparentToggle.checked) {
+                background = 'transparent';
+            } else if (colors.length === 1) {
                 background = colors[0];
             } else if (colors.length > 1) {
                 background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
             }
 
             backgroundInput.value = background;
-            preview.style.background = background;
+
+            if (background === 'transparent') {
+                preview.style.background =
+                    'linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%),' +
+                    'linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%),' +
+                    'linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%),' +
+                    'linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)';
+                preview.style.backgroundSize = '20px 20px';
+                preview.style.backgroundPosition = '0 0, 0 10px, 10px -10px, -10px 0px';
+            } else {
+                preview.style.background = background;
+                preview.style.backgroundSize = '';
+                preview.style.backgroundPosition = '';
+            }
 
             const padding = document.getElementById('groupPadding').value;
             const radius = document.getElementById('groupBorderRadius').value;
@@ -6487,10 +6666,12 @@ if (typeof enableDraggingFromColorInputs === 'function') {
             const direction = document.getElementById('groupGradientDirection');
             const padding = document.getElementById('groupPadding');
             const radius = document.getElementById('groupBorderRadius');
+            const transparentToggle = document.getElementById('groupTransparentBackground');
 
             if (direction) direction.addEventListener('change', updateGroupBackgroundPreview);
             if (padding) padding.addEventListener('input', updateGroupBackgroundPreview);
             if (radius) radius.addEventListener('input', updateGroupBackgroundPreview);
+            if (transparentToggle) transparentToggle.addEventListener('change', updateGroupBackgroundPreview);
         });
 
         function saveGroupStyle() {
@@ -6503,7 +6684,7 @@ if (typeof enableDraggingFromColorInputs === 'function') {
                     'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
                 },
                 body: JSON.stringify({
-                    name: document.getElementById('groupName').value,
+                    name: currentGroups.find(g => Number(g.id) === Number(groupId))?.name || 'Section Group',
                     background_color: document.getElementById('groupBackgroundColor').value,
                     padding: document.getElementById('groupPadding').value,
                     border_radius: document.getElementById('groupBorderRadius').value
@@ -6521,36 +6702,118 @@ if (typeof enableDraggingFromColorInputs === 'function') {
                 })
                 .catch(error => console.error('Error saving group style:', error));
         }
+        function saveGroupLabel(groupId, newName) {
+            const group = currentGroups.find(g => Number(g.id) === Number(groupId));
+
+            fetch(`/update_section_group/${groupId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    name: newName,
+                    background_color: group ? group.background_color : 'transparent',
+                    padding: group ? group.padding : 0,
+                    border_radius: group ? group.border_radius : 0
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateSections();
+                        reloadIframe();
+                    } else {
+                        alert(data.error || 'Failed to save group label.');
+                    }
+                })
+                .catch(error => console.error('Error saving group label:', error));
+        }
+
+        function initializeEditableGroupLabels() {
+            document.querySelectorAll('.editable-group-label').forEach(label => {
+                label.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                });
+
+                label.addEventListener('mousedown', function (event) {
+                    event.stopPropagation();
+                });
+
+                label.addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        this.blur();
+                    }
+
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        populateSections();
+                    }
+                });
+
+                label.addEventListener('blur', function () {
+                    const groupId = this.dataset.groupId;
+                    const newName = this.textContent.trim() || 'Section Group';
+
+                    saveGroupLabel(groupId, newName);
+                });
+            });
+        }
+
+        function deleteSection(sectionId) {
+    const pageId = "{{ page_id }}";
+
+    fetch(`/page/${pageId}/remove_section/${sectionId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.message === 'Section removed successfully') {
+                populateSections();
+                reloadIframe();
+            } else {
+                alert(data.error || 'Failed to remove section.');
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting section:', error);
+        });
+}
     </script>
     <script>
-document.addEventListener('DOMContentLoaded', function () {
-    renderSavedColors('page_editor_group');
-    enableSavedColorDropZone('page_editor_group');
-});
-</script>
-<script>
-function enableDraggingFromColorInputs() {
-    document.querySelectorAll('input[type="color"]').forEach(input => {
-        if (input.dataset.colorDragReady === 'true') return;
-
-        input.dataset.colorDragReady = 'true';
-        input.setAttribute('draggable', 'true');
-
-        input.addEventListener('dragstart', function (event) {
-            event.dataTransfer.setData('text/plain', this.value);
-            event.dataTransfer.effectAllowed = 'copy';
+        document.addEventListener('DOMContentLoaded', function () {
+            renderSavedColors('page_editor_group');
+            enableSavedColorDropZone('page_editor_group');
         });
-    });
-}
+    </script>
+    <script>
+        function enableDraggingFromColorInputs() {
+            document.querySelectorAll('input[type="color"]').forEach(input => {
+                if (input.dataset.colorDragReady === 'true') return;
 
-document.addEventListener('DOMContentLoaded', function () {
-    enableColorPickerDropTargets();
-    enableDraggingFromColorInputs();
+                input.dataset.colorDragReady = 'true';
+                input.setAttribute('draggable', 'true');
 
-    renderSavedColors('page_editor_group');
-    enableSavedColorDropZone('page_editor_group');
-});
-</script>
+                input.addEventListener('dragstart', function (event) {
+                    event.dataTransfer.setData('text/plain', this.value);
+                    event.dataTransfer.effectAllowed = 'copy';
+                });
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            enableColorPickerDropTargets();
+            enableDraggingFromColorInputs();
+
+            renderSavedColors('page_editor_group');
+            enableSavedColorDropZone('page_editor_group');
+        });
+    </script>
     {% endblock %}
 </body>
 
