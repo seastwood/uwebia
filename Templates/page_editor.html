@@ -13,6 +13,7 @@
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
@@ -40,6 +41,8 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/navbar.html' %}
+{% include 'components/photo_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
 <style>
     html,
     body {
@@ -1701,90 +1704,6 @@
         background-color: #0e0e0e;
     }
 
-    /* Modal specific styling */
-    #libraryModal {
-        color: #333;
-        /* Force dark text for the white modal */
-    }
-
-    #modalFolderGrid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 15px;
-        padding: 10px;
-        background: #f8f9fa;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        min-height: 50px;
-        /* Ensures it's visible even when empty */
-    }
-
-    /* Specific folder style for inside the modal */
-    #modalFolderGrid .folder-item {
-        width: 100px;
-        padding: 10px;
-        border: 1px solid #ddd;
-        border-radius: 6px;
-        background: white;
-        text-align: center;
-        transition: transform 0.1s;
-    }
-
-    #modalFolderGrid .folder-item:hover {
-        transform: translateY(-2px);
-        border-color: #f39c12;
-    }
-
-    #modalFolderGrid .folder-item i {
-        color: #f39c12;
-        /* Bright orange for visibility */
-        display: block;
-        margin-bottom: 5px;
-    }
-
-    #modalFolderGrid .folder-item p {
-        margin: 0;
-        font-size: 0.85rem;
-        color: #333;
-        word-break: break-all;
-    }
-
-    /* Back button styling */
-    #modalFolderGrid button {
-        padding: 5px 12px;
-        background: #6c757d;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        align-self: center;
-    }
-
-    /* Modal-specific image constraints */
-    #modalImageGrid .image-card {
-        width: 100%;
-        height: 150px;
-        /* Fixed height for the card */
-        position: relative;
-        border-radius: 8px;
-        overflow: hidden;
-        background: #f0f0f0;
-    }
-
-    #modalImageGrid .image-card img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        /* This prevents the "full size" stretching */
-        display: block;
-    }
-
-    /* Ensure the grid doesn't expand the cards too much */
-    #modalImageGrid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 15px;
-    }
 
     .row-drop-zone {
         /* height: 18px; */
@@ -2107,6 +2026,103 @@
         border-radius: 16px;
     }
 
+.section-group {
+    position: relative;
+    overflow: visible;
+    background: transparent !important;
+    isolation: isolate;
+}
+
+.section-group::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    background-color: var(--group-bg-color, transparent);
+    background-image: var(--group-bg-image, none);
+    background-size: var(--group-bg-size, cover);
+    background-position: var(--group-bg-position, center);
+    background-repeat: var(--group-bg-repeat, no-repeat);
+
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -2;
+}
+
+.section-group::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    background: var(--group-overlay-color, transparent);
+    opacity: var(--group-overlay-opacity, 0);
+
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.section-group > * {
+    position: relative;
+    z-index: 1;
+}
+
+.section-group,
+.group-rows,
+.row,
+.column {
+    overflow: visible;
+}
+
+.section-group:has(.options-dropdown:hover),
+.section-group:has(.options-dropdown:focus-within),
+.section-group:has(.dropdown:hover),
+.section-group:has(.dropdown:focus-within),
+.row:has(.options-dropdown:hover),
+.row:has(.options-dropdown:focus-within),
+.column:has(.dropdown:hover),
+.column:has(.dropdown:focus-within) {
+    z-index: 99999;
+}
+
+.options-dropdown,
+.dropdown {
+    /* position: relative; */
+    z-index: 100000;
+}
+
+.options-dropdown .dropdown-content,
+.dropdown .dropdown-content {
+    position: absolute;
+    z-index: 100001;
+    right: 0;
+    top: 100%;
+}
+
+    .group-style-preview {
+        position: relative;
+        overflow: hidden;
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    }
+
+    .group-style-preview::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+
+        background: var(--group-preview-overlay-color, transparent);
+        opacity: var(--group-preview-overlay-opacity, 0);
+
+        pointer-events: none;
+    }
+
+    .group-style-preview span {
+        position: relative;
+        z-index: 1;
+    }
+
     /* .section-group[style*="transparent"] {
     border-color: transparent;
 } */
@@ -2283,12 +2299,19 @@
         gap: 10px;
     }
 
-    .group-style-preview-wrap {
-        background: rgba(0, 0, 0, 0.22);
-        border: 1px dashed rgba(255, 255, 255, 0.16);
-        border-radius: 20px;
-        padding: 16px;
-    }
+.group-style-preview-wrap {
+    background-color: rgba(255,255,255,0.04);
+    background-image:
+        linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%);
+    background-size: 18px 18px;
+    background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    border-radius: 20px;
+    padding: 16px;
+}
 
     .group-style-preview-label {
         margin: 0 0 10px;
@@ -2299,17 +2322,17 @@
         letter-spacing: 0.08em;
     }
 
-    .group-style-preview {
-        min-height: 90px;
-        color: #ffffff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 0;
-        padding: 0;
-        transition: all 0.2s ease;
-    }
+.group-style-preview {
+    min-height: 90px;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    transition: all 0.2s ease;
+}
 
     .group-style-content .modal-footer {
         border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -2396,92 +2419,123 @@
     }
 
     .image-editor-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
 
-    padding: 12px;
-    margin-bottom: 12px;
+        padding: 12px;
+        margin-bottom: 12px;
 
-    background: rgba(255, 255, 255, 0.055);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 14px;
-}
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 14px;
+    }
 
-.image-editor-header label {
-    margin: 0;
-    color: #ffffff;
-    font-size: 0.95rem;
-    font-weight: 850;
-    background: transparent;
-    padding: 0;
-}
+    .image-editor-header label {
+        margin: 0;
+        color: #ffffff;
+        font-size: 0.95rem;
+        font-weight: 850;
+        background: transparent;
+        padding: 0;
+    }
 
-.image-editor-header small {
-    display: block;
-    margin-top: 3px;
-    color: rgba(255, 255, 255, 0.58);
-    font-size: 0.76rem;
-    line-height: 1.3;
-}
+    .image-editor-header small {
+        display: block;
+        margin-top: 3px;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.76rem;
+        line-height: 1.3;
+    }
 
-.image-layout-panel {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 12px;
+    .image-layout-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 12px;
 
-    padding: 12px;
-    margin-bottom: 12px;
+        padding: 12px;
+        margin-bottom: 12px;
 
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.075);
-    border-radius: 14px;
-}
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.075);
+        border-radius: 14px;
+    }
 
-.image-layout-field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
+    .image-layout-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
 
-.image-layout-field label,
-.image-toggle-row {
-    color: rgba(255, 255, 255, 0.82);
-    font-size: 0.78rem;
-    font-weight: 800;
-    background: transparent;
-    padding: 0;
-}
+    .image-layout-field label,
+    .image-toggle-row {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 0.78rem;
+        font-weight: 800;
+        background: transparent;
+        padding: 0;
+    }
 
-.image-layout-field select,
-.image-layout-field input[type="range"] {
-    width: 100%;
-}
+    .image-layout-field select,
+    .image-layout-field input[type="range"] {
+        width: 100%;
+    }
 
-.image-layout-field select {
-    min-height: 36px;
-    padding: 8px 10px;
+    .image-layout-field select {
+        min-height: 36px;
+        padding: 8px 10px;
 
-    color: #ffffff;
-    background: #3a3d44;
+        color: #ffffff;
+        background: #3a3d44;
 
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-}
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+    }
 
-.image-toggle-row {
-    display: inline-flex !important;
-    align-items: center;
-    gap: 8px;
+    .image-toggle-row {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 8px;
 
-    margin: 0;
-    padding: 9px 10px !important;
+        margin: 0;
+        padding: 9px 10px !important;
 
-    background: rgba(255, 255, 255, 0.055) !important;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 10px;
-}
+        background: rgba(255, 255, 255, 0.055) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 10px;
+    }
+
+    .group-background-image-preview {
+        min-height: 120px;
+        margin-top: 10px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        color: rgba(255, 255, 255, 0.65);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+            rgba(0, 0, 0, 0.25);
+
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+        border-radius: 14px;
+
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+
+        overflow: hidden;
+    }
+
+    .group-background-image-preview.has-image span {
+        display: none;
+    }
+
+
+
+
 </style>
 </head>
 
@@ -2704,6 +2758,53 @@
                                 placeholder="About, Services, Contact">
                         </div> -->
                         <div class="color-option">
+                            <label>Background Image</label>
+
+                            <input type="hidden" id="groupBackgroundImageUrl">
+
+                            <div id="groupBackgroundImagePreview" class="group-background-image-preview">
+                                <span>No background image selected</span>
+                            </div>
+                            <div class="editor-controls" style="margin-top: 10px;">
+                                <button type="button" class="btn-secondary"
+                                    onclick="openGroupBackgroundLibraryPicker()">
+                                    <i class="fas fa-images"></i> Pick from Library
+                                </button>
+
+                                <button type="button" class="btn-secondary" onclick="clearGroupBackgroundImage()">
+                                    Clear Image
+                                </button>
+                            </div>
+
+                            <label style="margin-top: 12px;">Image Size</label>
+                            <select id="groupBackgroundImageSize" class="form-control">
+                                <option value="cover">Cover</option>
+                                <option value="contain">Contain</option>
+                                <option value="auto">Auto</option>
+                            </select>
+
+                            <label style="margin-top: 12px;">Image Position</label>
+                            <select id="groupBackgroundImagePosition" class="form-control">
+                                <option value="center">Center</option>
+                                <option value="top">Top</option>
+                                <option value="bottom">Bottom</option>
+                                <option value="left">Left</option>
+                                <option value="right">Right</option>
+                            </select>
+                        </div>
+
+                        <div class="color-option">
+                            <label>Image Overlay</label>
+
+                            <input type="color" id="groupBackgroundOverlayColor" value="transparent">
+
+                            <label style="margin-top: 12px;">Overlay Opacity</label>
+                            <input type="range" id="groupBackgroundOverlayOpacity" min="0" max="1" step="0.05"
+                                value="0">
+
+                            <span id="groupBackgroundOverlayOpacityValue" class="range-value">0</span>
+                        </div>
+                        <div class="color-option">
                             <label>Background</label>
 
                             <div class="gradient-controls">
@@ -2749,7 +2850,7 @@
                     <div class="group-style-preview-wrap">
                         <p class="group-style-preview-label">Live Preview</p>
                         <div id="groupStylePreview" class="group-style-preview">
-                            Group preview
+                            <span>Group preview</span>
                         </div>
                     </div>
                 </div>
@@ -2763,36 +2864,63 @@
 
 
     </div>
-    <div id="libraryModal" class="modal"
-        style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.85);">
-        <div class="modal-content"
-            style="background:#fff; margin:2% auto; width:90%; max-width:1100px; height:75vh; border-radius:15px; overflow-y:auto; padding:30px; position:relative;">
-            <span class="close" onclick="closeLibraryModal()"
-                style="position:absolute; top:20px; right:25px; cursor:pointer; font-size:30px; color:#999;">&times;</span>
-
+<div id="libraryModal" class="modal library-modal" style="display:none;">
+    <div class="modal-content library-modal-content">
+<span class="close library-modal-close" onclick="closeLibraryModal()">&times;</span>
             <div class="library-container" style="padding:0;">
-                <div class="library-header">
-                    <h2><i class="fas fa-images"></i> Select from Photo Library</h2>
-                    <p style="color: #666; margin-bottom: 20px;">Choose images to add to your page section.</p>
-                </div>
+<div class="library-header">
+    <h2><i class="fas fa-images"></i> Select from Photo Library</h2>
+<p id="libraryModalSubtitle" class="library-modal-subtitle">        Choose images to add to your page section.
+    </p>
 
-                <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
+    <div class="modal-library-toolbar">
+        <button type="button" class="btn-primary" onclick="document.getElementById('modalLibraryFileInput').click()">
+            <i class="fas fa-upload"></i>
+            Upload Images
+        </button>
+
+        <button type="button" class="btn-secondary" onclick="createLibraryFolderFromModal()">
+            <i class="fas fa-folder-plus"></i>
+            New Folder
+        </button>
+
+        <input
+            type="file"
+            id="modalLibraryFileInput"
+            multiple
+            accept="image/*"
+            style="display:none"
+            onchange="handleModalLibraryUpload(event)">
+    </div>
+
+    <div class="modal-upload-help">
+        Max file size: 10 MB per image. Best results: under 2–3 MB.
+    </div>
+
+    <div class="upload-progress-wrapper" id="modalUploadProgressWrapper" style="display:none;">
+        <div class="upload-progress-bar">
+            <div class="upload-progress-fill" id="modalUploadProgressFill"></div>
+        </div>
+        <div class="upload-progress-text" id="modalUploadProgressText">0%</div>
+    </div>
+</div>
+
+<div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
                 <div id="modalFolderGrid" class="folder-grid">
                 </div>
+<hr class="library-modal-divider">
 
-                <hr style="margin: 30px 0;">
-
-                <div id="modalCurrentFolderName" style="margin: 10px 0; font-weight: bold;">Root Images</div>
+<div id="modalCurrentFolderName" class="library-modal-section-label">Root Images</div>
 
                 <div id="modalImageGrid" class="image-grid">
                 </div>
 
-                <div
-                    style="position: sticky; bottom: -30px; margin: 30px -30px -30px -30px; padding: 20px; background: #f8f9fa; border-top: 1px solid #eee; text-align: right; border-radius: 0 0 15px 15px;">
-                    <span id="selectionCount" style="margin-right:20px; font-weight: bold; color: #555;">0 images
+                <div class="library-modal-footer">
+<span id="selectionCount" class="library-selection-count">0 images selected</span>
                         selected</span>
-                    <button class="btn-primary" onclick="confirmLibrarySelection()" style="padding: 10px 25px;">Add
-                        Selected to Section</button>
+<button id="libraryConfirmButton" class="library-confirm-button" onclick="confirmLibrarySelection()">
+    Add Selected to Section
+</button>
                 </div>
             </div>
         </div>
@@ -3227,9 +3355,8 @@
                     groupContainer.id = `section-group-${group.id}`;
                     groupContainer.setAttribute('data-group-id', group.id);
 
-                    groupContainer.style.background = group.background_color || 'rgba(255,255,255,0.08)';
-                    groupContainer.style.padding = `${group.padding || 20}px`;
-                    groupContainer.style.borderRadius = `${group.border_radius || 16}px`;
+                    applyGroupContainerStyles(groupContainer, group);
+
 
                     groupContainer.innerHTML = `
             <div class="section-group-header">
@@ -3497,7 +3624,7 @@
                         };
 
                         dropdownContent.appendChild(deleteSectionLink);
-const isImageSection = ['images', 'image_gallery', 'image'].includes(section.section_type);
+                        const isImageSection = ['images', 'image_gallery', 'image'].includes(section.section_type);
 
                         if (section.section_type === 'isImageSection') {
                             const deleteSelectedImagesLink = document.createElement('a');
@@ -3526,7 +3653,7 @@ const isImageSection = ['images', 'image_gallery', 'image'].includes(section.sec
                         columnElement.appendChild(sectionContent);
 
                         if (isImageSection) {
-    sectionContent.innerHTML = `
+                            sectionContent.innerHTML = `
         <div class="uploaded-images-container section-container">
             <form class="update-section-form image-section-form"
                   data-section-id="${section.id}"
@@ -3591,46 +3718,46 @@ const isImageSection = ['images', 'image_gallery', 'image'].includes(section.sec
         </div>
     `;
 
-    sectionElement.childNodes[0].nodeValue = 'Images';
-}
+                            sectionElement.childNodes[0].nodeValue = 'Images';
+                        }
 
-    //                     // Add section-specific content
-    //                     if (section.section_type === 'isImageSection') {
-    //                         sectionContent.innerHTML = `
-    // <div class="uploaded-images-container section-container">
-    //     <form class="updateImageForm" data-section-id="${section.id}">
-    //         <label>Add Content:</label>
-    //         <div class="editor-controls">
-    //             <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
-    //                 <i class="fas fa-th"></i> Pick from Library
-    //             </button>
-    //         </div>
+                        //                     // Add section-specific content
+                        //                     if (section.section_type === 'isImageSection') {
+                        //                         sectionContent.innerHTML = `
+                        // <div class="uploaded-images-container section-container">
+                        //     <form class="updateImageForm" data-section-id="${section.id}">
+                        //         <label>Add Content:</label>
+                        //         <div class="editor-controls">
+                        //             <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
+                        //                 <i class="fas fa-th"></i> Pick from Library
+                        //             </button>
+                        //         </div>
 
-    //         <label>Section Images:</label>
-    //         <div class="uploaded-images">
-    //             <ul class="sortable" id="sortable-${section.id}"></ul>
-    //         </div>
-    //     </form>
-    // </div>`;
-    //                         // Add section-specific content
-    //                     } else if (section.section_type === 'isImageSection') {
-    //                         sectionContent.innerHTML = `
-    //     <div class="uploaded-images-container section-container">
-    //         <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
-    //             data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-    //             <div class="editor-controls">
-    //                 <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
-    //                     <i class="fas fa-th"></i> Pick Image from Library
-    //                 </button>
-    //             </div>
-    //             <label>Selected Image:</label>
-    //             <div class="uploaded-images">
-    //                 <ul class="sortable" id="sortable-${section.id}">
-    //                 </ul>
-    //             </div>
-    //         </form>
-    //     </div>`;
-    //                     }
+                        //         <label>Section Images:</label>
+                        //         <div class="uploaded-images">
+                        //             <ul class="sortable" id="sortable-${section.id}"></ul>
+                        //         </div>
+                        //     </form>
+                        // </div>`;
+                        //                         // Add section-specific content
+                        //                     } else if (section.section_type === 'isImageSection') {
+                        //                         sectionContent.innerHTML = `
+                        //     <div class="uploaded-images-container section-container">
+                        //         <form class="updateImageForm" enctype="multipart/form-data" data-section-id="${section.id}"
+                        //             data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                        //             <div class="editor-controls">
+                        //                 <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
+                        //                     <i class="fas fa-th"></i> Pick Image from Library
+                        //                 </button>
+                        //             </div>
+                        //             <label>Selected Image:</label>
+                        //             <div class="uploaded-images">
+                        //                 <ul class="sortable" id="sortable-${section.id}">
+                        //                 </ul>
+                        //             </div>
+                        //         </form>
+                        //     </div>`;
+                        //                     }
                         //                         if (section.section_type === 'navbar') {
                         //                             sectionContent.innerHTML = `
                         //     <!-- Navbar Section -->
@@ -4748,9 +4875,9 @@ const isImageSection = ['images', 'image_gallery', 'image'].includes(section.sec
                     // console.log('Initializing calendar for section:', section);
                     initializeCalendar(section.id);
                 }
-if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
-    loadUploadedImages(section.id);
-}
+                if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
+                    loadUploadedImages(section.id);
+                }
                 if (section.section_type === 'navbar') {
                     // If it's a navbar section, initialize the navbar
                     initializeNavbar(website.id, section.id);
@@ -5503,166 +5630,30 @@ if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
             document.body.removeChild(tempInput);
         }
     </script>
-
-    <!-- NEW Image Functions -->
     <script>
-        let currentTargetSection = null;
-        let selectedLibraryImages = [];
+function openLibraryPicker(sectionId) {
+    PhotoLibraryModal.open({
+        mode: 'section-images',
+        sectionId: sectionId
+    });
+}
 
-        let currentActiveFolderId = null;
+function openGroupBackgroundLibraryPicker() {
+    PhotoLibraryModal.open({
+        mode: 'group-background',
+        onConfirm: function (selection) {
+            const imageUrl = selection.imageUrls[0];
 
-        // Store folders globally once the modal opens so they never disappear
-        let globalFoldersCache = [];
-
-        async function openLibraryPicker(sectionId) {
-            currentTargetSection = sectionId;
-            selectedLibraryImages = [];
-            document.getElementById('libraryModal').style.display = 'block';
-
-            // Initial fetch to get the folder list
-            const response = await fetch('/get_library_root');
-            const data = await response.json();
-            globalFoldersCache = data.folders; // Save them here
-
-            loadLibraryUI(null);
-        }
-
-        async function loadLibraryUI(folderId = null) {
-            // 1. Always render the FULL folder list from cache
-            renderModalFolders(globalFoldersCache, folderId);
-
-            // 2. Fetch the images for the specific folder
-            const url = folderId ? `/get_library_folder/${folderId}` : '/get_library_root';
-            const response = await fetch(url);
-            const data = await response.json();
-
-            // 3. Update Name
-            document.getElementById('modalCurrentFolderName').innerText =
-                folderId ? `Images in ${data.current_folder_name || 'Folder'}` : "Root Images";
-
-            // 4. Render Images (Simplified to use the CSS card class)
-            const imageGrid = document.getElementById('modalImageGrid');
-            imageGrid.innerHTML = '';
-
-            data.images.forEach(img => {
-                const isSelected = selectedLibraryImages.includes(img.id.toString());
-                const card = document.createElement('div');
-                card.className = 'image-card';
-                if (isSelected) card.style.border = "3px solid #f39c12";
-
-                card.onclick = () => toggleLibrarySelection(img.id.toString(), card);
-                card.innerHTML = `<img src="${img.thumbnail_url || img.url}" loading="lazy">`;
-                imageGrid.appendChild(card);
-            });
-        }
-
-        function renderModalFolders(folders, activeId) {
-            const grid = document.getElementById('modalFolderGrid');
-            grid.innerHTML = '';
-
-            // Main Library (always show)
-            const rootDiv = document.createElement('div');
-            rootDiv.className = `folder-item ${activeId === null ? 'active-folder' : ''}`;
-            rootDiv.onclick = () => loadLibraryUI(null);
-            rootDiv.innerHTML = `<i class="fas fa-home fa-3x"></i><p>Main Library</p>`;
-            grid.appendChild(rootDiv);
-
-            // Dynamic Folders (always show all)
-            folders.forEach(f => {
-                const folderDiv = document.createElement('div');
-                folderDiv.className = `folder-item ${activeId == f.id ? 'active-folder' : ''}`;
-                folderDiv.onclick = () => loadLibraryUI(f.id);
-                folderDiv.innerHTML = `<i class="fas fa-folder fa-3x"></i><p>${f.name}</p>`;
-                grid.appendChild(folderDiv);
-            });
-        }
-
-        function toggleLibrarySelection(id, element) {
-            const index = selectedLibraryImages.indexOf(id);
-            if (index > -1) {
-                selectedLibraryImages.splice(index, 1);
-                element.style.border = "none";
-            } else {
-                selectedLibraryImages.push(id);
-                element.style.border = "3px solid #f39c12";
-            }
-            document.getElementById('selectionCount').innerText = `${selectedLibraryImages.length} images selected`;
-            // Re-render to show/hide checkmark badges if desired, or just use the border
-        }
-
-        function closeLibraryModal() {
-            document.getElementById('libraryModal').style.display = 'none';
-        }
-
-        async function loadLibraryContent(folderId = null) {
-            const url = folderId ? `/get_library_folder/${folderId}` : '/get_library_root';
-            const response = await fetch(url);
-            const data = await response.json();
-
-            const imageGrid = document.getElementById('modalImageGrid');
-            const folderGrid = document.getElementById('modalFolderGrid');
-
-            imageGrid.innerHTML = '';
-            // Clear and add the "Back" button if we are inside a folder
-            folderGrid.innerHTML = folderId ?
-                `<button onclick="loadLibraryContent()"><i class="fas fa-arrow-left"></i> Back</button>` : '';
-
-            // Render Folders (only show if we are in the root)
-            if (!folderId) {
-                data.folders.forEach(f => {
-                    const folderDiv = document.createElement('div');
-                    folderDiv.className = 'folder-item';
-                    folderDiv.onclick = () => loadLibraryContent(f.id);
-                    folderDiv.innerHTML = `
-                <i class="fas fa-folder fa-2x"></i>
-                <p>${f.name}</p>
-            `;
-                    folderGrid.appendChild(folderDiv);
-                });
+            if (!imageUrl) {
+                alert('Could not find the selected image URL.');
+                return;
             }
 
-            // Render Images
-            if (data.images.length === 0) {
-                imageGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #999;">No images found in this section.</p>';
-            } else {
-                data.images.forEach(img => {
-                    imageGrid.innerHTML += `
-                <div class="library-item" style="position:relative; cursor:pointer;" onclick="this.querySelector('input').click()">
-                    <img src="${img.thumbnail_url || img.url}" loading="lazy" style="width:100%; height:100px; object-fit:cover; border-radius:4px; border: 2px solid transparent;">
-                    <input type="checkbox" value="${img.id}"
-                           onchange="toggleLibrarySelection('${img.id}', this)"
-                           onclick="event.stopPropagation()"
-                           style="position:absolute; top:5px; right:5px; transform: scale(1.2);">
-                </div>`;
-                });
-            }
+            setGroupBackgroundImageFromLibrary(imageUrl);
         }
-
-
-
-        async function confirmLibrarySelection() {
-            if (selectedLibraryImages.length === 0) return;
-
-            try {
-                const response = await fetch('/add_images_from_library', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        section_id: currentTargetSection,
-                        image_ids: selectedLibraryImages
-                    })
-                });
-
-                if (response.ok) {
-                    closeLibraryModal();
-                    loadUploadedImages(currentTargetSection); // Refresh the editor section
-                }
-            } catch (error) {
-                console.error("Error adding images:", error);
-            }
-        }
-    </script>
-
+    });
+}
+</script>
     <!-- Image Functions -->
     <script>
 
@@ -6684,15 +6675,43 @@ if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
             const padding = group.padding ?? 0;
             const borderRadius = group.border_radius ?? 0;
 
+            const imageUrlInput = document.getElementById('groupBackgroundImageUrl');
+            const imageSizeInput = document.getElementById('groupBackgroundImageSize');
+            const imagePositionInput = document.getElementById('groupBackgroundImagePosition');
+            const overlayColorInput = document.getElementById('groupBackgroundOverlayColor');
+            const overlayOpacityInput = document.getElementById('groupBackgroundOverlayOpacity');
+            const overlayOpacityValue = document.getElementById('groupBackgroundOverlayOpacityValue');
+
+            if (imageUrlInput) imageUrlInput.value = group.background_image_url || '';
+            if (imageSizeInput) imageSizeInput.value = group.background_image_size || 'cover';
+            if (imagePositionInput) imagePositionInput.value = group.background_image_position || 'center';
+            if (overlayColorInput) overlayColorInput.value = group.background_overlay_color || '#000000';
+            if (overlayOpacityInput) overlayOpacityInput.value = group.background_overlay_opacity || 0;
+            if (overlayOpacityValue) overlayOpacityValue.textContent = group.background_overlay_opacity || 0;
+
             document.getElementById('groupPadding').value = padding;
             document.getElementById('groupBorderRadius').value = borderRadius;
 
             document.getElementById('groupPaddingValue').textContent = `${padding}px`;
             document.getElementById('groupBorderRadiusValue').textContent = `${borderRadius}px`;
 
-            initializeGroupStyleBackground(group.background_color || 'rgba(255,255,255,0.08)');
+            initializeGroupStyleBackground(group.background_color || 'transparent');
 
             document.getElementById('groupStyleModal').style.display = 'block';
+
+            [
+                imageUrlInput,
+                imageSizeInput,
+                imagePositionInput,
+                overlayColorInput,
+                overlayOpacityInput
+            ].forEach(input => {
+                if (!input) return;
+
+                input.addEventListener('input', updateGroupBackgroundPreview);
+                input.addEventListener('change', updateGroupBackgroundPreview);
+            });
+            refreshGroupBackgroundImagePreview();
         }
 
         function closeGroupStyleModal() {
@@ -6714,10 +6733,10 @@ if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
             const colorInput = stop.querySelector('input');
             const removeButton = stop.querySelector('button');
 
-colorInput.addEventListener('input', function () {
-    window.lastSelectedColor = this.value;
-    updateGroupBackgroundPreview();
-});
+            colorInput.addEventListener('input', function () {
+                window.lastSelectedColor = this.value;
+                updateGroupBackgroundPreview();
+            });
 
             removeButton.addEventListener('click', function () {
                 stop.remove();
@@ -6737,87 +6756,108 @@ colorInput.addEventListener('input', function () {
         }
 
         function initializeGroupStyleBackground(savedBackground) {
-            const container = document.getElementById('groupGradientColors');
-            const directionSelect = document.getElementById('groupGradientDirection');
-            const transparentToggle = document.getElementById('groupTransparentBackground');
+    const container = document.getElementById('groupGradientColors');
+    const directionSelect = document.getElementById('groupGradientDirection');
+    const transparentToggle = document.getElementById('groupTransparentBackground');
 
-            container.innerHTML = '';
+    if (container) {
+        container.innerHTML = '';
+    }
 
-            const isTransparent =
-                !savedBackground ||
-                savedBackground === 'transparent' ||
-                savedBackground === 'rgba(0,0,0,0)' ||
-                savedBackground === 'rgba(0, 0, 0, 0)';
+    const normalizedBackground = (savedBackground || '').trim();
 
-            if (transparentToggle) {
-                transparentToggle.checked = isTransparent;
-            }
+    const isTransparent =
+        !normalizedBackground ||
+        normalizedBackground === 'transparent' ||
+        normalizedBackground === 'rgba(0,0,0,0)' ||
+        normalizedBackground === 'rgba(0, 0, 0, 0)';
 
-            if (isTransparent) {
-                addGroupColorStop('#ffffff');
-            } else if (savedBackground && savedBackground.startsWith('linear-gradient')) {
-                const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
-                const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+    if (transparentToggle) {
+        transparentToggle.checked = isTransparent;
+    }
 
-                directionSelect.value = direction;
+    if (isTransparent) {
+        updateGroupBackgroundPreview();
+        return;
+    }
 
-                const colorsPart = savedBackground
-                    .replace(/^linear-gradient\((.*?),/, '')
-                    .replace(/\)$/, '');
+    if (normalizedBackground.startsWith('linear-gradient')) {
+        const directionMatch = normalizedBackground.match(/linear-gradient\((.*?),/);
+        const direction = directionMatch ? directionMatch[1].trim() : 'to right';
 
-                colorsPart.split(',').map(c => c.trim()).forEach(color => {
-                    addGroupColorStop(color);
-                });
-            } else {
-                addGroupColorStop(savedBackground || '#ffffff');
-            }
-
-            updateGroupBackgroundPreview();
+        if (directionSelect) {
+            directionSelect.value = direction;
         }
 
+        const colorsPart = normalizedBackground
+            .replace(/^linear-gradient\((.*?),/, '')
+            .replace(/\)$/, '');
+
+        colorsPart
+            .split(',')
+            .map(color => color.trim())
+            .filter(Boolean)
+            .forEach(color => {
+                addGroupColorStop(color);
+            });
+    } else {
+        addGroupColorStop(normalizedBackground);
+    }
+
+    updateGroupBackgroundPreview();
+}
         function updateGroupBackgroundPreview() {
-            const directionSelect = document.getElementById('groupGradientDirection');
-            const backgroundInput = document.getElementById('groupBackgroundColor');
             const preview = document.getElementById('groupStylePreview');
+            const hiddenBackgroundInput = document.getElementById('groupBackgroundColor');
+
+            const imageUrl = document.getElementById('groupBackgroundImageUrl')?.value.trim() || '';
+            const imageSize = document.getElementById('groupBackgroundImageSize')?.value || 'cover';
+            const imagePosition = document.getElementById('groupBackgroundImagePosition')?.value || 'center';
+            const overlayColor = document.getElementById('groupBackgroundOverlayColor')?.value || '#000000';
+            const overlayOpacity = document.getElementById('groupBackgroundOverlayOpacity')?.value || 0;
+            const overlayOpacityValue = document.getElementById('groupBackgroundOverlayOpacityValue');
+
+            if (overlayOpacityValue) {
+                overlayOpacityValue.textContent = overlayOpacity;
+            }
+
+let background = 'transparent';
+
             const transparentToggle = document.getElementById('groupTransparentBackground');
-
-            const colorInputs = document.querySelectorAll('#groupGradientColors input[type="color"]');
-            const colors = Array.from(colorInputs).map(input => input.value);
-
-            let background = '#ffffff';
 
             if (transparentToggle && transparentToggle.checked) {
                 background = 'transparent';
-            } else if (colors.length === 1) {
-                background = colors[0];
-            } else if (colors.length > 1) {
-                background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
-            }
-
-            backgroundInput.value = background;
-
-            if (background === 'transparent') {
-                preview.style.background =
-                    'linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%),' +
-                    'linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%),' +
-                    'linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%),' +
-                    'linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)';
-                preview.style.backgroundSize = '20px 20px';
-                preview.style.backgroundPosition = '0 0, 0 10px, 10px -10px, -10px 0px';
             } else {
-                preview.style.background = background;
-                preview.style.backgroundSize = '';
-                preview.style.backgroundPosition = '';
+                const directionSelect = document.getElementById('groupGradientDirection');
+                const colorInputs = document.querySelectorAll('#groupGradientColors input[type="color"]');
+                const colors = Array.from(colorInputs).map(input => input.value);
+
+                if (colors.length === 1) {
+                    background = colors[0];
+                } else if (colors.length > 1) {
+                    background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+                }
             }
 
-            const padding = document.getElementById('groupPadding').value;
-            const radius = document.getElementById('groupBorderRadius').value;
+            if (hiddenBackgroundInput) {
+                hiddenBackgroundInput.value = background;
+            }
 
-            preview.style.padding = `${padding || 0}px`;
-            preview.style.borderRadius = `${radius || 0}px`;
+            if (!preview) return;
 
-            document.getElementById('groupPaddingValue').textContent = `${padding}px`;
-            document.getElementById('groupBorderRadiusValue').textContent = `${radius}px`;
+            preview.style.background = background;
+
+            if (imageUrl) {
+                preview.style.backgroundImage = `url("${imageUrl}")`;
+                preview.style.backgroundSize = imageSize;
+                preview.style.backgroundPosition = imagePosition;
+                preview.style.backgroundRepeat = 'no-repeat';
+            } else {
+                preview.style.backgroundImage = '';
+            }
+
+            preview.style.setProperty('--group-preview-overlay-color', overlayColor);
+            preview.style.setProperty('--group-preview-overlay-opacity', overlayOpacity);
         }
 
         document.addEventListener('DOMContentLoaded', function () {
@@ -6845,7 +6885,12 @@ colorInput.addEventListener('input', function () {
                     name: currentGroups.find(g => Number(g.id) === Number(groupId))?.name || 'Section Group',
                     background_color: document.getElementById('groupBackgroundColor').value,
                     padding: document.getElementById('groupPadding').value,
-                    border_radius: document.getElementById('groupBorderRadius').value
+                    border_radius: document.getElementById('groupBorderRadius').value,
+                    background_image_url: document.getElementById('groupBackgroundImageUrl')?.value.trim() || '',
+                    background_image_size: document.getElementById('groupBackgroundImageSize')?.value || 'cover',
+                    background_image_position: document.getElementById('groupBackgroundImagePosition')?.value || 'center',
+                    background_overlay_color: document.getElementById('groupBackgroundOverlayColor')?.value || '#000000',
+                    background_overlay_opacity: document.getElementById('groupBackgroundOverlayOpacity')?.value || 0
                 })
             })
                 .then(response => response.json())
@@ -6920,28 +6965,28 @@ colorInput.addEventListener('input', function () {
         }
 
         function deleteSection(sectionId) {
-    const pageId = "{{ page_id }}";
+            const pageId = "{{ page_id }}";
 
-    fetch(`/page/${pageId}/remove_section/${sectionId}`, {
-        method: 'DELETE',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+            fetch(`/page/${pageId}/remove_section/${sectionId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message === 'Section removed successfully') {
+                        populateSections();
+                        reloadIframe();
+                    } else {
+                        alert(data.error || 'Failed to remove section.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting section:', error);
+                });
         }
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.message === 'Section removed successfully') {
-                populateSections();
-                reloadIframe();
-            } else {
-                alert(data.error || 'Failed to remove section.');
-            }
-        })
-        .catch(error => {
-            console.error('Error deleting section:', error);
-        });
-}
     </script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -6975,10 +7020,99 @@ colorInput.addEventListener('input', function () {
 
     <script>
         function defaultImageLayout(sectionType) {
-    if (sectionType === 'image') return 'single';
-    if (sectionType === 'image_gallery') return 'fade_slideshow';
-    return 'single';
+            if (sectionType === 'image') return 'single';
+            if (sectionType === 'image_gallery') return 'fade_slideshow';
+            return 'single';
+        }
+
+function applyGroupContainerStyles(groupContainer, group) {
+    if (!groupContainer || !group) return;
+
+    const rawBackground = (group.background_color || '').trim();
+
+    const backgroundColor =
+        !rawBackground ||
+        rawBackground === 'transparent' ||
+        rawBackground === 'rgba(0,0,0,0)' ||
+        rawBackground === 'rgba(0, 0, 0, 0)'
+            ? 'transparent'
+            : rawBackground;
+
+    const imageUrl = group.background_image_url || '';
+    const imageSize = group.background_image_size || 'cover';
+    const imagePosition = group.background_image_position || 'center';
+    const overlayColor = group.background_overlay_color || '#000000';
+    const overlayOpacity = group.background_overlay_opacity || 0;
+
+    groupContainer.style.background = '';
+    groupContainer.style.backgroundColor = backgroundColor;
+    groupContainer.style.backgroundImage = imageUrl ? `url("${imageUrl}")` : '';
+    groupContainer.style.backgroundSize = imageUrl ? imageSize : '';
+    groupContainer.style.backgroundPosition = imageUrl ? imagePosition : '';
+    groupContainer.style.backgroundRepeat = imageUrl ? 'no-repeat' : '';
+
+    groupContainer.style.padding = `${group.padding ?? 0}px`;
+    groupContainer.style.borderRadius = `${group.border_radius ?? 0}px`;
+
+    groupContainer.style.setProperty('--group-overlay-color', overlayColor);
+    groupContainer.style.setProperty('--group-overlay-opacity', overlayOpacity);
 }
+        function clearGroupBackgroundImage() {
+            const input = document.getElementById('groupBackgroundImageUrl');
+            if (input) {
+                input.value = '';
+            }
+
+            updateGroupBackgroundPreview();
+        }
+        function setGroupBackgroundImageFromLibrary(imageUrl) {
+            const input = document.getElementById('groupBackgroundImageUrl');
+            const preview = document.getElementById('groupBackgroundImagePreview');
+
+            if (input) {
+                input.value = imageUrl;
+            }
+
+            if (preview) {
+                preview.style.backgroundImage = `url("${imageUrl}")`;
+                preview.classList.add('has-image');
+            }
+
+            updateGroupBackgroundPreview();
+        }
+
+        function clearGroupBackgroundImage() {
+            const input = document.getElementById('groupBackgroundImageUrl');
+            const preview = document.getElementById('groupBackgroundImagePreview');
+
+            if (input) {
+                input.value = '';
+            }
+
+            if (preview) {
+                preview.style.backgroundImage = '';
+                preview.classList.remove('has-image');
+            }
+
+            updateGroupBackgroundPreview();
+        }
+
+        function refreshGroupBackgroundImagePreview() {
+            const input = document.getElementById('groupBackgroundImageUrl');
+            const preview = document.getElementById('groupBackgroundImagePreview');
+
+            if (!input || !preview) return;
+
+            const imageUrl = input.value.trim();
+
+            if (imageUrl) {
+                preview.style.backgroundImage = `url("${imageUrl}")`;
+                preview.classList.add('has-image');
+            } else {
+                preview.style.backgroundImage = '';
+                preview.classList.remove('has-image');
+            }
+        }
     </script>
     {% endblock %}
 </body>

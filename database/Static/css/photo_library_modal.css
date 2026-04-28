@@ -1,0 +1,587 @@
+.modal-library-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    margin: 12px 0 8px;
+}
+
+.modal-library-toolbar button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    min-height: 36px;
+    padding: 8px 12px;
+
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+
+    font-size: 0.84rem;
+    font-weight: 750;
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.modal-library-toolbar .btn-primary {
+    background: linear-gradient(135deg, #7ee2cc, #9cf4df);
+    color: #10251f;
+}
+
+.modal-library-toolbar .btn-primary:hover {
+    background: linear-gradient(135deg, #8ff5dd, #b4ffec);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+}
+
+.modal-library-toolbar .btn-secondary {
+    background: #f3f4f6;
+    color: #222;
+}
+
+.modal-library-toolbar .btn-secondary:hover {
+    background: #e8eaee;
+    transform: translateY(-1px);
+}
+
+.modal-upload-help {
+    margin-top: 6px;
+    margin-bottom: 12px;
+
+    color: #777;
+    font-size: 0.86rem;
+}
+
+#libraryModal .upload-progress-wrapper {
+    margin-top: 10px;
+    max-width: 420px;
+}
+
+#libraryModal .upload-progress-bar {
+    width: 100%;
+    height: 12px;
+
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+#libraryModal .upload-progress-fill {
+    width: 0%;
+    height: 100%;
+
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+#libraryModal .upload-progress-text {
+    margin-top: 6px;
+
+    font-size: 0.86rem;
+    color: #555;
+    font-weight: 700;
+}
+#modalImageGrid .image-card {
+    cursor: pointer;
+    position: relative;
+}
+
+.modal-library-delete-btn {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+
+    width: 30px;
+    height: 30px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba(231, 76, 60, 0.88);
+    color: white;
+
+    border: none;
+    border-radius: 8px;
+
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-2px);
+
+    transition:
+        opacity 0.16s ease,
+        transform 0.16s ease,
+        background 0.16s ease;
+}
+
+#modalImageGrid .image-card:hover .modal-library-delete-btn {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.modal-library-delete-btn:hover {
+    background: rgba(192, 57, 43, 0.96);
+}
+.library-modal {
+    position: fixed;
+    z-index: 1000002 !important;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    padding-top: 0;
+
+    background:
+        radial-gradient(circle at top, rgba(126, 226, 204, 0.10), transparent 34%),
+        rgba(0, 0, 0, 0.82);
+}
+
+.library-modal-content {
+    position: relative;
+    z-index: 1000003;
+
+    width: min(1100px, calc(100vw - 40px));
+    height: min(78vh, 820px);
+    margin: 2.5vh auto;
+    padding: 26px;
+
+    color: #f4f6f8;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025)),
+        #202126;
+
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 22px;
+
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.62),
+        inset 0 1px 0 rgba(255, 255, 255, 0.055);
+
+    overflow-y: auto;
+}
+
+.library-modal-close {
+    position: absolute;
+    top: 18px;
+    right: 20px;
+
+    width: 36px;
+    height: 36px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.075);
+
+    border-radius: 999px;
+
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        color 0.16s ease,
+        background 0.16s ease,
+        transform 0.16s ease;
+}
+
+.library-modal-close:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.16);
+    transform: rotate(4deg);
+}
+
+.library-modal .library-header h2 {
+    margin: 0 48px 6px 0;
+
+    color: #ffffff;
+
+    font-size: 1.35rem;
+    font-weight: 850;
+    letter-spacing: -0.025em;
+}
+
+.library-modal .library-header h2 i {
+    color: #7ee2cc;
+}
+
+.library-modal-subtitle {
+    max-width: 680px;
+    margin: 0 0 14px;
+
+    color: rgba(255, 255, 255, 0.60);
+
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.modal-library-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    margin: 14px 0 8px;
+}
+
+.modal-library-toolbar button,
+.library-confirm-button {
+    min-height: 38px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    padding: 9px 13px;
+
+    border-radius: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.modal-library-toolbar .btn-primary,
+.library-confirm-button {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #9cf4df);
+    border-color: rgba(126, 226, 204, 0.68);
+}
+
+.modal-library-toolbar .btn-primary:hover,
+.library-confirm-button:hover {
+    color: #071512;
+    background: linear-gradient(135deg, #8ff5dd, #b4ffec);
+    border-color: rgba(180, 255, 236, 0.95);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
+}
+
+.modal-library-toolbar .btn-secondary {
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.075);
+}
+
+.modal-library-toolbar .btn-secondary:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+}
+
+.modal-upload-help {
+    margin-top: 7px;
+    margin-bottom: 14px;
+
+    color: rgba(255, 255, 255, 0.48);
+
+    font-size: 0.82rem;
+}
+
+#libraryModal .upload-progress-wrapper {
+    margin-top: 12px;
+    max-width: 460px;
+}
+
+#libraryModal .upload-progress-bar {
+    width: 100%;
+    height: 12px;
+
+    background: rgba(255, 255, 255, 0.075);
+    border-radius: 999px;
+    overflow: hidden;
+
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#libraryModal .upload-progress-fill {
+    width: 0%;
+    height: 100%;
+
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+#libraryModal .upload-progress-text {
+    margin-top: 6px;
+
+    color: rgba(255, 255, 255, 0.68);
+
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+.library-modal-section-label {
+    margin: 14px 0 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+
+    font-size: 0.78rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.library-modal-divider {
+    margin: 24px 0;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#libraryModal #modalFolderGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    min-height: 52px;
+    margin-bottom: 14px;
+    padding: 12px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 16px;
+}
+
+#libraryModal #modalFolderGrid .folder-item {
+    width: 112px;
+    min-height: 92px;
+    padding: 12px 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.055);
+
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+
+    text-align: center;
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+#libraryModal #modalFolderGrid .folder-item:hover {
+    background: rgba(126, 226, 204, 0.11);
+    border-color: rgba(126, 226, 204, 0.32);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.20);
+}
+
+#libraryModal #modalFolderGrid .folder-item.active-folder {
+    background: rgba(255, 206, 115, 0.13);
+    border-color: rgba(255, 206, 115, 0.45);
+}
+
+#libraryModal #modalFolderGrid .folder-item i {
+    display: block;
+    margin-bottom: 7px;
+
+    color: #ffd982;
+}
+
+#libraryModal #modalFolderGrid .folder-item p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.78);
+
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1.2;
+
+    word-break: break-word;
+}
+
+#libraryModal #modalImageGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px;
+
+    padding: 14px;
+    margin-bottom: 18px;
+
+    background: rgba(255, 255, 255, 0.04);
+
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 18px;
+}
+
+#libraryModal #modalImageGrid .image-card {
+    position: relative;
+
+    width: 100%;
+    height: 150px;
+
+    overflow: hidden;
+
+    background: rgba(255, 255, 255, 0.055);
+    border: 2px solid transparent;
+    border-radius: 14px;
+
+    cursor: pointer;
+
+    box-shadow:
+        0 8px 18px rgba(0, 0, 0, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.045);
+
+    transition:
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease,
+        opacity 0.16s ease;
+}
+
+#libraryModal #modalImageGrid .image-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(126, 226, 204, 0.42);
+    box-shadow:
+        0 12px 26px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+#libraryModal #modalImageGrid .image-card img {
+    width: 100%;
+    height: 100%;
+
+    display: block;
+    object-fit: cover;
+
+    pointer-events: none;
+}
+
+#libraryModal #modalImageGrid .image-card[style*="solid"] {
+    border-color: #7ee2cc !important;
+    box-shadow:
+        0 0 0 2px rgba(126, 226, 204, 0.22),
+        0 12px 26px rgba(0, 0, 0, 0.28);
+}
+
+.modal-library-delete-btn {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+
+    width: 30px;
+    height: 30px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #ffffff;
+    background: rgba(231, 76, 60, 0.88);
+
+    border: none;
+    border-radius: 9px;
+
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-2px);
+
+    transition:
+        opacity 0.16s ease,
+        transform 0.16s ease,
+        background 0.16s ease;
+}
+
+#libraryModal #modalImageGrid .image-card:hover .modal-library-delete-btn {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.modal-library-delete-btn:hover {
+    background: rgba(192, 57, 43, 0.96);
+}
+
+.library-modal-footer {
+    position: sticky;
+    bottom: -26px;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+
+    margin: 24px -26px -26px;
+    padding: 16px 22px;
+
+    background:
+        linear-gradient(180deg, rgba(32,33,38,0.86), rgba(25,26,30,0.98));
+
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 0 0 22px 22px;
+
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.library-selection-count {
+    color: rgba(255, 255, 255, 0.62);
+
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+@media (max-width: 700px) {
+    .library-modal-content {
+        width: calc(100vw - 20px);
+        height: 86vh;
+        margin: 10px auto;
+        padding: 18px;
+        border-radius: 18px;
+    }
+
+    .library-modal-footer {
+        bottom: -18px;
+        margin: 20px -18px -18px;
+        padding: 14px;
+
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .library-confirm-button {
+        width: 100%;
+    }
+
+    #libraryModal #modalImageGrid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    #libraryModal #modalImageGrid .image-card {
+        height: 125px;
+    }
+}
+
+#libraryModal #modalImageGrid .image-card.selected {
+    border-color: #7ee2cc !important;
+    box-shadow:
+        0 0 0 2px rgba(126, 226, 204, 0.22),
+        0 12px 26px rgba(0, 0, 0, 0.28);
+}

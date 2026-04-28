@@ -8,10 +8,14 @@
     <title>Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
 
     {% extends 'base.html' %}
     {% block content %}
     {% include 'components/navbar.html' %}
+    {% include 'components/photo_library_modal.html' %}
+    <script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
+
 
     <style>
         body {
@@ -1672,45 +1676,155 @@
         }
 
         .root-page-container,
-.folder-page-container {
-    min-height: 90px;
-}
+        .folder-page-container {
+            min-height: 90px;
+        }
 
-.folder-page-container:empty::before,
-.root-page-container:empty::before {
-    content: 'Drop pages here';
-    display: flex;
-    align-items: center;
-    justify-content: center;
+        .folder-page-container:empty::before,
+        .root-page-container:empty::before {
+            content: 'Drop pages here';
+            display: flex;
+            align-items: center;
+            justify-content: center;
 
-    width: 100%;
-    min-height: 80px;
+            width: 100%;
+            min-height: 80px;
 
-    color: rgba(255, 255, 255, 0.42);
-    border: 1px dashed rgba(255, 255, 255, 0.18);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.035);
+            color: rgba(255, 255, 255, 0.42);
+            border: 1px dashed rgba(255, 255, 255, 0.18);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.035);
 
-    font-size: 0.82rem;
-    font-weight: 700;
-}
-.page-folder-card.folder-drop-target {
-    border-color: rgba(126, 226, 204, 0.65);
-    box-shadow:
-        0 0 0 2px rgba(126, 226, 204, 0.18),
-        0 18px 38px rgba(0, 0, 0, 0.36),
-        inset 0 1px 0 rgba(255, 255, 255, 0.055);
-}
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
 
-.page-folder-card.folder-drop-target .page-folder-header {
-    background: rgba(126, 226, 204, 0.13);
-}
+        .page-folder-card.folder-drop-target {
+            border-color: rgba(126, 226, 204, 0.65);
+            box-shadow:
+                0 0 0 2px rgba(126, 226, 204, 0.18),
+                0 18px 38px rgba(0, 0, 0, 0.36),
+                inset 0 1px 0 rgba(255, 255, 255, 0.055);
+        }
 
-.page-folder-card.folder-drop-target .page-folder-icon {
-    color: #7ee2cc;
-    background: rgba(126, 226, 204, 0.14);
-    border-color: rgba(126, 226, 204, 0.45);
-}
+        .page-folder-card.folder-drop-target .page-folder-header {
+            background: rgba(126, 226, 204, 0.13);
+        }
+
+        .page-folder-card.folder-drop-target .page-folder-icon {
+            color: #7ee2cc;
+            background: rgba(126, 226, 204, 0.14);
+            border-color: rgba(126, 226, 204, 0.45);
+        }
+
+        .website-background-image-card {
+            min-width: 280px;
+        }
+
+        .website-background-image-preview {
+            min-height: 130px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            color: rgba(255, 255, 255, 0.62);
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+                rgba(0, 0, 0, 0.24);
+
+            border: 1px dashed rgba(255, 255, 255, 0.16);
+            border-radius: 14px;
+
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+
+            overflow: hidden;
+        }
+
+        .website-background-image-preview.has-image span {
+            display: none;
+        }
+
+        .website-background-image-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .website-background-image-actions button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+
+            padding: 8px 11px;
+
+            color: rgba(255, 255, 255, 0.88);
+            background: rgba(255, 255, 255, 0.065);
+
+            border: 1px solid rgba(255, 255, 255, 0.105);
+            border-radius: 10px;
+
+            font-size: 0.82rem;
+            font-weight: 750;
+            cursor: pointer;
+        }
+
+        .website-background-image-actions button:hover {
+            color: #ffffff;
+            background: rgba(126, 226, 204, 0.13);
+            border-color: rgba(126, 226, 204, 0.34);
+        }
+
+        .website-style-checkbox {
+            display: inline-flex !important;
+            align-items: center;
+            gap: 8px;
+
+            width: fit-content;
+            padding: 8px 10px !important;
+
+            background: rgba(255, 255, 255, 0.055) !important;
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 10px;
+        }
+
+        .website-style-checkbox input {
+            width: auto;
+        }
+
+        .website-style-preview {
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            color: var(--preview-text-color, #ffffff);
+            background-color: #ffffff;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            overflow: hidden;
+
+            transition:
+                background-color 0.2s ease,
+                background-image 0.2s ease,
+                background-size 0.2s ease,
+                color 0.2s ease;
+        }
+
+        .website-style-preview span {
+            position: relative;
+            z-index: 1;
+            padding: 8px 12px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.25);
+        }
     </style>
 
 </head>
@@ -1786,13 +1900,11 @@
                         <i class="fas fa-edit"></i>
                         <span>Edit</span>
                     </button>
-
                     <button type="button" class="website-action-button"
-                        onclick="openModal('websiteStyleModal_{{ website.id }}')">
+                        onclick="openWebsiteStyleModal('{{ website.id }}')">
                         <i class="fas fa-palette"></i>
                         <span>Website Style</span>
                     </button>
-
                     <button type="button" class="website-action-button"
                         onclick="openModal('publicNavbarModal_{{ website.id }}')">
                         <i class="fas fa-bars"></i>
@@ -1814,7 +1926,8 @@
                 {% endfor %}
             </div> -->
 
-<div class="dashboard-pages-area" id="dashboardPagesArea_{{ website.id }}" data-website-id="{{ website.id }}">
+            <div class="dashboard-pages-area" id="dashboardPagesArea_{{ website.id }}"
+                data-website-id="{{ website.id }}">
                 <!-- Giant plus button for adding a page -->
                 <!-- <div class="page-box add-page-box" onclick="openAddPageModal('{{ website.id }}')">
                     <p class="create-text">Add Page</p>
@@ -1895,15 +2008,16 @@
                                         {% if page.site_active_status %}Unpublish Page{% else %}Publish Page{% endif %}
                                     </button>
 
-                                    <button type="button" onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
-    <i class="fas fa-folder-open"></i>
-    Move to Folder
-</button>
                                     <button type="button"
-    onclick="generateQRCode('{{ url_for('public_page_by_slug', page_slug=page.slug) }}', '{{ page.id }}')">
-    <i class="fas fa-qrcode"></i>
-    Download QR Code
-</button>
+                                        onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
+                                        <i class="fas fa-folder-open"></i>
+                                        Move to Folder
+                                    </button>
+                                    <button type="button"
+                                        onclick="generateQRCode('{{ url_for('public_page_by_slug', page_slug=page.slug) }}', '{{ page.id }}')">
+                                        <i class="fas fa-qrcode"></i>
+                                        Download QR Code
+                                    </button>
 
                                     <button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-copy"></i>
@@ -2069,10 +2183,8 @@
 
                     <div class="page-folder-list" id="pageFolderList_{{ website.id }}">
                         {% for folder in website_page_folders.get(website.id, []) %}
-                        <div class="page-folder-card"
-     id="pageFolder_{{ folder.id }}"
-     data-folder-id="{{ folder.id }}"
-     data-website-id="{{ website.id }}">
+                        <div class="page-folder-card" id="pageFolder_{{ folder.id }}" data-folder-id="{{ folder.id }}"
+                            data-website-id="{{ website.id }}">
                             <button type="button" class="page-folder-header"
                                 onclick="togglePageFolder('{{ folder.id }}')">
                                 <span class="page-folder-icon">
@@ -2144,7 +2256,7 @@
                                                     Page{% endif %}
                                                 </button>
 
-                                                                                               <button type="button"
+                                                <button type="button"
                                                     onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-folder-open"></i>
                                                     Move to Folder
@@ -2156,7 +2268,7 @@
                                                     Download QR Code
                                                 </button>
 
- 
+
 
                                                 <button type="button"
                                                     onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
@@ -2402,6 +2514,46 @@
 
             <div class="modal-body">
                 <div class="color-options">
+                    <div class="color-option website-background-image-card">
+                        <label>Background Image</label>
+
+                        <input type="hidden" id="websiteBackgroundImageUrl_{{ website.id }}"
+                            value="{{ website.background_image_url or '' }}">
+
+                        <div id="websiteBackgroundImagePreview_{{ website.id }}"
+                            class="website-background-image-preview {% if website.background_image_url %}has-image{% endif %}"
+                            {% if website.background_image_url %}
+                            style="background-image: url('{{ website.background_image_url }}');" {% endif %}>
+                            <span>No background image selected</span>
+                        </div>
+
+                        <div class="website-background-image-actions">
+                            <button type="button" onclick="openWebsiteBackgroundLibraryPicker('{{ website.id }}')">
+                                <i class="fas fa-images"></i>
+                                Pick from Library
+                            </button>
+
+                            <button type="button" onclick="clearWebsiteBackgroundImage('{{ website.id }}')">
+                                Clear Image
+                            </button>
+                        </div>
+
+                        <label class="website-style-checkbox">
+                            <input type="checkbox" id="websiteBackgroundRepeat_{{ website.id }}" {% if
+                                website.background_image_repeat %}checked{% endif %}
+                                onchange="updateWebsiteBackgroundPreview('{{ website.id }}')">
+                            Repeat background image
+                        </label>
+
+                        <label>Image Size / Zoom</label>
+                        <input type="range" id="websiteBackgroundZoom_{{ website.id }}" min="25" max="1000" step="5"
+                            value="{{ website.background_image_zoom or 100 }}"
+                            oninput="updateWebsiteBackgroundPreview('{{ website.id }}')">
+
+                        <span id="websiteBackgroundZoomValue_{{ website.id }}" class="range-value">
+                            {{ website.background_image_zoom or 100 }}%
+                        </span>
+                    </div>
                     <div class="color-option">
                         <label>Background Color</label>
 
@@ -2443,9 +2595,8 @@
                 {% set palette_context = 'website_' ~ website.id %}
                 {% include 'components/color_palette.html' %}
 
-                <div id="websiteStylePreview_{{ website.id }}"
-                    style="margin-top: 20px; padding: 20px; border-radius: 12px;">
-                    Website preview text
+                <div id="websiteStylePreview_{{ website.id }}" class="website-style-preview">
+                    <span>Website preview text</span>
                 </div>
             </div>
 
@@ -2599,11 +2750,9 @@
                         <h6>Title</h6>
 
                         <label>Navbar Title</label>
-                        <input type="text" id="navbarTitle_{{ website.id }}" class="form-control"
-                            value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
-                            oninput="updateFullNavbarPreview('{{ website.id }}')">
-
-                        <label>Title Alignment</label>
+<input type="text" id="navbarTitle_{{ website.id }}" class="form-control"
+    value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
+    oninput="updateNavbarStylePreview('{{ website.id }}')">
                         <select id="navbarTitleAlignment_{{ website.id }}" class="form-control"
                             onchange="updateFullNavbarPreview('{{ website.id }}')">
                             <option value="left" {% if (website.public_navbar_style or {}).get('title_alignment', 'left'
@@ -2644,8 +2793,8 @@
 
                         <label>Gradient Direction</label>
                         <div class="gradient-controls">
-                            <select id="navbarGradientDirection_{{ website.id }}"
-                                onchange="updateFullNavbarPreview('{{ website.id }}')">
+<select id="navbarGradientDirection_{{ website.id }}"
+    onchange="updateNavbarStylePreview('{{ website.id }}')">
                                 <option value="to right">Left → Right</option>
                                 <option value="to bottom">Top → Bottom</option>
                                 <option value="to bottom right">Diagonal</option>
@@ -2668,7 +2817,7 @@
                         <label>Transparency</label>
                         <input type="range" id="navbarOpacity_{{ website.id }}" min="0" max="1" step="0.05"
                             value="{{ (website.public_navbar_style or {}).get('opacity', 0.9) }}"
-                            oninput="updateFullNavbarPreview('{{ website.id }}')">
+                            oninput="updateNavbarStylePreview('{{ website.id }}')">
 
                         <label>Blur</label>
                         <input type="range" id="navbarBlur_{{ website.id }}" min="0" max="30" step="1"
@@ -2693,6 +2842,18 @@
                                 onchange="updateFullNavbarPreview('{{ website.id }}')">
                             Stick to Top
                         </label>
+
+                    </div>
+                    <div class="navbar-style-card">
+                        <label for="navbarMargin_{{ website.id }}">Navbar Margin</label>
+
+                        <input type="range" id="navbarMargin_{{ website.id }}" min="0" max="40" step="1"
+                            value="{{ (website.public_navbar_style or {}).get('margin', 0) }}"
+                            oninput="updateNavbarStylePreview('{{ website.id }}')">
+
+                        <span id="navbarMarginValue_{{ website.id }}" class="range-value">
+                            {{ (website.public_navbar_style or {}).get('margin', 0) }}px
+                        </span>
                     </div>
                 </div>
             </div>
@@ -2711,144 +2872,144 @@
         {% endfor %}
         <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
-<script>
-let currentlyDraggedPageBox = null;
+        <script>
+            let currentlyDraggedPageBox = null;
 
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.page-container[data-website-id]').forEach(container => {
-        const websiteId = container.dataset.websiteId;
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('.page-container[data-website-id]').forEach(container => {
+                    const websiteId = container.dataset.websiteId;
 
-        Sortable.create(container, {
-            animation: 150,
-            group: `website-pages-${websiteId}`,
-            draggable: '.page-box:not(.add-page-box)',
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
-            dragClass: 'sortable-drag',
+                    Sortable.create(container, {
+                        animation: 150,
+                        group: `website-pages-${websiteId}`,
+                        draggable: '.page-box:not(.add-page-box)',
+                        ghostClass: 'sortable-ghost',
+                        chosenClass: 'sortable-chosen',
+                        dragClass: 'sortable-drag',
 
-            filter: '.page-menu-container, .page-menu, .edit-button-container, .publish-badge-toggle, .page-preview-placeholder button, iframe, input, button, a, select, textarea',
-            preventOnFilter: false,
+                        filter: '.page-menu-container, .page-menu, .edit-button-container, .publish-badge-toggle, .page-preview-placeholder button, iframe, input, button, a, select, textarea',
+                        preventOnFilter: false,
 
-            onStart: function (event) {
-                currentlyDraggedPageBox = event.item;
-                document.body.classList.add('is-dragging-page');
-            },
+                        onStart: function (event) {
+                            currentlyDraggedPageBox = event.item;
+                            document.body.classList.add('is-dragging-page');
+                        },
 
-            onEnd: function (event) {
-                document.body.classList.remove('is-dragging-page');
+                        onEnd: function (event) {
+                            document.body.classList.remove('is-dragging-page');
 
-                const targetContainer = event.to;
-                const targetWebsiteId = targetContainer.dataset.websiteId;
-                const targetFolderId = targetContainer.dataset.folderId || 'root';
+                            const targetContainer = event.to;
+                            const targetWebsiteId = targetContainer.dataset.websiteId;
+                            const targetFolderId = targetContainer.dataset.folderId || 'root';
 
-                savePageContainerOrder(targetWebsiteId, targetFolderId, targetContainer);
-                updateFolderCountsOnPage(targetWebsiteId);
+                            savePageContainerOrder(targetWebsiteId, targetFolderId, targetContainer);
+                            updateFolderCountsOnPage(targetWebsiteId);
 
-                currentlyDraggedPageBox = null;
+                            currentlyDraggedPageBox = null;
 
-                document.querySelectorAll('.page-folder-card.folder-drop-target').forEach(folder => {
-                    folder.classList.remove('folder-drop-target');
+                            document.querySelectorAll('.page-folder-card.folder-drop-target').forEach(folder => {
+                                folder.classList.remove('folder-drop-target');
+                            });
+                        }
+                    });
+                });
+
+                initializeFolderHeaderDropTargets();
+            });
+
+            function initializeFolderHeaderDropTargets() {
+                document.querySelectorAll('.page-folder-card[data-folder-id][data-website-id]').forEach(folderCard => {
+                    if (folderCard.dataset.folderDropReady === 'true') return;
+                    folderCard.dataset.folderDropReady = 'true';
+
+                    const folderHeader = folderCard.querySelector('.page-folder-header');
+                    if (!folderHeader) return;
+
+                    folderHeader.addEventListener('dragover', function (event) {
+                        if (!currentlyDraggedPageBox) return;
+
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        event.dataTransfer.dropEffect = 'move';
+
+                        folderCard.classList.add('folder-drop-target');
+                        folderCard.classList.add('open');
+                    });
+
+                    folderHeader.addEventListener('dragleave', function (event) {
+                        if (folderHeader.contains(event.relatedTarget)) return;
+
+                        folderCard.classList.remove('folder-drop-target');
+                    });
+
+                    folderHeader.addEventListener('drop', function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        if (!currentlyDraggedPageBox) return;
+
+                        const websiteId = folderCard.dataset.websiteId;
+                        const folderId = folderCard.dataset.folderId;
+                        const targetContainer = document.getElementById(`folderPageContainer_${folderId}`);
+
+                        if (!targetContainer) return;
+
+                        // if (currentlyDraggedPageBox.classList.contains('page-root')) {
+                        //     alert('The root page should stay in Root Pages.');
+                        //     folderCard.classList.remove('folder-drop-target');
+                        //     return;
+                        // }
+
+                        folderCard.classList.remove('folder-drop-target');
+                        folderCard.classList.add('open');
+
+                        targetContainer.appendChild(currentlyDraggedPageBox);
+
+                        savePageContainerOrder(websiteId, folderId, targetContainer);
+                        updateFolderCountsOnPage(websiteId);
+                    });
                 });
             }
-        });
-    });
 
-    initializeFolderHeaderDropTargets();
-});
+            function savePageContainerOrder(websiteId, folderId, container) {
+                const pageIds = Array.from(
+                    container.querySelectorAll(':scope > .page-box:not(.add-page-box)')
+                ).map(box => box.dataset.pageId);
 
-function initializeFolderHeaderDropTargets() {
-    document.querySelectorAll('.page-folder-card[data-folder-id][data-website-id]').forEach(folderCard => {
-        if (folderCard.dataset.folderDropReady === 'true') return;
-        folderCard.dataset.folderDropReady = 'true';
-
-        const folderHeader = folderCard.querySelector('.page-folder-header');
-        if (!folderHeader) return;
-
-        folderHeader.addEventListener('dragover', function (event) {
-            if (!currentlyDraggedPageBox) return;
-
-            event.preventDefault();
-            event.stopPropagation();
-
-            event.dataTransfer.dropEffect = 'move';
-
-            folderCard.classList.add('folder-drop-target');
-            folderCard.classList.add('open');
-        });
-
-        folderHeader.addEventListener('dragleave', function (event) {
-            if (folderHeader.contains(event.relatedTarget)) return;
-
-            folderCard.classList.remove('folder-drop-target');
-        });
-
-        folderHeader.addEventListener('drop', function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (!currentlyDraggedPageBox) return;
-
-            const websiteId = folderCard.dataset.websiteId;
-            const folderId = folderCard.dataset.folderId;
-            const targetContainer = document.getElementById(`folderPageContainer_${folderId}`);
-
-            if (!targetContainer) return;
-
-            // if (currentlyDraggedPageBox.classList.contains('page-root')) {
-            //     alert('The root page should stay in Root Pages.');
-            //     folderCard.classList.remove('folder-drop-target');
-            //     return;
-            // }
-
-            folderCard.classList.remove('folder-drop-target');
-            folderCard.classList.add('open');
-
-            targetContainer.appendChild(currentlyDraggedPageBox);
-
-            savePageContainerOrder(websiteId, folderId, targetContainer);
-            updateFolderCountsOnPage(websiteId);
-        });
-    });
-}
-
-function savePageContainerOrder(websiteId, folderId, container) {
-    const pageIds = Array.from(
-        container.querySelectorAll(':scope > .page-box:not(.add-page-box)')
-    ).map(box => box.dataset.pageId);
-
-    fetch(`/reorder_pages/${websiteId}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            folder_id: folderId,
-            page_ids: pageIds
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (!data.success) {
-                alert(data.message || 'Failed to save page order.');
+                fetch(`/reorder_pages/${websiteId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        folder_id: folderId,
+                        page_ids: pageIds
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) {
+                            alert(data.message || 'Failed to save page order.');
+                        }
+                    })
+                    .catch(error => console.error('Error saving page order:', error));
             }
-        })
-        .catch(error => console.error('Error saving page order:', error));
-}
 
-function updateFolderCountsOnPage(websiteId) {
-    document.querySelectorAll(`#pageFolderList_${websiteId} .page-folder-card`).forEach(folder => {
-        const folderId = folder.dataset.folderId;
-        const countEl = document.getElementById(`pageFolderCount_${folderId}`);
-        const pages = folder.querySelectorAll('.page-box');
-        const activePages = folder.querySelectorAll('.page-box.page-published');
+            function updateFolderCountsOnPage(websiteId) {
+                document.querySelectorAll(`#pageFolderList_${websiteId} .page-folder-card`).forEach(folder => {
+                    const folderId = folder.dataset.folderId;
+                    const countEl = document.getElementById(`pageFolderCount_${folderId}`);
+                    const pages = folder.querySelectorAll('.page-box');
+                    const activePages = folder.querySelectorAll('.page-box.page-published');
 
-        if (countEl) {
-            countEl.textContent = `${activePages.length} active / ${pages.length} pages`;
-        }
-    });
-}
-</script>
+                    if (countEl) {
+                        countEl.textContent = `${activePages.length} active / ${pages.length} pages`;
+                    }
+                });
+            }
+        </script>
         <script>
             const websitePageGroups = {{ website_page_groups | tojson }};
         </script>
@@ -2941,7 +3102,7 @@ function updateFolderCountsOnPage(websiteId) {
 
                 titleText.textContent = title;
 
-                preview.style.opacity = opacity;
+                // preview.style.opacity = opacity;
                 preview.style.backdropFilter = `blur(${blur}px)`;
                 preview.style.webkitBackdropFilter = `blur(${blur}px)`;
                 preview.style.borderRadius = `${radius}px`;
@@ -2951,50 +3112,54 @@ function updateFolderCountsOnPage(websiteId) {
                 titleWrapper.classList.add(`title-align-${alignment}`);
             }
 
-            function savePublicNavbarStyle(websiteId) {
-                const title = document.getElementById(`navbarTitle_${websiteId}`).value;
-                const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
-                const textColor = document.getElementById(`navbarTextColor_${websiteId}`).value;
-                const background = document.getElementById(`navbarBackground_${websiteId}`).value;
-                const opacity = document.getElementById(`navbarOpacity_${websiteId}`).value;
-                const blur = document.getElementById(`navbarBlur_${websiteId}`).value;
-                const borderRadius = document.getElementById(`navbarBorderRadius_${websiteId}`).value;
-                const shadow = document.getElementById(`navbarShadow_${websiteId}`).checked;
-                const sticky = document.getElementById(`navbarSticky_${websiteId}`).checked;
-                const titleAlignment = document.getElementById(`navbarTitleAlignment_${websiteId}`).value;
+function savePublicNavbarStyle(websiteId) {
+    updateNavbarBackgroundPreview(websiteId);
 
-                fetch(`/edit_public_navbar_style/${websiteId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({
-                        title: title,
-                        icon_url: iconUrl,
-                        text_color: textColor,
-                        background: background,
-                        opacity: opacity,
-                        blur: blur,
-                        border_radius: borderRadius,
-                        shadow: shadow,
-                        sticky: sticky,
-                        title_alignment: titleAlignment
-                    })
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            // closeModal(`publicNavbarStyleModal_${websiteId}`);
-                            // window.location.reload();
-                            refreshNavbarIframePreview(websiteId);
-                            alert('Navbar style saved.');
-                        } else {
-                            alert(data.message || 'Failed to save navbar style.');
-                        }
-                    })
-                    .catch(error => console.error('Error:', error));
+    const title = document.getElementById(`navbarTitle_${websiteId}`).value;
+    const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
+    const textColor = document.getElementById(`navbarTextColor_${websiteId}`).value;
+    const background = document.getElementById(`navbarBackground_${websiteId}`).value;
+    const opacity = document.getElementById(`navbarOpacity_${websiteId}`).value;
+    const blur = document.getElementById(`navbarBlur_${websiteId}`).value;
+    const borderRadius = document.getElementById(`navbarBorderRadius_${websiteId}`).value;
+    const shadow = document.getElementById(`navbarShadow_${websiteId}`).checked;
+    const sticky = document.getElementById(`navbarSticky_${websiteId}`).checked;
+    const titleAlignment = document.getElementById(`navbarTitleAlignment_${websiteId}`).value;
+    const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
+
+    console.log('Saving navbar background:', background);
+
+    fetch(`/edit_public_navbar_style/${websiteId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            title: title,
+            icon_url: iconUrl,
+            text_color: textColor,
+            background: background,
+            opacity: opacity,
+            blur: blur,
+            border_radius: borderRadius,
+            shadow: shadow,
+            sticky: sticky,
+            title_alignment: titleAlignment,
+            margin: margin
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                refreshNavbarIframePreview(websiteId);
+                alert('Navbar style saved.');
+            } else {
+                alert(data.message || 'Failed to save navbar style.');
             }
+        })
+        .catch(error => console.error('Error:', error));
+}
 
             function addNavbarColorStop(websiteId, color = '#ffffff') {
                 const container = document.getElementById(`navbarGradientColors_${websiteId}`);
@@ -3014,7 +3179,7 @@ function updateFolderCountsOnPage(websiteId) {
 
                 colorInput.addEventListener('input', function () {
                     window.lastSelectedColor = this.value;
-                    updateWebsiteBackgroundPreview(websiteId);
+                    updateNavbarBackgroundPreview(websiteId);
                 });
 
                 removeButton.addEventListener('click', function () {
@@ -3028,12 +3193,102 @@ function updateFolderCountsOnPage(websiteId) {
                 enableDraggingFromColorInputs();
             }
 
+            function hexToRgbParts(hex) {
+                const clean = String(hex || '').replace('#', '').trim();
+
+                if (clean.length === 3) {
+                    return {
+                        r: parseInt(clean[0] + clean[0], 16),
+                        g: parseInt(clean[1] + clean[1], 16),
+                        b: parseInt(clean[2] + clean[2], 16)
+                    };
+                }
+
+                if (clean.length === 6) {
+                    return {
+                        r: parseInt(clean.substring(0, 2), 16),
+                        g: parseInt(clean.substring(2, 4), 16),
+                        b: parseInt(clean.substring(4, 6), 16)
+                    };
+                }
+
+                return { r: 20, g: 20, b: 20 };
+            }
+
+            function rgbaStringToHex(color) {
+                const match = String(color || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+
+                if (!match) return color;
+
+                const r = Number(match[1]).toString(16).padStart(2, '0');
+                const g = Number(match[2]).toString(16).padStart(2, '0');
+                const b = Number(match[3]).toString(16).padStart(2, '0');
+
+                return `#${r}${g}${b}`;
+            }
+
+            function applyOpacityToColor(color, opacity) {
+                const cleanColor = String(color || '').trim();
+                const safeOpacity = Math.max(0, Math.min(1, Number(opacity)));
+
+                if (!cleanColor) {
+                    return `rgba(20, 20, 20, ${safeOpacity})`;
+                }
+
+                if (cleanColor.startsWith('#')) {
+                    const rgb = hexToRgbParts(cleanColor);
+                    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${safeOpacity})`;
+                }
+
+                if (cleanColor.startsWith('rgb(')) {
+                    return cleanColor.replace('rgb(', 'rgba(').replace(')', `, ${safeOpacity})`);
+                }
+
+                if (cleanColor.startsWith('rgba(')) {
+                    return cleanColor.replace(
+                        /rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)/,
+                        `rgba($1, $2, $3, ${safeOpacity})`
+                    );
+                }
+
+                return cleanColor;
+            }
+
+            function applyOpacityToNavbarBackground(background, opacity) {
+                const cleanBackground = String(background || '').trim();
+
+                if (!cleanBackground) {
+                    return `rgba(20, 20, 20, ${opacity})`;
+                }
+
+                if (!cleanBackground.startsWith('linear-gradient')) {
+                    return applyOpacityToColor(cleanBackground, opacity);
+                }
+
+                const directionMatch = cleanBackground.match(/linear-gradient\((.*?),/);
+                const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+
+                const colorsPart = cleanBackground
+                    .replace(/^linear-gradient\((.*?),/, '')
+                    .replace(/\)$/, '');
+
+                const colors = colorsPart
+                    .split(',')
+                    .map(color => color.trim())
+                    .filter(Boolean)
+                    .map(color => applyOpacityToColor(color, opacity));
+
+                return `linear-gradient(${direction}, ${colors.join(', ')})`;
+            }
+
             function updateNavbarBackgroundPreview(websiteId) {
                 const directionSelect = document.getElementById(`navbarGradientDirection_${websiteId}`);
                 const hiddenInput = document.getElementById(`navbarBackground_${websiteId}`);
-                const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+                const opacityInput = document.getElementById(`navbarOpacity_${websiteId}`);
 
-                if (!directionSelect || !hiddenInput || !preview) return;
+                if (!directionSelect || !hiddenInput) return;
+
+                const opacity = opacityInput?.value || 0.9;
 
                 const colorInputs = document.querySelectorAll(
                     `#navbarGradientColors_${websiteId} input[type="color"]`
@@ -3041,36 +3296,51 @@ function updateFolderCountsOnPage(websiteId) {
 
                 const colors = Array.from(colorInputs).map(input => input.value);
 
-                let background = '#222222';
+                let rawBackground = '#222222';
 
                 if (colors.length === 1) {
-                    background = colors[0];
+                    rawBackground = colors[0];
                 } else if (colors.length > 1) {
-                    background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+                    rawBackground = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
                 }
 
-                hiddenInput.value = background;
-                preview.style.background = background;
+                const backgroundWithOpacity = applyOpacityToNavbarBackground(rawBackground, opacity);
+
+                hiddenInput.value = backgroundWithOpacity;
+
+                const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+
+                if (preview) {
+                    preview.style.background = backgroundWithOpacity;
+                }
             }
 
             function updateNavbarStylePreview(websiteId) {
-                updateNavbarBackgroundPreview(websiteId);
-                updateNavbarTextPreview(websiteId);
+    updateNavbarBackgroundPreview(websiteId);
+    updateNavbarTextPreview(websiteId);
 
-                const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
-                if (!preview) return;
+    const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
+    const marginValue = document.getElementById(`navbarMarginValue_${websiteId}`);
 
-                const opacity = document.getElementById(`navbarOpacity_${websiteId}`).value;
-                const blur = document.getElementById(`navbarBlur_${websiteId}`).value;
-                const radius = document.getElementById(`navbarBorderRadius_${websiteId}`).value;
-                const shadow = document.getElementById(`navbarShadow_${websiteId}`).checked;
+    if (marginValue) {
+        marginValue.textContent = `${margin}px`;
+    }
 
-                preview.style.opacity = opacity;
-                preview.style.backdropFilter = `blur(${blur}px)`;
-                preview.style.webkitBackdropFilter = `blur(${blur}px)`;
-                preview.style.borderRadius = `${radius}px`;
-                preview.style.boxShadow = shadow ? '0 10px 26px rgba(0,0,0,0.35)' : 'none';
-            }
+    const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+
+    if (!preview) {
+        return;
+    }
+
+    const blur = document.getElementById(`navbarBlur_${websiteId}`)?.value || 14;
+    const radius = document.getElementById(`navbarBorderRadius_${websiteId}`)?.value || 0;
+    const shadow = document.getElementById(`navbarShadow_${websiteId}`)?.checked ?? true;
+
+    preview.style.backdropFilter = `blur(${blur}px)`;
+    preview.style.webkitBackdropFilter = `blur(${blur}px)`;
+    preview.style.borderRadius = `${radius}px`;
+    preview.style.boxShadow = shadow ? '0 10px 26px rgba(0,0,0,0.35)' : 'none';
+}
 
             function initializeNavbarStyle(websiteId, savedBackground) {
                 const container = document.getElementById(`navbarGradientColors_${websiteId}`);
@@ -3093,10 +3363,17 @@ function updateFolderCountsOnPage(websiteId) {
                     const colors = colorsPart.split(',').map(color => color.trim());
 
                     colors.forEach(color => {
-                        addNavbarColorStop(websiteId, color);
+                        addNavbarColorStop(
+                            websiteId,
+                            color.startsWith('rgba') ? rgbaStringToHex(color) : color
+                        );
                     });
                 } else {
-                    addNavbarColorStop(websiteId, savedBackground || '#222222');
+                    const pickerColor = savedBackground && savedBackground.startsWith('rgba')
+                        ? rgbaStringToHex(savedBackground)
+                        : savedBackground || '#222222';
+
+                    addNavbarColorStop(websiteId, pickerColor);
                 }
 
                 directionSelect.addEventListener('change', function () {
@@ -3583,23 +3860,57 @@ function updateFolderCountsOnPage(websiteId) {
             function updateWebsiteBackgroundPreview(websiteId) {
                 const directionSelect = document.getElementById(`gradientDirection_${websiteId}`);
                 const backgroundInput = document.getElementById(`backgroundColor_${websiteId}`);
+                const textColorInput = document.getElementById(`textColor_${websiteId}`);
                 const preview = document.getElementById(`websiteStylePreview_${websiteId}`);
+
+                const imageInput = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
+                const repeatInput = document.getElementById(`websiteBackgroundRepeat_${websiteId}`);
+                const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
+                const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
 
                 const colorInputs = document.querySelectorAll(`#gradientColors_${websiteId} input[type="color"]`);
                 const colors = Array.from(colorInputs).map(input => input.value);
 
-                let background = '#ffffff';
+                let background = backgroundInput?.value || '#ffffff';
 
                 if (colors.length === 1) {
                     background = colors[0];
-                } else if (colors.length > 1) {
+                } else if (colors.length > 1 && directionSelect) {
                     background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
                 }
 
-                backgroundInput.value = background;
+                if (backgroundInput) {
+                    backgroundInput.value = background;
+                }
 
-                if (preview) {
-                    preview.style.background = background;
+                const imageUrl = imageInput?.value || '';
+                const repeat = repeatInput?.checked || false;
+                const zoom = zoomInput?.value || 100;
+
+                if (zoomValue) {
+                    zoomValue.textContent = `${zoom}%`;
+                }
+
+                if (!preview) return;
+
+                preview.style.background = background;
+                preview.style.color = textColorInput?.value || '#000000';
+                preview.style.setProperty('--preview-text-color', textColorInput?.value || '#000000');
+
+                if (imageUrl) {
+                    preview.style.backgroundImage = `url("${imageUrl}")`;
+                    preview.style.backgroundRepeat = repeat ? 'repeat' : 'no-repeat';
+                    preview.style.backgroundPosition = 'center';
+
+                    if (repeat) {
+                        preview.style.backgroundSize = `${zoom}px auto`;
+                    } else {
+                        preview.style.backgroundSize = `${zoom}% auto`;
+                    }
+                } else {
+                    preview.style.backgroundImage = '';
+                    preview.style.backgroundRepeat = 'no-repeat';
+                    preview.style.backgroundSize = 'cover';
                 }
             }
 
@@ -3662,6 +3973,11 @@ function updateFolderCountsOnPage(websiteId) {
                 const backgroundColor = document.getElementById(`backgroundColor_${websiteId}`).value;
                 const textColor = document.getElementById(`textColor_${websiteId}`).value;
 
+                const backgroundImageUrl = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`)?.value || '';
+                const backgroundImageRepeat = document.getElementById(`websiteBackgroundRepeat_${websiteId}`)?.checked || false;
+                const backgroundImageZoom = document.getElementById(`websiteBackgroundZoom_${websiteId}`)?.value || 100;
+
+
                 fetch(`/edit_website_style/${websiteId}`, {
                     method: 'POST',
                     headers: {
@@ -3670,7 +3986,10 @@ function updateFolderCountsOnPage(websiteId) {
                     },
                     body: JSON.stringify({
                         background_color: backgroundColor,
-                        text_color: textColor
+                        text_color: textColor,
+                        background_image_url: backgroundImageUrl,
+                        background_image_repeat: backgroundImageRepeat,
+                        background_image_zoom: backgroundImageZoom
                     })
                 })
                     .then(response => response.json())
@@ -4425,6 +4744,74 @@ function updateFolderCountsOnPage(websiteId) {
                         }
                     })
                     .catch(error => console.error('Error moving page:', error));
+            }
+        </script>
+
+        <script>
+            let websiteBackgroundTargetId = null;
+
+            function openWebsiteBackgroundLibraryPicker(websiteId) {
+                websiteBackgroundTargetId = websiteId;
+
+                PhotoLibraryModal.open({
+                    mode: 'website-background',
+                    onConfirm: function (selection) {
+                        const imageUrl = selection.imageUrls[0];
+
+                        if (!imageUrl) {
+                            alert('Could not find the selected image URL.');
+                            return;
+                        }
+
+                        setWebsiteBackgroundImageFromLibrary(imageUrl);
+                    }
+                });
+            }
+
+            function setWebsiteBackgroundImageFromLibrary(imageUrl) {
+                if (!websiteBackgroundTargetId) return;
+
+                const websiteId = websiteBackgroundTargetId;
+
+                const input = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
+                const imagePreview = document.getElementById(`websiteBackgroundImagePreview_${websiteId}`);
+
+                if (input) {
+                    input.value = imageUrl;
+                }
+
+                if (imagePreview) {
+                    imagePreview.style.backgroundImage = `url("${imageUrl}")`;
+                    imagePreview.classList.add('has-image');
+                }
+
+                updateWebsiteBackgroundPreview(websiteId);
+            }
+
+            function clearWebsiteBackgroundImage(websiteId) {
+                const input = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
+                const imagePreview = document.getElementById(`websiteBackgroundImagePreview_${websiteId}`);
+
+                if (input) {
+                    input.value = '';
+                }
+
+                if (imagePreview) {
+                    imagePreview.style.backgroundImage = '';
+                    imagePreview.classList.remove('has-image');
+                }
+
+                updateWebsiteBackgroundPreview(websiteId);
+            }
+        </script>
+
+        <script>
+            function openWebsiteStyleModal(websiteId) {
+                openModal(`websiteStyleModal_${websiteId}`);
+
+                requestAnimationFrame(() => {
+                    updateWebsiteBackgroundPreview(websiteId);
+                });
             }
         </script>
         {% endblock %}

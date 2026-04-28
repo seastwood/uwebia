@@ -222,6 +222,9 @@ class Website(db.Model):
 
     background_color = db.Column(db.String(500), default='#ffffff')
     text_color = db.Column(db.String(20), default='#000000')
+    background_image_url = db.Column(db.String(500), nullable=True)
+    background_image_repeat = db.Column(db.Boolean, default=False)
+    background_image_zoom = db.Column(db.Integer, default=100)
 
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
@@ -338,6 +341,12 @@ class SectionGroup(db.Model):
     background_opacity = db.Column(db.Float, default=1)
     padding = db.Column(db.Integer, default=20)
     border_radius = db.Column(db.Integer, default=0)
+
+    background_image_url = db.Column(db.String(500), nullable=True)
+    background_image_size = db.Column(db.String(50), default='cover')
+    background_image_position = db.Column(db.String(50), default='center')
+    background_overlay_color = db.Column(db.String(50), default='transparent')
+    background_overlay_opacity = db.Column(db.Float, default=0)
 
 # class Picture(db.Model):
 #     id = db.Column(db.Integer, primary_key=True)
@@ -854,7 +863,12 @@ def get_sections_and_structure(page_content_id):
                 'background_color': group.background_color,
                 'background_opacity': group.background_opacity,
                 'padding': group.padding,
-                'border_radius': group.border_radius
+                'border_radius': group.border_radius,
+                'background_image_url': group.background_image_url,
+                'background_image_size': group.background_image_size or 'cover',
+                'background_image_position': group.background_image_position or 'center',
+                'background_overlay_color': group.background_overlay_color or '#000000',
+                'background_overlay_opacity': group.background_overlay_opacity or 0
             }
             for group in section_groups
         ]
@@ -895,7 +909,7 @@ def create_section_group(page_content_id):
             page_content_id=page_content.id,
             name=f'Section Group {group_count + 1}',
             group_order=group_count + 1,
-            background_color='rgba(255,255,255,0.08)',
+            background_color='transparent',
             padding=0,
             border_radius=0
         )
@@ -956,6 +970,12 @@ def update_section_group(group_id):
 
         if border_radius is not None:
             group.border_radius = int(border_radius)
+
+        group.background_image_url = data.get('background_image_url') or None
+        group.background_image_size = data.get('background_image_size') or 'cover'
+        group.background_image_position = data.get('background_image_position') or 'center'
+        group.background_overlay_color = data.get('background_overlay_color') or '#000000'
+        group.background_overlay_opacity = float(data.get('background_overlay_opacity') or 0)
 
         db.session.commit()
 
@@ -2161,11 +2181,26 @@ def edit_website_style(website_id):
     website.background_color = data.get('background_color', website.background_color)
     website.text_color = data.get('text_color', website.text_color)
 
+    website.background_image_url = data.get('background_image_url') or None
+    website.background_image_repeat = bool(data.get('background_image_repeat', False))
+
+    try:
+        zoom = int(data.get('background_image_zoom') or 100)
+    except ValueError:
+        zoom = 100
+
+    website.background_image_zoom = max(25, min(1000, zoom))
+
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'message': 'Website style updated successfully'
+        'message': 'Website style updated successfully',
+        'background_color': website.background_color,
+        'text_color': website.text_color,
+        'background_image_url': website.background_image_url,
+        'background_image_repeat': website.background_image_repeat,
+        'background_image_zoom': website.background_image_zoom
     })
 
 @app.route('/edit_page/<int:website_id>/<int:page_id>', methods=['POST'])
@@ -3563,20 +3598,30 @@ def render_public_page(website, page, is_preview=False):
 
     public_page_content = {
         'page_id': page.id,
+        'page_slug': page.slug,
+        'current_page_url': url_for('public_page_by_slug', page_slug=page.slug),
         'sections': [section.to_dict() for section in sections],
         'groups': [
-            {
-                'id': group.id,
-                'name': group.name,
-                'anchor_slug': group.anchor_slug,
-                'group_order': group.group_order,
-                'background_color': group.background_color,
-                'background_opacity': group.background_opacity,
-                'padding': group.padding,
-                'border_radius': group.border_radius
-            }
-            for group in section_groups
-        ],
+    {
+        'id': group.id,
+        'name': group.name,
+        'anchor_slug': group.anchor_slug,
+        'group_order': group.group_order,
+
+        'background_color': group.background_color or 'transparent',
+        'background_opacity': group.background_opacity,
+
+        'padding': group.padding,
+        'border_radius': group.border_radius,
+
+        'background_image_url': group.background_image_url,
+        'background_image_size': group.background_image_size or 'cover',
+        'background_image_position': group.background_image_position or 'center',
+        'background_overlay_color': group.background_overlay_color or 'transparent',
+        'background_overlay_opacity': group.background_overlay_opacity or 0
+    }
+    for group in section_groups
+],
         'pictures_by_section': pictures_by_section,
         'is_preview': is_preview
     }
@@ -3706,19 +3751,29 @@ def preview_page(website_id, page_id):
     public_page_content = {
         'page_id': content.id,
         'sections': sections_dict,
+        'page_slug': content.slug,
+        'current_page_url': url_for('public_page_by_slug', page_slug=content.slug),
         'groups': [
-            {
-                'id': group.id,
-                'name': group.name,
-                'anchor_slug': group.anchor_slug,
-                'group_order': group.group_order,
-                'background_color': group.background_color,
-                'background_opacity': group.background_opacity,
-                'padding': group.padding,
-                'border_radius': group.border_radius
-            }
-            for group in section_groups
-        ],
+    {
+        'id': group.id,
+        'name': group.name,
+        'anchor_slug': group.anchor_slug,
+        'group_order': group.group_order,
+
+        'background_color': group.background_color or 'transparent',
+        'background_opacity': group.background_opacity,
+
+        'padding': group.padding,
+        'border_radius': group.border_radius,
+
+        'background_image_url': group.background_image_url,
+        'background_image_size': group.background_image_size or 'cover',
+        'background_image_position': group.background_image_position or 'center',
+        'background_overlay_color': group.background_overlay_color or 'transparent',
+        'background_overlay_opacity': group.background_overlay_opacity or 0
+    }
+    for group in section_groups
+],
         'pictures_by_section': pictures_by_section,
         'is_preview': True
     }
@@ -3909,6 +3964,13 @@ def edit_public_navbar_style(website_id):
 
     data = request.get_json() or {}
 
+    try:
+        margin = int(data.get('margin') or 0)
+    except ValueError:
+        margin = 0
+
+    margin = max(0, min(80, margin))
+
     website.public_navbar_style = {
         'title': data.get('title', website.name),
         'icon_url': data.get('icon_url', ''),
@@ -3919,9 +3981,9 @@ def edit_public_navbar_style(website_id):
         'border_radius': data.get('border_radius', 0),
         'shadow': data.get('shadow', True),
         'sticky': data.get('sticky', True),
-        'title_alignment': data.get('title_alignment', 'left')
+        'title_alignment': data.get('title_alignment', 'left'),
+        'margin': margin
     }
-
     db.session.commit()
 
     return jsonify({'success': True})
