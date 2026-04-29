@@ -58,6 +58,10 @@
                 <i class="fas fa-user-circle"></i>
             </button>
             <div class="dropdown-content" id="profileDropdownContent">
+                <a href="{{ url_for('settings_page') }}" class="profile-menu-link">
+    <i class="fas fa-cog"></i>
+    <span>Settings</span>
+</a>
 <a href="{{ url_for('analytics_page') }}" class="profile-menu-link">
     <i class="fas fa-chart-line"></i>
     <span>Analytics</span>

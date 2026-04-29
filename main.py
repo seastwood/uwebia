@@ -11,6 +11,8 @@ import uuid
 import copy
 import re
 import ipaddress
+import secrets
+import hashlib
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -109,6 +111,18 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(150), nullable=False)
+
+    two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    two_factor_email = db.Column(db.String(255), nullable=True)
+    two_factor_activated_at = db.Column(db.DateTime, nullable=True)
+    two_factor_last_email_settings_version = db.Column(db.String(64), nullable=True)
+
+    admin_url_key = db.Column(db.String(120), nullable=True)
+    admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
+
+    timezone = db.Column(db.String(100), nullable=False, default='America/Chicago')
+    date_format = db.Column(db.String(50), nullable=False, default='%b %d, %Y %I:%M %p')
+
     websites = db.relationship('Website', backref='owner', lazy=True, cascade="all, delete-orphan")
     _is_active = db.Column(db.Boolean, default=True)  # Use a different attribute name
 
@@ -647,7 +661,27 @@ def update_page_colors(page_id):
 #     except requests.exceptions.RequestException as e:
 #         return f"Request failed: {e}"
 
+def normalize_admin_url_key(value):
+    value = (value or '').strip().lower()
+    value = re.sub(r'[^a-z0-9_-]+', '-', value)
+    value = value.strip('-_')
+    return value
 
+
+def admin_url_key_is_enabled():
+    return bool(
+        current_user.is_authenticated
+        and getattr(current_user, 'admin_url_key_enabled', False)
+        and getattr(current_user, 'admin_url_key', None)
+    )
+
+
+def admin_url_key_required_for_user(user):
+    return bool(
+        user
+        and getattr(user, 'admin_url_key_enabled', False)
+        and getattr(user, 'admin_url_key', None)
+    )
 
 @app.route('/capture', methods=['GET'])
 def capture_webpage():
@@ -1383,11 +1417,126 @@ def register():
 #     session.pop('user_id', None)
 #     return redirect(url_for('login'))
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    # 1. Force setup if no user exists
+ADMIN_PROTECTED_PREFIXES = (
+    '/admin',
+    '/dashboard',
+    '/create_website',
+    '/create_page',
+    '/edit_website',
+    '/edit_website_style',
+    '/edit_page',
+    '/duplicate_page',
+    '/replace_page',
+    '/delete_page',
+    '/delete_website',
+    '/library',
+    '/saved_colors',
+)
+
+@app.before_request
+def require_admin_url_key_for_admin_routes():
+    if request.endpoint in ('static',):
+        return None
+
+    # Allow public pages and public contact form
+    public_endpoints = {
+        'home_page',
+        'public_page_by_slug',
+        'public_page',
+        'send_email',
+        'serve_static',
+        'login',
+        'two_factor_login',
+        'register',
+        'logout'
+    }
+
+    if request.endpoint in public_endpoints:
+        return None
+
+    path = request.path or ''
+
+    is_admin_like_path = path.startswith(ADMIN_PROTECTED_PREFIXES)
+
+    if not is_admin_like_path:
+        return None
+
+    if is_admin_like_path:
+        admin_user = User.query.first()
+
+        if admin_url_key_required_for_user(admin_user) and not session.get('admin_path_verified'):
+            return "Not Found", 404
+
+    if admin_url_key_is_enabled() and not session.get('admin_path_verified'):
+        return "Not Found", 404
+
+    return None
+
+@app.route('/admin/2fa', methods=['GET', 'POST'])
+@app.route('/admin/2fa/<admin_key>', methods=['GET', 'POST'])
+def two_factor_login(admin_key=None):
+    user_id = session.get('pre_2fa_user_id')
+
+    if not user_id:
+        return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    user = User.query.get(user_id)
+
+    if not user:
+        clear_pending_two_factor_code()
+        session.pop('pre_2fa_user_id', None)
+        session.pop('pre_2fa_admin_key', None)
+        return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+
+        pending_error = get_pending_two_factor_error(user.id, 'login')
+
+        if pending_error:
+            clear_pending_two_factor_code()
+            session.pop('pre_2fa_user_id', None)
+            session.pop('pre_2fa_admin_key', None)
+
+            flash(pending_error, 'error')
+            return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+        expected_hash = session.get('pending_2fa_code_hash')
+
+        if not expected_hash or not check_password_hash(expected_hash, code):
+            flash('Invalid verification code.', 'error')
+            return redirect(request.path)
+
+        login_user(user)
+
+        if admin_url_key_required_for_user(user):
+            session['admin_path_verified'] = True
+
+        clear_pending_two_factor_code()
+        session.pop('pre_2fa_user_id', None)
+        session.pop('pre_2fa_admin_key', None)
+
+        flash('Logged in successfully.', 'success')
+        return redirect(url_for('dashboard'))
+
+    return render_template('two_factor_login.html', admin_key=admin_key)
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+@app.route('/admin/login/<admin_key>', methods=['GET', 'POST'])
+def login(admin_key=None):
+    # Force setup if no user exists
     if User.query.count() == 0:
         return redirect(url_for('register'))
+
+    admin_user = User.query.first()
+
+    if admin_url_key_required_for_user(admin_user):
+        expected_key = admin_user.admin_url_key
+
+        if admin_key != expected_key:
+            return "Not Found", 404
+
+        session['admin_path_verified'] = True
 
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
@@ -1395,24 +1544,82 @@ def login():
 
         user = User.query.filter_by(username=username).first()
 
-        print("USER OBJECT RETRIEVED FROM DATABASE: ", user)
-
         if user and user.check_password(password):
+            if user.two_factor_enabled:
+                email_settings = get_email_settings()
+                current_fingerprint = get_email_settings_fingerprint(email_settings)
+
+                if current_fingerprint != user.two_factor_last_email_settings_version:
+                    user.two_factor_enabled = False
+                    user.two_factor_activated_at = None
+                    user.two_factor_last_email_settings_version = None
+                    db.session.commit()
+
+                    flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
+                    return redirect(request.path)
+
+                code = generate_two_factor_code()
+                set_pending_two_factor_code(user.id, code, 'login')
+
+                print("")
+                print("========================================")
+                print("UWEBIA 2FA LOGIN CODE")
+                print(f"User: {user.username}")
+                print(f"Email: {user.two_factor_email or user.email}")
+                print(f"Code: {code}")
+                print("Expires in 10 minutes")
+                print("========================================")
+                print("")
+
+                try:
+                    send_two_factor_email(
+                        user.two_factor_email or user.email,
+                        code,
+                        purpose='login'
+                    )
+                except Exception as e:
+                    clear_pending_two_factor_code()
+
+                    flash(f'Could not send 2FA login code: {str(e)}', 'error')
+                    return redirect(request.path)
+
+                session['pre_2fa_user_id'] = user.id
+                session['pre_2fa_admin_key'] = admin_key
+
+                return redirect(
+                    url_for('two_factor_login', admin_key=admin_key) if admin_key else url_for('two_factor_login'))
+
             login_user(user)
+
+            if admin_url_key_required_for_user(user):
+                session['admin_path_verified'] = True
+
             flash('Logged in successfully', 'success')
             return redirect(url_for('dashboard'))
         else:
             flash('Invalid username or password', 'error')
-            return redirect(url_for('login'))
+            return redirect(request.path)
 
-    return render_template('login.html')
+    return render_template(
+        'login.html',
+        admin_key=admin_key
+    )
 
 
-@app.route('/logout')
-@login_required  # Ensure the user is logged in before they can log out
+@app.route('/admin/logout')
+@login_required
 def logout():
-    logout_user()  # Log out the user using Flask-Login
+    user = current_user
+    login_key = user.admin_url_key if user.admin_url_key_enabled and user.admin_url_key else None
+
+    logout_user()
+    session.pop('admin_path_verified', None)
+
     flash('Logged out successfully', 'success')
+
+    if login_key:
+        return redirect(url_for('login', admin_key=login_key))
+
     return redirect(url_for('login'))
 
 
@@ -1694,6 +1901,241 @@ def reorder_pages(website_id):
 
     return jsonify({'success': True})
 
+def get_email_settings_fingerprint(settings):
+    """
+    Used to detect whether SMTP settings changed after 2FA was activated.
+    Do not include smtp_password in a way that reveals it. We hash the combined config.
+    """
+    if not settings:
+        return None
+
+    raw = "|".join([
+        settings.smtp_host or '',
+        str(settings.smtp_port or ''),
+        settings.smtp_username or '',
+        settings.smtp_password or '',
+        settings.from_email or '',
+        settings.from_name or '',
+        str(bool(settings.use_tls)),
+        str(bool(settings.use_ssl)),
+        str(bool(settings.is_active)),
+    ])
+
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def generate_two_factor_code():
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def set_pending_two_factor_code(user_id, code, purpose):
+    session['pending_2fa_user_id'] = user_id
+    session['pending_2fa_code_hash'] = generate_password_hash(code)
+    session['pending_2fa_purpose'] = purpose
+    session['pending_2fa_expires_at'] = (
+        datetime.utcnow() + timedelta(minutes=10)
+    ).isoformat()
+
+
+def get_pending_two_factor_error(user_id, purpose):
+    if session.get('pending_2fa_user_id') != user_id:
+        return 'No matching verification code is pending.'
+
+    if session.get('pending_2fa_purpose') != purpose:
+        return 'This verification code is not valid for this action.'
+
+    expires_raw = session.get('pending_2fa_expires_at')
+
+    if not expires_raw:
+        return 'This verification code expired.'
+
+    try:
+        expires_at = datetime.fromisoformat(expires_raw)
+    except ValueError:
+        return 'This verification code expired.'
+
+    if datetime.utcnow() > expires_at:
+        return 'This verification code expired.'
+
+    return None
+
+
+def clear_pending_two_factor_code():
+    session.pop('pending_2fa_user_id', None)
+    session.pop('pending_2fa_code_hash', None)
+    session.pop('pending_2fa_purpose', None)
+    session.pop('pending_2fa_expires_at', None)
+
+
+def send_two_factor_email(to_email, code, purpose='login'):
+    settings = get_email_settings()
+
+    if not settings or not settings.is_active:
+        raise RuntimeError('Email server is not configured or active.')
+
+    if not settings.smtp_host or not settings.smtp_port or not settings.smtp_username or not settings.smtp_password or not settings.from_email:
+        raise RuntimeError('Email server settings are incomplete.')
+
+    if settings.use_tls and settings.use_ssl:
+        raise RuntimeError('Email server cannot use both TLS and SSL.')
+
+    subject = 'Your Uwebia verification code'
+
+    if purpose == 'activation':
+        intro = 'Use this code to activate two-factor authentication for your Uwebia admin account.'
+    else:
+        intro = 'Use this code to finish logging in to your Uwebia admin account.'
+
+    body = f"""{intro}
+
+Verification code: {code}
+
+This code expires in 10 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+
+    msg = MIMEMultipart()
+    msg['From'] = (
+        f"{settings.from_name} <{settings.from_email}>"
+        if settings.from_name else settings.from_email
+    )
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    if settings.use_ssl:
+        server = smtplib.SMTP_SSL(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+    else:
+        server = smtplib.SMTP(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+
+        if settings.use_tls:
+            server.starttls()
+
+    try:
+        server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(msg)
+    finally:
+        server.quit()
+
+@app.route('/admin/dashboard/settings/2fa/start', methods=['POST'])
+@login_required
+def start_two_factor_activation():
+    email_settings = get_email_settings()
+
+    if not email_settings or not email_settings.is_active:
+        return jsonify({
+            'status': 'error',
+            'message': 'Email server settings must be saved and active before enabling 2FA.'
+        }), 400
+
+    two_factor_email = request.form.get('two_factor_email', '').strip().lower()
+
+    if not two_factor_email:
+        two_factor_email = current_user.email
+
+    code = generate_two_factor_code()
+    set_pending_two_factor_code(current_user.id, code, 'activation')
+
+    print("")
+    print("========================================")
+    print("UWEBIA 2FA ACTIVATION CODE")
+    print(f"User: {current_user.username}")
+    print(f"Email: {two_factor_email}")
+    print(f"Code: {code}")
+    print("Expires in 10 minutes")
+    print("========================================")
+    print("")
+
+    try:
+        send_two_factor_email(two_factor_email, code, purpose='activation')
+    except Exception as e:
+        clear_pending_two_factor_code()
+
+        return jsonify({
+            'status': 'error',
+            'message': f'Could not send 2FA activation email: {str(e)}'
+        }), 400
+
+    session['pending_2fa_email'] = two_factor_email
+
+    return jsonify({
+        'status': 'success',
+        'message': f'Activation code sent to {two_factor_email}. Enter the code to enable 2FA.'
+    })
+
+
+@app.route('/admin/dashboard/settings/2fa/confirm', methods=['POST'])
+@login_required
+def confirm_two_factor_activation():
+    code = request.form.get('code', '').strip()
+
+    if not code:
+        return jsonify({
+            'status': 'error',
+            'message': 'Please enter the activation code.'
+        }), 400
+
+    pending_error = get_pending_two_factor_error(current_user.id, 'activation')
+
+    if pending_error:
+        clear_pending_two_factor_code()
+        return jsonify({
+            'status': 'error',
+            'message': pending_error
+        }), 400
+
+    expected_hash = session.get('pending_2fa_code_hash')
+
+    if not expected_hash or not check_password_hash(expected_hash, code):
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid activation code.'
+        }), 400
+
+    email_settings = get_email_settings()
+    fingerprint = get_email_settings_fingerprint(email_settings)
+
+    current_user.two_factor_enabled = True
+    current_user.two_factor_email = session.get('pending_2fa_email') or current_user.email
+    current_user.two_factor_activated_at = datetime.utcnow()
+    current_user.two_factor_last_email_settings_version = fingerprint
+
+    db.session.commit()
+    clear_pending_two_factor_code()
+    session.pop('pending_2fa_email', None)
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Two-factor authentication is now enabled.'
+    })
+
+
+@app.route('/admin/dashboard/settings/2fa/disable', methods=['POST'])
+@login_required
+def disable_two_factor_authentication():
+    current_user.two_factor_enabled = False
+    current_user.two_factor_email = None
+    current_user.two_factor_activated_at = None
+    current_user.two_factor_last_email_settings_version = None
+
+    db.session.commit()
+    clear_pending_two_factor_code()
+    session.pop('pending_2fa_email', None)
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Two-factor authentication has been disabled.'
+    })
+
 @app.route('/admin/email_server_settings')
 @login_required
 def email_server_settings():
@@ -1705,7 +2147,8 @@ def email_server_settings():
     return render_template(
         'email_server_settings.html',
         csrf_token=csrf_token,
-        email_settings = email_settings
+        email_settings = email_settings,
+        two_factor_enabled=current_user.two_factor_enabled
     )
 
 
@@ -1716,6 +2159,7 @@ def get_email_settings():
 @login_required
 def save_email_settings():
     settings = EmailServerSettings.query.first()
+    old_fingerprint = get_email_settings_fingerprint(settings) if settings else None
 
     if not settings:
         settings = EmailServerSettings()
@@ -1737,13 +2181,33 @@ def save_email_settings():
 
     db.session.commit()
 
+    new_fingerprint = get_email_settings_fingerprint(settings)
+
+    two_factor_disabled = False
+
+    if old_fingerprint and old_fingerprint != new_fingerprint:
+        users_with_2fa = User.query.filter_by(two_factor_enabled=True).all()
+
+        for user in users_with_2fa:
+            user.two_factor_enabled = False
+            user.two_factor_activated_at = None
+            user.two_factor_last_email_settings_version = None
+
+        db.session.commit()
+        two_factor_disabled = len(users_with_2fa) > 0
+
     return jsonify({
         'status': 'success',
-        'message': 'Email settings saved successfully'
+        'message': (
+            'Email settings saved successfully. 2FA was disabled because email server settings changed.'
+            if two_factor_disabled
+            else 'Email settings saved successfully.'
+        ),
+        'two_factor_disabled': two_factor_disabled
     })
 
 
-@app.route('/dashboard/messages')
+@app.route('/admin/dashboard/messages')
 @login_required
 def messages_page():
     status_filter = request.args.get('status', 'all')
@@ -1783,7 +2247,7 @@ def messages_page():
         search=search
     )
 
-@app.route('/dashboard/messages/<int:message_id>/read', methods=['POST'])
+@app.route('/admin/dashboard/messages/<int:message_id>/read', methods=['POST'])
 @login_required
 def mark_message_read(message_id):
     msg = ContactMessage.query.get_or_404(message_id)
@@ -1795,7 +2259,7 @@ def mark_message_read(message_id):
 
     return jsonify({'status': 'success'})
 
-@app.route('/dashboard/messages/<int:message_id>/unread', methods=['POST'])
+@app.route('/admin/dashboard/messages/<int:message_id>/unread', methods=['POST'])
 @login_required
 def mark_message_unread(message_id):
     msg = ContactMessage.query.get_or_404(message_id)
@@ -1806,13 +2270,13 @@ def mark_message_unread(message_id):
 
     return jsonify({'status': 'success'})
 
-@app.route('/dashboard/messages/unread_count')
+@app.route('/admin/dashboard/messages/unread_count')
 @login_required
 def unread_messages_count():
     count = ContactMessage.query.filter_by(is_read=False).count()
     return jsonify({'count': count})
 
-@app.route('/dashboard/messages/live')
+@app.route('/admin/dashboard/messages/live')
 @login_required
 def messages_live():
     unread_count = ContactMessage.query.filter_by(is_read=False).count()
@@ -1847,7 +2311,7 @@ def messages_live():
     })
 
 
-@app.route('/dashboard/messages/<int:message_id>/delete', methods=['POST'])
+@app.route('/admin/dashboard/messages/<int:message_id>/delete', methods=['POST'])
 @login_required
 def delete_message(message_id):
     msg = ContactMessage.query.get_or_404(message_id)
@@ -3222,7 +3686,7 @@ def update_section_order():
         return 'Section not found', 404
 
 
-@app.route('/library/upload', methods=['POST'])
+@app.route('/admin/library/upload', methods=['POST'])
 @login_required
 def library_upload():
     files = request.files.getlist('picture')
@@ -3344,19 +3808,21 @@ def get_library_folder(folder_id):
     })
 
 
-@app.route('/dashboard/library')
+@app.route('/admin/dashboard/library', endpoint='photo_library')
 @login_required
 def photo_library():
-    # Fetch top-level folders and pictures not in a folder (the "Dropbox")
     folders = Folder.query.filter_by(user_id=current_user.id).all()
     root_pictures = Picture.query.filter_by(
         user_id=current_user.id,
         folder_id=None
     ).order_by(Picture.upload_date.desc()).all()
 
-    return render_template('photo_library.html',
-                           folders=folders,
-                           root_pictures=root_pictures)
+    return render_template(
+        'photo_library.html',
+        folders=folders,
+        root_pictures=root_pictures,
+        current_folder=None
+    )
 
 
 def update_images_section(section, form_data):
@@ -3623,7 +4089,7 @@ def add_images_from_library():
 
 
 # Create a new folder
-@app.route('/library/create_folder', methods=['POST'])
+@app.route('/admin/library/create_folder', methods=['POST'])
 @login_required
 def create_folder():
     data = request.json
@@ -3638,21 +4104,30 @@ def create_folder():
 
 
 # View a specific folder
-@app.route('/dashboard/library/folder/<int:folder_id>')
+@app.route('/admin/dashboard/library/folder/<int:folder_id>', endpoint='view_folder')
 @login_required
 def view_folder(folder_id):
-    folder = Folder.query.filter_by(id=folder_id, user_id=current_user.id).first_or_404()
-    folders = Folder.query.filter_by(user_id=current_user.id).all()  # For sidebar/navigation
-    pictures = Picture.query.filter_by(folder_id=folder_id).all()
+    folder = Folder.query.filter_by(
+        id=folder_id,
+        user_id=current_user.id
+    ).first_or_404()
 
-    return render_template('photo_library.html',
-                           folders=folders,
-                           root_pictures=pictures,
-                           current_folder=folder)
+    folders = Folder.query.filter_by(user_id=current_user.id).all()
+    pictures = Picture.query.filter_by(
+        user_id=current_user.id,
+        folder_id=folder_id
+    ).order_by(Picture.upload_date.desc()).all()
+
+    return render_template(
+        'photo_library.html',
+        folders=folders,
+        root_pictures=pictures,
+        current_folder=folder
+    )
 
 
 # Move image to folder
-@app.route('/library/move_image', methods=['POST'])
+@app.route('/admin/library/move_image', methods=['POST'])
 @login_required
 def move_image():
     data = request.json
@@ -3672,7 +4147,7 @@ def move_image():
 
 
 # Revamped Delete (Handles database and physical file)
-@app.route('/library/delete_image/<int:image_id>', methods=['POST'])
+@app.route('/admin/library/delete_image/<int:image_id>', methods=['POST'])
 @login_required
 def delete_library_image(image_id):
     image = Picture.query.filter_by(id=image_id, user_id=current_user.id).first()
@@ -4029,7 +4504,7 @@ def cleanup_unused_geoip_files(user_id):
 
     return deleted_count
 
-@app.route('/dashboard/analytics/geoip/upload', methods=['POST'])
+@app.route('/admin/dashboard/analytics/geoip/upload', methods=['POST'])
 @login_required
 def upload_geoip_database():
     settings = get_analytics_settings_for_user(current_user.id)
@@ -4155,7 +4630,7 @@ def upload_geoip_database():
     })
 
 
-@app.route('/dashboard/analytics/geoip/disable', methods=['POST'])
+@app.route('/admin/dashboard/analytics/geoip/disable', methods=['POST'])
 @login_required
 def disable_geoip_database():
     settings = get_analytics_settings_for_user(current_user.id)
@@ -4171,7 +4646,7 @@ def disable_geoip_database():
     })
 
 
-@app.route('/dashboard/analytics/geoip/delete', methods=['POST'])
+@app.route('/admin/dashboard/analytics/geoip/delete', methods=['POST'])
 @login_required
 def delete_geoip_database():
     settings = get_analytics_settings_for_user(current_user.id)
@@ -4276,6 +4751,64 @@ def track_page_visit(website, page, visitor_id):
     db.session.add(visit)
     db.session.commit()
 
+@app.route('/admin/dashboard/settings', methods=['GET', 'POST'])
+@login_required
+def settings_page():
+    timezone_choices = pytz.common_timezones
+
+    if request.method == 'POST':
+        admin_url_key_enabled = request.form.get('admin_url_key_enabled') == 'on'
+        admin_url_key = normalize_admin_url_key(request.form.get('admin_url_key'))
+
+        if admin_url_key_enabled and not admin_url_key:
+            flash('Please enter an admin URL key or turn off the custom admin login URL setting.', 'error')
+            return redirect(url_for('settings_page'))
+
+        current_user.admin_url_key_enabled = admin_url_key_enabled
+        current_user.admin_url_key = admin_url_key if admin_url_key_enabled else None
+
+        timezone_name = request.form.get('timezone', 'America/Chicago').strip()
+        date_format = request.form.get('date_format', '%b %d, %Y %I:%M %p').strip()
+
+        if timezone_name not in pytz.all_timezones:
+            flash('Invalid timezone selected.', 'error')
+            return redirect(url_for('settings_page'))
+
+        allowed_date_formats = [
+            '%b %d, %Y %I:%M %p',
+            '%m/%d/%Y %I:%M %p',
+            '%Y-%m-%d %H:%M',
+            '%d %b %Y %H:%M'
+        ]
+
+        if date_format not in allowed_date_formats:
+            date_format = '%b %d, %Y %I:%M %p'
+
+        current_user.timezone = timezone_name
+        current_user.date_format = date_format
+
+        db.session.commit()
+
+        if current_user.admin_url_key_enabled and current_user.admin_url_key:
+            flash(
+                f'Settings saved. Your custom admin login URL is /login/{current_user.admin_url_key}',
+                'success'
+            )
+        else:
+            flash('Settings saved. Custom admin login URL is disabled.', 'success')
+        return redirect(url_for('settings_page'))
+
+    return render_template(
+        'settings.html',
+        timezone_choices=timezone_choices,
+        selected_timezone=current_user.timezone or 'America/Chicago',
+        selected_date_format=current_user.date_format or '%b %d, %Y %I:%M %p',
+        admin_url_key_enabled = current_user.admin_url_key_enabled,
+        admin_url_key = current_user.admin_url_key or '',
+        two_factor_enabled=current_user.two_factor_enabled,
+        two_factor_email=current_user.two_factor_email or current_user.email,
+        email_settings=get_email_settings()
+    )
 
 
 def render_public_page(website, page, is_preview=False):
@@ -4359,7 +4892,7 @@ def render_public_page(website, page, is_preview=False):
     return response
 
 
-@app.route('/dashboard/analytics/geoip/backfill', methods=['POST'])
+@app.route('/admin/dashboard/analytics/geoip/backfill', methods=['POST'])
 @login_required
 def backfill_geoip_locations():
     websites = Website.query.filter_by(user_id=current_user.id).all()
@@ -4412,7 +4945,7 @@ def backfill_geoip_locations():
         'message': f'Backfilled location data for {updated_count} visits.'
     })
 
-@app.route('/dashboard/analytics')
+@app.route('/admin/dashboard/analytics')
 @login_required
 def analytics_page():
     websites = Website.query.filter_by(user_id=current_user.id).all()
@@ -4434,11 +4967,12 @@ def analytics_page():
             city_stats=[],
             asn_stats=[],
             days=30,
+            recent_visits=[],
             csrf_token=csrf_token
         )
 
     days = 30
-    start_date = datetime.utcnow() - timedelta(days=days - 1)
+    start_date = get_utc_start_for_user_local_days(days, current_user)
 
     total_page_views = PageVisit.query.filter(
         PageVisit.website_id.in_(website_ids),
@@ -4452,40 +4986,49 @@ def analytics_page():
         PageVisit.visited_at >= start_date
     ).scalar() or 0
 
-    raw_visits_by_day = db.session.query(
-        func.date(PageVisit.visited_at).label('visit_date'),
-        func.count(PageVisit.id).label('page_views'),
-        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
-    ).filter(
+    visits_for_chart = PageVisit.query.filter(
         PageVisit.website_id.in_(website_ids),
         PageVisit.visited_at >= start_date
-    ).group_by(
-        func.date(PageVisit.visited_at)
-    ).order_by(
-        func.date(PageVisit.visited_at)
     ).all()
 
-    visits_by_day_map = {
-        str(row.visit_date): {
-            'date': str(row.visit_date),
-            'page_views': row.page_views,
-            'unique_visitors': row.unique_visitors
-        }
-        for row in raw_visits_by_day
-    }
+    user_timezone = get_user_timezone(current_user)
+
+    visits_by_day_map = {}
+
+    for visit in visits_for_chart:
+        visited_at = visit.visited_at
+
+        if visited_at.tzinfo is None:
+            visited_at = pytz.utc.localize(visited_at)
+
+        local_day = visited_at.astimezone(user_timezone).date().isoformat()
+
+        if local_day not in visits_by_day_map:
+            visits_by_day_map[local_day] = {
+                'date': local_day,
+                'page_views': 0,
+                'visitor_ids': set()
+            }
+
+        visits_by_day_map[local_day]['page_views'] += 1
+        visits_by_day_map[local_day]['visitor_ids'].add(visit.visitor_id)
 
     visits_by_day = []
 
-    for i in range(days):
-        day = (start_date + timedelta(days=i)).date().isoformat()
+    local_today = datetime.now(user_timezone).date()
+    local_start_day = local_today - timedelta(days=days - 1)
 
-        visits_by_day.append(
-            visits_by_day_map.get(day, {
-                'date': day,
-                'page_views': 0,
-                'unique_visitors': 0
-            })
-        )
+    for i in range(days):
+        day = (local_start_day + timedelta(days=i)).isoformat()
+        item = visits_by_day_map.get(day)
+        day_date = datetime.strptime(day, '%Y-%m-%d').date()
+
+        visits_by_day.append({
+            'date': day,
+            'label': day_date.strftime('%b %d'),
+            'page_views': item['page_views'] if item else 0,
+            'unique_visitors': len(item['visitor_ids']) if item else 0
+        })
 
     page_stats = db.session.query(
         PublicPageContent.id,
@@ -4503,7 +5046,7 @@ def analytics_page():
         PublicPageContent.id
     ).order_by(
         func.count(PageVisit.id).desc()
-    ).all()
+    ).limit(20).all()
 
     referrer_stats = db.session.query(
         PageVisit.referrer,
@@ -4517,7 +5060,7 @@ def analytics_page():
         PageVisit.referrer
     ).order_by(
         func.count(PageVisit.id).desc()
-    ).limit(10).all()
+    ).limit(20).all()
 
     analytics_settings = get_analytics_settings_for_user(current_user.id)
 
@@ -4573,6 +5116,33 @@ def analytics_page():
         func.count(PageVisit.id).desc()
     ).limit(20).all()
 
+    recent_visit_rows = db.session.query(
+        PageVisit,
+        PublicPageContent
+    ).join(
+        PublicPageContent,
+        PageVisit.page_id == PublicPageContent.id
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).order_by(
+        PageVisit.visited_at.desc()
+    ).limit(20).all()
+
+    recent_visits = []
+
+    for visit, page in recent_visit_rows:
+        recent_visits.append({
+            'page_name': page.name if page else 'Unknown Page',
+            'path': visit.path or '',
+            'visited_at': format_user_datetime(visit.visited_at, current_user),
+            'ip_address': visit.ip_address,
+            'country': visit.country,
+            'city': visit.city,
+
+            'asn_organization': visit.asn_organization
+        })
+
     return render_template(
         'analytics.html',
         websites=websites,
@@ -4586,6 +5156,7 @@ def analytics_page():
         analytics_settings=analytics_settings,
         days=days,
         asn_stats=asn_stats,
+        recent_visits=recent_visits,
         csrf_token=csrf_token
     )
 
@@ -5411,6 +5982,49 @@ def delete_saved_color():
 
     return jsonify({'success': True})
 
+
+def get_user_timezone(user=None):
+    user = user or current_user
+
+    timezone_name = getattr(user, 'timezone', None) or 'America/Chicago'
+
+    try:
+        return pytz.timezone(timezone_name)
+    except Exception:
+        return pytz.timezone('America/Chicago')
+
+
+def format_user_datetime(value, user=None, fmt=None):
+    if not value:
+        return ''
+
+    user = user or current_user
+    user_timezone = get_user_timezone(user)
+
+    fmt = fmt or getattr(user, 'date_format', None) or '%b %d, %Y %I:%M %p'
+
+    # Your SQLite datetimes are naive, but stored as UTC.
+    if value.tzinfo is None:
+        value = pytz.utc.localize(value)
+
+    local_value = value.astimezone(user_timezone)
+
+    return local_value.strftime(fmt)
+
+
+def get_utc_start_for_user_local_days(days, user=None):
+    user_timezone = get_user_timezone(user)
+
+    local_today = datetime.now(user_timezone).date()
+
+    local_start = user_timezone.localize(
+        datetime.combine(
+            local_today - timedelta(days=days - 1),
+            datetime.min.time()
+        )
+    )
+
+    return local_start.astimezone(pytz.utc).replace(tzinfo=None)
 
 if __name__ == '__main__':
     # Run migrations

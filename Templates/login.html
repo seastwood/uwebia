@@ -77,7 +77,7 @@
     {% block content %}
     <div class="login-container">
         <h1>uwebia Login</h1>
-        <form method="POST" action="{{ url_for('login') }}">
+<form method="POST" action="{{ request.path }}">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
             <label for="password">Password:</label>

@@ -1,0 +1,555 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+    body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Roboto', sans-serif;
+        background: #363339;
+        color: #ffffff;
+    }
+
+    .settings-page {
+        width: min(900px, calc(100% - 32px));
+        margin: 28px auto 60px;
+    }
+
+    .settings-header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+
+    .settings-kicker {
+        margin: 0 0 6px;
+        color: rgba(255,255,255,0.52);
+        font-size: 0.75rem;
+        font-weight: 850;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+    }
+
+    .settings-title {
+        margin: 0;
+        color: #ffffff;
+        font-size: clamp(1.8rem, 3vw, 2.7rem);
+        font-weight: 900;
+        letter-spacing: -0.045em;
+    }
+
+    .settings-subtitle {
+        margin: 8px 0 0;
+        color: rgba(255,255,255,0.62);
+    }
+
+    .settings-back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 13px;
+        border-radius: 12px;
+        color: rgba(255,255,255,0.86);
+        background: rgba(255,255,255,0.065);
+        border: 1px solid rgba(255,255,255,0.105);
+        text-decoration: none;
+        font-size: 0.86rem;
+        font-weight: 750;
+    }
+
+    .settings-card {
+        background:
+            linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+            #1e1d20;
+        border: 1px solid rgba(255,255,255,0.09);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow:
+            0 18px 40px rgba(0,0,0,0.32),
+            inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    .settings-section-title {
+        margin: 0 0 12px;
+        color: #ffffff;
+        font-size: 1.05rem;
+        font-weight: 850;
+    }
+
+    .settings-field {
+        margin-bottom: 18px;
+    }
+
+    .settings-field label {
+        display: block;
+        margin-bottom: 7px;
+        color: rgba(255,255,255,0.72);
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+.settings-field select {
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 11px;
+
+    color: #ffffff;
+    background-color: #242228;
+
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    outline: none;
+
+    color-scheme: dark;
+}
+
+.settings-field select option {
+    color: #ffffff;
+    background-color: #242228;
+}
+
+.settings-field select:focus {
+    border-color: rgba(126, 226, 204, 0.55);
+    box-shadow: 0 0 0 3px rgba(126, 226, 204, 0.12);
+}
+
+    .settings-help {
+        margin: 7px 0 0;
+        color: rgba(255,255,255,0.48);
+        font-size: 0.84rem;
+        line-height: 1.45;
+    }
+
+    .settings-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 10px 14px;
+        color: #10251f;
+        background: linear-gradient(135deg, #7ee2cc, #9cf4df);
+        border: 1px solid rgba(126, 226, 204, 0.7);
+        border-radius: 12px;
+        font-size: 0.86rem;
+        font-weight: 850;
+        cursor: pointer;
+    }
+
+    @media (max-width: 700px) {
+        .settings-header {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+    }
+    .settings-field input[type="text"] {
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 11px;
+    color: #ffffff;
+    background-color: #242228;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.settings-field input[type="text"]:focus {
+    border-color: rgba(126, 226, 204, 0.55);
+    box-shadow: 0 0 0 3px rgba(126, 226, 204, 0.12);
+}
+
+.settings-field code {
+    color: #ffffff;
+    background: rgba(255,255,255,0.08);
+    padding: 2px 5px;
+    border-radius: 6px;
+}
+
+.settings-form {
+    display: block;
+}
+.settings-flash-list {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.settings-flash {
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-size: 0.9rem;
+    font-weight: 750;
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+.settings-flash-success {
+    color: #aef5e6;
+    background: rgba(126, 226, 204, 0.12);
+    border-color: rgba(126, 226, 204, 0.35);
+}
+
+.settings-flash-error {
+    color: #ffd3dc;
+    background: rgba(255, 122, 144, 0.12);
+    border-color: rgba(255, 122, 144, 0.35);
+}
+.settings-current-key-box {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(126, 226, 204, 0.09);
+    border: 1px solid rgba(126, 226, 204, 0.25);
+}
+
+.settings-current-key-box.muted {
+    background: rgba(255,255,255,0.055);
+    border-color: rgba(255,255,255,0.09);
+}
+
+.settings-current-key-label {
+    color: rgba(255,255,255,0.56);
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.settings-current-key-box code {
+    display: block;
+    width: 100%;
+    overflow-wrap: anywhere;
+    color: #ffffff;
+    background: rgba(0,0,0,0.22);
+    padding: 9px 10px;
+    border-radius: 10px;
+}
+
+.settings-copy-button {
+    justify-self: start;
+    min-height: 34px;
+    padding: 8px 11px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.075);
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.settings-copy-button:hover {
+    background: rgba(255,255,255,0.11);
+}
+
+.settings-button.danger,
+.btn-danger {
+    background: #8a2634;
+    color: #ffffff;
+}
+</style>
+
+<div class="settings-page">
+    <div class="settings-header">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="settings-flash-list">
+            {% for category, message in messages %}
+                <div class="settings-flash settings-flash-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+        <div>
+            <p class="settings-kicker">Admin</p>
+            <h1 class="settings-title">Settings</h1>
+            <p class="settings-subtitle">Configure timezone, display preferences, and future Uwebia admin options.</p>
+        </div>
+
+        <a class="settings-back-link" href="{{ url_for('dashboard') }}">
+            <i class="fas fa-arrow-left"></i>
+            Back to Dashboard
+        </a>
+    </div>
+
+    <div class="settings-card" style="margin-top: 20px;">
+    <h2 class="settings-section-title">Security</h2>
+
+<form method="POST" action="{{ url_for('settings_page') }}" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+
+    <div class="settings-card" style="margin-top: 20px;">
+    <h2 class="settings-section-title">Two-Factor Authentication</h2>
+
+    {% if two_factor_enabled %}
+        <p class="settings-help">
+            2FA is currently enabled for <strong>{{ two_factor_email }}</strong>.
+        </p>
+
+        <button type="button" class="settings-button danger" onclick="disableTwoFactor()">
+            Disable 2FA
+        </button>
+    {% else %}
+        <p class="settings-help">
+            2FA is currently disabled. To enable it, Uwebia will send an activation code using your saved email server settings.
+            2FA will automatically disable if email server settings are changed.
+        </p>
+
+        {% if not email_settings or not email_settings.is_active %}
+            <p class="settings-help" style="color:#ffb3b3;">
+                Email server settings must be configured and active before enabling 2FA.
+            </p>
+        {% endif %}
+
+        <div class="settings-field">
+            <label for="twoFactorEmail">2FA Email</label>
+            <input
+                id="twoFactorEmail"
+                name="two_factor_email"
+                type="email"
+                value="{{ two_factor_email }}"
+                class="form-control"
+            >
+        </div>
+
+        <button type="button" class="settings-button" onclick="startTwoFactorActivation()">
+            Send Activation Code
+        </button>
+
+        <div id="twoFactorActivationBox" style="display:none; margin-top: 16px;">
+            <div class="settings-field">
+                <label for="twoFactorActivationCode">Activation Code</label>
+                <input
+                    id="twoFactorActivationCode"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="6"
+                    class="form-control"
+                    placeholder="000000"
+                >
+            </div>
+
+            <button type="button" class="settings-button" onclick="confirmTwoFactorActivation()">
+                Activate 2FA
+            </button>
+        </div>
+    {% endif %}
+
+    <div class="settings-message" id="twoFactorMessage"></div>
+</div>
+
+    <div class="settings-card">
+        <h2 class="settings-section-title">Security</h2>
+
+        <div class="settings-field">
+            <label style="display: flex; align-items: center; gap: 10px; text-transform: none; letter-spacing: 0;">
+                <input type="checkbox"
+                       name="admin_url_key_enabled"
+                       {% if admin_url_key_enabled %}checked{% endif %}>
+Hide the standard /login page behind a custom URL
+            </label>
+            {% if admin_url_key_enabled and admin_url_key %}
+    <div class="settings-current-key-box">
+        <span class="settings-current-key-label">Current Admin Login URL</span>
+
+        <code id="adminLoginUrlValue">
+            {{ request.host_url.rstrip('/') }}/admin/login/{{ admin_url_key }}
+        </code>
+
+        <button type="button"
+                class="settings-copy-button"
+                onclick="copyAdminLoginUrl()">
+            Copy URL
+        </button>
+    </div>
+{% else %}
+    <div class="settings-current-key-box muted">
+        <span class="settings-current-key-label">Custom Admin Login URL</span>
+        <code>Disabled</code>
+    </div>
+{% endif %}
+
+            <p class="settings-help">
+                Adds a custom text key to the login URL. This helps hide the admin login page from casual visitors and automated scans.
+                It does not replace strong passwords.
+            </p>
+        </div>
+
+        <div class="settings-field">
+            <label for="admin_url_key">Admin URL Key</label>
+            <input id="admin_url_key"
+                   name="admin_url_key"
+                   type="text"
+                   value="{{ admin_url_key }}"
+                   placeholder="example: aiwojdoaiwjd"
+                   autocomplete="off">
+
+            <p class="settings-help">
+When enabled, the normal <code>/login</code> page returns 404 and your login page is only available at your custom URL.
+            </p>
+        </div>
+    </div>
+
+    <div class="settings-card" style="margin-top: 20px;">
+        <h2 class="settings-section-title">Date and Time</h2>
+
+        <div class="settings-field">
+            <label for="timezone">Timezone</label>
+            <select id="timezone" name="timezone">
+                {% for timezone in timezone_choices %}
+                <option value="{{ timezone }}" {% if timezone == selected_timezone %}selected{% endif %}>
+                    {{ timezone }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <p class="settings-help">
+                This controls how analytics, messages, and admin timestamps are displayed.
+                Timestamps are still stored in UTC behind the scenes.
+            </p>
+        </div>
+
+        <div class="settings-field">
+            <label for="date_format">Date Format</label>
+            <select id="date_format" name="date_format">
+                <option value="%b %d, %Y %I:%M %p" {% if selected_date_format == '%b %d, %Y %I:%M %p' %}selected{% endif %}>
+                    Apr 29, 2026 01:33 PM
+                </option>
+
+                <option value="%m/%d/%Y %I:%M %p" {% if selected_date_format == '%m/%d/%Y %I:%M %p' %}selected{% endif %}>
+                    04/29/2026 01:33 PM
+                </option>
+
+                <option value="%Y-%m-%d %H:%M" {% if selected_date_format == '%Y-%m-%d %H:%M' %}selected{% endif %}>
+                    2026-04-29 13:33
+                </option>
+
+                <option value="%d %b %Y %H:%M" {% if selected_date_format == '%d %b %Y %H:%M' %}selected{% endif %}>
+                    29 Apr 2026 13:33
+                </option>
+            </select>
+        </div>
+    </div>
+
+    <button type="submit" class="settings-button" style="margin-top: 20px;">
+        Save Settings
+    </button>
+</form>
+</div>
+
+<script>
+    function copyAdminLoginUrl() {
+        const element = document.getElementById('adminLoginUrlValue');
+
+        if (!element) return;
+
+        const text = element.textContent.trim();
+
+        navigator.clipboard.writeText(text)
+            .then(() => {
+                alert('Admin login URL copied.');
+            })
+            .catch(() => {
+                alert('Could not copy URL. You can manually highlight and copy it.');
+            });
+    }
+</script>
+
+<script>
+    function showTwoFactorMessage(message, isError = false) {
+        const element = document.getElementById('twoFactorMessage');
+
+        if (!element) return;
+
+        element.textContent = message || '';
+        element.style.color = isError ? '#ff9d9d' : '#bfeecf';
+    }
+
+    async function startTwoFactorActivation() {
+        const emailInput = document.getElementById('twoFactorEmail');
+        const formData = new FormData();
+
+        formData.append('two_factor_email', emailInput ? emailInput.value.trim() : '');
+
+        try {
+            const response = await fetch('/admin/dashboard/settings/2fa/start', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Could not send activation code.');
+            }
+
+            showTwoFactorMessage(data.message || 'Activation code sent.');
+
+            const box = document.getElementById('twoFactorActivationBox');
+            if (box) box.style.display = 'block';
+
+        } catch (error) {
+            showTwoFactorMessage(error.message || 'Could not send activation code.', true);
+        }
+    }
+
+    async function confirmTwoFactorActivation() {
+        const codeInput = document.getElementById('twoFactorActivationCode');
+        const formData = new FormData();
+
+        formData.append('code', codeInput ? codeInput.value.trim() : '');
+
+        try {
+            const response = await fetch('/admin/dashboard/settings/2fa/confirm', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Could not activate 2FA.');
+            }
+
+            showTwoFactorMessage(data.message || '2FA enabled.');
+            window.location.reload();
+
+        } catch (error) {
+            showTwoFactorMessage(error.message || 'Could not activate 2FA.', true);
+        }
+    }
+
+    async function disableTwoFactor() {
+        if (!confirm('Disable two-factor authentication?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/admin/dashboard/settings/2fa/disable', {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Could not disable 2FA.');
+            }
+
+            showTwoFactorMessage(data.message || '2FA disabled.');
+            window.location.reload();
+
+        } catch (error) {
+            showTwoFactorMessage(error.message || 'Could not disable 2FA.', true);
+        }
+    }
+</script>
+
+{% endblock %}

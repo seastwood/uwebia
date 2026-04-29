@@ -104,6 +104,15 @@
         color: #bfeecf;
         min-height: 20px;
     }
+    .settings-warning {
+    margin: 14px 0 20px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    color: #ffdda3;
+    background: rgba(255, 193, 7, 0.12);
+    border: 1px solid rgba(255, 193, 7, 0.28);
+    line-height: 1.45;
+}
 </style>
 </head>
 
@@ -111,6 +120,13 @@
     <div class="settings-card">
         <h1>Email Server Settings</h1>
         <p>Configure SMTP for your site contact form and send a test email.</p>
+        {% if two_factor_enabled %}
+<div class="settings-warning">
+    <strong>Heads up:</strong>
+    Editing and saving email server settings will disable two-factor authentication.
+    You will need to reactivate 2FA from Settings after confirming email sending still works.
+</div>
+{% endif %}
 
         <form id="emailSettingsForm">
             <div class="settings-group">
@@ -195,10 +211,21 @@
     const emailSettingsForm = document.getElementById('emailSettingsForm');
     const sendTestEmailButton = document.getElementById('sendTestEmailButton');
     const settingsMessage = document.getElementById('settingsMessage');
+    const twoFactorEnabled = {{ 'true' if two_factor_enabled else 'false' }};
 
     if (emailSettingsForm) {
         emailSettingsForm.addEventListener('submit', function (e) {
             e.preventDefault();
+
+            if (twoFactorEnabled) {
+    const confirmed = confirm(
+        'Editing and saving email server settings will disable two-factor authentication. You will need to reactivate 2FA afterward. Continue?'
+    );
+
+    if (!confirmed) {
+        return;
+    }
+}
 
             const formData = new FormData(emailSettingsForm);
 
@@ -212,7 +239,11 @@
                     throw new Error(data.message || 'Failed to save email settings.');
                 }
                 settingsMessage.textContent = data.message || 'Finished saving settings.';
-                settingsMessage.style.color = '#bfeecf';
+                if (data.two_factor_disabled) {
+    settingsMessage.style.color = '#ffcc8a';
+} else {
+    settingsMessage.style.color = '#bfeecf';
+}
             })
             .catch(error => {
                 console.error('Error saving email settings:', error);

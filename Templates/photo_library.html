@@ -124,7 +124,7 @@
     <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
 <div class="folder-grid">
     <div class="folder-item {% if not current_folder %}active-folder{% endif %}"
-         onclick="window.location.href='/dashboard/library'"
+        onclick="window.location.href='{{ url_for('photo_library') }}'"
          ondrop="dropToFolder(event, 'root')"
          ondragover="allowDrop(event)"
          ondragleave="clearDrag(event)">
@@ -134,7 +134,7 @@
 
     {% for folder in folders %}
     <div class="folder-item {% if current_folder and current_folder.id == folder.id %}active-folder{% endif %}"
-         onclick="window.location.href='/dashboard/library/folder/{{ folder.id }}'"
+        onclick="window.location.href='{{ url_for('view_folder', folder_id=folder.id) }}'"
          ondrop="dropToFolder(event, '{{ folder.id }}')"
          ondragover="allowDrop(event)"
          ondragleave="clearDrag(event)">
@@ -186,7 +186,7 @@ async function dropToFolder(event, folderId) {
     const imageId = event.dataTransfer.getData("imageId");
     
     try {
-        const response = await fetch('/library/move_image', {
+        const response = await fetch('/admin/library/move_image', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -239,7 +239,7 @@ async function handleUpload(event) {
     progressText.textContent = '0%';
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/library/upload', true);
+    xhr.open('POST', '/admin/library/upload', true);
 
     xhr.upload.addEventListener('progress', function (e) {
         if (e.lengthComputable) {
@@ -276,7 +276,7 @@ async function handleUpload(event) {
 async function createFolder() {
     const folderName = prompt("Folder name:");
     if (!folderName) return;
-    const response = await fetch('/library/create_folder', {
+    const response = await fetch('/admin/library/create_folder', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ name: folderName })
@@ -286,7 +286,7 @@ async function createFolder() {
 
 async function deleteImage(imageId) {
     if (!confirm("Delete this image?")) return;
-    const response = await fetch(`/library/delete_image/${imageId}`, { method: 'POST' });
+    const response = await fetch(`/admin/library/delete_image/${imageId}`, { method: 'POST' });
     if (response.ok) location.reload();
 }
 </script>
