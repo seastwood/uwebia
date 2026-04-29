@@ -318,8 +318,13 @@
         <div>
             <h2 class="analytics-section-title">Approximate Visitor Location</h2>
             <p class="analytics-settings-copy">
-                Optional. Upload a local GeoIP <code>.mmdb</code> database to estimate visitor country, region, and city from IP address.
+                Optional. Upload a local GeoIP <code>.mmdb</code> database. City, Country, and ASN databases are supported.
                 No visitor IPs are sent to a third-party service.
+                <p class="analytics-location-note">
+    City databases can show country, region, city, and approximate coordinates.
+    Country databases show country only.
+    ASN databases show network/provider information only.
+</p>
             </p>
         </div>
 
@@ -332,12 +337,17 @@
         </span>
     </div>
 
-    {% if analytics_settings and analytics_settings.geoip_database_name %}
-    <p class="analytics-settings-copy">
-        Current database:
-        <strong>{{ analytics_settings.geoip_database_name }}</strong>
-    </p>
+{% if analytics_settings and analytics_settings.geoip_database_name %}
+<p class="analytics-settings-copy">
+    Current database:
+    <strong>{{ analytics_settings.geoip_database_name }}</strong>
+    {% if analytics_settings.geoip_database_type %}
+        <span style="color: rgba(255,255,255,0.48);">
+            · {{ analytics_settings.geoip_database_type }}
+        </span>
     {% endif %}
+</p>
+{% endif %}
 
     <form id="geoipUploadForm" class="analytics-geoip-form" enctype="multipart/form-data">
         <input type="file" name="geoip_database" accept=".mmdb" class="analytics-file-input">
@@ -489,6 +499,46 @@
     {% else %}
     <p class="analytics-empty">
         No city data yet.
+    </p>
+    {% endif %}
+</div>
+
+<div class="analytics-card" style="margin-bottom: 20px;">
+    <h2 class="analytics-section-title">Top Networks / Providers</h2>
+
+    {% if asn_stats %}
+    <table class="analytics-table">
+        <thead>
+            <tr>
+                <th>Network</th>
+                <th>Views</th>
+                <th>Unique</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for row in asn_stats %}
+            <tr>
+                <td>
+                    {% if row.asn_organization %}
+                        {{ row.asn_organization }}
+                    {% else %}
+                        Unknown Network
+                    {% endif %}
+                    <br>
+                    <span style="color: rgba(255,255,255,0.42);">
+                        ASN {{ row.asn_number }}
+                    </span>
+                </td>
+                <td>{{ row.visits }}</td>
+                <td>{{ row.unique_visitors }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="analytics-empty">
+        No network/provider data yet. This appears when using a GeoLite2-ASN database.
     </p>
     {% endif %}
 </div>

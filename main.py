@@ -465,6 +465,12 @@ class PageVisit(db.Model):
     longitude = db.Column(db.Float, nullable=True)
     location_source = db.Column(db.String(50), nullable=True)
 
+    asn_number = db.Column(db.Integer, nullable=True)
+    asn_organization = db.Column(db.String(255), nullable=True)
+    geoip_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    geoip_database_path = db.Column(db.String(500), nullable=True)
+    geoip_database_name = db.Column(db.String(255), nullable=True)
+    geoip_database_type = db.Column(db.String(100), nullable=True)
     visited_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     website = db.relationship('Website', backref=db.backref('page_visits', lazy=True, cascade='all, delete-orphan'))
@@ -3883,7 +3889,11 @@ def lookup_ip_location_for_website(website, ip_address):
     """
     Optional local GeoIP lookup.
     No third-party API call is made.
-    Only works if the site owner has uploaded/enabled a local .mmdb database.
+
+    Supports:
+    - GeoLite2-City / GeoIP2-City
+    - GeoLite2-Country / GeoIP2-Country
+    - GeoLite2-ASN / GeoIP2-ASN
     """
     if not website or not ip_address:
         return {}
@@ -3906,17 +3916,65 @@ def lookup_ip_location_for_website(website, ip_address):
         import geoip2.database
 
         with geoip2.database.Reader(settings.geoip_database_path) as reader:
-            response = reader.city(ip_address)
+            metadata = reader.metadata()
+            database_type = metadata.database_type
 
-            return {
-                'country': response.country.name,
-                'country_iso': response.country.iso_code,
-                'region': response.subdivisions.most_specific.name,
-                'city': response.city.name,
-                'latitude': response.location.latitude,
-                'longitude': response.location.longitude,
+            result = {
+                'geoip_database_type': database_type,
                 'location_source': 'local_geoip'
             }
+
+            if database_type in ['GeoLite2-City', 'GeoIP2-City']:
+                response = reader.city(ip_address)
+
+                result.update({
+                    'country': response.country.name,
+                    'country_iso': response.country.iso_code,
+                    'region': response.subdivisions.most_specific.name,
+                    'city': response.city.name,
+                    'latitude': response.location.latitude,
+                    'longitude': response.location.longitude
+                })
+
+                return result
+
+            if database_type in ['GeoLite2-Country', 'GeoIP2-Country']:
+                response = reader.country(ip_address)
+
+                result.update({
+                    'country': response.country.name,
+                    'country_iso': response.country.iso_code,
+                    'region': None,
+                    'city': None,
+                    'latitude': None,
+                    'longitude': None
+                })
+
+                return result
+
+            if database_type in ['GeoLite2-ASN', 'GeoIP2-ASN']:
+                response = reader.asn(ip_address)
+
+                result.update({
+                    'asn_number': response.autonomous_system_number,
+                    'asn_organization': response.autonomous_system_organization,
+
+                    # ASN databases do not include country/city fields.
+                    'country': None,
+                    'country_iso': None,
+                    'region': None,
+                    'city': None,
+                    'latitude': None,
+                    'longitude': None
+                })
+
+                return result
+
+            return {}
+
+    except Exception as e:
+        print(f"GeoIP lookup failed for {ip_address}: {e}")
+        return {}
 
     except Exception as e:
         print(f"GeoIP lookup failed: {e}")
@@ -3949,17 +4007,52 @@ def upload_geoip_database():
 
     geoip_file.save(saved_path)
 
+    try:
+        import geoip2.database
+
+        with geoip2.database.Reader(saved_path) as reader:
+            metadata = reader.metadata()
+            database_type = metadata.database_type
+
+    except Exception as e:
+        if os.path.exists(saved_path):
+            os.remove(saved_path)
+
+        return jsonify({
+            'success': False,
+            'message': f'Could not read this GeoIP database: {str(e)}'
+        }), 400
+
+    supported_types = [
+        'GeoLite2-City',
+        'GeoIP2-City',
+        'GeoLite2-Country',
+        'GeoIP2-Country',
+        'GeoLite2-ASN',
+        'GeoIP2-ASN'
+    ]
+
+    if database_type not in supported_types:
+        os.remove(saved_path)
+
+        return jsonify({
+            'success': False,
+            'message': f'This database type is "{database_type}". Supported types are City, Country, and ASN .mmdb databases.'
+        }), 400
+
     settings.geoip_enabled = True
     settings.geoip_database_path = saved_path
     settings.geoip_database_name = filename
+    settings.geoip_database_type = database_type
     settings.updated_at = datetime.utcnow()
 
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'message': 'Local GeoIP database uploaded and enabled.',
-        'geoip_database_name': filename
+        'message': f'{database_type} database uploaded and enabled.',
+        'geoip_database_name': filename,
+        'geoip_database_type': database_type
     })
 
 
@@ -3969,6 +4062,9 @@ def disable_geoip_database():
     settings = get_analytics_settings_for_user(current_user.id)
 
     settings.geoip_enabled = False
+    settings.geoip_database_path = None
+    settings.geoip_database_name = None
+    settings.geoip_database_type = None
     settings.updated_at = datetime.utcnow()
 
     db.session.commit()
@@ -4056,7 +4152,11 @@ def track_page_visit(website, page, visitor_id):
         city=location.get('city'),
         latitude=location.get('latitude'),
         longitude=location.get('longitude'),
-        location_source=location.get('location_source')
+        location_source=location.get('location_source'),
+
+        asn_number=location.get('asn_number'),
+        asn_organization=location.get('asn_organization'),
+        geoip_database_type=location.get('geoip_database_type')
     )
 
     db.session.add(visit)
@@ -4218,6 +4318,7 @@ def analytics_page():
             analytics_settings=get_analytics_settings_for_user(current_user.id),
             country_stats=[],
             city_stats=[],
+            asn_stats=[],
             days=30,
             csrf_token=csrf_token
         )
@@ -4342,6 +4443,22 @@ def analytics_page():
         func.count(PageVisit.id).desc()
     ).limit(20).all()
 
+    asn_stats = db.session.query(
+        PageVisit.asn_number,
+        PageVisit.asn_organization,
+        func.count(PageVisit.id).label('visits'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.asn_number.isnot(None)
+    ).group_by(
+        PageVisit.asn_number,
+        PageVisit.asn_organization
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
     return render_template(
         'analytics.html',
         websites=websites,
@@ -4354,6 +4471,7 @@ def analytics_page():
         city_stats=city_stats,
         analytics_settings=analytics_settings,
         days=days,
+        asn_stats=asn_stats,
         csrf_token=csrf_token
     )
 
