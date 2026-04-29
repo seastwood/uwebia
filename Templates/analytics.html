@@ -362,6 +362,36 @@
         background: linear-gradient(90deg, rgba(126, 226, 204, 0.88), rgba(156, 244, 223, 0.92));
         transition: width 0.12s ease;
     }
+    .analytics-metric-table {
+    table-layout: fixed;
+}
+
+.analytics-metric-table .analytics-name-col {
+    width: auto;
+}
+
+.analytics-metric-table .analytics-count-col {
+    width: 96px;
+    min-width: 96px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.analytics-metric-table th.analytics-count-col {
+    text-align: right;
+}
+
+.analytics-metric-table td.analytics-count-col {
+    font-variant-numeric: tabular-nums;
+    color: rgba(255,255,255,0.9);
+}
+
+@media (max-width: 700px) {
+    .analytics-metric-table .analytics-count-col {
+        width: 68px;
+        min-width: 68px;
+    }
+}
 </style>
 
 <div class="analytics-page">
@@ -397,13 +427,13 @@
                     Optional. Upload a local GeoIP <code>.mmdb</code> database. City, Country, and ASN databases are
                     supported.
                     No visitor IPs are sent to a third-party service.
-                    </p>
+                </p>
                 <p class="analytics-location-note">
                     City databases can show country, region, city, and approximate coordinates.
                     Country databases show country only.
                     ASN databases show network/provider information only.
                 </p>
-                
+
             </div>
 
             <span
@@ -479,15 +509,15 @@
             </button>
             {% endif %}
 
-{% if analytics_settings and (
-    analytics_settings.geoip_city_database_name
-    or analytics_settings.geoip_country_database_name
-    or analytics_settings.geoip_asn_database_name
-) %}
-<button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">
-    Delete Databases
-</button>
-{% endif %}
+            {% if analytics_settings and (
+            analytics_settings.geoip_city_database_name
+            or analytics_settings.geoip_country_database_name
+            or analytics_settings.geoip_asn_database_name
+            ) %}
+            <button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">
+                Delete Databases
+            </button>
+            {% endif %}
         </form>
 
         <p class="analytics-location-note">
@@ -521,12 +551,12 @@
         <h2 class="analytics-section-title">Top Pages</h2>
 
         {% if page_stats %}
-        <table class="analytics-table">
+        <table class="analytics-table analytics-metric-table">
             <thead>
                 <tr>
-                    <th>Page</th>
-                    <th>Views</th>
-                    <th>Unique</th>
+                    <th class="analytics-name-col">Page</th>
+                    <th class="analytics-count-col">Views</th>
+                    <th class="analytics-count-col">Unique</th>
                 </tr>
             </thead>
 
@@ -538,8 +568,8 @@
                         <br>
                         <span style="color: rgba(255,255,255,0.42);">/{{ page.slug }}</span>
                     </td>
-                    <td>{{ page.page_views }}</td>
-                    <td>{{ page.unique_visitors }}</td>
+<td class="analytics-count-col">{{ page.page_views }}</td>
+<td class="analytics-count-col">{{ page.unique_visitors }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -552,12 +582,12 @@
         <h2 class="analytics-section-title">Top Countries</h2>
 
         {% if country_stats %}
-        <table class="analytics-table">
+        <table class="analytics-table analytics-metric-table">
             <thead>
                 <tr>
-                    <th>Country</th>
-                    <th>Views</th>
-                    <th>Unique</th>
+                    <th class="analytics-name-col">Page</th>
+                    <th class="analytics-count-col">Views</th>
+                    <th class="analytics-count-col">Unique</th>
                 </tr>
             </thead>
 
@@ -572,8 +602,8 @@
                         </span>
                         {% endif %}
                     </td>
-                    <td>{{ row.visits }}</td>
-                    <td>{{ row.unique_visitors }}</td>
+<td class="analytics-count-col">{{ row.visits }}</td>
+<td class="analytics-count-col">{{ row.unique_visitors }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -589,12 +619,12 @@
         <h2 class="analytics-section-title">Top Cities</h2>
 
         {% if city_stats %}
-        <table class="analytics-table">
+        <table class="analytics-table analytics-metric-table">
             <thead>
                 <tr>
-                    <th>City</th>
-                    <th>Views</th>
-                    <th>Unique</th>
+                    <th class="analytics-name-col">Page</th>
+                    <th class="analytics-count-col">Views</th>
+                    <th class="analytics-count-col">Unique</th>
                 </tr>
             </thead>
 
@@ -609,8 +639,8 @@
                             }}
                         </span>
                     </td>
-                    <td>{{ row.visits }}</td>
-                    <td>{{ row.unique_visitors }}</td>
+<td class="analytics-count-col">{{ row.visits }}</td>
+<td class="analytics-count-col">{{ row.unique_visitors }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -626,12 +656,12 @@
         <h2 class="analytics-section-title">Top Networks / Providers</h2>
 
         {% if asn_stats %}
-        <table class="analytics-table">
+        <table class="analytics-table analytics-metric-table">
             <thead>
                 <tr>
-                    <th>Network</th>
-                    <th>Views</th>
-                    <th>Unique</th>
+                    <th class="analytics-name-col">Page</th>
+                    <th class="analytics-count-col">Views</th>
+                    <th class="analytics-count-col">Unique</th>
                 </tr>
             </thead>
 
@@ -666,7 +696,7 @@
         <h2 class="analytics-section-title">Top Referrers</h2>
 
         {% if referrer_stats %}
-        <table class="analytics-table">
+        <table class="analytics-table analytics-metric-table">
             <thead>
                 <tr>
                     <th>Referrer</th>

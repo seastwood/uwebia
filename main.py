@@ -3979,6 +3979,55 @@ def lookup_ip_location_for_website(website, ip_address):
         print(f"GeoIP lookup failed for {ip_address}: {e}")
         return {}
 
+def cleanup_unused_geoip_files(user_id):
+    """
+    Delete unused .mmdb files for this user from database/analytics.
+
+    Keeps only files currently referenced by AnalyticsSettings.
+    Removes old temp files, old single-database files, and leftovers from previous versions.
+    """
+    analytics_folder = os.path.join(database_folder, 'analytics')
+
+    if not os.path.exists(analytics_folder):
+        return 0
+
+    settings = AnalyticsSettings.query.filter_by(user_id=user_id).first()
+
+    active_paths = set()
+
+    if settings:
+        possible_paths = [
+            getattr(settings, 'geoip_city_database_path', None),
+            getattr(settings, 'geoip_country_database_path', None),
+            getattr(settings, 'geoip_asn_database_path', None),
+        ]
+
+        for path in possible_paths:
+            if path:
+                active_paths.add(os.path.abspath(path))
+
+    deleted_count = 0
+
+    for filename in os.listdir(analytics_folder):
+        if not filename.lower().endswith('.mmdb'):
+            continue
+
+        # Only clean files for this user.
+        # Prevent accidentally deleting another user's files in the future.
+        if not filename.startswith(f'user_{user_id}_geoip_'):
+            continue
+
+        file_path = os.path.abspath(os.path.join(analytics_folder, filename))
+
+        if file_path not in active_paths:
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+                print(f"Deleted unused GeoIP database: {file_path}")
+            except Exception as e:
+                print(f"Failed to delete unused GeoIP database {file_path}: {e}")
+
+    return deleted_count
 
 @app.route('/dashboard/analytics/geoip/upload', methods=['POST'])
 @login_required
@@ -4094,6 +4143,7 @@ def upload_geoip_database():
     settings.updated_at = datetime.utcnow()
 
     db.session.commit()
+    cleanup_unused_geoip_files(current_user.id)
 
     return jsonify({
         'success': True,
