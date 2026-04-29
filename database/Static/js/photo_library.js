@@ -17,7 +17,7 @@ async function createFolder() {
     const folderName = prompt("Enter folder name:");
     if (!folderName) return;
 
-    const response = await fetch('/library/create_folder', {
+    const response = await fetch('/admin/library/create_folder', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ name: folderName })
@@ -35,7 +35,7 @@ async function handleUpload(event) {
     // If you're inside a folder, append that ID
     // formData.append('folder_id', currentFolderId);
 
-    const response = await fetch('/library/upload', {
+    const response = await fetch('/admin/library/upload', {
         method: 'POST',
         body: formData
     });
