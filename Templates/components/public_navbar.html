@@ -1,11 +1,12 @@
 {% set nav_style = website.public_navbar_style or {} %}
 {% set navbar_items = website.public_navbar_items or [] %}
 {% set navbar_margin = nav_style.get('margin', 0)|int %}
+{% set navbar_anchor_offset = 78 + navbar_margin %}
 
 {% if content is defined and content %}
-    {% set current_page_url = content.get('current_page_url', '') %}
+{% set current_page_url = content.get('current_page_url', '') %}
 {% else %}
-    {% set current_page_url = '' %}
+{% set current_page_url = '' %}
 {% endif %}
 
 {% set current_url_no_hash = current_page_url.split('#')[0] %}
@@ -41,106 +42,113 @@
         </button>
         {% endif %}
 
-<a href="/" class="public-navbar-brand title-align-{{ nav_style.get('title_alignment', 'left') }}" title="Go to home page">
+        <a href="/" class="public-navbar-brand title-align-{{ nav_style.get('title_alignment', 'left') }}"
+            title="Go to home page">
 
-    {% if nav_style.get('icon_url') %}
-        <img src="{{ nav_style.get('icon_url') }}" class="public-navbar-icon" alt="{{ website.name }} home">
-    {% endif %}
+            {% if nav_style.get('icon_url') %}
+            <img src="{{ nav_style.get('icon_url') }}" class="public-navbar-icon" alt="{{ website.name }} home">
+            {% endif %}
 
-    <span class="public-navbar-title">
-        {{ nav_style.get('title', website.name) }}
-    </span>
-</a>
+            <span class="public-navbar-title">
+                {{ nav_style.get('title', website.name) }}
+            </span>
+        </a>
     </div>
 
     {% if navbar_items %}
     <div class="public-navbar-right">
-    {% for item in navbar_items %}
+        {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
-            {% set item_url_no_hash = item.url.split('#')[0] %}
+        {% set item_url_no_hash = item.url.split('#')[0] %}
 
-            <a href="{{ item.url }}"
-               class="{% if item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                {{ item.name }}
-            </a>
+        <a href="{{ item.url }}" class="{% if item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+            {{ item.name }}
+        </a>
 
         {% elif item.type == 'group' %}
-            {% set group_active = namespace(value=false) %}
+        {% set group_active = namespace(value=false) %}
 
-            {% for child in item.children %}
-                {% set child_url_no_hash = child.url.split('#')[0] %}
-                {% if child_url_no_hash == current_url_no_hash %}
-                    {% set group_active.value = true %}
-                {% endif %}
-            {% endfor %}
-
-            <div class="public-navbar-dropdown {% if group_active.value %}active-navbar-dropdown{% endif %}">
-                <button type="button"
-                        class="{% if group_active.value %}active-navbar-link{% endif %}">
-                    {{ item.name }} ▾
-                </button>
-
-                <div class="public-navbar-dropdown-menu">
-                    {% for child in item.children %}
-                        {% set child_url_no_hash = child.url.split('#')[0] %}
-
-                        <a href="{{ child.url }}"
-                           class="{% if child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                            {{ child.name }}
-                        </a>
-                    {% endfor %}
-                </div>
-            </div>
+        {% for child in item.children %}
+        {% set child_url_no_hash = child.url.split('#')[0] %}
+        {% if child_url_no_hash == current_url_no_hash %}
+        {% set group_active.value = true %}
         {% endif %}
+        {% endfor %}
 
-    {% endfor %}
-</div>
+        <div class="public-navbar-dropdown {% if group_active.value %}active-navbar-dropdown{% endif %}">
+            <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
+                {{ item.name }} ▾
+            </button>
 
-    <div id="publicNavbarMenu" class="public-navbar-menu">
-    {% for item in navbar_items %}
-
-        {% if item.type == 'link' %}
-            {% set item_url_no_hash = item.url.split('#')[0] %}
-
-            <a href="{{ item.url }}"
-               class="{% if item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                {{ item.name }}
-            </a>
-
-        {% elif item.type == 'group' %}
-            {% set group_active = namespace(value=false) %}
-
-            {% for child in item.children %}
-                {% set child_url_no_hash = child.url.split('#')[0] %}
-                {% if child_url_no_hash == current_url_no_hash %}
-                    {% set group_active.value = true %}
-                {% endif %}
-            {% endfor %}
-
-            <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}">
-                <div class="public-navbar-menu-group-title">
-                    {{ item.name }}
-                </div>
-
+            <div class="public-navbar-dropdown-menu">
                 {% for child in item.children %}
-                    {% set child_url_no_hash = child.url.split('#')[0] %}
+                {% set child_url_no_hash = child.url.split('#')[0] %}
 
-                    <a href="{{ child.url }}"
-                       class="{% if child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                        {{ child.name }}
-                    </a>
+                <a href="{{ child.url }}"
+                    class="{% if child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                    {{ child.name }}
+                </a>
                 {% endfor %}
             </div>
+        </div>
         {% endif %}
 
-    {% endfor %}
-</div>
+        {% endfor %}
+    </div>
+
+    <div id="publicNavbarMenu" class="public-navbar-menu">
+        {% for item in navbar_items %}
+
+        {% if item.type == 'link' %}
+        {% set item_url_no_hash = item.url.split('#')[0] %}
+
+        <a href="{{ item.url }}" class="{% if item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+            {{ item.name }}
+        </a>
+
+        {% elif item.type == 'group' %}
+        {% set group_active = namespace(value=false) %}
+
+        {% for child in item.children %}
+        {% set child_url_no_hash = child.url.split('#')[0] %}
+        {% if child_url_no_hash == current_url_no_hash %}
+        {% set group_active.value = true %}
+        {% endif %}
+        {% endfor %}
+
+        <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}">
+            <div class="public-navbar-menu-group-title">
+                {{ item.name }}
+            </div>
+
+            {% for child in item.children %}
+            {% set child_url_no_hash = child.url.split('#')[0] %}
+
+            <a href="{{ child.url }}"
+                class="{% if child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                {{ child.name }}
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% endfor %}
+    </div>
     {% endif %}
 
 </nav>
 
 <style>
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: {{ navbar_anchor_offset }}px;
+}
+
+.public-section-group {
+    scroll-margin-top: {{ navbar_anchor_offset }}px;
+}
+
     .public-navbar {
         position: fixed;
         /* top: 0; */
@@ -173,51 +181,52 @@
         z-index: 2;
     }
 
-.public-navbar-brand {
-    position: absolute;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
+    .public-navbar-brand {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
 
-    color: inherit;
-    text-decoration: none;
+        color: inherit;
+        text-decoration: none;
 
-    font-weight: 700;
-    font-size: 1rem;
+        font-weight: 700;
+        font-size: 1rem;
 
-    z-index: 1;
-    cursor: pointer;
+        z-index: 1;
+        cursor: pointer;
 
-    transition: opacity 0.18s ease, transform 0.18s ease;
-}
+        transition: opacity 0.18s ease, transform 0.18s ease;
+    }
 
-.public-navbar-brand:hover {
-    color: inherit;
-    text-decoration: none;
-    opacity: 0.88;
-}
+    .public-navbar-brand:hover {
+        color: inherit;
+        text-decoration: none;
+        opacity: 0.88;
+    }
 
-.public-navbar-brand.title-align-left {
-    left: 62px;
-}
+    .public-navbar-brand.title-align-left {
+        left: 62px;
+    }
 
-.public-navbar-brand.title-align-center {
-    left: 50%;
-    transform: translateX(-50%);
-}
+    .public-navbar-brand.title-align-center {
+        left: 50%;
+        transform: translateX(-50%);
+    }
 
-.public-navbar-brand.title-align-center:hover {
-    transform: translateX(-50%) scale(1.02);
-}
+    .public-navbar-brand.title-align-center:hover {
+        transform: translateX(-50%) scale(1.02);
+    }
 
-.public-navbar-brand.title-align-right {
-    right: 18px;
-}
+    .public-navbar-brand.title-align-right {
+        right: 18px;
+    }
 
-.public-navbar-icon {
-    width: 32px;
-    object-fit: contain;
-}
+    .public-navbar-icon {
+        width: 32px;
+        object-fit: contain;
+    }
+
     .public-navbar-toggle {
         width: 44px;
         height: 44px;
@@ -251,26 +260,26 @@
         gap: 8px;
     }
 
-.public-navbar-right a,
-.public-navbar-menu a,
-.public-navbar-dropdown button,
-.public-navbar-toggle {
-    color: inherit;
-    text-decoration: none;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font: inherit;
-    padding: 10px 12px;
-    border-radius: 8px;
-}
+    .public-navbar-right a,
+    .public-navbar-menu a,
+    .public-navbar-dropdown button,
+    .public-navbar-toggle {
+        color: inherit;
+        text-decoration: none;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font: inherit;
+        padding: 10px 12px;
+        border-radius: 8px;
+    }
 
-.public-navbar-right a:hover,
-.public-navbar-menu a:hover,
-.public-navbar-dropdown button:hover {
-    color: inherit;
-    background: rgba(255, 255, 255, 0.12);
-}
+    .public-navbar-right a:hover,
+    .public-navbar-menu a:hover,
+    .public-navbar-dropdown button:hover {
+        color: inherit;
+        background: rgba(255, 255, 255, 0.12);
+    }
 
     .public-navbar-dropdown {
         position: relative;
@@ -324,7 +333,7 @@
         text-transform: uppercase;
     }
 
-body {
+    .public-page-body {
     padding-top: {{ 58 + navbar_margin }}px;
 }
 
@@ -333,52 +342,53 @@ body {
             display: none;
         }
     }
-.public-navbar-right a.active-navbar-link,
-.public-navbar-menu a.active-navbar-link,
-.public-navbar-dropdown button.active-navbar-link {
-    font-weight: 850;
-    color: inherit !important;
 
-    background: rgba(255, 255, 255, 0.16);
+    .public-navbar-right a.active-navbar-link,
+    .public-navbar-menu a.active-navbar-link,
+    .public-navbar-dropdown button.active-navbar-link {
+        font-weight: 850;
+        color: inherit !important;
 
-    box-shadow:
-        inset 0 0 0 1px currentColor,
-        0 6px 14px rgba(0, 0, 0, 0.16);
+        background: rgba(255, 255, 255, 0.16);
 
-    opacity: 1;
-}
+        box-shadow:
+            inset 0 0 0 1px currentColor,
+            0 6px 14px rgba(0, 0, 0, 0.16);
 
-.public-navbar-right a.active-navbar-link {
-    position: relative;
-}
+        opacity: 1;
+    }
 
-.public-navbar-right a.active-navbar-link::after {
-    content: "";
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 5px;
-    height: 2px;
-    border-radius: 999px;
-    background: currentColor;
-    opacity: 0.9;
-}
+    .public-navbar-right a.active-navbar-link {
+        position: relative;
+    }
 
-.public-navbar-dropdown.active-navbar-dropdown > button {
-    font-weight: 850;
-    color: inherit !important;
+    .public-navbar-right a.active-navbar-link::after {
+        content: "";
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 5px;
+        height: 2px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.9;
+    }
 
-    background: rgba(255, 255, 255, 0.16);
+    .public-navbar-dropdown.active-navbar-dropdown>button {
+        font-weight: 850;
+        color: inherit !important;
 
-    box-shadow:
-        inset 0 0 0 1px currentColor,
-        0 6px 14px rgba(0, 0, 0, 0.16);
-}
+        background: rgba(255, 255, 255, 0.16);
 
-.public-navbar-menu-group.active-navbar-menu-group .public-navbar-menu-group-title {
-    color: inherit;
-    opacity: 0.95;
-}
+        box-shadow:
+            inset 0 0 0 1px currentColor,
+            0 6px 14px rgba(0, 0, 0, 0.16);
+    }
+
+    .public-navbar-menu-group.active-navbar-menu-group .public-navbar-menu-group-title {
+        color: inherit;
+        opacity: 0.95;
+    }
 </style>
 
 <script>

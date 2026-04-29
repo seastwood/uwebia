@@ -2026,78 +2026,89 @@
         border-radius: 16px;
     }
 
-.section-group {
-    position: relative;
-    overflow: visible;
-    background: transparent !important;
-    isolation: isolate;
-}
+    .section-group {
+        position: relative;
+        overflow: visible;
+        background: transparent !important;
+        isolation: isolate;
+    }
 
-.section-group::before {
-    content: "";
-    position: absolute;
-    inset: 0;
+    .section-group::before {
+        content: "";
+        position: absolute;
+        inset: 0;
 
-    background-color: var(--group-bg-color, transparent);
-    background-image: var(--group-bg-image, none);
-    background-size: var(--group-bg-size, cover);
-    background-position: var(--group-bg-position, center);
-    background-repeat: var(--group-bg-repeat, no-repeat);
+        background: var(--group-bg, transparent);
+        background-image:
+            var(--group-bg-image, none),
+            var(--group-bg, transparent);
 
-    border-radius: inherit;
-    pointer-events: none;
-    z-index: -2;
-}
+        background-size:
+            var(--group-bg-size, cover),
+            auto;
 
-.section-group::after {
-    content: "";
-    position: absolute;
-    inset: 0;
+        background-position:
+            var(--group-bg-position, center),
+            center;
 
-    background: var(--group-overlay-color, transparent);
-    opacity: var(--group-overlay-opacity, 0);
+        background-repeat:
+            var(--group-bg-repeat, no-repeat),
+            no-repeat;
 
-    border-radius: inherit;
-    pointer-events: none;
-    z-index: -1;
-}
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: -2;
+    }
 
-.section-group > * {
-    position: relative;
-    z-index: 1;
-}
+    .section-group::after {
+        content: "";
+        position: absolute;
+        inset: 0;
 
-.section-group,
-.group-rows,
-.row,
-.column {
-    overflow: visible;
-}
+        background: var(--group-overlay-color, transparent);
+        opacity: var(--group-overlay-opacity, 0);
 
-.section-group:has(.options-dropdown:hover),
-.section-group:has(.options-dropdown:focus-within),
-.section-group:has(.dropdown:hover),
-.section-group:has(.dropdown:focus-within),
-.row:has(.options-dropdown:hover),
-.row:has(.options-dropdown:focus-within),
-.column:has(.dropdown:hover),
-.column:has(.dropdown:focus-within) {
-    z-index: 99999;
-}
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: -1;
+    }
 
-.options-dropdown,
-.dropdown {
-    /* position: relative; */
-    z-index: 100000;
-}
+    .section-group>* {
+        position: relative;
+        z-index: 1;
+    }
 
-.options-dropdown .dropdown-content,
-.dropdown .dropdown-content {
-    position: absolute;
-    z-index: 100001;
-    right: 0;
-    top: 100%;
-}
+    .section-group,
+    .group-rows,
+    .row,
+    .column {
+        overflow: visible;
+    }
+
+    .section-group:has(.options-dropdown:hover),
+    .section-group:has(.options-dropdown:focus-within),
+    .section-group:has(.dropdown:hover),
+    .section-group:has(.dropdown:focus-within),
+    .row:has(.options-dropdown:hover),
+    .row:has(.options-dropdown:focus-within),
+    .column:has(.dropdown:hover),
+    .column:has(.dropdown:focus-within) {
+        z-index: 99999;
+    }
+
+    .options-dropdown,
+    .dropdown {
+        /* position: relative; */
+        z-index: 100000;
+    }
+
+    .options-dropdown .dropdown-content,
+    .dropdown .dropdown-content {
+        position: absolute;
+        z-index: 100001;
+        right: 0;
+        top: 100%;
+    }
 
     .group-style-preview {
         position: relative;
@@ -2299,19 +2310,19 @@
         gap: 10px;
     }
 
-.group-style-preview-wrap {
-    background-color: rgba(255,255,255,0.04);
-    background-image:
-        linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
-        linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%),
-        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%);
-    background-size: 18px 18px;
-    background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
-    border: 1px dashed rgba(255, 255, 255, 0.16);
-    border-radius: 20px;
-    padding: 16px;
-}
+    .group-style-preview-wrap {
+        background-color: rgba(255, 255, 255, 0.04);
+        background-image:
+            linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+            linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+            linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+            linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
+        background-size: 18px 18px;
+        background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+        border-radius: 20px;
+        padding: 16px;
+    }
 
     .group-style-preview-label {
         margin: 0 0 10px;
@@ -2322,17 +2333,17 @@
         letter-spacing: 0.08em;
     }
 
-.group-style-preview {
-    min-height: 90px;
-    color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border-radius: 0;
-    padding: 0;
-    transition: all 0.2s ease;
-}
+    .group-style-preview {
+        min-height: 90px;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border-radius: 0;
+        padding: 0;
+        transition: all 0.2s ease;
+    }
 
     .group-style-content .modal-footer {
         border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -2532,9 +2543,1554 @@
     .group-background-image-preview.has-image span {
         display: none;
     }
+</style>
 
+<style>
+    /* =========================================================
+   PAGE EDITOR PROFESSIONAL UI OVERHAUL
+   Groups → Rows → Columns → Sections
+   Paste near the bottom of page_editor.html so it overrides old styles.
+========================================================= */
 
+    :root {
+        --editor-bg: #16181d;
+        --editor-panel: rgba(255, 255, 255, 0.045);
+        --editor-panel-strong: rgba(255, 255, 255, 0.075);
+        --editor-border: rgba(255, 255, 255, 0.105);
+        --editor-border-strong: rgba(126, 226, 204, 0.34);
+        --editor-text: #f4f6f8;
+        --editor-muted: rgba(244, 246, 248, 0.62);
+        --editor-accent: #7ee2cc;
+        --editor-accent-soft: rgba(126, 226, 204, 0.13);
+        --editor-danger: #ff7a90;
+        --editor-radius-lg: 22px;
+        --editor-radius-md: 16px;
+        --editor-radius-sm: 11px;
+        --editor-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+        --editor-shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.20);
+    }
 
+    /* Main editor surface */
+    .content-container {
+        background:
+            radial-gradient(circle at top left, rgba(126, 226, 204, 0.07), transparent 34%),
+            linear-gradient(145deg, #181a20 0%, #111217 100%);
+        color: var(--editor-text);
+    }
+
+    .content-sections-container {
+        padding: 18px 18px 30vh;
+        box-sizing: border-box;
+    }
+
+    .sections-container {
+        display: flex;
+        flex-direction: column;
+        /* gap: 18px; */
+    }
+
+    /* =========================================================
+   GROUPS
+========================================================= */
+
+    .section-group {
+        position: relative;
+        margin: 0;
+        padding: 14px;
+        border-radius: var(--editor-radius-lg);
+        border: 1px solid var(--editor-border);
+        background: transparent !important;
+        box-shadow: var(--editor-shadow);
+        isolation: isolate;
+        overflow: visible;
+        transition:
+            border-color 0.18s ease,
+            box-shadow 0.18s ease,
+            transform 0.18s ease;
+    }
+
+    .section-group:hover {
+        border-color: rgba(126, 226, 204, 0.24);
+        box-shadow:
+            0 20px 52px rgba(0, 0, 0, 0.34),
+            0 0 0 1px rgba(126, 226, 204, 0.06);
+    }
+
+    .section-group::before {
+        border-radius: inherit;
+    }
+
+    .section-group::after {
+        border-radius: inherit;
+    }
+
+    /* Group header */
+    .section-group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+
+        min-height: 46px;
+        margin: 0 0 14px;
+        padding: 9px 10px 9px 12px;
+
+        color: var(--editor-text);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.045));
+        border: 1px solid rgba(255, 255, 255, 0.105);
+        border-radius: 17px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+    }
+
+    .group-drag-handle {
+        width: 34px;
+        height: 34px;
+        min-width: 34px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        color: var(--editor-accent);
+        background: rgba(126, 226, 204, 0.095);
+        border: 1px solid rgba(126, 226, 204, 0.18);
+        border-radius: 12px;
+
+        font-size: 16px;
+        cursor: grab;
+    }
+
+    .group-drag-handle:active {
+        cursor: grabbing;
+    }
+
+    .editable-group-label {
+        flex: 1;
+        max-width: none;
+        padding: 8px 10px;
+        border-radius: 12px;
+
+        color: var(--editor-text);
+        font-size: 0.96rem;
+        font-weight: 850;
+        letter-spacing: 0.01em;
+        line-height: 1.2;
+
+        cursor: text;
+        outline: none;
+        transition:
+            background 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .editable-group-label:hover {
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .editable-group-label:focus {
+        background: rgba(255, 255, 255, 0.09);
+        box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.32);
+    }
+
+    .section-group-actions,
+    .section-group-header>div:last-child {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+    }
+
+    /* Any buttons inside group header */
+    .section-group-header button {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+
+        padding: 0 11px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.105);
+
+        background: rgba(255, 255, 255, 0.065);
+        color: #eef2f4;
+
+        font-size: 12px;
+        font-weight: 750;
+        cursor: pointer;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.16s ease,
+            box-shadow 0.16s ease;
+    }
+
+    .section-group-header button:hover {
+        background: var(--editor-accent-soft);
+        border-color: rgba(126, 226, 204, 0.32);
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+    }
+
+    /* Rows wrapper inside group */
+    .group-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 54px;
+    }
+
+    .empty-group-message {
+        margin: 0;
+        padding: 18px !important;
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.035);
+        color: var(--editor-muted) !important;
+        text-align: center;
+        font-size: 0.9rem;
+    }
+
+    /* =========================================================
+   ROWS
+========================================================= */
+
+    .row {
+        position: relative;
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+
+        width: 100%;
+        max-width: none;
+        min-height: 58px;
+
+        padding: 10px;
+        box-sizing: border-box;
+
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.060), rgba(255, 255, 255, 0.026));
+        border: 1px solid rgba(255, 255, 255, 0.085);
+        border-radius: 18px;
+        box-shadow: var(--editor-shadow-soft);
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            box-shadow 0.16s ease,
+            padding-bottom 0.25s ease;
+    }
+
+    .row:hover {
+        border-color: rgba(126, 226, 204, 0.20);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.032));
+    }
+
+    .row-drag-handle {
+        width: 30px;
+        min-width: 30px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        color: rgba(126, 226, 204, 0.88);
+        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid rgba(126, 226, 204, 0.14);
+        border-radius: 13px;
+
+        font-size: 15px;
+        cursor: grab;
+    }
+
+    .row-drag-handle:active {
+        cursor: grabbing;
+    }
+
+    /* Row gear */
+    .options-dropdown {
+        top: 18px;
+        right: 14px;
+        transform: none;
+        margin: 0;
+    }
+
+    .options-icon {
+        width: 30px;
+        height: 30px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        color: rgba(255, 255, 255, 0.75);
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 11px;
+
+        cursor: pointer;
+        transition:
+            background 0.15s ease,
+            border-color 0.15s ease,
+            color 0.15s ease;
+    }
+
+    .options-icon:hover {
+        color: #ffffff;
+        background: var(--editor-accent-soft);
+        border-color: rgba(126, 226, 204, 0.28);
+    }
+
+    /* =========================================================
+   COLUMNS / CELLS
+========================================================= */
+
+    .column {
+        position: relative;
+        flex: 1 1 auto;
+        min-width: 80px;
+        min-height: 58px;
+
+        margin: 0;
+        padding: 8px;
+
+        color: var(--editor-text);
+        background:
+            linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035));
+        border: 1px solid rgba(255, 255, 255, 0.095);
+        border-radius: 16px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+
+        box-sizing: border-box;
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            box-shadow 0.16s ease;
+    }
+
+    .column:hover {
+        border-color: rgba(126, 226, 204, 0.22);
+        background:
+            linear-gradient(145deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.044));
+    }
+
+    /* Resize handle */
+    .column-resize-handle {
+        width: 8px;
+        min-width: 8px;
+        margin: 4px 0;
+
+        border-radius: 999px;
+        background:
+            linear-gradient(180deg, rgba(126, 226, 204, 0.95), rgba(126, 226, 204, 0.38));
+        box-shadow:
+            0 0 0 1px rgba(126, 226, 204, 0.22),
+            0 8px 16px rgba(0, 0, 0, 0.20);
+
+        cursor: col-resize;
+        opacity: 0.72;
+        transition:
+            opacity 0.15s ease,
+            transform 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .column-resize-handle:hover {
+        opacity: 1;
+        transform: scaleX(1.2);
+        box-shadow:
+            0 0 0 1px rgba(126, 226, 204, 0.42),
+            0 0 16px rgba(126, 226, 204, 0.22);
+    }
+
+    /* =========================================================
+   SECTION CARDS
+========================================================= */
+
+    .section-title {
+        position: relative;
+        z-index: 10;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+
+        min-height: 44px;
+        margin: 0;
+        padding: 10px 11px 10px 13px;
+
+        color: var(--editor-text);
+        background:
+            linear-gradient(135deg, rgba(45, 49, 58, 0.98), rgba(33, 36, 43, 0.98));
+        border: 1px solid rgba(255, 255, 255, 0.105);
+        border-radius: 14px;
+        box-shadow:
+            0 8px 20px rgba(0, 0, 0, 0.22),
+            inset 0 1px 0 rgba(255, 255, 255, 0.045);
+
+        font-size: 0.82rem;
+        font-weight: 850;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+
+        cursor: pointer;
+        user-select: none;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.16s ease,
+            box-shadow 0.16s ease,
+            border-radius 0.16s ease;
+    }
+
+    .section-title:hover {
+        background:
+            linear-gradient(135deg, rgba(57, 62, 73, 0.98), rgba(38, 42, 50, 0.98));
+        border-color: rgba(126, 226, 204, 0.25);
+        transform: translateY(-1px);
+        box-shadow:
+            0 10px 24px rgba(0, 0, 0, 0.26),
+            0 0 0 1px rgba(126, 226, 204, 0.05);
+    }
+
+    .section-title.clicked {
+        z-index: 80;
+
+        background:
+            linear-gradient(135deg, rgba(41, 45, 54, 1), rgba(30, 33, 40, 1));
+        border-color: rgba(126, 226, 204, 0.30);
+        border-bottom-color: rgba(255, 255, 255, 0.06);
+
+        border-bottom-left-radius: 6px;
+        border-bottom-right-radius: 6px;
+
+        transform: translateY(0);
+        box-shadow:
+            0 10px 26px rgba(0, 0, 0, 0.22),
+            0 0 0 1px rgba(126, 226, 204, 0.08);
+    }
+
+    /* Section dropdown */
+    .section-title .dropdown {
+        margin-left: auto;
+    }
+
+    .dropbtn {
+        width: 30px;
+        height: 30px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 0;
+        color: rgba(255, 255, 255, 0.76);
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .dropbtn:hover {
+        color: #ffffff;
+        background: var(--editor-accent-soft);
+        border-color: rgba(126, 226, 204, 0.26);
+    }
+
+    /* Open content panel */
+    .section-content {
+        position: absolute;
+        z-index: 40;
+        top: calc(100% - 1px);
+        left: 0;
+
+        width: 100%;
+        max-height: 0;
+        opacity: 0;
+        overflow: hidden;
+
+        padding: 0 14px;
+        background:
+            linear-gradient(145deg, rgba(32, 35, 43, 0.98), rgba(24, 26, 32, 0.98));
+        border: 1px solid rgba(126, 226, 204, 0.18);
+        border-top: 0;
+        border-radius: 0 0 18px 18px;
+
+        box-shadow:
+            0 22px 52px rgba(0, 0, 0, 0.46),
+            0 0 0 1px rgba(255, 255, 255, 0.035);
+
+        pointer-events: none;
+        box-sizing: border-box;
+
+        transition:
+            max-height 0.28s ease,
+            opacity 0.22s ease,
+            padding 0.24s ease;
+    }
+
+    .section-content.open {
+        max-height: 1200px;
+        opacity: 1;
+        padding: 16px;
+        pointer-events: auto;
+    }
+
+    /* Contents inside expanded section */
+    .section-container {
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(255, 255, 255, 0.075);
+        border-radius: 16px;
+        padding: 14px;
+        box-sizing: border-box;
+    }
+
+    /* =========================================================
+   EMPTY CELLS / ADD SECTION
+========================================================= */
+
+    .placeholder {
+        min-height: 50px;
+        border: 1px dashed rgba(255, 255, 255, 0.14);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .delete-column-button,
+    .column>button {
+        min-height: 34px;
+        margin: 8px 6px 0 0;
+        padding: 0 11px;
+
+        border-radius: 11px;
+        border: 1px solid rgba(255, 255, 255, 0.10);
+
+        background: rgba(255, 255, 255, 0.065);
+        color: rgba(255, 255, 255, 0.88);
+
+        font-size: 12px;
+        font-weight: 750;
+        cursor: pointer;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.16s ease;
+    }
+
+    .column>button:hover {
+        background: var(--editor-accent-soft);
+        border-color: rgba(126, 226, 204, 0.30);
+        transform: translateY(-1px);
+    }
+
+    .delete-column-button:hover {
+        background: rgba(255, 122, 144, 0.14);
+        border-color: rgba(255, 122, 144, 0.32);
+        color: #ffe9ed;
+    }
+
+    /* Big add section/group button at bottom */
+    .add-section-btn-container {
+        min-height: 60px;
+        margin: 2px 0 0;
+        border: 1px dashed rgba(126, 226, 204, 0.28);
+        border-radius: 20px;
+        background:
+            linear-gradient(135deg, rgba(126, 226, 204, 0.085), rgba(255, 255, 255, 0.025));
+        transition:
+            background 0.18s ease,
+            border-color 0.18s ease,
+            transform 0.18s ease;
+    }
+
+    .add-section-btn-container:hover {
+        background:
+            linear-gradient(135deg, rgba(126, 226, 204, 0.15), rgba(255, 255, 255, 0.04));
+        border-color: rgba(126, 226, 204, 0.44);
+        transform: translateY(-1px);
+    }
+
+    .add-section-btn {
+        font-size: 30px;
+        color: var(--editor-accent);
+        line-height: 1;
+    }
+
+    /* =========================================================
+   DROP ZONES / SORTING STATES
+========================================================= */
+
+    .row-drop-zone {
+        height: 10px;
+        min-height: 10px;
+        margin: -3px 4px;
+        border: 1px dashed transparent;
+        border-radius: 999px;
+        background: transparent;
+        color: transparent;
+        transition:
+            height 0.16s ease,
+            background 0.16s ease,
+            border-color 0.16s ease,
+            color 0.16s ease;
+    }
+
+    .row-drop-zone.drag-over {
+        height: 34px;
+        border-color: rgba(126, 226, 204, 0.72);
+        background: rgba(126, 226, 204, 0.12);
+        color: var(--editor-accent);
+    }
+
+    .sortable-ghost {
+        opacity: 0.42;
+        filter: saturate(0.8);
+    }
+
+    .sortable-chosen {
+        box-shadow:
+            0 0 0 2px rgba(126, 226, 204, 0.58),
+            0 16px 36px rgba(0, 0, 0, 0.30) !important;
+    }
+
+    body.is-sorting .section-group,
+    body.is-sorting .row,
+    body.is-sorting .column,
+    body.is-sorting .section-title {
+        transition: none !important;
+    }
+
+    /* =========================================================
+   DROPDOWN MENUS
+========================================================= */
+
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: calc(100% + 8px);
+
+        min-width: 168px;
+        padding: 7px;
+
+        background: rgba(29, 32, 39, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.105);
+        border-radius: 14px;
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+
+        color: var(--editor-text);
+        z-index: 100001;
+        overflow: hidden;
+    }
+
+    .dropdown:hover .dropdown-content,
+    .options-dropdown:hover .dropdown-content {
+        display: block;
+    }
+
+    .dropdown-content a {
+        display: flex;
+        align-items: center;
+        min-height: 34px;
+
+        padding: 8px 10px;
+        border-radius: 10px;
+
+        color: rgba(255, 255, 255, 0.88);
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 700;
+
+        cursor: pointer;
+    }
+
+    .dropdown-content a:hover {
+        background: rgba(126, 226, 204, 0.13);
+        color: #ffffff;
+    }
+
+    .dropdown-content a.delete-section:hover,
+    .dropdown-content a[href="#"]:hover {
+        background: rgba(255, 122, 144, 0.13);
+    }
+
+    /* Make hovered dropdown parents rise above neighbors */
+    .section-group:has(.options-dropdown:hover),
+    .section-group:has(.options-dropdown:focus-within),
+    .section-group:has(.dropdown:hover),
+    .section-group:has(.dropdown:focus-within),
+    .row:has(.options-dropdown:hover),
+    .row:has(.options-dropdown:focus-within),
+    .column:has(.dropdown:hover),
+    .column:has(.dropdown:focus-within),
+    .section-title:has(.dropdown:hover),
+    .section-title:has(.dropdown:focus-within) {
+        z-index: 99999;
+    }
+
+    /* =========================================================
+   FORMS INSIDE SECTIONS
+========================================================= */
+
+    .section-content label {
+        margin: 0 0 6px;
+        padding: 0;
+        color: rgba(255, 255, 255, 0.82);
+        background: transparent;
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+
+    .section-content input[type="text"],
+    .section-content input[type="number"],
+    .section-content input[type="url"],
+    .section-content textarea,
+    .section-content select,
+    .youtube-url-input {
+        width: 100%;
+        min-height: 38px;
+        padding: 10px 12px;
+
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.065);
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        border-radius: 12px;
+
+        box-sizing: border-box;
+        outline: none;
+
+        transition:
+            border-color 0.16s ease,
+            box-shadow 0.16s ease,
+            background 0.16s ease;
+    }
+
+    .section-content textarea {
+        resize: vertical;
+    }
+
+    .section-content input:focus,
+    .section-content textarea:focus,
+    .section-content select:focus {
+        border-color: rgba(126, 226, 204, 0.52);
+        box-shadow: 0 0 0 3px rgba(126, 226, 204, 0.13);
+        background: rgba(255, 255, 255, 0.085);
+    }
+
+    /* Buttons inside section panels */
+    .section-content button,
+    .editor-controls button,
+    .btn-secondary {
+        min-height: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+
+        padding: 0 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.105);
+
+        background: rgba(255, 255, 255, 0.07);
+        color: #ffffff;
+
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.16s ease,
+            box-shadow 0.16s ease;
+    }
+
+    .section-content button:hover,
+    .editor-controls button:hover,
+    .btn-secondary:hover {
+        background: rgba(126, 226, 204, 0.14);
+        border-color: rgba(126, 226, 204, 0.32);
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.20);
+    }
+
+    /* =========================================================
+   RESPONSIVE
+========================================================= */
+
+    @media (max-width: 900px) {
+        .content-sections-container {
+            padding: 12px 12px 28vh;
+        }
+
+        .section-group {
+            padding: 10px;
+            border-radius: 18px;
+        }
+
+        .section-group-header {
+            flex-wrap: wrap;
+        }
+
+        .row {
+            gap: 8px;
+            padding: 8px;
+            overflow-x: auto;
+        }
+
+        .column {
+            min-width: 180px;
+        }
+
+        .section-content.open {
+            padding: 12px;
+        }
+    }
+
+    .section-group-header .danger-action:hover {
+        background: rgba(255, 122, 144, 0.14);
+        border-color: rgba(255, 122, 144, 0.34);
+        color: #ffe7ec;
+    }
+
+    .section-card {
+        position: relative;
+        display: block;
+        width: 100%;
+    }
+
+    .section-card+.section-card {
+        margin-top: 8px;
+    }
+
+    .section-card .section-title {
+        cursor: grab;
+    }
+
+    .section-card .section-title:active {
+        cursor: grabbing;
+    }
+
+    .section-sortable-ghost {
+        opacity: 0.38;
+        background: rgba(126, 226, 204, 0.10);
+        border-radius: 14px;
+    }
+
+    .section-sortable-chosen .section-title {
+        border-color: rgba(126, 226, 204, 0.55);
+        box-shadow:
+            0 0 0 2px rgba(126, 226, 204, 0.24),
+            0 16px 34px rgba(0, 0, 0, 0.32);
+    }
+
+    .section-sortable-drag {
+        opacity: 0.95;
+    }
+
+    .column.sortable-drag-over {
+        border-color: rgba(126, 226, 204, 0.45);
+        background: rgba(126, 226, 204, 0.08);
+    }
+
+    .section-drag-handle {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        margin-right: 2px;
+
+        color: var(--editor-accent);
+        background: rgba(126, 226, 204, 0.10);
+        border: 1px solid rgba(126, 226, 204, 0.18);
+        border-radius: 10px;
+
+        cursor: grab;
+        user-select: none;
+    }
+
+    .section-drag-handle:active {
+        cursor: grabbing;
+    }
+
+    .section-label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .section-card {
+        position: relative;
+        display: block;
+        width: 100%;
+    }
+
+    .section-card[draggable="true"] .section-title {
+        cursor: default;
+    }
+
+    .section-card-dragging {
+        opacity: 0.38;
+    }
+
+    .section-drop-target {
+        position: relative;
+    }
+
+    .empty-cell-hint {
+        min-height: 46px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+
+        padding: 10px;
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+        border-radius: 12px;
+
+        color: rgba(255, 255, 255, 0.42);
+        background: rgba(255, 255, 255, 0.025);
+
+        font-size: 12px;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        pointer-events: none;
+    }
+
+    .section-drop-hover {
+        border-color: rgba(126, 226, 204, 0.62) !important;
+        background:
+            linear-gradient(145deg, rgba(126, 226, 204, 0.12), rgba(255, 255, 255, 0.04)) !important;
+        box-shadow:
+            inset 0 0 0 2px rgba(126, 226, 204, 0.16),
+            0 0 22px rgba(126, 226, 204, 0.08);
+    }
+
+    .section-drop-hover.will-swap-section::after,
+    .section-drop-hover.will-move-section::after {
+        position: absolute;
+        left: 50%;
+        bottom: -12px;
+        transform: translateX(-50%);
+
+        z-index: 30;
+
+        padding: 5px 9px;
+        border-radius: 999px;
+
+        background: rgba(15, 18, 22, 0.96);
+        border: 1px solid rgba(126, 226, 204, 0.34);
+        color: #ffffff;
+
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.28);
+        pointer-events: none;
+    }
+
+    .section-drop-hover.will-swap-section::after {
+        content: "Swap sections";
+    }
+
+    .section-drop-hover.will-move-section::after {
+        content: "Move section here";
+    }
+
+    body.is-sorting-sections .section-title {
+        pointer-events: none;
+    }
+
+    body.is-sorting-sections .section-drag-handle {
+        pointer-events: auto;
+    }
+
+    body.is-sorting-groups .row {
+        pointer-events: none;
+    }
+
+    body.is-sorting-rows .section-group-header,
+    body.is-sorting-rows .section-card,
+    body.is-sorting-rows .column {
+        pointer-events: none;
+    }
+
+    body.is-sorting-sections .row-drag-handle,
+    body.is-sorting-sections .group-drag-handle {
+        pointer-events: none;
+    }
+
+    body.is-sorting-rows .empty-group-message {
+        display: none !important;
+    }
+
+    /* =========================================================
+   GROUP CONTAINER UI - clearer folder/container styling
+========================================================= */
+
+.section-group {
+    position: relative;
+    margin: 18px 0;
+    padding: 0;
+
+    border-radius: 24px;
+    border: 1px solid rgba(126, 226, 204, 0.24);
+
+    background: transparent !important;
+    box-shadow:
+        0 22px 55px rgba(0, 0, 0, 0.34),
+        0 0 0 1px rgba(255, 255, 255, 0.035);
+
+    overflow: visible;
+    isolation: isolate;
+}
+
+/* subtle container label feel */
+.section-group::before {
+    border-radius: inherit;
+}
+
+.section-group::after {
+    border-radius: inherit;
+}
+
+.section-group-header {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+
+    min-height: 62px;
+    margin: 0;
+    padding: 12px 14px;
+
+    color: var(--editor-text);
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.16), rgba(255, 255, 255, 0.06)),
+        rgba(18, 21, 26, 0.88);
+
+    border-bottom: 1px solid rgba(126, 226, 204, 0.18);
+    border-radius: 24px 24px 0 0;
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(0, 0, 0, 0.22);
+
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.section-group-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+}
+
+.group-collapse-toggle,
+.group-drag-handle {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: var(--editor-accent);
+    background: rgba(126, 226, 204, 0.10);
+    border: 1px solid rgba(126, 226, 204, 0.22);
+    border-radius: 12px;
+
+    font-size: 14px;
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease;
+}
+
+.group-drag-handle {
+    cursor: grab;
+}
+
+.group-drag-handle:active {
+    cursor: grabbing;
+}
+
+.group-collapse-toggle:hover,
+.group-drag-handle:hover {
+    background: rgba(126, 226, 204, 0.18);
+    border-color: rgba(126, 226, 204, 0.42);
+    transform: translateY(-1px);
+}
+
+.group-collapse-toggle i {
+    transition: transform 0.18s ease;
+}
+
+.section-group.collapsed .group-collapse-toggle i {
+    transform: rotate(-90deg);
+}
+
+.section-group-title-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+}
+
+.editable-group-label {
+    display: inline-block;
+    width: fit-content;
+    max-width: 100%;
+
+    padding: 4px 8px;
+    border-radius: 10px;
+
+    color: #ffffff;
+    font-size: 1rem;
+    font-weight: 900;
+    letter-spacing: 0.01em;
+    line-height: 1.15;
+
+    outline: none;
+    cursor: text;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.editable-group-label:hover {
+    background: rgba(255, 255, 255, 0.075);
+}
+
+.editable-group-label:focus {
+    background: rgba(255, 255, 255, 0.105);
+    box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.34);
+    white-space: normal;
+}
+
+.section-group-meta {
+    padding-left: 8px;
+    color: rgba(244, 246, 248, 0.58);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.group-row-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.group-row-count::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(126, 226, 204, 0.75);
+    box-shadow: 0 0 12px rgba(126, 226, 204, 0.34);
+}
+
+.section-group-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.section-group-actions button {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    padding: 0 11px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+
+    color: #eef2f4;
+    background: rgba(255, 255, 255, 0.075);
+
+    font-size: 12px;
+    font-weight: 850;
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.section-group-actions button:hover {
+    background: rgba(126, 226, 204, 0.14);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
+.section-group-actions .danger-action:hover {
+    background: rgba(255, 122, 144, 0.14);
+    border-color: rgba(255, 122, 144, 0.34);
+    color: #ffe7ec;
+}
+
+/* Group body */
+.group-rows-shell {
+    padding: 14px;
+    border-radius: 0 0 24px 24px;
+
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.018)),
+        rgba(8, 10, 14, 0.18);
+}
+
+.group-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 66px;
+
+    padding: 12px;
+    border: 1px dashed rgba(126, 226, 204, 0.20);
+    border-radius: 18px;
+
+    background: rgba(0, 0, 0, 0.12);
+}
+
+/* Empty state */
+.empty-group-message {
+    margin: 0;
+    padding: 18px !important;
+
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    border-radius: 16px;
+
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(244, 246, 248, 0.56) !important;
+
+    text-align: center;
+    font-size: 0.86rem;
+    font-weight: 750;
+    letter-spacing: 0.02em;
+}
+
+/* Collapsed group */
+.section-group.collapsed .group-rows-shell {
+    display: none;
+}
+
+.section-group.collapsed .section-group-header {
+    border-radius: 24px;
+    border-bottom-color: transparent;
+}
+
+.section-group.collapsed {
+    box-shadow:
+        0 12px 30px rgba(0, 0, 0, 0.26),
+        0 0 0 1px rgba(126, 226, 204, 0.08);
+}
+
+/* Sorting states */
+body.is-sorting-rows .section-group.collapsed .group-rows-shell {
+    display: block;
+}
+
+body.is-sorting-rows .section-group.collapsed .group-rows {
+    min-height: 52px;
+}
+
+body.is-sorting-rows .section-group {
+    border-color: rgba(126, 226, 204, 0.40);
+}
+
+/* Mobile */
+@media (max-width: 900px) {
+    .section-group-header {
+        flex-wrap: wrap;
+    }
+
+    .section-group-actions {
+        width: 100%;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .editable-group-label {
+        white-space: normal;
+    }
+}
+.section-group-title-stack::before {
+    content: "Group";
+    width: fit-content;
+
+    padding: 3px 7px;
+    border-radius: 999px;
+
+    color: rgba(126, 226, 204, 0.92);
+    background: rgba(126, 226, 204, 0.10);
+    border: 1px solid rgba(126, 226, 204, 0.20);
+
+    font-size: 0.64rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+/* =========================================================
+   CLEAN EDITOR HIERARCHY
+   Keep outlines on: Groups, Rows, Sections
+   Remove visual boxes from: Columns, group rows shell, section content
+========================================================= */
+
+/* GROUP: one clear outer container only */
+.section-group {
+    margin: 18px 0;
+    padding: 0;
+
+    border: 1px solid rgba(126, 226, 204, 0.24);
+    border-radius: 24px;
+
+    background: rgba(255, 255, 255, 0.025) !important;
+    box-shadow:
+        0 18px 42px rgba(0, 0, 0, 0.26),
+        inset 0 1px 0 rgba(255, 255, 255, 0.035);
+
+    overflow: visible;
+}
+
+/* Remove the extra square/layered pseudo-box look */
+.section-group::before,
+.section-group::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* GROUP HEADER: keep it strong, but not boxy */
+.section-group-header {
+    margin: 0;
+    border-radius: 24px 24px 0 0;
+
+    border: none;
+    border-bottom: 1px solid rgba(126, 226, 204, 0.18);
+
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.14), rgba(255, 255, 255, 0.045)),
+        rgba(20, 23, 29, 0.88);
+
+    box-shadow: none;
+}
+
+/* GROUP BODY: no extra border box */
+.group-rows-shell {
+    padding: 14px;
+    border: none;
+    border-radius: 0 0 24px 24px;
+
+    background: transparent;
+    box-shadow: none;
+}
+
+/* GROUP ROWS: remove dashed container outline */
+.group-rows {
+    gap: 12px;
+    min-height: 52px;
+
+    padding: 0;
+    border: none;
+    border-radius: 0;
+
+    background: transparent;
+    box-shadow: none;
+}
+
+/* Empty group should still be visible but gentle */
+.empty-group-message {
+    margin: 0;
+    padding: 16px !important;
+
+    border: 1px dashed rgba(126, 226, 204, 0.22);
+    border-radius: 16px;
+
+    background: rgba(126, 226, 204, 0.055);
+    color: rgba(244, 246, 248, 0.58) !important;
+
+    box-shadow: none;
+}
+
+/* ROW: keep row outline because this is an important layout level */
+.row {
+    padding: 10px;
+    gap: 10px;
+
+    border: 1px solid rgba(255, 255, 255, 0.105);
+    border-radius: 18px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.060), rgba(255, 255, 255, 0.025));
+
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+}
+
+.row:hover {
+    border-color: rgba(126, 226, 204, 0.28);
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.055), rgba(255, 255, 255, 0.030));
+}
+
+/* COLUMNS: remove card/outline styling */
+.column {
+    padding: 0;
+    margin: 0;
+
+    border: none !important;
+    border-radius: 0;
+
+    background: transparent !important;
+    box-shadow: none !important;
+
+    min-height: 48px;
+}
+
+/* Keep subtle spacing between columns without outlining them */
+.column + .column {
+    margin-left: 0;
+}
+
+/* Optional: make empty cells visible without feeling like another container */
+.empty-cell-hint {
+    min-height: 44px;
+
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+
+    background: rgba(255, 255, 255, 0.025);
+    color: rgba(255, 255, 255, 0.38);
+
+    box-shadow: none;
+}
+
+/* SECTION: keep section outline/card */
+.section-card {
+    width: 100%;
+}
+
+.section-title {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+
+    background:
+        linear-gradient(135deg, rgba(45, 49, 58, 0.98), rgba(31, 34, 41, 0.98));
+
+    box-shadow:
+        0 6px 16px rgba(0, 0, 0, 0.20),
+        inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.section-title:hover {
+    border-color: rgba(126, 226, 204, 0.32);
+}
+
+/* SECTION CONTENT: remove the heavy outlined box */
+.section-content {
+    border: none !important;
+    border-radius: 0 0 16px 16px;
+
+    background:
+        linear-gradient(145deg, rgba(28, 31, 38, 0.98), rgba(22, 24, 30, 0.98));
+
+    box-shadow:
+        0 16px 34px rgba(0, 0, 0, 0.32);
+
+    outline: none;
+}
+
+/* Inner section containers should not add another outline */
+.section-container,
+.page-body-container,
+.contact-form-container,
+.map-marker-container,
+.youtube-video-container,
+.calendar-container,
+.uploaded-images-container,
+.update-text-container {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 8px;
+}
+
+/* Resize handles should remain visible but cleaner */
+.column-resize-handle {
+    width: 7px;
+    min-width: 7px;
+    margin: 6px 2px;
+
+    border-radius: 999px;
+    background: rgba(126, 226, 204, 0.58);
+    box-shadow: none;
+
+    opacity: 0.55;
+}
+
+.column-resize-handle:hover {
+    opacity: 1;
+    transform: scaleX(1.15);
+    box-shadow: 0 0 14px rgba(126, 226, 204, 0.22);
+}
+
+/* Drop target feedback can temporarily show column borders while dragging sections */
+body.is-sorting-sections .column {
+    border: 1px dashed rgba(126, 226, 204, 0.18) !important;
+    border-radius: 14px;
+    padding: 6px;
+}
+
+body.is-sorting-sections .section-drop-hover {
+    border-color: rgba(126, 226, 204, 0.62) !important;
+    background: rgba(126, 226, 204, 0.09) !important;
+}
+
+/* Collapsed groups should look like a single clean pill/card */
+.section-group.collapsed {
+    background: rgba(255, 255, 255, 0.025) !important;
+}
+
+.section-group.collapsed .section-group-header {
+    border-radius: 24px;
+    border-bottom: none;
+}
 
 </style>
 </head>
@@ -2864,63 +4420,61 @@
 
 
     </div>
-<div id="libraryModal" class="modal library-modal" style="display:none;">
-    <div class="modal-content library-modal-content">
-<span class="close library-modal-close" onclick="closeLibraryModal()">&times;</span>
+    <div id="libraryModal" class="modal library-modal" style="display:none;">
+        <div class="modal-content library-modal-content">
+            <span class="close library-modal-close" onclick="closeLibraryModal()">&times;</span>
             <div class="library-container" style="padding:0;">
-<div class="library-header">
-    <h2><i class="fas fa-images"></i> Select from Photo Library</h2>
-<p id="libraryModalSubtitle" class="library-modal-subtitle">        Choose images to add to your page section.
-    </p>
+                <div class="library-header">
+                    <h2><i class="fas fa-images"></i> Select from Photo Library</h2>
+                    <p id="libraryModalSubtitle" class="library-modal-subtitle"> Choose images to add to your page
+                        section.
+                    </p>
 
-    <div class="modal-library-toolbar">
-        <button type="button" class="btn-primary" onclick="document.getElementById('modalLibraryFileInput').click()">
-            <i class="fas fa-upload"></i>
-            Upload Images
-        </button>
+                    <div class="modal-library-toolbar">
+                        <button type="button" class="btn-primary"
+                            onclick="document.getElementById('modalLibraryFileInput').click()">
+                            <i class="fas fa-upload"></i>
+                            Upload Images
+                        </button>
 
-        <button type="button" class="btn-secondary" onclick="createLibraryFolderFromModal()">
-            <i class="fas fa-folder-plus"></i>
-            New Folder
-        </button>
+                        <button type="button" class="btn-secondary" onclick="createLibraryFolderFromModal()">
+                            <i class="fas fa-folder-plus"></i>
+                            New Folder
+                        </button>
 
-        <input
-            type="file"
-            id="modalLibraryFileInput"
-            multiple
-            accept="image/*"
-            style="display:none"
-            onchange="handleModalLibraryUpload(event)">
-    </div>
+                        <input type="file" id="modalLibraryFileInput" multiple accept="image/*" style="display:none"
+                            onchange="handleModalLibraryUpload(event)">
+                    </div>
 
-    <div class="modal-upload-help">
-        Max file size: 10 MB per image. Best results: under 2–3 MB.
-    </div>
+                    <div class="modal-upload-help">
+                        Max file size: 10 MB per image. Best results: under 2–3 MB.
+                    </div>
 
-    <div class="upload-progress-wrapper" id="modalUploadProgressWrapper" style="display:none;">
-        <div class="upload-progress-bar">
-            <div class="upload-progress-fill" id="modalUploadProgressFill"></div>
-        </div>
-        <div class="upload-progress-text" id="modalUploadProgressText">0%</div>
-    </div>
-</div>
+                    <div class="upload-progress-wrapper" id="modalUploadProgressWrapper" style="display:none;">
+                        <div class="upload-progress-bar">
+                            <div class="upload-progress-fill" id="modalUploadProgressFill"></div>
+                        </div>
+                        <div class="upload-progress-text" id="modalUploadProgressText">0%</div>
+                    </div>
+                </div>
 
-<div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
+                <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
                 <div id="modalFolderGrid" class="folder-grid">
                 </div>
-<hr class="library-modal-divider">
+                <hr class="library-modal-divider">
 
-<div id="modalCurrentFolderName" class="library-modal-section-label">Root Images</div>
+                <div id="modalCurrentFolderName" class="library-modal-section-label">Root Images</div>
 
                 <div id="modalImageGrid" class="image-grid">
                 </div>
 
                 <div class="library-modal-footer">
-<span id="selectionCount" class="library-selection-count">0 images selected</span>
-                        selected</span>
-<button id="libraryConfirmButton" class="library-confirm-button" onclick="confirmLibrarySelection()">
-    Add Selected to Section
-</button>
+                    <span id="selectionCount" class="library-selection-count">0 images selected</span>
+                    selected</span>
+                    <button id="libraryConfirmButton" class="library-confirm-button"
+                        onclick="confirmLibrarySelection()">
+                        Add Selected to Section
+                    </button>
                 </div>
             </div>
         </div>
@@ -3015,8 +4569,81 @@
     </script>
 
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const iframe = document.getElementById('publicFrame');
+
+            if (!iframe) return;
+
+            function attachPreviewAnchorHandler() {
+                try {
+                    const iframeWindow = iframe.contentWindow;
+                    const iframeDocument = iframe.contentDocument || iframeWindow.document;
+
+                    iframeDocument.addEventListener('click', function (event) {
+                        const link = event.target.closest('a[href*="#"]');
+                        if (!link) return;
+
+                        const url = new URL(link.getAttribute('href'), iframeWindow.location.origin);
+
+                        if (!url.hash) return;
+
+                        const target = iframeDocument.querySelector(url.hash);
+
+                        // If the hash target exists inside the preview iframe,
+                        // ALWAYS scroll the iframe instead of allowing browser navigation.
+                        if (!target) return;
+
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        const navbar = iframeDocument.querySelector('.public-navbar');
+                        const navbarHeight = navbar ? navbar.getBoundingClientRect().height : 70;
+
+                        const targetTop =
+                            target.getBoundingClientRect().top +
+                            iframeWindow.scrollY -
+                            navbarHeight -
+                            24;
+
+                        iframeWindow.scrollTo({
+                            top: targetTop,
+                            behavior: 'smooth'
+                        });
+
+                        link.blur();
+
+                        if (
+                            iframeDocument.activeElement &&
+                            iframeDocument.activeElement.tagName === 'A'
+                        ) {
+                            iframeDocument.activeElement.blur();
+                        }
+
+                        link.blur();
+
+                        requestAnimationFrame(() => {
+                            if (iframeDocument.activeElement) {
+                                iframeDocument.activeElement.blur();
+                            }
+                        });
+
+                        // In the editor preview, don't update the iframe hash.
+                        // Updating the hash can make the browser treat the target like a focused anchor target.
+                        // iframeWindow.history.replaceState(null, '', iframeWindow.location.pathname + url.hash);
+                    }, true);
+                } catch (error) {
+                    console.warn('Could not attach preview anchor handler:', error);
+                }
+            }
+
+            iframe.addEventListener('load', attachPreviewAnchorHandler);
+        });
+    </script>
     <!-- Iframe of public page -->
     <script>
+
+
         // Function to get the preview URL
         function getPreviewUrl(websiteId, pageId) {
             return `${window.location.origin}/preview_page/${websiteId}/${pageId}`;
@@ -3054,8 +4681,6 @@
         }
         // Define the sections array in the global scope
         let sections = [];
-
-
 
         document.addEventListener('DOMContentLoaded', function () {
             // Your existing JavaScript code here
@@ -3331,6 +4956,22 @@
                 }
             }
         }
+
+        function getPrettySectionType(sectionType) {
+            const labels = {
+                text: 'Text',
+                images: 'Images',
+                image: 'Image',
+                image_gallery: 'Images',
+                button: 'Button',
+                map: 'Map',
+                contact_form: 'Contact Form',
+                calendar: 'Calendar',
+                youtube_video: 'YouTube'
+            };
+
+            return labels[sectionType] || sectionType;
+        }
         GradientTextBlot.blotName = 'gradientText';
         GradientTextBlot.tagName = 'span';
         Quill.register(GradientTextBlot);
@@ -3357,40 +4998,58 @@
 
                     applyGroupContainerStyles(groupContainer, group);
 
+groupContainer.innerHTML = `
+    <div class="section-group-header">
+        <div class="section-group-header-left">
+            <button type="button"
+                    class="group-collapse-toggle"
+                    onclick="toggleSectionGroupCollapse(${group.id})"
+                    title="Collapse or expand group">
+                <i class="fas fa-chevron-down"></i>
+            </button>
 
-                    groupContainer.innerHTML = `
-            <div class="section-group-header">
-                <span class="group-drag-handle">☰</span>
+            <span class="group-drag-handle" title="Drag group">☰</span>
+
+            <div class="section-group-title-stack">
                 <span 
-    class="editable-group-label"
-    contenteditable="true"
-    data-group-id="${group.id}"
-    spellcheck="false"
-    title="Click to edit group label"
->
-    ${group.name || 'Section Group'}
-</span>
+                    class="editable-group-label"
+                    contenteditable="true"
+                    data-group-id="${group.id}"
+                    spellcheck="false"
+                    title="Click to edit group label"
+                >${group.name || 'Section Group'}</span>
 
-
-                    <button type="button" onclick="openGroupStyleModal(${group.id})" title="Group Style">
-    <i class="fas fa-palette"></i>
-</button>
-                    <button type="button" onclick="addRowToGroup(${group.id})">
-                        Add Row
-                    </button>
-
-                    <button type="button" onclick="deleteSectionGroup(${group.id})">
-                        Delete Group
-                    </button>
-                </div>
+                <span class="section-group-meta">
+                    <span class="group-row-count" data-group-id="${group.id}">0 rows</span>
+                </span>
             </div>
+        </div>
 
-            <div class="group-rows" data-group-id="${group.id}">
-                <div class="empty-group-message" style="color:white; opacity:0.7; padding:12px;">
-                    Empty group. Add a row to start using it.
-                </div>
+        <div class="section-group-actions">
+            <button type="button" onclick="openGroupStyleModal(${group.id})" title="Group Style">
+                <i class="fas fa-palette"></i>
+                <span>Style</span>
+            </button>
+
+            <button type="button" onclick="addRowToGroup(${group.id})" title="Add Row">
+                <i class="fas fa-plus"></i>
+                <span>Row</span>
+            </button>
+
+            <button type="button" class="danger-action" onclick="deleteSectionGroup(${group.id})" title="Delete Group">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="group-rows-shell">
+        <div class="group-rows" data-group-id="${group.id}">
+            <div class="empty-group-message">
+                Empty group. Add a row to start using it.
             </div>
-        `;
+        </div>
+    </div>
+`;
 
                     groupContainersById[group.id] = groupContainer;
                     sectionsContainer.appendChild(groupContainer);
@@ -3442,19 +5101,22 @@
 
             // Render the grid in the sections container in the order of row_number
             rows.forEach(row => {
-                let parentContainer = sectionsContainer;
+let parentContainer = null;
 
-                if (row.section_group_id && groupContainersById[row.section_group_id]) {
-                    const groupContainer = groupContainersById[row.section_group_id];
-                    const groupRowsContainer = groupContainer.querySelector('.group-rows');
+if (row.section_group_id && groupContainersById[row.section_group_id]) {
+    const groupContainer = groupContainersById[row.section_group_id];
+    const groupRowsContainer = groupContainer.querySelector('.group-rows');
 
-                    const emptyMessage = groupRowsContainer.querySelector('.empty-group-message');
-                    if (emptyMessage) {
-                        emptyMessage.remove();
-                    }
+    const emptyMessage = groupRowsContainer.querySelector('.empty-group-message');
+    if (emptyMessage) {
+        emptyMessage.remove();
+    }
 
-                    parentContainer = groupRowsContainer;
-                }
+    parentContainer = groupRowsContainer;
+} else {
+    console.warn(`Skipping ungrouped row ${row.id}. Rows must belong to a group.`);
+    return;
+}
                 const rowId = row.id;
                 // console.log('Rows Generating in LOOP: ', rowId);
                 const rowElement = document.createElement('div');
@@ -3524,17 +5186,17 @@
                 optionsDropdown.appendChild(dropdownContent);
 
 
-                const rowDropZone = document.createElement('div');
-                rowDropZone.classList.add('row-drop-zone');
-                rowDropZone.setAttribute('data-row-id', rowId);
-                rowDropZone.innerHTML = '<span>Drop section here</span>';
+                // const rowDropZone = document.createElement('div');
+                // rowDropZone.classList.add('row-drop-zone');
+                // rowDropZone.setAttribute('data-row-id', rowId);
+                // rowDropZone.innerHTML = '<span>Drop section here</span>';
 
-                rowDropZone.addEventListener('dragover', handleRowDragOver);
-                rowDropZone.addEventListener('drop', handleRowDrop);
-                rowDropZone.addEventListener('dragleave', handleRowDragLeave);
+                // rowDropZone.addEventListener('dragover', handleRowDragOver);
+                // rowDropZone.addEventListener('drop', handleRowDrop);
+                // rowDropZone.addEventListener('dragleave', handleRowDragLeave);
 
-                // sectionsContainer.appendChild(rowDropZone);
-                parentContainer.appendChild(rowDropZone);
+                // // sectionsContainer.appendChild(rowDropZone);
+                // parentContainer.appendChild(rowDropZone);
 
 
                 // Append dropdown container to row
@@ -3579,15 +5241,26 @@
 
 
                     if (section && section.isSection) {
-                        // console.log("Creating Section: ", section.id)
+                        const sectionCard = document.createElement('div');
+                        sectionCard.classList.add('section-card');
+                        sectionCard.dataset.sectionId = section.id;
+                        sectionCard.dataset.columnId = section.column_id;
+                        sectionCard.dataset.rowId = rowId;
+
                         const sectionElement = document.createElement('div');
                         sectionElement.classList.add('section-title');
                         sectionElement.id = `section-title-${section.id}`;
-                        sectionElement.onclick = function () { toggleSectionContent(this); };
+                        sectionElement.onclick = function (event) {
+                            if (document.body.classList.contains('is-sorting')) return;
+                            if (event.target.closest('.dropdown, .dropbtn, .dropdown-content')) return;
 
-                        sectionElement.addEventListener('mousedown', function (event) {
-                            handleColumnMouseDown(event, columnElement);
-                        });
+                            toggleSectionContent(this);
+                        };
+                        const sectionDragHandle = document.createElement('span');
+                        sectionDragHandle.classList.add('section-drag-handle');
+                        sectionDragHandle.innerHTML = '☰';
+                        sectionDragHandle.title = 'Drag section to another cell';
+                        sectionElement.appendChild(sectionDragHandle);
 
                         const dropdown = document.createElement('div');
                         dropdown.classList.add('dropdown');
@@ -3642,15 +5315,22 @@
                         dropdown.appendChild(dropbtn);
                         dropdown.appendChild(dropdownContent);
 
-                        sectionElement.appendChild(document.createTextNode(section.section_type));
+                        const sectionLabel = document.createElement('span');
+                        sectionLabel.classList.add('section-label');
+                        sectionLabel.textContent = getPrettySectionType(section.section_type);
+                        sectionElement.appendChild(sectionLabel);
                         sectionElement.appendChild(dropdown);
 
                         const sectionContent = document.createElement('div');
                         sectionContent.classList.add('section-content');
                         sectionContent.id = `section-content-${section.id}`;
 
-                        columnElement.appendChild(sectionElement);
-                        columnElement.appendChild(sectionContent);
+                        sectionCard.appendChild(sectionElement);
+                        sectionCard.appendChild(sectionContent);
+                        columnElement.appendChild(sectionCard);
+                        columnElement.classList.add('section-drop-target');
+
+
 
                         if (isImageSection) {
                             sectionContent.innerHTML = `
@@ -4286,7 +5966,10 @@
                         } else if (section.section_type === 'contact_form') {
                             sectionContent.innerHTML = `
         <div class="contact-form-container section-container">
-            <form class="update-section-form" data-section-id="${section.id}" data-section-type="contact_form">
+            <form class="update-section-form"
+      data-section-id="${section.id}"
+      data-section-type="contact_form"
+      data-page-id="${section.page_content_id}">
                 <input type="hidden" name="section_id" value="${section.id}" data-page-id="${section.page_content_id}">
                 <input type="hidden" name="section_type" value="contact_form">
                 <label for="contact_form_title">Contact Form Title:</label><br>
@@ -4308,10 +5991,16 @@
                         }
                     } else {
                         // Handle empty placeholder column
-                        const placeholder = document.createElement('div');
-                        placeholder.classList.add('placeholder');
-                        // placeholder.textContent = 'Drop here to add a section';
-                        columnElement.appendChild(placeholder);
+                        columnElement.classList.add('section-drop-target');
+
+                        const emptyCellHint = document.createElement('div');
+                        emptyCellHint.classList.add('empty-cell-hint');
+                        emptyCellHint.innerHTML = `
+    <i class="fas fa-arrow-down"></i>
+    <span>Drop a section here</span>
+`;
+
+                        columnElement.appendChild(emptyCellHint);
                         // Button to delete column
                         // Create delete column button
                         const deleteColumnButton = document.createElement('button');
@@ -4375,65 +6064,65 @@
                 parentContainer.appendChild(rowElement);
 
                 // Make sections draggable
-                const sectionTitles = document.querySelectorAll('.section-title');
-                sectionTitles.forEach(section => {
-                    section.draggable = true;
-                    section.addEventListener('dragstart', handleSectionDragStart);
-                });
+                // const sectionTitles = document.querySelectorAll('.section-title');
+                // sectionTitles.forEach(section => {
+                //     section.draggable = true;
+                //     section.addEventListener('dragstart', handleSectionDragStart);
+                // });
 
-                const cells = document.querySelectorAll('.column');
-                cells.forEach(cell => {
-                    cell.addEventListener('dragover', handleSectionDragOver);
-                    cell.addEventListener('drop', handleSectionDrop);
-                });
+                // const cells = document.querySelectorAll('.column');
+                // cells.forEach(cell => {
+                //     cell.addEventListener('dragover', handleSectionDragOver);
+                //     cell.addEventListener('drop', handleSectionDrop);
+                // });
 
-                function handleSectionDragStart(event) {
-                    const sectionEl = event.currentTarget;
-                    const sectionId = sectionEl.id.replace('section-title-', '');
+                // function handleSectionDragStart(event) {
+                //     const sectionEl = event.currentTarget;
+                //     const sectionId = sectionEl.id.replace('section-title-', '');
 
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("application/json", JSON.stringify({
-                        type: "section",
-                        sectionId: parseInt(sectionId, 10)
-                    }));
-                }
+                //     event.dataTransfer.effectAllowed = "move";
+                //     event.dataTransfer.setData("application/json", JSON.stringify({
+                //         type: "section",
+                //         sectionId: parseInt(sectionId, 10)
+                //     }));
+                // }
 
-                function handleSectionDragOver(event) {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                }
+                // function handleSectionDragOver(event) {
+                //     event.preventDefault();
+                //     event.dataTransfer.dropEffect = "move";
+                // }
 
-                function handleSectionDrop(event) {
-                    event.preventDefault();
+                // function handleSectionDrop(event) {
+                //     event.preventDefault();
 
-                    const raw = event.dataTransfer.getData("application/json");
-                    if (!raw) return;
+                //     const raw = event.dataTransfer.getData("application/json");
+                //     if (!raw) return;
 
-                    const data = JSON.parse(raw);
-                    if (data.type !== "section") return;
+                //     const data = JSON.parse(raw);
+                //     if (data.type !== "section") return;
 
-                    const draggedSectionId = data.sectionId;
-                    const targetColumn = event.currentTarget.closest(".column");
-                    if (!targetColumn) return;
+                //     const draggedSectionId = data.sectionId;
+                //     const targetColumn = event.currentTarget.closest(".column");
+                //     if (!targetColumn) return;
 
-                    const targetColumnId = parseInt(targetColumn.dataset.columnId, 10);
-                    if (!targetColumnId) return;
+                //     const targetColumnId = parseInt(targetColumn.dataset.columnId, 10);
+                //     if (!targetColumnId) return;
 
-                    fetch(`/update_section_position/${draggedSectionId}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ columnId: targetColumnId })
-                    })
-                        .then(r => r.json())
-                        .then(data => {
-                            if (data.error) {
-                                console.error(data.error);
-                            } else {
-                                populateSections();
-                            }
-                        })
-                        .catch(err => console.error(err));
-                }
+                //     fetch(`/update_section_position/${draggedSectionId}`, {
+                //         method: "PUT",
+                //         headers: { "Content-Type": "application/json" },
+                //         body: JSON.stringify({ columnId: targetColumnId })
+                //     })
+                //         .then(r => r.json())
+                //         .then(data => {
+                //             if (data.error) {
+                //                 console.error(data.error);
+                //             } else {
+                //                 populateSections();
+                //             }
+                //         })
+                //         .catch(err => console.error(err));
+                // }
 
 
                 function handleDragStart(event) {
@@ -4551,27 +6240,12 @@
 
             });
 
-            // After appending the "Add Section" button to the sectionsContainer
-            const addSectionBtnContainer = document.createElement('div');
-            addSectionBtnContainer.classList.add('add-section-btn-container');
-            addSectionBtnContainer.addEventListener('click', function () {
-                openAddSectionModal(null, null);
-            });
-
-            const addSectionButton = document.createElement('span');
-            addSectionButton.classList.add('add-section-btn');
-            addSectionButton.id = 'addSectionBtn';
-            addSectionButton.textContent = '+';
-
-
-            // Append the button to the container
-            addSectionBtnContainer.appendChild(addSectionButton);
-
-            // Append the container to the sectionsContainer
-            sectionsContainer.appendChild(addSectionBtnContainer);
             initializeGroupAndRowSorting();
+            initializeSectionDragAndDrop();
             initializeEditableGroupLabels();
-
+            syncEmptyGroupMessages();
+            updateGroupRowCounts();
+restoreCollapsedSectionGroups();
 
             function addRowAbove(currentRowId) {
                 // console.log("ADD ROW ABOVE: ", currentRowId)
@@ -5631,29 +7305,29 @@
         }
     </script>
     <script>
-function openLibraryPicker(sectionId) {
-    PhotoLibraryModal.open({
-        mode: 'section-images',
-        sectionId: sectionId
-    });
-}
-
-function openGroupBackgroundLibraryPicker() {
-    PhotoLibraryModal.open({
-        mode: 'group-background',
-        onConfirm: function (selection) {
-            const imageUrl = selection.imageUrls[0];
-
-            if (!imageUrl) {
-                alert('Could not find the selected image URL.');
-                return;
-            }
-
-            setGroupBackgroundImageFromLibrary(imageUrl);
+        function openLibraryPicker(sectionId) {
+            PhotoLibraryModal.open({
+                mode: 'section-images',
+                sectionId: sectionId
+            });
         }
-    });
-}
-</script>
+
+        function openGroupBackgroundLibraryPicker() {
+            PhotoLibraryModal.open({
+                mode: 'group-background',
+                onConfirm: function (selection) {
+                    const imageUrl = selection.imageUrls[0];
+
+                    if (!imageUrl) {
+                        alert('Could not find the selected image URL.');
+                        return;
+                    }
+
+                    setGroupBackgroundImageFromLibrary(imageUrl);
+                }
+            });
+        }
+    </script>
     <!-- Image Functions -->
     <script>
 
@@ -6202,41 +7876,78 @@ function openGroupBackgroundLibraryPicker() {
         }
 
         function handleSubmit(classSelector, endpoint) {
-            const forms = document.querySelectorAll(`.${classSelector}`);
+            if (document.body.dataset.updateSectionSubmitReady === 'true') return;
+            document.body.dataset.updateSectionSubmitReady = 'true';
 
-            forms.forEach((form) => {
-                form.addEventListener("submit", function (event) {
-                    event.preventDefault();
+            document.addEventListener('submit', function (event) {
+                const form = event.target.closest(`.${classSelector}`);
+                if (!form) return;
 
-                    const sectionId = this.dataset.sectionId;
+                event.preventDefault();
 
-                    const quillEditor = quillEditors.find(ed => String(ed.id) === String(sectionId));
-                    if (quillEditor) {
-                        quillEditor.textarea.value = quillEditor.quill.root.innerHTML;
-                    }
+                const sectionId = form.dataset.sectionId;
 
-                    const formData = new FormData(this);
-                    formData.append("section_id", this.dataset.sectionId);
-                    formData.append("section_type", this.dataset.sectionType);
+                const quillEditor = quillEditors.find(ed => String(ed.id) === String(sectionId));
+                if (quillEditor) {
+                    quillEditor.textarea.value = quillEditor.quill.root.innerHTML;
+                }
 
-                    fetch(endpoint, {
-                        method: "POST",
-                        body: formData
-                    })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.status !== 'success') {
-                                showMessage(data.message);
-                            }
-                        })
-                        .catch(error => console.error('Error:', error));
+                const formData = new FormData(form);
+                formData.set("section_id", form.dataset.sectionId);
+                formData.set("section_type", form.dataset.sectionType);
+
+                console.log("Saving section:", {
+                    sectionId: form.dataset.sectionId,
+                    sectionType: form.dataset.sectionType,
+                    endpoint
                 });
+
+                fetch(endpoint, {
+                    method: "POST",
+                    body: formData
+                })
+                    .then(async response => {
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(data.message || data.error || 'Failed to save section.');
+                        }
+
+                        return data;
+                    })
+                    .then(data => {
+                        console.log("Section save response:", data);
+
+                        if (data.status !== 'success') {
+                            showMessage(data.message || 'Section did not save.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error saving section:', error);
+                        showMessage(error.message || 'Error saving section.');
+                    });
             });
-            // reloadIframe();
         }
 
 
+        document.getElementById("saveChangesButton").addEventListener("click", function () {
+            quillEditors.forEach(editor => {
+                editor.textarea.value = editor.quill.root.innerHTML;
+            });
 
+            const forms = document.querySelectorAll(".update-section-form");
+
+            console.log(`Submitting ${forms.length} section forms`);
+
+            forms.forEach((form) => {
+                console.log("Request submit:", form.dataset.sectionId, form.dataset.sectionType);
+                form.requestSubmit();
+            });
+
+            setTimeout(function () {
+                reloadIframe();
+            }, 300);
+        });
 
 
 
@@ -6539,126 +8250,162 @@ function openGroupBackgroundLibraryPicker() {
                 })
                 .catch(error => console.error('Error deleting section group:', error));
         }
+        function closeOpenSectionPanels() {
+            document.querySelectorAll('.section-content.open').forEach(content => {
+                content.classList.remove('open');
+
+                const title = content.previousElementSibling;
+                if (title && title.classList.contains('section-title')) {
+                    title.classList.remove('clicked');
+                }
+            });
+
+            document.querySelectorAll('.row').forEach(row => {
+                row.style.paddingBottom = '';
+            });
+        }
 
         function initializeGroupAndRowSorting() {
-            sortableInstances.forEach(instance => instance.destroy());
-            sortableInstances = [];
+    sortableInstances.forEach(instance => instance.destroy());
+    sortableInstances = [];
 
-            const sectionsContainer = document.getElementById('sections-container');
-            if (!sectionsContainer) return;
+    const sectionsContainer = document.getElementById('sections-container');
+    if (!sectionsContainer) return;
 
-            const mainSortable = Sortable.create(sectionsContainer, {
-                animation: 100,
-                handle: '.group-drag-handle, .row-drag-handle',
-                draggable: '.section-group, #sections-container > .row',
-                ghostClass: 'sortable-ghost',
-                chosenClass: 'sortable-chosen',
+    const groupSortable = Sortable.create(sectionsContainer, {
+        animation: 160,
+        handle: '.group-drag-handle',
+        draggable: '#sections-container > .section-group',
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        fallbackOnBody: true,
+        swapThreshold: 0.65,
 
-                onStart: function () {
-                    document.body.classList.add('is-sorting');
-                },
+        group: {
+            name: 'section-groups',
+            pull: false,
+            put: false
+        },
 
-                onEnd: function () {
-                    document.body.classList.remove('is-sorting');
-                    saveFullEditorOrder();
-                }
-            });
+        filter: 'button, input, textarea, select, a, .editable-group-label, .row, .row-drag-handle, .section-card, .section-title',
+        preventOnFilter: false,
 
-            sortableInstances.push(mainSortable);
+        onStart: function () {
+            closeOpenSectionPanels();
+            document.body.classList.add('is-sorting', 'is-sorting-groups');
+        },
 
-            document.querySelectorAll('.group-rows').forEach(groupRows => {
-                const groupSortable = Sortable.create(groupRows, {
-                    animation: 100,
-                    handle: '.row-drag-handle',
-                    draggable: '.row',
-                    group: {
-                        name: 'page-rows',
-                        pull: true,
-                        put: true
-                    },
-                    ghostClass: 'sortable-ghost',
-                    chosenClass: 'sortable-chosen',
-
-                    onStart: function () {
-                        document.body.classList.add('is-sorting');
-                    },
-
-                    onEnd: function () {
-                        document.body.classList.remove('is-sorting');
-                        saveFullEditorOrder();
-                    }
-                });
-
-                sortableInstances.push(groupSortable);
-            });
+        onEnd: function () {
+            document.body.classList.remove('is-sorting', 'is-sorting-groups');
+            saveFullEditorOrder();
         }
+    });
 
-        function saveFullEditorOrder() {
-            const groupIds = [];
-            const rowData = [];
-            let rowNumber = 1;
+    sortableInstances.push(groupSortable);
 
-            const topLevelItems = Array.from(
-                document.querySelectorAll('#sections-container > .section-group, #sections-container > .row')
-            );
+document.querySelectorAll('.group-rows').forEach(rowContainer => {
+        const rowSortable = Sortable.create(rowContainer, {
+            animation: 160,
+            handle: '.row-drag-handle',
+            draggable: '.row',
+            group: {
+                name: 'page-rows',
+                pull: true,
+                put: true
+            },
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            fallbackOnBody: true,
+            emptyInsertThreshold: 30,
+            swapThreshold: 0.65,
 
-            topLevelItems.forEach(item => {
-                if (item.classList.contains('section-group')) {
-                    const groupId = parseInt(item.dataset.groupId, 10);
+            filter: '.section-card, .section-title, .section-content, .column, .column-resize-handle, button, input, textarea, select, a, .dropdown, .options-dropdown',
+            preventOnFilter: false,
 
-                    if (groupId) {
-                        groupIds.push(groupId);
-                    }
+            onStart: function () {
+                closeOpenSectionPanels();
+                document.body.classList.add('is-sorting', 'is-sorting-rows');
 
-                    const groupRows = item.querySelectorAll('.group-rows > .row');
+                removeEmptyGroupMessages();
+            },
 
-                    groupRows.forEach(rowEl => {
-                        const rowId = parseInt(rowEl.dataset.rowId, 10);
-                        if (!rowId) return;
+            onAdd: function () {
+                removeEmptyGroupMessages();
+            },
 
-                        rowData.push({
-                            row_id: rowId,
-                            row_number: rowNumber++,
-                            section_group_id: groupId
-                        });
-                    });
-                }
+            onRemove: function () {
+                removeEmptyGroupMessages();
+            },
 
-                if (item.classList.contains('row')) {
-                    const rowId = parseInt(item.dataset.rowId, 10);
-                    if (!rowId) return;
+            onSort: function () {
+                removeEmptyGroupMessages();
+            },
 
-                    rowData.push({
-                        row_id: rowId,
-                        row_number: rowNumber++,
-                        section_group_id: null
-                    });
-                }
+onEnd: function () {
+    document.body.classList.remove('is-sorting', 'is-sorting-rows');
+
+    requestAnimationFrame(() => {
+        syncEmptyGroupMessages();
+        updateGroupRowCounts();
+        saveFullEditorOrder();
+    });
+}
+        });
+
+        sortableInstances.push(rowSortable);
+    });
+}
+
+function saveFullEditorOrder() {
+    const groupIds = [];
+    const rowData = [];
+    let rowNumber = 1;
+
+    const sectionsContainer = document.getElementById('sections-container');
+    if (!sectionsContainer) return;
+
+    sectionsContainer.querySelectorAll(':scope > .section-group').forEach(groupEl => {
+        const groupId = parseInt(groupEl.dataset.groupId, 10);
+        if (!groupId) return;
+
+        groupIds.push(groupId);
+
+        groupEl.querySelectorAll(':scope > .group-rows > .row').forEach(rowEl => {
+            const rowId = parseInt(rowEl.dataset.rowId, 10);
+            if (!rowId) return;
+
+            rowData.push({
+                row_id: rowId,
+                row_number: rowNumber++,
+                section_group_id: groupId
             });
+        });
+    });
 
-            fetch('/update_editor_group_and_row_order', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
-                },
-                body: JSON.stringify({
-                    group_ids: groupIds,
-                    rows: rowData
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // populateSections();
-                        console.log('Editor order saved.');
-                        reloadIframe();
-                    } else {
-                        alert(data.error || 'Failed to save editor order.');
-                    }
-                })
-                .catch(error => console.error('Error saving editor order:', error));
-        }
+    fetch('/update_editor_group_and_row_order', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+        },
+        body: JSON.stringify({
+            group_ids: groupIds,
+            rows: rowData
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                alert(data.error || 'Failed to save editor order.');
+                populateSections();
+            }
+        })
+        .catch(error => {
+            console.error('Error saving editor order:', error);
+            populateSections();
+        });
+        updateGroupRowCounts();
+}
 
 
 
@@ -6756,56 +8503,56 @@ function openGroupBackgroundLibraryPicker() {
         }
 
         function initializeGroupStyleBackground(savedBackground) {
-    const container = document.getElementById('groupGradientColors');
-    const directionSelect = document.getElementById('groupGradientDirection');
-    const transparentToggle = document.getElementById('groupTransparentBackground');
+            const container = document.getElementById('groupGradientColors');
+            const directionSelect = document.getElementById('groupGradientDirection');
+            const transparentToggle = document.getElementById('groupTransparentBackground');
 
-    if (container) {
-        container.innerHTML = '';
-    }
+            if (container) {
+                container.innerHTML = '';
+            }
 
-    const normalizedBackground = (savedBackground || '').trim();
+            const normalizedBackground = (savedBackground || '').trim();
 
-    const isTransparent =
-        !normalizedBackground ||
-        normalizedBackground === 'transparent' ||
-        normalizedBackground === 'rgba(0,0,0,0)' ||
-        normalizedBackground === 'rgba(0, 0, 0, 0)';
+            const isTransparent =
+                !normalizedBackground ||
+                normalizedBackground === 'transparent' ||
+                normalizedBackground === 'rgba(0,0,0,0)' ||
+                normalizedBackground === 'rgba(0, 0, 0, 0)';
 
-    if (transparentToggle) {
-        transparentToggle.checked = isTransparent;
-    }
+            if (transparentToggle) {
+                transparentToggle.checked = isTransparent;
+            }
 
-    if (isTransparent) {
-        updateGroupBackgroundPreview();
-        return;
-    }
+            if (isTransparent) {
+                updateGroupBackgroundPreview();
+                return;
+            }
 
-    if (normalizedBackground.startsWith('linear-gradient')) {
-        const directionMatch = normalizedBackground.match(/linear-gradient\((.*?),/);
-        const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+            if (normalizedBackground.startsWith('linear-gradient')) {
+                const directionMatch = normalizedBackground.match(/linear-gradient\((.*?),/);
+                const direction = directionMatch ? directionMatch[1].trim() : 'to right';
 
-        if (directionSelect) {
-            directionSelect.value = direction;
+                if (directionSelect) {
+                    directionSelect.value = direction;
+                }
+
+                const colorsPart = normalizedBackground
+                    .replace(/^linear-gradient\((.*?),/, '')
+                    .replace(/\)$/, '');
+
+                colorsPart
+                    .split(',')
+                    .map(color => color.trim())
+                    .filter(Boolean)
+                    .forEach(color => {
+                        addGroupColorStop(color);
+                    });
+            } else {
+                addGroupColorStop(normalizedBackground);
+            }
+
+            updateGroupBackgroundPreview();
         }
-
-        const colorsPart = normalizedBackground
-            .replace(/^linear-gradient\((.*?),/, '')
-            .replace(/\)$/, '');
-
-        colorsPart
-            .split(',')
-            .map(color => color.trim())
-            .filter(Boolean)
-            .forEach(color => {
-                addGroupColorStop(color);
-            });
-    } else {
-        addGroupColorStop(normalizedBackground);
-    }
-
-    updateGroupBackgroundPreview();
-}
         function updateGroupBackgroundPreview() {
             const preview = document.getElementById('groupStylePreview');
             const hiddenBackgroundInput = document.getElementById('groupBackgroundColor');
@@ -6821,7 +8568,7 @@ function openGroupBackgroundLibraryPicker() {
                 overlayOpacityValue.textContent = overlayOpacity;
             }
 
-let background = 'transparent';
+            let background = 'transparent';
 
             const transparentToggle = document.getElementById('groupTransparentBackground');
 
@@ -7030,7 +8777,7 @@ function applyGroupContainerStyles(groupContainer, group) {
 
     const rawBackground = (group.background_color || '').trim();
 
-    const backgroundColor =
+    const background =
         !rawBackground ||
         rawBackground === 'transparent' ||
         rawBackground === 'rgba(0,0,0,0)' ||
@@ -7041,19 +8788,33 @@ function applyGroupContainerStyles(groupContainer, group) {
     const imageUrl = group.background_image_url || '';
     const imageSize = group.background_image_size || 'cover';
     const imagePosition = group.background_image_position || 'center';
-    const overlayColor = group.background_overlay_color || '#000000';
+    const overlayColor = group.background_overlay_color || 'transparent';
     const overlayOpacity = group.background_overlay_opacity || 0;
 
-    groupContainer.style.background = '';
-    groupContainer.style.backgroundColor = backgroundColor;
-    groupContainer.style.backgroundImage = imageUrl ? `url("${imageUrl}")` : '';
-    groupContainer.style.backgroundSize = imageUrl ? imageSize : '';
-    groupContainer.style.backgroundPosition = imageUrl ? imagePosition : '';
-    groupContainer.style.backgroundRepeat = imageUrl ? 'no-repeat' : '';
+    /*
+      IMPORTANT:
+      Do not style the outer .section-group directly.
+      That creates the square/boxy outline you are seeing in DevTools.
+    */
+    groupContainer.style.background = 'transparent';
+    groupContainer.style.backgroundColor = 'transparent';
+    groupContainer.style.backgroundImage = 'none';
+    groupContainer.style.backgroundSize = '';
+    groupContainer.style.backgroundPosition = '';
+    groupContainer.style.backgroundRepeat = '';
 
-    groupContainer.style.padding = `${group.padding ?? 0}px`;
-    groupContainer.style.borderRadius = `${group.border_radius ?? 0}px`;
+    /*
+      Also do not let saved group padding/radius control the OUTER editor group.
+      The editor UI should keep its own clean rounded card style.
+    */
+    groupContainer.style.padding = '';
+    groupContainer.style.borderRadius = '';
 
+    groupContainer.style.setProperty('--group-bg', background);
+    groupContainer.style.setProperty('--group-bg-image', imageUrl ? `url("${imageUrl}")` : 'none');
+    groupContainer.style.setProperty('--group-bg-size', imageUrl ? imageSize : 'cover');
+    groupContainer.style.setProperty('--group-bg-position', imageUrl ? imagePosition : 'center');
+    groupContainer.style.setProperty('--group-bg-repeat', imageUrl ? 'no-repeat' : 'no-repeat');
     groupContainer.style.setProperty('--group-overlay-color', overlayColor);
     groupContainer.style.setProperty('--group-overlay-opacity', overlayOpacity);
 }
@@ -7114,6 +8875,272 @@ function applyGroupContainerStyles(groupContainer, group) {
             }
         }
     </script>
+    <script>
+        let draggedSectionData = null;
+        let sectionHandleDragArmed = false;
+
+        function initializeSectionDragAndDrop() {
+            document.querySelectorAll('.column').forEach(column => {
+                column.classList.add('section-drop-target');
+
+                column.removeEventListener('dragover', handleSectionDragOver);
+                column.removeEventListener('dragleave', handleSectionDragLeave);
+                column.removeEventListener('drop', handleSectionDrop);
+
+                column.addEventListener('dragover', handleSectionDragOver);
+                column.addEventListener('dragleave', handleSectionDragLeave);
+                column.addEventListener('drop', handleSectionDrop);
+            });
+
+            document.querySelectorAll('.section-card').forEach(card => {
+                card.setAttribute('draggable', 'true');
+
+                card.removeEventListener('dragstart', handleSectionDragStart);
+                card.removeEventListener('dragend', handleSectionDragEnd);
+
+                card.addEventListener('dragstart', handleSectionDragStart);
+                card.addEventListener('dragend', handleSectionDragEnd);
+            });
+
+            document.querySelectorAll('.section-drag-handle').forEach(handle => {
+                handle.addEventListener('pointerdown', function (event) {
+                    sectionHandleDragArmed = true;
+                    event.stopPropagation();
+                });
+
+                handle.addEventListener('pointerup', function () {
+                    sectionHandleDragArmed = false;
+                });
+            });
+        }
+
+        function handleSectionDragStart(event) {
+            const card = event.currentTarget;
+
+            if (!sectionHandleDragArmed && !event.target.closest('.section-drag-handle')) {
+                event.preventDefault();
+                return;
+            }
+
+            closeOpenSectionPanels();
+
+            const sourceColumn = card.closest('.column');
+
+            draggedSectionData = {
+                sectionId: parseInt(card.dataset.sectionId, 10),
+                sourceColumnId: parseInt(sourceColumn?.dataset.columnId, 10)
+            };
+
+            if (!draggedSectionData.sectionId || !draggedSectionData.sourceColumnId) {
+                event.preventDefault();
+                draggedSectionData = null;
+                return;
+            }
+
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('application/json', JSON.stringify({
+                type: 'section',
+                sectionId: draggedSectionData.sectionId,
+                sourceColumnId: draggedSectionData.sourceColumnId
+            }));
+
+            document.body.classList.add('is-sorting', 'is-sorting-sections');
+            card.classList.add('section-card-dragging');
+        }
+
+        function handleSectionDragOver(event) {
+            if (!draggedSectionData) return;
+
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+
+            const column = event.currentTarget.closest('.column');
+            if (!column) return;
+
+            column.classList.add('section-drop-hover');
+
+            const existingCard = column.querySelector('.section-card');
+
+            if (existingCard) {
+                column.classList.add('will-swap-section');
+                column.classList.remove('will-move-section');
+            } else {
+                column.classList.add('will-move-section');
+                column.classList.remove('will-swap-section');
+            }
+        }
+
+        function handleSectionDragLeave(event) {
+            const column = event.currentTarget.closest('.column');
+            if (!column) return;
+
+            if (!column.contains(event.relatedTarget)) {
+                clearSectionDropState(column);
+            }
+        }
+
+        function handleSectionDrop(event) {
+            if (!draggedSectionData) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const targetColumn = event.currentTarget.closest('.column');
+            if (!targetColumn) {
+                cleanupSectionDrag();
+                return;
+            }
+
+            const targetColumnId = parseInt(targetColumn.dataset.columnId, 10);
+
+            if (!targetColumnId || targetColumnId === draggedSectionData.sourceColumnId) {
+                cleanupSectionDrag();
+                return;
+            }
+
+            moveOrSwapSection(
+                draggedSectionData.sectionId,
+                draggedSectionData.sourceColumnId,
+                targetColumnId
+            );
+        }
+
+        function handleSectionDragEnd(event) {
+            event.currentTarget.classList.remove('section-card-dragging');
+            cleanupSectionDrag();
+        }
+
+        function clearSectionDropState(column) {
+            column.classList.remove(
+                'section-drop-hover',
+                'will-swap-section',
+                'will-move-section'
+            );
+        }
+
+        function cleanupSectionDrag() {
+            document.body.classList.remove('is-sorting', 'is-sorting-sections');
+
+            document.querySelectorAll('.section-drop-target').forEach(column => {
+                clearSectionDropState(column);
+            });
+
+            document.querySelectorAll('.section-card-dragging').forEach(card => {
+                card.classList.remove('section-card-dragging');
+            });
+
+            draggedSectionData = null;
+            sectionHandleDragArmed = false;
+        }
+
+        function moveOrSwapSection(sectionId, sourceColumnId, targetColumnId) {
+            fetch(`/move_or_swap_section/${sectionId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    sourceColumnId: sourceColumnId,
+                    targetColumnId: targetColumnId
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        console.error(data.error || data.message || 'Failed to move section');
+                        populateSections();
+                        return;
+                    }
+
+                    populateSections();
+                    reloadIframe();
+                })
+                .catch(error => {
+                    console.error('Error moving/swapping section:', error);
+                    populateSections();
+                })
+                .finally(() => {
+                    cleanupSectionDrag();
+                });
+        }
+
+        function syncEmptyGroupMessages() {
+            document.querySelectorAll('.group-rows').forEach(groupRows => {
+                const directRows = Array.from(groupRows.children).filter(child =>
+                    child.classList.contains('row') &&
+                    !child.classList.contains('sortable-ghost') &&
+                    !child.classList.contains('sortable-drag')
+                );
+
+                const existingMessages = groupRows.querySelectorAll(':scope > .empty-group-message');
+
+                existingMessages.forEach(message => message.remove());
+
+                if (directRows.length === 0 && !document.body.classList.contains('is-sorting-rows')) {
+                    const message = document.createElement('div');
+                    message.classList.add('empty-group-message');
+                    message.textContent = 'Empty group. Add a row to start using it.';
+
+                    groupRows.appendChild(message);
+                }
+            });
+        }
+
+        function removeEmptyGroupMessages() {
+            document.querySelectorAll('.empty-group-message').forEach(message => {
+                message.remove();
+            });
+        }
+
+        function toggleSectionGroupCollapse(groupId) {
+    const group = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
+    if (!group) return;
+
+    group.classList.toggle('collapsed');
+
+    const isCollapsed = group.classList.contains('collapsed');
+
+    try {
+        const collapsedGroups = JSON.parse(localStorage.getItem('collapsedSectionGroups') || '{}');
+        collapsedGroups[groupId] = isCollapsed;
+        localStorage.setItem('collapsedSectionGroups', JSON.stringify(collapsedGroups));
+    } catch (error) {
+        console.warn('Could not save collapsed group state:', error);
+    }
+}
+
+function restoreCollapsedSectionGroups() {
+    let collapsedGroups = {};
+
+    try {
+        collapsedGroups = JSON.parse(localStorage.getItem('collapsedSectionGroups') || '{}');
+    } catch (error) {
+        collapsedGroups = {};
+    }
+
+    document.querySelectorAll('.section-group').forEach(group => {
+        const groupId = group.dataset.groupId;
+
+        if (collapsedGroups[groupId]) {
+            group.classList.add('collapsed');
+        }
+    });
+}
+
+function updateGroupRowCounts() {
+    document.querySelectorAll('.section-group').forEach(group => {
+        const groupId = group.dataset.groupId;
+        const rowCountEl = group.querySelector(`.group-row-count[data-group-id="${groupId}"]`);
+        const rowCount = group.querySelectorAll(':scope .group-rows > .row').length;
+
+        if (!rowCountEl) return;
+
+        rowCountEl.textContent = rowCount === 1 ? '1 row' : `${rowCount} rows`;
+    });
+}
+    </script>
+
     {% endblock %}
 </body>
 

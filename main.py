@@ -2690,6 +2690,89 @@ def update_section_position(section_id):
         'column_id': target_column.id
     }), 200
 
+@app.route('/move_or_swap_section/<int:section_id>', methods=['PUT'])
+@login_required
+def move_or_swap_section(section_id):
+    try:
+        data = request.get_json() or {}
+
+        source_column_id = data.get('sourceColumnId')
+        target_column_id = data.get('targetColumnId')
+
+        section = PageSection.query.get_or_404(section_id)
+        source_column = Column.query.get(source_column_id)
+        target_column = Column.query.get(target_column_id)
+
+        if not source_column or not target_column:
+            return jsonify({
+                'success': False,
+                'error': 'Source or target column not found.'
+            }), 404
+
+        if source_column.id == target_column.id:
+            return jsonify({
+                'success': True,
+                'message': 'Section already in this column.'
+            })
+
+        # Security check: make sure this section belongs to the logged-in user's website.
+        page = PublicPageContent.query.get_or_404(section.page_content_id)
+        website = Website.query.get_or_404(page.website_id)
+
+        if website.user_id != current_user.id:
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized.'
+            }), 403
+
+        # Make sure both columns belong to the same page.
+        if source_column.row.page_content_id != page.id or target_column.row.page_content_id != page.id:
+            return jsonify({
+                'success': False,
+                'error': 'Columns do not belong to the same page.'
+            }), 400
+
+        if source_column.section_id != section.id:
+            # Recover from stale frontend data by finding the true source column.
+            true_source_column = Column.query.filter_by(section_id=section.id).first()
+
+            if not true_source_column:
+                return jsonify({
+                    'success': False,
+                    'error': 'Section is not assigned to a column.'
+                }), 400
+
+            source_column = true_source_column
+
+        target_section_id = target_column.section_id
+
+        # Move into empty column OR swap with occupied column.
+        target_column.section_id = section.id
+        source_column.section_id = target_section_id
+
+        # Keep section.order roughly aligned with visual cell position.
+        section.order = target_column.column_number or section.order
+
+        if target_section_id:
+            swapped_section = PageSection.query.get(target_section_id)
+            if swapped_section:
+                swapped_section.order = source_column.column_number or swapped_section.order
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Section moved successfully.'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f'Error moving/swapping section: {e}')
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/move_section_to_new_row/<int:section_id>', methods=['PUT'])
 @login_required
@@ -4069,9 +4152,9 @@ def update_section():
     elif section_type == 'button':
         section = update_button_section(section, form_data)
     elif section_type == 'contact_form':
-    #     section = update_contact_section(section, form_data)
+        section = update_contact_section(section, form_data)
     # elif section_type == 'header':
-        section = update_header_section(section, form_data)
+    #     section = update_header_section(section, form_data)
     elif section_type == 'youtube_video':
         section = update_youtube_video_section(section, form_data)
     # elif section_type == 'navbar':

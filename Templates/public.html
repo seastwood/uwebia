@@ -51,6 +51,8 @@
         /* White text color */
     }
 
+
+    
 .public-page-body {
     min-height: 100vh;
     background-repeat: no-repeat;
@@ -230,11 +232,6 @@
         width: 100%;
         height: 100%;
 
-    }
-
-    img {
-        /* border-radius: 5px; */
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     .mySlides img {
@@ -897,12 +894,22 @@
     margin: 6px auto;
 
 }
+.public-section-group:focus,
+.public-section-group:focus-visible {
+    outline: none;
+}
+
+/* Keep real form inputs normal */
+.public-section-group input {
+    caret-color: auto;
+    outline: revert;
+}
 </style>
 
 
 <body class="public-page-body" style="
-    background-color: {{ website.background_color or '#ffffff' }};
-    color: {{ website.text_color or '#000000' }};
+background: {{ website.background_color or '#ffffff' }};
+color: {{ website.text_color or '#000000' }};
 
     {% if website.background_image_url %}
         background-image: url('{{ website.background_image_url }}');
@@ -951,7 +958,7 @@
 
             {% for group in content.get('groups', []) %}
             <section class="public-section-group" id="{{ group.anchor_slug or ('section-group-' ~ group.id) }}" style="
-        background-color: {{ group.background_color or 'transparent' }};
+background: {{ group.background_color or 'transparent' }};
         {% if group.background_image_url %}
             background-image: url('{{ group.background_image_url }}');
             background-size: {{ group.background_image_size or 'cover' }};
@@ -1382,7 +1389,6 @@
 
 
     </div>
-</body>
 
 
 <!-- <script>
@@ -1397,9 +1403,6 @@ document.body.style.color = text_color;
     console.log("BACKGROUND COLOR: ", background_color, " TEXT_COLOR: ", text_color)
 </script> -->
 
-
-
-<body style="background: {{ website.background_color }}; color: {{ website.text_color }};">
     <script>
         function toggleMenu() {
             var navbarMenu = document.getElementById("navbarMenu");
@@ -1706,5 +1709,5 @@ document.body.style.color = text_color;
 
         }
     </script> -->
-
+</body>
 </html>

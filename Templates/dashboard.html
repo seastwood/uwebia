@@ -3858,61 +3858,62 @@ function savePublicNavbarStyle(websiteId) {
             }
 
             function updateWebsiteBackgroundPreview(websiteId) {
-                const directionSelect = document.getElementById(`gradientDirection_${websiteId}`);
-                const backgroundInput = document.getElementById(`backgroundColor_${websiteId}`);
-                const textColorInput = document.getElementById(`textColor_${websiteId}`);
-                const preview = document.getElementById(`websiteStylePreview_${websiteId}`);
+    const directionSelect = document.getElementById(`gradientDirection_${websiteId}`);
+    const backgroundInput = document.getElementById(`backgroundColor_${websiteId}`);
+    const textColorInput = document.getElementById(`textColor_${websiteId}`);
+    const preview = document.getElementById(`websiteStylePreview_${websiteId}`);
 
-                const imageInput = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
-                const repeatInput = document.getElementById(`websiteBackgroundRepeat_${websiteId}`);
-                const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
-                const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
+    const imageInput = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
+    const repeatInput = document.getElementById(`websiteBackgroundRepeat_${websiteId}`);
+    const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
+    const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
 
-                const colorInputs = document.querySelectorAll(`#gradientColors_${websiteId} input[type="color"]`);
-                const colors = Array.from(colorInputs).map(input => input.value);
+    const colorInputs = document.querySelectorAll(`#gradientColors_${websiteId} input[type="color"]`);
+    const colors = Array.from(colorInputs).map(input => input.value);
 
-                let background = backgroundInput?.value || '#ffffff';
+    let background = backgroundInput?.value || '#ffffff';
 
-                if (colors.length === 1) {
-                    background = colors[0];
-                } else if (colors.length > 1 && directionSelect) {
-                    background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
-                }
+    if (colors.length === 1) {
+        background = colors[0];
+    } else if (colors.length > 1 && directionSelect) {
+        background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+    }
 
-                if (backgroundInput) {
-                    backgroundInput.value = background;
-                }
+    if (backgroundInput) {
+        backgroundInput.value = background;
+    }
 
-                const imageUrl = imageInput?.value || '';
-                const repeat = repeatInput?.checked || false;
-                const zoom = zoomInput?.value || 100;
+    const imageUrl = imageInput?.value || '';
+    const repeat = repeatInput?.checked || false;
+    const zoom = zoomInput?.value || 100;
 
-                if (zoomValue) {
-                    zoomValue.textContent = `${zoom}%`;
-                }
+    if (zoomValue) {
+        zoomValue.textContent = `${zoom}%`;
+    }
 
-                if (!preview) return;
+    if (!preview) return;
 
-                preview.style.background = background;
-                preview.style.color = textColorInput?.value || '#000000';
-                preview.style.setProperty('--preview-text-color', textColorInput?.value || '#000000');
+    preview.style.color = textColorInput?.value || '#000000';
+    preview.style.setProperty('--preview-text-color', textColorInput?.value || '#000000');
 
-                if (imageUrl) {
-                    preview.style.backgroundImage = `url("${imageUrl}")`;
-                    preview.style.backgroundRepeat = repeat ? 'repeat' : 'no-repeat';
-                    preview.style.backgroundPosition = 'center';
+    if (imageUrl) {
+        preview.style.backgroundColor = 'transparent';
+        preview.style.backgroundImage = `url("${imageUrl}"), ${background}`;
+        preview.style.backgroundRepeat = `${repeat ? 'repeat' : 'no-repeat'}, no-repeat`;
+        preview.style.backgroundPosition = 'center, center';
 
-                    if (repeat) {
-                        preview.style.backgroundSize = `${zoom}px auto`;
-                    } else {
-                        preview.style.backgroundSize = `${zoom}% auto`;
-                    }
-                } else {
-                    preview.style.backgroundImage = '';
-                    preview.style.backgroundRepeat = 'no-repeat';
-                    preview.style.backgroundSize = 'cover';
-                }
-            }
+        if (repeat) {
+            preview.style.backgroundSize = `${zoom}px auto, auto`;
+        } else {
+            preview.style.backgroundSize = `${zoom}% auto, auto`;
+        }
+    } else {
+        preview.style.background = background;
+        preview.style.backgroundRepeat = 'no-repeat';
+        preview.style.backgroundPosition = 'center';
+        preview.style.backgroundSize = 'cover';
+    }
+}
 
             function updateWebsiteTextPreview(websiteId) {
                 const textColor = document.getElementById(`textColor_${websiteId}`).value;
