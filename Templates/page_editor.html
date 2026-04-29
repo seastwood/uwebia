@@ -3441,7 +3441,7 @@
     }
 
     .section-card[draggable="true"] .section-title {
-        cursor: default;
+        cursor: pointer;
     }
 
     .section-card-dragging {
@@ -3924,7 +3924,7 @@ body.is-sorting-rows .section-group {
         no-repeat !important;
 
     border-radius: 0 0 24px 24px;
-    overflow: hidden;
+    /* overflow: hidden; */
 }
 
 /* GROUP ROWS: remove dashed container outline */
@@ -4247,6 +4247,649 @@ body.is-sorting-images .section-group {
 .image-delete-button i {
     font-size: 13px;
     pointer-events: none;
+}
+
+/* =========================================================
+   COMPACT RESPONSIVE EDITOR UI FIXES
+   Prevent crowded buttons, overflowing labels, and dropdown layering
+========================================================= */
+
+/* ---------- Safer button text behavior ---------- */
+
+.section-group-actions button,
+.section-content button,
+.editor-controls button,
+.btn-secondary,
+.column > button,
+.delete-column-button {
+    max-width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.section-group-actions button span,
+.editor-controls button span,
+.btn-secondary span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Group header should allow the title and actions to share space better */
+.section-group-header {
+    min-width: 0;
+}
+
+.section-group-header-left {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.section-group-title-stack {
+    min-width: 0;
+}
+
+.editable-group-label {
+    max-width: 100%;
+    min-width: 0;
+}
+
+/* Actions should shrink without forcing overflow */
+.section-group-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+/* ---------- Section title layout ---------- */
+
+.section-title {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+
+    min-width: 0;
+    overflow: visible;
+}
+
+.section-drag-handle {
+    grid-column: 1;
+}
+
+.section-label {
+    grid-column: 2;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.section-title .dropdown {
+    grid-column: 3;
+    justify-self: end;
+    margin-left: 0 !important;
+    position: relative;
+    z-index: 200002;
+}
+
+/* ---------- Row options should not sit on top of section dropdown ---------- */
+
+.row {
+    position: relative;
+    padding-right: 48px;
+    overflow: visible !important;
+}
+
+.options-dropdown {
+    position: absolute;
+    top: 10px !important;
+    right: 10px !important;
+    transform: none !important;
+    margin: 0 !important;
+    z-index: 80;
+}
+
+/* When a section dropdown is active, let it beat the row gear */
+.row:has(.section-title .dropdown:hover) .options-dropdown,
+.row:has(.section-title .dropdown:focus-within) .options-dropdown {
+    z-index: 10;
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.row:has(.options-dropdown:hover),
+.row:has(.options-dropdown:focus-within),
+.column:has(.dropdown:hover),
+.column:has(.dropdown:focus-within),
+.section-card:has(.dropdown:hover),
+.section-card:has(.dropdown:focus-within) {
+    z-index: 999999;
+}
+
+/* ---------- Dropdown menus ---------- */
+
+.dropdown-content {
+    max-width: min(220px, calc(100vw - 28px));
+    min-width: 160px;
+
+    white-space: nowrap;
+    overflow: hidden;
+    z-index: 999999 !important;
+}
+
+.dropdown-content a {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Section dropdown opens under the section menu button */
+.section-title .dropdown-content {
+    right: 0;
+    left: auto;
+    top: calc(100% + 8px);
+}
+
+/* Row dropdown opens under the gear */
+.options-dropdown .dropdown-content {
+    right: 0;
+    left: auto;
+    top: calc(100% + 8px);
+}
+
+/* ---------- Compact small-screen mode ---------- */
+
+@media (max-width: 700px) {
+    .content-sections-container {
+        padding: 10px 8px 28vh;
+    }
+
+    .section-group {
+        margin: 12px 0;
+        border-radius: 18px;
+    }
+
+    .section-group-header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: center;
+
+        min-height: 0;
+        padding: 10px;
+        border-radius: 18px 18px 0 0;
+    }
+
+    .section-group-header-left {
+        min-width: 0;
+        gap: 7px;
+    }
+
+    .group-collapse-toggle,
+    .group-drag-handle {
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        border-radius: 10px;
+        font-size: 13px;
+    }
+
+    .section-group-title-stack::before {
+        display: none;
+        content: none;
+    }
+
+    .editable-group-label {
+        font-size: 0.88rem;
+        padding: 3px 6px;
+        white-space: nowrap;
+    }
+
+    .section-group-meta {
+        padding-left: 6px;
+        font-size: 0.68rem;
+    }
+
+    .section-group-actions {
+        width: auto !important;
+        justify-content: flex-end;
+        flex-wrap: nowrap;
+        gap: 6px;
+    }
+
+    /* Make group action buttons icon-only on small screens */
+    .section-group-actions button {
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        min-height: 32px;
+        padding: 0 !important;
+        border-radius: 10px;
+    }
+
+    .section-group-actions button span {
+        display: none !important;
+    }
+
+    .section-group-actions button i {
+        margin: 0;
+        font-size: 13px;
+    }
+
+    .group-rows-shell {
+        padding: 10px;
+        border-radius: 0 0 18px 18px;
+    }
+
+    .row {
+        gap: 7px;
+        padding: 8px 42px 8px 8px;
+        border-radius: 14px;
+        overflow-x: auto !important;
+        overflow-y: visible !important;
+    }
+
+    .row-drag-handle {
+        width: 28px;
+        min-width: 28px;
+        border-radius: 10px;
+    }
+
+    .options-dropdown {
+        top: 8px !important;
+        right: 8px !important;
+    }
+
+    .options-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+    }
+
+    .column {
+        min-width: 150px;
+    }
+
+    .section-title {
+        min-height: 38px;
+        padding: 7px;
+        gap: 6px;
+        border-radius: 11px;
+        font-size: 0.72rem;
+        letter-spacing: 0.025em;
+    }
+
+    .section-drag-handle,
+    .dropbtn {
+        width: 27px;
+        height: 27px;
+        min-width: 27px;
+        border-radius: 9px;
+    }
+
+    .section-label {
+        max-width: 100%;
+    }
+
+    .section-content.open {
+        padding: 10px;
+    }
+
+    .dropdown-content {
+        min-width: 150px;
+        max-width: min(190px, calc(100vw - 24px));
+        padding: 6px;
+        border-radius: 12px;
+    }
+
+    .dropdown-content a {
+        min-height: 32px;
+        padding: 7px 9px;
+        font-size: 11px;
+    }
+
+    .image-editor-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .image-editor-header .btn-secondary {
+        width: 100%;
+    }
+
+    .image-layout-panel {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Extra tiny screens */
+@media (max-width: 430px) {
+    .section-group-header {
+        grid-template-columns: 1fr;
+    }
+
+    .section-group-actions {
+        justify-content: flex-start;
+    }
+
+    .column {
+        min-width: 135px;
+    }
+
+    .section-title {
+        font-size: 0.68rem;
+    }
+
+    .dropdown-content {
+        min-width: 142px;
+    }
+}
+
+.row.dropdown-active {
+    z-index: 999999;
+}
+
+/* =========================================================
+   FIX DROPDOWN CLIPPING + COLUMN RESIZE + SMALL SECTION LABELS
+========================================================= */
+
+/* 1. Let dropdowns escape groups/rows/columns */
+.section-group,
+.group-rows-shell,
+.group-rows,
+.row,
+.column,
+.section-card,
+.section-title {
+    overflow: visible !important;
+}
+
+/* This was clipping dropdowns inside groups */
+.group-rows-shell {
+    overflow: visible !important;
+}
+
+/* Row horizontal scrolling clips dropdowns. Keep the row visible instead. */
+.row {
+    overflow: visible !important;
+}
+
+/* Keep dropdowns above nearby row/section controls */
+.section-group:has(.dropdown:hover),
+.section-group:has(.dropdown:focus-within),
+.section-group:has(.options-dropdown:hover),
+.section-group:has(.options-dropdown:focus-within),
+.row:has(.dropdown:hover),
+.row:has(.dropdown:focus-within),
+.row:has(.options-dropdown:hover),
+.row:has(.options-dropdown:focus-within),
+.column:has(.dropdown:hover),
+.column:has(.dropdown:focus-within),
+.section-card:has(.dropdown:hover),
+.section-card:has(.dropdown:focus-within) {
+    z-index: 999999 !important;
+}
+
+/* Make dropdown menus float cleanly above everything */
+.dropdown-content {
+    z-index: 1000000 !important;
+    overflow: visible !important;
+}
+
+.section-title .dropdown-content,
+.options-dropdown .dropdown-content {
+    position: absolute;
+    right: 0;
+    left: auto;
+        top: 100% !important;
+}
+
+.dropdown,
+.options-dropdown {
+    position: relative;
+}
+
+/* Invisible bridge so the menu does not disappear while moving cursor down */
+.dropdown::after,
+.options-dropdown::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 10px;
+}
+
+/* Keep menu open when hovering either the button or the menu */
+.dropdown:hover .dropdown-content,
+.dropdown:focus-within .dropdown-content,
+.options-dropdown:hover .dropdown-content,
+.options-dropdown:focus-within .dropdown-content {
+    display: block !important;
+}
+
+.dropdown-content {
+    pointer-events: auto;
+    z-index: 1000000 !important;
+}
+
+.section-title .dropdown,
+.options-dropdown {
+    z-index: 1000001 !important;
+}
+
+/* 2. Allow columns to actually resize smaller */
+.column {
+    min-width: 40px !important;
+    flex-shrink: 1 !important;
+}
+
+/* Resize handle should keep its own width */
+.column-resize-handle {
+    flex: 0 0 7px !important;
+    min-width: 7px !important;
+}
+
+/* When a column is narrow, don't let controls force it wider */
+.section-card,
+.section-title,
+.section-label {
+    min-width: 0 !important;
+}
+
+/* 3. Keep section names visible in small/narrow columns */
+.section-title {
+    grid-template-columns: auto minmax(0, 1fr) auto !important;
+}
+
+.section-label {
+    display: block !important;
+    min-width: 0 !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* More forgiving layout on small screens */
+@media (max-width: 700px) {
+    .row {
+        overflow: visible !important;
+        padding-right: 42px;
+    }
+
+    .column {
+        min-width: 48px !important;
+    }
+
+    .section-title {
+        display: grid !important;
+        grid-template-columns: auto auto;
+        grid-template-areas:
+            "drag menu"
+            "label label";
+        justify-content: start;
+        align-items: center;
+        gap: 5px;
+        padding: 6px;
+    }
+
+    .section-drag-handle {
+        grid-area: drag;
+    }
+
+    .section-title .dropdown {
+        grid-area: menu;
+        justify-self: start;
+    }
+
+    .section-label {
+        grid-area: label;
+        width: 100%;
+        font-size: 0.68rem;
+        line-height: 1.15;
+        letter-spacing: 0.02em;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        word-break: break-word;
+    }
+
+    .section-drag-handle,
+    .dropbtn {
+        width: 24px !important;
+        height: 24px !important;
+        min-width: 24px !important;
+        font-size: 12px;
+    }
+}
+
+/* Ultra-narrow columns: keep at least a readable abbreviation-like label */
+@media (max-width: 430px) {
+    .column {
+        min-width: 44px !important;
+    }
+
+    .section-label {
+        font-size: 0.62rem;
+    }
+}
+
+/* =========================================================
+   CLEAN SECTION TITLES + NARROW SECTION MODE
+========================================================= */
+
+/* Normal sections should stay normal */
+.section-title {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr) auto !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-label {
+    display: block !important;
+    min-width: 0 !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Only truly narrow cards get compact styling */
+.section-card.is-narrow-section .section-title {
+    grid-template-columns: auto 1fr auto !important;
+    gap: 5px;
+    padding: 6px;
+    min-height: 36px;
+}
+
+.section-card.is-narrow-section .section-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.01em;
+    text-transform: none;
+}
+
+/* Tiny columns: hide the long name and use a small top-left badge */
+.section-card.is-tiny-section .section-title {
+    grid-template-columns: 1fr auto !important;
+    grid-template-areas:
+        "label menu"
+        "drag drag";
+    align-items: start;
+    min-height: 54px;
+}
+
+.section-card.is-tiny-section .section-label {
+    grid-area: label;
+
+    display: inline-flex !important;
+    align-items: center;
+
+    width: fit-content;
+    max-width: 100%;
+
+    padding: 3px 6px;
+    border-radius: 999px;
+
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(126, 226, 204, 0.13);
+    border: 1px solid rgba(126, 226, 204, 0.22);
+
+    font-size: 0.56rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.section-card.is-tiny-section .section-drag-handle {
+    grid-area: drag;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 22px !important;
+    margin: 0;
+    font-size: 11px;
+    border-radius: 8px;
+}
+
+.section-card.is-tiny-section .section-title .dropdown {
+    grid-area: menu;
+    justify-self: end;
+}
+
+.section-card.is-tiny-section .dropbtn {
+    width: 22px !important;
+    min-width: 22px !important;
+    height: 22px !important;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+/* Keep row options anchored to the right side of the row */
+.row {
+    position: relative;
+}
+
+.row > .options-dropdown {
+    position: absolute !important;
+    top: 8px !important;
+    right: 8px !important;
+    left: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    z-index: 1000001 !important;
+}
+
+/* Row dropdown opens from the right edge */
+.row > .options-dropdown .dropdown-content {
+    right: 0 !important;
+    left: auto !important;
+    top: 100% !important;
 }
 
 </style>
@@ -5398,15 +6041,18 @@ if (row.section_group_id && groupContainersById[row.section_group_id]) {
 
 
                     if (section && section.isSection) {
-                        const sectionCard = document.createElement('div');
-                        sectionCard.classList.add('section-card');
-                        sectionCard.dataset.sectionId = section.id;
-                        sectionCard.dataset.columnId = section.column_id;
-                        sectionCard.dataset.rowId = rowId;
+const sectionCard = document.createElement('div');
+sectionCard.classList.add('section-card');
+sectionCard.classList.add(`section-type-${section.section_type}`);
+sectionCard.dataset.sectionId = section.id;
+sectionCard.dataset.columnId = section.column_id;
+sectionCard.dataset.rowId = rowId;
+sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
 
                         const sectionElement = document.createElement('div');
                         sectionElement.classList.add('section-title');
                         sectionElement.id = `section-title-${section.id}`;
+                        sectionElement.dataset.label = getPrettySectionType(section.section_type);
                         sectionElement.onclick = function (event) {
                             if (document.body.classList.contains('is-sorting')) return;
                             if (event.target.closest('.dropdown, .dropbtn, .dropdown-content')) return;
@@ -6403,6 +7049,7 @@ if (row.section_group_id && groupContainersById[row.section_group_id]) {
             syncEmptyGroupMessages();
             updateGroupRowCounts();
 restoreCollapsedSectionGroups();
+updateNarrowSectionCards();
 
             function addRowAbove(currentRowId) {
                 // console.log("ADD ROW ABOVE: ", currentRowId)
@@ -6583,6 +7230,8 @@ restoreCollapsedSectionGroups();
                     .catch((error) => {
                         console.error('Error updating column widths:', error);
                     });
+                    updateNarrowSectionCards();
+                    
             }
 
 
@@ -8388,7 +9037,52 @@ uploadedImagesUl.appendChild(li);
             });
         });
 
+        function toggleDropdown(dropdownContent) {
+    if (!dropdownContent) return;
+
+    const isOpen = dropdownContent.classList.contains('dropdown-open');
+
+    document.querySelectorAll('.dropdown-content.dropdown-open').forEach(menu => {
+        if (menu !== dropdownContent) {
+            menu.classList.remove('dropdown-open');
+            menu.style.display = 'none';
+        }
+    });
+
+    document.querySelectorAll('.row.dropdown-active').forEach(row => {
+        row.classList.remove('dropdown-active');
+    });
+
+    if (isOpen) {
+        dropdownContent.classList.remove('dropdown-open');
+        dropdownContent.style.display = 'none';
+        return;
+    }
+
+    dropdownContent.classList.add('dropdown-open');
+    dropdownContent.style.display = 'block';
+
+    const row = dropdownContent.closest('.row');
+    if (row) {
+        row.classList.add('dropdown-active');
+    }
+}
+
+document.addEventListener('click', function (event) {
+    if (event.target.closest('.options-dropdown, .dropdown')) return;
+
+    document.querySelectorAll('.dropdown-content.dropdown-open').forEach(menu => {
+        menu.classList.remove('dropdown-open');
+        menu.style.display = 'none';
+    });
+
+    document.querySelectorAll('.row.dropdown-active').forEach(row => {
+        row.classList.remove('dropdown-active');
+    });
+});
+
     </script>
+
 
 
     <script>
@@ -9429,6 +10123,21 @@ function deleteSectionImage(linkId, sectionId) {
             alert('Error removing image.');
         });
 }
+    </script>
+    <script>
+        function updateNarrowSectionCards() {
+    document.querySelectorAll('.column').forEach(column => {
+        const width = column.getBoundingClientRect().width;
+        const sectionCard = column.querySelector('.section-card');
+
+        if (!sectionCard) return;
+
+        sectionCard.classList.toggle('is-narrow-section', width < 160);
+        sectionCard.classList.toggle('is-tiny-section', width < 150);
+    });
+}
+
+window.addEventListener('resize', updateNarrowSectionCards);
     </script>
 
     {% endblock %}
