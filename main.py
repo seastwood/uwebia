@@ -467,10 +467,9 @@ class PageVisit(db.Model):
 
     asn_number = db.Column(db.Integer, nullable=True)
     asn_organization = db.Column(db.String(255), nullable=True)
-    geoip_enabled = db.Column(db.Boolean, nullable=False, default=False)
-    geoip_database_path = db.Column(db.String(500), nullable=True)
-    geoip_database_name = db.Column(db.String(255), nullable=True)
+
     geoip_database_type = db.Column(db.String(100), nullable=True)
+
     visited_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     website = db.relationship('Website', backref=db.backref('page_visits', lazy=True, cascade='all, delete-orphan'))
@@ -487,8 +486,18 @@ class AnalyticsSettings(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
 
     geoip_enabled = db.Column(db.Boolean, nullable=False, default=False)
-    geoip_database_path = db.Column(db.String(500), nullable=True)
-    geoip_database_name = db.Column(db.String(255), nullable=True)
+
+    geoip_city_database_path = db.Column(db.String(500), nullable=True)
+    geoip_city_database_name = db.Column(db.String(255), nullable=True)
+    geoip_city_database_type = db.Column(db.String(100), nullable=True)
+
+    geoip_country_database_path = db.Column(db.String(500), nullable=True)
+    geoip_country_database_name = db.Column(db.String(255), nullable=True)
+    geoip_country_database_type = db.Column(db.String(100), nullable=True)
+
+    geoip_asn_database_path = db.Column(db.String(500), nullable=True)
+    geoip_asn_database_name = db.Column(db.String(255), nullable=True)
+    geoip_asn_database_type = db.Column(db.String(100), nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -3890,10 +3899,10 @@ def lookup_ip_location_for_website(website, ip_address):
     Optional local GeoIP lookup.
     No third-party API call is made.
 
-    Supports:
-    - GeoLite2-City / GeoIP2-City
-    - GeoLite2-Country / GeoIP2-Country
-    - GeoLite2-ASN / GeoIP2-ASN
+    Supports using multiple local databases at once:
+    - City: country, region, city, lat/lon
+    - Country: country only
+    - ASN: network/provider
     """
     if not website or not ip_address:
         return {}
@@ -3906,79 +3915,71 @@ def lookup_ip_location_for_website(website, ip_address):
     if not settings or not settings.geoip_enabled:
         return {}
 
-    if not settings.geoip_database_path:
-        return {}
-
-    if not os.path.exists(settings.geoip_database_path):
-        return {}
-
     try:
         import geoip2.database
 
-        with geoip2.database.Reader(settings.geoip_database_path) as reader:
-            metadata = reader.metadata()
-            database_type = metadata.database_type
+        result = {
+            'location_source': 'local_geoip'
+        }
 
-            result = {
-                'geoip_database_type': database_type,
-                'location_source': 'local_geoip'
-            }
+        # 1. City database, best location option
+        if settings.geoip_city_database_path and os.path.exists(settings.geoip_city_database_path):
+            try:
+                with geoip2.database.Reader(settings.geoip_city_database_path) as reader:
+                    response = reader.city(ip_address)
 
-            if database_type in ['GeoLite2-City', 'GeoIP2-City']:
-                response = reader.city(ip_address)
+                    result.update({
+                        'geoip_database_type': settings.geoip_city_database_type,
+                        'country': response.country.name,
+                        'country_iso': response.country.iso_code,
+                        'region': response.subdivisions.most_specific.name,
+                        'city': response.city.name,
+                        'latitude': response.location.latitude,
+                        'longitude': response.location.longitude
+                    })
+            except Exception as e:
+                print(f"GeoIP City lookup failed for {ip_address}: {e}")
 
-                result.update({
-                    'country': response.country.name,
-                    'country_iso': response.country.iso_code,
-                    'region': response.subdivisions.most_specific.name,
-                    'city': response.city.name,
-                    'latitude': response.location.latitude,
-                    'longitude': response.location.longitude
-                })
+        # 2. Country fallback if City was not available or did not return country
+        if not result.get('country') and settings.geoip_country_database_path and os.path.exists(settings.geoip_country_database_path):
+            try:
+                with geoip2.database.Reader(settings.geoip_country_database_path) as reader:
+                    response = reader.country(ip_address)
 
-                return result
+                    result.update({
+                        'geoip_database_type': result.get('geoip_database_type') or settings.geoip_country_database_type,
+                        'country': response.country.name,
+                        'country_iso': response.country.iso_code
+                    })
+            except Exception as e:
+                print(f"GeoIP Country lookup failed for {ip_address}: {e}")
 
-            if database_type in ['GeoLite2-Country', 'GeoIP2-Country']:
-                response = reader.country(ip_address)
+        # 3. ASN can be added alongside City/Country
+        if settings.geoip_asn_database_path and os.path.exists(settings.geoip_asn_database_path):
+            try:
+                with geoip2.database.Reader(settings.geoip_asn_database_path) as reader:
+                    response = reader.asn(ip_address)
 
-                result.update({
-                    'country': response.country.name,
-                    'country_iso': response.country.iso_code,
-                    'region': None,
-                    'city': None,
-                    'latitude': None,
-                    'longitude': None
-                })
+                    result.update({
+                        'asn_number': response.autonomous_system_number,
+                        'asn_organization': response.autonomous_system_organization
+                    })
 
-                return result
+                    if result.get('geoip_database_type'):
+                        result['geoip_database_type'] = f"{result['geoip_database_type']} + {settings.geoip_asn_database_type}"
+                    else:
+                        result['geoip_database_type'] = settings.geoip_asn_database_type
 
-            if database_type in ['GeoLite2-ASN', 'GeoIP2-ASN']:
-                response = reader.asn(ip_address)
+            except Exception as e:
+                print(f"GeoIP ASN lookup failed for {ip_address}: {e}")
 
-                result.update({
-                    'asn_number': response.autonomous_system_number,
-                    'asn_organization': response.autonomous_system_organization,
-
-                    # ASN databases do not include country/city fields.
-                    'country': None,
-                    'country_iso': None,
-                    'region': None,
-                    'city': None,
-                    'latitude': None,
-                    'longitude': None
-                })
-
-                return result
-
-            return {}
+        return result
 
     except Exception as e:
         print(f"GeoIP lookup failed for {ip_address}: {e}")
         return {}
 
-    except Exception as e:
-        print(f"GeoIP lookup failed: {e}")
-        return {}
+
 @app.route('/dashboard/analytics/geoip/upload', methods=['POST'])
 @login_required
 def upload_geoip_database():
@@ -4003,37 +4004,86 @@ def upload_geoip_database():
     analytics_folder = os.path.join(database_folder, 'analytics')
     os.makedirs(analytics_folder, exist_ok=True)
 
-    saved_path = os.path.join(analytics_folder, f'user_{current_user.id}_geoip.mmdb')
+    temp_path = os.path.join(
+        analytics_folder,
+        f'user_{current_user.id}_geoip_upload_temp.mmdb'
+    )
 
-    geoip_file.save(saved_path)
+    geoip_file.save(temp_path)
 
     try:
         import geoip2.database
 
-        with geoip2.database.Reader(saved_path) as reader:
-            metadata = reader.metadata()
-            database_type = metadata.database_type
+        with geoip2.database.Reader(temp_path) as reader:
+            database_type = reader.metadata().database_type
 
     except Exception as e:
-        if os.path.exists(saved_path):
-            os.remove(saved_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
         return jsonify({
             'success': False,
             'message': f'Could not read this GeoIP database: {str(e)}'
         }), 400
 
-    supported_types = [
-        'GeoLite2-City',
-        'GeoIP2-City',
-        'GeoLite2-Country',
-        'GeoIP2-Country',
-        'GeoLite2-ASN',
-        'GeoIP2-ASN'
-    ]
+    city_types = ['GeoLite2-City', 'GeoIP2-City']
+    country_types = ['GeoLite2-Country', 'GeoIP2-Country']
+    asn_types = ['GeoLite2-ASN', 'GeoIP2-ASN']
 
-    if database_type not in supported_types:
-        os.remove(saved_path)
+    if database_type in city_types:
+        final_path = os.path.join(
+            analytics_folder,
+            f'user_{current_user.id}_geoip_city.mmdb'
+        )
+
+        if os.path.exists(final_path):
+            os.remove(final_path)
+
+        os.replace(temp_path, final_path)
+
+        settings.geoip_city_database_path = final_path
+        settings.geoip_city_database_name = filename
+        settings.geoip_city_database_type = database_type
+
+        message = f'{database_type} uploaded. City-level location lookup is enabled.'
+
+    elif database_type in country_types:
+        final_path = os.path.join(
+            analytics_folder,
+            f'user_{current_user.id}_geoip_country.mmdb'
+        )
+
+        if os.path.exists(final_path):
+            os.remove(final_path)
+
+        os.replace(temp_path, final_path)
+
+        settings.geoip_country_database_path = final_path
+        settings.geoip_country_database_name = filename
+        settings.geoip_country_database_type = database_type
+
+        message = f'{database_type} uploaded. Country-level lookup is enabled.'
+
+    elif database_type in asn_types:
+        final_path = os.path.join(
+            analytics_folder,
+            f'user_{current_user.id}_geoip_asn.mmdb'
+        )
+
+        if os.path.exists(final_path):
+            os.remove(final_path)
+
+        os.replace(temp_path, final_path)
+
+        settings.geoip_asn_database_path = final_path
+        settings.geoip_asn_database_name = filename
+        settings.geoip_asn_database_type = database_type
+
+        message = f'{database_type} uploaded. Network/provider lookup is enabled.'
+
+    else:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
         return jsonify({
             'success': False,
@@ -4041,18 +4091,17 @@ def upload_geoip_database():
         }), 400
 
     settings.geoip_enabled = True
-    settings.geoip_database_path = saved_path
-    settings.geoip_database_name = filename
-    settings.geoip_database_type = database_type
     settings.updated_at = datetime.utcnow()
 
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'message': f'{database_type} database uploaded and enabled.',
-        'geoip_database_name': filename,
-        'geoip_database_type': database_type
+        'message': message,
+        'geoip_database_type': database_type,
+        'geoip_city_database_name': settings.geoip_city_database_name,
+        'geoip_country_database_name': settings.geoip_country_database_name,
+        'geoip_asn_database_name': settings.geoip_asn_database_name
     })
 
 
@@ -4062,16 +4111,13 @@ def disable_geoip_database():
     settings = get_analytics_settings_for_user(current_user.id)
 
     settings.geoip_enabled = False
-    settings.geoip_database_path = None
-    settings.geoip_database_name = None
-    settings.geoip_database_type = None
     settings.updated_at = datetime.utcnow()
 
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'message': 'Approximate location analytics disabled.'
+        'message': 'Approximate location and network analytics disabled.'
     })
 
 
@@ -4080,19 +4126,37 @@ def disable_geoip_database():
 def delete_geoip_database():
     settings = get_analytics_settings_for_user(current_user.id)
 
-    if settings.geoip_database_path and os.path.exists(settings.geoip_database_path):
-        os.remove(settings.geoip_database_path)
+    paths_to_delete = [
+        settings.geoip_city_database_path,
+        settings.geoip_country_database_path,
+        settings.geoip_asn_database_path
+    ]
+
+    for path in paths_to_delete:
+        if path and os.path.exists(path):
+            os.remove(path)
 
     settings.geoip_enabled = False
-    settings.geoip_database_path = None
-    settings.geoip_database_name = None
+
+    settings.geoip_city_database_path = None
+    settings.geoip_city_database_name = None
+    settings.geoip_city_database_type = None
+
+    settings.geoip_country_database_path = None
+    settings.geoip_country_database_name = None
+    settings.geoip_country_database_type = None
+
+    settings.geoip_asn_database_path = None
+    settings.geoip_asn_database_name = None
+    settings.geoip_asn_database_type = None
+
     settings.updated_at = datetime.utcnow()
 
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'message': 'Local GeoIP database deleted.'
+        'message': 'All local GeoIP databases deleted.'
     })
 
 GEOIP_DB_PATH = os.path.join(database_folder, 'GeoLite2-City.mmdb')

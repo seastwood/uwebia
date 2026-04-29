@@ -26,7 +26,7 @@
 
     .analytics-kicker {
         margin: 0 0 6px;
-        color: rgba(255,255,255,0.52);
+        color: rgba(255, 255, 255, 0.52);
         font-size: 0.75rem;
         font-weight: 850;
         letter-spacing: 0.13em;
@@ -43,7 +43,7 @@
 
     .analytics-subtitle {
         margin: 8px 0 0;
-        color: rgba(255,255,255,0.62);
+        color: rgba(255, 255, 255, 0.62);
     }
 
     .analytics-back-link {
@@ -52,9 +52,9 @@
         gap: 8px;
         padding: 10px 13px;
         border-radius: 12px;
-        color: rgba(255,255,255,0.86);
-        background: rgba(255,255,255,0.065);
-        border: 1px solid rgba(255,255,255,0.105);
+        color: rgba(255, 255, 255, 0.86);
+        background: rgba(255, 255, 255, 0.065);
+        border: 1px solid rgba(255, 255, 255, 0.105);
         text-decoration: none;
         font-size: 0.86rem;
         font-weight: 750;
@@ -76,19 +76,19 @@
 
     .analytics-card {
         background:
-            linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
             #1e1d20;
-        border: 1px solid rgba(255,255,255,0.09);
+        border: 1px solid rgba(255, 255, 255, 0.09);
         border-radius: 18px;
         padding: 18px;
         box-shadow:
-            0 18px 40px rgba(0,0,0,0.32),
-            inset 0 1px 0 rgba(255,255,255,0.05);
+            0 18px 40px rgba(0, 0, 0, 0.32),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
     .analytics-metric-label {
         margin: 0 0 8px;
-        color: rgba(255,255,255,0.55);
+        color: rgba(255, 255, 255, 0.55);
         font-size: 0.74rem;
         font-weight: 850;
         letter-spacing: 0.1em;
@@ -131,13 +131,13 @@
         width: 100%;
         min-height: 3px;
         border-radius: 999px 999px 0 0;
-        background: linear-gradient(180deg, rgba(126,226,204,0.9), rgba(126,226,204,0.25));
+        background: linear-gradient(180deg, rgba(126, 226, 204, 0.9), rgba(126, 226, 204, 0.25));
     }
 
     .analytics-bar-label {
         writing-mode: vertical-rl;
         transform: rotate(180deg);
-        color: rgba(255,255,255,0.42);
+        color: rgba(255, 255, 255, 0.42);
         font-size: 0.66rem;
         white-space: nowrap;
     }
@@ -151,12 +151,12 @@
     .analytics-table th,
     .analytics-table td {
         padding: 12px 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         text-align: left;
     }
 
     .analytics-table th {
-        color: rgba(255,255,255,0.55);
+        color: rgba(255, 255, 255, 0.55);
         font-size: 0.72rem;
         font-weight: 850;
         letter-spacing: 0.09em;
@@ -164,12 +164,12 @@
     }
 
     .analytics-table td {
-        color: rgba(255,255,255,0.86);
+        color: rgba(255, 255, 255, 0.86);
         font-size: 0.9rem;
     }
 
     .analytics-empty {
-        color: rgba(255,255,255,0.55);
+        color: rgba(255, 255, 255, 0.55);
         margin: 0;
     }
 
@@ -188,104 +188,180 @@
             padding: 10px 6px;
         }
     }
+
     .analytics-settings-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-}
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+    }
 
-.analytics-settings-copy {
-    margin: 0 0 12px;
-    color: rgba(255,255,255,0.62);
-    line-height: 1.45;
-}
+    .analytics-settings-copy {
+        margin: 0 0 12px;
+        color: rgba(255, 255, 255, 0.62);
+        line-height: 1.45;
+    }
 
-.analytics-settings-copy code {
-    color: #ffffff;
-    background: rgba(255,255,255,0.08);
-    padding: 2px 5px;
-    border-radius: 6px;
-}
+    .analytics-settings-copy code {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 2px 5px;
+        border-radius: 6px;
+    }
 
-.analytics-status-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    .analytics-status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
 
-    padding: 6px 10px;
-    border-radius: 999px;
+        padding: 6px 10px;
+        border-radius: 999px;
 
-    font-size: 0.72rem;
-    font-weight: 850;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
 
-.analytics-status-pill.enabled {
-    color: #7ee2cc;
-    background: rgba(126, 226, 204, 0.14);
-    border: 1px solid rgba(126, 226, 204, 0.42);
-}
+    .analytics-status-pill.enabled {
+        color: #7ee2cc;
+        background: rgba(126, 226, 204, 0.14);
+        border: 1px solid rgba(126, 226, 204, 0.42);
+    }
 
-.analytics-status-pill.disabled {
-    color: rgba(255,255,255,0.62);
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.12);
-}
+    .analytics-status-pill.disabled {
+        color: rgba(255, 255, 255, 0.62);
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+    }
 
-.analytics-geoip-form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: center;
-    margin-top: 12px;
-}
+    .analytics-geoip-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 12px;
+    }
 
-.analytics-file-input {
-    color: rgba(255,255,255,0.78);
-    background: rgba(255,255,255,0.065);
-    border: 1px solid rgba(255,255,255,0.105);
-    border-radius: 10px;
-    padding: 9px;
-}
+    .analytics-file-input {
+        color: rgba(255, 255, 255, 0.78);
+        background: rgba(255, 255, 255, 0.065);
+        border: 1px solid rgba(255, 255, 255, 0.105);
+        border-radius: 10px;
+        padding: 9px;
+    }
 
-.analytics-action-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    .analytics-action-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
 
-    min-height: 38px;
-    padding: 9px 12px;
+        min-height: 38px;
+        padding: 9px 12px;
 
-    color: #10251f;
-    background: linear-gradient(135deg, #7ee2cc, #9cf4df);
+        color: #10251f;
+        background: linear-gradient(135deg, #7ee2cc, #9cf4df);
 
-    border: 1px solid rgba(126, 226, 204, 0.7);
-    border-radius: 10px;
+        border: 1px solid rgba(126, 226, 204, 0.7);
+        border-radius: 10px;
 
-    font-size: 0.82rem;
-    font-weight: 800;
-    cursor: pointer;
-}
+        font-size: 0.82rem;
+        font-weight: 800;
+        cursor: pointer;
+    }
 
-.analytics-action-button.secondary {
-    color: rgba(255,255,255,0.86);
-    background: rgba(255,255,255,0.065);
-    border-color: rgba(255,255,255,0.105);
-}
+    .analytics-action-button.secondary {
+        color: rgba(255, 255, 255, 0.86);
+        background: rgba(255, 255, 255, 0.065);
+        border-color: rgba(255, 255, 255, 0.105);
+    }
 
-.analytics-action-button.danger {
-    color: #ffe1e7;
-    background: rgba(255, 122, 144, 0.12);
-    border-color: rgba(255, 122, 144, 0.28);
-}
+    .analytics-action-button.danger {
+        color: #ffe1e7;
+        background: rgba(255, 122, 144, 0.12);
+        border-color: rgba(255, 122, 144, 0.28);
+    }
 
-.analytics-location-note {
-    margin: 12px 0 0;
-    color: rgba(255,255,255,0.48);
-    font-size: 0.82rem;
-}
+    .analytics-location-note {
+        margin: 12px 0 0;
+        color: rgba(255, 255, 255, 0.48);
+        font-size: 0.82rem;
+    }
+
+    .analytics-database-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 10px;
+        margin: 14px 0;
+    }
+
+    .analytics-database-item {
+        padding: 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .analytics-database-item span {
+        display: block;
+        margin-bottom: 5px;
+        color: rgba(255, 255, 255, 0.52);
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .analytics-database-item strong {
+        display: block;
+        color: #ffffff;
+        font-size: 0.9rem;
+        word-break: break-word;
+    }
+
+    .analytics-database-item em {
+        display: block;
+        margin-top: 3px;
+        color: rgba(255, 255, 255, 0.48);
+        font-size: 0.78rem;
+        font-style: normal;
+    }
+
+    .analytics-upload-progress {
+        width: 100%;
+        margin-top: 12px;
+    }
+
+    .analytics-upload-progress-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+
+        color: rgba(255, 255, 255, 0.68);
+        font-size: 0.8rem;
+        font-weight: 750;
+    }
+
+    .analytics-upload-progress-track {
+        width: 100%;
+        height: 9px;
+        border-radius: 999px;
+        overflow: hidden;
+
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    .analytics-upload-progress-bar {
+        width: 0%;
+        height: 100%;
+        border-radius: 999px;
+
+        background: linear-gradient(90deg, rgba(126, 226, 204, 0.88), rgba(156, 244, 223, 0.92));
+        transition: width 0.12s ease;
+    }
 </style>
 
 <div class="analytics-page">
@@ -314,70 +390,111 @@
         </div>
     </div>
     <div class="analytics-card" style="margin-bottom: 20px;">
-    <div class="analytics-settings-header">
-        <div>
-            <h2 class="analytics-section-title">Approximate Visitor Location</h2>
-            <p class="analytics-settings-copy">
-                Optional. Upload a local GeoIP <code>.mmdb</code> database. City, Country, and ASN databases are supported.
-                No visitor IPs are sent to a third-party service.
+        <div class="analytics-settings-header">
+            <div>
+                <h2 class="analytics-section-title">Approximate Visitor Location</h2>
+                <p class="analytics-settings-copy">
+                    Optional. Upload a local GeoIP <code>.mmdb</code> database. City, Country, and ASN databases are
+                    supported.
+                    No visitor IPs are sent to a third-party service.
+                    </p>
                 <p class="analytics-location-note">
-    City databases can show country, region, city, and approximate coordinates.
-    Country databases show country only.
-    ASN databases show network/provider information only.
-</p>
-            </p>
+                    City databases can show country, region, city, and approximate coordinates.
+                    Country databases show country only.
+                    ASN databases show network/provider information only.
+                </p>
+                
+            </div>
+
+            <span
+                class="analytics-status-pill {% if analytics_settings and analytics_settings.geoip_enabled %}enabled{% else %}disabled{% endif %}">
+                {% if analytics_settings and analytics_settings.geoip_enabled %}
+                Enabled
+                {% else %}
+                Disabled
+                {% endif %}
+            </span>
         </div>
 
-        <span class="analytics-status-pill {% if analytics_settings and analytics_settings.geoip_enabled %}enabled{% else %}disabled{% endif %}">
+        <div class="analytics-database-list">
+            <div class="analytics-database-item">
+                <span>City</span>
+                {% if analytics_settings and analytics_settings.geoip_city_database_name %}
+                <strong>{{ analytics_settings.geoip_city_database_name }}</strong>
+                <em>{{ analytics_settings.geoip_city_database_type }}</em>
+                {% else %}
+                <strong>Not uploaded</strong>
+                <em>Country, region, city, coordinates</em>
+                {% endif %}
+            </div>
+
+            <div class="analytics-database-item">
+                <span>Country</span>
+                {% if analytics_settings and analytics_settings.geoip_country_database_name %}
+                <strong>{{ analytics_settings.geoip_country_database_name }}</strong>
+                <em>{{ analytics_settings.geoip_country_database_type }}</em>
+                {% else %}
+                <strong>Not uploaded</strong>
+                <em>Country only fallback</em>
+                {% endif %}
+            </div>
+
+            <div class="analytics-database-item">
+                <span>ASN</span>
+                {% if analytics_settings and analytics_settings.geoip_asn_database_name %}
+                <strong>{{ analytics_settings.geoip_asn_database_name }}</strong>
+                <em>{{ analytics_settings.geoip_asn_database_type }}</em>
+                {% else %}
+                <strong>Not uploaded</strong>
+                <em>Network/provider data</em>
+                {% endif %}
+            </div>
+        </div>
+
+        <form id="geoipUploadForm" class="analytics-geoip-form" enctype="multipart/form-data">
+            <div id="geoipUploadProgress" class="analytics-upload-progress" hidden>
+                <div class="analytics-upload-progress-top">
+                    <span id="geoipUploadProgressLabel">Uploading...</span>
+                    <span id="geoipUploadProgressPercent">0%</span>
+                </div>
+
+                <div class="analytics-upload-progress-track">
+                    <div id="geoipUploadProgressBar" class="analytics-upload-progress-bar"></div>
+                </div>
+            </div>
+            <input type="file" name="geoip_database" accept=".mmdb" class="analytics-file-input">
+
+            <button type="submit" class="analytics-action-button">
+                Upload and Enable
+            </button>
+
             {% if analytics_settings and analytics_settings.geoip_enabled %}
-                Enabled
-            {% else %}
-                Disabled
+            <button type="button" class="analytics-action-button secondary" onclick="disableGeoIpDatabase()">
+                Disable
+            </button>
             {% endif %}
-        </span>
-    </div>
+            {% if analytics_settings and analytics_settings.geoip_enabled %}
+            <button type="button" class="analytics-action-button secondary" onclick="backfillGeoIpLocations()">
+                Backfill Existing Visits
+            </button>
+            {% endif %}
 
-{% if analytics_settings and analytics_settings.geoip_database_name %}
-<p class="analytics-settings-copy">
-    Current database:
-    <strong>{{ analytics_settings.geoip_database_name }}</strong>
-    {% if analytics_settings.geoip_database_type %}
-        <span style="color: rgba(255,255,255,0.48);">
-            · {{ analytics_settings.geoip_database_type }}
-        </span>
-    {% endif %}
-</p>
-{% endif %}
-
-    <form id="geoipUploadForm" class="analytics-geoip-form" enctype="multipart/form-data">
-        <input type="file" name="geoip_database" accept=".mmdb" class="analytics-file-input">
-
-        <button type="submit" class="analytics-action-button">
-            Upload and Enable
-        </button>
-
-        {% if analytics_settings and analytics_settings.geoip_enabled %}
-        <button type="button" class="analytics-action-button secondary" onclick="disableGeoIpDatabase()">
-            Disable
-        </button>
-        {% endif %}
-        {% if analytics_settings and analytics_settings.geoip_enabled %}
-<button type="button" class="analytics-action-button secondary" onclick="backfillGeoIpLocations()">
-    Backfill Existing Visits
+{% if analytics_settings and (
+    analytics_settings.geoip_city_database_name
+    or analytics_settings.geoip_country_database_name
+    or analytics_settings.geoip_asn_database_name
+) %}
+<button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">
+    Delete Databases
 </button>
 {% endif %}
+        </form>
 
-        {% if analytics_settings and analytics_settings.geoip_database_name %}
-        <button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">
-            Delete Database
-        </button>
-        {% endif %}
-    </form>
-
-    <p class="analytics-location-note">
-        Location is approximate and can be inaccurate for VPNs, mobile networks, private relay, or corporate networks.
-    </p>
-</div>
+        <p class="analytics-location-note">
+            Location is approximate and can be inaccurate for VPNs, mobile networks, private relay, or corporate
+            networks.
+        </p>
+    </div>
 
     <div class="analytics-card" style="margin-bottom: 20px;">
         <h2 class="analytics-section-title">Visits by Day</h2>
@@ -388,7 +505,8 @@
         <div class="analytics-chart">
             {% for day in visits_by_day %}
             {% set height = ((day.page_views / max_views) * 190) if max_views else 0 %}
-            <div class="analytics-bar-wrap" title="{{ day.date }}: {{ day.page_views }} views, {{ day.unique_visitors }} unique">
+            <div class="analytics-bar-wrap"
+                title="{{ day.date }}: {{ day.page_views }} views, {{ day.unique_visitors }} unique">
                 <div class="analytics-bar" style="height: {{ height }}px;"></div>
                 <div class="analytics-bar-label">{{ day.date[5:] }}</div>
             </div>
@@ -431,117 +549,118 @@
         {% endif %}
     </div>
     <div class="analytics-card" style="margin-bottom: 20px;">
-    <h2 class="analytics-section-title">Top Countries</h2>
+        <h2 class="analytics-section-title">Top Countries</h2>
 
-    {% if country_stats %}
-    <table class="analytics-table">
-        <thead>
-            <tr>
-                <th>Country</th>
-                <th>Views</th>
-                <th>Unique</th>
-            </tr>
-        </thead>
+        {% if country_stats %}
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>Country</th>
+                    <th>Views</th>
+                    <th>Unique</th>
+                </tr>
+            </thead>
 
-        <tbody>
-            {% for row in country_stats %}
-            <tr>
-                <td>
-                    {{ row.country }}
-                    {% if row.country_iso %}
-                    <span style="color: rgba(255,255,255,0.42);">
-                        ({{ row.country_iso }})
-                    </span>
-                    {% endif %}
-                </td>
-                <td>{{ row.visits }}</td>
-                <td>{{ row.unique_visitors }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="analytics-empty">
-        No country data yet. Location data will only appear for new public visits after GeoIP is enabled.
-    </p>
-    {% endif %}
-</div>
+            <tbody>
+                {% for row in country_stats %}
+                <tr>
+                    <td>
+                        {{ row.country }}
+                        {% if row.country_iso %}
+                        <span style="color: rgba(255,255,255,0.42);">
+                            ({{ row.country_iso }})
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.visits }}</td>
+                    <td>{{ row.unique_visitors }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="analytics-empty">
+            No country data yet. Location data will only appear for new public visits after GeoIP is enabled.
+        </p>
+        {% endif %}
+    </div>
 
-<div class="analytics-card" style="margin-bottom: 20px;">
-    <h2 class="analytics-section-title">Top Cities</h2>
+    <div class="analytics-card" style="margin-bottom: 20px;">
+        <h2 class="analytics-section-title">Top Cities</h2>
 
-    {% if city_stats %}
-    <table class="analytics-table">
-        <thead>
-            <tr>
-                <th>City</th>
-                <th>Views</th>
-                <th>Unique</th>
-            </tr>
-        </thead>
+        {% if city_stats %}
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>City</th>
+                    <th>Views</th>
+                    <th>Unique</th>
+                </tr>
+            </thead>
 
-        <tbody>
-            {% for row in city_stats %}
-            <tr>
-                <td>
-                    {{ row.city }}
-                    <br>
-                    <span style="color: rgba(255,255,255,0.42);">
-                        {{ row.region or '' }}{% if row.region and row.country %}, {% endif %}{{ row.country or '' }}
-                    </span>
-                </td>
-                <td>{{ row.visits }}</td>
-                <td>{{ row.unique_visitors }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="analytics-empty">
-        No city data yet.
-    </p>
-    {% endif %}
-</div>
+            <tbody>
+                {% for row in city_stats %}
+                <tr>
+                    <td>
+                        {{ row.city }}
+                        <br>
+                        <span style="color: rgba(255,255,255,0.42);">
+                            {{ row.region or '' }}{% if row.region and row.country %}, {% endif %}{{ row.country or ''
+                            }}
+                        </span>
+                    </td>
+                    <td>{{ row.visits }}</td>
+                    <td>{{ row.unique_visitors }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="analytics-empty">
+            No city data yet.
+        </p>
+        {% endif %}
+    </div>
 
-<div class="analytics-card" style="margin-bottom: 20px;">
-    <h2 class="analytics-section-title">Top Networks / Providers</h2>
+    <div class="analytics-card" style="margin-bottom: 20px;">
+        <h2 class="analytics-section-title">Top Networks / Providers</h2>
 
-    {% if asn_stats %}
-    <table class="analytics-table">
-        <thead>
-            <tr>
-                <th>Network</th>
-                <th>Views</th>
-                <th>Unique</th>
-            </tr>
-        </thead>
+        {% if asn_stats %}
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>Network</th>
+                    <th>Views</th>
+                    <th>Unique</th>
+                </tr>
+            </thead>
 
-        <tbody>
-            {% for row in asn_stats %}
-            <tr>
-                <td>
-                    {% if row.asn_organization %}
+            <tbody>
+                {% for row in asn_stats %}
+                <tr>
+                    <td>
+                        {% if row.asn_organization %}
                         {{ row.asn_organization }}
-                    {% else %}
+                        {% else %}
                         Unknown Network
-                    {% endif %}
-                    <br>
-                    <span style="color: rgba(255,255,255,0.42);">
-                        ASN {{ row.asn_number }}
-                    </span>
-                </td>
-                <td>{{ row.visits }}</td>
-                <td>{{ row.unique_visitors }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="analytics-empty">
-        No network/provider data yet. This appears when using a GeoLite2-ASN database.
-    </p>
-    {% endif %}
-</div>
+                        {% endif %}
+                        <br>
+                        <span style="color: rgba(255,255,255,0.42);">
+                            ASN {{ row.asn_number }}
+                        </span>
+                    </td>
+                    <td>{{ row.visits }}</td>
+                    <td>{{ row.unique_visitors }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="analytics-empty">
+            No network/provider data yet. This appears when using a GeoLite2-ASN database.
+        </p>
+        {% endif %}
+    </div>
 
     <div class="analytics-card">
         <h2 class="analytics-section-title">Top Referrers</h2>
@@ -563,7 +682,7 @@
                 </tr>
                 {% endfor %}
             </tbody>
-            
+
         </table>
         {% else %}
         <p class="analytics-empty">No referrer data yet.</p>
@@ -572,36 +691,95 @@
 </div>
 
 <script>
-const analyticsCsrfToken = "{{ csrf_token }}";
+    const analyticsCsrfToken = "{{ csrf_token }}";
 
     const geoipUploadForm = document.getElementById('geoipUploadForm');
 
     if (geoipUploadForm) {
-        geoipUploadForm.addEventListener('submit', function (event) {
-            event.preventDefault();
+        const geoipUploadForm = document.getElementById('geoipUploadForm');
+        const geoipUploadProgress = document.getElementById('geoipUploadProgress');
+        const geoipUploadProgressLabel = document.getElementById('geoipUploadProgressLabel');
+        const geoipUploadProgressPercent = document.getElementById('geoipUploadProgressPercent');
+        const geoipUploadProgressBar = document.getElementById('geoipUploadProgressBar');
 
-            const formData = new FormData(geoipUploadForm);
+        function setGeoIpUploadProgress(percent, label) {
+            const safePercent = Math.max(0, Math.min(100, percent || 0));
 
-            fetch('/dashboard/analytics/geoip/upload', {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': analyticsCsrfToken
-                },
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data => {
-                    alert(data.message || 'GeoIP settings updated.');
+            if (geoipUploadProgress) {
+                geoipUploadProgress.hidden = false;
+            }
 
-                    if (data.success) {
-                        window.location.reload();
+            if (geoipUploadProgressPercent) {
+                geoipUploadProgressPercent.textContent = `${Math.round(safePercent)}%`;
+            }
+
+            if (geoipUploadProgressBar) {
+                geoipUploadProgressBar.style.width = `${safePercent}%`;
+            }
+
+            if (label && geoipUploadProgressLabel) {
+                geoipUploadProgressLabel.textContent = label;
+            }
+        }
+
+        if (geoipUploadForm) {
+            geoipUploadForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+
+                const fileInput = geoipUploadForm.querySelector('input[name="geoip_database"]');
+
+                if (!fileInput || !fileInput.files || !fileInput.files.length) {
+                    alert('Please choose a .mmdb database file first.');
+                    return;
+                }
+
+                const formData = new FormData(geoipUploadForm);
+                const xhr = new XMLHttpRequest();
+
+                setGeoIpUploadProgress(0, 'Preparing upload...');
+
+                xhr.open('POST', '/dashboard/analytics/geoip/upload', true);
+                xhr.setRequestHeader('X-CSRFToken', analyticsCsrfToken);
+
+                xhr.upload.addEventListener('progress', function (event) {
+                    if (!event.lengthComputable) {
+                        setGeoIpUploadProgress(20, 'Uploading...');
+                        return;
                     }
-                })
-                .catch(error => {
-                    console.error('GeoIP upload error:', error);
+
+                    const percent = (event.loaded / event.total) * 100;
+                    setGeoIpUploadProgress(percent, 'Uploading database...');
+                });
+
+                xhr.addEventListener('load', function () {
+                    let data = {};
+
+                    try {
+                        data = JSON.parse(xhr.responseText || '{}');
+                    } catch (error) {
+                        console.error('GeoIP upload response parse error:', error);
+                    }
+
+                    if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+                        setGeoIpUploadProgress(100, 'Upload complete.');
+                        alert(data.message || 'GeoIP database uploaded.');
+
+                        window.location.reload();
+                        return;
+                    }
+
+                    setGeoIpUploadProgress(0, 'Upload failed.');
+                    alert(data.message || 'Failed to upload GeoIP database.');
+                });
+
+                xhr.addEventListener('error', function () {
+                    setGeoIpUploadProgress(0, 'Upload failed.');
                     alert('Failed to upload GeoIP database.');
                 });
-        });
+
+                xhr.send(formData);
+            });
+        }
     }
 
     function disableGeoIpDatabase() {
@@ -653,25 +831,25 @@ const analyticsCsrfToken = "{{ csrf_token }}";
     }
 
     function backfillGeoIpLocations() {
-    fetch('/dashboard/analytics/geoip/backfill', {
-        method: 'POST',
-        headers: {
-            'X-CSRFToken': analyticsCsrfToken
-        }
-    })
-        .then(response => response.json())
-        .then(data => {
-            alert(data.message || 'GeoIP backfill complete.');
-
-            if (data.success) {
-                window.location.reload();
+        fetch('/dashboard/analytics/geoip/backfill', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': analyticsCsrfToken
             }
         })
-        .catch(error => {
-            console.error('GeoIP backfill error:', error);
-            alert('Failed to backfill GeoIP locations.');
-        });
-}
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message || 'GeoIP backfill complete.');
+
+                if (data.success) {
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('GeoIP backfill error:', error);
+                alert('Failed to backfill GeoIP locations.');
+            });
+    }
 </script>
 
 {% endblock %}
