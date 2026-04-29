@@ -3876,18 +3876,11 @@ body.is-sorting-rows .section-group {
 
 /* GROUP: one clear outer container only */
 .section-group {
-    margin: 18px 0;
-    padding: 0;
-
-    border: 1px solid rgba(126, 226, 204, 0.24);
+    border: 1.5px solid rgba(126, 226, 204, 0.42);
     border-radius: 24px;
-
-    background: rgba(255, 255, 255, 0.025) !important;
-    box-shadow:
-        0 18px 42px rgba(0, 0, 0, 0.26),
-        inset 0 1px 0 rgba(255, 255, 255, 0.035);
-
-    overflow: visible;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
 }
 
 /* Remove the extra square/layered pseudo-box look */
@@ -3914,12 +3907,24 @@ body.is-sorting-rows .section-group {
 
 /* GROUP BODY: no extra border box */
 .group-rows-shell {
-    padding: 14px;
-    border: none;
-    border-radius: 0 0 24px 24px;
+    background:
+        var(--group-bg-image, none),
+        var(--group-bg, transparent) !important;
 
-    background: transparent;
-    box-shadow: none;
+    background-size:
+        var(--group-bg-size, cover),
+        auto !important;
+
+    background-position:
+        var(--group-bg-position, center),
+        center !important;
+
+    background-repeat:
+        var(--group-bg-repeat, no-repeat),
+        no-repeat !important;
+
+    border-radius: 0 0 24px 24px;
+    overflow: hidden;
 }
 
 /* GROUP ROWS: remove dashed container outline */
@@ -4090,6 +4095,158 @@ body.is-sorting-sections .section-drop-hover {
 .section-group.collapsed .section-group-header {
     border-radius: 24px;
     border-bottom: none;
+}
+
+.uploaded-images ul.sortable {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+    min-height: 132px;
+    padding: 10px;
+    margin: 8px 0 0;
+
+    list-style: none;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.uploaded-images li.image-thumb-item {
+    width: 150px;
+    height: 120px;
+    padding: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    position: relative;
+    overflow: hidden;
+
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.22);
+
+    cursor: grab;
+    z-index: auto;
+}
+
+.uploaded-images li.image-thumb-item:active {
+    cursor: grabbing;
+}
+
+.uploaded-images li.image-thumb-item img {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+
+    object-fit: cover;
+    border: none;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.uploaded-images li.image-thumb-item .image-checkbox {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+}
+
+.image-sortable-ghost {
+    opacity: 0.35;
+}
+
+.image-sortable-chosen {
+    border-color: rgba(126, 226, 204, 0.65) !important;
+    box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.24);
+}
+
+.image-sortable-drag {
+    opacity: 0.95;
+}
+
+body.is-sorting-images .section-card,
+body.is-sorting-images .row,
+body.is-sorting-images .section-group {
+    pointer-events: auto !important;
+}
+.image-sortable-fallback,
+.sortable-fallback.image-sortable-fallback {
+    width: 150px !important;
+    height: 120px !important;
+    max-width: 150px !important;
+    max-height: 120px !important;
+
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+
+    overflow: hidden !important;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(126, 226, 204, 0.55);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.36);
+
+    opacity: 0.96 !important;
+    pointer-events: none !important;
+}
+
+.image-sortable-fallback img,
+.sortable-fallback.image-sortable-fallback img {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    object-fit: cover !important;
+    border: none !important;
+}
+
+.image-delete-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+
+    width: 30px;
+    height: 30px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+    border: 1px solid rgba(255, 122, 144, 0.42);
+    border-radius: 10px;
+
+    color: #ffe7ec;
+    background: rgba(20, 20, 24, 0.72);
+
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-2px);
+
+    transition:
+        opacity 0.16s ease,
+        transform 0.16s ease,
+        background 0.16s ease,
+        border-color 0.16s ease;
+}
+
+.image-thumb-item:hover .image-delete-button {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.image-delete-button:hover {
+    background: rgba(255, 122, 144, 0.22);
+    border-color: rgba(255, 122, 144, 0.70);
+}
+
+.image-delete-button i {
+    font-size: 13px;
+    pointer-events: none;
 }
 
 </style>
@@ -7354,8 +7511,9 @@ restoreCollapsedSectionGroups();
             }
         }
 
-        let currentDraggedLi = null;
-        let currentPlaceholder = null;
+let currentDraggedLi = null;
+let currentPlaceholder = null;
+let imageSortableInstances = {};
 
         function createPlaceholder() {
             const ph = document.createElement("li");
@@ -7394,69 +7552,155 @@ restoreCollapsedSectionGroups();
 
         var selectedImages = {};
 
-        function loadUploadedImages(sectionId) {
-            if (!sectionId) return;
+function initializeImageSortable(sectionId) {
+    const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
+    if (!uploadedImagesUl) return;
 
-            fetch(`/get_uploaded_images?section_id=${sectionId}`)
-                .then(response => response.json())
-                .then(data => {
-                    const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
-                    if (!uploadedImagesUl) return;
+    if (imageSortableInstances[sectionId]) {
+        imageSortableInstances[sectionId].destroy();
+        delete imageSortableInstances[sectionId];
+    }
 
-                    uploadedImagesUl.innerHTML = "";
+imageSortableInstances[sectionId] = Sortable.create(uploadedImagesUl, {
+    group: {
+        name: 'section-images',
+        pull: true,
+        put: true
+    },
+    animation: 160,
+    forceFallback: true,
+    fallbackOnBody: true,
+    fallbackClass: 'image-sortable-fallback',
+    fallbackTolerance: 4,
+        draggable: 'li.image-thumb-item',
+        ghostClass: 'image-sortable-ghost',
+        chosenClass: 'image-sortable-chosen',
+        dragClass: 'image-sortable-drag',
+        swapThreshold: 0.65,
 
-                    if (!selectedImages[sectionId]) {
-                        selectedImages[sectionId] = [];
-                    }
+filter: 'button, .image-delete-button',
+        preventOnFilter: false,
 
-                    // Optional: let the UL itself accept drops
-                    uploadedImagesUl.addEventListener("dragover", handleDragOver);
-                    uploadedImagesUl.addEventListener("drop", handleDrop);
+        onStart: function (event) {
+            event.originalEvent?.stopPropagation();
 
-                    data.images.forEach(picture => {
-                        const li = document.createElement("li");
-                        li.setAttribute("data-link-id", picture.link_id);
-                        li.setAttribute("data-order", picture.order);
-                        li.setAttribute("data-id", picture.id);
-                        li.setAttribute("data-section-id", sectionId);
-                        li.draggable = true;
+            document.body.classList.add('is-sorting-images');
 
-                        li.addEventListener("dragstart", handleDragStart);
-                        li.addEventListener("dragover", handleDragOver);
-                        li.addEventListener("drop", handleDrop);
-                        li.addEventListener("dragenter", (event) => {
-                            const targetLi = event.target.closest("li");
-                            if (targetLi) targetLi.classList.add("drag-over");
-                        });
-                        li.addEventListener("dragleave", (event) => {
-                            const targetLi = event.target.closest("li");
-                            if (targetLi) targetLi.classList.remove("drag-over");
-                        });
-                        li.addEventListener("dragend", handleDragEnd);
+            // Prevent the section/row/group drag systems from interpreting this as their drag.
+            event.item.dataset.imageDragging = 'true';
+        },
 
-                        const img = document.createElement("img");
-                        img.src = picture.url;
-                        img.draggable = false; // important
+        onMove: function (event) {
+            // Only allow image thumbs to move into image lists.
+            return event.to && event.to.classList.contains('sortable');
+        },
 
-                        const checkbox = document.createElement("input");
-                        checkbox.type = "checkbox";
-                        checkbox.className = "image-checkbox";
-                        checkbox.addEventListener("change", function () {
-                            if (this.checked) {
-                                addToSelectedImages(sectionId, picture.link_id);
-                            } else {
-                                removeFromSelectedImages(sectionId, picture.link_id);
-                            }
-                        });
+        onAdd: function (event) {
+            const movedItem = event.item;
+            const sourceSection = movedItem.dataset.sectionId;
+            const targetSection = event.to.id.replace('sortable-', '');
+            const sourceLinkId = movedItem.dataset.linkId;
 
-                        li.appendChild(img);
-                        li.appendChild(checkbox);
-                        uploadedImagesUl.appendChild(li);
-                    });
-                })
-                .catch(error => console.error("Error:", error));
+            if (!sourceLinkId || !targetSection || sourceSection === targetSection) {
+                saveImageOrderForList(event.to);
+                return;
+            }
+
+            moveImageToSection(sourceLinkId, sourceSection, targetSection);
+        },
+
+        onUpdate: function (event) {
+            saveImageOrderForList(event.to);
+        },
+
+        onEnd: function (event) {
+            document.body.classList.remove('is-sorting-images');
+
+            if (event.item) {
+                delete event.item.dataset.imageDragging;
+            }
+
+            // If it was moved within the same list, make sure order saves.
+            if (event.from === event.to) {
+                saveImageOrderForList(event.to);
+            }
+
+            reloadIframe();
         }
+    });
+}
 
+function saveImageOrderForList(listEl) {
+    if (!listEl) return;
+
+    const sectionId = listEl.id.replace('sortable-', '');
+
+    const orderData = Array.from(listEl.querySelectorAll('li.image-thumb-item')).map((li, index) => ({
+        link_id: parseInt(li.dataset.linkId, 10),
+        order: index + 1,
+        sectionId: parseInt(sectionId, 10)
+    }));
+
+    if (orderData.length > 0) {
+        updateImageOrder(orderData);
+    }
+}
+
+ function loadUploadedImages(sectionId) {
+    if (!sectionId) return;
+
+    fetch(`/get_uploaded_images?section_id=${sectionId}`)
+        .then(response => response.json())
+        .then(data => {
+            const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
+            if (!uploadedImagesUl) return;
+
+            uploadedImagesUl.innerHTML = "";
+
+            if (!selectedImages[sectionId]) {
+                selectedImages[sectionId] = [];
+            }
+
+            data.images.forEach(picture => {
+                const li = document.createElement("li");
+                li.classList.add('image-thumb-item');
+
+                li.setAttribute("data-link-id", picture.link_id);
+                li.setAttribute("data-order", picture.order);
+                li.setAttribute("data-id", picture.id);
+                li.setAttribute("data-section-id", sectionId);
+                li.draggable = false;
+
+                const img = document.createElement("img");
+                img.src = picture.url;
+                img.draggable = false;
+
+const deleteButton = document.createElement("button");
+deleteButton.type = "button";
+deleteButton.className = "image-delete-button";
+deleteButton.title = "Remove image";
+deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+
+deleteButton.addEventListener("click", function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const confirmed = confirm("Remove this image from this section?");
+
+    if (!confirmed) return;
+
+    deleteSectionImage(picture.link_id, sectionId);
+});
+
+li.appendChild(img);
+li.appendChild(deleteButton);
+uploadedImagesUl.appendChild(li);
+            });
+
+            initializeImageSortable(sectionId);
+        })
+        .catch(error => console.error("Error:", error));
+}
         // Function to add image to the list of selected images for a specific section
         function addToSelectedImages(sectionId, imageId) {
             // Add image ID to the selected images list for this section
@@ -8319,7 +8563,7 @@ document.querySelectorAll('.group-rows').forEach(rowContainer => {
             emptyInsertThreshold: 30,
             swapThreshold: 0.65,
 
-            filter: '.section-card, .section-title, .section-content, .column, .column-resize-handle, button, input, textarea, select, a, .dropdown, .options-dropdown',
+            filter: '.section-card, .section-title, .section-content, .column, .column-resize-handle, .uploaded-images, .image-thumb-item, button, input, textarea, select, a, .dropdown, .options-dropdown',
             preventOnFilter: false,
 
             onStart: function () {
@@ -8364,13 +8608,20 @@ function saveFullEditorOrder() {
     const sectionsContainer = document.getElementById('sections-container');
     if (!sectionsContainer) return;
 
-    sectionsContainer.querySelectorAll(':scope > .section-group').forEach(groupEl => {
+    const groups = sectionsContainer.querySelectorAll(':scope > .section-group');
+
+    groups.forEach(groupEl => {
         const groupId = parseInt(groupEl.dataset.groupId, 10);
         if (!groupId) return;
 
         groupIds.push(groupId);
 
-        groupEl.querySelectorAll(':scope > .group-rows > .row').forEach(rowEl => {
+        const groupRowsContainer = groupEl.querySelector(':scope .group-rows');
+        if (!groupRowsContainer) return;
+
+        const rows = groupRowsContainer.querySelectorAll(':scope > .row');
+
+        rows.forEach(rowEl => {
             const rowId = parseInt(rowEl.dataset.rowId, 10);
             if (!rowId) return;
 
@@ -8380,6 +8631,11 @@ function saveFullEditorOrder() {
                 section_group_id: groupId
             });
         });
+    });
+
+    console.log('Saving editor order:', {
+        group_ids: groupIds,
+        rows: rowData
     });
 
     fetch('/update_editor_group_and_row_order', {
@@ -8395,7 +8651,12 @@ function saveFullEditorOrder() {
     })
         .then(response => response.json())
         .then(data => {
-            if (!data.success) {
+            console.log('Saved editor order response:', data);
+
+            if (data.success) {
+                updateGroupRowCounts();
+                reloadIframe();
+            } else {
                 alert(data.error || 'Failed to save editor order.');
                 populateSections();
             }
@@ -8404,7 +8665,6 @@ function saveFullEditorOrder() {
             console.error('Error saving editor order:', error);
             populateSections();
         });
-        updateGroupRowCounts();
 }
 
 
@@ -8915,6 +9175,13 @@ function applyGroupContainerStyles(groupContainer, group) {
         }
 
         function handleSectionDragStart(event) {
+            if (
+    event.target.closest('.uploaded-images') ||
+    event.target.closest('.image-thumb-item') ||
+    event.target.closest('.image-checkbox')
+) {
+    return;
+}
             const card = event.currentTarget;
 
             if (!sectionHandleDragArmed && !event.target.closest('.section-drag-handle')) {
@@ -9138,6 +9405,29 @@ function updateGroupRowCounts() {
 
         rowCountEl.textContent = rowCount === 1 ? '1 row' : `${rowCount} rows`;
     });
+}
+
+function deleteSectionImage(linkId, sectionId) {
+    fetch(`/delete_section_image/${linkId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success || data.status === 'success') {
+                loadUploadedImages(sectionId);
+                reloadIframe();
+            } else {
+                alert(data.error || data.message || 'Failed to remove image.');
+            }
+        })
+        .catch(error => {
+            console.error('Error removing image:', error);
+            alert('Error removing image.');
+        });
 }
     </script>
 

@@ -660,12 +660,12 @@
         font-family: monospace;
     }
 
-    .uwebia-images {
-        width: calc(100% - 40px);
-        max-width: 1100px;
-        margin: 20px auto;
-        box-sizing: border-box;
-    }
+.uwebia-images {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    box-sizing: border-box;
+}
 
     .uwebia-images img {
         border-radius: var(--image-radius, 10px);
@@ -900,9 +900,47 @@
 }
 
 /* Keep real form inputs normal */
-.public-section-group input {
+.public-section-group input,
+.public-section-group textarea,
+.public-section-group select,
+.public-section-group button {
     caret-color: auto;
     outline: revert;
+}
+/* Force image sections to fully use their allotted public row space */
+.section-container > .uwebia-images {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    display: block;
+}
+
+/* Single image should fill the section width */
+.uwebia-single-image {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block !important;
+    object-fit: var(--image-fit, cover);
+}
+
+/* Make all image layouts fill the section wrapper */
+.uwebia-image-grid,
+.uwebia-image-masonry,
+.uwebia-image-carousel,
+.uwebia-feature-grid,
+.uwebia-slideshow {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+/* Make images inside layout containers use available space */
+.uwebia-image-grid img,
+.uwebia-image-carousel img,
+.uwebia-feature-grid img,
+.uwebia-slide img {
+    max-width: none !important;
 }
 </style>
 
@@ -1067,7 +1105,7 @@ background: {{ group.background_color or 'transparent' }};
                                 {% else %}
                                 <p>No images in this section.</p>
                                 {% endif %}
-                            </div>
+                            
                         </div>
                         {% elif section.section_type == 'code' %}
                         <div class="text-area">

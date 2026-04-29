@@ -3343,6 +3343,36 @@ def update_public_images():
     else:
         return jsonify({'status': 'error', 'message': 'Invalid section type'})
 
+@app.route('/delete_section_image/<int:link_id>', methods=['DELETE'])
+@login_required
+def delete_section_image(link_id):
+    try:
+        section_image = SectionImage.query.get_or_404(link_id)
+
+        section = PageSection.query.get_or_404(section_image.section_id)
+        page = PublicPageContent.query.get_or_404(section.page_content_id)
+        website = Website.query.get_or_404(page.website_id)
+
+        if website.user_id != current_user.id:
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized.'
+            }), 403
+
+        db.session.delete(section_image)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Image removed from section.'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/get_uploaded_images')
 @login_required
