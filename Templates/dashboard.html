@@ -2675,6 +2675,7 @@
                             Add Dropdown Group
                         </button>
                     </div>
+
                 </div>
 
                 <hr>
@@ -2786,6 +2787,8 @@
                             placeholder="/static/uploads/logo.svg or image URL"
                             value="{{ (website.public_navbar_style or {}).get('icon_url', '') }}"
                             oninput="updateFullNavbarPreview('{{ website.id }}')">
+                                            
+  
                     </div>
 
                     <div class="navbar-style-card">
@@ -2854,6 +2857,19 @@
                         <span id="navbarMarginValue_{{ website.id }}" class="range-value">
                             {{ (website.public_navbar_style or {}).get('margin', 0) }}px
                         </span>
+                        <label>Dropdown Menu Style</label>
+                        <select id="navbarDropdownMode_{{ website.id }}" class="form-control"
+    onchange="updateFullNavbarPreview('{{ website.id }}')">
+    <option value="dropdown"
+        {% if (website.public_navbar_style or {}).get('dropdown_mode', 'dropdown') == 'dropdown' %}selected{% endif %}>
+        Dropdown
+    </option>
+
+    <option value="side_panel"
+        {% if (website.public_navbar_style or {}).get('dropdown_mode', 'dropdown') == 'side_panel' %}selected{% endif %}>
+        Side Panel
+    </option>
+</select>  
                     </div>
                 </div>
             </div>
@@ -3126,6 +3142,7 @@ function savePublicNavbarStyle(websiteId) {
     const sticky = document.getElementById(`navbarSticky_${websiteId}`).checked;
     const titleAlignment = document.getElementById(`navbarTitleAlignment_${websiteId}`).value;
     const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
+    const dropdownMode = document.getElementById(`navbarDropdownMode_${websiteId}`)?.value || 'dropdown';
 
     console.log('Saving navbar background:', background);
 
@@ -3146,7 +3163,8 @@ function savePublicNavbarStyle(websiteId) {
             shadow: shadow,
             sticky: sticky,
             title_alignment: titleAlignment,
-            margin: margin
+            margin: margin,
+            dropdown_mode: dropdownMode
         })
     })
         .then(response => response.json())
@@ -3296,13 +3314,15 @@ function savePublicNavbarStyle(websiteId) {
 
                 const colors = Array.from(colorInputs).map(input => input.value);
 
-                let rawBackground = '#222222';
+                let rawBackground = '';
 
-                if (colors.length === 1) {
-                    rawBackground = colors[0];
-                } else if (colors.length > 1) {
-                    rawBackground = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
-                }
+if (colors.length === 1) {
+    rawBackground = colors[0];
+} else if (colors.length > 1) {
+    rawBackground = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+} else {
+    rawBackground = 'rgba(20,20,20,0.9)';
+}
 
                 const backgroundWithOpacity = applyOpacityToNavbarBackground(rawBackground, opacity);
 
@@ -3343,45 +3363,54 @@ function savePublicNavbarStyle(websiteId) {
 }
 
             function initializeNavbarStyle(websiteId, savedBackground) {
-                const container = document.getElementById(`navbarGradientColors_${websiteId}`);
-                const directionSelect = document.getElementById(`navbarGradientDirection_${websiteId}`);
+    const container = document.getElementById(`navbarGradientColors_${websiteId}`);
+    const directionSelect = document.getElementById(`navbarGradientDirection_${websiteId}`);
 
-                if (!container || !directionSelect) return;
+    if (!container || !directionSelect) return;
 
-                container.innerHTML = '';
+    container.innerHTML = '';
 
-                if (savedBackground && savedBackground.startsWith('linear-gradient')) {
-                    const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
-                    const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+    if (savedBackground && savedBackground.startsWith('linear-gradient')) {
+        const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
+        const direction = directionMatch ? directionMatch[1].trim() : 'to right';
 
-                    directionSelect.value = direction;
+        directionSelect.value = direction;
 
-                    const colorsPart = savedBackground
-                        .replace(/^linear-gradient\((.*?),/, '')
-                        .replace(/\)$/, '');
+        const colorsPart = savedBackground
+            .replace(/^linear-gradient\((.*?),/, '')
+            .replace(/\)$/, '');
 
-                    const colors = colorsPart.split(',').map(color => color.trim());
+        const colors = colorsPart
+            .split(',')
+            .map(color => color.trim())
+            .filter(Boolean);
 
-                    colors.forEach(color => {
-                        addNavbarColorStop(
-                            websiteId,
-                            color.startsWith('rgba') ? rgbaStringToHex(color) : color
-                        );
-                    });
-                } else {
-                    const pickerColor = savedBackground && savedBackground.startsWith('rgba')
-                        ? rgbaStringToHex(savedBackground)
-                        : savedBackground || '#222222';
+        colors.forEach(color => {
+            addNavbarColorStop(
+                websiteId,
+                color.startsWith('rgba') ? rgbaStringToHex(color) : color
+            );
+        });
 
-                    addNavbarColorStop(websiteId, pickerColor);
-                }
+    } else if (savedBackground) {
+        const pickerColor = savedBackground.startsWith('rgba')
+            ? rgbaStringToHex(savedBackground)
+            : savedBackground;
 
-                directionSelect.addEventListener('change', function () {
-                    updateNavbarBackgroundPreview(websiteId);
-                });
-                updateNavbarBackgroundPreview(websiteId);
-                updateNavbarTextPreview(websiteId);
-            }
+        addNavbarColorStop(websiteId, pickerColor);
+
+    } else {
+        // No saved background yet. Start with a neutral visible color picker.
+        addNavbarColorStop(websiteId, '#ffffff');
+    }
+
+    directionSelect.addEventListener('change', function () {
+        updateNavbarBackgroundPreview(websiteId);
+    });
+
+    updateNavbarBackgroundPreview(websiteId);
+    updateNavbarTextPreview(websiteId);
+}
 
             function updateNavbarTextPreview(websiteId) {
                 const textInput = document.getElementById(`navbarTextColor_${websiteId}`);
@@ -3762,10 +3791,10 @@ function savePublicNavbarStyle(websiteId) {
                         website.text_color || '#000000'
                     );
 
-                    initializeNavbarStyle(
-                        websiteId,
-                        website.navbar_background || '#222222'
-                    );
+initializeNavbarStyle(
+    websiteId,
+    website.navbar_background || ''
+);
 
                     loadNavbarItems(
                         websiteId,
@@ -4015,7 +4044,7 @@ function savePublicNavbarStyle(websiteId) {
             "background_color": {{ (website.background_color or "#ffffff") | tojson }},
             "text_color": {{ (website.text_color or "#000000") | tojson }},
             "public_navbar_items": {{ (website.public_navbar_items or []) | tojson }},
-            "navbar_background": {{ ((website.public_navbar_style or {}).get("background", "#222222")) | tojson }}
+            "navbar_background": {{ ((website.public_navbar_style or {}).get("background", "")) | tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ]

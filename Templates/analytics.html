@@ -1,0 +1,627 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+    body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Roboto', sans-serif;
+        background: #363339;
+        color: #ffffff;
+    }
+
+    .analytics-page {
+        width: min(1200px, calc(100% - 32px));
+        margin: 28px auto 60px;
+    }
+
+    .analytics-header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+
+    .analytics-kicker {
+        margin: 0 0 6px;
+        color: rgba(255,255,255,0.52);
+        font-size: 0.75rem;
+        font-weight: 850;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+    }
+
+    .analytics-title {
+        margin: 0;
+        color: #ffffff;
+        font-size: clamp(1.8rem, 3vw, 2.7rem);
+        font-weight: 900;
+        letter-spacing: -0.045em;
+    }
+
+    .analytics-subtitle {
+        margin: 8px 0 0;
+        color: rgba(255,255,255,0.62);
+    }
+
+    .analytics-back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 13px;
+        border-radius: 12px;
+        color: rgba(255,255,255,0.86);
+        background: rgba(255,255,255,0.065);
+        border: 1px solid rgba(255,255,255,0.105);
+        text-decoration: none;
+        font-size: 0.86rem;
+        font-weight: 750;
+    }
+
+    .analytics-back-link:hover {
+        color: #ffffff;
+        background: rgba(126, 226, 204, 0.13);
+        border-color: rgba(126, 226, 204, 0.34);
+        text-decoration: none;
+    }
+
+    .analytics-metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+
+    .analytics-card {
+        background:
+            linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+            #1e1d20;
+        border: 1px solid rgba(255,255,255,0.09);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow:
+            0 18px 40px rgba(0,0,0,0.32),
+            inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    .analytics-metric-label {
+        margin: 0 0 8px;
+        color: rgba(255,255,255,0.55);
+        font-size: 0.74rem;
+        font-weight: 850;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .analytics-metric-value {
+        margin: 0;
+        color: #ffffff;
+        font-size: 2.2rem;
+        font-weight: 900;
+        letter-spacing: -0.05em;
+    }
+
+    .analytics-section-title {
+        margin: 0 0 12px;
+        color: #ffffff;
+        font-size: 1.05rem;
+        font-weight: 850;
+    }
+
+    .analytics-chart {
+        display: flex;
+        align-items: end;
+        gap: 8px;
+        min-height: 220px;
+        padding-top: 12px;
+    }
+
+    .analytics-bar-wrap {
+        flex: 1;
+        min-width: 6px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+    }
+
+    .analytics-bar {
+        width: 100%;
+        min-height: 3px;
+        border-radius: 999px 999px 0 0;
+        background: linear-gradient(180deg, rgba(126,226,204,0.9), rgba(126,226,204,0.25));
+    }
+
+    .analytics-bar-label {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        color: rgba(255,255,255,0.42);
+        font-size: 0.66rem;
+        white-space: nowrap;
+    }
+
+    .analytics-table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+    }
+
+    .analytics-table th,
+    .analytics-table td {
+        padding: 12px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        text-align: left;
+    }
+
+    .analytics-table th {
+        color: rgba(255,255,255,0.55);
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+    }
+
+    .analytics-table td {
+        color: rgba(255,255,255,0.86);
+        font-size: 0.9rem;
+    }
+
+    .analytics-empty {
+        color: rgba(255,255,255,0.55);
+        margin: 0;
+    }
+
+    @media (max-width: 700px) {
+        .analytics-header {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .analytics-chart {
+            gap: 5px;
+        }
+
+        .analytics-table th,
+        .analytics-table td {
+            padding: 10px 6px;
+        }
+    }
+    .analytics-settings-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.analytics-settings-copy {
+    margin: 0 0 12px;
+    color: rgba(255,255,255,0.62);
+    line-height: 1.45;
+}
+
+.analytics-settings-copy code {
+    color: #ffffff;
+    background: rgba(255,255,255,0.08);
+    padding: 2px 5px;
+    border-radius: 6px;
+}
+
+.analytics-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 6px 10px;
+    border-radius: 999px;
+
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.analytics-status-pill.enabled {
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.14);
+    border: 1px solid rgba(126, 226, 204, 0.42);
+}
+
+.analytics-status-pill.disabled {
+    color: rgba(255,255,255,0.62);
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+.analytics-geoip-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 12px;
+}
+
+.analytics-file-input {
+    color: rgba(255,255,255,0.78);
+    background: rgba(255,255,255,0.065);
+    border: 1px solid rgba(255,255,255,0.105);
+    border-radius: 10px;
+    padding: 9px;
+}
+
+.analytics-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 38px;
+    padding: 9px 12px;
+
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #9cf4df);
+
+    border: 1px solid rgba(126, 226, 204, 0.7);
+    border-radius: 10px;
+
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.analytics-action-button.secondary {
+    color: rgba(255,255,255,0.86);
+    background: rgba(255,255,255,0.065);
+    border-color: rgba(255,255,255,0.105);
+}
+
+.analytics-action-button.danger {
+    color: #ffe1e7;
+    background: rgba(255, 122, 144, 0.12);
+    border-color: rgba(255, 122, 144, 0.28);
+}
+
+.analytics-location-note {
+    margin: 12px 0 0;
+    color: rgba(255,255,255,0.48);
+    font-size: 0.82rem;
+}
+</style>
+
+<div class="analytics-page">
+    <div class="analytics-header">
+        <div>
+            <p class="analytics-kicker">Website</p>
+            <h1 class="analytics-title">Analytics</h1>
+            <p class="analytics-subtitle">Page views and unique visitors from the last {{ days or 30 }} days.</p>
+        </div>
+
+        <a class="analytics-back-link" href="{{ url_for('dashboard') }}">
+            <i class="fas fa-arrow-left"></i>
+            Back to Dashboard
+        </a>
+    </div>
+
+    <div class="analytics-metric-grid">
+        <div class="analytics-card">
+            <p class="analytics-metric-label">Page Views</p>
+            <p class="analytics-metric-value">{{ total_page_views }}</p>
+        </div>
+
+        <div class="analytics-card">
+            <p class="analytics-metric-label">Unique Visitors</p>
+            <p class="analytics-metric-value">{{ total_unique_visitors }}</p>
+        </div>
+    </div>
+    <div class="analytics-card" style="margin-bottom: 20px;">
+    <div class="analytics-settings-header">
+        <div>
+            <h2 class="analytics-section-title">Approximate Visitor Location</h2>
+            <p class="analytics-settings-copy">
+                Optional. Upload a local GeoIP <code>.mmdb</code> database to estimate visitor country, region, and city from IP address.
+                No visitor IPs are sent to a third-party service.
+            </p>
+        </div>
+
+        <span class="analytics-status-pill {% if analytics_settings and analytics_settings.geoip_enabled %}enabled{% else %}disabled{% endif %}">
+            {% if analytics_settings and analytics_settings.geoip_enabled %}
+                Enabled
+            {% else %}
+                Disabled
+            {% endif %}
+        </span>
+    </div>
+
+    {% if analytics_settings and analytics_settings.geoip_database_name %}
+    <p class="analytics-settings-copy">
+        Current database:
+        <strong>{{ analytics_settings.geoip_database_name }}</strong>
+    </p>
+    {% endif %}
+
+    <form id="geoipUploadForm" class="analytics-geoip-form" enctype="multipart/form-data">
+        <input type="file" name="geoip_database" accept=".mmdb" class="analytics-file-input">
+
+        <button type="submit" class="analytics-action-button">
+            Upload and Enable
+        </button>
+
+        {% if analytics_settings and analytics_settings.geoip_enabled %}
+        <button type="button" class="analytics-action-button secondary" onclick="disableGeoIpDatabase()">
+            Disable
+        </button>
+        {% endif %}
+        {% if analytics_settings and analytics_settings.geoip_enabled %}
+<button type="button" class="analytics-action-button secondary" onclick="backfillGeoIpLocations()">
+    Backfill Existing Visits
+</button>
+{% endif %}
+
+        {% if analytics_settings and analytics_settings.geoip_database_name %}
+        <button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">
+            Delete Database
+        </button>
+        {% endif %}
+    </form>
+
+    <p class="analytics-location-note">
+        Location is approximate and can be inaccurate for VPNs, mobile networks, private relay, or corporate networks.
+    </p>
+</div>
+
+    <div class="analytics-card" style="margin-bottom: 20px;">
+        <h2 class="analytics-section-title">Visits by Day</h2>
+
+        {% set max_views = visits_by_day | map(attribute='page_views') | max if visits_by_day else 0 %}
+
+        {% if max_views > 0 %}
+        <div class="analytics-chart">
+            {% for day in visits_by_day %}
+            {% set height = ((day.page_views / max_views) * 190) if max_views else 0 %}
+            <div class="analytics-bar-wrap" title="{{ day.date }}: {{ day.page_views }} views, {{ day.unique_visitors }} unique">
+                <div class="analytics-bar" style="height: {{ height }}px;"></div>
+                <div class="analytics-bar-label">{{ day.date[5:] }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="analytics-empty">No visits tracked yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="analytics-card" style="margin-bottom: 20px;">
+        <h2 class="analytics-section-title">Top Pages</h2>
+
+        {% if page_stats %}
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>Page</th>
+                    <th>Views</th>
+                    <th>Unique</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for page in page_stats %}
+                <tr>
+                    <td>
+                        {{ page.name }}
+                        <br>
+                        <span style="color: rgba(255,255,255,0.42);">/{{ page.slug }}</span>
+                    </td>
+                    <td>{{ page.page_views }}</td>
+                    <td>{{ page.unique_visitors }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="analytics-empty">No page data yet.</p>
+        {% endif %}
+    </div>
+    <div class="analytics-card" style="margin-bottom: 20px;">
+    <h2 class="analytics-section-title">Top Countries</h2>
+
+    {% if country_stats %}
+    <table class="analytics-table">
+        <thead>
+            <tr>
+                <th>Country</th>
+                <th>Views</th>
+                <th>Unique</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for row in country_stats %}
+            <tr>
+                <td>
+                    {{ row.country }}
+                    {% if row.country_iso %}
+                    <span style="color: rgba(255,255,255,0.42);">
+                        ({{ row.country_iso }})
+                    </span>
+                    {% endif %}
+                </td>
+                <td>{{ row.visits }}</td>
+                <td>{{ row.unique_visitors }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="analytics-empty">
+        No country data yet. Location data will only appear for new public visits after GeoIP is enabled.
+    </p>
+    {% endif %}
+</div>
+
+<div class="analytics-card" style="margin-bottom: 20px;">
+    <h2 class="analytics-section-title">Top Cities</h2>
+
+    {% if city_stats %}
+    <table class="analytics-table">
+        <thead>
+            <tr>
+                <th>City</th>
+                <th>Views</th>
+                <th>Unique</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for row in city_stats %}
+            <tr>
+                <td>
+                    {{ row.city }}
+                    <br>
+                    <span style="color: rgba(255,255,255,0.42);">
+                        {{ row.region or '' }}{% if row.region and row.country %}, {% endif %}{{ row.country or '' }}
+                    </span>
+                </td>
+                <td>{{ row.visits }}</td>
+                <td>{{ row.unique_visitors }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="analytics-empty">
+        No city data yet.
+    </p>
+    {% endif %}
+</div>
+
+    <div class="analytics-card">
+        <h2 class="analytics-section-title">Top Referrers</h2>
+
+        {% if referrer_stats %}
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>Referrer</th>
+                    <th>Visits</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for row in referrer_stats %}
+                <tr>
+                    <td style="word-break: break-word;">{{ row.referrer }}</td>
+                    <td>{{ row.visits }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            
+        </table>
+        {% else %}
+        <p class="analytics-empty">No referrer data yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+const analyticsCsrfToken = "{{ csrf_token }}";
+
+    const geoipUploadForm = document.getElementById('geoipUploadForm');
+
+    if (geoipUploadForm) {
+        geoipUploadForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            const formData = new FormData(geoipUploadForm);
+
+            fetch('/dashboard/analytics/geoip/upload', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': analyticsCsrfToken
+                },
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message || 'GeoIP settings updated.');
+
+                    if (data.success) {
+                        window.location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('GeoIP upload error:', error);
+                    alert('Failed to upload GeoIP database.');
+                });
+        });
+    }
+
+    function disableGeoIpDatabase() {
+        fetch('/dashboard/analytics/geoip/disable', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': analyticsCsrfToken
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message || 'GeoIP disabled.');
+
+                if (data.success) {
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('GeoIP disable error:', error);
+                alert('Failed to disable GeoIP.');
+            });
+    }
+
+    function deleteGeoIpDatabase() {
+        const confirmed = confirm(
+            'Delete the local GeoIP database?\n\nThis will stop future location lookup. Existing analytics location data will remain unless you delete analytics records separately.'
+        );
+
+        if (!confirmed) return;
+
+        fetch('/dashboard/analytics/geoip/delete', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': analyticsCsrfToken
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message || 'GeoIP database deleted.');
+
+                if (data.success) {
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('GeoIP delete error:', error);
+                alert('Failed to delete GeoIP database.');
+            });
+    }
+
+    function backfillGeoIpLocations() {
+    fetch('/dashboard/analytics/geoip/backfill', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': analyticsCsrfToken
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message || 'GeoIP backfill complete.');
+
+            if (data.success) {
+                window.location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('GeoIP backfill error:', error);
+            alert('Failed to backfill GeoIP locations.');
+        });
+}
+</script>
+
+{% endblock %}

@@ -10,6 +10,7 @@ import ssl
 import uuid
 import copy
 import re
+import ipaddress
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -18,7 +19,7 @@ from PIL import Image, ImageOps
 import pytz
 from dateutil import parser
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, Response, \
-    flash
+    flash, make_response
 from flask_login import LoginManager, login_user, logout_user, login_required
 from flask_login import current_user, UserMixin
 from flask_mail import Mail, Message
@@ -32,6 +33,7 @@ from sqlalchemy.orm import validates
 from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from datetime import datetime, timedelta
 
 from bs4 import BeautifulSoup
 
@@ -160,9 +162,6 @@ class EmailServerSettings(db.Model):
 
     def __repr__(self):
         return f"<EmailServerSettings {self.id}>"
-
-
-from datetime import datetime
 
 class ContactMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -442,6 +441,56 @@ class PageFolder(db.Model):
         return PublicPageContent.query.filter_by(
             page_folder_id=self.id
         ).count()
+
+class PageVisit(db.Model):
+    __tablename__ = 'page_visit'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    page_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=False)
+
+    visitor_id = db.Column(db.String(64), nullable=False, index=True)
+
+    path = db.Column(db.String(500), nullable=True)
+    referrer = db.Column(db.Text, nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+
+    country = db.Column(db.String(100), nullable=True)
+    country_iso = db.Column(db.String(10), nullable=True)
+    region = db.Column(db.String(100), nullable=True)
+    city = db.Column(db.String(100), nullable=True)
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
+    location_source = db.Column(db.String(50), nullable=True)
+
+    visited_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    website = db.relationship('Website', backref=db.backref('page_visits', lazy=True, cascade='all, delete-orphan'))
+    page = db.relationship('PublicPageContent', backref=db.backref('page_visits', lazy=True, cascade='all, delete-orphan'))
+
+    def __repr__(self):
+        return f"<PageVisit website={self.website_id} page={self.page_id} visitor={self.visitor_id}>"
+
+class AnalyticsSettings(db.Model):
+    __tablename__ = 'analytics_settings'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+
+    geoip_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    geoip_database_path = db.Column(db.String(500), nullable=True)
+    geoip_database_name = db.Column(db.String(255), nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('analytics_settings', uselist=False))
+
+    def __repr__(self):
+        return f"<AnalyticsSettings user={self.user_id} geoip_enabled={self.geoip_enabled}>"
 
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -932,17 +981,58 @@ def delete_section_group(group_id):
     try:
         group = SectionGroup.query.get_or_404(group_id)
 
-        # Ungroup rows instead of deleting the rows
+        page_content = PublicPageContent.query.get_or_404(group.page_content_id)
+        website = Website.query.get_or_404(page_content.website_id)
+
+        if website.user_id != current_user.id:
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized.'
+            }), 403
+
         rows = Row.query.filter_by(section_group_id=group.id).all()
+
         for row in rows:
-            row.section_group_id = None
+            columns = Column.query.filter_by(row_id=row.id).all()
+
+            for column in columns:
+                section = column.section
+
+                if section:
+                    SectionImage.query.filter_by(section_id=section.id).delete()
+                    CalendarEvent.query.filter_by(section_id=section.id).delete()
+                    db.session.delete(section)
+
+                db.session.delete(column)
+
+            db.session.delete(row)
 
         db.session.delete(group)
+
+        db.session.flush()
+
+        # Re-number remaining groups on this page
+        remaining_groups = SectionGroup.query.filter_by(
+            page_content_id=page_content.id
+        ).order_by(SectionGroup.group_order, SectionGroup.id).all()
+
+        for index, remaining_group in enumerate(remaining_groups, start=1):
+            remaining_group.group_order = index
+
+        # Re-number remaining rows on this page
+        remaining_rows = Row.query.filter_by(
+            page_content_id=page_content.id
+        ).order_by(Row.row_number, Row.id).all()
+
+        for index, remaining_row in enumerate(remaining_rows, start=1):
+            remaining_row.row_number = index
+
         db.session.commit()
 
         return jsonify({'success': True})
 
     except Exception as e:
+        db.session.rollback()
         print(f"Error deleting section group: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1000,9 +1090,22 @@ def update_section_group(group_id):
 @login_required
 def move_row_to_group(row_id):
     row = Row.query.get_or_404(row_id)
-    data = request.json
+    data = request.json or {}
 
-    row.section_group_id = data.get('section_group_id')
+    section_group_id = data.get('section_group_id')
+
+    if not section_group_id:
+        return jsonify({
+            'success': False,
+            'error': 'Rows must belong to a group.'
+        }), 400
+
+    group = SectionGroup.query.filter_by(
+        id=section_group_id,
+        page_content_id=row.page_content_id
+    ).first_or_404()
+
+    row.section_group_id = group.id
     db.session.commit()
 
     return jsonify({"success": True})
@@ -1049,6 +1152,31 @@ def update_row_order_and_groups():
         print(f"Error updating row order and groups: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def update_link_card_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    section.content = {
+        'header': clean(form_data.get('link_card_header'), 'Link Card'),
+        'body': clean(form_data.get('link_card_body'), ''),
+        'footer': clean(form_data.get('link_card_footer'), ''),
+        'url': clean(form_data.get('link_card_url'), '#'),
+
+        # image/background
+        'background_image_url': clean(form_data.get('link_card_background_image_url'), ''),
+        'background_color': clean(form_data.get('link_card_background_color'), '#1f232b'),
+        'text_color': clean(form_data.get('link_card_text_color'), '#ffffff'),
+        'overlay_color': clean(form_data.get('link_card_overlay_color'), '#000000'),
+        'overlay_opacity': float(form_data.get('link_card_overlay_opacity') or 0.25),
+
+        # presentation
+        'height': int(form_data.get('link_card_height') or 240),
+        'border_radius': int(form_data.get('link_card_border_radius') or 18),
+        'open_in_new_tab': form_data.get('link_card_open_new_tab') == 'on'
+    }
+
+    return section
+
 @app.route('/update_editor_group_and_row_order', methods=['POST'])
 @login_required
 def update_editor_group_and_row_order():
@@ -1065,9 +1193,17 @@ def update_editor_group_and_row_order():
 
         for row_item in rows:
             row = Row.query.get(row_item.get('row_id'))
+            section_group_id = row_item.get('section_group_id')
+
             if row:
+                if not section_group_id:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Rows must belong to a group.'
+                    }), 400
+
                 row.row_number = row_item.get('row_number')
-                row.section_group_id = row_item.get('section_group_id')
+                row.section_group_id = section_group_id
 
         db.session.commit()
 
@@ -3685,6 +3821,249 @@ def serve_static(filename):
     print("Request for static file:", filename)
     return send_from_directory(app.static_folder, filename)
 
+def should_track_page_visit(is_preview=False):
+    if is_preview:
+        return False
+
+    # Do not count your own logged-in admin/editor visits.
+    if current_user.is_authenticated:
+        return False
+
+    user_agent = (request.headers.get('User-Agent') or '').lower()
+
+    bot_keywords = [
+        'bot',
+        'crawler',
+        'spider',
+        'preview',
+        'facebookexternalhit',
+        'slackbot',
+        'discordbot',
+        'whatsapp',
+        'telegrambot'
+    ]
+
+    if any(keyword in user_agent for keyword in bot_keywords):
+        return False
+
+    return True
+
+def get_analytics_settings_for_user(user_id):
+    settings = AnalyticsSettings.query.filter_by(user_id=user_id).first()
+
+    if not settings:
+        settings = AnalyticsSettings(
+            user_id=user_id,
+            geoip_enabled=False
+        )
+        db.session.add(settings)
+        db.session.commit()
+
+    return settings
+
+
+def is_public_ip_address(ip_address):
+    if not ip_address:
+        return False
+
+    try:
+        ip = ipaddress.ip_address(ip_address)
+        return not (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_link_local
+        )
+    except ValueError:
+        return False
+
+
+def lookup_ip_location_for_website(website, ip_address):
+    """
+    Optional local GeoIP lookup.
+    No third-party API call is made.
+    Only works if the site owner has uploaded/enabled a local .mmdb database.
+    """
+    if not website or not ip_address:
+        return {}
+
+    if not is_public_ip_address(ip_address):
+        return {}
+
+    settings = AnalyticsSettings.query.filter_by(user_id=website.user_id).first()
+
+    if not settings or not settings.geoip_enabled:
+        return {}
+
+    if not settings.geoip_database_path:
+        return {}
+
+    if not os.path.exists(settings.geoip_database_path):
+        return {}
+
+    try:
+        import geoip2.database
+
+        with geoip2.database.Reader(settings.geoip_database_path) as reader:
+            response = reader.city(ip_address)
+
+            return {
+                'country': response.country.name,
+                'country_iso': response.country.iso_code,
+                'region': response.subdivisions.most_specific.name,
+                'city': response.city.name,
+                'latitude': response.location.latitude,
+                'longitude': response.location.longitude,
+                'location_source': 'local_geoip'
+            }
+
+    except Exception as e:
+        print(f"GeoIP lookup failed: {e}")
+        return {}
+@app.route('/dashboard/analytics/geoip/upload', methods=['POST'])
+@login_required
+def upload_geoip_database():
+    settings = get_analytics_settings_for_user(current_user.id)
+
+    geoip_file = request.files.get('geoip_database')
+
+    if not geoip_file or not geoip_file.filename:
+        return jsonify({
+            'success': False,
+            'message': 'Please choose a GeoIP .mmdb database file.'
+        }), 400
+
+    filename = secure_filename(geoip_file.filename)
+
+    if not filename.lower().endswith('.mmdb'):
+        return jsonify({
+            'success': False,
+            'message': 'Only .mmdb GeoIP database files are allowed.'
+        }), 400
+
+    analytics_folder = os.path.join(database_folder, 'analytics')
+    os.makedirs(analytics_folder, exist_ok=True)
+
+    saved_path = os.path.join(analytics_folder, f'user_{current_user.id}_geoip.mmdb')
+
+    geoip_file.save(saved_path)
+
+    settings.geoip_enabled = True
+    settings.geoip_database_path = saved_path
+    settings.geoip_database_name = filename
+    settings.updated_at = datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Local GeoIP database uploaded and enabled.',
+        'geoip_database_name': filename
+    })
+
+
+@app.route('/dashboard/analytics/geoip/disable', methods=['POST'])
+@login_required
+def disable_geoip_database():
+    settings = get_analytics_settings_for_user(current_user.id)
+
+    settings.geoip_enabled = False
+    settings.updated_at = datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Approximate location analytics disabled.'
+    })
+
+
+@app.route('/dashboard/analytics/geoip/delete', methods=['POST'])
+@login_required
+def delete_geoip_database():
+    settings = get_analytics_settings_for_user(current_user.id)
+
+    if settings.geoip_database_path and os.path.exists(settings.geoip_database_path):
+        os.remove(settings.geoip_database_path)
+
+    settings.geoip_enabled = False
+    settings.geoip_database_path = None
+    settings.geoip_database_name = None
+    settings.updated_at = datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Local GeoIP database deleted.'
+    })
+
+GEOIP_DB_PATH = os.path.join(database_folder, 'GeoLite2-City.mmdb')
+
+def lookup_ip_location(ip_address):
+    if not ip_address:
+        return {}
+
+    if ip_address.startswith(('127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.',
+                              '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
+                              '172.28.', '172.29.', '172.30.', '172.31.')):
+        return {}
+
+    if not os.path.exists(GEOIP_DB_PATH):
+        return {}
+
+    try:
+        import geoip2.database
+
+        with geoip2.database.Reader(GEOIP_DB_PATH) as reader:
+            response = reader.city(ip_address)
+
+            return {
+                'country': response.country.name,
+                'region': response.subdivisions.most_specific.name,
+                'city': response.city.name,
+                'latitude': response.location.latitude,
+                'longitude': response.location.longitude,
+                'source': 'geoip_local'
+            }
+
+    except Exception:
+        return {}
+
+def track_page_visit(website, page, visitor_id):
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+
+    location = lookup_ip_location_for_website(website, ip_address)
+    print("Tracking visit IP:", ip_address)
+    print("GeoIP location:", location)
+
+    visit = PageVisit(
+        website_id=website.id,
+        page_id=page.id,
+        visitor_id=visitor_id,
+        path=request.path,
+        referrer=request.referrer,
+        user_agent=request.headers.get('User-Agent'),
+        ip_address=ip_address,
+
+        country=location.get('country'),
+        country_iso=location.get('country_iso'),
+        region=location.get('region'),
+        city=location.get('city'),
+        latitude=location.get('latitude'),
+        longitude=location.get('longitude'),
+        location_source=location.get('location_source')
+    )
+
+    db.session.add(visit)
+    db.session.commit()
+
+
+
 def render_public_page(website, page, is_preview=False):
     sections = PageSection.query.filter_by(
         page_content_id=page.id
@@ -3739,11 +4118,243 @@ def render_public_page(website, page, is_preview=False):
         'is_preview': is_preview
     }
 
-
-    return render_template(
+    html = render_template(
         'public.html',
         website=website,
         content=public_page_content
+    )
+
+    response = make_response(html)
+
+    if should_track_page_visit(is_preview=is_preview):
+        visitor_id = request.cookies.get('uwebia_visitor_id')
+
+        if not visitor_id:
+            visitor_id = uuid.uuid4().hex
+
+            response.set_cookie(
+                'uwebia_visitor_id',
+                visitor_id,
+                max_age=60 * 60 * 24 * 365,
+                httponly=True,
+                samesite='Lax'
+            )
+
+        track_page_visit(website, page, visitor_id)
+
+    return response
+
+
+@app.route('/dashboard/analytics/geoip/backfill', methods=['POST'])
+@login_required
+def backfill_geoip_locations():
+    websites = Website.query.filter_by(user_id=current_user.id).all()
+    website_ids = [website.id for website in websites]
+
+    if not website_ids:
+        return jsonify({
+            'success': True,
+            'updated_count': 0,
+            'message': 'No websites found.'
+        })
+
+    website_by_id = {website.id: website for website in websites}
+
+    visits = PageVisit.query.filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.ip_address.isnot(None),
+        PageVisit.ip_address != '',
+        PageVisit.country.is_(None)
+    ).limit(1000).all()
+
+    updated_count = 0
+
+    for visit in visits:
+        website = website_by_id.get(visit.website_id)
+
+        if not website:
+            continue
+
+        location = lookup_ip_location_for_website(website, visit.ip_address)
+
+        if not location:
+            continue
+
+        visit.country = location.get('country')
+        visit.country_iso = location.get('country_iso')
+        visit.region = location.get('region')
+        visit.city = location.get('city')
+        visit.latitude = location.get('latitude')
+        visit.longitude = location.get('longitude')
+        visit.location_source = location.get('location_source')
+
+        updated_count += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'updated_count': updated_count,
+        'message': f'Backfilled location data for {updated_count} visits.'
+    })
+
+@app.route('/dashboard/analytics')
+@login_required
+def analytics_page():
+    websites = Website.query.filter_by(user_id=current_user.id).all()
+
+    website_ids = [website.id for website in websites]
+    csrf_token = generate_csrf()
+
+    if not website_ids:
+        return render_template(
+            'analytics.html',
+            websites=[],
+            total_page_views=0,
+            total_unique_visitors=0,
+            visits_by_day=[],
+            page_stats=[],
+            referrer_stats=[],
+            analytics_settings=get_analytics_settings_for_user(current_user.id),
+            country_stats=[],
+            city_stats=[],
+            days=30,
+            csrf_token=csrf_token
+        )
+
+    days = 30
+    start_date = datetime.utcnow() - timedelta(days=days - 1)
+
+    total_page_views = PageVisit.query.filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).count()
+
+    total_unique_visitors = db.session.query(
+        func.count(func.distinct(PageVisit.visitor_id))
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).scalar() or 0
+
+    raw_visits_by_day = db.session.query(
+        func.date(PageVisit.visited_at).label('visit_date'),
+        func.count(PageVisit.id).label('page_views'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).group_by(
+        func.date(PageVisit.visited_at)
+    ).order_by(
+        func.date(PageVisit.visited_at)
+    ).all()
+
+    visits_by_day_map = {
+        str(row.visit_date): {
+            'date': str(row.visit_date),
+            'page_views': row.page_views,
+            'unique_visitors': row.unique_visitors
+        }
+        for row in raw_visits_by_day
+    }
+
+    visits_by_day = []
+
+    for i in range(days):
+        day = (start_date + timedelta(days=i)).date().isoformat()
+
+        visits_by_day.append(
+            visits_by_day_map.get(day, {
+                'date': day,
+                'page_views': 0,
+                'unique_visitors': 0
+            })
+        )
+
+    page_stats = db.session.query(
+        PublicPageContent.id,
+        PublicPageContent.name,
+        PublicPageContent.slug,
+        func.count(PageVisit.id).label('page_views'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).join(
+        PageVisit,
+        PageVisit.page_id == PublicPageContent.id
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).group_by(
+        PublicPageContent.id
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).all()
+
+    referrer_stats = db.session.query(
+        PageVisit.referrer,
+        func.count(PageVisit.id).label('visits')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.referrer.isnot(None),
+        PageVisit.referrer != ''
+    ).group_by(
+        PageVisit.referrer
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(10).all()
+
+    analytics_settings = get_analytics_settings_for_user(current_user.id)
+
+    country_stats = db.session.query(
+        PageVisit.country,
+        PageVisit.country_iso,
+        func.count(PageVisit.id).label('visits'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.country.isnot(None),
+        PageVisit.country != ''
+    ).group_by(
+        PageVisit.country,
+        PageVisit.country_iso
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    city_stats = db.session.query(
+        PageVisit.city,
+        PageVisit.region,
+        PageVisit.country,
+        func.count(PageVisit.id).label('visits'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.city.isnot(None),
+        PageVisit.city != ''
+    ).group_by(
+        PageVisit.city,
+        PageVisit.region,
+        PageVisit.country
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    return render_template(
+        'analytics.html',
+        websites=websites,
+        total_page_views=total_page_views,
+        total_unique_visitors=total_unique_visitors,
+        visits_by_day=visits_by_day,
+        page_stats=page_stats,
+        referrer_stats=referrer_stats,
+        country_stats=country_stats,
+        city_stats=city_stats,
+        analytics_settings=analytics_settings,
+        days=days,
+        csrf_token=csrf_token
     )
 
 @app.route('/')
@@ -4084,7 +4695,18 @@ def edit_public_navbar_style(website_id):
 
     margin = max(0, min(80, margin))
 
+    dropdown_mode = (data.get('dropdown_mode') or 'dropdown').strip()
+
+    # Normalize possible variants
+    if dropdown_mode in ['side-panel', 'sidepanel', 'side_panel']:
+        dropdown_mode = 'side_panel'
+    else:
+        dropdown_mode = 'dropdown'
+
+    existing_style = website.public_navbar_style or {}
+
     website.public_navbar_style = {
+        **existing_style,
         'title': data.get('title', website.name),
         'icon_url': data.get('icon_url', ''),
         'background': data.get('background', 'rgba(20,20,20,0.9)'),
@@ -4095,11 +4717,16 @@ def edit_public_navbar_style(website_id):
         'shadow': data.get('shadow', True),
         'sticky': data.get('sticky', True),
         'title_alignment': data.get('title_alignment', 'left'),
-        'margin': margin
+        'margin': margin,
+        'dropdown_mode': dropdown_mode,
     }
+
     db.session.commit()
 
-    return jsonify({'success': True})
+    return jsonify({
+        'success': True,
+        'public_navbar_style': website.public_navbar_style
+    })
 
 @app.route('/upload_public_navbar_icon/<int:website_id>', methods=['POST'])
 @login_required
@@ -4189,6 +4816,8 @@ def update_section():
         section = update_youtube_video_section(section, form_data)
     # elif section_type == 'navbar':
     #     section = update_navbar_section(section, form_data)
+    elif section_type == 'link_card':
+        section = update_link_card_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 

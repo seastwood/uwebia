@@ -4891,7 +4891,99 @@ body.is-sorting-images .section-group {
     left: auto !important;
     top: 100% !important;
 }
+.dropdown-content a.danger-menu-item,
+.section-group-actions .danger-action {
+    color: #ffe1e7 !important;
+}
 
+.dropdown-content a.danger-menu-item:hover {
+    background: rgba(255, 122, 144, 0.16) !important;
+    color: #ffffff !important;
+}
+
+.link-card-editor-container {
+    padding: 10px !important;
+}
+
+.link-card-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 0.9fr);
+    gap: 14px;
+}
+
+.link-card-editor-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    padding: 12px;
+    border-radius: 16px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.link-card-editor-panel label {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.82);
+    background: transparent;
+    padding: 0;
+
+    font-size: 0.76rem;
+    font-weight: 850;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.link-card-image-preview {
+    min-height: 150px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 16px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+
+    color: rgba(255, 255, 255, 0.52);
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.055), rgba(255,255,255,0.02)),
+        rgba(0,0,0,0.22);
+
+    background-size: cover;
+    background-position: center;
+    overflow: hidden;
+}
+
+.link-card-image-preview.has-image {
+    border-style: solid;
+    border-color: rgba(126, 226, 204, 0.28);
+}
+
+.link-card-editor-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.link-card-style-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.link-card-style-grid input[type="color"] {
+    width: 100%;
+    height: 38px;
+    padding: 2px;
+    border-radius: 10px;
+}
+
+@media (max-width: 850px) {
+    .link-card-editor-grid {
+        grid-template-columns: 1fr;
+    }
+}
 </style>
 </head>
 
@@ -5079,6 +5171,7 @@ body.is-sorting-images .section-group {
                         <!-- <option value="navbar">Navbar</option> -->
                         <!-- <option value="header">Header</option> -->
                         <option value="button">Button</option>
+                        <option value="link_card">Link Card</option>
                         <!-- <option value="image_gallery">Image Gallery</option>
                         <option value="image">Image</option> -->
                         <option value="images">Images</option>
@@ -5764,6 +5857,7 @@ body.is-sorting-images .section-group {
                 image: 'Image',
                 image_gallery: 'Images',
                 button: 'Button',
+                link_card: 'Link Card',
                 map: 'Map',
                 contact_form: 'Contact Form',
                 calendar: 'Calendar',
@@ -5974,11 +6068,21 @@ if (row.section_group_id && groupContainersById[row.section_group_id]) {
                 deleteRowOption.onclick = function (e) {
                     e.stopPropagation();
 
-                    const confirmed = confirm("Are you sure you want to delete this row? This cannot be undone.");
+const rowEl = document.querySelector(`.row[data-row-id="${rowId}"]`);
+const sectionCount = rowEl
+    ? rowEl.querySelectorAll(':scope .section-card').length
+    : 0;
 
-                    if (!confirmed) return;
+const message =
+    sectionCount > 0
+        ? `Delete this row?\n\nThis will also permanently delete ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this row.\n\nThis cannot be undone.`
+        : `Delete this empty row?\n\nThis cannot be undone.`;
 
-                    deleteRow(rowId);
+const confirmed = confirm(message);
+
+if (!confirmed) return;
+
+deleteRow(rowId);
                 };
                 dropdownContent.appendChild(deleteRowOption);
 
@@ -6292,6 +6396,141 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
             </form>
         </div>`;
                         }
+                        else if (section.section_type === 'link_card') {
+    const content = section.content || {};
+
+    sectionContent.innerHTML = `
+        <div class="section-container link-card-editor-container">
+            <form class="update-section-form link-card-section-form"
+                  data-section-id="${section.id}"
+                  data-section-type="link_card"
+                  data-page-id="${section.page_content_id}">
+
+                <div class="link-card-editor-grid">
+
+                    <div class="link-card-editor-panel">
+                        <label>Header Label</label>
+                        <input type="text"
+                               name="link_card_header"
+                               class="dynamic-width"
+                               value="${escapeHtml(content.header || '')}"
+                               placeholder="Example: Featured Resource">
+
+                        <label>Body Text</label>
+                        <textarea name="link_card_body"
+                                  class="dynamic-width"
+                                  rows="3"
+                                  placeholder="Short description">${escapeHtml(content.body || '')}</textarea>
+
+                        <label>Footer Label</label>
+                        <input type="text"
+                               name="link_card_footer"
+                               class="dynamic-width"
+                               value="${escapeHtml(content.footer || '')}"
+                               placeholder="Example: Learn more">
+
+                        <label>Clickable URL</label>
+                        <input type="url"
+                               name="link_card_url"
+                               class="dynamic-width"
+                               value="${escapeHtml(content.url || '')}"
+                               placeholder="https://example.com">
+
+                        <label class="image-toggle-row">
+                            <input type="checkbox"
+                                   name="link_card_open_new_tab"
+                                   ${content.open_in_new_tab !== false ? 'checked' : ''}>
+                            Open in new tab
+                        </label>
+                    </div>
+
+                    <div class="link-card-editor-panel">
+                        <label>Background Image</label>
+
+                        <div class="link-card-image-preview ${content.background_image_url ? 'has-image' : ''}"
+                             id="linkCardImagePreview-${section.id}"
+                             style="${content.background_image_url ? `background-image:url('${escapeAttr(content.background_image_url)}')` : ''}">
+                            <span>${content.background_image_url ? '' : 'No image selected'}</span>
+                        </div>
+
+                        <input type="hidden"
+                               id="linkCardBackgroundImage-${section.id}"
+                               name="link_card_background_image_url"
+                               value="${escapeAttr(content.background_image_url || '')}">
+
+                        <div class="link-card-editor-actions">
+                            <button type="button"
+                                    class="btn-secondary"
+                                    onclick="openLinkCardBackgroundLibraryPicker(${section.id})">
+                                <i class="fas fa-images"></i>
+                                Choose from Library
+                            </button>
+
+                            <button type="button"
+                                    class="btn-secondary"
+                                    onclick="clearLinkCardBackgroundImage(${section.id})">
+                                Clear Image
+                            </button>
+                        </div>
+
+                        <div class="link-card-style-grid">
+                            <div>
+                                <label>Background Color</label>
+                                <input type="color"
+                                       name="link_card_background_color"
+                                       value="${content.background_color || '#1f232b'}">
+                            </div>
+
+                            <div>
+                                <label>Text Color</label>
+                                <input type="color"
+                                       name="link_card_text_color"
+                                       value="${content.text_color || '#ffffff'}">
+                            </div>
+
+                            <div>
+                                <label>Overlay Color</label>
+                                <input type="color"
+                                       name="link_card_overlay_color"
+                                       value="${content.overlay_color || '#000000'}">
+                            </div>
+
+                            <div>
+                                <label>Overlay Opacity</label>
+                                <input type="range"
+                                       name="link_card_overlay_opacity"
+                                       min="0"
+                                       max="1"
+                                       step="0.05"
+                                       value="${content.overlay_opacity ?? 0.25}">
+                            </div>
+
+                            <div>
+                                <label>Height</label>
+                                <input type="number"
+                                       name="link_card_height"
+                                       min="120"
+                                       max="800"
+                                       value="${content.height || 240}">
+                            </div>
+
+                            <div>
+                                <label>Rounded Corners</label>
+                                <input type="number"
+                                       name="link_card_border_radius"
+                                       min="0"
+                                       max="80"
+                                       value="${content.border_radius || 18}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit">Save Link Card</button>
+            </form>
+        </div>
+    `;
+}
 
                         else if (section.section_type === 'text') {
                             sectionContent.innerHTML = `
@@ -8937,7 +9176,24 @@ uploadedImagesUl.appendChild(li);
             const sectionType = document.getElementById('section-type').value;
             const rowId = document.getElementById('row-id-input').value || null;
             const columnId = document.getElementById('column-id-input').value || null;
-            const content = {};
+let content = {};
+
+if (sectionType === 'link_card') {
+    content = {
+        header: 'Link Card',
+        body: 'Add a short description here.',
+        footer: 'Learn more',
+        url: '#',
+        background_image_url: '',
+        background_color: '#1f232b',
+        text_color: '#ffffff',
+        overlay_color: '#000000',
+        overlay_opacity: 0.25,
+        height: 240,
+        border_radius: 18,
+        open_in_new_tab: true
+    };
+}
 
             const data = {
                 section_type: sectionType,
@@ -9167,27 +9423,44 @@ document.addEventListener('click', function (event) {
                 .catch(error => console.error('Error creating section group:', error));
         }
 
-        function deleteSectionGroup(groupId) {
-            if (!confirm('Delete this group? Rows inside it will be ungrouped, not deleted.')) {
-                return;
-            }
+function deleteSectionGroup(groupId) {
+    const groupEl = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
 
-            fetch(`/delete_section_group/${groupId}`, {
-                method: 'DELETE',
-                headers: {
-                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
-                }
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        populateSections();
-                    } else {
-                        alert(data.error || 'Failed to delete section group.');
-                    }
-                })
-                .catch(error => console.error('Error deleting section group:', error));
+    const rowCount = groupEl
+        ? groupEl.querySelectorAll(':scope .group-rows > .row').length
+        : 0;
+
+    const sectionCount = groupEl
+        ? groupEl.querySelectorAll(':scope .section-card').length
+        : 0;
+
+    const message =
+        rowCount > 0 || sectionCount > 0
+            ? `Delete this group?\n\nThis will also permanently delete ${rowCount} row${rowCount === 1 ? '' : 's'} and ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this group.\n\nThis cannot be undone.`
+            : `Delete this empty group?\n\nThis cannot be undone.`;
+
+    if (!confirm(message)) {
+        return;
+    }
+
+    fetch(`/delete_section_group/${groupId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
         }
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                populateSections();
+                reloadIframe();
+            } else {
+                alert(data.error || 'Failed to delete section group.');
+            }
+        })
+        .catch(error => console.error('Error deleting section group:', error));
+}
+
         function closeOpenSectionPanels() {
             document.querySelectorAll('.section-content.open').forEach(content => {
                 content.classList.remove('open');
@@ -10138,6 +10411,138 @@ function deleteSectionImage(linkId, sectionId) {
 }
 
 window.addEventListener('resize', updateNarrowSectionCards);
+    </script>
+
+    <script>
+        function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
+function openLinkCardBackgroundLibraryPicker(sectionId) {
+    const onConfirm = function (selection) {
+        console.log('Selected link card image:', selection);
+
+        let imageUrl = '';
+
+        // Your photo_library_modal.js returns this format:
+        // { mode: 'single', imageIds: [...], imageUrls: [...], sectionId: null }
+        if (selection && Array.isArray(selection.imageUrls)) {
+            imageUrl = selection.imageUrls[0] || '';
+        }
+
+        // Fallbacks in case another modal format is used later
+        if (!imageUrl && Array.isArray(selection)) {
+            const firstImage = selection[0];
+            imageUrl =
+                firstImage?.url ||
+                firstImage?.public_url ||
+                firstImage?.image_url ||
+                firstImage?.src ||
+                firstImage?.thumbnail_url ||
+                '';
+        }
+
+        if (!imageUrl && selection) {
+            imageUrl =
+                selection.url ||
+                selection.public_url ||
+                selection.image_url ||
+                selection.src ||
+                selection.thumbnail_url ||
+                '';
+        }
+
+        if (!imageUrl) {
+            console.warn('Selected image did not include a usable URL:', selection);
+            return;
+        }
+
+        setLinkCardBackgroundImage(sectionId, imageUrl);
+    };
+
+    if (window.PhotoLibraryModal && typeof window.PhotoLibraryModal.open === 'function') {
+        window.PhotoLibraryModal.open({
+            mode: 'single',
+            title: 'Choose Link Card Background',
+            onConfirm
+        });
+        return;
+    }
+
+    if (window.photoLibraryModal && typeof window.photoLibraryModal.open === 'function') {
+        window.photoLibraryModal.open({
+            mode: 'single',
+            title: 'Choose Link Card Background',
+            onConfirm
+        });
+        return;
+    }
+
+    if (typeof openPhotoLibraryModal === 'function') {
+        openPhotoLibraryModal({
+            mode: 'single',
+            title: 'Choose Link Card Background',
+            onConfirm
+        });
+        return;
+    }
+
+    alert('Photo library modal is not loaded.');
+}
+
+function setLinkCardBackgroundImage(sectionId, imageUrl) {
+    const input = document.getElementById(`linkCardBackgroundImage-${sectionId}`);
+    const preview = document.getElementById(`linkCardImagePreview-${sectionId}`);
+
+    console.log('Setting link card image:', {
+        sectionId,
+        imageUrl,
+        input,
+        preview
+    });
+
+    if (input) {
+        input.value = imageUrl;
+
+        // Helpful debug check
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    if (preview) {
+        preview.classList.add('has-image');
+        preview.style.backgroundImage = `url("${imageUrl}")`;
+
+        const label = preview.querySelector('span');
+        if (label) {
+            label.textContent = '';
+        }
+    }
+}
+
+function clearLinkCardBackgroundImage(sectionId) {
+    const input = document.getElementById(`linkCardBackgroundImage-${sectionId}`);
+    const preview = document.getElementById(`linkCardImagePreview-${sectionId}`);
+
+    if (input) {
+        input.value = '';
+    }
+
+    if (preview) {
+        preview.classList.remove('has-image');
+        preview.style.backgroundImage = '';
+        const label = preview.querySelector('span');
+        if (label) label.textContent = 'No image selected';
+    }
+}
     </script>
 
     {% endblock %}

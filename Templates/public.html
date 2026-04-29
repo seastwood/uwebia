@@ -52,13 +52,13 @@
     }
 
 
-    
-.public-page-body {
-    min-height: 100vh;
-    background-repeat: no-repeat;
-    background-position: center;
+
+    .public-page-body {
+        min-height: 100vh;
+        background-repeat: no-repeat;
+        background-position: center;
         background-attachment: fixed;
-}
+    }
 
     /* CSS for banner */
     .banner {
@@ -660,12 +660,12 @@
         font-family: monospace;
     }
 
-.uwebia-images {
-    width: 100%;
-    max-width: none;
-    margin: 0;
-    box-sizing: border-box;
-}
+    .uwebia-images {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        box-sizing: border-box;
+    }
 
     .uwebia-images img {
         border-radius: var(--image-radius, 10px);
@@ -878,69 +878,180 @@
     }
 
     .public-section-group .row-container {
-    margin-bottom: 2px;
-}
+        margin-bottom: 2px;
+    }
 
-.public-section-group .row-container:last-child {
-    margin-bottom: 0;
-}
+    .public-section-group .row-container:last-child {
+        margin-bottom: 0;
+    }
 
-.public-section-group .text-area {
-    padding-top: 2px;
-    padding-bottom: 2px;
-}
+    .public-section-group .text-area {
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
 
-.public-section-group .uwebia-images {
-    margin: 6px auto;
+    .public-section-group .uwebia-images {
+        margin: 6px auto;
 
-}
-.public-section-group:focus,
-.public-section-group:focus-visible {
-    outline: none;
-}
+    }
 
-/* Keep real form inputs normal */
-.public-section-group input,
-.public-section-group textarea,
-.public-section-group select,
-.public-section-group button {
-    caret-color: auto;
-    outline: revert;
-}
-/* Force image sections to fully use their allotted public row space */
-.section-container > .uwebia-images {
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    display: block;
-}
+    .public-section-group:focus,
+    .public-section-group:focus-visible {
+        outline: none;
+    }
 
-/* Single image should fill the section width */
-.uwebia-single-image {
-    width: 100% !important;
-    max-width: none !important;
-    height: auto !important;
-    max-height: none !important;
-    display: block !important;
-    object-fit: var(--image-fit, cover);
-}
+    /* Keep real form inputs normal */
+    .public-section-group input,
+    .public-section-group textarea,
+    .public-section-group select,
+    .public-section-group button {
+        caret-color: auto;
+        outline: revert;
+    }
 
-/* Make all image layouts fill the section wrapper */
-.uwebia-image-grid,
-.uwebia-image-masonry,
-.uwebia-image-carousel,
-.uwebia-feature-grid,
-.uwebia-slideshow {
-    width: 100% !important;
-    max-width: none !important;
-}
+    /* Force image sections to fully use their allotted public row space */
+    .section-container>.uwebia-images {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        display: block;
+    }
 
-/* Make images inside layout containers use available space */
-.uwebia-image-grid img,
-.uwebia-image-carousel img,
-.uwebia-feature-grid img,
-.uwebia-slide img {
-    max-width: none !important;
+    /* Single image should fill the section width */
+    .uwebia-single-image {
+        width: 100% !important;
+        max-width: none !important;
+        height: auto !important;
+        max-height: none !important;
+        display: block !important;
+        object-fit: var(--image-fit, cover);
+    }
+
+    /* Make all image layouts fill the section wrapper */
+    .uwebia-image-grid,
+    .uwebia-image-masonry,
+    .uwebia-image-carousel,
+    .uwebia-feature-grid,
+    .uwebia-slideshow {
+        width: 100% !important;
+        max-width: none !important;
+    }
+
+    /* Make images inside layout containers use available space */
+    .uwebia-image-grid img,
+    .uwebia-image-carousel img,
+    .uwebia-feature-grid img,
+    .uwebia-slide img {
+        max-width: none !important;
+    }
+
+    .uwebia-link-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+
+        width: 100%;
+        min-height: var(--link-card-height, 240px);
+
+        padding: 20px;
+        box-sizing: border-box;
+
+        color: var(--link-card-text, #ffffff);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+            var(--link-card-bg, #1f232b);
+
+        background-image:
+            linear-gradient(rgba(var(--link-card-overlay-rgb, 0, 0, 0), var(--link-card-overlay-opacity, 0.25)),
+                rgba(var(--link-card-overlay-rgb, 0, 0, 0), var(--link-card-overlay-opacity, 0.25))),
+            var(--link-card-bg-image, none);
+
+        background-size: cover;
+        background-position: center;
+
+        border-radius: var(--link-card-radius, 18px);
+        overflow: hidden;
+
+        text-decoration: none !important;
+        box-shadow:
+            0 12px 28px rgba(0, 0, 0, 0.24),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+        transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease,
+            filter 0.18s ease;
+    }
+
+    .uwebia-link-card:hover {
+        transform: translateY(-2px);
+        filter: brightness(1.04);
+        box-shadow:
+            0 18px 36px rgba(0, 0, 0, 0.32),
+            inset 0 1px 0 rgba(255, 255, 255, 0.10);
+    }
+
+    .uwebia-link-card-header {
+        position: relative;
+        z-index: 1;
+
+        width: fit-content;
+        max-width: 100%;
+
+        padding: 6px 10px;
+        border-radius: 999px;
+
+        background: rgba(0, 0, 0, 0.34);
+        color: inherit;
+
+        font-size: 0.76rem;
+        font-weight: 900;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+    }
+
+    .uwebia-link-card-body {
+        position: relative;
+        z-index: 1;
+
+        margin: auto 0;
+
+        color: inherit;
+        text-align: left;
+        font-size: clamp(1.1rem, 2vw, 1.65rem);
+        font-weight: 800;
+        line-height: 1.12;
+    }
+
+    .uwebia-link-card-footer {
+        position: relative;
+        z-index: 1;
+
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+
+        width: fit-content;
+        max-width: 100%;
+
+        color: inherit;
+        font-size: 0.9rem;
+        font-weight: 800;
+    }
+
+    .uwebia-link-card-footer::after {
+        content: "→";
+        transition: transform 0.18s ease;
+    }
+
+    .uwebia-link-card:hover .uwebia-link-card-footer::after {
+        transform: translateX(3px);
+    }
+
+    .section-container > .uwebia-link-card {
+    width: 100%;
+    max-width: none;
 }
 </style>
 
@@ -1105,331 +1216,192 @@ background: {{ group.background_color or 'transparent' }};
                                 {% else %}
                                 <p>No images in this section.</p>
                                 {% endif %}
+
+                            </div>
+                            {% elif section.section_type == 'link_card' %}
+{% set card = section.content or {} %}
+{% set header = card.get('header', 'Link Card') %}
+{% set body = card.get('body', '') %}
+{% set footer = card.get('footer', 'Learn more') %}
+{% set url = card.get('url', '#') %}
+{% set bg_image = card.get('background_image_url', '') %}
+{% set bg_color = card.get('background_color', '#1f232b') %}
+{% set text_color = card.get('text_color', '#ffffff') %}
+{% set overlay_color = card.get('overlay_color', '#000000') %}
+{% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
+{% set height = card.get('height', 240) %}
+{% set radius = card.get('border_radius', 18) %}
+{% set open_new_tab = card.get('open_in_new_tab', True) %}
+
+{% set overlay_hex = overlay_color.lstrip('#') %}
+{% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+{% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+{% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+
+<a class="uwebia-link-card"
+   href="{{ url or '#' }}"
+   {% if open_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}
+   style="
+        --link-card-height: {{ height }}px;
+        --link-card-radius: {{ radius }}px;
+        --link-card-bg: {{ bg_color }};
+        --link-card-text: {{ text_color }};
+        --link-card-overlay-rgb: {{ overlay_r }}, {{ overlay_g }}, {{ overlay_b }};
+        --link-card-overlay-opacity: {{ overlay_opacity }};
+        --link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};
+   ">
+    <div class="uwebia-link-card-header">{{ header }}</div>
+
+    {% if body %}
+    <div class="uwebia-link-card-body">{{ body }}</div>
+    {% endif %}
+
+    {% if footer %}
+    <div class="uwebia-link-card-footer">{{ footer }}</div>
+    {% endif %}
+</a>
+                            {% elif section.section_type == 'code' %}
+                            <div class="text-area">
+                                {{ section.content['text'] | safe }}
+                            </div>
+                            {% elif section.section_type == 'text' %}
+                            {% set bg = section.content.get('background_color', '#000000') %}
+                            {% set opacity = section.content.get('background_opacity', '0')|float %}
+                            {% set padding = section.content.get('padding', '20') %}
+                            {% set radius = section.content.get('border_radius', '10') %}
+                            {% set shadow = section.content.get('box_shadow', 'medium') %}
+                            {% set shadow_css = {
+                            'none': 'none',
+                            'light': '0 2px 8px rgba(0,0,0,0.18)',
+                            'medium': '0 6px 18px rgba(0,0,0,0.28)',
+                            'heavy': '0 10px 28px rgba(0,0,0,0.4)'
+                            }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
+                            rgba(0,0,0,0.28)'
+                            %}
+                            {% set bg_hex = bg.lstrip('#') %}
+                            {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                            {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                            {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
+
+                            <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+            padding: {{ padding }}px;
+            border-radius: {{ radius }}px;
+            box-shadow: {{ shadow_css }};">
+                                {{ section.content['html'] | safe }}
+                            </div>
+
+                            {% elif section.section_type == 'button' %}
+                            {% if section.content['enabled'] %}
+                            <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
+                                section.content['text']
+                                }}</a>
+                            {% endif %}
+                            {% elif section.section_type == 'map' %}
+                            {% if section.content['enabled'] %}
+                            <div id="map_{{ section.id }}" style="height: 400px;"></div>
+                            <script id="map-data_{{ section.id }}" type="application/json">
+                    {{ section.content | tojson }}
+                </script>
+                            {% endif %}
+                            {% elif section.section_type == 'calendar' %}
+                            <div class="calendar-container section-container" data-section-id="{{ section.id }}">
+                                <div id="calendar-{{ section.id }}" class="calendar"></div>
+                                <!-- Add a button to subscribe to this section's calendar -->
+                                <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download
+                                    class="button">Download
+                                    Calendar</a>
+                            </div>
+                            <!-- Event Modal -->
+                            <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
+                                aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content modal-dark">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="eventModalTitle"></h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                                aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body" id="eventModalBody">
+                                            <!-- Event details will be populated here -->
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary"
+                                                data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% elif section.section_type == 'contact_form' %}
+                            {% if section.content['enabled'] %}
+                            <div class="contact-form-container">
+                                <h2>{{ section.content['title'] }}</h2>
+                                <form id="contactForm-{{ section.id }}" class="contact-form">
+                                    <input type="hidden" name="section_id" value="{{ section.id }}">
+
+                                    <div class="form-group">
+                                        <label for="senders_email_{{ section.id }}">Your Email:</label><br>
+                                        <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
+                                            class="dynamic-width form-control" style="padding: 10px;" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="message_subject_{{ section.id }}">Subject:</label><br>
+                                        <input type="text" id="message_subject_{{ section.id }}" name="message_subject"
+                                            class="dynamic-width form-control" style="padding: 10px;" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="message_body_{{ section.id }}">Message:</label><br>
+                                        <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
+                                            class="dynamic-width form-control" style="padding: 10px;"
+                                            required></textarea>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-primary">Submit</button>
+                                </form>
+
+                                <div id="successMessage-{{ section.id }}" style="display: none;">
+                                    <h2>Message Sent!</h2>
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% elif section.section_type == 'youtube_video' %}
+                            <div class="youtube-video-container">
+                                <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
+                                    {% if section.content['youtube_url'] %}
+                                    <iframe width="100%" height="100%"
+                                        src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}"
+                                        frameborder="0"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowfullscreen></iframe>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+
                             
-                        </div>
-                        {% elif section.section_type == 'code' %}
-                        <div class="text-area">
-                            {{ section.content['text'] | safe }}
-                        </div>
-                        {% elif section.section_type == 'text' %}
-                        {% set bg = section.content.get('background_color', '#000000') %}
-                        {% set opacity = section.content.get('background_opacity', '0')|float %}
-                        {% set padding = section.content.get('padding', '20') %}
-                        {% set radius = section.content.get('border_radius', '10') %}
-                        {% set shadow = section.content.get('box_shadow', 'medium') %}
-                        {% set shadow_css = {
-                        'none': 'none',
-                        'light': '0 2px 8px rgba(0,0,0,0.18)',
-                        'medium': '0 6px 18px rgba(0,0,0,0.28)',
-                        'heavy': '0 10px 28px rgba(0,0,0,0.4)'
-                        }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
-                        rgba(0,0,0,0.28)'
-                        %}
-                        {% set bg_hex = bg.lstrip('#') %}
-                        {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
-                        {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
-                        {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
 
-                        <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
-            padding: {{ padding }}px;
-            border-radius: {{ radius }}px;
-            box-shadow: {{ shadow_css }};">
-                            {{ section.content['html'] | safe }}
+
                         </div>
 
-                        {% elif section.section_type == 'button' %}
-                        {% if section.content['enabled'] %}
-                        <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
-                            section.content['text']
-                            }}</a>
-                        {% endif %}
-                        {% elif section.section_type == 'map' %}
-                        {% if section.content['enabled'] %}
-                        <div id="map_{{ section.id }}" style="height: 400px;"></div>
-                        <script id="map-data_{{ section.id }}" type="application/json">
-                    {{ section.content | tojson }}
-                </script>
-                        {% endif %}
-                        {% elif section.section_type == 'calendar' %}
-                        <div class="calendar-container section-container" data-section-id="{{ section.id }}">
-                            <div id="calendar-{{ section.id }}" class="calendar"></div>
-                            <!-- Add a button to subscribe to this section's calendar -->
-                            <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download
-                                class="button">Download
-                                Calendar</a>
-                        </div>
-                        <!-- Event Modal -->
-                        <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
-                            aria-hidden="true">
-                            <div class="modal-dialog">
-                                <div class="modal-content modal-dark">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title" id="eventModalTitle"></h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                            aria-label="Close"></button>
-                                    </div>
-                                    <div class="modal-body" id="eventModalBody">
-                                        <!-- Event details will be populated here -->
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="btn btn-secondary"
-                                            data-bs-dismiss="modal">Close</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {% elif section.section_type == 'contact_form' %}
-                        {% if section.content['enabled'] %}
-                        <div class="contact-form-container">
-                            <h2>{{ section.content['title'] }}</h2>
-                            <form id="contactForm-{{ section.id }}" class="contact-form">
-                                <input type="hidden" name="section_id" value="{{ section.id }}">
 
-                                <div class="form-group">
-                                    <label for="senders_email_{{ section.id }}">Your Email:</label><br>
-                                    <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
-                                        class="dynamic-width form-control" style="padding: 10px;" required>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="message_subject_{{ section.id }}">Subject:</label><br>
-                                    <input type="text" id="message_subject_{{ section.id }}" name="message_subject"
-                                        class="dynamic-width form-control" style="padding: 10px;" required>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="message_body_{{ section.id }}">Message:</label><br>
-                                    <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
-                                        class="dynamic-width form-control" style="padding: 10px;" required></textarea>
-                                </div>
-
-                                <button type="submit" class="btn btn-primary">Submit</button>
-                            </form>
-
-                            <div id="successMessage-{{ section.id }}" style="display: none;">
-                                <h2>Message Sent!</h2>
-                            </div>
-                        </div>
-                        {% endif %}
-                        {% elif section.section_type == 'youtube_video' %}
-                        <div class="youtube-video-container">
-                            <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
-                                {% if section.content['youtube_url'] %}
-                                <iframe width="100%" height="100%"
-                                    src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}"
-                                    frameborder="0"
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                    allowfullscreen></iframe>
-                                {% endif %}
-                            </div>
-                        </div>
-                        {% endif %}
+                        {% endfor %}
                     </div>
-
-                    {% endfor %}
                 </div>
-        </div>
-        {% endif %}
-        {% endfor %}
-
-        </section>
-        {% endfor %}
-
-
-        {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
-        {% set first_section = sections_in_row[0] %}
-
-        {% if not first_section.section_group_id %}
-        <div class="row-container">
-            <div class="row">
-                {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
-                {% for section in sorted_sections %}
-
-                <!-- paste your full section-container block here too -->
-                <div class="section-container" style="width: {{ section.width }}%;">
-
-                    {% if section.section_type == 'image_gallery' %}
-                    <div class="slideshow-thumbnail-container">
-                        <div class="slideshow-container" data-section-id="{{ section.id }}">
-                            {% if section.id in content.pictures_by_section %}
-                            {% for imageUrl in content.pictures_by_section[section.id] %}
-                            <div class="mySlides fade" data-section-id="{{ section.id }}">
-                                <img src="{{ imageUrl }}">
-                            </div>
-                            {% endfor %}
-                            {% else %}
-                            <p>No images in this section.</p>
-                            {% endif %}
-                        </div>
-                        <div style="text-align:center">
-                            <div class="thumbnail-container" data-section-id="{{ section.id }}">
-                                {% if section.id in content.pictures_by_section %}
-                                {% for imageUrl in content.pictures_by_section[section.id] %}
-                                <div class="thumbnail">
-                                    <img src="{{ imageUrl }}" loading="lazy" style="max-width:100px;max-height:75px;"
-                                        onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
-                                </div>
-                                {% endfor %}
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    {% elif section.section_type == 'image' %}
-                    <div class="single-image-container">
-                        <!-- <div class="slideshow-container" data-section-id="{{ section.id }}"> -->
-                        {% if section.id in content.pictures_by_section %}
-                        <!-- {% for imageUrl in content.pictures_by_section[section.id] %} -->
-                        <!-- <div class="mySlides fade" data-section-id="{{ section.id }}"> -->
-                        <img src="{{ imageUrl }}" loading="lazy">
-                        <!-- </div> -->
-                        <!-- {% endfor %} -->
-                        {% else %}
-                        <p>No images in this section.</p>
-                        {% endif %}
-                        <!-- </div>
-                    <div style="text-align:center">
-                        <div class="thumbnail-container" data-section-id="{{ section.id }}">
-                            {% if section.id in content.pictures_by_section %}
-                            {% for imageUrl in content.pictures_by_section[section.id] %}
-                            <div class="thumbnail">
-                                <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
-                                    onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
-                            </div>
-                            {% endfor %}
-                            {% endif %}
-                        </div>
-                    </div> -->
-                    </div>
-                    {% elif section.section_type == 'code' %}
-                    <div class="text-area">
-                        {{ section.content['text'] | safe }}
-                    </div>
-                    {% elif section.section_type == 'text' %}
-                    {% set bg = section.content.get('background_color', '#000000') %}
-                    {% set opacity = section.content.get('background_opacity', '0')|float %}
-                    {% set padding = section.content.get('padding', '20') %}
-                    {% set radius = section.content.get('border_radius', '10') %}
-                    {% set shadow = section.content.get('box_shadow', 'medium') %}
-                    {% set shadow_css = {
-                    'none': 'none',
-                    'light': '0 2px 8px rgba(0,0,0,0.18)',
-                    'medium': '0 6px 18px rgba(0,0,0,0.28)',
-                    'heavy': '0 10px 28px rgba(0,0,0,0.4)'
-                    }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
-                    rgba(0,0,0,0.28)'
-                    %}
-                    {% set bg_hex = bg.lstrip('#') %}
-                    {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
-                    {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
-                    {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
-
-                    <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
-            padding: {{ padding }}px;
-            border-radius: {{ radius }}px;
-            box-shadow: {{ shadow_css }};">
-                        {{ section.content['html'] | safe }}
-                    </div>
-
-                    {% elif section.section_type == 'button' %}
-                    {% if section.content['enabled'] %}
-                    <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
-                        section.content['text']
-                        }}</a>
-                    {% endif %}
-                    {% elif section.section_type == 'map' %}
-                    {% if section.content['enabled'] %}
-                    <div id="map_{{ section.id }}" style="height: 400px;"></div>
-                    <script id="map-data_{{ section.id }}" type="application/json">
-                    {{ section.content | tojson }}
-                </script>
-                    {% endif %}
-                    {% elif section.section_type == 'calendar' %}
-                    <div class="calendar-container section-container" data-section-id="{{ section.id }}">
-                        <div id="calendar-{{ section.id }}" class="calendar"></div>
-                        <!-- Add a button to subscribe to this section's calendar -->
-                        <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download class="button">Download
-                            Calendar</a>
-                    </div>
-                    <!-- Event Modal -->
-                    <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
-                        aria-hidden="true">
-                        <div class="modal-dialog">
-                            <div class="modal-content modal-dark">
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="eventModalTitle"></h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                        aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body" id="eventModalBody">
-                                    <!-- Event details will be populated here -->
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary"
-                                        data-bs-dismiss="modal">Close</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    {% elif section.section_type == 'contact_form' %}
-                    {% if section.content['enabled'] %}
-                    <div class="contact-form-container">
-                        <h2>{{ section.content['title'] }}</h2>
-                        <form id="contactForm-{{ section.id }}" class="contact-form">
-                            <input type="hidden" name="section_id" value="{{ section.id }}">
-
-                            <div class="form-group">
-                                <label for="senders_email_{{ section.id }}">Your Email:</label><br>
-                                <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
-                                    class="dynamic-width form-control" style="padding: 10px;" required>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="message_subject_{{ section.id }}">Subject:</label><br>
-                                <input type="text" id="message_subject_{{ section.id }}" name="message_subject"
-                                    class="dynamic-width form-control" style="padding: 10px;" required>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="message_body_{{ section.id }}">Message:</label><br>
-                                <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
-                                    class="dynamic-width form-control" style="padding: 10px;" required></textarea>
-                            </div>
-
-                            <button type="submit" class="btn btn-primary">Submit</button>
-                        </form>
-
-                        <div id="successMessage-{{ section.id }}" style="display: none;">
-                            <h2>Message Sent!</h2>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% elif section.section_type == 'youtube_video' %}
-                    <div class="youtube-video-container">
-                        <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
-                            {% if section.content['youtube_url'] %}
-                            <iframe width="100%" height="100%"
-                                src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}" frameborder="0"
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                allowfullscreen></iframe>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
-
+                {% endif %}
                 {% endfor %}
-            </div>
+
+            </section>
+            {% endfor %}
+
+
         </div>
-        {% endif %}
-        {% endfor %}
-
-    </div>
 
 
     </div>
 
 
-<!-- <script>
+    <!-- <script>
     // Example JavaScript to set styles dynamically
 
 const background_color = "{{ content.background_color }}";
@@ -1748,4 +1720,5 @@ document.body.style.color = text_color;
         }
     </script> -->
 </body>
+
 </html>

@@ -10,14 +10,20 @@
 {% endif %}
 
 {% set current_url_no_hash = current_page_url.split('#')[0] %}
-<nav class="public-navbar" style="
+{% set dropdown_mode_raw = nav_style.get('dropdown_mode', 'dropdown') %}
+{% set dropdown_mode = dropdown_mode_raw|replace('-', '_') %}
+
+<nav class="public-navbar dropdown-mode-{{ dropdown_mode }}" data-dropdown-mode="{{ dropdown_mode }}" style="
         background: {{ nav_style.get('background', 'rgba(20,20,20,0.9)') }};
         color: {{ nav_style.get('text_color', '#ffffff') }};
+        --navbar-text-color: {{ nav_style.get('text_color', '#ffffff') }};
+--navbar-active-text-color: color-mix(in srgb, {{ nav_style.get('text_color', '#ffffff') }} 68%, #7ee2cc 32%);
         backdrop-filter: blur({{ nav_style.get('blur', 14) }}px);
         -webkit-backdrop-filter: blur({{ nav_style.get('blur', 14) }}px);
         border-radius: {{ nav_style.get('border_radius', 0) }}px;
         box-shadow: {% if nav_style.get('shadow', True) %}0 6px 18px rgba(0,0,0,0.25){% else %}none{% endif %};
         position: {% if nav_style.get('sticky', True) %}fixed{% else %}relative{% endif %};
+        
 
         {% if nav_style.get('sticky', True) %}
             top: {{ navbar_margin }}px;
@@ -60,9 +66,11 @@
         {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
+        {% set item_has_hash = '#' in item.url %}
         {% set item_url_no_hash = item.url.split('#')[0] %}
 
-        <a href="{{ item.url }}" class="{% if item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+        <a href="{{ item.url }}"
+            class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
             {{ item.name }}
         </a>
 
@@ -70,8 +78,10 @@
         {% set group_active = namespace(value=false) %}
 
         {% for child in item.children %}
+        {% set child_has_hash = '#' in child.url %}
         {% set child_url_no_hash = child.url.split('#')[0] %}
-        {% if child_url_no_hash == current_url_no_hash %}
+
+        {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
         {% set group_active.value = true %}
         {% endif %}
         {% endfor %}
@@ -83,10 +93,11 @@
 
             <div class="public-navbar-dropdown-menu">
                 {% for child in item.children %}
+                {% set child_has_hash = '#' in child.url %}
                 {% set child_url_no_hash = child.url.split('#')[0] %}
 
                 <a href="{{ child.url }}"
-                    class="{% if child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                    class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
                     {{ child.name }}
                 </a>
                 {% endfor %}
@@ -101,9 +112,11 @@
         {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
+        {% set item_has_hash = '#' in item.url %}
         {% set item_url_no_hash = item.url.split('#')[0] %}
 
-        <a href="{{ item.url }}" class="{% if item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+        <a href="{{ item.url }}"
+            class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
             {{ item.name }}
         </a>
 
@@ -111,43 +124,63 @@
         {% set group_active = namespace(value=false) %}
 
         {% for child in item.children %}
+        {% set child_has_hash = '#' in child.url %}
         {% set child_url_no_hash = child.url.split('#')[0] %}
-        {% if child_url_no_hash == current_url_no_hash %}
+
+        {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
         {% set group_active.value = true %}
         {% endif %}
         {% endfor %}
 
-        <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}">
-            <div class="public-navbar-menu-group-title">
-                {{ item.name }}
+        <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}"
+            data-menu-group>
+            <button type="button" class="public-navbar-menu-group-toggle"
+                onclick="togglePublicNavbarMenuGroup(event, this)">
+                <span>{{ item.name }}</span>
+                <span class="public-navbar-menu-group-chevron">▾</span>
+            </button>
+
+            <div class="public-navbar-menu-group-links">
+                {% for child in item.children %}
+                {% set child_has_hash = '#' in child.url %}
+                {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                <a href="{{ child.url }}"
+                    class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                    {{ child.name }}
+                </a>
+                {% endfor %}
             </div>
-
-            {% for child in item.children %}
-            {% set child_url_no_hash = child.url.split('#')[0] %}
-
-            <a href="{{ child.url }}"
-                class="{% if child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                {{ child.name }}
-            </a>
-            {% endfor %}
-        </div>
+       </div>
         {% endif %}
 
         {% endfor %}
     </div>
     {% endif %}
-
 </nav>
 
 <style>
-html {
-    scroll-behavior: smooth;
-    scroll-padding-top: {{ navbar_anchor_offset }}px;
-}
+    html {
+        scroll-behavior: smooth;
 
-.public-section-group {
-    scroll-margin-top: {{ navbar_anchor_offset }}px;
-}
+        scroll-padding-top: {
+                {
+                navbar_anchor_offset
+            }
+        }
+
+        px;
+    }
+
+    .public-section-group {
+        scroll-margin-top: {
+                {
+                navbar_anchor_offset
+            }
+        }
+
+        px;
+    }
 
     .public-navbar {
         position: fixed;
@@ -277,15 +310,15 @@ html {
     .public-navbar-right a:hover,
     .public-navbar-menu a:hover,
     .public-navbar-dropdown button:hover {
-        color: inherit;
-        background: rgba(255, 255, 255, 0.12);
+        color: var(--navbar-active-text-color, #7ee2cc);
+        background: transparent;
     }
 
     .public-navbar-dropdown {
         position: relative;
     }
 
-    .public-navbar-dropdown-menu {
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown-menu {
         display: none;
         position: absolute;
         top: 100%;
@@ -297,7 +330,8 @@ html {
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
     }
 
-    .public-navbar-dropdown:hover .public-navbar-dropdown-menu {
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
         display: block;
     }
 
@@ -305,7 +339,7 @@ html {
         display: block;
     }
 
-    .public-navbar-menu {
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu {
         display: none;
         position: absolute;
         top: 64px;
@@ -317,7 +351,7 @@ html {
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
     }
 
-    .public-navbar-menu.show {
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu.show {
         display: block;
     }
 
@@ -334,8 +368,14 @@ html {
     }
 
     .public-page-body {
-    padding-top: {{ 58 + navbar_margin }}px;
-}
+        padding-top: {
+                {
+                58+navbar_margin
+            }
+        }
+
+        px;
+    }
 
     @media (max-width: 800px) {
         .public-navbar-right {
@@ -345,19 +385,20 @@ html {
 
     .public-navbar-right a.active-navbar-link,
     .public-navbar-menu a.active-navbar-link,
-    .public-navbar-dropdown button.active-navbar-link {
+    .public-navbar-dropdown button.active-navbar-link,
+    .public-navbar-dropdown.active-navbar-dropdown>button {
+        color: var(--navbar-active-text-color, #7ee2cc) !important;
         font-weight: 850;
-        color: inherit !important;
 
-        background: rgba(255, 255, 255, 0.16);
-
-        box-shadow:
-            inset 0 0 0 1px currentColor,
-            0 6px 14px rgba(0, 0, 0, 0.16);
+        background: transparent !important;
+        box-shadow: none !important;
+        text-decoration: none !important;
+        border: none !important;
 
         opacity: 1;
     }
 
+    /* Subtle underline for active top-level navbar links */
     .public-navbar-right a.active-navbar-link {
         position: relative;
     }
@@ -365,41 +406,350 @@ html {
     .public-navbar-right a.active-navbar-link::after {
         content: "";
         position: absolute;
+
         left: 12px;
         right: 12px;
-        bottom: 5px;
-        height: 2px;
+        bottom: 6px;
+
+        height: 1.5px;
         border-radius: 999px;
-        background: currentColor;
-        opacity: 0.9;
+
+        background: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 0.65;
+
+        display: block !important;
+    }
+
+    /* Keep active hover subtle */
+    .public-navbar-right a.active-navbar-link:hover,
+    .public-navbar-menu a.active-navbar-link:hover,
+    .public-navbar-dropdown button.active-navbar-link:hover,
+    .public-navbar-dropdown.active-navbar-dropdown>button:hover {
+        color: var(--navbar-active-text-color, #7ee2cc) !important;
+        background: transparent !important;
+        box-shadow: none !important;
     }
 
     .public-navbar-dropdown.active-navbar-dropdown>button {
-        font-weight: 850;
-        color: inherit !important;
+        position: relative;
+    }
 
-        background: rgba(255, 255, 255, 0.16);
+    .public-navbar-dropdown.active-navbar-dropdown>button::after {
+        content: "";
+        position: absolute;
 
-        box-shadow:
-            inset 0 0 0 1px currentColor,
-            0 6px 14px rgba(0, 0, 0, 0.16);
+        left: 12px;
+        right: 18px;
+        bottom: 6px;
+
+        height: 1.5px;
+        border-radius: 999px;
+
+        background: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 0.65;
+
+        display: block !important;
     }
 
     .public-navbar-menu-group.active-navbar-menu-group .public-navbar-menu-group-title {
         color: inherit;
         opacity: 0.95;
     }
+
+    /* Default dropdown behavior */
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 190px;
+        background: rgba(20, 20, 20, 0.96);
+        padding: 8px;
+        border-radius: 10px;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+    }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu {
+        display: block;
+    }
+/* Top-right group dropdowns should always behave like normal dropdowns */
+.public-navbar .public-navbar-dropdown {
+    position: relative;
+}
+
+.public-navbar .public-navbar-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+
+    min-width: 190px;
+
+    background: rgba(20, 20, 20, 0.96);
+    padding: 8px;
+    border-radius: 10px;
+
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+    z-index: 10005;
+}
+
+.public-navbar .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
+.public-navbar .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
+    display: block;
+}
+
+.public-navbar .public-navbar-dropdown-menu a {
+    display: block;
+}
+
+    /* =========================================================
+   SIDE PANEL MODE FOR HAMBURGER MENU
+   Full-height left drawer, hamburger stays accessible
+========================================================= */
+
+    .public-navbar.dropdown-mode-side_panel {
+        z-index: 10003;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-left {
+        position: relative;
+        z-index: 10006;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-toggle {
+        position: relative;
+        z-index: 10007;
+
+        background: rgba(20, 20, 20, 0.18);
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu {
+        display: flex !important;
+        flex-direction: column;
+        gap: 6px;
+
+        position: fixed !important;
+
+        top: 0 !important;
+        left: 0 !important;
+        right: auto !important;
+        bottom: 0 !important;
+
+        width: min(235px, 68vw) !important;
+        height: 100vh !important;
+
+        /*
+      This keeps the drawer full height but gives the hamburger
+      breathing room at the top.
+    */
+        padding: 72px 12px 18px !important;
+
+        background: rgba(20, 20, 20, 0.97) !important;
+        color: inherit;
+
+        border-radius: 0 !important;
+        box-shadow: 18px 0 42px rgba(0, 0, 0, 0.42) !important;
+
+        z-index: 10002 !important;
+
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+
+        overflow-y: auto;
+
+        transform: translateX(-105%);
+        opacity: 0;
+        pointer-events: none;
+
+        transition:
+            transform 0.26s ease,
+            opacity 0.2s ease;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu.show {
+        transform: translateX(0);
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a {
+        display: block;
+        width: 100%;
+
+        padding: 10px 11px;
+        border-radius: 0;
+        box-sizing: border-box;
+
+        font-size: 0.92rem;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu-group-title {
+        padding: 12px 11px 4px;
+        font-size: 0.72rem;
+    }
+
+    /* Active page underline inside side panel */
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a.active-navbar-link {
+        position: relative;
+        color: var(--navbar-active-text-color, #7ee2cc) !important;
+        font-weight: 850;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a.active-navbar-link::after {
+        content: "";
+        position: absolute;
+
+        left: 11px;
+        right: 11px;
+        bottom: 5px;
+
+        height: 1.5px;
+        border-radius: 999px;
+
+        background: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 0.75;
+
+        display: block !important;
+    }
+
+    /* =========================================================
+   SIDE PANEL COLLAPSIBLE GROUPS
+========================================================= */
+
+    .public-navbar-menu-group {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .public-navbar-menu-group-toggle {
+        width: 100%;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+
+        padding: 10px 11px;
+
+        color: inherit;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 850;
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+
+        cursor: pointer;
+        opacity: 0.72;
+
+        transition:
+            opacity 0.18s ease,
+            color 0.18s ease,
+            background 0.18s ease;
+    }
+
+    .public-navbar-menu-group-toggle:hover {
+        opacity: 1;
+        color: var(--navbar-active-text-color, #7ee2cc);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .public-navbar-menu-group-chevron {
+        font-size: 0.75rem;
+        transition: transform 0.18s ease;
+    }
+
+    .public-navbar-menu-group-links {
+        display: none;
+        flex-direction: column;
+        gap: 2px;
+
+        padding-left: 8px;
+        margin-left: 7px;
+
+        border-left: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .public-navbar-menu-group.is-open .public-navbar-menu-group-links {
+        display: flex;
+    }
+
+    .public-navbar-menu-group.is-open .public-navbar-menu-group-chevron {
+        transform: rotate(180deg);
+    }
+
+    .public-navbar-menu-group.active-navbar-menu-group .public-navbar-menu-group-toggle {
+        color: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 1;
+    }
+
+/* Gray toned side-panel scrollbar */
+.public-navbar.dropdown-mode-side_panel .public-navbar-menu {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(210, 210, 210, 0.42) rgba(255, 255, 255, 0.055);
+}
+
+.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar {
+    width: 8px;
+}
+
+.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.055);
+}
+
+.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb {
+    background: rgba(210, 210, 210, 0.38);
+    border-radius: 999px;
+    border: 2px solid rgba(20, 20, 20, 0.96);
+}
+
+.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(230, 230, 230, 0.58);
+}
 </style>
 
 <script>
-    function togglePublicNavbarMenu(event) {
+function togglePublicNavbarMenu(event) {
+    event.stopPropagation();
+
+    const menu = document.getElementById('publicNavbarMenu');
+    if (menu) {
+        menu.classList.toggle('show');
+        updatePublicNavbarPanelGroupLayout();
+    }
+}
+
+    function togglePublicNavbarMenuGroup(event, button) {
+        event.preventDefault();
         event.stopPropagation();
 
-        const menu = document.getElementById('publicNavbarMenu');
-        if (menu) {
-            menu.classList.toggle('show');
-        }
+        const group = button.closest('[data-menu-group]');
+        if (!group) return;
+
+        group.classList.toggle('is-open');
     }
+
+function updatePublicNavbarPanelGroupLayout() {
+    const menu = document.getElementById('publicNavbarMenu');
+    if (!menu) return;
+
+    menu.querySelectorAll('[data-menu-group]').forEach(group => {
+        group.classList.remove('is-open');
+    });
+}
+
+    window.addEventListener('resize', updatePublicNavbarPanelGroupLayout);
+    window.addEventListener('DOMContentLoaded', updatePublicNavbarPanelGroupLayout);
 
     document.addEventListener('click', function (event) {
         const menu = document.getElementById('publicNavbarMenu');
@@ -409,4 +759,6 @@ html {
             menu.classList.remove('show');
         }
     });
+
+
 </script>
