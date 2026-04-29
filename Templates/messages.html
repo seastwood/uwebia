@@ -381,7 +381,7 @@ function renderMessageDetail(row) {
 }
 
     async function markRead(messageId) {
-        const response = await fetch(`/dashboard/messages/${messageId}/read`, { method: 'POST' });
+        const response = await fetch(`/admin/dashboard/messages/${messageId}/read`, { method: 'POST' });
         if (response.ok) {
             const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
             if (row) {
@@ -397,7 +397,7 @@ function renderMessageDetail(row) {
     }
 
     async function markUnread(messageId) {
-        const response = await fetch(`/dashboard/messages/${messageId}/unread`, { method: 'POST' });
+        const response = await fetch(`/admin/dashboard/messages/${messageId}/unread`, { method: 'POST' });
         if (response.ok) {
             const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
             if (row) {
@@ -428,7 +428,7 @@ function renderMessageDetail(row) {
             renderMessageDetail(this);
 
             if (this.dataset.isRead === 'false') {
-                await fetch(`/dashboard/messages/${this.dataset.messageId}/read`, { method: 'POST' });
+                await fetch(`/admin/dashboard/messages/${this.dataset.messageId}/read`, { method: 'POST' });
                 this.dataset.isRead = 'true';
                 this.classList.remove('unread');
                 const emailBlock = this.querySelector('.message-row-email');
@@ -501,7 +501,7 @@ row.addEventListener('click', async function () {
     renderMessageDetail(row);
 
     if (row.dataset.isRead === 'false') {
-        await fetch(`/dashboard/messages/${msg.id}/read`, { method: 'POST' });
+        await fetch(`/admin/dashboard/messages/${msg.id}/read`, { method: 'POST' });
 
         row.dataset.isRead = 'true';
         row.classList.remove('unread');
@@ -528,7 +528,7 @@ row.addEventListener('click', async function () {
 
     async function pollMessagesLive() {
         try {
-            const response = await fetch('/dashboard/messages/live', {
+            const response = await fetch('/admin/dashboard/messages/live', {
                 cache: 'no-store'
             });
 

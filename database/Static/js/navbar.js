@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     async function fetchUnreadMessagesCount() {
         try {
-            const response = await fetch('/dashboard/messages/unread_count');
+            const response = await fetch('/admin/dashboard/messages/unread_count');
             if (!response.ok) return;
 
             const data = await response.json();
