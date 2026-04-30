@@ -36,6 +36,7 @@ from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
 from bs4 import BeautifulSoup
 
@@ -1358,7 +1359,7 @@ def update_column_width_in_db(column_id, new_width):
         print(f'Column {column_id} not found')
 
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route('/admin/register', methods=['GET', 'POST'])
 def register():
     # 1. Block registration if any user already exists
     user_count = User.query.count()
@@ -1448,7 +1449,10 @@ def require_admin_url_key_for_admin_routes():
         'login',
         'two_factor_login',
         'register',
-        'logout'
+        'logout',
+        'forgot_password',
+        'reset_password',
+        'request_username'
     }
 
     if request.endpoint in public_endpoints:
@@ -1471,6 +1475,250 @@ def require_admin_url_key_for_admin_routes():
         return "Not Found", 404
 
     return None
+
+@app.route('/admin/forgot-password', methods=['GET', 'POST'])
+@app.route('/admin/forgot-password/<admin_key>', methods=['GET', 'POST'])
+def forgot_password(admin_key=None):
+    admin_user = User.query.first()
+
+    if admin_url_key_required_for_user(admin_user):
+        if admin_key != admin_user.admin_url_key:
+            return "Not Found", 404
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+
+        # Always show a generic success message so we do not reveal valid emails.
+        generic_message = 'If that email matches the admin account and email sending is configured, a reset link has been sent.'
+
+        user = User.query.filter_by(email=email).first()
+
+        if user:
+            email_settings = get_email_settings()
+
+            if email_settings and email_settings.is_active:
+                token = generate_password_reset_token(user)
+                reset_url = url_for('reset_password', token=token, _external=True)
+
+                print("")
+                print("========================================")
+                print("UWEBIA PASSWORD RESET LINK")
+                print(f"User: {user.username}")
+                print(f"Email: {user.email}")
+                print(f"Reset URL: {reset_url}")
+                print("Expires in 30 minutes")
+                print("========================================")
+                print("")
+
+                body = f"""A password reset was requested for your Uwebia admin account.
+
+Reset your password here:
+{reset_url}
+
+This link expires in 30 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+
+                try:
+                    send_account_recovery_email(
+                        user.email,
+                        'Reset your Uwebia admin password',
+                        body
+                    )
+                except Exception as e:
+                    print(f"Password reset email failed: {e}")
+
+        flash(generic_message, 'success')
+        return redirect(request.path)
+
+    return render_template(
+        'forgot_password.html',
+        admin_key=admin_key
+    )
+
+
+@app.route('/admin/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    user, error = verify_password_reset_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not password:
+            flash('Please enter a new password.', 'error')
+            return redirect(request.path)
+
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return redirect(request.path)
+
+        user.set_password(password)
+
+        # Changing password should force a clean login.
+        db.session.commit()
+
+        flash('Password updated successfully. Please log in.', 'success')
+        return redirect(get_admin_login_url_for_user(user))
+
+    return render_template(
+        'reset_password.html',
+        token=token
+    )
+
+def get_recovery_serializer():
+    return URLSafeTimedSerializer(app.secret_key)
+
+
+def generate_password_reset_token(user):
+    serializer = get_recovery_serializer()
+
+    return serializer.dumps(
+        {
+            'user_id': user.id,
+            'purpose': 'password_reset'
+        },
+        salt='uwebia-password-reset'
+    )
+
+
+def verify_password_reset_token(token, max_age_seconds=1800):
+    serializer = get_recovery_serializer()
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-password-reset',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, 'This password reset link has expired.'
+    except BadSignature:
+        return None, 'This password reset link is invalid.'
+
+    if data.get('purpose') != 'password_reset':
+        return None, 'This password reset link is invalid.'
+
+    user = User.query.get(data.get('user_id'))
+
+    if not user:
+        return None, 'This password reset link is invalid.'
+
+    return user, None
+
+
+def send_account_recovery_email(to_email, subject, body):
+    settings = get_email_settings()
+
+    if not settings or not settings.is_active:
+        raise RuntimeError('Email server is not configured or active.')
+
+    if not settings.smtp_host or not settings.smtp_port or not settings.smtp_username or not settings.smtp_password or not settings.from_email:
+        raise RuntimeError('Email server settings are incomplete.')
+
+    if settings.use_tls and settings.use_ssl:
+        raise RuntimeError('Email server cannot use both TLS and SSL.')
+
+    msg = MIMEMultipart()
+    msg['From'] = (
+        f"{settings.from_name} <{settings.from_email}>"
+        if settings.from_name else settings.from_email
+    )
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    if settings.use_ssl:
+        server = smtplib.SMTP_SSL(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+    else:
+        server = smtplib.SMTP(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+
+        if settings.use_tls:
+            server.starttls()
+
+    try:
+        server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(msg)
+    finally:
+        server.quit()
+
+
+@app.route('/admin/request-username', methods=['GET', 'POST'])
+@app.route('/admin/request-username/<admin_key>', methods=['GET', 'POST'])
+def request_username(admin_key=None):
+    admin_user = User.query.first()
+
+    if admin_url_key_required_for_user(admin_user):
+        if admin_key != admin_user.admin_url_key:
+            return "Not Found", 404
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+
+        generic_message = 'If that email matches the admin account and email sending is configured, the username has been sent.'
+
+        user = User.query.filter_by(email=email).first()
+
+        if user:
+            email_settings = get_email_settings()
+
+            if email_settings and email_settings.is_active:
+                login_url = get_admin_login_url_for_user(user)
+
+                print("")
+                print("========================================")
+                print("UWEBIA USERNAME RECOVERY")
+                print(f"Email: {user.email}")
+                print(f"Username: {user.username}")
+                print(f"Login URL: {login_url}")
+                print("========================================")
+                print("")
+
+                body = f"""Your Uwebia admin username is:
+
+{user.username}
+
+Login here:
+{login_url}
+
+If you did not request this, you can ignore this email.
+"""
+
+                try:
+                    send_account_recovery_email(
+                        user.email,
+                        'Your Uwebia admin username',
+                        body
+                    )
+                except Exception as e:
+                    print(f"Username recovery email failed: {e}")
+
+        flash(generic_message, 'success')
+        return redirect(request.path)
+
+    return render_template(
+        'request_username.html',
+        admin_key=admin_key
+    )
+
+def get_admin_login_url_for_user(user):
+    if user and user.admin_url_key_enabled and user.admin_url_key:
+        return url_for('login', admin_key=user.admin_url_key, _external=True)
+
+    return url_for('login', _external=True)
 
 @app.route('/admin/2fa', methods=['GET', 'POST'])
 @app.route('/admin/2fa/<admin_key>', methods=['GET', 'POST'])
@@ -4787,11 +5035,63 @@ def settings_page():
         current_user.timezone = timezone_name
         current_user.date_format = date_format
 
+        account_username = request.form.get('account_username', '').strip().lower()
+        account_email = request.form.get('account_email', '').strip().lower()
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_new_password = request.form.get('confirm_new_password', '')
+
+        if not account_username:
+            flash('Username cannot be blank.', 'error')
+            return redirect(url_for('settings_page'))
+
+        if not account_email:
+            flash('Email cannot be blank.', 'error')
+            return redirect(url_for('settings_page'))
+
+        existing_username = User.query.filter(
+            User.username == account_username,
+            User.id != current_user.id
+        ).first()
+
+        if existing_username:
+            flash('That username is already in use.', 'error')
+            return redirect(url_for('settings_page'))
+
+        existing_email = User.query.filter(
+            User.email == account_email,
+            User.id != current_user.id
+        ).first()
+
+        if existing_email:
+            flash('That email is already in use.', 'error')
+            return redirect(url_for('settings_page'))
+
+        password_change_requested = bool(new_password or confirm_new_password)
+
+        if password_change_requested:
+            if not current_password:
+                flash('Enter your current password to change your password.', 'error')
+                return redirect(url_for('settings_page'))
+
+            if not current_user.check_password(current_password):
+                flash('Current password is incorrect.', 'error')
+                return redirect(url_for('settings_page'))
+
+            if new_password != confirm_new_password:
+                flash('New passwords do not match.', 'error')
+                return redirect(url_for('settings_page'))
+
+            current_user.set_password(new_password)
+
+        current_user.username = account_username
+        current_user.email = account_email
+
         db.session.commit()
 
         if current_user.admin_url_key_enabled and current_user.admin_url_key:
             flash(
-                f'Settings saved. Your custom admin login URL is /login/{current_user.admin_url_key}',
+                f'Settings saved. Your custom admin login URL is /admin/login/{current_user.admin_url_key}',
                 'success'
             )
         else:
@@ -4807,7 +5107,9 @@ def settings_page():
         admin_url_key = current_user.admin_url_key or '',
         two_factor_enabled=current_user.two_factor_enabled,
         two_factor_email=current_user.two_factor_email or current_user.email,
-        email_settings=get_email_settings()
+        email_settings=get_email_settings(),
+        account_username=current_user.username,
+        account_email=current_user.email,
     )
 
 
