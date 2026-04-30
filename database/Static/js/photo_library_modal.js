@@ -263,7 +263,7 @@ window.PhotoLibraryModal = (function () {
         if (progressText) progressText.textContent = '0%';
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/library/upload', true);
+        xhr.open('POST', '/admin/library/upload', true);
 
         xhr.upload.addEventListener('progress', function (e) {
             if (!e.lengthComputable) return;
@@ -323,7 +323,7 @@ window.PhotoLibraryModal = (function () {
 
         if (!folderName) return;
 
-        const response = await fetch('/library/create_folder', {
+        const response = await fetch('/admin/library/create_folder', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -348,7 +348,7 @@ window.PhotoLibraryModal = (function () {
 
         if (!confirm('Delete this image from the library?')) return;
 
-        const response = await fetch(`/library/delete_image/${imageId}`, {
+        const response = await fetch(`/admin/library/delete_image/${imageId}`, {
             method: 'POST'
         });
 

@@ -2,6 +2,7 @@
 {% set navbar_items = website.public_navbar_items or [] %}
 {% set navbar_margin = nav_style.get('margin', 0)|int %}
 {% set navbar_anchor_offset = 78 + navbar_margin %}
+{% set navbar_page_offset = 58 + navbar_margin %}
 
 {% if content is defined and content %}
 {% set current_page_url = content.get('current_page_url', '') %}
@@ -14,6 +15,7 @@
 {% set dropdown_mode = dropdown_mode_raw|replace('-', '_') %}
 
 <nav class="public-navbar dropdown-mode-{{ dropdown_mode }}" data-dropdown-mode="{{ dropdown_mode }}" style="
+        --navbar-page-offset: {{ navbar_page_offset }}px;
         background: {{ nav_style.get('background', 'rgba(20,20,20,0.9)') }};
         color: {{ nav_style.get('text_color', '#ffffff') }};
         --navbar-text-color: {{ nav_style.get('text_color', '#ffffff') }};
@@ -151,7 +153,7 @@
                 </a>
                 {% endfor %}
             </div>
-       </div>
+        </div>
         {% endif %}
 
         {% endfor %}
@@ -160,27 +162,19 @@
 </nav>
 
 <style>
+
     html {
-        scroll-behavior: smooth;
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--navbar-anchor-offset, 78px);
+}
 
-        scroll-padding-top: {
-                {
-                navbar_anchor_offset
-            }
-        }
+.public-section-group {
+    scroll-margin-top: var(--navbar-anchor-offset, 78px);
+}
 
-        px;
-    }
-
-    .public-section-group {
-        scroll-margin-top: {
-                {
-                navbar_anchor_offset
-            }
-        }
-
-        px;
-    }
+.public-page-body {
+    padding-top: var(--navbar-page-offset, 58px);
+}
 
     .public-navbar {
         position: fixed;
@@ -472,35 +466,36 @@
     .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu {
         display: block;
     }
-/* Top-right group dropdowns should always behave like normal dropdowns */
-.public-navbar .public-navbar-dropdown {
-    position: relative;
-}
 
-.public-navbar .public-navbar-dropdown-menu {
-    display: none;
-    position: absolute;
-    top: 100%;
-    right: 0;
+    /* Top-right group dropdowns should always behave like normal dropdowns */
+    .public-navbar .public-navbar-dropdown {
+        position: relative;
+    }
 
-    min-width: 190px;
+    .public-navbar .public-navbar-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
 
-    background: rgba(20, 20, 20, 0.96);
-    padding: 8px;
-    border-radius: 10px;
+        min-width: 190px;
 
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
-    z-index: 10005;
-}
+        background: rgba(20, 20, 20, 0.96);
+        padding: 8px;
+        border-radius: 10px;
 
-.public-navbar .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
-.public-navbar .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
-    display: block;
-}
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+        z-index: 10005;
+    }
 
-.public-navbar .public-navbar-dropdown-menu a {
-    display: block;
-}
+    .public-navbar .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
+    .public-navbar .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
+        display: block;
+    }
+
+    .public-navbar .public-navbar-dropdown-menu a {
+        display: block;
+    }
 
     /* =========================================================
    SIDE PANEL MODE FOR HAMBURGER MENU
@@ -693,41 +688,41 @@
         opacity: 1;
     }
 
-/* Gray toned side-panel scrollbar */
-.public-navbar.dropdown-mode-side_panel .public-navbar-menu {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(210, 210, 210, 0.42) rgba(255, 255, 255, 0.055);
-}
+    /* Gray toned side-panel scrollbar */
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(210, 210, 210, 0.42) rgba(255, 255, 255, 0.055);
+    }
 
-.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar {
-    width: 8px;
-}
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar {
+        width: 8px;
+    }
 
-.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.055);
-}
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.055);
+    }
 
-.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb {
-    background: rgba(210, 210, 210, 0.38);
-    border-radius: 999px;
-    border: 2px solid rgba(20, 20, 20, 0.96);
-}
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb {
+        background: rgba(210, 210, 210, 0.38);
+        border-radius: 999px;
+        border: 2px solid rgba(20, 20, 20, 0.96);
+    }
 
-.public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb:hover {
-    background: rgba(230, 230, 230, 0.58);
-}
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb:hover {
+        background: rgba(230, 230, 230, 0.58);
+    }
 </style>
 
 <script>
-function togglePublicNavbarMenu(event) {
-    event.stopPropagation();
+    function togglePublicNavbarMenu(event) {
+        event.stopPropagation();
 
-    const menu = document.getElementById('publicNavbarMenu');
-    if (menu) {
-        menu.classList.toggle('show');
-        updatePublicNavbarPanelGroupLayout();
+        const menu = document.getElementById('publicNavbarMenu');
+        if (menu) {
+            menu.classList.toggle('show');
+            updatePublicNavbarPanelGroupLayout();
+        }
     }
-}
 
     function togglePublicNavbarMenuGroup(event, button) {
         event.preventDefault();
@@ -739,14 +734,14 @@ function togglePublicNavbarMenu(event) {
         group.classList.toggle('is-open');
     }
 
-function updatePublicNavbarPanelGroupLayout() {
-    const menu = document.getElementById('publicNavbarMenu');
-    if (!menu) return;
+    function updatePublicNavbarPanelGroupLayout() {
+        const menu = document.getElementById('publicNavbarMenu');
+        if (!menu) return;
 
-    menu.querySelectorAll('[data-menu-group]').forEach(group => {
-        group.classList.remove('is-open');
-    });
-}
+        menu.querySelectorAll('[data-menu-group]').forEach(group => {
+            group.classList.remove('is-open');
+        });
+    }
 
     window.addEventListener('resize', updatePublicNavbarPanelGroupLayout);
     window.addEventListener('DOMContentLoaded', updatePublicNavbarPanelGroupLayout);

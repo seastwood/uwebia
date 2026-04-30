@@ -35,6 +35,19 @@
 </head>
 <title>Public Page</title>
 <style>
+    html {
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--navbar-anchor-offset, 78px);
+}
+
+.public-section-group {
+    scroll-margin-top: var(--navbar-anchor-offset, 78px);
+}
+
+.public-page-body {
+    padding-top: var(--navbar-page-offset, 58px);
+}
+
     html,
     body {
         margin: 0;
@@ -1049,14 +1062,19 @@
         transform: translateX(3px);
     }
 
-    .section-container > .uwebia-link-card {
-    width: 100%;
-    max-width: none;
-}
+    .section-container>.uwebia-link-card {
+        width: 100%;
+        max-width: none;
+    }
 </style>
 
-
+{% set nav_style = website.public_navbar_style or {} %}
+{% set navbar_margin = nav_style.get('margin', 0)|int %}
+{% set navbar_anchor_offset = 78 + navbar_margin %}
+{% set navbar_page_offset = 58 + navbar_margin %}
 <body class="public-page-body" style="
+--navbar-page-offset: {{ 58 + navbar_margin }}px;
+--navbar-anchor-offset: {{ navbar_anchor_offset }}px;
 background: {{ website.background_color or '#ffffff' }};
 color: {{ website.text_color or '#000000' }};
 
@@ -1219,29 +1237,27 @@ background: {{ group.background_color or 'transparent' }};
 
                             </div>
                             {% elif section.section_type == 'link_card' %}
-{% set card = section.content or {} %}
-{% set header = card.get('header', 'Link Card') %}
-{% set body = card.get('body', '') %}
-{% set footer = card.get('footer', 'Learn more') %}
-{% set url = card.get('url', '#') %}
-{% set bg_image = card.get('background_image_url', '') %}
-{% set bg_color = card.get('background_color', '#1f232b') %}
-{% set text_color = card.get('text_color', '#ffffff') %}
-{% set overlay_color = card.get('overlay_color', '#000000') %}
-{% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
-{% set height = card.get('height', 240) %}
-{% set radius = card.get('border_radius', 18) %}
-{% set open_new_tab = card.get('open_in_new_tab', True) %}
+                            {% set card = section.content or {} %}
+                            {% set header = card.get('header', 'Link Card') %}
+                            {% set body = card.get('body', '') %}
+                            {% set footer = card.get('footer', 'Learn more') %}
+                            {% set url = card.get('url', '#') %}
+                            {% set bg_image = card.get('background_image_url', '') %}
+                            {% set bg_color = card.get('background_color', '#1f232b') %}
+                            {% set text_color = card.get('text_color', '#ffffff') %}
+                            {% set overlay_color = card.get('overlay_color', '#000000') %}
+                            {% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
+                            {% set height = card.get('height', 240) %}
+                            {% set radius = card.get('border_radius', 18) %}
+                            {% set open_new_tab = card.get('open_in_new_tab', True) %}
 
-{% set overlay_hex = overlay_color.lstrip('#') %}
-{% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-{% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-{% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                            {% set overlay_hex = overlay_color.lstrip('#') %}
+                            {% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                            {% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                            {% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
 
-<a class="uwebia-link-card"
-   href="{{ url or '#' }}"
-   {% if open_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}
-   style="
+                            <a class="uwebia-link-card" href="{{ url or '#' }}" {% if open_new_tab %}target="_blank"
+                                rel="noopener noreferrer" {% endif %} style="
         --link-card-height: {{ height }}px;
         --link-card-radius: {{ radius }}px;
         --link-card-bg: {{ bg_color }};
@@ -1250,16 +1266,16 @@ background: {{ group.background_color or 'transparent' }};
         --link-card-overlay-opacity: {{ overlay_opacity }};
         --link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};
    ">
-    <div class="uwebia-link-card-header">{{ header }}</div>
+                                <div class="uwebia-link-card-header">{{ header }}</div>
 
-    {% if body %}
-    <div class="uwebia-link-card-body">{{ body }}</div>
-    {% endif %}
+                                {% if body %}
+                                <div class="uwebia-link-card-body">{{ body }}</div>
+                                {% endif %}
 
-    {% if footer %}
-    <div class="uwebia-link-card-footer">{{ footer }}</div>
-    {% endif %}
-</a>
+                                {% if footer %}
+                                <div class="uwebia-link-card-footer">{{ footer }}</div>
+                                {% endif %}
+                            </a>
                             {% elif section.section_type == 'code' %}
                             <div class="text-area">
                                 {{ section.content['text'] | safe }}
@@ -1379,7 +1395,7 @@ background: {{ group.background_color or 'transparent' }};
                             </div>
                             {% endif %}
 
-                            
+
 
 
                         </div>
