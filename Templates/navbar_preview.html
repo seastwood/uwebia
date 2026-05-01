@@ -11,13 +11,32 @@
             margin: 0;
             min-height: 160px;
             overflow: hidden;
-            background: {{ website.background_color or '#ffffff' }};
+
             color: {{ website.text_color or '#000000' }};
             font-family: 'Roboto', sans-serif;
         }
 
         body {
             padding-top: 58px;
+
+            background-color: {{ website.background_color or '#ffffff' }};
+
+            {% if website.background_image_url %}
+                background-image: url("{{ website.background_image_url }}");
+                background-repeat: {% if website.background_image_repeat %}repeat{% else %}no-repeat{% endif %};
+                background-position: center;
+
+                {% if website.background_image_repeat %}
+                    background-size: {{ website.background_image_zoom or 100 }}px auto;
+                {% else %}
+                    background-size: {{ website.background_image_zoom or 100 }}% auto;
+                {% endif %}
+            {% else %}
+                background-image: none;
+                background-repeat: no-repeat;
+                background-position: center;
+                background-size: cover;
+            {% endif %}
         }
 
         .navbar-preview-spacer {

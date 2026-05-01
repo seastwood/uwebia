@@ -2751,17 +2751,17 @@
                         <h6>Title</h6>
 
                         <label>Navbar Title</label>
-<input type="text" id="navbarTitle_{{ website.id }}" class="form-control"
-    value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
-    oninput="updateNavbarStylePreview('{{ website.id }}')">
+                        <input type="text" id="navbarTitle_{{ website.id }}" class="form-control"
+                            value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
+                            oninput="updateNavbarStylePreview('{{ website.id }}')">
                         <select id="navbarTitleAlignment_{{ website.id }}" class="form-control"
                             onchange="updateFullNavbarPreview('{{ website.id }}')">
                             <option value="left" {% if (website.public_navbar_style or {}).get('title_alignment', 'left'
                                 )=='left' %}selected{% endif %}>Left</option>
                             <option value="center" {% if (website.public_navbar_style or
                                 {}).get('title_alignment', 'left' )=='center' %}selected{% endif %}>Center</option>
-                            <option value="right" {% if (website.public_navbar_style or
-                                {}).get('title_alignment', 'left' )=='right' %}selected{% endif %}>Right</option>
+                            <!-- <option value="right" {% if (website.public_navbar_style or
+                                {}).get('title_alignment', 'left' )=='right' %}selected{% endif %}>Right</option> -->
                         </select>
 
                         <label>Navbar Text Color</label>
@@ -2787,8 +2787,8 @@
                             placeholder="/static/uploads/logo.svg or image URL"
                             value="{{ (website.public_navbar_style or {}).get('icon_url', '') }}"
                             oninput="updateFullNavbarPreview('{{ website.id }}')">
-                                            
-  
+
+
                     </div>
 
                     <div class="navbar-style-card">
@@ -2796,8 +2796,8 @@
 
                         <label>Gradient Direction</label>
                         <div class="gradient-controls">
-<select id="navbarGradientDirection_{{ website.id }}"
-    onchange="updateNavbarStylePreview('{{ website.id }}')">
+                            <select id="navbarGradientDirection_{{ website.id }}"
+                                onchange="updateNavbarStylePreview('{{ website.id }}')">
                                 <option value="to right">Left → Right</option>
                                 <option value="to bottom">Top → Bottom</option>
                                 <option value="to bottom right">Diagonal</option>
@@ -2859,17 +2859,23 @@
                         </span>
                         <label>Dropdown Menu Style</label>
                         <select id="navbarDropdownMode_{{ website.id }}" class="form-control"
-    onchange="updateFullNavbarPreview('{{ website.id }}')">
-    <option value="dropdown"
-        {% if (website.public_navbar_style or {}).get('dropdown_mode', 'dropdown') == 'dropdown' %}selected{% endif %}>
-        Dropdown
-    </option>
+                            onchange="updateFullNavbarPreview('{{ website.id }}')">
+                            <option value="dropdown" {% if (website.public_navbar_style or
+                                {}).get('dropdown_mode', 'dropdown' )=='dropdown' %}selected{% endif %}>
+                                Dropdown
+                            </option>
 
-    <option value="side_panel"
-        {% if (website.public_navbar_style or {}).get('dropdown_mode', 'dropdown') == 'side_panel' %}selected{% endif %}>
-        Side Panel
-    </option>
-</select>  
+                            <option value="side_panel" {% if (website.public_navbar_style or
+                                {}).get('dropdown_mode', 'dropdown' )=='side_panel' %}selected{% endif %}>
+                                Side Panel
+                            </option>
+                        </select>
+                        <label class="navbar-style-checkbox">
+    <input type="checkbox" id="navbarSidePanelUseNavbarBackground_{{ website.id }}"
+        {% if (website.public_navbar_style or {}).get('side_panel_use_navbar_background', False) %}checked{% endif %}
+        onchange="updateFullNavbarPreview('{{ website.id }}')">
+    Use navbar background for menu panels
+</label>
                     </div>
                 </div>
             </div>
@@ -3128,67 +3134,72 @@
                 titleWrapper.classList.add(`title-align-${alignment}`);
             }
 
-function savePublicNavbarStyle(websiteId) {
-    updateNavbarBackgroundPreview(websiteId);
+            function savePublicNavbarStyle(websiteId) {
+                updateNavbarBackgroundPreview(websiteId);
 
-    const title = document.getElementById(`navbarTitle_${websiteId}`).value;
-    const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
-    const textColor = document.getElementById(`navbarTextColor_${websiteId}`).value;
-    const background = document.getElementById(`navbarBackground_${websiteId}`).value;
-    const opacity = document.getElementById(`navbarOpacity_${websiteId}`).value;
-    const blur = document.getElementById(`navbarBlur_${websiteId}`).value;
-    const borderRadius = document.getElementById(`navbarBorderRadius_${websiteId}`).value;
-    const shadow = document.getElementById(`navbarShadow_${websiteId}`).checked;
-    const sticky = document.getElementById(`navbarSticky_${websiteId}`).checked;
-    const titleAlignment = document.getElementById(`navbarTitleAlignment_${websiteId}`).value;
-    const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
-    const dropdownMode = document.getElementById(`navbarDropdownMode_${websiteId}`)?.value || 'dropdown';
+                const title = document.getElementById(`navbarTitle_${websiteId}`).value;
+                const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
+                const textColor = document.getElementById(`navbarTextColor_${websiteId}`).value;
+                const background = document.getElementById(`navbarBackground_${websiteId}`).value;
+                const opacity = document.getElementById(`navbarOpacity_${websiteId}`).value;
+                const blur = document.getElementById(`navbarBlur_${websiteId}`).value;
+                const borderRadius = document.getElementById(`navbarBorderRadius_${websiteId}`).value;
+                const shadow = document.getElementById(`navbarShadow_${websiteId}`).checked;
+                const sticky = document.getElementById(`navbarSticky_${websiteId}`).checked;
+                const titleAlignment = document.getElementById(`navbarTitleAlignment_${websiteId}`).value;
+                const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
+                const dropdownMode = document.getElementById(`navbarDropdownMode_${websiteId}`)?.value || 'dropdown';
+                const sidePanelUseNavbarBackground =
+    document.getElementById(`navbarSidePanelUseNavbarBackground_${websiteId}`)?.checked || false;
 
-    console.log('Saving navbar background:', background);
+                console.log('Saving navbar background:', background);
 
-    fetch(`/edit_public_navbar_style/${websiteId}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            title: title,
-            icon_url: iconUrl,
-            text_color: textColor,
-            background: background,
-            opacity: opacity,
-            blur: blur,
-            border_radius: borderRadius,
-            shadow: shadow,
-            sticky: sticky,
-            title_alignment: titleAlignment,
-            margin: margin,
-            dropdown_mode: dropdownMode
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                refreshNavbarIframePreview(websiteId);
-                alert('Navbar style saved.');
-            } else {
-                alert(data.message || 'Failed to save navbar style.');
+                fetch(`/edit_public_navbar_style/${websiteId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        title: title,
+                        icon_url: iconUrl,
+                        text_color: textColor,
+                        background: background,
+                        opacity: opacity,
+                        blur: blur,
+                        border_radius: borderRadius,
+                        shadow: shadow,
+                        sticky: sticky,
+                        title_alignment: titleAlignment,
+                        margin: margin,
+                        dropdown_mode: dropdownMode,
+                        side_panel_use_navbar_background: sidePanelUseNavbarBackground
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            refreshNavbarIframePreview(websiteId);
+                            alert('Navbar style saved.');
+                        } else {
+                            alert(data.message || 'Failed to save navbar style.');
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
             }
-        })
-        .catch(error => console.error('Error:', error));
-}
 
             function addNavbarColorStop(websiteId, color = '#ffffff') {
                 const container = document.getElementById(`navbarGradientColors_${websiteId}`);
 
                 if (!container) return;
 
+                const safeColor = normalizeNavbarPickerColor(color);
+
                 const stop = document.createElement('div');
                 stop.classList.add('gradient-stop');
 
                 stop.innerHTML = `
-        <input type="color" value="${color}">
+        <input type="color" value="${safeColor}">
         <button type="button">×</button>
     `;
 
@@ -3272,6 +3283,30 @@ function savePublicNavbarStyle(websiteId) {
                 return cleanColor;
             }
 
+            function splitCssGradientParts(value) {
+                const parts = [];
+                let current = '';
+                let depth = 0;
+
+                for (const char of String(value || '')) {
+                    if (char === '(') depth++;
+                    if (char === ')') depth--;
+
+                    if (char === ',' && depth === 0) {
+                        parts.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+
+                if (current.trim()) {
+                    parts.push(current.trim());
+                }
+
+                return parts;
+            }
+
             function applyOpacityToNavbarBackground(background, opacity) {
                 const cleanBackground = String(background || '').trim();
 
@@ -3283,16 +3318,17 @@ function savePublicNavbarStyle(websiteId) {
                     return applyOpacityToColor(cleanBackground, opacity);
                 }
 
-                const directionMatch = cleanBackground.match(/linear-gradient\((.*?),/);
-                const direction = directionMatch ? directionMatch[1].trim() : 'to right';
-
-                const colorsPart = cleanBackground
-                    .replace(/^linear-gradient\((.*?),/, '')
+                const inner = cleanBackground
+                    .replace(/^linear-gradient\(/, '')
                     .replace(/\)$/, '');
 
-                const colors = colorsPart
-                    .split(',')
-                    .map(color => color.trim())
+                const parts = splitCssGradientParts(inner);
+
+                const direction = parts[0]?.includes('to ')
+                    ? parts.shift()
+                    : 'to right';
+
+                const colors = parts
                     .filter(Boolean)
                     .map(color => applyOpacityToColor(color, opacity));
 
@@ -3316,13 +3352,13 @@ function savePublicNavbarStyle(websiteId) {
 
                 let rawBackground = '';
 
-if (colors.length === 1) {
-    rawBackground = colors[0];
-} else if (colors.length > 1) {
-    rawBackground = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
-} else {
-    rawBackground = 'rgba(20,20,20,0.9)';
-}
+                if (colors.length === 1) {
+                    rawBackground = colors[0];
+                } else if (colors.length > 1) {
+                    rawBackground = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+                } else {
+                    rawBackground = 'rgba(20,20,20,0.9)';
+                }
 
                 const backgroundWithOpacity = applyOpacityToNavbarBackground(rawBackground, opacity);
 
@@ -3336,31 +3372,32 @@ if (colors.length === 1) {
             }
 
             function updateNavbarStylePreview(websiteId) {
-    updateNavbarBackgroundPreview(websiteId);
-    updateNavbarTextPreview(websiteId);
 
-    const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
-    const marginValue = document.getElementById(`navbarMarginValue_${websiteId}`);
 
-    if (marginValue) {
-        marginValue.textContent = `${margin}px`;
-    }
+                const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
+                const marginValue = document.getElementById(`navbarMarginValue_${websiteId}`);
 
-    const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+                if (marginValue) {
+                    marginValue.textContent = `${margin}px`;
+                }
 
-    if (!preview) {
-        return;
-    }
+                const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
 
-    const blur = document.getElementById(`navbarBlur_${websiteId}`)?.value || 14;
-    const radius = document.getElementById(`navbarBorderRadius_${websiteId}`)?.value || 0;
-    const shadow = document.getElementById(`navbarShadow_${websiteId}`)?.checked ?? true;
+                if (!preview) {
+                    return;
+                }
 
-    preview.style.backdropFilter = `blur(${blur}px)`;
-    preview.style.webkitBackdropFilter = `blur(${blur}px)`;
-    preview.style.borderRadius = `${radius}px`;
-    preview.style.boxShadow = shadow ? '0 10px 26px rgba(0,0,0,0.35)' : 'none';
-}
+                const blur = document.getElementById(`navbarBlur_${websiteId}`)?.value || 14;
+                const radius = document.getElementById(`navbarBorderRadius_${websiteId}`)?.value || 0;
+                const shadow = document.getElementById(`navbarShadow_${websiteId}`)?.checked ?? true;
+
+                preview.style.backdropFilter = `blur(${blur}px)`;
+                preview.style.webkitBackdropFilter = `blur(${blur}px)`;
+                preview.style.borderRadius = `${radius}px`;
+                preview.style.boxShadow = shadow ? '0 10px 26px rgba(0,0,0,0.35)' : 'none';
+                                updateNavbarBackgroundPreview(websiteId);
+                updateNavbarTextPreview(websiteId);
+            }
 
             function initializeNavbarStyle(websiteId, savedBackground) {
     const container = document.getElementById(`navbarGradientColors_${websiteId}`);
@@ -3370,38 +3407,30 @@ if (colors.length === 1) {
 
     container.innerHTML = '';
 
-    if (savedBackground && savedBackground.startsWith('linear-gradient')) {
-        const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
-        const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+    const cleanBackground = String(savedBackground || '').trim();
+
+    if (cleanBackground && cleanBackground.startsWith('linear-gradient')) {
+        const inner = cleanBackground
+            .replace(/^linear-gradient\(/, '')
+            .replace(/\)$/, '');
+
+        const parts = splitCssGradientParts(inner);
+
+        const direction = parts[0]?.includes('to ')
+            ? parts.shift()
+            : 'to right';
 
         directionSelect.value = direction;
 
-        const colorsPart = savedBackground
-            .replace(/^linear-gradient\((.*?),/, '')
-            .replace(/\)$/, '');
-
-        const colors = colorsPart
-            .split(',')
-            .map(color => color.trim())
-            .filter(Boolean);
-
-        colors.forEach(color => {
-            addNavbarColorStop(
-                websiteId,
-                color.startsWith('rgba') ? rgbaStringToHex(color) : color
-            );
+        parts.forEach(color => {
+            addNavbarColorStop(websiteId, normalizeNavbarPickerColor(color));
         });
 
-    } else if (savedBackground) {
-        const pickerColor = savedBackground.startsWith('rgba')
-            ? rgbaStringToHex(savedBackground)
-            : savedBackground;
-
-        addNavbarColorStop(websiteId, pickerColor);
+    } else if (cleanBackground) {
+        addNavbarColorStop(websiteId, normalizeNavbarPickerColor(cleanBackground));
 
     } else {
-        // No saved background yet. Start with a neutral visible color picker.
-        addNavbarColorStop(websiteId, '#ffffff');
+        addNavbarColorStop(websiteId, '#141414');
     }
 
     directionSelect.addEventListener('change', function () {
@@ -3411,6 +3440,30 @@ if (colors.length === 1) {
     updateNavbarBackgroundPreview(websiteId);
     updateNavbarTextPreview(websiteId);
 }
+
+            function normalizeNavbarPickerColor(color) {
+                const clean = String(color || '').trim();
+
+                if (!clean) return '#ffffff';
+
+                // Already valid hex
+                if (/^#[0-9a-fA-F]{6}$/.test(clean)) {
+                    return clean;
+                }
+
+                // Short hex like #fff
+                if (/^#[0-9a-fA-F]{3}$/.test(clean)) {
+                    return `#${clean[1]}${clean[1]}${clean[2]}${clean[2]}${clean[3]}${clean[3]}`;
+                }
+
+                // Convert rgb/rgba to hex
+                if (clean.startsWith('rgb')) {
+                    return rgbaStringToHex(clean);
+                }
+
+                // Fallback so the color picker never breaks
+                return '#ffffff';
+            }
 
             function updateNavbarTextPreview(websiteId) {
                 const textInput = document.getElementById(`navbarTextColor_${websiteId}`);
@@ -3791,10 +3844,10 @@ if (colors.length === 1) {
                         website.text_color || '#000000'
                     );
 
-initializeNavbarStyle(
-    websiteId,
-    website.navbar_background || ''
-);
+                    initializeNavbarStyle(
+                        websiteId,
+                        website.navbar_background || ''
+                    );
 
                     loadNavbarItems(
                         websiteId,
@@ -3887,62 +3940,80 @@ initializeNavbarStyle(
             }
 
             function updateWebsiteBackgroundPreview(websiteId) {
-    const directionSelect = document.getElementById(`gradientDirection_${websiteId}`);
-    const backgroundInput = document.getElementById(`backgroundColor_${websiteId}`);
-    const textColorInput = document.getElementById(`textColor_${websiteId}`);
-    const preview = document.getElementById(`websiteStylePreview_${websiteId}`);
+                const directionSelect = document.getElementById(`gradientDirection_${websiteId}`);
+                const backgroundInput = document.getElementById(`backgroundColor_${websiteId}`);
+                const textColorInput = document.getElementById(`textColor_${websiteId}`);
+                const preview = document.getElementById(`websiteStylePreview_${websiteId}`);
 
-    const imageInput = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
-    const repeatInput = document.getElementById(`websiteBackgroundRepeat_${websiteId}`);
-    const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
-    const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
+                const imageInput = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
+                const repeatInput = document.getElementById(`websiteBackgroundRepeat_${websiteId}`);
+                const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
+                const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
 
-    const colorInputs = document.querySelectorAll(`#gradientColors_${websiteId} input[type="color"]`);
-    const colors = Array.from(colorInputs).map(input => input.value);
+                const colorInputs = document.querySelectorAll(`#gradientColors_${websiteId} input[type="color"]`);
+                const colors = Array.from(colorInputs).map(input => input.value);
 
-    let background = backgroundInput?.value || '#ffffff';
+                let background = backgroundInput?.value || '#ffffff';
 
-    if (colors.length === 1) {
-        background = colors[0];
-    } else if (colors.length > 1 && directionSelect) {
-        background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
-    }
+                if (colors.length === 1) {
+                    background = colors[0];
+                } else if (colors.length > 1 && directionSelect) {
+                    background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+                }
 
-    if (backgroundInput) {
-        backgroundInput.value = background;
-    }
+                if (backgroundInput) {
+                    backgroundInput.value = background;
+                }
 
-    const imageUrl = imageInput?.value || '';
-    const repeat = repeatInput?.checked || false;
-    const zoom = zoomInput?.value || 100;
+                const imageUrl = imageInput?.value || '';
+                const repeat = repeatInput?.checked || false;
+                const zoom = zoomInput?.value || 100;
 
-    if (zoomValue) {
-        zoomValue.textContent = `${zoom}%`;
-    }
+                if (zoomValue) {
+                    zoomValue.textContent = `${zoom}%`;
+                }
 
-    if (!preview) return;
+                if (!preview) return;
 
-    preview.style.color = textColorInput?.value || '#000000';
-    preview.style.setProperty('--preview-text-color', textColorInput?.value || '#000000');
+                const textColor = textColorInput?.value || '#000000';
+                preview.style.color = textColor;
+                preview.style.setProperty('--preview-text-color', textColor);
 
-    if (imageUrl) {
-        preview.style.backgroundColor = 'transparent';
-        preview.style.backgroundImage = `url("${imageUrl}"), ${background}`;
-        preview.style.backgroundRepeat = `${repeat ? 'repeat' : 'no-repeat'}, no-repeat`;
-        preview.style.backgroundPosition = 'center, center';
+                // Reset background pieces first so old styles do not stick around
+                preview.style.background = '';
+                preview.style.backgroundColor = '';
+                preview.style.backgroundImage = '';
+                preview.style.backgroundRepeat = '';
+                preview.style.backgroundPosition = '';
+                preview.style.backgroundSize = '';
 
-        if (repeat) {
-            preview.style.backgroundSize = `${zoom}px auto, auto`;
-        } else {
-            preview.style.backgroundSize = `${zoom}% auto, auto`;
-        }
-    } else {
-        preview.style.background = background;
-        preview.style.backgroundRepeat = 'no-repeat';
-        preview.style.backgroundPosition = 'center';
-        preview.style.backgroundSize = 'cover';
-    }
-}
+                if (imageUrl) {
+                    const isGradient = background.startsWith('linear-gradient');
+
+                    if (isGradient) {
+                        preview.style.backgroundColor = 'transparent';
+                        preview.style.backgroundImage = `url("${imageUrl}"), ${background}`;
+                        preview.style.backgroundRepeat = `${repeat ? 'repeat' : 'no-repeat'}, no-repeat`;
+                        preview.style.backgroundPosition = 'center, center';
+                        preview.style.backgroundSize = repeat
+                            ? `${zoom}px auto, cover`
+                            : `${zoom}% auto, cover`;
+                    } else {
+                        preview.style.backgroundColor = background;
+                        preview.style.backgroundImage = `url("${imageUrl}")`;
+                        preview.style.backgroundRepeat = repeat ? 'repeat' : 'no-repeat';
+                        preview.style.backgroundPosition = 'center';
+                        preview.style.backgroundSize = repeat
+                            ? `${zoom}px auto`
+                            : `${zoom}% auto`;
+                    }
+                } else {
+                    preview.style.background = background;
+                    preview.style.backgroundRepeat = 'no-repeat';
+                    preview.style.backgroundPosition = 'center';
+                    preview.style.backgroundSize = 'cover';
+                }
+            }
 
             function updateWebsiteTextPreview(websiteId) {
                 const textColor = document.getElementById(`textColor_${websiteId}`).value;

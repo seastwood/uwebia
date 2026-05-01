@@ -5808,6 +5808,10 @@ def edit_public_navbar_style(website_id):
     else:
         dropdown_mode = 'dropdown'
 
+    side_panel_use_navbar_background = bool(
+        data.get('side_panel_use_navbar_background', False)
+    )
+
     existing_style = website.public_navbar_style or {}
 
     website.public_navbar_style = {
@@ -5824,6 +5828,7 @@ def edit_public_navbar_style(website_id):
         'title_alignment': data.get('title_alignment', 'left'),
         'margin': margin,
         'dropdown_mode': dropdown_mode,
+        'side_panel_use_navbar_background': side_panel_use_navbar_background,
     }
 
     db.session.commit()
