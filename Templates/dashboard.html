@@ -4307,41 +4307,41 @@
                 }
             }
 
-            function openModal(modalId) {
-                var modal = document.getElementById(modalId);
-                if (modal) {
-                    modal.style.display = "block";
-                }
-                if (!overlay) {
-                    overlay = document.createElement('div');
-                    overlay.classList.add('modal-overlay');
-                    document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
-                }
-                overlay.style.display = "block"; // Display overlay
-            }
+            // function openModal(modalId) {
+            //     var modal = document.getElementById(modalId);
+            //     if (modal) {
+            //         modal.style.display = "block";
+            //     }
+            //     if (!overlay) {
+            //         overlay = document.createElement('div');
+            //         overlay.classList.add('modal-overlay');
+            //         document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
+            //     }
+            //     overlay.style.display = "block"; // Display overlay
+            // }
 
-            function closeModal(modalId) {
-                var modal = document.getElementById(modalId);
-                var overlay = document.querySelector('.modal-overlay');
+            // function closeModal(modalId) {
+            //     var modal = document.getElementById(modalId);
+            //     var overlay = document.querySelector('.modal-overlay');
 
-                if (modal) {
-                    modal.style.display = 'none';
-                }
+            //     if (modal) {
+            //         modal.style.display = 'none';
+            //     }
 
-                if (overlay) {
-                    overlay.style.display = 'none';
-                }
-            }
+            //     if (overlay) {
+            //         overlay.style.display = 'none';
+            //     }
+            // }
 
             // Close modal when clicking outside of it
-            window.onclick = function (event) {
-                var modals = document.getElementsByClassName('modal');
-                for (var i = 0; i < modals.length; i++) {
-                    if (event.target == modals[i]) {
-                        modals[i].style.display = "none";
-                    }
-                }
-            }
+            // window.onclick = function (event) {
+            //     var modals = document.getElementsByClassName('modal');
+            //     for (var i = 0; i < modals.length; i++) {
+            //         if (event.target == modals[i]) {
+            //             modals[i].style.display = "none";
+            //         }
+            //     }
+            // }
 
 
             function generateQRCode(relativeUrl, pageId) {
@@ -4564,25 +4564,25 @@
         <script>
 
             // Function to open modal
-            function openModal(modalId) {
-                var modal = document.getElementById(modalId);
-                var overlay = document.querySelector('.modal-overlay');
-                if (!overlay) {
-                    overlay = document.createElement('div');
-                    overlay.classList.add('modal-overlay');
-                    document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
-                }
-                overlay.style.display = "block"; // Display overlay
-                modal.style.display = "block"; // Display modal
-            }
+            // function openModal(modalId) {
+            //     var modal = document.getElementById(modalId);
+            //     var overlay = document.querySelector('.modal-overlay');
+            //     if (!overlay) {
+            //         overlay = document.createElement('div');
+            //         overlay.classList.add('modal-overlay');
+            //         document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
+            //     }
+            //     overlay.style.display = "block"; // Display overlay
+            //     modal.style.display = "block"; // Display modal
+            // }
 
             // Function to close modal
-            function closeModal(modalId) {
-                var modal = document.getElementById(modalId);
-                var overlay = document.querySelector('.modal-overlay');
-                overlay.style.display = "none"; // Hide overlay
-                modal.style.display = "none"; // Hide modal
-            }
+            // function closeModal(modalId) {
+            //     var modal = document.getElementById(modalId);
+            //     var overlay = document.querySelector('.modal-overlay');
+            //     overlay.style.display = "none"; // Hide overlay
+            //     modal.style.display = "none"; // Hide modal
+            // }
             function editWebsite(websiteId) {
                 fetch(`/get_website_details/${websiteId}`)
                     .then(response => response.json())
@@ -4914,6 +4914,61 @@
                     updateWebsiteBackgroundPreview(websiteId);
                 });
             }
+
+            function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+
+    let overlay = document.querySelector('.modal-overlay');
+
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.classList.add('modal-overlay');
+        document.body.appendChild(overlay);
+    }
+
+    overlay.style.display = 'block';
+    modal.style.display = 'block';
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+
+    if (modal) {
+        modal.style.display = 'none';
+    }
+
+    const anyOpenModal = Array.from(document.querySelectorAll('.modal'))
+        .some(openModal => openModal.style.display === 'block');
+
+    const overlay = document.querySelector('.modal-overlay');
+
+    if (overlay && !anyOpenModal) {
+        overlay.style.display = 'none';
+    }
+}
+
+function closeAllModals() {
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.style.display = 'none';
+    });
+
+    const overlay = document.querySelector('.modal-overlay');
+
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+document.addEventListener('click', function (event) {
+    if (event.target.classList.contains('modal-overlay')) {
+        closeAllModals();
+    }
+
+    if (event.target.classList.contains('modal')) {
+        closeAllModals();
+    }
+});
         </script>
         {% endblock %}
 
