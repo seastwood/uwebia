@@ -5300,65 +5300,7 @@ body.is-sorting-images .section-group {
 
 
     </div>
-    <div id="libraryModal" class="modal library-modal" style="display:none;">
-        <div class="modal-content library-modal-content">
-            <span class="close library-modal-close" onclick="closeLibraryModal()">&times;</span>
-            <div class="library-container" style="padding:0;">
-                <div class="library-header">
-                    <h2><i class="fas fa-images"></i> Select from Photo Library</h2>
-                    <p id="libraryModalSubtitle" class="library-modal-subtitle"> Choose images to add to your page
-                        section.
-                    </p>
 
-                    <div class="modal-library-toolbar">
-                        <button type="button" class="btn-primary"
-                            onclick="document.getElementById('modalLibraryFileInput').click()">
-                            <i class="fas fa-upload"></i>
-                            Upload Images
-                        </button>
-
-                        <button type="button" class="btn-secondary" onclick="createLibraryFolderFromModal()">
-                            <i class="fas fa-folder-plus"></i>
-                            New Folder
-                        </button>
-
-                        <input type="file" id="modalLibraryFileInput" multiple accept="image/*" style="display:none"
-                            onchange="handleModalLibraryUpload(event)">
-                    </div>
-
-                    <div class="modal-upload-help">
-                        Max file size: 10 MB per image. Best results: under 2–3 MB.
-                    </div>
-
-                    <div class="upload-progress-wrapper" id="modalUploadProgressWrapper" style="display:none;">
-                        <div class="upload-progress-bar">
-                            <div class="upload-progress-fill" id="modalUploadProgressFill"></div>
-                        </div>
-                        <div class="upload-progress-text" id="modalUploadProgressText">0%</div>
-                    </div>
-                </div>
-
-                <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
-                <div id="modalFolderGrid" class="folder-grid">
-                </div>
-                <hr class="library-modal-divider">
-
-                <div id="modalCurrentFolderName" class="library-modal-section-label">Root Images</div>
-
-                <div id="modalImageGrid" class="image-grid">
-                </div>
-
-                <div class="library-modal-footer">
-                    <span id="selectionCount" class="library-selection-count">0 images selected</span>
-                    selected</span>
-                    <button id="libraryConfirmButton" class="library-confirm-button"
-                        onclick="confirmLibrarySelection()">
-                        Add Selected to Section
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
     <!-- JavaScript code -->
 
     <script>
@@ -6193,7 +6135,7 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
                         dropdownContent.appendChild(deleteSectionLink);
                         const isImageSection = ['images', 'image_gallery', 'image'].includes(section.section_type);
 
-                        if (section.section_type === 'isImageSection') {
+                       if (isImageSection) {
                             const deleteSelectedImagesLink = document.createElement('a');
                             deleteSelectedImagesLink.href = '#';
                             deleteSelectedImagesLink.classList.add('delete-selected-images');
@@ -7277,6 +7219,12 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
 restoreCollapsedSectionGroups();
 updateNarrowSectionCards();
 
+sections.forEach(section => {
+    if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
+        loadUploadedImages(section.id);
+    }
+});
+
             function addRowAbove(currentRowId) {
                 // console.log("ADD ROW ABOVE: ", currentRowId)
                 fetch(`/add_row_above/${currentRowId}`, {
@@ -7749,36 +7697,11 @@ updateNarrowSectionCards();
             });
 
 
-            // document.addEventListener("DOMContentLoaded", function () {
-            document.querySelectorAll(".updateImageForm").forEach(function (form) {
-                var sectionId = form.getAttribute("data-section-id");
+document.querySelectorAll(".image-section-form").forEach(function (form) {
+    const sectionId = form.getAttribute("data-section-id");
 
-                // Attach the submit event listener to each form
-                form.addEventListener("submit", function (event) {
-                    event.preventDefault(); // Prevent default form submission
-
-                    var formData = new FormData(form);
-
-                    fetch("/update_public_images", {
-                        method: "POST",
-                        body: formData
-                    })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.status === 'success') {
-                                document.getElementById("message").innerHTML = data.message;
-                                // Refresh the uploaded images after successful upload
-                                loadUploadedImages(sectionId); // Pass the section ID to refresh the specific section
-                            } else {
-                                document.getElementById("message").innerHTML = data.message;
-                            }
-                        })
-                        .catch(error => console.error('Error:', error));
-                });
-
-                // Load images for this section on page load
-                loadUploadedImages(sectionId);
-            });
+    loadUploadedImages(sectionId);
+});
             // });
             // Function to initialize CodeMirror for a textarea
             // initializeCodeMirror()
@@ -8337,28 +8260,52 @@ updateNarrowSectionCards();
         }
     </script>
     <script>
-        function openLibraryPicker(sectionId) {
-            PhotoLibraryModal.open({
-                mode: 'section-images',
-                sectionId: sectionId
-            });
+function openLibraryPicker(sectionId) {
+    if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
+        alert('Asset library modal is not loaded.');
+        return;
+    }
+
+    window.PhotoLibraryModal.open({
+        mode: 'multiple',
+        sectionId: sectionId,
+        assetType: 'image',
+        title: 'Choose Images',
+        subtitle: 'Choose images from your Asset Library for this section.'
+    });
+}
+
+function openGroupBackgroundLibraryPicker() {
+    if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
+        alert('Asset library modal is not loaded.');
+        return;
+    }
+
+    window.PhotoLibraryModal.open({
+        mode: 'single',
+        assetType: 'image',
+        title: 'Choose Group Background',
+        subtitle: 'Choose an image from your Asset Library.',
+        onConfirm: function (selection) {
+            const imageUrl = selection.imageUrls?.[0] || selection.assetUrls?.[0] || '';
+            if (!imageUrl) return;
+
+            const input = document.getElementById('groupBackgroundImageUrl');
+            const preview = document.getElementById('groupBackgroundImagePreview');
+
+            if (input) input.value = imageUrl;
+
+            if (preview) {
+                preview.classList.add('has-image');
+                preview.style.backgroundImage = `url("${imageUrl}")`;
+            }
+
+            if (typeof updateGroupStylePreview === 'function') {
+                updateGroupStylePreview();
+            }
         }
-
-        function openGroupBackgroundLibraryPicker() {
-            PhotoLibraryModal.open({
-                mode: 'group-background',
-                onConfirm: function (selection) {
-                    const imageUrl = selection.imageUrls[0];
-
-                    if (!imageUrl) {
-                        alert('Could not find the selected image URL.');
-                        return;
-                    }
-
-                    setGroupBackgroundImageFromLibrary(imageUrl);
-                }
-            });
-        }
+    });
+}
     </script>
     <!-- Image Functions -->
     <script>
@@ -8572,7 +8519,15 @@ li.appendChild(deleteButton);
 uploadedImagesUl.appendChild(li);
             });
 
-            initializeImageSortable(sectionId);
+initializeImageSortable(sectionId);
+
+requestAnimationFrame(() => {
+    const sectionContent = document.getElementById(`section-content-${sectionId}`);
+
+    if (sectionContent && sectionContent.classList.contains('open')) {
+        updateOpenSectionLayout(sectionContent);
+    }
+});
         })
         .catch(error => console.error("Error:", error));
 }

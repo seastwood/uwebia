@@ -399,36 +399,44 @@
             min-width: 68px;
         }
     }
+
     .analytics-table-scroll {
-    max-height: 340px;
-    overflow-y: auto;
-    overflow-x: auto;
-    border-radius: 12px;
-}
+        max-height: 340px;
+        overflow-y: auto;
+        overflow-x: auto;
+        border-radius: 12px;
+    }
 
-.analytics-table-scroll::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
+    .analytics-table-scroll::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
 
-.analytics-table-scroll::-webkit-scrollbar-track {
-    background: rgba(255,255,255,0.055);
-    border-radius: 999px;
-}
+    .analytics-table-scroll::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.055);
+        border-radius: 999px;
+    }
 
-.analytics-table-scroll::-webkit-scrollbar-thumb {
-    background: rgba(210,210,210,0.35);
-    border-radius: 999px;
-}
+    .analytics-table-scroll::-webkit-scrollbar-thumb {
+        background: rgba(210, 210, 210, 0.35);
+        border-radius: 999px;
+    }
 
-.analytics-table-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(230,230,230,0.55);
-}
+    .analytics-table-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(230, 230, 230, 0.55);
+    }
 
-.analytics-table-scroll {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(210,210,210,0.35) rgba(255,255,255,0.055);
-}
+    .analytics-table-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(210, 210, 210, 0.35) rgba(255, 255, 255, 0.055);
+    }
+
+    .analytics-card-note {
+        margin: 6px 0 0;
+        color: rgba(255, 255, 255, 0.48);
+        font-size: 0.78rem;
+        font-weight: 650;
+    }
 </style>
 
 <div class="analytics-page">
@@ -459,6 +467,22 @@
         <div class="analytics-card">
             <p class="analytics-metric-label">Unique Visitors</p>
             <p class="analytics-metric-value">{{ total_unique_visitors }}</p>
+        </div>
+
+        <div class="analytics-card">
+            <p class="analytics-metric-label">Calendar Subscribers</p>
+            <p class="analytics-metric-value">
+                {{ calendar_subscriber_summary.active_30_days if calendar_subscriber_summary else 0 }}
+            </p>
+            <p class="analytics-card-note">Active in the last 30 days</p>
+        </div>
+
+        <div class="analytics-card">
+            <p class="analytics-metric-label">Calendar Feed Requests</p>
+            <p class="analytics-metric-value">
+                {{ calendar_subscriber_summary.total_requests if calendar_subscriber_summary else 0 }}
+            </p>
+            <p class="analytics-card-note">Total calendar feed checks</p>
         </div>
     </div>
     <div class="analytics-card" style="margin-bottom: 20px;">
@@ -580,7 +604,7 @@
             <div class="analytics-bar-wrap"
                 title="{{ day.date }}: {{ day.page_views }} views, {{ day.unique_visitors }} unique">
                 <div class="analytics-bar" style="height: {{ height }}px;"></div>
-<div class="analytics-bar-label">{{ day.label }}</div>
+                <div class="analytics-bar-label">{{ day.label }}</div>
             </div>
             {% endfor %}
         </div>
@@ -589,52 +613,118 @@
         {% endif %}
     </div>
     <div class="analytics-card" style="margin-bottom: 20px;">
-    <h2 class="analytics-section-title">Recent Views</h2>
+    <h2 class="analytics-section-title">Calendar Subscribers</h2>
 
-    {% if recent_visits %}
+    <p class="analytics-settings-copy">
+        Estimated from unique calendar feed requests. Calendar apps refresh subscriptions on their own schedule, so this is approximate.
+    </p>
+
+    <div class="analytics-metric-grid" style="margin-bottom: 14px;">
+        <div class="analytics-database-item">
+            <span>Active 7 Days</span>
+            <strong>{{ calendar_subscriber_summary.active_7_days if calendar_subscriber_summary else 0 }}</strong>
+            <em>Recently refreshed subscribers</em>
+        </div>
+
+        <div class="analytics-database-item">
+            <span>Active 30 Days</span>
+            <strong>{{ calendar_subscriber_summary.active_30_days if calendar_subscriber_summary else 0 }}</strong>
+            <em>Best estimate of active subscribers</em>
+        </div>
+
+        <div class="analytics-database-item">
+            <span>Total Seen</span>
+            <strong>{{ calendar_subscriber_summary.total_seen if calendar_subscriber_summary else 0 }}</strong>
+            <em>All unique feed clients ever seen</em>
+        </div>
+
+        <div class="analytics-database-item">
+            <span>Total Requests</span>
+            <strong>{{ calendar_subscriber_summary.total_requests if calendar_subscriber_summary else 0 }}</strong>
+            <em>All calendar feed checks</em>
+        </div>
+    </div>
+
+    {% if calendar_subscriber_summary and calendar_subscriber_summary.top_calendars %}
     <div class="analytics-table-scroll">
-        <table class="analytics-table">
+        <table class="analytics-table analytics-metric-table">
             <thead>
                 <tr>
-                    <th>Page</th>
-                    <th>When</th>
-                    <th>Visitor</th>
+                    <th class="analytics-name-col">Calendar</th>
+                    <th class="analytics-count-col">Active</th>
+                    <th class="analytics-count-col">Requests</th>
                 </tr>
             </thead>
 
             <tbody>
-                {% for visit in recent_visits %}
+                {% for calendar in calendar_subscriber_summary.top_calendars %}
                 <tr>
                     <td>
-                        {{ visit.page_name }}
+                        {{ calendar.page_name }}
                         <br>
                         <span style="color: rgba(255,255,255,0.42);">
-                            {{ visit.path }}
+                            /{{ calendar.page_slug }} · Section {{ calendar.section_id }}
                         </span>
                     </td>
-
-                    <td style="white-space: nowrap;">
-                        {{ visit.visited_at }}
-                    </td>
-
-                    <td>
-                        {% if visit.city or visit.country %}
-                            {{ visit.city or '' }}{% if visit.city and visit.country %}, {% endif %}{{ visit.country or '' }}
-                        {% elif visit.asn_organization %}
-                            {{ visit.asn_organization }}
-                        {% else %}
-                            {{ visit.ip_address or 'Unknown' }}
-                        {% endif %}
-                    </td>
+                    <td class="analytics-count-col">{{ calendar.active_30_days }}</td>
+                    <td class="analytics-count-col">{{ calendar.requests }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
     {% else %}
-    <p class="analytics-empty">No recent views yet.</p>
+    <p class="analytics-empty">No calendar subscribers tracked yet.</p>
     {% endif %}
 </div>
+    <div class="analytics-card" style="margin-bottom: 20px;">
+        <h2 class="analytics-section-title">Recent Views</h2>
+
+        {% if recent_visits %}
+        <div class="analytics-table-scroll">
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>Page</th>
+                        <th>When</th>
+                        <th>Visitor</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for visit in recent_visits %}
+                    <tr>
+                        <td>
+                            {{ visit.page_name }}
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                {{ visit.path }}
+                            </span>
+                        </td>
+
+                        <td style="white-space: nowrap;">
+                            {{ visit.visited_at }}
+                        </td>
+
+                        <td>
+                            {% if visit.city or visit.country %}
+                            {{ visit.city or '' }}{% if visit.city and visit.country %}, {% endif %}{{ visit.country or
+                            '' }}
+                            {% elif visit.asn_organization %}
+                            {{ visit.asn_organization }}
+                            {% else %}
+                            {{ visit.ip_address or 'Unknown' }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="analytics-empty">No recent views yet.</p>
+        {% endif %}
+    </div>
 
     <div class="analytics-card" style="margin-bottom: 20px;">
         <h2 class="analytics-section-title">Top Pages</h2>
@@ -753,76 +843,77 @@
 
         {% if city_stats %}
         <div class="analytics-table-scroll">
-        <table class="analytics-table analytics-metric-table">
-            <thead>
-                <tr>
-                    <th class="analytics-name-col">Country</th>
-                    <th class="analytics-count-col">Views</th>
-                    <th class="analytics-count-col">Unique</th>
-                </tr>
-            </thead>
+            <table class="analytics-table analytics-metric-table">
+                <thead>
+                    <tr>
+                        <th class="analytics-name-col">Country</th>
+                        <th class="analytics-count-col">Views</th>
+                        <th class="analytics-count-col">Unique</th>
+                    </tr>
+                </thead>
 
-            <tbody>
-                {% for row in city_stats %}
-                <tr>
-                    <td>
-                        {{ row.city }}
-                        <br>
-                        <span style="color: rgba(255,255,255,0.42);">
-                            {{ row.region or '' }}{% if row.region and row.country %}, {% endif %}{{ row.country or ''
-                            }}
-                        </span>
-                    </td>
-                    <td class="analytics-count-col">{{ row.visits }}</td>
-                    <td class="analytics-count-col">{{ row.unique_visitors }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                <tbody>
+                    {% for row in city_stats %}
+                    <tr>
+                        <td>
+                            {{ row.city }}
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                {{ row.region or '' }}{% if row.region and row.country %}, {% endif %}{{ row.country or
+                                ''
+                                }}
+                            </span>
+                        </td>
+                        <td class="analytics-count-col">{{ row.visits }}</td>
+                        <td class="analytics-count-col">{{ row.unique_visitors }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% else %}
         <div class="analytics-table-scroll">
-        <table class="analytics-table analytics-metric-table">
-            <thead>
-                <tr>
-                    <th class="analytics-name-col">City</th>
-                    <th class="analytics-count-col">Views</th>
-                    <th class="analytics-count-col">Unique</th>
-                </tr>
-            </thead>
+            <table class="analytics-table analytics-metric-table">
+                <thead>
+                    <tr>
+                        <th class="analytics-name-col">City</th>
+                        <th class="analytics-count-col">Views</th>
+                        <th class="analytics-count-col">Unique</th>
+                    </tr>
+                </thead>
 
-            <tbody>
-                <tr>
-                    <td>
-                        {% if city_geoip_configured %}
-                        No city data yet
-                        <br>
-                        <span style="color: rgba(255,255,255,0.42);">
-                            Waiting for new public visits
-                        </span>
-                        {% else %}
-                        Not configured
-                        <br>
-                        <span style="color: rgba(255,255,255,0.42);">
-                            Upload City database
-                        </span>
-                        {% endif %}
-                    </td>
+                <tbody>
+                    <tr>
+                        <td>
+                            {% if city_geoip_configured %}
+                            No city data yet
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                Waiting for new public visits
+                            </span>
+                            {% else %}
+                            Not configured
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                Upload City database
+                            </span>
+                            {% endif %}
+                        </td>
 
-                    <td class="analytics-count-col">
-                        <span class="analytics-placeholder-value">
-                            {% if city_geoip_configured %}0{% else %}N/A{% endif %}
-                        </span>
-                    </td>
+                        <td class="analytics-count-col">
+                            <span class="analytics-placeholder-value">
+                                {% if city_geoip_configured %}0{% else %}N/A{% endif %}
+                            </span>
+                        </td>
 
-                    <td class="analytics-count-col">
-                        <span class="analytics-placeholder-value">
-                            {% if city_geoip_configured %}0{% else %}N/A{% endif %}
-                        </span>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+                        <td class="analytics-count-col">
+                            <span class="analytics-placeholder-value">
+                                {% if city_geoip_configured %}0{% else %}N/A{% endif %}
+                            </span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
         {% endif %}
     </div>
@@ -832,79 +923,79 @@
 
         {% if asn_stats %}
         <div class="analytics-table-scroll">
-        <table class="analytics-table analytics-metric-table">
-            <thead>
-                <tr>
-                    <th class="analytics-name-col">Network</th>
-                    <th class="analytics-count-col">Views</th>
-                    <th class="analytics-count-col">Unique</th>
-                </tr>
-            </thead>
+            <table class="analytics-table analytics-metric-table">
+                <thead>
+                    <tr>
+                        <th class="analytics-name-col">Network</th>
+                        <th class="analytics-count-col">Views</th>
+                        <th class="analytics-count-col">Unique</th>
+                    </tr>
+                </thead>
 
-            <tbody>
-                {% for row in asn_stats %}
-                <tr>
-                    <td>
-                        {% if row.asn_organization %}
-                        {{ row.asn_organization }}
-                        {% else %}
-                        Unknown Network
-                        {% endif %}
-                        <br>
-                        <span style="color: rgba(255,255,255,0.42);">
-                            ASN {{ row.asn_number }}
-                        </span>
-                    </td>
-                    <td class="analytics-count-col">{{ row.visits }}</td>
-                    <td class="analytics-count-col">{{ row.unique_visitors }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                <tbody>
+                    {% for row in asn_stats %}
+                    <tr>
+                        <td>
+                            {% if row.asn_organization %}
+                            {{ row.asn_organization }}
+                            {% else %}
+                            Unknown Network
+                            {% endif %}
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                ASN {{ row.asn_number }}
+                            </span>
+                        </td>
+                        <td class="analytics-count-col">{{ row.visits }}</td>
+                        <td class="analytics-count-col">{{ row.unique_visitors }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% else %}
         <div class="analytics-table-scroll">
-        <table class="analytics-table analytics-metric-table">
-            <thead>
-                <tr>
-                    <th class="analytics-name-col">Network</th>
-                    <th class="analytics-count-col">Views</th>
-                    <th class="analytics-count-col">Unique</th>
-                </tr>
-            </thead>
+            <table class="analytics-table analytics-metric-table">
+                <thead>
+                    <tr>
+                        <th class="analytics-name-col">Network</th>
+                        <th class="analytics-count-col">Views</th>
+                        <th class="analytics-count-col">Unique</th>
+                    </tr>
+                </thead>
 
-            <tbody>
-                <tr>
-                    <td>
-                        {% if asn_geoip_configured %}
-                        No network data yet
-                        <br>
-                        <span style="color: rgba(255,255,255,0.42);">
-                            Waiting for new public visits
-                        </span>
-                        {% else %}
-                        Not configured
-                        <br>
-                        <span style="color: rgba(255,255,255,0.42);">
-                            Upload ASN database
-                        </span>
-                        {% endif %}
-                    </td>
+                <tbody>
+                    <tr>
+                        <td>
+                            {% if asn_geoip_configured %}
+                            No network data yet
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                Waiting for new public visits
+                            </span>
+                            {% else %}
+                            Not configured
+                            <br>
+                            <span style="color: rgba(255,255,255,0.42);">
+                                Upload ASN database
+                            </span>
+                            {% endif %}
+                        </td>
 
-                    <td class="analytics-count-col">
-                        <span class="analytics-placeholder-value">
-                            {% if asn_geoip_configured %}0{% else %}N/A{% endif %}
-                        </span>
-                    </td>
+                        <td class="analytics-count-col">
+                            <span class="analytics-placeholder-value">
+                                {% if asn_geoip_configured %}0{% else %}N/A{% endif %}
+                            </span>
+                        </td>
 
-                    <td class="analytics-count-col">
-                        <span class="analytics-placeholder-value">
-                            {% if asn_geoip_configured %}0{% else %}N/A{% endif %}
-                        </span>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+                        <td class="analytics-count-col">
+                            <span class="analytics-placeholder-value">
+                                {% if asn_geoip_configured %}0{% else %}N/A{% endif %}
+                            </span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
         {% endif %}
     </div>
@@ -914,24 +1005,24 @@
 
         {% if referrer_stats %}
         <div class="analytics-table-scroll">
-        <table class="analytics-table analytics-metric-table">
-            <thead>
-                <tr>
-                    <th>Referrer</th>
-                    <th>Visits</th>
-                </tr>
-            </thead>
+            <table class="analytics-table analytics-metric-table">
+                <thead>
+                    <tr>
+                        <th>Referrer</th>
+                        <th>Visits</th>
+                    </tr>
+                </thead>
 
-            <tbody>
-                {% for row in referrer_stats %}
-                <tr>
-                    <td style="word-break: break-word;">{{ row.referrer }}</td>
-                    <td class="analytics-count-col">{{ row.visits }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
+                <tbody>
+                    {% for row in referrer_stats %}
+                    <tr>
+                        <td style="word-break: break-word;">{{ row.referrer }}</td>
+                        <td class="analytics-count-col">{{ row.visits }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
 
-        </table>
+            </table>
         </div>
         {% else %}
         <p class="analytics-empty">No referrer data yet.</p>

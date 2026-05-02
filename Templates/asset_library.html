@@ -1,0 +1,968 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+    .library-container {
+        padding: 20px;
+        color: #fff;
+    }
+
+    .asset-library-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+    }
+
+    .asset-library-header h2 {
+        margin: 0;
+    }
+
+    .storage-card {
+        min-width: 280px;
+        padding: 14px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .storage-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+        color: #d9d9d9;
+        margin-bottom: 8px;
+    }
+
+    .storage-bar {
+        height: 12px;
+        background: rgba(255, 255, 255, 0.09);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .storage-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    }
+
+    .asset-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+    }
+
+    .asset-tab {
+        padding: 9px 12px;
+        color: #eaeaea;
+        background: rgba(255, 255, 255, 0.065);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 0.86rem;
+    }
+
+    .asset-tab.active {
+        color: #10251f;
+        background: #7ee2cc;
+    }
+
+    .library-controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+
+    .library-controls button {
+        padding: 10px 13px;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        color: white;
+        background: #6200ea;
+        font-weight: 700;
+    }
+
+    .folder-grid {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin: 16px 0 28px;
+    }
+
+    .folder-item {
+        text-align: center;
+        padding: 15px;
+        border: 2px dashed transparent;
+        border-radius: 12px;
+        transition: all 0.2s;
+        cursor: pointer;
+        width: 130px;
+        background: rgba(255, 255, 255, 0.045);
+    }
+
+    .folder-item.drag-over {
+        background: rgba(243, 156, 18, 0.1);
+        border-color: #f39c12;
+        transform: scale(1.04);
+    }
+
+    .folder-item i {
+        color: #f39c12;
+        margin-bottom: 5px;
+    }
+
+    .active-folder {
+        background: rgba(126, 226, 204, 0.12);
+        border-color: #7ee2cc;
+    }
+
+    .asset-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 18px;
+        padding: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .asset-card {
+        position: relative;
+        border-radius: 14px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.065);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        cursor: grab;
+    }
+
+    .asset-preview {
+        height: 135px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.22);
+    }
+
+    .asset-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        pointer-events: none;
+    }
+
+    .asset-preview i {
+        font-size: 2.4rem;
+        color: rgba(255, 255, 255, 0.75);
+    }
+
+    .asset-meta {
+        padding: 10px;
+    }
+
+    .asset-name {
+        font-weight: 800;
+        font-size: 0.82rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .asset-sub {
+        margin-top: 4px;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.74rem;
+    }
+
+    .upload-progress-wrapper {
+        margin: 12px 0 16px;
+        max-width: 460px;
+    }
+
+    .upload-progress-bar {
+        width: 100%;
+        height: 12px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .upload-progress-fill {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+        transition: width 0.15s ease;
+    }
+
+    .upload-progress-text {
+        margin-top: 6px;
+        font-size: 0.9rem;
+        color: #d7d7d7;
+    }
+
+    .asset-preview video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        pointer-events: auto;
+        z-index: 2;
+    }
+
+    .asset-card-actions {
+        position: absolute;
+        top: 7px;
+        right: 7px;
+        display: flex;
+        gap: 6px;
+        z-index: 5;
+    }
+
+    .download-btn,
+    .delete-btn {
+        width: 32px;
+        height: 32px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        border: none;
+        border-radius: 8px;
+
+        color: white;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .download-btn {
+        background: rgba(52, 152, 219, 0.88);
+    }
+
+    .delete-btn {
+        position: static;
+        padding: 0;
+        background: rgba(231, 76, 60, 0.88);
+    }
+
+    .asset-card.asset-card-audio {
+        grid-column: 1 / -1;
+        min-width: 0;
+
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+
+        border-radius: 999px;
+        padding: 10px 12px 10px 16px;
+
+        background: rgba(255, 255, 255, 0.075);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+
+        cursor: default;
+        overflow: visible;
+    }
+
+    .asset-card.asset-card-audio .asset-preview {
+        height: auto;
+        min-height: 54px;
+        padding: 0;
+
+        background: transparent;
+
+        display: flex;
+        align-items: center;
+        justify-content: stretch;
+    }
+
+    .asset-card.asset-card-audio .asset-meta {
+        display: none;
+    }
+
+    .asset-card.asset-card-audio .asset-card-actions {
+        position: static;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 12px;
+    }
+
+    .audio-preview {
+        width: 100%;
+
+        display: grid;
+        grid-template-columns: 42px minmax(140px, 240px) minmax(300px, 1fr);
+        align-items: center;
+        gap: 12px;
+    }
+
+    .audio-icon {
+        width: 42px;
+        height: 42px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        border-radius: 999px;
+        background: rgba(126, 226, 204, 0.14);
+        color: #7ee2cc;
+    }
+
+    .audio-icon i {
+        font-size: 1rem;
+    }
+
+    .audio-track-info {
+        min-width: 0;
+    }
+
+    .audio-track-title {
+        font-size: 0.86rem;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.94);
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .audio-track-subtitle {
+        margin-top: 2px;
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.52);
+    }
+
+    .audio-player-wrap {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .audio-preview audio {
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        height: 34px;
+        display: block;
+    }
+
+    @media (max-width: 850px) {
+        .asset-card.asset-card-audio {
+            border-radius: 24px;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .asset-card.asset-card-audio .asset-card-actions {
+            justify-content: flex-end;
+            margin-left: 0;
+        }
+
+        .audio-preview {
+            grid-template-columns: 42px minmax(0, 1fr);
+        }
+
+        .audio-player-wrap {
+            grid-column: 1 / -1;
+        }
+    }
+
+    .video-preview-button {
+        position: relative;
+        width: 100%;
+        height: 100%;
+
+        border: none;
+        background: rgba(0, 0, 0, 0.28);
+        color: rgba(255, 255, 255, 0.92);
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        cursor: pointer;
+        overflow: hidden;
+    }
+
+    .video-thumb-canvas {
+        position: absolute;
+        inset: 0;
+
+        width: 100%;
+        height: 100%;
+
+        display: none;
+        object-fit: cover;
+    }
+
+    .video-preview-button.has-thumbnail .video-thumb-canvas {
+        display: block;
+    }
+
+    .video-thumb-fallback {
+        position: relative;
+        z-index: 1;
+
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .video-preview-button.has-thumbnail .video-thumb-fallback {
+        display: none;
+    }
+
+    .video-thumb-fallback i {
+        font-size: 2.6rem;
+    }
+
+    .video-thumb-fallback span {
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .video-thumb-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        background: rgba(0, 0, 0, 0.18);
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+
+    .video-thumb-overlay i {
+        width: 42px;
+        height: 42px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.58);
+        color: white;
+        font-size: 1rem;
+    }
+
+    .video-preview-button:hover .video-thumb-overlay {
+        opacity: 1;
+    }
+
+    .video-preview-button span {
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .video-preview-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+
+        display: none;
+        align-items: center;
+        justify-content: center;
+
+        background: rgba(0, 0, 0, 0.72);
+        backdrop-filter: blur(6px);
+    }
+
+    .video-preview-modal.is-open {
+        display: flex;
+    }
+
+    .video-preview-dialog {
+        width: min(900px, 92vw);
+        max-height: 88vh;
+
+        background: #151820;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 18px;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+    }
+
+    .video-preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+
+        padding: 12px 14px;
+        color: white;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .video-preview-title {
+        font-size: 0.95rem;
+        font-weight: 800;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .video-preview-close {
+        border: none;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border-radius: 10px;
+        width: 34px;
+        height: 34px;
+        cursor: pointer;
+    }
+
+    .video-preview-player {
+        width: 100%;
+        max-height: 70vh;
+        background: #000;
+        display: block;
+    }
+</style>
+
+<div class="library-container">
+    <div class="asset-library-header">
+        <div>
+            <h2><i class="fas fa-box-open"></i> Asset Library</h2>
+            <p style="color:#cfcfcf; margin:6px 0 0;">
+                Upload images, audio, PDFs, documents, and reusable files.
+            </p>
+        </div>
+
+        <div class="storage-card">
+            <div class="storage-label">
+                <span>{{ storage.used_label }} used</span>
+                <span>{{ storage.max_label }}</span>
+            </div>
+            <div class="storage-bar">
+                <div class="storage-fill" style="width: {{ storage.percent|default(0) }}%;"></div>
+            </div>
+            <div style="font-size:0.78rem; color:#bfbfbf; margin-top:7px;">
+                {{ storage.percent }}% full · {{ storage.remaining_label }} remaining
+            </div>
+        </div>
+    </div>
+
+    <div class="asset-tabs">
+        {% set tabs = [
+        ('image', 'Images', 'fa-images'),
+        ('audio', 'Audio', 'fa-music'),
+        ('video', 'Video', 'fa-video'),
+        ('pdf', 'PDFs', 'fa-file-pdf'),
+        ('document', 'Documents', 'fa-file-alt'),
+        ('misc', 'Misc', 'fa-box'),
+        ('all', 'All', 'fa-layer-group')
+        ] %}
+
+        {% for value, label, icon in tabs %}
+        <a class="asset-tab {% if current_type == value %}active{% endif %}"
+            href="{{ url_for('asset_library', type=value, folder_id=current_folder.id if current_folder else None) }}">
+            <i class="fas {{ icon }}"></i> {{ label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <div class="library-controls">
+        <button onclick="document.getElementById('assetInput').click()">
+            <i class="fas fa-upload"></i> Upload
+        </button>
+
+        <button onclick="createFolder()">
+            <i class="fas fa-folder-plus"></i> New Folder
+        </button>
+
+        <input type="file" id="assetInput" multiple style="display:none" onchange="handleUpload(event)">
+    </div>
+
+    <div style="color:#cfcfcf; font-size:0.9rem;">
+        Max single file size: {{ asset_config.max_single_file_mb or asset_config['max_single_file_mb'] }} MB.
+    </div>
+
+    <div class="upload-progress-wrapper" id="uploadProgressWrapper" style="display:none;">
+        <div class="upload-progress-bar">
+            <div class="upload-progress-fill" id="uploadProgressFill"></div>
+        </div>
+        <div class="upload-progress-text" id="uploadProgressText">0%</div>
+    </div>
+
+    <div style="margin: 20px 0 10px; font-weight: bold;">Folders</div>
+
+    <div class="folder-grid">
+        <div class="folder-item {% if not current_folder %}active-folder{% endif %}"
+            onclick="window.location.href='{{ url_for('asset_library', type=current_type) }}'"
+            ondrop="dropToFolder(event, 'root')" ondragover="allowDrop(event)" ondragleave="clearDrag(event)">
+            <i class="fas fa-home fa-3x"></i>
+            <p>Main Library</p>
+        </div>
+
+        {% for folder in folders %}
+        <div class="folder-item {% if current_folder and current_folder.id == folder.id %}active-folder{% endif %}"
+            onclick="window.location.href='{{ url_for('asset_library', type=current_type, folder_id=folder.id) }}'"
+            ondrop="dropToFolder(event, '{{ folder.id }}')" ondragover="allowDrop(event)"
+            ondragleave="clearDrag(event)">
+            <i class="fas fa-folder fa-3x"></i>
+            <p>{{ folder.name }}</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div style="margin: 10px 0; font-weight: bold;">
+        {% if current_folder %}
+        {{ current_folder.name }}
+        {% else %}
+        Root Assets
+        {% endif %}
+    </div>
+
+    <div class="asset-grid">
+        {% for asset in assets %}
+        <div class="asset-card asset-card-{{ asset.asset_type }}" draggable="true"
+            ondragstart="dragStart(event, '{{ asset.id }}')">
+            <div class="asset-preview">
+                {% if asset.asset_type == 'image' %}
+                <img src="{{ asset.thumbnail_url or asset.url }}" loading="lazy" alt="{{ asset.original_filename }}">
+
+                {% elif asset.asset_type == 'audio' %}
+                <div class="audio-preview">
+
+                    <div class="audio-icon">
+                        <i class="fas fa-music"></i>
+                    </div>
+
+                    <div class="audio-track-info">
+                        <div class="audio-track-title" title="{{ asset.original_filename }}">
+                            {{ asset.original_filename }}
+                        </div>
+                        <div class="audio-track-subtitle">
+                            {{ asset.extension|upper }} · {{ asset.file_size|filesizeformat }}
+                        </div>
+                    </div>
+
+                    <div class="audio-player-wrap">
+                        <audio controls preload="metadata" draggable="false" ondragstart="event.preventDefault();"
+                            onmousedown="event.stopPropagation();" onclick="event.stopPropagation();">
+                            <source src="{{ asset.url }}" type="{{ asset.mime_type or 'audio/mpeg' }}">
+                            Your browser does not support the audio element.
+                        </audio>
+                    </div>
+                </div>
+                {% elif asset.asset_type == 'video' %}
+                <button type="button" class="video-preview-button" data-video-url="{{ asset.url }}"
+                    data-video-mime="{{ asset.mime_type or 'video/mp4' }}"
+                    onclick="event.preventDefault(); event.stopPropagation(); openVideoPreview('{{ asset.url }}', '{{ asset.mime_type or 'video/mp4' }}', '{{ asset.original_filename|e }}')">
+
+                    <canvas class="video-thumb-canvas" aria-hidden="true"></canvas>
+
+                    <div class="video-thumb-fallback">
+                        <i class="fas fa-play-circle"></i>
+                        <span>Preview Video</span>
+                    </div>
+
+                    <div class="video-thumb-overlay">
+                        <i class="fas fa-play"></i>
+                    </div>
+                </button>
+
+                {% elif asset.asset_type == 'pdf' %}
+                <i class="fas fa-file-pdf"></i>
+
+                {% elif asset.asset_type == 'document' %}
+                <i class="fas fa-file-alt"></i>
+
+                {% else %}
+                <i class="fas fa-file"></i>
+                {% endif %}
+            </div>
+
+            <div class="asset-meta">
+                <div class="asset-name" title="{{ asset.original_filename }}">
+                    {{ asset.original_filename }}
+                </div>
+                <div class="asset-sub">
+                    {{ asset.asset_type|capitalize }} · {{ asset.extension }} · {{ asset.file_size|filesizeformat }}
+                </div>
+            </div>
+
+            <div class="asset-card-actions">
+                <a class="download-btn" href="{{ url_for('download_asset', asset_id=asset.id) }}"
+                    onclick="event.stopPropagation();" title="Download asset">
+                    <i class="fas fa-download"></i>
+                </a>
+
+                <button class="delete-btn" onclick="event.stopPropagation(); deleteAsset('{{ asset.id }}')"
+                    title="Delete asset">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="videoPreviewModal" class="video-preview-modal" onclick="closeVideoPreview()">
+    <div class="video-preview-dialog" onclick="event.stopPropagation();">
+        <div class="video-preview-header">
+            <div id="videoPreviewTitle" class="video-preview-title">Video Preview</div>
+
+            <button type="button" class="video-preview-close" onclick="closeVideoPreview()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <video id="videoPreviewPlayer" class="video-preview-player" controls preload="metadata">
+            Your browser does not support the video element.
+        </video>
+        <!-- <a id="videoPreviewOpenDirect"
+   href="#"
+   target="_blank"
+   style="display:block; padding:12px 14px; color:#7ee2cc;">
+    Open video directly
+</a> -->
+    </div>
+</div>
+
+<script>
+    function dragStart(event, assetId) {
+        event.dataTransfer.setData("assetId", assetId);
+        event.dataTransfer.effectAllowed = "move";
+    }
+
+    function allowDrop(event) {
+        event.preventDefault();
+        event.currentTarget.classList.add('drag-over');
+    }
+
+    function clearDrag(event) {
+        event.currentTarget.classList.remove('drag-over');
+    }
+
+    async function dropToFolder(event, folderId) {
+        event.preventDefault();
+        event.currentTarget.classList.remove('drag-over');
+
+        const assetId = event.dataTransfer.getData("assetId");
+
+        const response = await fetch('/admin/assets/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                asset_id: assetId,
+                folder_id: folderId
+            })
+        });
+
+        if (response.ok) {
+            location.reload();
+        }
+    }
+
+    async function handleUpload(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+
+        const formData = new FormData();
+
+        for (const file of files) {
+            formData.append('asset', file);
+        }
+
+        const folderId = "{{ current_folder.id if current_folder else '' }}";
+        if (folderId) {
+            formData.append('folder_id', folderId);
+        }
+
+        const progressWrapper = document.getElementById('uploadProgressWrapper');
+        const progressFill = document.getElementById('uploadProgressFill');
+        const progressText = document.getElementById('uploadProgressText');
+
+        progressWrapper.style.display = 'block';
+        progressFill.style.width = '0%';
+        progressText.textContent = '0%';
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/admin/assets/upload', true);
+
+        xhr.upload.addEventListener('progress', function (e) {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                progressFill.style.width = `${percent}%`;
+                progressText.textContent = `${percent}%`;
+            }
+        });
+
+        xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                progressFill.style.width = '100%';
+                progressText.textContent = 'Upload complete';
+                location.reload();
+            } else {
+                let message = 'Upload failed.';
+
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.error) message = data.error;
+                } catch (_) { }
+
+                alert(message);
+                progressWrapper.style.display = 'none';
+            }
+        };
+
+        xhr.onerror = function () {
+            alert('Upload failed.');
+            progressWrapper.style.display = 'none';
+        };
+
+        xhr.send(formData);
+    }
+
+    async function createFolder() {
+        const folderName = prompt("Folder name:");
+        if (!folderName) return;
+
+        const response = await fetch('/admin/assets/create_folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: folderName,
+                asset_type: "{{ current_type }}"
+            })
+        });
+
+        if (response.ok) {
+            location.reload();
+        }
+    }
+
+    async function deleteAsset(assetId) {
+        if (!confirm("Delete this asset? If it is used by a section, that section may lose access to it.")) return;
+
+        const response = await fetch(`/admin/assets/delete/${assetId}`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            location.reload();
+        }
+    }
+    function openVideoPreview(videoUrl, mimeType, title) {
+        const modal = document.getElementById('videoPreviewModal');
+        const player = document.getElementById('videoPreviewPlayer');
+        const titleEl = document.getElementById('videoPreviewTitle');
+        const directLink = document.getElementById('videoPreviewOpenDirect');
+
+        if (!modal || !player) return;
+
+        console.log('Opening video:', videoUrl, mimeType);
+
+        player.pause();
+        player.removeAttribute('src');
+        player.innerHTML = '';
+
+        player.src = videoUrl;
+        player.type = mimeType || 'video/mp4';
+        player.load();
+
+        player.onloadedmetadata = function () {
+            console.log('Video metadata loaded:', {
+                duration: player.duration,
+                width: player.videoWidth,
+                height: player.videoHeight
+            });
+        };
+
+        player.onerror = function () {
+            console.error('Video failed to load:', player.error, videoUrl);
+        };
+
+        if (directLink) {
+            directLink.href = videoUrl;
+        }
+
+        if (titleEl) {
+            titleEl.textContent = title || 'Video Preview';
+        }
+
+        modal.classList.add('is-open');
+    }
+
+    function closeVideoPreview() {
+        const modal = document.getElementById('videoPreviewModal');
+        const player = document.getElementById('videoPreviewPlayer');
+
+        if (player) {
+            player.pause();
+            player.removeAttribute('src');
+            player.innerHTML = '';
+            player.load();
+        }
+
+        if (modal) {
+            modal.classList.remove('is-open');
+        }
+    }
+    function generateVideoThumbnails() {
+        document.querySelectorAll('.video-preview-button[data-video-url]').forEach(button => {
+            const videoUrl = button.dataset.videoUrl;
+            const canvas = button.querySelector('.video-thumb-canvas');
+
+            if (!videoUrl || !canvas) return;
+
+            const video = document.createElement('video');
+
+            video.src = videoUrl;
+            video.muted = true;
+            video.preload = 'metadata';
+            video.playsInline = true;
+            video.crossOrigin = 'anonymous';
+
+            video.addEventListener('loadedmetadata', function () {
+                const targetTime = Math.min(1, Math.max(0, (video.duration || 1) * 0.1));
+
+                try {
+                    video.currentTime = targetTime;
+                } catch (error) {
+                    console.warn('Could not seek video thumbnail:', error);
+                }
+            });
+
+            video.addEventListener('seeked', function () {
+                try {
+                    const width = video.videoWidth || 320;
+                    const height = video.videoHeight || 180;
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0, width, height);
+
+                    button.classList.add('has-thumbnail');
+
+                    video.removeAttribute('src');
+                    video.load();
+                } catch (error) {
+                    console.warn('Could not draw video thumbnail:', error);
+                }
+            });
+
+            video.addEventListener('error', function () {
+                console.warn('Could not load video thumbnail:', videoUrl, video.error);
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', generateVideoThumbnails);
+</script>
+
+{% endblock %}

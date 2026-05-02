@@ -13,6 +13,9 @@ import re
 import ipaddress
 import secrets
 import hashlib
+import json
+import mimetypes
+from pathlib import Path
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -37,6 +40,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+from flask import send_file
+
 
 from bs4 import BeautifulSoup
 
@@ -47,6 +52,8 @@ template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Temp
 
 # Set admin page API key
 ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY', 'default_api_key')
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Path to the database folder and database file
 database_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database')
@@ -62,7 +69,7 @@ if not os.path.exists(database_path) and os.path.exists(instance_path):
     shutil.copyfile(instance_path, database_path)
 
 # Set the static folder path inside the database folder
-static_folder = os.path.join(database_folder, 'Static')
+static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 # Ensure the static folder exists
 os.makedirs(static_folder, exist_ok=True)
 
@@ -429,6 +436,35 @@ class CalendarEvent(db.Model):
             'section_id': self.section_id
         }
 
+class CalendarFeedSubscriber(db.Model):
+    __tablename__ = 'calendar_feed_subscriber'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    section_id = db.Column(
+        db.Integer,
+        db.ForeignKey('page_section.id'),
+        nullable=False,
+        index=True
+    )
+
+    subscriber_hash = db.Column(db.String(64), nullable=False, index=True)
+
+    user_agent = db.Column(db.Text, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+
+    first_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    request_count = db.Column(db.Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'section_id',
+            'subscriber_hash',
+            name='unique_calendar_feed_subscriber'
+        ),
+    )
+
 class SavedColor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -522,6 +558,65 @@ class AnalyticsSettings(db.Model):
     def __repr__(self):
         return f"<AnalyticsSettings user={self.user_id} geoip_enabled={self.geoip_enabled}>"
 
+class SectionAsset(db.Model):
+    __tablename__ = 'section_assets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False)
+    asset_id = db.Column(db.Integer, db.ForeignKey('asset.id'), nullable=False)
+    usage_type = db.Column(db.String(50), nullable=True)
+    order = db.Column(db.Integer, default=0)
+
+class AssetFolder(db.Model):
+    __tablename__ = 'asset_folder'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    asset_type = db.Column(db.String(30), nullable=True)  # optional: image, audio, pdf, document, misc
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    assets = db.relationship('Asset', backref='parent_folder', lazy=True)
+
+
+class Asset(db.Model):
+    __tablename__ = 'asset'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    folder_id = db.Column(db.Integer, db.ForeignKey('asset_folder.id'), nullable=True)
+
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename = db.Column(db.String(255), nullable=False)
+
+    url = db.Column(db.String(700), nullable=False)
+    thumbnail_url = db.Column(db.String(700), nullable=True)
+
+    asset_type = db.Column(db.String(30), nullable=False, default='misc')
+    mime_type = db.Column(db.String(120), nullable=True)
+    extension = db.Column(db.String(20), nullable=True)
+
+    file_size = db.Column(db.Integer, nullable=False, default=0)
+
+    upload_date = db.Column(db.DateTime, default=datetime.utcnow)
+
+    section_usages = db.relationship('SectionAsset', backref='asset', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'original_filename': self.original_filename,
+            'url': self.url,
+            'thumbnail_url': self.thumbnail_url,
+            'asset_type': self.asset_type,
+            'mime_type': self.mime_type,
+            'extension': self.extension,
+            'file_size': self.file_size,
+            'file_size_label': format_bytes(self.file_size),
+            'upload_date': self.upload_date.isoformat() if self.upload_date else None
+        }
+
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
@@ -532,9 +627,6 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-from flask import send_file
-import requests
-import json
 
 # API endpoint
 ollama_url = 'http://192.168.1.214:11434/api/generate'
@@ -576,6 +668,560 @@ def slugify_anchor(value):
     value = re.sub(r'[^a-z0-9]+', '-', value)
     value = value.strip('-')
     return value or 'section-group'
+
+ASSET_LIBRARY_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'asset_library.json'
+)
+
+DEFAULT_ASSET_LIBRARY_CONFIG = {
+    "max_total_storage_mb": 500,
+    "max_single_file_mb": 100,
+    "allowed_extensions": {
+        "images": ["png", "jpg", "jpeg", "gif", "webp", "svg"],
+        "audio": ["mp3", "wav", "ogg", "m4a", "aac"],
+        "videos": ["mp4", "webm", "mov", "m4v"],
+        "pdfs": ["pdf"],
+        "documents": ["txt", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx"],
+        "misc": ["zip", "json"]
+    },
+    "blocked_extensions": ["py", "php", "exe", "bat", "cmd", "sh", "js", "html", "htm", "css", "jar"]
+}
+
+def user_owns_section(section):
+    page = PublicPageContent.query.get(section.page_content_id)
+    if not page:
+        return False
+
+    website = Website.query.get(page.website_id)
+    return bool(website and website.user_id == current_user.id)
+
+def get_asset_library_config():
+    try:
+        with open(ASSET_LIBRARY_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+
+        config = DEFAULT_ASSET_LIBRARY_CONFIG.copy()
+        config.update(loaded)
+        return config
+
+    except FileNotFoundError:
+        return DEFAULT_ASSET_LIBRARY_CONFIG
+
+
+def mb_to_bytes(value):
+    return int(float(value) * 1024 * 1024)
+
+
+def get_asset_extension(filename):
+    return filename.rsplit('.', 1)[-1].lower().strip() if '.' in filename else ''
+
+
+def get_asset_type_from_extension(extension):
+    config = get_asset_library_config()
+    allowed = config.get('allowed_extensions', {})
+
+    for asset_type, extensions in allowed.items():
+        if extension in extensions:
+            if asset_type == 'images':
+                return 'image'
+            if asset_type == 'pdfs':
+                return 'pdf'
+            return asset_type.rstrip('s')
+
+    return 'misc'
+
+
+def is_allowed_asset_file(filename):
+    config = get_asset_library_config()
+    extension = get_asset_extension(filename)
+
+    if not extension:
+        return False
+
+    if extension in config.get('blocked_extensions', []):
+        return False
+
+    allowed_extensions = []
+    for extensions in config.get('allowed_extensions', {}).values():
+        allowed_extensions.extend(extensions)
+
+    return extension in allowed_extensions
+
+
+def get_user_asset_storage_bytes(user_id):
+    total = db.session.query(func.coalesce(func.sum(Asset.file_size), 0)).filter_by(
+        user_id=user_id
+    ).scalar()
+
+    return int(total or 0)
+
+
+def format_bytes(num_bytes):
+    num_bytes = float(num_bytes or 0)
+
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if num_bytes < 1024:
+            return f"{num_bytes:.1f} {unit}" if unit != 'B' else f"{int(num_bytes)} {unit}"
+        num_bytes /= 1024
+
+    return f"{num_bytes:.1f} PB"
+
+def save_asset_file(file_storage, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+
+    original_filename = secure_filename(file_storage.filename or '')
+    extension = get_asset_extension(original_filename)
+
+    if not original_filename or not extension:
+        raise ValueError('Invalid filename.')
+
+    if not is_allowed_asset_file(original_filename):
+        raise ValueError(f'File type .{extension} is not allowed.')
+
+    file_storage.seek(0, os.SEEK_END)
+    file_size = file_storage.tell()
+    file_storage.seek(0)
+
+    asset_type = get_asset_type_from_extension(extension)
+    mime_type = file_storage.mimetype or mimetypes.guess_type(original_filename)[0]
+
+    base_name = uuid.uuid4().hex
+
+    # Keep images optimized like your current library does.
+    if asset_type == 'image' and extension.lower() != 'svg':
+        saved = save_optimized_versions(file_storage, output_dir)
+
+        return {
+            'original_filename': original_filename,
+            'stored_filename': saved['public_filename'],
+            'thumbnail_filename': saved['thumb_filename'],
+            'asset_type': 'image',
+            'mime_type': 'image/webp',
+            'extension': 'webp',
+            'file_size': os.path.getsize(os.path.join(output_dir, saved['public_filename']))
+        }
+
+    # SVG and non-image files: save directly.
+    stored_filename = f"{base_name}.{extension}"
+    filepath = os.path.join(output_dir, stored_filename)
+
+    file_storage.save(filepath)
+
+    return {
+        'original_filename': original_filename,
+        'stored_filename': stored_filename,
+        'thumbnail_filename': None,
+        'asset_type': asset_type,
+        'mime_type': mime_type,
+        'extension': extension,
+        'file_size': os.path.getsize(filepath)
+    }
+
+@app.route('/admin/dashboard/assets', endpoint='asset_library')
+@login_required
+def asset_library():
+    asset_type = request.args.get('type', 'image')
+    folder_id = request.args.get('folder_id')
+
+    valid_types = ['image', 'audio', 'video', 'pdf', 'document', 'misc', 'all']
+    if asset_type not in valid_types:
+        asset_type = 'image'
+
+    folders_query = AssetFolder.query.filter_by(user_id=current_user.id)
+
+    if asset_type != 'all':
+        folders_query = folders_query.filter(
+            or_(
+                AssetFolder.asset_type == asset_type,
+                AssetFolder.asset_type == None
+            )
+        )
+
+    folders = folders_query.order_by(AssetFolder.name).all()
+
+    assets_query = Asset.query.filter_by(user_id=current_user.id)
+
+    if folder_id in ('', None, 'root'):
+        assets_query = assets_query.filter(Asset.folder_id == None)
+        current_folder = None
+    else:
+        current_folder = AssetFolder.query.filter_by(
+            id=folder_id,
+            user_id=current_user.id
+        ).first_or_404()
+
+        assets_query = assets_query.filter(Asset.folder_id == current_folder.id)
+
+    if asset_type != 'all':
+        assets_query = assets_query.filter(Asset.asset_type == asset_type)
+
+    assets = assets_query.order_by(Asset.upload_date.desc()).all()
+
+    config = get_asset_library_config()
+    used_bytes = get_user_asset_storage_bytes(current_user.id)
+    max_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
+
+    storage = {
+        'used_bytes': used_bytes,
+        'max_bytes': max_bytes,
+        'used_label': format_bytes(used_bytes),
+        'max_label': format_bytes(max_bytes),
+        'percent': min(100, round((used_bytes / max_bytes) * 100, 1)) if max_bytes else 0,
+        'remaining_label': format_bytes(max(0, max_bytes - used_bytes))
+    }
+
+    return render_template(
+        'asset_library.html',
+        folders=folders,
+        assets=assets,
+        current_folder=current_folder,
+        current_type=asset_type,
+        storage=storage,
+        asset_config=config
+    )
+
+
+@app.route('/admin/assets/upload', methods=['POST'])
+@login_required
+def asset_upload():
+    files = request.files.getlist('asset')
+    folder_id = request.form.get('folder_id') or None
+
+    if not files:
+        return jsonify({'status': 'error', 'error': 'No files selected.'}), 400
+
+    config = get_asset_library_config()
+    max_single_bytes = mb_to_bytes(config.get('max_single_file_mb', 50))
+    max_total_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
+    used_bytes = get_user_asset_storage_bytes(current_user.id)
+
+    incoming_total = 0
+
+    for file in files:
+        if not file or not file.filename:
+            continue
+
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(0)
+
+        incoming_total += size
+
+        if size > max_single_bytes:
+            return jsonify({
+                'status': 'error',
+                'error': f'"{file.filename}" exceeds the {config.get("max_single_file_mb", 50)} MB single-file limit.'
+            }), 400
+
+        if not is_allowed_asset_file(file.filename):
+            extension = get_asset_extension(file.filename)
+            return jsonify({
+                'status': 'error',
+                'error': f'"{file.filename}" has a file type that is not allowed: .{extension}'
+            }), 400
+
+    if used_bytes + incoming_total > max_total_bytes:
+        return jsonify({
+            'status': 'error',
+            'error': f'Upload would exceed your storage limit. You have {format_bytes(max_total_bytes - used_bytes)} remaining.'
+        }), 400
+
+    if folder_id:
+        folder = AssetFolder.query.filter_by(
+            id=folder_id,
+            user_id=current_user.id
+        ).first_or_404()
+        folder_id = folder.id
+
+    user_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
+    os.makedirs(user_folder, exist_ok=True)
+
+    created_assets = []
+
+    try:
+        for file in files:
+            if not file or not file.filename:
+                continue
+
+            saved = save_asset_file(file, user_folder)
+
+            asset_url = url_for(
+                'static',
+                filename=f'uploads/{current_user.id}/assets/{saved["stored_filename"]}'
+            )
+
+            thumbnail_url = None
+            if saved.get('thumbnail_filename'):
+                thumbnail_url = url_for(
+                    'static',
+                    filename=f'uploads/{current_user.id}/assets/{saved["thumbnail_filename"]}'
+                )
+
+            asset = Asset(
+                user_id=current_user.id,
+                folder_id=folder_id,
+                original_filename=saved['original_filename'],
+                stored_filename=saved['stored_filename'],
+                url=asset_url,
+                thumbnail_url=thumbnail_url,
+                asset_type=saved['asset_type'],
+                mime_type=saved['mime_type'],
+                extension=saved['extension'],
+                file_size=saved['file_size']
+            )
+
+            db.session.add(asset)
+            created_assets.append(asset)
+
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 400
+
+    return jsonify({
+        'status': 'success',
+        'assets': [asset.to_dict() for asset in created_assets],
+        'storage': {
+            'used_label': format_bytes(get_user_asset_storage_bytes(current_user.id)),
+            'max_label': format_bytes(max_total_bytes)
+        }
+    })
+
+@app.route('/admin/assets/download/<int:asset_id>')
+@login_required
+def download_asset(asset_id):
+    asset = Asset.query.filter_by(
+        id=asset_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    asset_path = os.path.join(
+        uploads_folder,
+        str(current_user.id),
+        'assets',
+        asset.stored_filename
+    )
+
+    if not os.path.exists(asset_path):
+        return "File not found", 404
+
+    return send_file(
+        asset_path,
+        as_attachment=True,
+        download_name=asset.original_filename
+    )
+
+@app.route('/admin/assets/create_folder', methods=['POST'])
+@login_required
+def create_asset_folder():
+    data = request.get_json() or {}
+
+    name = (data.get('name') or '').strip()
+    asset_type = (data.get('asset_type') or None)
+
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Folder name is required.'}), 400
+
+    folder = AssetFolder(
+        name=name,
+        user_id=current_user.id,
+        asset_type=asset_type if asset_type != 'all' else None
+    )
+
+    db.session.add(folder)
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'folder_id': folder.id
+    })
+
+
+@app.route('/admin/assets/move', methods=['POST'])
+@login_required
+def move_asset():
+    data = request.get_json() or {}
+
+    asset_id = data.get('asset_id')
+    folder_id = data.get('folder_id')
+
+    if folder_id == 'root':
+        folder_id = None
+
+    asset = Asset.query.filter_by(
+        id=asset_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    if folder_id:
+        folder = AssetFolder.query.filter_by(
+            id=folder_id,
+            user_id=current_user.id
+        ).first_or_404()
+
+        asset.folder_id = folder.id
+    else:
+        asset.folder_id = None
+
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+
+@app.route('/admin/assets/delete/<int:asset_id>', methods=['POST'])
+@login_required
+def delete_asset(asset_id):
+    asset = Asset.query.filter_by(
+        id=asset_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    try:
+        filenames = [asset.stored_filename]
+
+        if asset.thumbnail_url:
+            thumbnail_name = os.path.basename(asset.thumbnail_url)
+            filenames.append(thumbnail_name)
+
+        user_asset_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
+
+        for filename in filenames:
+            path = os.path.join(user_asset_folder, filename)
+            if os.path.exists(path):
+                os.remove(path)
+
+        db.session.delete(asset)
+        db.session.commit()
+
+        return jsonify({'status': 'success'})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/admin/assets/root', methods=['GET'])
+@login_required
+def get_asset_library_root():
+    asset_type = request.args.get('type', 'image')
+
+    folders_query = AssetFolder.query.filter_by(user_id=current_user.id)
+
+    if asset_type != 'all':
+        folders_query = folders_query.filter(
+            or_(
+                AssetFolder.asset_type == asset_type,
+                AssetFolder.asset_type == None
+            )
+        )
+
+    folders = folders_query.order_by(AssetFolder.name).all()
+
+    assets_query = Asset.query.filter_by(
+        user_id=current_user.id,
+        folder_id=None
+    )
+
+    if asset_type != 'all':
+        assets_query = assets_query.filter_by(asset_type=asset_type)
+
+    assets = assets_query.order_by(Asset.upload_date.desc()).all()
+
+    return jsonify({
+        'folders': [
+            {
+                'id': folder.id,
+                'name': folder.name,
+                'asset_type': folder.asset_type
+            }
+            for folder in folders
+        ],
+        'assets': [asset.to_dict() for asset in assets]
+    })
+
+
+@app.route('/admin/assets/folder/<int:folder_id>', methods=['GET'])
+@login_required
+def get_asset_library_folder(folder_id):
+    folder = AssetFolder.query.filter_by(
+        id=folder_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    asset_type = request.args.get('type', 'image')
+
+    assets_query = Asset.query.filter_by(
+        user_id=current_user.id,
+        folder_id=folder.id
+    )
+
+    if asset_type != 'all':
+        assets_query = assets_query.filter_by(asset_type=asset_type)
+
+    assets = assets_query.order_by(Asset.upload_date.desc()).all()
+
+    return jsonify({
+        'folder': {
+            'id': folder.id,
+            'name': folder.name,
+            'asset_type': folder.asset_type
+        },
+        'assets': [asset.to_dict() for asset in assets]
+    })
+
+# @app.route('/add_assets_to_section', methods=['POST'])
+# @login_required
+# def add_assets_to_section():
+#     data = request.get_json() or {}
+#
+#     section_id = data.get('section_id')
+#     asset_ids = data.get('asset_ids') or []
+#     usage_type = data.get('usage_type') or 'section-image'
+#
+#     section = PageSection.query.get_or_404(section_id)
+#     page = PublicPageContent.query.get_or_404(section.page_content_id)
+#     website = Website.query.get_or_404(page.website_id)
+#
+#     if website.user_id != current_user.id:
+#         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+#
+#     for asset_id in asset_ids:
+#         asset = Asset.query.filter_by(
+#             id=asset_id,
+#             user_id=current_user.id
+#         ).first()
+#
+#         if not asset:
+#             continue
+#
+#         # Image sections should only accept images.
+#         if section.section_type in ['image', 'image_gallery', 'images'] and asset.asset_type != 'image':
+#             continue
+#
+#         max_order = db.session.query(func.max(SectionAsset.order)).filter_by(
+#             section_id=section.id
+#         ).scalar() or 0
+#
+#         link = SectionAsset(
+#             section_id=section.id,
+#             asset_id=asset.id,
+#             usage_type=usage_type,
+#             order=max_order + 1
+#         )
+#
+#         db.session.add(link)
+#
+#     db.session.commit()
+#
+#     return jsonify({'status': 'success'})
 
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
@@ -4056,6 +4702,43 @@ def get_library_folder(folder_id):
     })
 
 
+@app.route('/admin/dashboard/library')
+@login_required
+def old_photo_library_redirect():
+    return redirect(url_for('asset_library'))
+
+def migrate_pictures_to_assets():
+    pictures = Picture.query.all()
+
+    for pic in pictures:
+        existing = Asset.query.filter_by(
+            user_id=pic.user_id,
+            url=pic.url
+        ).first()
+
+        if existing:
+            continue
+
+        filename = os.path.basename(pic.url or 'image.webp')
+        extension = get_asset_extension(filename) or 'webp'
+
+        asset = Asset(
+            user_id=pic.user_id,
+            folder_id=None,
+            original_filename=filename,
+            stored_filename=filename,
+            url=pic.url,
+            thumbnail_url=pic.thumbnail_url,
+            asset_type='image',
+            mime_type='image/webp' if extension == 'webp' else f'image/{extension}',
+            extension=extension,
+            file_size=0
+        )
+
+        db.session.add(asset)
+
+    db.session.commit()
+
 @app.route('/admin/dashboard/library', endpoint='photo_library')
 @login_required
 def photo_library():
@@ -4207,59 +4890,74 @@ def update_public_images():
 
     else:
         return jsonify({'status': 'error', 'message': 'Invalid section type'})
+#
+# @app.route('/delete_section_image/<int:link_id>', methods=['DELETE'])
+# @login_required
+# def delete_section_image(link_id):
+#     try:
+#         section_image = SectionImage.query.get_or_404(link_id)
+#
+#         section = PageSection.query.get_or_404(section_image.section_id)
+#         page = PublicPageContent.query.get_or_404(section.page_content_id)
+#         website = Website.query.get_or_404(page.website_id)
+#
+#         if website.user_id != current_user.id:
+#             return jsonify({
+#                 'success': False,
+#                 'error': 'Unauthorized.'
+#             }), 403
+#
+#         db.session.delete(section_image)
+#         db.session.commit()
+#
+#         return jsonify({
+#             'success': True,
+#             'message': 'Image removed from section.'
+#         })
+#
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({
+#             'success': False,
+#             'error': str(e)
+#         }), 500
 
-@app.route('/delete_section_image/<int:link_id>', methods=['DELETE'])
-@login_required
-def delete_section_image(link_id):
-    try:
-        section_image = SectionImage.query.get_or_404(link_id)
-
-        section = PageSection.query.get_or_404(section_image.section_id)
-        page = PublicPageContent.query.get_or_404(section.page_content_id)
-        website = Website.query.get_or_404(page.website_id)
-
-        if website.user_id != current_user.id:
-            return jsonify({
-                'success': False,
-                'error': 'Unauthorized.'
-            }), 403
-
-        db.session.delete(section_image)
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'message': 'Image removed from section.'
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/get_uploaded_images')
+@app.route('/get_uploaded_images', methods=['GET'])
 @login_required
 def get_uploaded_images():
     section_id = request.args.get('section_id', type=int)
+
     if not section_id:
-        return jsonify({'status': 'error', 'message': 'Section ID is missing'})
+        return jsonify({'images': []})
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'images': []}), 403
 
     results = (
-        db.session.query(Picture, SectionImage)
-        .join(SectionImage, Picture.id == SectionImage.picture_id)
-        .filter(SectionImage.section_id == section_id)
-        .order_by(SectionImage.order)
+        db.session.query(Asset, SectionAsset)
+        .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+        .filter(
+            SectionAsset.section_id == section.id,
+            Asset.asset_type == 'image'
+        )
+        .order_by(SectionAsset.order)
         .all()
     )
 
-    images_data = [{
-        'id': pic.id,  # Picture ID
-        'link_id': link.id,  # SectionImage ID
-        'url': pic.url,
-        'order': link.order
-    } for pic, link in results]
+    images_data = [
+        {
+            'id': asset.id,
+            'asset_id': asset.id,
+            'link_id': link.id,
+            'url': asset.url,
+            'thumbnail_url': asset.thumbnail_url or asset.url,
+            'order': link.order,
+            'filename': asset.original_filename
+        }
+        for asset, link in results
+    ]
 
     return jsonify({'images': images_data})
 
@@ -4318,22 +5016,74 @@ from flask_login import login_required, current_user
 import os
 
 
-@app.route('/add_images_from_library', methods=['POST'])
+@app.route('/add_assets_to_section', methods=['POST'])
 @login_required
-def add_images_from_library():
-    data = request.json
-    section_id = data.get('section_id')
-    image_ids = data.get('image_ids')  # IDs from the Picture table
+def add_assets_to_section():
+    data = request.get_json() or {}
 
-    for img_id in image_ids:
-        lib_pic = Picture.query.get(img_id)
-        # Create a new reference or copy the entry for this section
-        # Logic depends on if your SectionImages table is separate
-        new_entry = SectionImage(section_id=section_id, picture_id=lib_pic.id)
-        db.session.add(new_entry)
+    section_id = data.get('section_id')
+    asset_ids = data.get('asset_ids') or data.get('image_ids') or []
+    usage_type = data.get('usage_type') or 'section-image'
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    if section.section_type not in ['image', 'image_gallery', 'images']:
+        return jsonify({'status': 'error', 'message': 'This section does not accept image assets.'}), 400
+
+    max_order = db.session.query(func.coalesce(func.max(SectionAsset.order), 0)).filter_by(
+        section_id=section.id
+    ).scalar() or 0
+
+    added = 0
+
+    for asset_id in asset_ids:
+        asset = Asset.query.filter_by(
+            id=asset_id,
+            user_id=current_user.id,
+            asset_type='image'
+        ).first()
+
+        if not asset:
+            continue
+
+        existing = SectionAsset.query.filter_by(
+            section_id=section.id,
+            asset_id=asset.id,
+            usage_type=usage_type
+        ).first()
+
+        if existing:
+            continue
+
+        max_order += 1
+
+        db.session.add(SectionAsset(
+            section_id=section.id,
+            asset_id=asset.id,
+            usage_type=usage_type,
+            order=max_order
+        ))
+
+        added += 1
 
     db.session.commit()
-    return jsonify({'status': 'success'})
+
+    return jsonify({
+        'status': 'success',
+        'success': True,
+        'added': added
+    })
+
+
+@app.route('/add_images_from_library', methods=['POST'])
+@login_required
+def add_images_from_library_legacy():
+    data = request.get_json() or {}
+
+    return add_assets_to_section()
 
 
 # Create a new folder
@@ -5121,17 +5871,18 @@ def render_public_page(website, page, is_preview=False):
     pictures_by_section = {}
 
     for section in sections:
-        results = (
-            db.session.query(Picture, SectionImage)
-            .join(SectionImage, Picture.id == SectionImage.picture_id)
-            .filter(SectionImage.section_id == section.id)
-            .order_by(SectionImage.order)
+        section_assets = (
+            db.session.query(Asset.url)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'image'
+            )
+            .order_by(SectionAsset.order)
             .all()
         )
 
-        pictures_by_section[section.id] = [
-            picture.url for picture, link in results
-        ]
+        pictures_by_section[section.id] = [asset.url for asset in section_assets]
 
     section_groups = SectionGroup.query.filter_by(
         page_content_id=page.id
@@ -5270,6 +6021,13 @@ def analytics_page():
             asn_stats=[],
             days=30,
             recent_visits=[],
+            calendar_subscriber_summary={
+                'active_7_days': 0,
+                'active_30_days': 0,
+                'total_seen': 0,
+                'total_requests': 0,
+                'top_calendars': []
+            },
             csrf_token=csrf_token
         )
 
@@ -5445,6 +6203,8 @@ def analytics_page():
             'asn_organization': visit.asn_organization
         })
 
+        calendar_subscriber_summary = get_calendar_subscriber_summary_for_websites(website_ids)
+
     return render_template(
         'analytics.html',
         websites=websites,
@@ -5459,6 +6219,7 @@ def analytics_page():
         days=days,
         asn_stats=asn_stats,
         recent_visits=recent_visits,
+        calendar_subscriber_summary=calendar_subscriber_summary,
         csrf_token=csrf_token
     )
 
@@ -5549,17 +6310,18 @@ def preview_page(website_id, page_id):
     pictures_by_section = {}
     for section in sections:
         # NEW LOGIC: Join SectionImage and Picture to get the URLs for this specific section
-        section_pictures = db.session.query(Picture.url).join(
-            SectionImage, Picture.id == SectionImage.picture_id
-        ).filter(
-            SectionImage.section_id == section.id
-        ).order_by(
-            SectionImage.order
-        ).all()
+        section_assets = (
+            db.session.query(Asset.url)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'image'
+            )
+            .order_by(SectionAsset.order)
+            .all()
+        )
 
-        # .all() returns a list of tuples, e.g., [('url1',), ('url2',)],
-        # so we flatten it to a list of strings
-        pictures_by_section[section.id] = [p.url for p in section_pictures]
+        pictures_by_section[section.id] = [asset.url for asset in section_assets]
 
     sections_dict = [section.to_dict() for section in sections]
 
@@ -6017,24 +6779,24 @@ def update_image_order(order_list):
         return {'status': 'error', 'message': str(e)}
 
 
-@app.route('/update_image_order', methods=['POST'])
-@login_required
-def update_image_order_route():
-    # if not session.get('logged_in'):
-    #     return jsonify({'status': 'error', 'message': 'Unauthorized'})
-
-    # current_user is guaranteed to exist and be logged in
-    user_id = current_user.id  # or .get_id() depending on your User model
-
-    print(f"Logged in as user {user_id}")
-
-    order_list = request.json
-
-    if not isinstance(order_list, list) or not all(isinstance(order, dict) for order in order_list):
-        return jsonify({'status': 'error', 'message': 'Invalid request format'})
-
-    result = update_image_order(order_list)
-    return jsonify(result)
+# @app.route('/update_image_order', methods=['POST'])
+# @login_required
+# def update_image_order_route():
+#     # if not session.get('logged_in'):
+#     #     return jsonify({'status': 'error', 'message': 'Unauthorized'})
+#
+#     # current_user is guaranteed to exist and be logged in
+#     user_id = current_user.id  # or .get_id() depending on your User model
+#
+#     print(f"Logged in as user {user_id}")
+#
+#     order_list = request.json
+#
+#     if not isinstance(order_list, list) or not all(isinstance(order, dict) for order in order_list):
+#         return jsonify({'status': 'error', 'message': 'Invalid request format'})
+#
+#     result = update_image_order(order_list)
+#     return jsonify(result)
 
 
 @app.route('/delete_selected_images', methods=['POST'])
@@ -6061,74 +6823,415 @@ def delete_selected_images():
         return {'status': 'error', 'message': error_message}
 
 
-@app.route('/move_image_to_section', methods=['POST'])
+# @app.route('/move_image_to_section', methods=['POST'])
+# @login_required
+# def move_image_to_section():
+#     data = request.json
+#
+#     if not data or 'sourceLinkId' not in data or 'sourceSection' not in data or 'targetSection' not in data:
+#         return jsonify({'status': 'error', 'message': 'Invalid request format'})
+#
+#     source_link_id = data['sourceLinkId']
+#     source_section_id = int(data['sourceSection'])
+#     target_section_id = int(data['targetSection'])
+#
+#     try:
+#         link = db.session.get(SectionImage, source_link_id)
+#
+#         if not link:
+#             return jsonify({'status': 'error', 'message': 'SectionImage link not found'})
+#
+#         if link.section_id != source_section_id:
+#             return jsonify({'status': 'error', 'message': 'Source section mismatch'})
+#
+#         # Move link to new section
+#         link.section_id = target_section_id
+#
+#         db.session.flush()
+#
+#         # Re-number source section
+#         source_links = SectionImage.query.filter_by(section_id=source_section_id).order_by(SectionImage.order).all()
+#         for index, item in enumerate(source_links, start=1):
+#             item.order = index
+#
+#         # Put moved image at end of target section
+#         target_links = SectionImage.query.filter_by(section_id=target_section_id).order_by(SectionImage.order).all()
+#         for index, item in enumerate(target_links, start=1):
+#             item.order = index
+#
+#         db.session.commit()
+#         return jsonify({'status': 'success', 'message': 'Image moved successfully'})
+#
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/delete_section_image/<int:link_id>', methods=['DELETE'])
 @login_required
-def move_image_to_section():
-    data = request.json
-
-    if not data or 'sourceLinkId' not in data or 'sourceSection' not in data or 'targetSection' not in data:
-        return jsonify({'status': 'error', 'message': 'Invalid request format'})
-
-    source_link_id = data['sourceLinkId']
-    source_section_id = int(data['sourceSection'])
-    target_section_id = int(data['targetSection'])
-
+def delete_section_image(link_id):
     try:
-        link = db.session.get(SectionImage, source_link_id)
+        section_asset = SectionAsset.query.get_or_404(link_id)
+        section = PageSection.query.get_or_404(section_asset.section_id)
 
-        if not link:
-            return jsonify({'status': 'error', 'message': 'SectionImage link not found'})
+        if not user_owns_section(section):
+            return jsonify({'success': False, 'error': 'Unauthorized.'}), 403
 
-        if link.section_id != source_section_id:
-            return jsonify({'status': 'error', 'message': 'Source section mismatch'})
-
-        # Move link to new section
-        link.section_id = target_section_id
-
-        db.session.flush()
-
-        # Re-number source section
-        source_links = SectionImage.query.filter_by(section_id=source_section_id).order_by(SectionImage.order).all()
-        for index, item in enumerate(source_links, start=1):
-            item.order = index
-
-        # Put moved image at end of target section
-        target_links = SectionImage.query.filter_by(section_id=target_section_id).order_by(SectionImage.order).all()
-        for index, item in enumerate(target_links, start=1):
-            item.order = index
-
+        db.session.delete(section_asset)
         db.session.commit()
-        return jsonify({'status': 'success', 'message': 'Image moved successfully'})
+
+        return jsonify({
+            'success': True,
+            'message': 'Image removed from section.'
+        })
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
+
+@app.route('/update_image_order', methods=['POST'])
+@login_required
+def update_image_order_route():
+    order_list = request.get_json() or []
+
+    if not isinstance(order_list, list):
+        return jsonify({'status': 'error', 'message': 'Invalid request format'}), 400
+
+    try:
+        for item in order_list:
+            link_id = item.get('link_id')
+            section_id = item.get('sectionId')
+            new_order = item.get('order')
+
+            link = SectionAsset.query.get(link_id)
+
+            if not link:
+                continue
+
+            section = PageSection.query.get(link.section_id)
+
+            if not section or not user_owns_section(section):
+                continue
+
+            # Allow moving order within target section too.
+            if section_id:
+                target_section = PageSection.query.get(section_id)
+
+                if target_section and user_owns_section(target_section):
+                    link.section_id = target_section.id
+
+            link.order = int(new_order or 0)
+
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Image order updated.'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/move_image_to_section', methods=['POST'])
+@login_required
+def move_image_to_section():
+    data = request.get_json() or {}
+
+    source_link_id = data.get('sourceLinkId')
+    source_section_id = int(data.get('sourceSection'))
+    target_section_id = int(data.get('targetSection'))
+
+    try:
+        link = SectionAsset.query.get_or_404(source_link_id)
+
+        if link.section_id != source_section_id:
+            return jsonify({'status': 'error', 'message': 'Source section mismatch'}), 400
+
+        source_section = PageSection.query.get_or_404(source_section_id)
+        target_section = PageSection.query.get_or_404(target_section_id)
+
+        if not user_owns_section(source_section) or not user_owns_section(target_section):
+            return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+        if target_section.section_type not in ['image', 'image_gallery', 'images']:
+            return jsonify({'status': 'error', 'message': 'Target section does not accept images'}), 400
+
+        max_order = db.session.query(func.coalesce(func.max(SectionAsset.order), 0)).filter_by(
+            section_id=target_section.id
+        ).scalar() or 0
+
+        link.section_id = target_section.id
+        link.order = max_order + 1
+
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Image moved.'})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# @app.route('/calendar/events/<int:section_id>.ics')
+# def download_calendar_events(section_id):
+#     # Fetch events from the database based on the provided section_id
+#     events = CalendarEvent.query.filter_by(section_id=section_id).all()
+#
+#     # Check if events exist for the provided section_id
+#     if not events:
+#         return Response(status=404)
+#
+#     # Generate iCal feed for the specified section
+#     cal = Calendar()
+#     cal.add('prodid', '-//My Calendar//example.com//')
+#     cal.add('version', '2.0')
+#
+#     for event in events:
+#         event_obj = Event()
+#         event_obj.add('summary', event.title)
+#         event_obj.add('dtstart', event.start)
+#         event_obj.add('dtend', event.end)
+#         cal.add_component(event_obj)
+#
+#     # Return the iCal feed as a response
+#     return Response(cal.to_ical(), mimetype='text/calendar')
+
+def get_client_ip():
+    forwarded_for = request.headers.get('X-Forwarded-For')
+
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+
+    return request.remote_addr or ''
+
+
+def track_calendar_feed_subscriber(section_id):
+    ip_address = get_client_ip()
+    user_agent = request.headers.get('User-Agent', '')
+
+    raw_identity = f'{section_id}|{ip_address}|{user_agent}'
+    subscriber_hash = hashlib.sha256(raw_identity.encode('utf-8')).hexdigest()
+
+    subscriber = CalendarFeedSubscriber.query.filter_by(
+        section_id=section_id,
+        subscriber_hash=subscriber_hash
+    ).first()
+
+    now = datetime.utcnow()
+
+    if subscriber:
+        subscriber.last_seen_at = now
+        subscriber.request_count += 1
+    else:
+        subscriber = CalendarFeedSubscriber(
+            section_id=section_id,
+            subscriber_hash=subscriber_hash,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            first_seen_at=now,
+            last_seen_at=now,
+            request_count=1
+        )
+        db.session.add(subscriber)
+
+    db.session.commit()
+
+def get_calendar_active_subscriber_count(section_id, days=30):
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    return CalendarFeedSubscriber.query.filter(
+        CalendarFeedSubscriber.section_id == section_id,
+        CalendarFeedSubscriber.last_seen_at >= cutoff
+    ).count()
+
+@app.route('/admin/calendar/<int:section_id>/subscriber_count')
+@login_required
+def calendar_subscriber_count(section_id):
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    active_7_days = get_calendar_active_subscriber_count(section_id, days=7)
+    active_30_days = get_calendar_active_subscriber_count(section_id, days=30)
+    total_seen = CalendarFeedSubscriber.query.filter_by(section_id=section_id).count()
+
+    return jsonify({
+        'success': True,
+        'section_id': section_id,
+        'active_7_days': active_7_days,
+        'active_30_days': active_30_days,
+        'total_seen': total_seen
+    })
+
+def get_calendar_subscriber_summary_for_websites(website_ids):
+    if not website_ids:
+        return {
+            'active_7_days': 0,
+            'active_30_days': 0,
+            'total_seen': 0,
+            'total_requests': 0,
+            'top_calendars': []
+        }
+
+    now = datetime.utcnow()
+    cutoff_7 = now - timedelta(days=7)
+    cutoff_30 = now - timedelta(days=30)
+
+    base_query = (
+        db.session.query(CalendarFeedSubscriber)
+        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
+        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .filter(PublicPageContent.website_id.in_(website_ids))
+    )
+
+    active_7_days = base_query.filter(
+        CalendarFeedSubscriber.last_seen_at >= cutoff_7
+    ).count()
+
+    active_30_days = base_query.filter(
+        CalendarFeedSubscriber.last_seen_at >= cutoff_30
+    ).count()
+
+    total_seen = base_query.count()
+
+    total_requests = (
+        db.session.query(func.coalesce(func.sum(CalendarFeedSubscriber.request_count), 0))
+        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
+        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .filter(PublicPageContent.website_id.in_(website_ids))
+        .scalar()
+        or 0
+    )
+
+    top_rows = (
+        db.session.query(
+            PageSection.id.label('section_id'),
+            PublicPageContent.name.label('page_name'),
+            PublicPageContent.slug.label('page_slug'),
+            func.count(CalendarFeedSubscriber.id).label('active_30_days'),
+            func.coalesce(func.sum(CalendarFeedSubscriber.request_count), 0).label('requests')
+        )
+        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
+        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .filter(
+            PublicPageContent.website_id.in_(website_ids),
+            CalendarFeedSubscriber.last_seen_at >= cutoff_30
+        )
+        .group_by(PageSection.id, PublicPageContent.name, PublicPageContent.slug)
+        .order_by(func.count(CalendarFeedSubscriber.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    top_calendars = [
+        {
+            'section_id': row.section_id,
+            'page_name': row.page_name,
+            'page_slug': row.page_slug,
+            'active_30_days': row.active_30_days,
+            'requests': row.requests
+        }
+        for row in top_rows
+    ]
+
+    return {
+        'active_7_days': active_7_days,
+        'active_30_days': active_30_days,
+        'total_seen': total_seen,
+        'total_requests': int(total_requests or 0),
+        'top_calendars': top_calendars
+    }
 
 @app.route('/calendar/events/<int:section_id>.ics')
-def download_calendar_events(section_id):
-    # Fetch events from the database based on the provided section_id
-    events = CalendarEvent.query.filter_by(section_id=section_id).all()
+def calendar_events_feed(section_id):
+    section = PageSection.query.get_or_404(section_id)
 
-    # Check if events exist for the provided section_id
-    if not events:
-        return Response(status=404)
+    if section.section_type != 'calendar':
+        return Response('Not a calendar section', status=404)
 
-    # Generate iCal feed for the specified section
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    # Only expose calendar feeds from active public pages.
+    if not page.site_active_status:
+        return Response('Calendar is not public', status=404)
+
+    track_calendar_feed_subscriber(section_id)
+
+    events = (
+        CalendarEvent.query
+        .filter_by(section_id=section_id)
+        .order_by(CalendarEvent.start)
+        .all()
+    )
+
     cal = Calendar()
-    cal.add('prodid', '-//My Calendar//example.com//')
+    cal.add('prodid', '-//Uwebia Calendar//uwebia//EN')
     cal.add('version', '2.0')
+    cal.add('calscale', 'GREGORIAN')
+    cal.add('method', 'PUBLISH')
+
+    calendar_name = f'{website.name} - {page.name}'
+    cal.add('X-WR-CALNAME', calendar_name)
+    cal.add('X-WR-CALDESC', f'Calendar feed for {page.name}')
+    cal.add('X-WR-TIMEZONE', 'America/Chicago')
+
+    # Some calendar apps may use this as a hint, but they can ignore it.
+    cal.add('REFRESH-INTERVAL;VALUE=DURATION', 'PT15M')
+    cal.add('X-PUBLISHED-TTL', 'PT15M')
+
+    now = datetime.utcnow()
 
     for event in events:
         event_obj = Event()
-        event_obj.add('summary', event.title)
+
+        event_obj.add('uid', f'uwebia-event-{event.id}@{request.host}')
+        event_obj.add('summary', event.title or 'Untitled Event')
+
+        if event.description:
+            event_obj.add('description', event.description)
+
+        event_obj.add('dtstamp', now)
+        event_obj.add('last-modified', now)
+
         event_obj.add('dtstart', event.start)
-        event_obj.add('dtend', event.end)
+
+        if event.end:
+            event_obj.add('dtend', event.end)
+        else:
+            # Calendar feeds behave better when every event has an end.
+            event_obj.add('dtend', event.start + timedelta(hours=1))
+
+        event_obj.add(
+            'url',
+            url_for(
+                'public_page_by_slug',
+                page_slug=page.slug,
+                _external=True
+            )
+        )
+
         cal.add_component(event_obj)
 
-    # Return the iCal feed as a response
-    return Response(cal.to_ical(), mimetype='text/calendar')
+    response = make_response(cal.to_ical())
+    response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
+    response.headers['Content-Disposition'] = f'inline; filename="uwebia-calendar-{section_id}.ics"'
 
+    # Do not aggressively cache. Calendar apps will still refresh on their own schedule.
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+
+    return response
 
 @app.route('/page/<int:section_id>/add_event', methods=['POST'])
 @login_required

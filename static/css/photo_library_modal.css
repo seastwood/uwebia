@@ -585,3 +585,52 @@
         0 0 0 2px rgba(126, 226, 204, 0.22),
         0 12px 26px rgba(0, 0, 0, 0.28);
 }
+
+.library-asset-card {
+    position: relative;
+}
+
+.library-card-check {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+
+    width: 26px;
+    height: 26px;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    color: #10251f;
+    background: #7ee2cc;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+}
+
+.library-asset-card.selected {
+    outline: 3px solid #7ee2cc;
+    outline-offset: 2px;
+}
+
+.library-asset-card.selected .library-card-check {
+    display: flex;
+}
+
+.library-asset-name {
+    padding: 7px 9px;
+    color: #f1f1f1;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.library-empty-state {
+    padding: 24px;
+    color: rgba(255,255,255,0.62);
+    text-align: center;
+    grid-column: 1 / -1;
+}

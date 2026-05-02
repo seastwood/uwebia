@@ -1,0 +1,15 @@
+{
+  "max_total_storage_mb": 5000,
+  "max_single_file_mb": 100,
+  "allowed_extensions": {
+    "images": ["png", "jpg", "jpeg", "gif", "webp", "svg"],
+    "audio": ["mp3", "wav", "ogg", "m4a", "aac"],
+    "videos": ["mp4", "webm", "mov", "m4v"],
+    "pdfs": ["pdf"],
+    "documents": ["txt", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx"],
+    "misc": ["zip", "json"]
+  },
+  "blocked_extensions": [
+    "py", "php", "exe", "bat", "cmd", "sh", "js", "html", "htm", "css", "jar"
+  ]
+}

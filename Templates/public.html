@@ -36,17 +36,17 @@
 <title>Public Page</title>
 <style>
     html {
-    scroll-behavior: smooth;
-    scroll-padding-top: var(--navbar-anchor-offset, 78px);
-}
+        scroll-behavior: smooth;
+        scroll-padding-top: var(--navbar-anchor-offset, 78px);
+    }
 
-.public-section-group {
-    scroll-margin-top: var(--navbar-anchor-offset, 78px);
-}
+    .public-section-group {
+        scroll-margin-top: var(--navbar-anchor-offset, 78px);
+    }
 
-.public-page-body {
-    padding-top: var(--navbar-page-offset, 58px);
-}
+    .public-page-body {
+        padding-top: var(--navbar-page-offset, 58px);
+    }
 
     html,
     body {
@@ -125,7 +125,7 @@
     .fc-direction-ltr {
         direction: ltr;
         text-align: left;
-        height: 425px;
+        /* height: 425px; */
     }
 
     /* CSS for the button */
@@ -421,12 +421,10 @@
     }
 
     .calendar-container {
-        width: 100%;
-        max-width: 800px;
-        height: 100%;
-        /* Adjust the maximum width as needed */
+        width: calc(100% - 40px);
+        max-width: 1000px;
+        height: auto;
         margin: 0 auto;
-        /* Center the container horizontally */
         padding-top: 20px;
         padding-bottom: 20px;
         box-sizing: border-box;
@@ -434,14 +432,40 @@
     }
 
     .calendar {
-        height: 100%;
-        /* background-color: #545454; */
-        border-radius: 8px;
-        /* box-shadow: 0 2px 4px rgba(0, 5, 10, 0.8); */
+        height: auto;
+        border-radius: 14px;
         color: white;
         padding: 10px;
         box-shadow: 1px 0px 10px 5px rgba(0, 0, 0, 0.4);
         background-color: #00000045;
+        overflow: hidden;
+    }
+
+    .calendar .fc {
+        height: auto !important;
+    }
+
+    .calendar .fc-view-harness {
+        height: auto !important;
+    }
+
+    .calendar .fc-scrollgrid {
+        height: auto !important;
+    }
+
+    @media (max-width: 700px) {
+        .calendar {
+            min-height: 620px;
+            padding: 6px;
+        }
+
+        .calendar .fc-view-harness {
+            min-height: 540px;
+        }
+
+        .calendar .fc-scrollgrid {
+            min-height: 540px;
+        }
     }
 
     .modal-content {
@@ -1066,12 +1090,193 @@
         width: 100%;
         max-width: none;
     }
+
+    .calendar-subscribe-row {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+    }
+
+    .calendar-subscribe-button,
+    .calendar-copy-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 10px 14px;
+        border-radius: 999px;
+
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.10);
+        color: inherit;
+
+        font-size: 0.9rem;
+        font-weight: 800;
+        text-decoration: none;
+        cursor: pointer;
+
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    }
+
+    .calendar-subscribe-button:hover,
+    .calendar-copy-button:hover {
+        background: rgba(255, 255, 255, 0.18);
+        text-decoration: none;
+    }
+
+    .calendar-copy-button {
+        font-family: inherit;
+    }
+
+    .calendar .fc-theme-standard td,
+    .calendar .fc-theme-standard th,
+    .calendar .fc-theme-standard .fc-scrollgrid {
+        border-color: rgba(255, 255, 255, 0.16);
+    }
+
+    .calendar .fc-col-header,
+    .calendar .fc-col-header-cell,
+    .calendar .fc-scrollgrid-section-header,
+    .calendar .fc-scrollgrid-section-header th {
+        background: rgba(0, 0, 0, 0.28) !important;
+    }
+
+    .calendar .fc-col-header-cell-cushion {
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .calendar .fc-daygrid-day {
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .calendar .fc-day-today {
+        background: rgba(126, 226, 204, 0.14) !important;
+    }
+
+    .calendar .fc-daygrid-day-number {
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    .calendar .fc-day-other .fc-daygrid-day-number {
+        color: rgba(255, 255, 255, 0.36);
+    }
+
+    .calendar .fc-toolbar-title {
+        color: #ffffff;
+        font-weight: 900;
+    }
+
+    .calendar .fc-button {
+        border-radius: 999px !important;
+        border-color: rgba(255, 255, 255, 0.16) !important;
+        background: rgba(255, 255, 255, 0.10) !important;
+        color: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    .calendar .fc-button:hover {
+        background: rgba(255, 255, 255, 0.18) !important;
+    }
+
+    .calendar .fc-event {
+        border: none;
+        border-radius: 8px;
+        padding: 2px 4px;
+    }
+
+    .calendar .fc-col-header-cell {
+        padding: 8px 6px !important;
+        background: rgba(0, 0, 0, 0.28) !important;
+    }
+
+    .calendar .fc-col-header-cell-cushion {
+        display: block;
+        padding: 0 !important;
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .calendar .fc-daygrid-day-frame {
+        padding: 6px !important;
+        min-height: 92px;
+    }
+
+    .calendar .fc-daygrid-day-top {
+        margin-bottom: 4px;
+    }
+
+    .calendar .fc-daygrid-day-number {
+        padding: 0 !important;
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    #eventModal {
+        z-index: 2000;
+    }
+
+    #eventModal .modal-dialog {
+        margin-top: calc(var(--navbar-page-offset, 58px) + 32px);
+    }
+
+    #eventModal .modal-content {
+        border-radius: 16px;
+        overflow: hidden;
+        background: rgba(39, 39, 39, 0.96);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    #eventModal .modal-header,
+    #eventModal .modal-footer {
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .calendar-modal-close {
+        color: #ffffff;
+        opacity: 0.85;
+        text-shadow: none;
+    }
+
+    .calendar-modal-close:hover {
+        color: #ffffff;
+        opacity: 1;
+    }
+    .modal-backdrop {
+    z-index: 1900 !important;
+}
+
+#eventModal {
+    z-index: 2000 !important;
+}
+
+#eventModal .modal-dialog {
+    position: relative;
+    z-index: 2001 !important;
+    margin-top: calc(var(--navbar-page-offset, 58px) + 32px);
+}
 </style>
 
 {% set nav_style = website.public_navbar_style or {} %}
 {% set navbar_margin = nav_style.get('margin', 0)|int %}
 {% set navbar_anchor_offset = 78 + navbar_margin %}
 {% set navbar_page_offset = 58 + navbar_margin %}
+
 <body class="public-page-body" style="
 --navbar-page-offset: {{ 58 + navbar_margin }}px;
 --navbar-anchor-offset: {{ navbar_anchor_offset }}px;
@@ -1323,30 +1528,23 @@ background: {{ group.background_color or 'transparent' }};
                             <div class="calendar-container section-container" data-section-id="{{ section.id }}">
                                 <div id="calendar-{{ section.id }}" class="calendar"></div>
                                 <!-- Add a button to subscribe to this section's calendar -->
-                                <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download
-                                    class="button">Download
-                                    Calendar</a>
-                            </div>
-                            <!-- Event Modal -->
-                            <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
-                                aria-hidden="true">
-                                <div class="modal-dialog">
-                                    <div class="modal-content modal-dark">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title" id="eventModalTitle"></h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                                aria-label="Close"></button>
-                                        </div>
-                                        <div class="modal-body" id="eventModalBody">
-                                            <!-- Event details will be populated here -->
-                                        </div>
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn btn-secondary"
-                                                data-bs-dismiss="modal">Close</button>
-                                        </div>
-                                    </div>
+                                <div class="calendar-subscribe-row">
+                                    <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}"
+                                        class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
+                                        Subscribe to Calendar
+                                    </a>
+                                    <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
+                                        class="calendar-subscribe-button">
+                                        Open in Calendar App
+                                    </a>
+
+                                    <button type="button" class="calendar-copy-button"
+                                        onclick="copyCalendarFeedUrl('{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}')">
+                                        Copy Calendar Link
+                                    </button>
                                 </div>
                             </div>
+                            
                             {% elif section.section_type == 'contact_form' %}
                             {% if section.content['enabled'] %}
                             <div class="contact-form-container">
@@ -1415,7 +1613,29 @@ background: {{ group.background_color or 'transparent' }};
 
 
     </div>
-
+<!-- Event Modal -->
+                            <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
+                                aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content modal-dark">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="eventModalTitle"></h5>
+                                            <button type="button" class="close calendar-modal-close"
+                                                data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">&times;</span>
+                                            </button>
+                                        </div>
+                                        <div class="modal-body" id="eventModalBody">
+                                            <!-- Event details will be populated here -->
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
     <!-- <script>
     // Example JavaScript to set styles dynamically
@@ -1474,10 +1694,15 @@ document.body.style.color = text_color;
             console.log('Calendar element:', calendarEl);
 
             const calendar = new FullCalendar.Calendar(calendarEl, {
-                // Add your FullCalendar options here
                 initialView: 'dayGridMonth',
+                height: 'auto',
+                contentHeight: 'auto',
+                expandRows: false,
+                dayMaxEvents: false,
+                fixedWeekCount: false,
+                showNonCurrentDates: true,
+
                 events: (info, successCallback, failureCallback) => {
-                    // Call fetchEvents with the sectionId parameter
                     fetchEvents(sectionId, successCallback, failureCallback);
                 },
                 eventClick: function (info) {
@@ -1491,8 +1716,15 @@ document.body.style.color = text_color;
                     const formattedStartDate = startDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }); // Adjust format as needed
                     const formattedEndDate = endDate ? endDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }) : null; // Adjust format as needed
 
+                    const description = info.event.extendedProps.description || '';
+                    const endText = formattedEndDate ? `<p><strong>End:</strong> ${formattedEndDate}</p>` : '';
+
                     $('#eventModalTitle').text(info.event.title);
-                    $('#eventModalBody').html(`<p>Start: ${formattedStartDate}</p><p>End: ${formattedEndDate}</p><p>${info.event.extendedProps.description}</p>`);
+                    $('#eventModalBody').html(`
+    <p><strong>Start:</strong> ${formattedStartDate}</p>
+    ${endText}
+    ${description ? `<p>${description}</p>` : ''}
+`);
                     $('#eventModal').modal('show');
                 },
                 // Add other options as needed
@@ -1735,6 +1967,22 @@ document.body.style.color = text_color;
 
         }
     </script> -->
+    <script>
+        function copyCalendarFeedUrl(url) {
+            if (!navigator.clipboard) {
+                prompt('Copy this calendar subscription link:', url);
+                return;
+            }
+
+            navigator.clipboard.writeText(url)
+                .then(() => {
+                    alert('Calendar subscription link copied.');
+                })
+                .catch(() => {
+                    prompt('Copy this calendar subscription link:', url);
+                });
+        }
+    </script>
 </body>
 
 </html>
