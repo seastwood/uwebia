@@ -93,6 +93,251 @@
         text-align: center;
         opacity: 0.72;
     }
+
+    .forum-sort-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    margin: 0 0 18px;
+    padding: 12px;
+
+    background: rgba(0, 0, 0, 0.26);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 18px;
+
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.forum-sort-label {
+    margin-right: 4px;
+    opacity: 0.68;
+
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.forum-sort-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 34px;
+    padding: 8px 12px;
+
+    color: inherit;
+    background: rgba(255, 255, 255, 0.075);
+
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 999px;
+
+    text-decoration: none;
+
+    font-size: 0.82rem;
+    font-weight: 850;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        color 0.16s ease;
+}
+
+.forum-sort-pill:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.32);
+    transform: translateY(-1px);
+}
+
+.forum-sort-pill.active {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126, 226, 204, 0.72);
+}
+
+.forum-thread-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: center;
+}
+
+.forum-thread-main {
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+}
+
+.forum-vote-button {
+    width: 52px;
+    min-height: 58px;
+
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+
+    color: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.075);
+
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 16px;
+
+    cursor: pointer;
+
+    font-weight: 900;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        color 0.16s ease;
+}
+
+.forum-vote-button:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.13);
+    border-color: rgba(126, 226, 204, 0.32);
+    transform: translateY(-1px);
+}
+
+.forum-vote-button.voted {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126, 226, 204, 0.72);
+}
+
+.forum-vote-button i {
+    font-size: 0.9rem;
+}
+
+.forum-vote-button span {
+    font-size: 0.86rem;
+}
+
+@media (max-width: 560px) {
+    .forum-thread-card {
+        grid-template-columns: 1fr;
+    }
+
+    .forum-vote-button {
+        width: fit-content;
+        min-height: 38px;
+        flex-direction: row;
+        padding: 8px 12px;
+        border-radius: 999px;
+    }
+}
+.forum-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 9px;
+
+    width: fit-content;
+    max-width: 100%;
+
+    margin: 22px auto 0;
+    padding: 10px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
+        rgba(0, 0, 0, 0.28);
+
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 999px;
+
+    box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.055);
+
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.forum-pagination a,
+.forum-pagination span {
+    min-height: 38px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 9px 14px;
+
+    color: inherit;
+    text-decoration: none;
+
+    border-radius: 999px;
+
+    font-size: 0.84rem;
+    font-weight: 850;
+    line-height: 1;
+
+    white-space: nowrap;
+}
+
+.forum-pagination a {
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.105);
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        color 0.16s ease;
+}
+
+.forum-pagination a:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.14);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+}
+
+.forum-pagination-current {
+    color: #10251f !important;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border: 1px solid rgba(126, 226, 204, 0.72);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.32),
+        0 8px 18px rgba(126, 226, 204, 0.14);
+}
+
+@media (max-width: 560px) {
+    .forum-pagination {
+        width: 100%;
+        border-radius: 22px;
+        justify-content: space-between;
+    }
+
+    .forum-pagination a,
+    .forum-pagination span {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: 9px 10px;
+        font-size: 0.78rem;
+    }
+
+    .forum-pagination-current {
+        order: -1;
+        flex: 1 0 100% !important;
+    }
+}
+.forum-pagination-ellipsis {
+    opacity: 0.58;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
 </style>
 {% endblock %}
 
@@ -121,26 +366,139 @@
         </div>
     </section>
 
+    <div class="forum-sort-bar">
+    <span class="forum-sort-label">Sort by</span>
+
+    <a href="{{ url_for('public_forum', sort='relevant') }}"
+       class="forum-sort-pill {% if current_sort == 'relevant' %}active{% endif %}">
+        Relevant
+    </a>
+
+    <a href="{{ url_for('public_forum', sort='most_upvoted') }}"
+       class="forum-sort-pill {% if current_sort == 'most_upvoted' %}active{% endif %}">
+        Most Upvoted
+    </a>
+
+    <a href="{{ url_for('public_forum', sort='newest') }}"
+       class="forum-sort-pill {% if current_sort == 'newest' %}active{% endif %}">
+        Newest
+    </a>
+
+    <a href="{{ url_for('public_forum', sort='most_active') }}"
+       class="forum-sort-pill {% if current_sort == 'most_active' %}active{% endif %}">
+        Most Active
+    </a>
+
+    <a href="{{ url_for('public_forum', sort='oldest') }}"
+       class="forum-sort-pill {% if current_sort == 'oldest' %}active{% endif %}">
+        Oldest
+    </a>
+</div>
+
     <section class="forum-thread-list">
         {% for thread in threads %}
-            <a class="forum-card" href="{{ url_for('public_forum_thread', thread_id=thread.id) }}">
-                <h2 class="forum-thread-title">
-                    {% if thread.is_pinned %}📌 {% endif %}
-                    {{ thread.title }}
-                </h2>
+            <div class="forum-card forum-thread-card">
+    <button type="button"
+            class="forum-vote-button {% if thread.user_has_voted(public_user) %}voted{% endif %}"
+            data-thread-id="{{ thread.id }}"
+            onclick="voteForumThread(event, '{{ thread.id }}')"
+            title="Upvote this thread">
+        <i class="fas fa-arrow-up"></i>
+        <span id="threadVoteCount_{{ thread.id }}">
+            {{ thread.vote_count_cached or 0 }}
+        </span>
+    </button>
 
-                <div class="forum-meta">
-                    Posted by {{ thread.author.username if thread.author else 'Guest' }}
-                    · {{ thread.created_at.strftime('%b %d, %Y') }}
-                    · {{ thread.visible_reply_count() }} replies
-                    {% if thread.is_locked %} · Locked{% endif %}
-                </div>
-            </a>
+    <a class="forum-thread-main" href="{{ url_for('public_forum_thread', thread_id=thread.id) }}">
+        <h2 class="forum-thread-title">
+            {% if thread.is_pinned %}📌 {% endif %}
+            {{ thread.title }}
+        </h2>
+
+        <div class="forum-meta">
+            Posted by {{ thread.author.username if thread.author else 'Guest' }}
+            · {{ thread.created_at.strftime('%b %d, %Y') }}
+            {{ thread.reply_count or 0 }} replies
+            {% if thread.is_locked %} · Locked{% endif %}
+        </div>
+    </a>
+</div>
         {% else %}
             <div class="forum-card forum-empty">
                 No threads yet. Be the first to start one.
             </div>
         {% endfor %}
     </section>
+{% if threads_pagination.pages > 1 %}
+<nav class="forum-pagination" aria-label="Forum thread pagination">
+    {% if threads_pagination.has_prev %}
+        <a href="{{ url_for('public_forum', sort=current_sort, page=threads_pagination.prev_num) }}">
+            ← Prev
+        </a>
+    {% endif %}
+
+    {% for page_num in threads_pagination.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+        {% if page_num %}
+            {% if page_num == threads_pagination.page %}
+                <span class="forum-pagination-current">{{ page_num }}</span>
+            {% else %}
+                <a href="{{ url_for('public_forum', sort=current_sort, page=page_num) }}">
+                    {{ page_num }}
+                </a>
+            {% endif %}
+        {% else %}
+            <span class="forum-pagination-ellipsis">…</span>
+        {% endif %}
+    {% endfor %}
+
+    {% if threads_pagination.has_next %}
+        <a href="{{ url_for('public_forum', sort=current_sort, page=threads_pagination.next_num) }}">
+            Next →
+        </a>
+    {% endif %}
+</nav>
+{% endif %}
 </main>
+
+<script>
+function voteForumThread(event, threadId) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    fetch(`/forum/thread/${threadId}/vote`, {
+        method: 'POST'
+    })
+        .then(response => {
+            if (response.status === 401) {
+                window.location.href = "{{ url_for('public_forum_login') }}";
+                return null;
+            }
+
+            return response.json();
+        })
+        .then(data => {
+            if (!data) return;
+
+            if (!data.success) {
+                alert(data.message || 'Could not vote.');
+                return;
+            }
+
+            const countEl = document.getElementById(`threadVoteCount_${threadId}`);
+            const button = document.querySelector(`.forum-vote-button[data-thread-id="${threadId}"]`);
+
+            if (countEl) {
+                countEl.textContent = data.vote_count;
+            }
+
+            if (button) {
+                button.classList.toggle('voted', data.voted);
+            }
+        })
+        .catch(error => {
+            console.error('Vote failed:', error);
+            alert('Could not vote.');
+        });
+}
+</script>
 {% endblock %}

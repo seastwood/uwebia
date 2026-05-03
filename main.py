@@ -255,13 +255,33 @@ class ForumThread(db.Model):
     website = db.relationship('Website', backref=db.backref('forum_threads', lazy=True, cascade='all, delete-orphan'))
     author = db.relationship('PublicUser', backref=db.backref('forum_threads', lazy=True))
 
+    reply_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    vote_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+
+    __table_args__ = (
+        db.Index('ix_forum_thread_website_hidden_updated', 'website_id', 'is_hidden', 'updated_at'),
+        db.Index('ix_forum_thread_website_hidden_created', 'website_id', 'is_hidden', 'created_at'),
+        db.Index('ix_forum_thread_website_hidden_votes', 'website_id', 'is_hidden', 'vote_count_cached'),
+        db.Index('ix_forum_thread_website_hidden_replies', 'website_id', 'is_hidden', 'reply_count'),
+    )
+
     def visible_reply_count(self):
         return ForumReply.query.filter_by(
             thread_id=self.id,
             is_hidden=False
         ).count()
 
+    def vote_count(self):
+        return ForumThreadVote.query.filter_by(thread_id=self.id).count()
 
+    def user_has_voted(self, public_user):
+        if not public_user:
+            return False
+
+        return ForumThreadVote.query.filter_by(
+            thread_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
 
     def __repr__(self):
         return f"<ForumThread {self.id} {self.title}>"
@@ -298,6 +318,8 @@ class ForumReply(db.Model):
 
     is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
 
+    vote_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0', index=True)
+
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -308,8 +330,121 @@ class ForumReply(db.Model):
     website = db.relationship('Website', backref=db.backref('forum_replies', lazy=True, cascade='all, delete-orphan'))
     author = db.relationship('PublicUser', backref=db.backref('forum_replies', lazy=True))
 
+    __table_args__ = (
+        db.Index('ix_forum_reply_thread_hidden_created', 'thread_id', 'is_hidden', 'created_at'),
+        db.Index('ix_forum_reply_website_hidden_created', 'website_id', 'is_hidden', 'created_at'),
+    )
+
+    def vote_count(self):
+        return ForumReplyVote.query.filter_by(reply_id=self.id).count()
+
+    def user_has_voted(self, public_user):
+        if not public_user:
+            return False
+
+        return ForumReplyVote.query.filter_by(
+            reply_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
+
     def __repr__(self):
         return f"<ForumReply {self.id} thread={self.thread_id}>"
+
+class ForumThreadVote(db.Model):
+    __tablename__ = 'forum_thread_vote'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    thread_id = db.Column(
+        db.Integer,
+        db.ForeignKey('forum_thread.id'),
+        nullable=False,
+        index=True
+    )
+
+    website_id = db.Column(
+        db.Integer,
+        db.ForeignKey('website.id'),
+        nullable=False,
+        index=True
+    )
+
+    public_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_user.id'),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    thread = db.relationship(
+        'ForumThread',
+        backref=db.backref('votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    public_user = db.relationship(
+        'PublicUser',
+        backref=db.backref('thread_votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'thread_id',
+            'public_user_id',
+            name='uq_forum_thread_vote_once_per_user'
+        ),
+        db.Index('ix_forum_thread_vote_thread_user', 'thread_id', 'public_user_id'),
+        db.Index('ix_forum_thread_vote_website_thread', 'website_id', 'thread_id'),
+    )
+
+class ForumReplyVote(db.Model):
+    __tablename__ = 'forum_reply_vote'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    reply_id = db.Column(
+        db.Integer,
+        db.ForeignKey('forum_reply.id'),
+        nullable=False,
+        index=True
+    )
+
+    website_id = db.Column(
+        db.Integer,
+        db.ForeignKey('website.id'),
+        nullable=False,
+        index=True
+    )
+
+    public_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_user.id'),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    reply = db.relationship(
+        'ForumReply',
+        backref=db.backref('votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    public_user = db.relationship(
+        'PublicUser',
+        backref=db.backref('reply_votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'reply_id',
+            'public_user_id',
+            name='uq_forum_reply_vote_once_per_user'
+        ),
+        db.Index('ix_forum_reply_vote_reply_user', 'reply_id', 'public_user_id'),
+        db.Index('ix_forum_reply_vote_website_reply', 'website_id', 'reply_id'),
+    )
 
 class ContactMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -8460,13 +8595,59 @@ def public_forum():
     if website.forum_require_login_to_view and not public_user:
         return redirect(url_for('public_forum_login', next=url_for('public_forum')))
 
-    threads = ForumThread.query.filter_by(
-        website_id=website.id,
-        is_hidden=False
-    ).order_by(
-        ForumThread.is_pinned.desc(),
-        ForumThread.updated_at.desc()
-    ).all()
+    sort = request.args.get('sort', 'relevant')
+
+    threads_query = ForumThread.query.filter(
+        ForumThread.website_id == website.id,
+        ForumThread.is_hidden == False
+    )
+
+    if sort == 'newest':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.created_at.desc()
+        )
+
+    elif sort == 'oldest':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.created_at.asc()
+        )
+
+    elif sort == 'most_upvoted':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.vote_count_cached.desc(),
+            ForumThread.updated_at.desc()
+        )
+
+    elif sort == 'most_active':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.reply_count.desc(),
+            ForumThread.updated_at.desc()
+        )
+
+    else:
+        sort = 'relevant'
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.vote_count_cached.desc(),
+            ForumThread.reply_count.desc(),
+            ForumThread.updated_at.desc(),
+            ForumThread.created_at.desc()
+        )
+
+    page = request.args.get('page', 1, type=int)
+    per_page = 25
+
+    threads_pagination = threads_query.paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+
+    threads = threads_pagination.items
 
     content = {
         'current_page_url': url_for('public_forum')
@@ -8476,9 +8657,107 @@ def public_forum():
         'public_forum.html',
         website=website,
         threads=threads,
+        threads_pagination=threads_pagination,
         public_user=public_user,
+        current_sort=sort,
         content=content
     )
+
+@app.route('/forum/thread/<int:thread_id>/vote', methods=['POST'])
+def public_forum_vote_thread(thread_id):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return jsonify({'success': False, 'message': 'Forum is disabled.'}), 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return jsonify({
+            'success': False,
+            'message': 'Please log in to upvote.'
+        }), 401
+
+    thread = ForumThread.query.filter_by(
+        id=thread_id,
+        website_id=website.id,
+        is_hidden=False
+    ).first_or_404()
+
+    existing_vote = ForumThreadVote.query.filter_by(
+        thread_id=thread.id,
+        public_user_id=public_user.id
+    ).first()
+
+    if existing_vote:
+        db.session.delete(existing_vote)
+        thread.vote_count_cached = max(0, (thread.vote_count_cached or 0) - 1)
+        voted = False
+    else:
+        vote = ForumThreadVote(
+            thread_id=thread.id,
+            website_id=website.id,
+            public_user_id=public_user.id
+        )
+        db.session.add(vote)
+        thread.vote_count_cached = (thread.vote_count_cached or 0) + 1
+        voted = True
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'voted': voted,
+        'vote_count': thread.vote_count_cached or 0
+    })
+
+@app.route('/forum/reply/<int:reply_id>/vote', methods=['POST'])
+def public_forum_vote_reply(reply_id):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return jsonify({'success': False, 'message': 'Forum is disabled.'}), 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return jsonify({
+            'success': False,
+            'message': 'Please log in to upvote.'
+        }), 401
+
+    reply = ForumReply.query.filter_by(
+        id=reply_id,
+        website_id=website.id,
+        is_hidden=False
+    ).first_or_404()
+
+    existing_vote = ForumReplyVote.query.filter_by(
+        reply_id=reply.id,
+        public_user_id=public_user.id
+    ).first()
+
+    if existing_vote:
+        db.session.delete(existing_vote)
+        reply.vote_count_cached = max(0, (reply.vote_count_cached or 0) - 1)
+        voted = False
+    else:
+        vote = ForumReplyVote(
+            reply_id=reply.id,
+            website_id=website.id,
+            public_user_id=public_user.id
+        )
+        db.session.add(vote)
+        reply.vote_count_cached = (reply.vote_count_cached or 0) + 1
+        voted = True
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'voted': voted,
+        'vote_count': reply.vote_count_cached or 0
+    })
 
 @app.route('/forum/register', methods=['GET', 'POST'])
 def public_forum_register():
@@ -8867,6 +9146,7 @@ def public_forum_thread(thread_id):
             user_agent=request.headers.get('User-Agent')
         )
 
+        thread.reply_count = (thread.reply_count or 0) + 1
         thread.updated_at = datetime.utcnow()
 
         db.session.add(reply)
@@ -8874,10 +9154,21 @@ def public_forum_thread(thread_id):
 
         return redirect(url_for('public_forum_thread', thread_id=thread.id))
 
-    replies = ForumReply.query.filter_by(
+    reply_page = request.args.get('reply_page', 1, type=int)
+    replies_per_page = 50
+
+    replies_pagination = ForumReply.query.filter_by(
         thread_id=thread.id,
         is_hidden=False
-    ).order_by(ForumReply.created_at.asc()).all()
+    ).order_by(
+        ForumReply.created_at.asc()
+    ).paginate(
+        page=reply_page,
+        per_page=replies_per_page,
+        error_out=False
+    )
+
+    replies = replies_pagination.items
 
     content = {
         'current_page_url': url_for('public_forum_thread', thread_id=thread.id)
@@ -8888,6 +9179,7 @@ def public_forum_thread(thread_id):
         website=website,
         thread=thread,
         replies=replies,
+        replies_pagination=replies_pagination,
         public_user=public_user,
         content=content
     )
@@ -8981,19 +9273,42 @@ def moderate_forum_reply(reply_id):
         website_id=website.id
     ).first_or_404()
 
+    thread = ForumThread.query.filter_by(
+        id=reply.thread_id,
+        website_id=website.id
+    ).first()
+
     action = request.form.get('action')
 
     if action == 'hide':
-        reply.is_hidden = True
+        if not reply.is_hidden:
+            reply.is_hidden = True
+
+            if thread:
+                thread.reply_count = max(0, (thread.reply_count or 0) - 1)
+
     elif action == 'unhide':
-        reply.is_hidden = False
+        if reply.is_hidden:
+            reply.is_hidden = False
+
+            if thread:
+                thread.reply_count = (thread.reply_count or 0) + 1
+
     elif action == 'delete':
+        was_visible = not reply.is_hidden
+
+        if was_visible and thread:
+            thread.reply_count = max(0, (thread.reply_count or 0) - 1)
+
         db.session.delete(reply)
         db.session.commit()
+
         return redirect(url_for('admin_forum'))
 
     db.session.commit()
     return redirect(url_for('admin_forum'))
+
+
 
 def generate_public_user_password_reset_token(public_user):
     serializer = get_recovery_serializer()
@@ -9468,6 +9783,39 @@ def emergency_login(token):
     )
 
     return redirect(url_for('dashboard'))
+
+@app.cli.command("rebuild-forum-counts")
+def rebuild_forum_counts():
+    """Recalculate cached forum reply and vote counts."""
+    print("Rebuilding forum counts...")
+
+    threads = ForumThread.query.all()
+
+    for thread in threads:
+        visible_reply_count = ForumReply.query.filter_by(
+            thread_id=thread.id,
+            is_hidden=False
+        ).count()
+
+        thread_vote_count = ForumThreadVote.query.filter_by(
+            thread_id=thread.id
+        ).count()
+
+        thread.reply_count = visible_reply_count
+        thread.vote_count_cached = thread_vote_count
+
+    replies = ForumReply.query.all()
+
+    for reply in replies:
+        reply_vote_count = ForumReplyVote.query.filter_by(
+            reply_id=reply.id
+        ).count()
+
+        reply.vote_count_cached = reply_vote_count
+
+    db.session.commit()
+
+    print("Forum counts rebuilt successfully.")
 
 @app.cli.command("audit-assets")
 def audit_assets_cli():
