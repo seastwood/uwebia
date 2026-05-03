@@ -237,34 +237,34 @@ window.PhotoLibraryModal = (function () {
         const data = await response.json();
 
         if (data.success || data.status === 'success') {
-    const sectionIdToRefresh = currentSectionId;
+            const sectionIdToRefresh = currentSectionId;
 
-    if (typeof loadUploadedImages === 'function' && sectionIdToRefresh) {
-        await loadUploadedImages(sectionIdToRefresh);
+            if (typeof loadUploadedImages === 'function' && sectionIdToRefresh) {
+                await loadUploadedImages(sectionIdToRefresh);
 
-        setTimeout(() => {
-            loadUploadedImages(sectionIdToRefresh);
+                setTimeout(() => {
+                    loadUploadedImages(sectionIdToRefresh);
 
-            const sectionContent = document.getElementById(`section-content-${sectionIdToRefresh}`);
+                    const sectionContent = document.getElementById(`section-content-${sectionIdToRefresh}`);
 
-            if (
-                sectionContent &&
-                sectionContent.classList.contains('open') &&
-                typeof updateOpenSectionLayout === 'function'
-            ) {
-                updateOpenSectionLayout(sectionContent);
+                    if (
+                        sectionContent &&
+                        sectionContent.classList.contains('open') &&
+                        typeof updateOpenSectionLayout === 'function'
+                    ) {
+                        updateOpenSectionLayout(sectionContent);
+                    }
+                }, 150);
             }
-        }, 150);
-    }
 
-    if (typeof reloadIframe === 'function') {
-        reloadIframe();
-    }
+            if (typeof reloadIframe === 'function') {
+                reloadIframe();
+            }
 
-    close();
-} else {
-    alert(data.error || data.message || 'Failed to add images.');
-}
+            close();
+        } else {
+            alert(data.error || data.message || 'Failed to add images.');
+        }
     }
 
     async function handleUpload(event) {

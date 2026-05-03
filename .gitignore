@@ -30,3 +30,4 @@ scratch/
 .DS_Store
 
 static/uploads/
+/migrations/

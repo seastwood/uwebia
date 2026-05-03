@@ -1,0 +1,355 @@
+/* =========================================================
+   MUSIC LIBRARY MODAL
+   Clean audio-card layout
+========================================================= */
+
+.music-modal-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    max-height: min(560px, 58dvh);
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding: 8px;
+    border-radius: 18px;
+
+    background: rgba(255, 255, 255, 0.035);
+
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.music-modal-track {
+    position: relative;
+
+    display: grid;
+    grid-template-columns: 34px 44px minmax(0, 1fr);
+    grid-template-areas:
+        "select icon info"
+        "player player player";
+
+    align-items: center;
+    gap: 10px 12px;
+
+    padding: 12px;
+    border-radius: 18px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+
+    color: white;
+    cursor: pointer;
+
+    box-shadow:
+        0 10px 24px rgba(0, 0, 0, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+    transition:
+        transform 0.16s ease,
+        background 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.music-modal-track:hover {
+    transform: translateY(-1px);
+    border-color: rgba(126, 226, 204, 0.38);
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.12), rgba(255, 255, 255, 0.04));
+    box-shadow:
+        0 14px 30px rgba(0, 0, 0, 0.22),
+        0 0 0 1px rgba(126, 226, 204, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.music-modal-track.selected {
+    border-color: rgba(126, 226, 204, 0.9);
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.20), rgba(126, 226, 204, 0.07));
+    box-shadow:
+        0 14px 34px rgba(0, 0, 0, 0.24),
+        0 0 0 1px rgba(126, 226, 204, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+.music-select-toggle {
+    grid-area: select;
+
+    width: 30px;
+    height: 30px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+
+    background: rgba(0, 0, 0, 0.20);
+    color: rgba(255, 255, 255, 0.62);
+
+    cursor: pointer;
+    transition:
+        transform 0.16s ease,
+        background 0.16s ease,
+        color 0.16s ease,
+        border-color 0.16s ease;
+}
+
+.music-select-toggle:hover {
+    transform: scale(1.06);
+    color: #ffffff;
+    border-color: rgba(126, 226, 204, 0.55);
+    background: rgba(126, 226, 204, 0.18);
+}
+
+.music-modal-track.selected .music-select-toggle {
+    color: #10251f;
+    background: #7ee2cc;
+    border-color: #7ee2cc;
+}
+
+.music-modal-track-icon {
+    grid-area: icon;
+
+    width: 44px;
+    height: 44px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 14px;
+
+    background:
+        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.22), transparent 34%),
+        rgba(126, 226, 204, 0.14);
+
+    color: #7ee2cc;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.music-modal-track-icon i {
+    font-size: 1rem;
+}
+
+.music-modal-track-info {
+    grid-area: info;
+    min-width: 0;
+    text-align: left;
+}
+
+.music-modal-track-title {
+    font-size: 0.9rem;
+    font-weight: 850;
+    line-height: 1.2;
+
+    color: rgba(255, 255, 255, 0.96);
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.music-modal-track-subtitle {
+    margin-top: 3px;
+
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+
+    color: rgba(255, 255, 255, 0.54);
+}
+
+.music-modal-track audio {
+    grid-area: player;
+
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+
+    display: block;
+
+    margin-top: 2px;
+
+    cursor: default;
+}
+
+.music-modal-empty {
+    padding: 22px;
+    border-radius: 16px;
+
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.035);
+
+    color: rgba(255, 255, 255, 0.62);
+    text-align: center;
+    font-weight: 700;
+}
+
+/* Nice scrollbar inside modal list */
+.music-modal-grid::-webkit-scrollbar {
+    width: 8px;
+}
+
+.music-modal-grid::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 999px;
+}
+
+.music-modal-grid::-webkit-scrollbar-thumb {
+    background: rgba(126, 226, 204, 0.36);
+    border-radius: 999px;
+}
+
+.music-modal-grid::-webkit-scrollbar-thumb:hover {
+    background: rgba(126, 226, 204, 0.56);
+}
+
+@media (max-width: 760px) {
+    .music-modal-grid {
+        max-height: min(500px, 56dvh);
+        padding: 6px;
+    }
+
+    .music-modal-track {
+        grid-template-columns: 32px 40px minmax(0, 1fr);
+        gap: 9px 10px;
+
+        padding: 10px;
+        border-radius: 16px;
+    }
+
+    .music-modal-track-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+    }
+
+    .music-modal-track-title {
+        font-size: 0.84rem;
+    }
+
+    .music-modal-track audio {
+        height: 32px;
+    }
+}
+/* =========================================================
+   SHARED FOLDER STYLING FOR MUSIC + VIDEO LIBRARY MODALS
+   Matches the photo library modal folder cards
+========================================================= */
+
+#musicLibraryModal #musicModalFolderGrid,
+#videoLibraryModal #videoModalFolderGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    min-height: 52px;
+    margin-bottom: 14px;
+    padding: 12px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 16px;
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item,
+#videoLibraryModal #videoModalFolderGrid .folder-item {
+    width: 112px;
+    min-height: 92px;
+    padding: 12px 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.055);
+
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+
+    text-align: center;
+    cursor: pointer;
+
+    box-sizing: border-box;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item:hover,
+#videoLibraryModal #videoModalFolderGrid .folder-item:hover {
+    background: rgba(126, 226, 204, 0.11);
+    border-color: rgba(126, 226, 204, 0.32);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.20);
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item.active-folder,
+#videoLibraryModal #videoModalFolderGrid .folder-item.active-folder {
+    background: rgba(255, 206, 115, 0.13);
+    border-color: rgba(255, 206, 115, 0.45);
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item i,
+#videoLibraryModal #videoModalFolderGrid .folder-item i {
+    display: block;
+    margin-bottom: 7px;
+
+    color: #ffd982;
+    font-size: 2.4rem;
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item p,
+#videoLibraryModal #videoModalFolderGrid .folder-item p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.78);
+
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1.2;
+
+    word-break: break-word;
+}
+
+#musicLibraryModal .upload-progress-wrapper,
+#videoLibraryModal .upload-progress-wrapper {
+    margin-top: 12px;
+    max-width: 460px;
+}
+
+#musicLibraryModal .upload-progress-bar,
+#videoLibraryModal .upload-progress-bar {
+    width: 100%;
+    height: 12px;
+
+    background: rgba(255, 255, 255, 0.075);
+    border-radius: 999px;
+    overflow: hidden;
+
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#musicLibraryModal .upload-progress-fill,
+#videoLibraryModal .upload-progress-fill {
+    width: 0%;
+    height: 100%;
+
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+#musicLibraryModal .upload-progress-text,
+#videoLibraryModal .upload-progress-text {
+    margin-top: 6px;
+
+    color: rgba(255, 255, 255, 0.68);
+
+    font-size: 0.84rem;
+    font-weight: 800;
+}

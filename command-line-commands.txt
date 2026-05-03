@@ -1,0 +1,16 @@
+Backup command line commands:
+
+flask --app main reset-admin-password
+flask --app main disable-2fa
+
+flask --app main safe-upgrade-db
+flask --app main make-migration
+
+flask --app main make-migration
+flask --app main db upgrade
+flask --app main db current
+flask --app main db heads
+
+flask --app main audit-assets
+
+flask --app main emergency-login

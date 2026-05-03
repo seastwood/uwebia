@@ -1,0 +1,5 @@
+{
+  "allow_emergency_login": false,
+  "emergency_login_expiration_minutes": 10,
+  "emergency_login_base_url": "http://127.0.0.1:5772"
+}

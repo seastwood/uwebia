@@ -15,6 +15,7 @@ import secrets
 import hashlib
 import json
 import mimetypes
+import time
 from pathlib import Path
 from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
@@ -100,13 +101,23 @@ THUMB_SIZE = (500, 500)
 PUBLIC_QUALITY = 82
 THUMB_QUALITY = 75
 
-# Run Flask-Migrate commands to initialize and apply migrations
-def run_migrations():
-    migrate_command = ['flask', '--app', 'main', 'db', 'migrate', '-m', 'Migration maintenance.']
-    upgrade_command = ['flask', '--app', 'main', 'db', 'upgrade']
+EMERGENCY_LOGIN_TOKENS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'instance',
+    'emergency_login_tokens.json'
+)
 
-    subprocess.run(migrate_command, cwd=os.path.dirname(__file__), check=True)
-    subprocess.run(upgrade_command, cwd=os.path.dirname(__file__), check=True)
+SECURITY_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'security.json'
+)
+
+DEFAULT_SECURITY_CONFIG = {
+    "allow_emergency_login": False,
+    "emergency_login_expiration_minutes": 10
+}
+
 
 
 @login_manager.user_loader
@@ -124,7 +135,14 @@ class User(UserMixin, db.Model):
     two_factor_email = db.Column(db.String(255), nullable=True)
     two_factor_activated_at = db.Column(db.DateTime, nullable=True)
     two_factor_last_email_settings_version = db.Column(db.String(64), nullable=True)
-
+    two_factor_disabled_reason = db.Column(db.String(255), nullable=True)
+    two_factor_disabled_at = db.Column(db.DateTime, nullable=True)
+    two_factor_needs_attention = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default='0'
+    )
     admin_url_key = db.Column(db.String(120), nullable=True)
     admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
 
@@ -362,6 +380,7 @@ class SectionGroup(db.Model):
     background_opacity = db.Column(db.Float, default=1)
     padding = db.Column(db.Integer, default=20)
     border_radius = db.Column(db.Integer, default=0)
+    max_width = db.Column(db.Integer, nullable=True)
 
     background_image_url = db.Column(db.String(500), nullable=True)
     background_image_size = db.Column(db.String(50), default='cover')
@@ -631,8 +650,8 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # API endpoint
 ollama_url = 'http://192.168.1.214:11434/api/generate'
 
-from cryptography.fernet import Fernet
-print(Fernet.generate_key().decode())
+# from cryptography.fernet import Fernet
+# print(Fernet.generate_key().decode())
 
 def slugify(value):
     value = value.lower().strip()
@@ -688,6 +707,107 @@ DEFAULT_ASSET_LIBRARY_CONFIG = {
     },
     "blocked_extensions": ["py", "php", "exe", "bat", "cmd", "sh", "js", "html", "htm", "css", "jar"]
 }
+
+# Run Flask-Migrate commands to initialize and apply migrations
+def run_migrations():
+    """
+    Apply existing database migrations.
+
+    Do not auto-generate migrations on startup.
+    Auto-generating migrations every time the app starts can fail
+    and can also create messy/incorrect migration files.
+    """
+    upgrade_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'upgrade'
+    ]
+
+    try:
+        subprocess.run(
+            upgrade_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+        print("Database migrations applied successfully.")
+
+    except subprocess.CalledProcessError as e:
+        print("Database migration failed.")
+        print("The app will continue starting, but the database may be out of date.")
+        print(f"Command failed: {e}")
+
+        # Do NOT raise here if you want the app to keep starting.
+        # raise
+
+@app.cli.command("safe-upgrade-db")
+def safe_upgrade_db():
+    """Safely apply existing database migrations."""
+    upgrade_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'upgrade'
+    ]
+
+    try:
+        subprocess.run(
+            upgrade_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+        print("Database upgraded successfully.")
+
+    except subprocess.CalledProcessError as e:
+        print("Database upgrade failed.")
+        print(f"Command failed: {e}")
+
+@app.cli.command("make-migration")
+def make_migration():
+    """Create a new migration after model changes."""
+    message = input("Migration message: ").strip() or "Manual migration"
+
+    # Always upgrade first so Alembic does not complain that the target database is outdated.
+    upgrade_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'upgrade'
+    ]
+
+    migrate_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'migrate',
+        '-m',
+        message
+    ]
+
+    try:
+        subprocess.run(
+            upgrade_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+
+        subprocess.run(
+            migrate_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+
+        print("Migration created successfully.")
+        print("Review the migration file, then run:")
+        print("flask --app main db upgrade")
+
+    except subprocess.CalledProcessError as e:
+        print("Migration creation failed.")
+        print(f"Command failed: {e}")
 
 def user_owns_section(section):
     page = PublicPageContent.query.get(section.page_content_id)
@@ -882,12 +1002,125 @@ def asset_library():
         asset_config=config
     )
 
+def get_user_asset_folder(user_id):
+    return os.path.abspath(
+        os.path.join(uploads_folder, str(user_id), 'assets')
+    )
+
+
+def safe_asset_file_path(user_id, filename):
+    """
+    Build a safe path inside the user's asset folder.
+    Prevents accidental deletion outside uploads/<user_id>/assets.
+    """
+    if not filename:
+        return None
+
+    asset_folder = get_user_asset_folder(user_id)
+    path = os.path.abspath(os.path.join(asset_folder, os.path.basename(filename)))
+
+    if not path.startswith(asset_folder + os.sep):
+        return None
+
+    return path
+
+
+def get_asset_filenames(asset):
+    filenames = set()
+
+    if asset.stored_filename:
+        filenames.add(os.path.basename(asset.stored_filename))
+
+    if asset.thumbnail_url:
+        filenames.add(os.path.basename(asset.thumbnail_url))
+
+    return filenames
+
+
+def delete_asset_files_from_disk(asset):
+    deleted = []
+    missing = []
+    errors = []
+
+    for filename in get_asset_filenames(asset):
+        path = safe_asset_file_path(asset.user_id, filename)
+
+        if not path:
+            errors.append(f"Unsafe path skipped: {filename}")
+            continue
+
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                deleted.append(path)
+            except Exception as e:
+                errors.append(f"{path}: {e}")
+        else:
+            missing.append(path)
+
+    return {
+        "deleted": deleted,
+        "missing": missing,
+        "errors": errors
+    }
+
+
+def get_referenced_asset_filenames(user_id):
+    """
+    Files that the database thinks should exist for this user's new Asset library.
+    """
+    referenced = set()
+
+    assets = Asset.query.filter_by(user_id=user_id).all()
+
+    for asset in assets:
+        referenced.update(get_asset_filenames(asset))
+
+    return referenced
+
+
+def scan_user_asset_folder(user_id):
+    """
+    Compare /static/uploads/<user_id>/assets against Asset database rows.
+    """
+    asset_folder = get_user_asset_folder(user_id)
+
+    referenced = get_referenced_asset_filenames(user_id)
+    actual = set()
+
+    if os.path.exists(asset_folder):
+        for filename in os.listdir(asset_folder):
+            path = safe_asset_file_path(user_id, filename)
+
+            if path and os.path.isfile(path):
+                actual.add(filename)
+
+    orphan_files = sorted(actual - referenced)
+    missing_files = sorted(referenced - actual)
+
+    orphan_bytes = 0
+
+    for filename in orphan_files:
+        path = safe_asset_file_path(user_id, filename)
+        if path and os.path.exists(path):
+            orphan_bytes += os.path.getsize(path)
+
+    return {
+        "user_id": user_id,
+        "asset_folder": asset_folder,
+        "referenced_count": len(referenced),
+        "actual_count": len(actual),
+        "orphan_files": orphan_files,
+        "missing_files": missing_files,
+        "orphan_bytes": orphan_bytes
+    }
 
 @app.route('/admin/assets/upload', methods=['POST'])
 @login_required
 def asset_upload():
     files = request.files.getlist('asset')
     folder_id = request.form.get('folder_id') or None
+
 
     if not files:
         return jsonify({'status': 'error', 'error': 'No files selected.'}), 400
@@ -939,6 +1172,7 @@ def asset_upload():
     os.makedirs(user_folder, exist_ok=True)
 
     created_assets = []
+    saved_disk_filenames = []
 
     try:
         for file in files:
@@ -946,6 +1180,11 @@ def asset_upload():
                 continue
 
             saved = save_asset_file(file, user_folder)
+
+            saved_disk_filenames.append(saved['stored_filename'])
+
+            if saved.get('thumbnail_filename'):
+                saved_disk_filenames.append(saved['thumbnail_filename'])
 
             asset_url = url_for(
                 'static',
@@ -975,10 +1214,20 @@ def asset_upload():
             db.session.add(asset)
             created_assets.append(asset)
 
+
+
         db.session.commit()
+
 
     except Exception as e:
         db.session.rollback()
+        for filename in saved_disk_filenames:
+            path = safe_asset_file_path(current_user.id, filename)
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as cleanup_error:
+                    print(f"Failed to clean up upload leftover {path}: {cleanup_error}")
         return jsonify({
             'status': 'error',
             'error': str(e)
@@ -1083,23 +1332,37 @@ def delete_asset(asset_id):
     ).first_or_404()
 
     try:
-        filenames = [asset.stored_filename]
+        # Keep filenames before deleting the DB row.
+        files_to_delete = list(get_asset_filenames(asset))
 
-        if asset.thumbnail_url:
-            thumbnail_name = os.path.basename(asset.thumbnail_url)
-            filenames.append(thumbnail_name)
-
-        user_asset_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
-
-        for filename in filenames:
-            path = os.path.join(user_asset_folder, filename)
-            if os.path.exists(path):
-                os.remove(path)
-
+        # Delete DB record first.
         db.session.delete(asset)
         db.session.commit()
 
-        return jsonify({'status': 'success'})
+        # Then delete files from disk after DB commit succeeds.
+        disk_result = {
+            "deleted": [],
+            "missing": [],
+            "errors": []
+        }
+
+        for filename in files_to_delete:
+            fake_asset = type("TempAssetRef", (), {
+                "user_id": current_user.id,
+                "stored_filename": filename,
+                "thumbnail_url": None
+            })()
+
+            result = delete_asset_files_from_disk(fake_asset)
+
+            disk_result["deleted"].extend(result["deleted"])
+            disk_result["missing"].extend(result["missing"])
+            disk_result["errors"].extend(result["errors"])
+
+        return jsonify({
+            'status': 'success',
+            'disk_cleanup': disk_result
+        })
 
     except Exception as e:
         db.session.rollback()
@@ -1609,6 +1872,7 @@ def get_sections_and_structure(page_content_id):
                 'background_opacity': group.background_opacity,
                 'padding': group.padding,
                 'border_radius': group.border_radius,
+                'max_width': group.max_width,
                 'background_image_url': group.background_image_url,
                 'background_image_size': group.background_image_size or 'cover',
                 'background_image_position': group.background_image_position or 'center',
@@ -1743,6 +2007,7 @@ def update_section_group(group_id):
         background_color = data.get('background_color')
         padding = data.get('padding')
         border_radius = data.get('border_radius')
+        max_width = data.get('max_width')
 
         if name is not None:
             group.name = name
@@ -1757,6 +2022,15 @@ def update_section_group(group_id):
         if border_radius is not None:
             group.border_radius = int(border_radius)
 
+        if max_width is not None:
+            try:
+                max_width_value = int(max_width or 0)
+            except (TypeError, ValueError):
+                max_width_value = 0
+
+            # 0 means full width / no cap
+            group.max_width = max_width_value if max_width_value > 0 else None
+
         group.background_image_url = data.get('background_image_url') or None
         group.background_image_size = data.get('background_image_size') or 'cover'
         group.background_image_position = data.get('background_image_position') or 'center'
@@ -1770,7 +2044,8 @@ def update_section_group(group_id):
             'group': {
                 'id': group.id,
                 'name': group.name,
-                'anchor_slug': group.anchor_slug
+                'anchor_slug': group.anchor_slug,
+                'max_width': group.max_width
             }
         })
 
@@ -1852,6 +2127,34 @@ def update_link_card_section(section, form_data):
     def clean(value, fallback=''):
         return (value or fallback).strip()
 
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    def safe_float(value, fallback, min_value=None, max_value=None):
+        try:
+            number = float(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
     section.content = {
         'header': clean(form_data.get('link_card_header'), 'Link Card'),
         'body': clean(form_data.get('link_card_body'), ''),
@@ -1863,11 +2166,32 @@ def update_link_card_section(section, form_data):
         'background_color': clean(form_data.get('link_card_background_color'), '#1f232b'),
         'text_color': clean(form_data.get('link_card_text_color'), '#ffffff'),
         'overlay_color': clean(form_data.get('link_card_overlay_color'), '#000000'),
-        'overlay_opacity': float(form_data.get('link_card_overlay_opacity') or 0.25),
+        'overlay_opacity': safe_float(
+            form_data.get('link_card_overlay_opacity'),
+            0.25,
+            0,
+            1
+        ),
 
         # presentation
-        'height': int(form_data.get('link_card_height') or 240),
-        'border_radius': int(form_data.get('link_card_border_radius') or 18),
+        'width': safe_int(
+            form_data.get('link_card_width'),
+            420,
+            120,
+            1400
+        ),
+        'height': safe_int(
+            form_data.get('link_card_height'),
+            240,
+            120,
+            800
+        ),
+        'border_radius': safe_int(
+            form_data.get('link_card_border_radius'),
+            18,
+            0,
+            80
+        ),
         'open_in_new_tab': form_data.get('link_card_open_new_tab') == 'on'
     }
 
@@ -2098,6 +2422,7 @@ def require_admin_url_key_for_admin_routes():
         'logout',
         'forgot_password',
         'reset_password',
+        'emergency_login',
         'request_username'
     }
 
@@ -2366,6 +2691,20 @@ def get_admin_login_url_for_user(user):
 
     return url_for('login', _external=True)
 
+@app.route('/admin/dashboard/settings/2fa/dismiss-warning', methods=['POST'])
+@login_required
+def dismiss_two_factor_warning():
+    current_user.two_factor_needs_attention = False
+    current_user.two_factor_disabled_reason = None
+    current_user.two_factor_disabled_at = None
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'message': '2FA warning dismissed.'
+    })
+
 @app.route('/admin/2fa', methods=['GET', 'POST'])
 @app.route('/admin/2fa/<admin_key>', methods=['GET', 'POST'])
 def two_factor_login(admin_key=None):
@@ -2415,6 +2754,16 @@ def two_factor_login(admin_key=None):
 
     return render_template('two_factor_login.html', admin_key=admin_key)
 
+def disable_user_2fa(user, reason=None, needs_attention=True):
+    user.two_factor_enabled = False
+    user.two_factor_email = None
+    user.two_factor_activated_at = None
+    user.two_factor_last_email_settings_version = None
+
+    user.two_factor_disabled_reason = reason
+    user.two_factor_disabled_at = datetime.utcnow()
+    user.two_factor_needs_attention = bool(needs_attention)
+
 @app.route('/admin/login', methods=['GET', 'POST'])
 @app.route('/admin/login/<admin_key>', methods=['GET', 'POST'])
 def login(admin_key=None):
@@ -2444,9 +2793,12 @@ def login(admin_key=None):
                 current_fingerprint = get_email_settings_fingerprint(email_settings)
 
                 if current_fingerprint != user.two_factor_last_email_settings_version:
-                    user.two_factor_enabled = False
-                    user.two_factor_activated_at = None
-                    user.two_factor_last_email_settings_version = None
+                    disable_user_2fa(
+                        user,
+                        reason='email server settings changed',
+                        needs_attention=True
+                    )
+
                     db.session.commit()
 
                     flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
@@ -3002,6 +3354,9 @@ def confirm_two_factor_activation():
     current_user.two_factor_email = session.get('pending_2fa_email') or current_user.email
     current_user.two_factor_activated_at = datetime.utcnow()
     current_user.two_factor_last_email_settings_version = fingerprint
+    current_user.two_factor_disabled_reason = None
+    current_user.two_factor_disabled_at = None
+    current_user.two_factor_needs_attention = False
 
     db.session.commit()
     clear_pending_two_factor_code()
@@ -3016,10 +3371,14 @@ def confirm_two_factor_activation():
 @app.route('/admin/dashboard/settings/2fa/disable', methods=['POST'])
 @login_required
 def disable_two_factor_authentication():
-    current_user.two_factor_enabled = False
-    current_user.two_factor_email = None
-    current_user.two_factor_activated_at = None
-    current_user.two_factor_last_email_settings_version = None
+    disable_user_2fa(
+        current_user,
+        reason='you manually disabled it',
+        needs_attention=False
+    )
+    current_user.two_factor_disabled_reason = None
+    current_user.two_factor_disabled_at = None
+    current_user.two_factor_needs_attention = False
 
     db.session.commit()
     clear_pending_two_factor_code()
@@ -3083,9 +3442,11 @@ def save_email_settings():
         users_with_2fa = User.query.filter_by(two_factor_enabled=True).all()
 
         for user in users_with_2fa:
-            user.two_factor_enabled = False
-            user.two_factor_activated_at = None
-            user.two_factor_last_email_settings_version = None
+            disable_user_2fa(
+                user,
+                reason='email server settings changed',
+                needs_attention=True
+            )
 
         db.session.commit()
         two_factor_disabled = len(users_with_2fa) > 0
@@ -3742,257 +4103,345 @@ def edit_page(website_id, page_id):
     db.session.commit()
     return jsonify({'message': 'Page updated successfully'})
 
+def copy_section_links_and_events(old_section, new_section):
+    """
+    Copies section relationships that live outside PageSection.content.
+
+    New system:
+    - SectionAsset -> Asset
+
+    Legacy compatibility:
+    - SectionImage -> Picture
+
+    Calendar:
+    - CalendarEvent
+    """
+
+    # New asset-library section links
+    source_assets = SectionAsset.query.filter_by(
+        section_id=old_section.id
+    ).order_by(SectionAsset.order).all()
+
+    for old_link in source_assets:
+        db.session.add(SectionAsset(
+            section_id=new_section.id,
+            asset_id=old_link.asset_id,
+            usage_type=old_link.usage_type,
+            order=old_link.order
+        ))
+
+    # Legacy image-library links, safe to keep for old pages/data
+    source_images = SectionImage.query.filter_by(
+        section_id=old_section.id
+    ).order_by(SectionImage.order).all()
+
+    for old_img in source_images:
+        db.session.add(SectionImage(
+            section_id=new_section.id,
+            picture_id=old_img.picture_id,
+            order=old_img.order
+        ))
+
+    # Calendar events
+    source_events = CalendarEvent.query.filter_by(
+        section_id=old_section.id
+    ).all()
+
+    for old_event in source_events:
+        db.session.add(CalendarEvent(
+            title=old_event.title,
+            description=old_event.description,
+            start=old_event.start,
+            end=old_event.end,
+            background_color=old_event.background_color,
+            section_id=new_section.id
+        ))
+
+def copy_section_group(old_group, new_page_id):
+    return SectionGroup(
+        page_content_id=new_page_id,
+        name=old_group.name,
+        anchor_slug=old_group.anchor_slug,
+        group_order=old_group.group_order,
+
+        background_color=old_group.background_color,
+        background_opacity=old_group.background_opacity,
+        padding=old_group.padding,
+        border_radius=old_group.border_radius,
+        max_width=old_group.max_width,
+
+        background_image_url=old_group.background_image_url,
+        background_image_size=old_group.background_image_size,
+        background_image_position=old_group.background_image_position,
+        background_overlay_color=old_group.background_overlay_color,
+        background_overlay_opacity=old_group.background_overlay_opacity
+    )
+
 @app.route('/duplicate_page/<int:website_id>/<int:page_id>', methods=['POST'])
 @login_required
 def duplicate_page(website_id, page_id):
-    original_page = PublicPageContent.query.filter_by(
-        id=page_id,
-        website_id=website_id
-    ).first_or_404()
+    try:
+        website = Website.query.filter_by(
+            id=website_id,
+            user_id=current_user.id
+        ).first_or_404()
 
-    # Create copied page
-    new_page = PublicPageContent(
-        website_id=original_page.website_id,
-        name=f"{original_page.name} Copy",
-        description=original_page.description,
-        site_active_status=False,
-        background_color=original_page.background_color,
-        text_color=original_page.text_color,
-        slug=get_unique_slug(original_page.website_id, f"{original_page.name} Copy")
-    )
-    db.session.add(new_page)
-    db.session.flush()  # get new_page.id
+        original_page = PublicPageContent.query.filter_by(
+            id=page_id,
+            website_id=website.id
+        ).first_or_404()
 
-    # Copy tags
-    for tag in original_page.tags:
-        new_page.tags.append(tag)
+        copy_name = get_copy_name(original_page.website_id, original_page.name)
 
-    # -----------------------------
-    # Copy section groups first
-    # -----------------------------
-    group_map = {}
+        new_page = PublicPageContent(
+            website_id=original_page.website_id,
+            page_folder_id=original_page.page_folder_id,
+            folder_sort_order=original_page.folder_sort_order,
+            sort_order=(original_page.sort_order or 0) + 1,
 
-    original_groups = SectionGroup.query.filter_by(
-        page_content_id=original_page.id
-    ).all()
+            name=copy_name,
+            description=original_page.description,
+            site_active_status=False,
 
-    for old_group in original_groups:
-        new_group = SectionGroup(
-            page_content_id=new_page.id,
-            name=old_group.name,
-            anchor_slug=old_group.anchor_slug,
-            group_order=old_group.group_order,
-            background_color=old_group.background_color,
-            background_opacity=old_group.background_opacity,
-            padding=old_group.padding,
-            border_radius=old_group.border_radius
+            background_color=original_page.background_color,
+            text_color=original_page.text_color,
+
+            slug=get_unique_slug(original_page.website_id, copy_name)
         )
-        db.session.add(new_group)
+
+        db.session.add(new_page)
         db.session.flush()
 
-        group_map[old_group.id] = new_group.id
+        # Copy tags
+        for tag in original_page.tags:
+            new_page.tags.append(tag)
 
-    # -----------------------------
-    # Copy sections second
-    # -----------------------------
-    section_map = {}
+        # Copy groups
+        group_map = {}
 
-    original_sections = PageSection.query.filter_by(
-        page_content_id=original_page.id
-    ).all()
+        original_groups = SectionGroup.query.filter_by(
+            page_content_id=original_page.id
+        ).order_by(SectionGroup.group_order, SectionGroup.id).all()
 
+        for old_group in original_groups:
+            new_group = copy_section_group(old_group, new_page.id)
 
-    for old_section in original_sections:
-        new_section = PageSection(
-            section_type=old_section.section_type,
-            order=old_section.order,
-            content=copy.deepcopy(old_section.content),
-            page_content_id=new_page.id
-        )
-        db.session.add(new_section)
-        db.session.flush()
+            db.session.add(new_group)
+            db.session.flush()
 
-        section_map[old_section.id] = new_section.id
+            group_map[old_group.id] = new_group.id
 
-        # Copy section images
-        original_images = SectionImage.query.filter_by(section_id=old_section.id).all()
-        for old_img in original_images:
-            new_img = SectionImage(
-                section_id=new_section.id,
-                picture_id=old_img.picture_id,
-                order=old_img.order
+        # Copy sections
+        section_map = {}
+
+        original_sections = PageSection.query.filter_by(
+            page_content_id=original_page.id
+        ).order_by(PageSection.order, PageSection.id).all()
+
+        for old_section in original_sections:
+            new_section = PageSection(
+                section_type=old_section.section_type,
+                order=old_section.order,
+                content=copy.deepcopy(old_section.content or {}),
+                page_content_id=new_page.id
             )
-            db.session.add(new_img)
 
-        # Copy calendar events
-        original_events = CalendarEvent.query.filter_by(section_id=old_section.id).all()
-        for old_event in original_events:
-            new_event = CalendarEvent(
-                title=old_event.title,
-                description=old_event.description,
-                start=old_event.start,
-                end=old_event.end,
-                background_color=old_event.background_color,
-                section_id=new_section.id
+            db.session.add(new_section)
+            db.session.flush()
+
+            section_map[old_section.id] = new_section.id
+
+            copy_section_links_and_events(old_section, new_section)
+
+        # Copy rows and columns
+        original_rows = Row.query.filter_by(
+            page_content_id=original_page.id
+        ).order_by(Row.row_number, Row.id).all()
+
+        for old_row in original_rows:
+            new_row = Row(
+                page_content_id=new_page.id,
+                row_number=old_row.row_number,
+                section_group_id=(
+                    group_map.get(old_row.section_group_id)
+                    if old_row.section_group_id
+                    else None
+                )
             )
-            db.session.add(new_event)
 
-    # -----------------------------
-    # Copy rows and columns
-    # -----------------------------
-    original_rows = Row.query.filter_by(page_content_id=original_page.id).all()
+            db.session.add(new_row)
+            db.session.flush()
 
-    for old_row in original_rows:
-        new_row = Row(
-            page_content_id=new_page.id,
-            row_number=old_row.row_number,
-            section_group_id=group_map.get(old_row.section_group_id) if old_row.section_group_id else None
-        )
-        db.session.add(new_row)
-        db.session.flush()
+            original_columns = Column.query.filter_by(
+                row_id=old_row.id
+            ).order_by(Column.column_number, Column.id).all()
 
-        original_columns = Column.query.filter_by(row_id=old_row.id).all()
-        for old_column in original_columns:
-            new_column = Column(
-                row_id=new_row.id,
-                column_number=old_column.column_number,
-                width=old_column.width,
-                section_id=section_map.get(old_column.section_id) if old_column.section_id else None
-            )
-            db.session.add(new_column)
+            for old_column in original_columns:
+                db.session.add(Column(
+                    row_id=new_row.id,
+                    column_number=old_column.column_number,
+                    width=old_column.width,
+                    section_id=(
+                        section_map.get(old_column.section_id)
+                        if old_column.section_id
+                        else None
+                    )
+                ))
 
-    db.session.commit()
-    return '', 200
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'page_id': new_page.id,
+            'page_name': new_page.name,
+            'slug': new_page.slug
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error duplicating page: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 @app.route('/replace_page/<int:target_page_id>/<int:source_page_id>', methods=['POST'])
 @login_required
 def replace_page(target_page_id, source_page_id):
-    target_page = PublicPageContent.query.get_or_404(target_page_id)
-    source_page = PublicPageContent.query.get_or_404(source_page_id)
+    try:
+        target_page = PublicPageContent.query.get_or_404(target_page_id)
+        source_page = PublicPageContent.query.get_or_404(source_page_id)
 
-    target_website = Website.query.get_or_404(target_page.website_id)
-    source_website = Website.query.get_or_404(source_page.website_id)
+        target_website = Website.query.get_or_404(target_page.website_id)
+        source_website = Website.query.get_or_404(source_page.website_id)
 
-    if target_website.user_id != current_user.id or source_website.user_id != current_user.id:
-        return jsonify({"error": "Unauthorized"}), 403
+        if target_website.user_id != current_user.id or source_website.user_id != current_user.id:
+            return jsonify({"success": False, "error": "Unauthorized"}), 403
 
-    # Optional: prevent replacing a page with itself
-    if target_page.id == source_page.id:
-        return jsonify({"error": "Cannot replace a page with itself."}), 400
+        if target_page.id == source_page.id:
+            return jsonify({
+                "success": False,
+                "error": "Cannot replace a page with itself."
+            }), 400
 
-    # Update page-level fields
-    # target_page.name = source_page.name
-    target_page.description = source_page.description
-    target_page.background_color = source_page.background_color
-    target_page.text_color = source_page.text_color
-    # target_page.site_active_status = source_page.site_active_status
+        # Keep target identity/url fields.
+        # Do not overwrite target_page.name, target_page.slug, or target_page.site_active_status.
+        target_page.description = source_page.description
+        target_page.background_color = source_page.background_color
+        target_page.text_color = source_page.text_color
 
-    # Replace tags
-    target_page.tags.clear()
-    for tag in source_page.tags:
-        target_page.tags.append(tag)
+        # Replace tags
+        target_page.tags.clear()
+        for tag in source_page.tags:
+            target_page.tags.append(tag)
 
-    # Delete target page’s existing layout/content
-    Row.query.filter_by(page_content_id=target_page.id).delete()
-    SectionGroup.query.filter_by(page_content_id=target_page.id).delete()
-
-    old_target_sections = PageSection.query.filter_by(page_content_id=target_page.id).all()
-    for section in old_target_sections:
-        SectionImage.query.filter_by(section_id=section.id).delete()
-        CalendarEvent.query.filter_by(section_id=section.id).delete()
-        db.session.delete(section)
-
-    db.session.flush()
-
-    # -----------------------------
-    # Copy source groups first
-    # -----------------------------
-    group_map = {}
-
-    source_groups = SectionGroup.query.filter_by(
-        page_content_id=source_page.id
-    ).all()
-
-    for old_group in source_groups:
-        new_group = SectionGroup(
-            page_content_id=target_page.id,
-            name=old_group.name,
-            anchor_slug=old_group.anchor_slug,
-            group_order=old_group.group_order,
-            background_color=old_group.background_color,
-            background_opacity=old_group.background_opacity,
-            padding=old_group.padding,
-            border_radius=old_group.border_radius
-        )
-        db.session.add(new_group)
-        db.session.flush()
-
-        group_map[old_group.id] = new_group.id
-
-    # Copy source sections
-    section_map = {}
-
-    source_sections = PageSection.query.filter_by(page_content_id=source_page.id).all()
-
-    for old_section in source_sections:
-        new_section = PageSection(
-            section_type=old_section.section_type,
-            order=old_section.order,
-            content=copy.deepcopy(old_section.content),
+        # Delete existing target sections and dependent relationships first.
+        old_target_sections = PageSection.query.filter_by(
             page_content_id=target_page.id
-        )
-        db.session.add(new_section)
+        ).all()
+
+        for section in old_target_sections:
+            SectionAsset.query.filter_by(section_id=section.id).delete()
+            SectionImage.query.filter_by(section_id=section.id).delete()
+            CalendarEvent.query.filter_by(section_id=section.id).delete()
+            db.session.delete(section)
+
         db.session.flush()
 
-        section_map[old_section.id] = new_section.id
+        # Delete rows/columns and groups after sections.
+        # Columns are delete-orphan through Row.columns, so deleting Row removes Columns.
+        Row.query.filter_by(page_content_id=target_page.id).delete()
+        SectionGroup.query.filter_by(page_content_id=target_page.id).delete()
 
-        # Copy section images
-        source_images = SectionImage.query.filter_by(section_id=old_section.id).all()
-        for old_img in source_images:
-            db.session.add(SectionImage(
-                section_id=new_section.id,
-                picture_id=old_img.picture_id,
-                order=old_img.order
-            ))
-
-        # Copy calendar events
-        source_events = CalendarEvent.query.filter_by(section_id=old_section.id).all()
-        for old_event in source_events:
-            db.session.add(CalendarEvent(
-                title=old_event.title,
-                description=old_event.description,
-                start=old_event.start,
-                end=old_event.end,
-                background_color=old_event.background_color,
-                section_id=new_section.id
-            ))
-
-    # Copy source rows and columns
-    source_rows = Row.query.filter_by(page_content_id=source_page.id).all()
-
-    for old_row in source_rows:
-        new_row = Row(
-            page_content_id=target_page.id,
-            row_number=old_row.row_number,
-            section_group_id=group_map.get(old_row.section_group_id) if old_row.section_group_id else None
-        )
-        db.session.add(new_row)
         db.session.flush()
 
-        source_columns = Column.query.filter_by(row_id=old_row.id).all()
+        # Copy source groups
+        group_map = {}
 
-        for old_column in source_columns:
-            db.session.add(Column(
-                row_id=new_row.id,
-                column_number=old_column.column_number,
-                width=old_column.width,
-                section_id=section_map.get(old_column.section_id) if old_column.section_id else None
-            ))
+        source_groups = SectionGroup.query.filter_by(
+            page_content_id=source_page.id
+        ).order_by(SectionGroup.group_order, SectionGroup.id).all()
 
-    db.session.commit()
+        for old_group in source_groups:
+            new_group = copy_section_group(old_group, target_page.id)
 
-    return jsonify({"success": True})
+            db.session.add(new_group)
+            db.session.flush()
+
+            group_map[old_group.id] = new_group.id
+
+        # Copy source sections
+        section_map = {}
+
+        source_sections = PageSection.query.filter_by(
+            page_content_id=source_page.id
+        ).order_by(PageSection.order, PageSection.id).all()
+
+        for old_section in source_sections:
+            new_section = PageSection(
+                section_type=old_section.section_type,
+                order=old_section.order,
+                content=copy.deepcopy(old_section.content or {}),
+                page_content_id=target_page.id
+            )
+
+            db.session.add(new_section)
+            db.session.flush()
+
+            section_map[old_section.id] = new_section.id
+
+            copy_section_links_and_events(old_section, new_section)
+
+        # Copy source rows and columns
+        source_rows = Row.query.filter_by(
+            page_content_id=source_page.id
+        ).order_by(Row.row_number, Row.id).all()
+
+        for old_row in source_rows:
+            new_row = Row(
+                page_content_id=target_page.id,
+                row_number=old_row.row_number,
+                section_group_id=(
+                    group_map.get(old_row.section_group_id)
+                    if old_row.section_group_id
+                    else None
+                )
+            )
+
+            db.session.add(new_row)
+            db.session.flush()
+
+            source_columns = Column.query.filter_by(
+                row_id=old_row.id
+            ).order_by(Column.column_number, Column.id).all()
+
+            for old_column in source_columns:
+                db.session.add(Column(
+                    row_id=new_row.id,
+                    column_number=old_column.column_number,
+                    width=old_column.width,
+                    section_id=(
+                        section_map.get(old_column.section_id)
+                        if old_column.section_id
+                        else None
+                    )
+                ))
+
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "target_page_id": target_page.id
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error replacing page: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 def get_copy_name(website_id, original_name):
     base_name = f"{original_name} Copy"
@@ -5022,16 +5471,44 @@ def add_assets_to_section():
     data = request.get_json() or {}
 
     section_id = data.get('section_id')
-    asset_ids = data.get('asset_ids') or data.get('image_ids') or []
-    usage_type = data.get('usage_type') or 'section-image'
+    asset_ids = (
+        data.get('asset_ids')
+        or data.get('image_ids')
+        or data.get('audio_ids')
+        or data.get('video_ids')
+        or []
+    )
 
     section = PageSection.query.get_or_404(section_id)
 
     if not user_owns_section(section):
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
 
-    if section.section_type not in ['image', 'image_gallery', 'images']:
-        return jsonify({'status': 'error', 'message': 'This section does not accept image assets.'}), 400
+    section_asset_rules = {
+        'image': 'image',
+        'image_gallery': 'image',
+        'images': 'image',
+        'music': 'audio',
+        'video': 'video',
+        'videos': 'video',
+    }
+
+    required_asset_type = section_asset_rules.get(section.section_type)
+
+    if not required_asset_type:
+        return jsonify({
+            'status': 'error',
+            'message': f'This section does not accept library assets: {section.section_type}'
+        }), 400
+
+    usage_type = data.get('usage_type') or {
+        'image': 'section-image',
+        'image_gallery': 'section-image',
+        'images': 'section-image',
+        'music': 'section-music',
+        'video': 'section-video',
+        'videos': 'section-video',
+    }.get(section.section_type, 'section-asset')
 
     max_order = db.session.query(func.coalesce(func.max(SectionAsset.order), 0)).filter_by(
         section_id=section.id
@@ -5043,7 +5520,7 @@ def add_assets_to_section():
         asset = Asset.query.filter_by(
             id=asset_id,
             user_id=current_user.id,
-            asset_type='image'
+            asset_type=required_asset_type
         ).first()
 
         if not asset:
@@ -5077,6 +5554,203 @@ def add_assets_to_section():
         'added': added
     })
 
+
+@app.route('/get_section_videos', methods=['GET'])
+@login_required
+def get_section_videos():
+    section_id = request.args.get('section_id', type=int)
+
+    if not section_id:
+        return jsonify({'videos': []})
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'videos': []}), 403
+
+    results = (
+        db.session.query(Asset, SectionAsset)
+        .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+        .filter(
+            SectionAsset.section_id == section.id,
+            Asset.asset_type == 'video'
+        )
+        .order_by(SectionAsset.order)
+        .all()
+    )
+
+    videos_data = [
+        {
+            'id': asset.id,
+            'asset_id': asset.id,
+            'link_id': link.id,
+            'url': asset.url,
+            'thumbnail_url': asset.thumbnail_url or '',
+            'mime_type': asset.mime_type or 'video/mp4',
+            'order': link.order,
+            'filename': asset.original_filename,
+            'extension': asset.extension,
+            'file_size_label': format_bytes(asset.file_size)
+        }
+        for asset, link in results
+    ]
+
+    return jsonify({'videos': videos_data})
+
+
+@app.route('/remove_video_from_section', methods=['POST'])
+@login_required
+def remove_video_from_section():
+    data = request.get_json() or {}
+
+    section_id = data.get('sectionId') or data.get('section_id')
+    link_ids = data.get('linkIds') or data.get('link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    if not link_ids:
+        return jsonify({'status': 'error', 'message': 'No videos selected.'}), 400
+
+    SectionAsset.query.filter(
+        SectionAsset.id.in_(link_ids),
+        SectionAsset.section_id == section.id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'success': True,
+        'message': 'Video removed from section.'
+    })
+
+
+@app.route('/reorder_section_videos', methods=['POST'])
+@login_required
+def reorder_section_videos():
+    data = request.get_json() or {}
+
+    section_id = data.get('section_id')
+    ordered_link_ids = data.get('ordered_link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    for index, link_id in enumerate(ordered_link_ids, start=1):
+        link = SectionAsset.query.filter_by(
+            id=link_id,
+            section_id=section.id
+        ).first()
+
+        if link:
+            link.order = index
+
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'success': True})
+
+@app.route('/get_section_music', methods=['GET'])
+@login_required
+def get_section_music():
+    section_id = request.args.get('section_id', type=int)
+
+    if not section_id:
+        return jsonify({'tracks': []})
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'tracks': []}), 403
+
+    results = (
+        db.session.query(Asset, SectionAsset)
+        .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+        .filter(
+            SectionAsset.section_id == section.id,
+            Asset.asset_type == 'audio'
+        )
+        .order_by(SectionAsset.order)
+        .all()
+    )
+
+    tracks_data = [
+        {
+            'id': asset.id,
+            'asset_id': asset.id,
+            'link_id': link.id,
+            'url': asset.url,
+            'mime_type': asset.mime_type or 'audio/mpeg',
+            'order': link.order,
+            'filename': asset.original_filename,
+            'extension': asset.extension,
+            'file_size_label': format_bytes(asset.file_size)
+        }
+        for asset, link in results
+    ]
+
+    return jsonify({'tracks': tracks_data})
+
+
+@app.route('/remove_music_from_section', methods=['POST'])
+@login_required
+def remove_music_from_section():
+    data = request.get_json() or {}
+
+    section_id = data.get('sectionId') or data.get('section_id')
+    link_ids = data.get('linkIds') or data.get('link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    if not link_ids:
+        return jsonify({'status': 'error', 'message': 'No tracks selected.'}), 400
+
+    SectionAsset.query.filter(
+        SectionAsset.id.in_(link_ids),
+        SectionAsset.section_id == section.id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'success': True,
+        'message': 'Music removed from section.'
+    })
+
+
+@app.route('/reorder_section_music', methods=['POST'])
+@login_required
+def reorder_section_music():
+    data = request.get_json() or {}
+
+    section_id = data.get('section_id')
+    ordered_link_ids = data.get('ordered_link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    for index, link_id in enumerate(ordered_link_ids, start=1):
+        link = SectionAsset.query.filter_by(
+            id=link_id,
+            section_id=section.id
+        ).first()
+
+        if link:
+            link.order = index
+
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'success': True})
 
 @app.route('/add_images_from_library', methods=['POST'])
 @login_required
@@ -5869,6 +6543,8 @@ def render_public_page(website, page, is_preview=False):
     ).order_by(PageSection.order).all()
 
     pictures_by_section = {}
+    music_by_section = {}
+    videos_by_section = {}
 
     for section in sections:
         section_assets = (
@@ -5883,6 +6559,54 @@ def render_public_page(website, page, is_preview=False):
         )
 
         pictures_by_section[section.id] = [asset.url for asset in section_assets]
+        music_assets = (
+            db.session.query(Asset, SectionAsset)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'audio'
+            )
+            .order_by(SectionAsset.order)
+            .all()
+        )
+
+        music_by_section[section.id] = [
+            {
+                'id': asset.id,
+                'link_id': link.id,
+                'url': asset.url,
+                'mime_type': asset.mime_type or 'audio/mpeg',
+                'filename': asset.original_filename,
+                'extension': asset.extension,
+                'file_size_label': format_bytes(asset.file_size)
+            }
+            for asset, link in music_assets
+        ]
+        video_assets = (
+            db.session.query(Asset, SectionAsset)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'video'
+            )
+            .order_by(SectionAsset.order)
+            .all()
+        )
+
+        videos_by_section[section.id] = [
+            {
+                'id': asset.id,
+                'asset_id': asset.id,
+                'link_id': link.id,
+                'url': asset.url,
+                'thumbnail_url': asset.thumbnail_url or '',
+                'mime_type': asset.mime_type or 'video/mp4',
+                'filename': asset.original_filename,
+                'extension': asset.extension,
+                'file_size_label': format_bytes(asset.file_size)
+            }
+            for asset, link in video_assets
+        ]
 
     section_groups = SectionGroup.query.filter_by(
         page_content_id=page.id
@@ -5905,6 +6629,7 @@ def render_public_page(website, page, is_preview=False):
 
         'padding': group.padding,
         'border_radius': group.border_radius,
+        'max_width': group.max_width,
 
         'background_image_url': group.background_image_url,
         'background_image_size': group.background_image_size or 'cover',
@@ -5915,6 +6640,8 @@ def render_public_page(website, page, is_preview=False):
     for group in section_groups
 ],
         'pictures_by_section': pictures_by_section,
+        'music_by_section': music_by_section,
+        'videos_by_section': videos_by_section,
         'is_preview': is_preview
     }
 
@@ -6292,88 +7019,104 @@ def public_page(website_id, page_id):
 
     return redirect(url_for('public_page_by_slug', page_slug=page.slug))
 
+# @app.route('/preview_page/<int:website_id>/<int:page_id>')
+# @login_required
+# def preview_page(website_id, page_id):
+#     # Use db.session.get for SQLAlchemy 2.0 compatibility
+#     website = db.session.get(Website, website_id)
+#     if not website or website.user_id != current_user.id:
+#         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
+#
+#     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+#
+#     if content is None:
+#         return jsonify({'status': 'error', 'message': 'Public page content not found'})
+#
+#     sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
+#
+#     pictures_by_section = {}
+#     for section in sections:
+#         # NEW LOGIC: Join SectionImage and Picture to get the URLs for this specific section
+#         section_assets = (
+#             db.session.query(Asset.url)
+#             .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+#             .filter(
+#                 SectionAsset.section_id == section.id,
+#                 Asset.asset_type == 'image'
+#             )
+#             .order_by(SectionAsset.order)
+#             .all()
+#         )
+#
+#         pictures_by_section[section.id] = [asset.url for asset in section_assets]
+#
+#     sections_dict = [section.to_dict() for section in sections]
+#
+#     # public_page_content = {
+#     #     'page_id': content.id,
+#     #     'sections': sections_dict,
+#     #     'pictures_by_section': pictures_by_section,
+#     #     'background_color': content.background_color,
+#     #     'text_color': content.text_color
+#     # }
+#     #
+#     # return render_template('public.html', content=public_page_content)
+#
+#     section_groups = SectionGroup.query.filter_by(
+#         page_content_id=content.id
+#     ).order_by(SectionGroup.group_order).all()
+#
+#     public_page_content = {
+#         'page_id': content.id,
+#         'sections': sections_dict,
+#         'page_slug': content.slug,
+#         'current_page_url': url_for('public_page_by_slug', page_slug=content.slug),
+#         'groups': [
+#     {
+#         'id': group.id,
+#         'name': group.name,
+#         'anchor_slug': group.anchor_slug,
+#         'group_order': group.group_order,
+#
+#         'background_color': group.background_color or 'transparent',
+#         'background_opacity': group.background_opacity,
+#
+#         'padding': group.padding,
+#         'border_radius': group.border_radius,
+#
+#         'background_image_url': group.background_image_url,
+#         'background_image_size': group.background_image_size or 'cover',
+#         'background_image_position': group.background_image_position or 'center',
+#         'background_overlay_color': group.background_overlay_color or 'transparent',
+#         'background_overlay_opacity': group.background_overlay_opacity or 0
+#     }
+#     for group in section_groups
+# ],
+#         'pictures_by_section': pictures_by_section,
+#         'is_preview': True
+#     }
+#
+#     return render_template(
+#         'public.html',
+#         website=website,
+#         content=public_page_content
+#     )
+
 @app.route('/preview_page/<int:website_id>/<int:page_id>')
 @login_required
 def preview_page(website_id, page_id):
-    # Use db.session.get for SQLAlchemy 2.0 compatibility
     website = db.session.get(Website, website_id)
+
     if not website or website.user_id != current_user.id:
         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 
-    content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+    page = PublicPageContent.query.filter_by(
+        website_id=website_id,
+        id=page_id
+    ).first_or_404()
 
-    if content is None:
-        return jsonify({'status': 'error', 'message': 'Public page content not found'})
+    return render_public_page(website, page, is_preview=True)
 
-    sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
-
-    pictures_by_section = {}
-    for section in sections:
-        # NEW LOGIC: Join SectionImage and Picture to get the URLs for this specific section
-        section_assets = (
-            db.session.query(Asset.url)
-            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
-            .filter(
-                SectionAsset.section_id == section.id,
-                Asset.asset_type == 'image'
-            )
-            .order_by(SectionAsset.order)
-            .all()
-        )
-
-        pictures_by_section[section.id] = [asset.url for asset in section_assets]
-
-    sections_dict = [section.to_dict() for section in sections]
-
-    # public_page_content = {
-    #     'page_id': content.id,
-    #     'sections': sections_dict,
-    #     'pictures_by_section': pictures_by_section,
-    #     'background_color': content.background_color,
-    #     'text_color': content.text_color
-    # }
-    #
-    # return render_template('public.html', content=public_page_content)
-
-    section_groups = SectionGroup.query.filter_by(
-        page_content_id=content.id
-    ).order_by(SectionGroup.group_order).all()
-
-    public_page_content = {
-        'page_id': content.id,
-        'sections': sections_dict,
-        'page_slug': content.slug,
-        'current_page_url': url_for('public_page_by_slug', page_slug=content.slug),
-        'groups': [
-    {
-        'id': group.id,
-        'name': group.name,
-        'anchor_slug': group.anchor_slug,
-        'group_order': group.group_order,
-
-        'background_color': group.background_color or 'transparent',
-        'background_opacity': group.background_opacity,
-
-        'padding': group.padding,
-        'border_radius': group.border_radius,
-
-        'background_image_url': group.background_image_url,
-        'background_image_size': group.background_image_size or 'cover',
-        'background_image_position': group.background_image_position or 'center',
-        'background_overlay_color': group.background_overlay_color or 'transparent',
-        'background_overlay_opacity': group.background_overlay_opacity or 0
-    }
-    for group in section_groups
-],
-        'pictures_by_section': pictures_by_section,
-        'is_preview': True
-    }
-
-    return render_template(
-        'public.html',
-        website=website,
-        content=public_page_content
-    )
 
 
 def update_map_section(section, form_data):
@@ -6654,6 +7397,65 @@ def upload_public_navbar_icon(website_id):
         'icon_url': icon_url
     })
 
+def update_music_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'title': clean(form_data.get('music_title'), 'Music'),
+        'description': clean(form_data.get('music_description'), ''),
+        'layout': clean(form_data.get('music_layout'), 'list'),
+        'show_download': form_data.get('music_show_download') == 'on',
+        'show_track_numbers': form_data.get('music_show_track_numbers') == 'on',
+        'player_radius': safe_int(form_data.get('music_player_radius'), 18, 0, 40),
+    }
+
+    return section
+
+def update_video_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'title': clean(form_data.get('video_title'), 'Videos'),
+        'description': clean(form_data.get('video_description'), ''),
+        'layout': clean(form_data.get('video_layout'), 'grid'),
+        'show_download': form_data.get('video_show_download') == 'on',
+        'show_filenames': form_data.get('video_show_filenames') == 'on',
+        'corner_radius': safe_int(form_data.get('video_corner_radius'), 18, 0, 40),
+        'max_width': safe_int(form_data.get('video_max_width'), 900, 240, 1600),
+    }
+
+    return section
+
 @app.route('/update_section', methods=['POST'])
 @login_required
 def update_section():
@@ -6686,10 +7488,14 @@ def update_section():
     #     section = update_header_section(section, form_data)
     elif section_type == 'youtube_video':
         section = update_youtube_video_section(section, form_data)
+    elif section_type in ['video', 'videos']:
+        section = update_video_section(section, form_data)
     # elif section_type == 'navbar':
     #     section = update_navbar_section(section, form_data)
     elif section_type == 'link_card':
         section = update_link_card_section(section, form_data)
+    elif section_type == 'music':
+        section = update_music_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -7436,9 +8242,296 @@ def get_utc_start_for_user_local_days(days, user=None):
 
     return local_start.astimezone(pytz.utc).replace(tzinfo=None)
 
+@app.cli.command("disable-2fa")
+def disable_2fa_cli():
+    """Emergency disable 2FA for the admin account."""
+    user = User.query.first()
+
+    if not user:
+        print("No user found.")
+        return
+
+    disable_user_2fa(
+        user,
+        reason='an emergency server recovery command was used',
+        needs_attention=True
+    )
+
+    db.session.commit()
+
+    print(f"2FA disabled for {user.username}.")
+
+@app.cli.command("reset-admin-password")
+def reset_admin_password_cli():
+    """Emergency reset the admin password from the server terminal."""
+    import getpass
+
+    user = User.query.first()
+
+    if not user:
+        print("No user found.")
+        return
+
+    print(f"Resetting password for admin user: {user.username}")
+    new_password = getpass.getpass("New password: ")
+    confirm_password = getpass.getpass("Confirm password: ")
+
+    if not new_password:
+        print("Password cannot be empty.")
+        return
+
+    if new_password != confirm_password:
+        print("Passwords do not match.")
+        return
+
+    if len(new_password) < 10:
+        print("Password should be at least 10 characters.")
+        return
+
+    user.set_password(new_password)
+
+    # Optional but recommended for a true emergency reset:
+    disable_user_2fa(
+        user,
+        reason='an emergency admin password recovery was performed',
+        needs_attention=True
+    )
+
+    db.session.commit()
+
+    print(f"Password reset successfully for {user.username}.")
+    print("2FA was disabled. Log in, verify email settings, then re-enable 2FA.")
+
+def load_emergency_login_tokens():
+    if not os.path.exists(EMERGENCY_LOGIN_TOKENS_PATH):
+        return []
+
+    try:
+        with open(EMERGENCY_LOGIN_TOKENS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_emergency_login_tokens(tokens):
+    os.makedirs(os.path.dirname(EMERGENCY_LOGIN_TOKENS_PATH), exist_ok=True)
+
+    with open(EMERGENCY_LOGIN_TOKENS_PATH, 'w', encoding='utf-8') as f:
+        json.dump(tokens, f, indent=2)
+
+
+def hash_emergency_login_token(token):
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def cleanup_expired_emergency_login_tokens(tokens):
+    now = int(time.time())
+
+    return [
+        token_record
+        for token_record in tokens
+        if int(token_record.get('expires_at', 0)) > now
+    ]
+
+def get_security_config():
+    try:
+        with open(SECURITY_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+
+        config = DEFAULT_SECURITY_CONFIG.copy()
+        config.update(loaded)
+        return config
+
+    except FileNotFoundError:
+        return DEFAULT_SECURITY_CONFIG
+
+    except Exception as e:
+        print(f"Security config could not be loaded: {e}")
+        return DEFAULT_SECURITY_CONFIG
+
+
+def emergency_login_is_enabled():
+    config = get_security_config()
+    return bool(config.get("allow_emergency_login", False))
+
+
+def get_emergency_login_expiration_seconds():
+    config = get_security_config()
+
+    try:
+        minutes = int(config.get("emergency_login_expiration_minutes", 10))
+    except (TypeError, ValueError):
+        minutes = 10
+
+    minutes = max(1, min(minutes, 60))
+
+    return minutes * 60
+
+@app.cli.command("emergency-login")
+def emergency_login_cli():
+    """Create a one-time emergency admin login link without changing password or 2FA."""
+    if not emergency_login_is_enabled():
+        print("Emergency login is disabled in config/security.json.")
+        print("Set allow_emergency_login to true, then run this command again.")
+        return
+    user = User.query.first()
+
+    if not user:
+        print("No admin user found.")
+        return
+
+    confirm = input(
+        "This creates a one-time admin login link that bypasses password and 2FA. Type EMERGENCY to continue: "
+    ).strip()
+
+    if confirm != "EMERGENCY":
+        print("Emergency login cancelled.")
+        return
+
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = hash_emergency_login_token(raw_token)
+
+    now = int(time.time())
+    expires_at = now + get_emergency_login_expiration_seconds()
+
+    tokens = cleanup_expired_emergency_login_tokens(load_emergency_login_tokens())
+
+    tokens.append({
+        "token_hash": token_hash,
+        "user_id": user.id,
+        "created_at": now,
+        "expires_at": expires_at,
+        "used": False
+    })
+
+    save_emergency_login_tokens(tokens)
+
+    path = f"/admin/emergency-login/{raw_token}"
+    full_url = f"{get_emergency_login_base_url()}{path}"
+
+    print("")
+    print("========================================")
+    print("UWEBIA EMERGENCY LOGIN LINK")
+    print("This link is single-use.")
+    print("")
+    print(f"Path: {path}")
+    print(f"URL:  {full_url}")
+    print("========================================")
+    print("")
+
+
+def get_emergency_login_base_url():
+    config = get_security_config()
+
+    base_url = (config.get("emergency_login_base_url") or "").strip()
+
+    if not base_url:
+        return "http://127.0.0.1:5000"
+
+    return base_url.rstrip("/")
+
+@app.route('/admin/emergency-login/<token>')
+def emergency_login(token):
+    if not emergency_login_is_enabled():
+        return "Emergency login is disabled.", 404
+    token_hash = hash_emergency_login_token(token)
+
+    tokens = cleanup_expired_emergency_login_tokens(load_emergency_login_tokens())
+
+    matching_token = None
+
+    for token_record in tokens:
+        if (
+            token_record.get('token_hash') == token_hash
+            and not token_record.get('used')
+        ):
+            matching_token = token_record
+            break
+
+    if not matching_token:
+        save_emergency_login_tokens(tokens)
+        return "Emergency login link is invalid or expired.", 404
+
+    user = User.query.get(matching_token.get('user_id'))
+
+    if not user:
+        return "Emergency login user not found.", 404
+
+    # Mark token as used and save before logging in.
+    matching_token['used'] = True
+    matching_token['used_at'] = int(time.time())
+    save_emergency_login_tokens(tokens)
+
+    login_user(user)
+
+    if admin_url_key_required_for_user(user):
+        session['admin_path_verified'] = True
+
+    user.two_factor_disabled_reason = 'an emergency server login link was used'
+    user.two_factor_disabled_at = datetime.utcnow()
+    user.two_factor_needs_attention = True
+
+    db.session.commit()
+
+    flash(
+        'Emergency login successful. Please review your security settings.',
+        'warning'
+    )
+
+    return redirect(url_for('dashboard'))
+
+@app.cli.command("audit-assets")
+def audit_assets_cli():
+    """Scan uploaded asset files for orphans and missing database files."""
+    users = User.query.all()
+
+    if not users:
+        print("No users found.")
+        return
+
+    total_orphans = 0
+    total_missing = 0
+    total_orphan_bytes = 0
+
+    for user in users:
+        report = scan_user_asset_folder(user.id)
+
+        total_orphans += len(report["orphan_files"])
+        total_missing += len(report["missing_files"])
+        total_orphan_bytes += report["orphan_bytes"]
+
+        print("")
+        print("========================================")
+        print(f"User: {user.username} ({user.id})")
+        print(f"Folder: {report['asset_folder']}")
+        print(f"Database files: {report['referenced_count']}")
+        print(f"Disk files: {report['actual_count']}")
+        print(f"Orphan files: {len(report['orphan_files'])}")
+        print(f"Missing files: {len(report['missing_files'])}")
+        print(f"Orphan size: {format_bytes(report['orphan_bytes'])}")
+
+        if report["orphan_files"]:
+            print("")
+            print("Orphans:")
+            for filename in report["orphan_files"]:
+                print(f"  - {filename}")
+
+        if report["missing_files"]:
+            print("")
+            print("Missing database files:")
+            for filename in report["missing_files"]:
+                print(f"  - {filename}")
+
+    print("")
+    print("========================================")
+    print("ASSET AUDIT SUMMARY")
+    print(f"Total orphan files: {total_orphans}")
+    print(f"Total missing files: {total_missing}")
+    print(f"Total orphan size: {format_bytes(total_orphan_bytes)}")
+
 if __name__ == '__main__':
     # Run migrations
-    # run_migrations()
+    run_migrations()
 
     # Create all tables
     with app.app_context():

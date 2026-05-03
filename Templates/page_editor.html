@@ -3,8 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Web Builder</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
@@ -41,21 +40,34 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/navbar.html' %}
+
 {% include 'components/photo_library_modal.html' %}
 <script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
+
+{% include 'components/music_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/music_library_modal.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/music_library_modal.css') }}">
+
+{% include 'components/video_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/video_library_modal.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/video_library_modal.css') }}">
+
 <style>
     html,
     body {
         font-family: 'Roboto', sans-serif;
-        display: flex;
-        flex-direction: column;
         margin: 0;
         padding: 0;
-        height: 100%;
-        overflow: hidden;
-        /* background: linear-gradient(135deg, #1e1e22, #2a2d32, #1a1b1f); */
-        /* color: #ffffff; */
-        /* Prevent body from scrolling */
+        width: 100%;
+        min-height: 100%;
+        overflow-x: hidden;
+    }
+
+    body {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
     }
 
     :root {
@@ -72,7 +84,7 @@
         position: sticky;
         top: var(--main-navbar-height, 56px);
         display: grid;
-       grid-template-columns: 1fr auto;
+        grid-template-columns: 1fr auto;
         align-items: center;
         gap: 12px;
 
@@ -176,23 +188,24 @@
         font-size: 21px;
         font-weight: 600;
     }
-.editor-page-title {
-    text-align: center;
-    width: fit-content;
-    max-width: 80%;
-    margin: 0 auto auto;
-    padding: 10px;
 
-    font-size: 1.35rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    .editor-page-title {
+        text-align: center;
+        width: fit-content;
+        max-width: 80%;
+        margin: 0 auto auto;
+        padding: 10px;
 
-    color: #f5f5f5;
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
 
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-    backdrop-filter: blur(10px);
-}
+        color: #f5f5f5;
+
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        backdrop-filter: blur(10px);
+    }
 
     /* Publish pill */
     .editor-navbar .publish_page {
@@ -345,17 +358,17 @@
 
 
     .big-content-container {
-
         display: flex;
         flex-direction: column;
-        /* Change to column layout for mobile */
-        height: calc(91vh);
-        /* height: 100%; */
-        /* Adjust for navbar height */
+        flex: 1 1 auto;
+
+        height: calc(100dvh - var(--main-navbar-height, 56px) - 52px);
+        min-height: 0;
+
         max-width: 100vw;
-        /* Set max width to fill the screen */
+        overflow: hidden;
+
         user-select: none;
-        /* Prevent highlighting */
     }
 
     @media (min-width: 769px) {
@@ -397,7 +410,7 @@
         /* Limit the height */
         /* overflow-y: auto; */
         position: relative;
-        padding-bottom: 25vw;
+        /* padding-bottom: 25vw; */
         user-select: none;
         /* Prevent highlighting */
     }
@@ -1355,7 +1368,7 @@
         overflow: auto;
         background-color: rgba(0, 0, 0, 0.6);
         /* Darken background */
-        z-index: 999999;
+        z-index: 1000002;
     }
 
     .modal-content {
@@ -2563,7 +2576,7 @@
     }
 
     .content-sections-container {
-        padding: 18px 18px 30vh;
+        /* padding: 18px 18px 30vh; */
         box-sizing: border-box;
     }
 
@@ -2948,7 +2961,8 @@
 
         background:
             linear-gradient(135deg, rgba(41, 45, 54, 1), rgba(30, 33, 40, 1));
-        border-color: rgba(126, 226, 204, 0.30);
+        border-color: rgb(126 226 204);
+        border-width: medium;
         border-bottom-color: rgba(255, 255, 255, 0.06);
 
         border-bottom-left-radius: 6px;
@@ -3287,7 +3301,7 @@
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.105);
 
-        background: rgba(255, 255, 255, 0.07);
+        background: rgb(34 48 50);
         color: #ffffff;
 
         font-size: 12px;
@@ -3304,7 +3318,7 @@
     .section-content button:hover,
     .editor-controls button:hover,
     .btn-secondary:hover {
-        background: rgba(126, 226, 204, 0.14);
+        background: rgba(80, 204, 177, 0.69);
         border-color: rgba(126, 226, 204, 0.32);
         transform: translateY(-1px);
         box-shadow: 0 8px 18px rgba(0, 0, 0, 0.20);
@@ -3316,7 +3330,7 @@
 
     @media (max-width: 900px) {
         .content-sections-container {
-            padding: 12px 12px 28vh;
+            padding: 12px 12px 180px;
         }
 
         .section-group {
@@ -3532,667 +3546,1579 @@
    GROUP CONTAINER UI - clearer folder/container styling
 ========================================================= */
 
-.section-group {
-    position: relative;
-    margin: 18px 0;
-    padding: 0;
+    .section-group {
+        position: relative;
+        margin: 18px 0;
+        padding: 0;
 
-    border-radius: 24px;
-    border: 1px solid rgba(126, 226, 204, 0.24);
+        border-radius: 24px;
+        border: 1px solid rgba(126, 226, 204, 0.24);
 
-    background: transparent !important;
-    box-shadow:
-        0 22px 55px rgba(0, 0, 0, 0.34),
-        0 0 0 1px rgba(255, 255, 255, 0.035);
+        background: transparent !important;
+        box-shadow:
+            0 22px 55px rgba(0, 0, 0, 0.34),
+            0 0 0 1px rgba(255, 255, 255, 0.035);
 
-    overflow: visible;
-    isolation: isolate;
-}
-
-/* subtle container label feel */
-.section-group::before {
-    border-radius: inherit;
-}
-
-.section-group::after {
-    border-radius: inherit;
-}
-
-.section-group-header {
-    position: relative;
-
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-
-    min-height: 62px;
-    margin: 0;
-    padding: 12px 14px;
-
-    color: var(--editor-text);
-    background:
-        linear-gradient(135deg, rgba(126, 226, 204, 0.16), rgba(255, 255, 255, 0.06)),
-        rgba(18, 21, 26, 0.88);
-
-    border-bottom: 1px solid rgba(126, 226, 204, 0.18);
-    border-radius: 24px 24px 0 0;
-
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 10px 24px rgba(0, 0, 0, 0.22);
-
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-}
-
-.section-group-header-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    flex: 1;
-}
-
-.group-collapse-toggle,
-.group-drag-handle {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
-
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-
-    color: var(--editor-accent);
-    background: rgba(126, 226, 204, 0.10);
-    border: 1px solid rgba(126, 226, 204, 0.22);
-    border-radius: 12px;
-
-    font-size: 14px;
-    cursor: pointer;
-
-    transition:
-        background 0.16s ease,
-        border-color 0.16s ease,
-        transform 0.16s ease;
-}
-
-.group-drag-handle {
-    cursor: grab;
-}
-
-.group-drag-handle:active {
-    cursor: grabbing;
-}
-
-.group-collapse-toggle:hover,
-.group-drag-handle:hover {
-    background: rgba(126, 226, 204, 0.18);
-    border-color: rgba(126, 226, 204, 0.42);
-    transform: translateY(-1px);
-}
-
-.group-collapse-toggle i {
-    transition: transform 0.18s ease;
-}
-
-.section-group.collapsed .group-collapse-toggle i {
-    transform: rotate(-90deg);
-}
-
-.section-group-title-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-    flex: 1;
-}
-
-.editable-group-label {
-    display: inline-block;
-    width: fit-content;
-    max-width: 100%;
-
-    padding: 4px 8px;
-    border-radius: 10px;
-
-    color: #ffffff;
-    font-size: 1rem;
-    font-weight: 900;
-    letter-spacing: 0.01em;
-    line-height: 1.15;
-
-    outline: none;
-    cursor: text;
-
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.editable-group-label:hover {
-    background: rgba(255, 255, 255, 0.075);
-}
-
-.editable-group-label:focus {
-    background: rgba(255, 255, 255, 0.105);
-    box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.34);
-    white-space: normal;
-}
-
-.section-group-meta {
-    padding-left: 8px;
-    color: rgba(244, 246, 248, 0.58);
-    font-size: 0.75rem;
-    font-weight: 800;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-}
-
-.group-row-count {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.group-row-count::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: rgba(126, 226, 204, 0.75);
-    box-shadow: 0 0 12px rgba(126, 226, 204, 0.34);
-}
-
-.section-group-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: nowrap;
-}
-
-.section-group-actions button {
-    min-height: 34px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-
-    padding: 0 11px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.11);
-
-    color: #eef2f4;
-    background: rgba(255, 255, 255, 0.075);
-
-    font-size: 12px;
-    font-weight: 850;
-    cursor: pointer;
-
-    transition:
-        background 0.16s ease,
-        border-color 0.16s ease,
-        transform 0.16s ease,
-        box-shadow 0.16s ease;
-}
-
-.section-group-actions button:hover {
-    background: rgba(126, 226, 204, 0.14);
-    border-color: rgba(126, 226, 204, 0.34);
-    transform: translateY(-1px);
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
-}
-
-.section-group-actions .danger-action:hover {
-    background: rgba(255, 122, 144, 0.14);
-    border-color: rgba(255, 122, 144, 0.34);
-    color: #ffe7ec;
-}
-
-/* Group body */
-.group-rows-shell {
-    padding: 14px;
-    border-radius: 0 0 24px 24px;
-
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.018)),
-        rgba(8, 10, 14, 0.18);
-}
-
-.group-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-height: 66px;
-
-    padding: 12px;
-    border: 1px dashed rgba(126, 226, 204, 0.20);
-    border-radius: 18px;
-
-    background: rgba(0, 0, 0, 0.12);
-}
-
-/* Empty state */
-.empty-group-message {
-    margin: 0;
-    padding: 18px !important;
-
-    border: 1px dashed rgba(255, 255, 255, 0.16);
-    border-radius: 16px;
-
-    background: rgba(255, 255, 255, 0.035);
-    color: rgba(244, 246, 248, 0.56) !important;
-
-    text-align: center;
-    font-size: 0.86rem;
-    font-weight: 750;
-    letter-spacing: 0.02em;
-}
-
-/* Collapsed group */
-.section-group.collapsed .group-rows-shell {
-    display: none;
-}
-
-.section-group.collapsed .section-group-header {
-    border-radius: 24px;
-    border-bottom-color: transparent;
-}
-
-.section-group.collapsed {
-    box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.26),
-        0 0 0 1px rgba(126, 226, 204, 0.08);
-}
-
-/* Sorting states */
-body.is-sorting-rows .section-group.collapsed .group-rows-shell {
-    display: block;
-}
-
-body.is-sorting-rows .section-group.collapsed .group-rows {
-    min-height: 52px;
-}
-
-body.is-sorting-rows .section-group {
-    border-color: rgba(126, 226, 204, 0.40);
-}
-
-/* Mobile */
-@media (max-width: 900px) {
-    .section-group-header {
-        flex-wrap: wrap;
+        overflow: visible;
+        isolation: isolate;
     }
 
-    .section-group-actions {
-        width: 100%;
-        justify-content: flex-end;
-        flex-wrap: wrap;
+    /* subtle container label feel */
+    .section-group::before {
+        border-radius: inherit;
+    }
+
+    .section-group::after {
+        border-radius: inherit;
+    }
+
+    .section-group-header {
+        position: relative;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+
+        min-height: 62px;
+        margin: 0;
+        padding: 12px 14px;
+
+        color: var(--editor-text);
+        background:
+            linear-gradient(135deg, rgba(126, 226, 204, 0.16), rgba(255, 255, 255, 0.06)),
+            rgba(18, 21, 26, 0.88);
+
+        border-bottom: 1px solid rgba(126, 226, 204, 0.18);
+        border-radius: 24px 24px 0 0;
+
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.08),
+            0 10px 24px rgba(0, 0, 0, 0.22);
+
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+    }
+
+    .section-group-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .group-collapse-toggle,
+    .group-drag-handle {
+        width: 34px;
+        height: 34px;
+        min-width: 34px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        color: var(--editor-accent);
+        background: rgba(126, 226, 204, 0.10);
+        border: 1px solid rgba(126, 226, 204, 0.22);
+        border-radius: 12px;
+
+        font-size: 14px;
+        cursor: pointer;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.16s ease;
+    }
+
+    .group-drag-handle {
+        cursor: grab;
+    }
+
+    .group-drag-handle:active {
+        cursor: grabbing;
+    }
+
+    .group-collapse-toggle:hover,
+    .group-drag-handle:hover {
+        background: rgba(126, 226, 204, 0.18);
+        border-color: rgba(126, 226, 204, 0.42);
+        transform: translateY(-1px);
+    }
+
+    .group-collapse-toggle i {
+        transition: transform 0.18s ease;
+    }
+
+    .section-group.collapsed .group-collapse-toggle i {
+        transform: rotate(-90deg);
+    }
+
+    .section-group-title-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+        flex: 1;
     }
 
     .editable-group-label {
+        display: inline-block;
+        width: fit-content;
+        max-width: 100%;
+
+        padding: 4px 8px;
+        border-radius: 10px;
+
+        color: #ffffff;
+        font-size: 1rem;
+        font-weight: 900;
+        letter-spacing: 0.01em;
+        line-height: 1.15;
+
+        outline: none;
+        cursor: text;
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .editable-group-label:hover {
+        background: rgba(255, 255, 255, 0.075);
+    }
+
+    .editable-group-label:focus {
+        background: rgba(255, 255, 255, 0.105);
+        box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.34);
         white-space: normal;
     }
-}
-.section-group-title-stack::before {
-    content: "Group";
-    width: fit-content;
 
-    padding: 3px 7px;
-    border-radius: 999px;
+    .section-group-meta {
+        padding-left: 8px;
+        color: rgba(244, 246, 248, 0.58);
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+    }
 
-    color: rgba(126, 226, 204, 0.92);
-    background: rgba(126, 226, 204, 0.10);
-    border: 1px solid rgba(126, 226, 204, 0.20);
+    .group-row-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
 
-    font-size: 0.64rem;
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
+    .group-row-count::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(126, 226, 204, 0.75);
+        box-shadow: 0 0 12px rgba(126, 226, 204, 0.34);
+    }
 
-/* =========================================================
+    .section-group-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
+    }
+
+    .section-group-actions button {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+
+        padding: 0 11px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.11);
+
+        color: #eef2f4;
+        background: rgba(255, 255, 255, 0.075);
+
+        font-size: 12px;
+        font-weight: 850;
+        cursor: pointer;
+
+        transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.16s ease,
+            box-shadow 0.16s ease;
+    }
+
+    .section-group-actions button:hover {
+        background: rgba(126, 226, 204, 0.14);
+        border-color: rgba(126, 226, 204, 0.34);
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+    }
+
+    .section-group-actions .danger-action:hover {
+        background: rgba(255, 122, 144, 0.14);
+        border-color: rgba(255, 122, 144, 0.34);
+        color: #ffe7ec;
+    }
+
+    /* Group body */
+    .group-rows-shell {
+        /* padding: 14px; */
+        border-radius: 0 0 24px 24px;
+
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.018)),
+            rgba(8, 10, 14, 0.18);
+    }
+
+    .group-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 66px;
+
+        padding: 12px;
+        border: 1px dashed rgba(126, 226, 204, 0.20);
+        border-radius: 18px;
+
+        background: rgba(0, 0, 0, 0.12);
+    }
+
+    /* Empty state */
+    .empty-group-message {
+        margin: 0;
+        padding: 18px !important;
+
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+        border-radius: 16px;
+
+        background: rgba(255, 255, 255, 0.035);
+        color: rgba(244, 246, 248, 0.56) !important;
+
+        text-align: center;
+        font-size: 0.86rem;
+        font-weight: 750;
+        letter-spacing: 0.02em;
+    }
+
+    /* Collapsed group */
+    .section-group.collapsed .group-rows-shell {
+        display: none;
+    }
+
+    .section-group.collapsed .section-group-header {
+        border-radius: 24px;
+        border-bottom-color: transparent;
+    }
+
+    .section-group.collapsed {
+        box-shadow:
+            0 12px 30px rgba(0, 0, 0, 0.26),
+            0 0 0 1px rgba(126, 226, 204, 0.08);
+    }
+
+    /* Sorting states */
+    body.is-sorting-rows .section-group.collapsed .group-rows-shell {
+        display: block;
+    }
+
+    body.is-sorting-rows .section-group.collapsed .group-rows {
+        min-height: 52px;
+    }
+
+    body.is-sorting-rows .section-group {
+        border-color: rgba(126, 226, 204, 0.40);
+    }
+
+    /* Mobile */
+    @media (max-width: 900px) {
+        .section-group-header {
+            flex-wrap: wrap;
+        }
+
+        .section-group-actions {
+            width: 100%;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .editable-group-label {
+            white-space: normal;
+        }
+    }
+
+    .section-group-title-stack::before {
+        content: "Group";
+        width: fit-content;
+
+        padding: 3px 7px;
+        border-radius: 999px;
+
+        color: rgba(126, 226, 204, 0.92);
+        background: rgba(126, 226, 204, 0.10);
+        border: 1px solid rgba(126, 226, 204, 0.20);
+
+        font-size: 0.64rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    /* =========================================================
    CLEAN EDITOR HIERARCHY
    Keep outlines on: Groups, Rows, Sections
    Remove visual boxes from: Columns, group rows shell, section content
 ========================================================= */
 
-/* GROUP: one clear outer container only */
-.section-group {
-    border: 1.5px solid rgba(126, 226, 204, 0.42);
-    border-radius: 24px;
-    background: transparent !important;
-    box-shadow: none !important;
-    padding: 0 !important;
+    /* GROUP: one clear outer container only */
+    .section-group {
+        border: 1.5px solid rgba(126, 226, 204, 0.42);
+        border-radius: 24px;
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }
+
+    /* Remove the extra square/layered pseudo-box look */
+    .section-group::before,
+    .section-group::after {
+        display: none !important;
+        content: none !important;
+    }
+
+    /* GROUP HEADER: keep it strong, but not boxy */
+    .section-group-header {
+        margin: 0;
+        border-radius: 24px 24px 0 0;
+
+        border: none;
+        border-bottom: 1px solid rgba(126, 226, 204, 0.18);
+
+        background:
+            linear-gradient(135deg, rgba(126, 226, 204, 0.14), rgba(255, 255, 255, 0.045)),
+            rgba(20, 23, 29, 0.88);
+
+        box-shadow: none;
+    }
+
+    /* GROUP BODY: no extra border box */
+    .group-rows-shell {
+        background:
+            var(--group-bg-image, none),
+            var(--group-bg, transparent) !important;
+
+        background-size:
+            var(--group-bg-size, cover),
+            auto !important;
+
+        background-position:
+            var(--group-bg-position, center),
+            center !important;
+
+        background-repeat:
+            var(--group-bg-repeat, no-repeat),
+            no-repeat !important;
+
+        border-radius: 0 0 24px 24px;
+        /* overflow: hidden; */
+    }
+
+    /* GROUP ROWS: remove dashed container outline */
+    .group-rows {
+        gap: 12px;
+        min-height: 52px;
+
+        padding: 0;
+        border: none;
+        border-radius: 0;
+
+        background: transparent;
+        box-shadow: none;
+    }
+
+    /* Empty group should still be visible but gentle */
+    .empty-group-message {
+        margin: 0;
+        padding: 16px !important;
+
+        border: 1px dashed rgba(126, 226, 204, 0.22);
+        border-radius: 16px;
+
+        background: rgba(126, 226, 204, 0.055);
+        color: rgba(244, 246, 248, 0.58) !important;
+
+        box-shadow: none;
+    }
+
+    /* ROW: keep row outline because this is an important layout level */
+    .row {
+        padding: 10px;
+        gap: 10px;
+
+        border: 1px solid rgba(255, 255, 255, 0.105);
+        border-radius: 18px;
+
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.060), rgba(255, 255, 255, 0.025));
+
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+    }
+
+    .row:hover {
+        border-color: rgba(126, 226, 204, 0.28);
+        background:
+            linear-gradient(135deg, rgba(126, 226, 204, 0.055), rgba(255, 255, 255, 0.030));
+    }
+
+    /* COLUMNS: remove card/outline styling */
+    .column {
+        padding: 0;
+        margin: 0;
+
+        border: none !important;
+        border-radius: 0;
+
+        background: transparent !important;
+        box-shadow: none !important;
+
+        min-height: 48px;
+    }
+
+    /* Keep subtle spacing between columns without outlining them */
+    .column+.column {
+        margin-left: 0;
+    }
+
+    /* Optional: make empty cells visible without feeling like another container */
+    .empty-cell-hint {
+        min-height: 44px;
+
+        border: 1px dashed rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+
+        background: rgba(255, 255, 255, 0.025);
+        color: rgba(255, 255, 255, 0.38);
+
+        box-shadow: none;
+    }
+
+    /* SECTION: keep section outline/card */
+    .section-card {
+        width: 100%;
+    }
+
+    .section-title {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+
+        background:
+            linear-gradient(135deg, rgba(45, 49, 58, 0.98), rgba(31, 34, 41, 0.98));
+
+        box-shadow:
+            0 6px 16px rgba(0, 0, 0, 0.20),
+            inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    }
+
+    .section-title:hover {
+        border-color: rgba(126, 226, 204, 0.32);
+    }
+
+    /* SECTION CONTENT: remove the heavy outlined box */
+    .section-content {
+        border: none !important;
+        border-radius: 0 0 16px 16px;
+
+        background:
+            linear-gradient(145deg, rgba(28, 31, 38, 0.98), rgba(22, 24, 30, 0.98));
+
+        box-shadow:
+            0 16px 34px rgba(0, 0, 0, 0.32);
+
+        outline: none;
+    }
+
+    /* Inner section containers should not add another outline */
+    .section-container,
+    .page-body-container,
+    .contact-form-container,
+    .map-marker-container,
+    .youtube-video-container,
+    .calendar-container,
+    .uploaded-images-container,
+    .update-text-container {
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        padding: 8px;
+    }
+
+    /* Resize handles should remain visible but cleaner */
+    .column-resize-handle {
+        width: 7px;
+        min-width: 7px;
+        margin: 6px 2px;
+
+        border-radius: 999px;
+        background: rgba(126, 226, 204, 0.58);
+        box-shadow: none;
+
+        opacity: 0.55;
+    }
+
+    .column-resize-handle:hover {
+        opacity: 1;
+        transform: scaleX(1.15);
+        box-shadow: 0 0 14px rgba(126, 226, 204, 0.22);
+    }
+
+    /* Drop target feedback can temporarily show column borders while dragging sections */
+    body.is-sorting-sections .column {
+        border: 1px dashed rgba(126, 226, 204, 0.18) !important;
+        border-radius: 14px;
+        padding: 6px;
+    }
+
+    body.is-sorting-sections .section-drop-hover {
+        border-color: rgba(126, 226, 204, 0.62) !important;
+        background: rgba(126, 226, 204, 0.09) !important;
+    }
+
+    /* Collapsed groups should look like a single clean pill/card */
+    .section-group.collapsed {
+        background: rgba(255, 255, 255, 0.025) !important;
+    }
+
+    .section-group.collapsed .section-group-header {
+        border-radius: 24px;
+        border-bottom: none;
+    }
+
+    .uploaded-images ul.sortable {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: flex-start;
+        min-height: 132px;
+        padding: 10px;
+        margin: 8px 0 0;
+
+        list-style: none;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .uploaded-images li.image-thumb-item {
+        width: 150px;
+        height: 120px;
+        padding: 0;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        position: relative;
+        overflow: hidden;
+
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.22);
+
+        cursor: grab;
+        z-index: auto;
+    }
+
+    .uploaded-images li.image-thumb-item:active {
+        cursor: grabbing;
+    }
+
+    .uploaded-images li.image-thumb-item img {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+
+        object-fit: cover;
+        border: none;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .uploaded-images li.image-thumb-item .image-checkbox {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 2;
+    }
+
+    .image-sortable-ghost {
+        opacity: 0.35;
+    }
+
+    .image-sortable-chosen {
+        border-color: rgba(126, 226, 204, 0.65) !important;
+        box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.24);
+    }
+
+    .image-sortable-drag {
+        opacity: 0.95;
+    }
+
+    body.is-sorting-images .section-card,
+    body.is-sorting-images .row,
+    body.is-sorting-images .section-group {
+        pointer-events: auto !important;
+    }
+
+    .image-sortable-fallback,
+    .sortable-fallback.image-sortable-fallback {
+        width: 150px !important;
+        height: 120px !important;
+        max-width: 150px !important;
+        max-height: 120px !important;
+
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+
+        overflow: hidden !important;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.28);
+        border: 1px solid rgba(126, 226, 204, 0.55);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.36);
+
+        opacity: 0.96 !important;
+        pointer-events: none !important;
+    }
+
+    .image-sortable-fallback img,
+    .sortable-fallback.image-sortable-fallback img {
+        width: 100% !important;
+        height: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        object-fit: cover !important;
+        border: none !important;
+    }
+
+    .image-delete-button {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 3;
+
+        width: 30px;
+        height: 30px;
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 0;
+        border: 1px solid rgba(255, 122, 144, 0.42);
+        border-radius: 10px;
+
+        color: #ffe7ec;
+        background: rgba(20, 20, 24, 0.72);
+
+        cursor: pointer;
+        opacity: 0;
+        transform: translateY(-2px);
+
+        transition:
+            opacity 0.16s ease,
+            transform 0.16s ease,
+            background 0.16s ease,
+            border-color 0.16s ease;
+    }
+
+    .image-thumb-item:hover .image-delete-button {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .image-delete-button:hover {
+        background: rgba(255, 122, 144, 0.22);
+        border-color: rgba(255, 122, 144, 0.70);
+    }
+
+    .image-delete-button i {
+        font-size: 13px;
+        pointer-events: none;
+    }
+
+    /* =========================================================
+   COMPACT RESPONSIVE EDITOR UI FIXES
+   Prevent crowded buttons, overflowing labels, and dropdown layering
+========================================================= */
+
+    /* ---------- Safer button text behavior ---------- */
+
+    .section-group-actions button,
+    .section-content button,
+    .editor-controls button,
+    .btn-secondary,
+    .column>button,
+    .delete-column-button {
+        max-width: 100%;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .section-group-actions button span,
+    .editor-controls button span,
+    .btn-secondary span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Group header should allow the title and actions to share space better */
+    .section-group-header {
+        min-width: 0;
+    }
+
+    .section-group-header-left {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .section-group-title-stack {
+        min-width: 0;
+    }
+
+    .editable-group-label {
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    /* Actions should shrink without forcing overflow */
+    .section-group-actions {
+        flex: 0 1 auto;
+        min-width: 0;
+    }
+
+    /* ---------- Section title layout ---------- */
+
+    .section-title {
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+
+        min-width: 0;
+        overflow: visible;
+    }
+
+    .section-drag-handle {
+        grid-column: 1;
+    }
+
+    .section-label {
+        grid-column: 2;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .section-title .dropdown {
+        grid-column: 3;
+        justify-self: end;
+        margin-left: 0 !important;
+        position: relative;
+        z-index: 200002;
+    }
+
+    /* ---------- Row options should not sit on top of section dropdown ---------- */
+
+    .row {
+        position: relative;
+        padding-right: 48px;
+        overflow: visible !important;
+    }
+
+    .options-dropdown {
+        position: absolute;
+        top: 10px !important;
+        right: 10px !important;
+        transform: none !important;
+        margin: 0 !important;
+        z-index: 80;
+    }
+
+    /* When a section dropdown is active, let it beat the row gear */
+    .row:has(.section-title .dropdown:hover) .options-dropdown,
+    .row:has(.section-title .dropdown:focus-within) .options-dropdown {
+        z-index: 10;
+        opacity: 0.35;
+        pointer-events: none;
+    }
+
+    .row:has(.options-dropdown:hover),
+    .row:has(.options-dropdown:focus-within),
+    .column:has(.dropdown:hover),
+    .column:has(.dropdown:focus-within),
+    .section-card:has(.dropdown:hover),
+    .section-card:has(.dropdown:focus-within) {
+        z-index: 999999;
+    }
+
+    /* ---------- Dropdown menus ---------- */
+
+    .dropdown-content {
+        max-width: min(220px, calc(100vw - 28px));
+        min-width: 160px;
+
+        white-space: nowrap;
+        overflow: hidden;
+        z-index: 999999 !important;
+    }
+
+    .dropdown-content a {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .section-title .dropdown-content,
+    .options-dropdown .dropdown-content {
+        position: absolute;
+        right: 0;
+        left: auto;
+        top: 100% !important;
+        max-width: calc(100vw - 24px);
+    }
+
+    .dropdown-content {
+        position: absolute;
+        top: 100% !important;
+        min-width: 160px;
+        max-width: min(220px, calc(100vw - 24px));
+    }
+
+    .dropdown-content.dropdown-align-left {
+        left: 0 !important;
+        right: auto !important;
+    }
+
+    .dropdown-content.dropdown-align-right {
+        right: 0 !important;
+        left: auto !important;
+    }
+
+    /* ---------- Compact small-screen mode ---------- */
+
+    @media (max-width: 700px) {
+        .content-sections-container {
+            padding: 10px 8px 28vh;
+        }
+
+        .section-group {
+            margin: 12px 0;
+            border-radius: 18px;
+        }
+
+        .section-group-header {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            align-items: center;
+
+            min-height: 0;
+            padding: 10px;
+            border-radius: 18px 18px 0 0;
+        }
+
+        .section-group-header-left {
+            min-width: 0;
+            gap: 7px;
+        }
+
+        .group-collapse-toggle,
+        .group-drag-handle {
+            width: 30px;
+            height: 30px;
+            min-width: 30px;
+            border-radius: 10px;
+            font-size: 13px;
+        }
+
+        .section-group-title-stack::before {
+            display: none;
+            content: none;
+        }
+
+        .editable-group-label {
+            font-size: 0.88rem;
+            padding: 3px 6px;
+            white-space: nowrap;
+        }
+
+        .section-group-meta {
+            padding-left: 6px;
+            font-size: 0.68rem;
+        }
+
+        .section-group-actions {
+            width: auto !important;
+            justify-content: flex-end;
+            flex-wrap: nowrap;
+            gap: 6px;
+        }
+
+        /* Make group action buttons icon-only on small screens */
+        .section-group-actions button {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            min-height: 32px;
+            padding: 0 !important;
+            border-radius: 10px;
+        }
+
+        .section-group-actions button span {
+            display: none !important;
+        }
+
+        .section-group-actions button i {
+            margin: 0;
+            font-size: 13px;
+        }
+
+        .group-rows-shell {
+            /* padding: 10px; */
+            border-radius: 0 0 18px 18px;
+        }
+
+        .row {
+            gap: 7px;
+            padding: 8px 42px 8px 8px;
+            border-radius: 14px;
+            overflow-x: auto !important;
+            overflow-y: visible !important;
+        }
+
+        .row-drag-handle {
+            width: 28px;
+            min-width: 28px;
+            border-radius: 10px;
+        }
+
+        .options-dropdown {
+            top: 8px !important;
+            right: 8px !important;
+        }
+
+        .options-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 10px;
+        }
+
+        .column {
+            min-width: 150px;
+        }
+
+        .section-title {
+            min-height: 38px;
+            padding: 7px;
+            gap: 6px;
+            border-radius: 11px;
+            font-size: 0.72rem;
+            letter-spacing: 0.025em;
+        }
+
+        .section-drag-handle,
+        .dropbtn {
+            width: 27px;
+            height: 27px;
+            min-width: 27px;
+            border-radius: 9px;
+        }
+
+        .section-label {
+            max-width: 100%;
+        }
+
+        .section-content.open {
+            padding: 10px;
+        }
+
+        .dropdown-content {
+            min-width: 150px;
+            max-width: min(190px, calc(100vw - 24px));
+            padding: 6px;
+            border-radius: 12px;
+        }
+
+        .dropdown-content a {
+            min-height: 32px;
+            padding: 7px 9px;
+            font-size: 11px;
+        }
+
+        .image-editor-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .image-editor-header .btn-secondary {
+            width: 100%;
+        }
+
+        .image-layout-panel {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Extra tiny screens */
+    @media (max-width: 430px) {
+        .section-group-header {
+            grid-template-columns: 1fr;
+        }
+
+        .section-group-actions {
+            justify-content: flex-start;
+        }
+
+        .column {
+            min-width: 135px;
+        }
+
+        .section-title {
+            font-size: 0.68rem;
+        }
+
+        .dropdown-content {
+            min-width: 142px;
+        }
+    }
+
+    .row.dropdown-active {
+        z-index: 999999;
+    }
+
+    /* =========================================================
+   FIX DROPDOWN CLIPPING + COLUMN RESIZE + SMALL SECTION LABELS
+========================================================= */
+
+    /* 1. Let dropdowns escape groups/rows/columns */
+    .section-group,
+    .group-rows-shell,
+    .group-rows,
+    .row,
+    .column,
+    .section-card,
+    .section-title {
+        overflow: visible !important;
+    }
+
+    /* This was clipping dropdowns inside groups */
+    .group-rows-shell {
+        overflow: visible !important;
+    }
+
+    /* Row horizontal scrolling clips dropdowns. Keep the row visible instead. */
+    .row {
+        overflow: visible !important;
+    }
+
+    /* Keep dropdowns above nearby row/section controls */
+    .section-group:has(.dropdown:hover),
+    .section-group:has(.dropdown:focus-within),
+    .section-group:has(.options-dropdown:hover),
+    .section-group:has(.options-dropdown:focus-within),
+    .row:has(.dropdown:hover),
+    .row:has(.dropdown:focus-within),
+    .row:has(.options-dropdown:hover),
+    .row:has(.options-dropdown:focus-within),
+    .column:has(.dropdown:hover),
+    .column:has(.dropdown:focus-within),
+    .section-card:has(.dropdown:hover),
+    .section-card:has(.dropdown:focus-within) {
+        z-index: 999999 !important;
+    }
+
+    /* Make dropdown menus float cleanly above everything */
+    .dropdown-content {
+        z-index: 1000000 !important;
+        overflow: visible !important;
+    }
+
+    .section-title .dropdown-content,
+    .options-dropdown .dropdown-content {
+        position: absolute;
+        right: 0;
+        left: auto;
+        top: 100% !important;
+    }
+
+    .dropdown,
+    .options-dropdown {
+        position: relative;
+    }
+
+    /* Invisible bridge so the menu does not disappear while moving cursor down */
+    .dropdown::after,
+    .options-dropdown::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 100%;
+        height: 10px;
+    }
+
+    /* Keep menu open when hovering either the button or the menu */
+    .dropdown:hover .dropdown-content,
+    .dropdown:focus-within .dropdown-content,
+    .options-dropdown:hover .dropdown-content,
+    .options-dropdown:focus-within .dropdown-content {
+        display: block !important;
+    }
+
+    .dropdown-content {
+        pointer-events: auto;
+        z-index: 1000000 !important;
+    }
+
+    .section-title .dropdown,
+    .options-dropdown {
+        z-index: 1000001 !important;
+    }
+
+    /* 2. Allow columns to actually resize smaller */
+    .column {
+        min-width: 40px !important;
+        flex-shrink: 1 !important;
+    }
+
+    /* Resize handle should keep its own width */
+    .column-resize-handle {
+        flex: 0 0 7px !important;
+        min-width: 7px !important;
+    }
+
+    /* When a column is narrow, don't let controls force it wider */
+    .section-card,
+    .section-title,
+    .section-label {
+        min-width: 0 !important;
+    }
+
+    /* 3. Keep section names visible in small/narrow columns */
+    .section-title {
+        grid-template-columns: auto minmax(0, 1fr) auto !important;
+    }
+
+    .section-label {
+        display: block !important;
+        min-width: 0 !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* More forgiving layout on small screens */
+    @media (max-width: 700px) {
+        .row {
+            overflow: visible !important;
+            padding-right: 42px;
+        }
+
+        .column {
+            min-width: 48px !important;
+        }
+
+        .section-title {
+            display: grid !important;
+            grid-template-columns: auto auto;
+            grid-template-areas:
+                "drag menu"
+                "label label";
+            justify-content: start;
+            align-items: center;
+            gap: 5px;
+            padding: 6px;
+        }
+
+        .section-drag-handle {
+            grid-area: drag;
+        }
+
+        .section-title .dropdown {
+            grid-area: menu;
+            justify-self: start;
+        }
+
+        .section-label {
+            grid-area: label;
+            width: 100%;
+            font-size: 0.68rem;
+            line-height: 1.15;
+            letter-spacing: 0.02em;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
+            word-break: break-word;
+        }
+
+        .section-drag-handle,
+        .dropbtn {
+            width: 24px !important;
+            height: 24px !important;
+            min-width: 24px !important;
+            font-size: 12px;
+        }
+    }
+
+    /* Ultra-narrow columns: keep at least a readable abbreviation-like label */
+    @media (max-width: 430px) {
+        .column {
+            min-width: 44px !important;
+        }
+
+        .section-label {
+            font-size: 0.62rem;
+        }
+    }
+
+    /* =========================================================
+   CLEAN SECTION TITLES + NARROW SECTION MODE
+========================================================= */
+
+    /* Normal sections should stay normal */
+    .section-title {
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 1fr) auto !important;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .section-label {
+        display: block !important;
+        min-width: 0 !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Only truly narrow cards get compact styling */
+    .section-card.is-narrow-section .section-title {
+        grid-template-columns: auto 1fr auto !important;
+        gap: 5px;
+        padding: 6px;
+        min-height: 36px;
+    }
+
+    .section-card.is-narrow-section .section-label {
+        font-size: 0.62rem;
+        letter-spacing: 0.01em;
+        text-transform: none;
+    }
+
+    /* Tiny columns: hide the long name and use a small top-left badge */
+    .section-card.is-tiny-section .section-title {
+        grid-template-columns: 1fr auto !important;
+        grid-template-areas:
+            "label menu"
+            "drag drag";
+        align-items: start;
+        min-height: 54px;
+    }
+
+    .section-card.is-tiny-section .section-label {
+        grid-area: label;
+
+        display: inline-flex !important;
+        align-items: center;
+
+        width: fit-content;
+        max-width: 100%;
+
+        padding: 3px 6px;
+        border-radius: 999px;
+
+        color: rgba(255, 255, 255, 0.92);
+        background: rgba(126, 226, 204, 0.13);
+        border: 1px solid rgba(126, 226, 204, 0.22);
+
+        font-size: 0.56rem;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .section-card.is-tiny-section .section-drag-handle {
+        grid-area: drag;
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 22px !important;
+        margin: 0;
+        font-size: 11px;
+        border-radius: 8px;
+    }
+
+    .section-card.is-tiny-section .section-title .dropdown {
+        grid-area: menu;
+        justify-self: end;
+    }
+
+    .section-card.is-tiny-section .dropbtn {
+        width: 22px !important;
+        min-width: 22px !important;
+        height: 22px !important;
+        border-radius: 8px;
+        font-size: 14px;
+    }
+
+    /* Keep row options anchored to the right side of the row */
+    .row {
+        position: relative;
+    }
+
+    .row>.options-dropdown {
+        position: absolute !important;
+        top: 8px !important;
+        right: 8px !important;
+        left: auto !important;
+        transform: none !important;
+        margin: 0 !important;
+        z-index: 1000001 !important;
+    }
+
+    /* Row dropdown opens from the right edge */
+    .row>.options-dropdown .dropdown-content {
+        right: 0 !important;
+        left: auto !important;
+        top: 100% !important;
+    }
+
+    .dropdown-content a.danger-menu-item,
+    .section-group-actions .danger-action {
+        color: #ffe1e7 !important;
+    }
+
+    .dropdown-content a.danger-menu-item:hover {
+        background: rgba(255, 122, 144, 0.16) !important;
+        color: #ffffff !important;
+    }
+
+    .link-card-editor-container {
+        padding: 10px !important;
+    }
+
+    .link-card-editor-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 0.9fr);
+        gap: 14px;
+    }
+
+    .link-card-editor-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+
+        padding: 12px;
+        border-radius: 16px;
+
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .link-card-editor-panel label {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.82);
+        background: transparent;
+        padding: 0;
+
+        font-size: 0.76rem;
+        font-weight: 850;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .link-card-image-preview {
+        min-height: 150px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        border-radius: 16px;
+        border: 1px dashed rgba(255, 255, 255, 0.16);
+
+        color: rgba(255, 255, 255, 0.52);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02)),
+            rgba(0, 0, 0, 0.22);
+
+        background-size: cover;
+        background-position: center;
+        overflow: hidden;
+    }
+
+    .link-card-image-preview.has-image {
+        border-style: solid;
+        border-color: rgba(126, 226, 204, 0.28);
+    }
+
+    .link-card-editor-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .link-card-style-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .link-card-style-grid input[type="color"] {
+        width: 100%;
+        height: 38px;
+        padding: 2px;
+        border-radius: 10px;
+    }
+
+    @media (max-width: 850px) {
+        .link-card-editor-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .editor-navbar {
+            position: sticky;
+            top: var(--main-navbar-height, 56px);
+            z-index: 5000;
+            flex: 0 0 auto;
+        }
+
+        .big-content-container {
+            height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
+            max-height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .content-container {
+            min-height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .content-sections-container {
+            padding-bottom: max(180px, env(safe-area-inset-bottom));
+        }
+    }
+
+    @media (max-width: 768px) {
+        .web-preview {
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        #publicFrame {
+            width: 100%;
+            height: 100%;
+            display: block;
+            overscroll-behavior: contain;
+        }
+    }
+
+    /* =========================================================
+   PAGE EDITOR VIEWPORT LOCK
+   Prevent the whole editor page from scrolling.
+   Only the editor panels themselves should scroll.
+========================================================= */
+
+    html,
+    body {
+        height: 100%;
+        overflow: hidden !important;
+    }
+
+    :root {
+        --editor-navbar-height: 52px;
+    }
+
+    .editor-navbar {
+        height: var(--editor-navbar-height);
+        min-height: var(--editor-navbar-height);
+        max-height: var(--editor-navbar-height);
+
+        box-sizing: border-box;
+        flex: 0 0 var(--editor-navbar-height);
+    }
+
+    .big-content-container {
+        height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
+        max-height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
+
+        min-height: 0;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .content-container,
+    .web-preview {
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .content-container {
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    #publicFrame {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+
+    .selected-music {
+    margin-top: 8px;
 }
 
-/* Remove the extra square/layered pseudo-box look */
-.section-group::before,
-.section-group::after {
-    display: none !important;
-    content: none !important;
-}
-
-/* GROUP HEADER: keep it strong, but not boxy */
-.section-group-header {
-    margin: 0;
-    border-radius: 24px 24px 0 0;
-
-    border: none;
-    border-bottom: 1px solid rgba(126, 226, 204, 0.18);
-
-    background:
-        linear-gradient(135deg, rgba(126, 226, 204, 0.14), rgba(255, 255, 255, 0.045)),
-        rgba(20, 23, 29, 0.88);
-
-    box-shadow: none;
-}
-
-/* GROUP BODY: no extra border box */
-.group-rows-shell {
-    background:
-        var(--group-bg-image, none),
-        var(--group-bg, transparent) !important;
-
-    background-size:
-        var(--group-bg-size, cover),
-        auto !important;
-
-    background-position:
-        var(--group-bg-position, center),
-        center !important;
-
-    background-repeat:
-        var(--group-bg-repeat, no-repeat),
-        no-repeat !important;
-
-    border-radius: 0 0 24px 24px;
-    /* overflow: hidden; */
-}
-
-/* GROUP ROWS: remove dashed container outline */
-.group-rows {
-    gap: 12px;
-    min-height: 52px;
-
-    padding: 0;
-    border: none;
-    border-radius: 0;
-
-    background: transparent;
-    box-shadow: none;
-}
-
-/* Empty group should still be visible but gentle */
-.empty-group-message {
-    margin: 0;
-    padding: 16px !important;
-
-    border: 1px dashed rgba(126, 226, 204, 0.22);
-    border-radius: 16px;
-
-    background: rgba(126, 226, 204, 0.055);
-    color: rgba(244, 246, 248, 0.58) !important;
-
-    box-shadow: none;
-}
-
-/* ROW: keep row outline because this is an important layout level */
-.row {
-    padding: 10px;
-    gap: 10px;
-
-    border: 1px solid rgba(255, 255, 255, 0.105);
-    border-radius: 18px;
-
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.060), rgba(255, 255, 255, 0.025));
-
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
-}
-
-.row:hover {
-    border-color: rgba(126, 226, 204, 0.28);
-    background:
-        linear-gradient(135deg, rgba(126, 226, 204, 0.055), rgba(255, 255, 255, 0.030));
-}
-
-/* COLUMNS: remove card/outline styling */
-.column {
-    padding: 0;
-    margin: 0;
-
-    border: none !important;
-    border-radius: 0;
-
-    background: transparent !important;
-    box-shadow: none !important;
-
-    min-height: 48px;
-}
-
-/* Keep subtle spacing between columns without outlining them */
-.column + .column {
-    margin-left: 0;
-}
-
-/* Optional: make empty cells visible without feeling like another container */
-.empty-cell-hint {
-    min-height: 44px;
-
-    border: 1px dashed rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-
-    background: rgba(255, 255, 255, 0.025);
-    color: rgba(255, 255, 255, 0.38);
-
-    box-shadow: none;
-}
-
-/* SECTION: keep section outline/card */
-.section-card {
-    width: 100%;
-}
-
-.section-title {
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-
-    background:
-        linear-gradient(135deg, rgba(45, 49, 58, 0.98), rgba(31, 34, 41, 0.98));
-
-    box-shadow:
-        0 6px 16px rgba(0, 0, 0, 0.20),
-        inset 0 1px 0 rgba(255, 255, 255, 0.045);
-}
-
-.section-title:hover {
-    border-color: rgba(126, 226, 204, 0.32);
-}
-
-/* SECTION CONTENT: remove the heavy outlined box */
-.section-content {
-    border: none !important;
-    border-radius: 0 0 16px 16px;
-
-    background:
-        linear-gradient(145deg, rgba(28, 31, 38, 0.98), rgba(22, 24, 30, 0.98));
-
-    box-shadow:
-        0 16px 34px rgba(0, 0, 0, 0.32);
-
-    outline: none;
-}
-
-/* Inner section containers should not add another outline */
-.section-container,
-.page-body-container,
-.contact-form-container,
-.map-marker-container,
-.youtube-video-container,
-.calendar-container,
-.uploaded-images-container,
-.update-text-container {
-    border: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
-    padding: 8px;
-}
-
-/* Resize handles should remain visible but cleaner */
-.column-resize-handle {
-    width: 7px;
-    min-width: 7px;
-    margin: 6px 2px;
-
-    border-radius: 999px;
-    background: rgba(126, 226, 204, 0.58);
-    box-shadow: none;
-
-    opacity: 0.55;
-}
-
-.column-resize-handle:hover {
-    opacity: 1;
-    transform: scaleX(1.15);
-    box-shadow: 0 0 14px rgba(126, 226, 204, 0.22);
-}
-
-/* Drop target feedback can temporarily show column borders while dragging sections */
-body.is-sorting-sections .column {
-    border: 1px dashed rgba(126, 226, 204, 0.18) !important;
-    border-radius: 14px;
-    padding: 6px;
-}
-
-body.is-sorting-sections .section-drop-hover {
-    border-color: rgba(126, 226, 204, 0.62) !important;
-    background: rgba(126, 226, 204, 0.09) !important;
-}
-
-/* Collapsed groups should look like a single clean pill/card */
-.section-group.collapsed {
-    background: rgba(255, 255, 255, 0.025) !important;
-}
-
-.section-group.collapsed .section-group-header {
-    border-radius: 24px;
-    border-bottom: none;
-}
-
-.uploaded-images ul.sortable {
+.music-sortable {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 10px;
-    align-items: flex-start;
-    min-height: 132px;
-    padding: 10px;
-    margin: 8px 0 0;
-
     list-style: none;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.035);
-}
-
-.uploaded-images li.image-thumb-item {
-    width: 150px;
-    height: 120px;
     padding: 0;
+    margin: 0;
+}
 
-    display: flex;
+.music-editor-track {
+    display: grid;
+    grid-template-columns: 34px minmax(120px, 260px) minmax(240px, 1fr) 38px;
     align-items: center;
-    justify-content: center;
+    gap: 12px;
 
-    position: relative;
-    overflow: hidden;
+    padding: 10px 12px;
+    border-radius: 999px;
 
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 12px;
-    background: rgba(0, 0, 0, 0.22);
-
-    cursor: grab;
-    z-index: auto;
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.uploaded-images li.image-thumb-item:active {
-    cursor: grabbing;
-}
-
-.uploaded-images li.image-thumb-item img {
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    max-height: none;
-
-    object-fit: cover;
-    border: none;
-    pointer-events: none;
-    z-index: 0;
-}
-
-.uploaded-images li.image-thumb-item .image-checkbox {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 2;
-}
-
-.image-sortable-ghost {
-    opacity: 0.35;
-}
-
-.image-sortable-chosen {
-    border-color: rgba(126, 226, 204, 0.65) !important;
-    box-shadow: 0 0 0 2px rgba(126, 226, 204, 0.24);
-}
-
-.image-sortable-drag {
-    opacity: 0.95;
-}
-
-body.is-sorting-images .section-card,
-body.is-sorting-images .row,
-body.is-sorting-images .section-group {
-    pointer-events: auto !important;
-}
-.image-sortable-fallback,
-.sortable-fallback.image-sortable-fallback {
-    width: 150px !important;
-    height: 120px !important;
-    max-width: 150px !important;
-    max-height: 120px !important;
-
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-
-    overflow: hidden !important;
-    border-radius: 12px;
-    background: rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(126, 226, 204, 0.55);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.36);
-
-    opacity: 0.96 !important;
-    pointer-events: none !important;
-}
-
-.image-sortable-fallback img,
-.sortable-fallback.image-sortable-fallback img {
-    width: 100% !important;
-    height: 100% !important;
-    max-width: none !important;
-    max-height: none !important;
-    object-fit: cover !important;
-    border: none !important;
-}
-
-.image-delete-button {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 3;
-
+.music-editor-handle {
     width: 30px;
     height: 30px;
 
@@ -4200,772 +5126,449 @@ body.is-sorting-images .section-group {
     align-items: center;
     justify-content: center;
 
-    padding: 0;
-    border: 1px solid rgba(255, 122, 144, 0.42);
-    border-radius: 10px;
-
-    color: #ffe7ec;
-    background: rgba(20, 20, 24, 0.72);
-
-    cursor: pointer;
-    opacity: 0;
-    transform: translateY(-2px);
-
-    transition:
-        opacity 0.16s ease,
-        transform 0.16s ease,
-        background 0.16s ease,
-        border-color 0.16s ease;
-}
-
-.image-thumb-item:hover .image-delete-button {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.image-delete-button:hover {
-    background: rgba(255, 122, 144, 0.22);
-    border-color: rgba(255, 122, 144, 0.70);
-}
-
-.image-delete-button i {
-    font-size: 13px;
-    pointer-events: none;
-}
-
-/* =========================================================
-   COMPACT RESPONSIVE EDITOR UI FIXES
-   Prevent crowded buttons, overflowing labels, and dropdown layering
-========================================================= */
-
-/* ---------- Safer button text behavior ---------- */
-
-.section-group-actions button,
-.section-content button,
-.editor-controls button,
-.btn-secondary,
-.column > button,
-.delete-column-button {
-    max-width: 100%;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.section-group-actions button span,
-.editor-controls button span,
-.btn-secondary span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Group header should allow the title and actions to share space better */
-.section-group-header {
-    min-width: 0;
-}
-
-.section-group-header-left {
-    min-width: 0;
-    flex: 1 1 auto;
-}
-
-.section-group-title-stack {
-    min-width: 0;
-}
-
-.editable-group-label {
-    max-width: 100%;
-    min-width: 0;
-}
-
-/* Actions should shrink without forcing overflow */
-.section-group-actions {
-    flex: 0 1 auto;
-    min-width: 0;
-}
-
-/* ---------- Section title layout ---------- */
-
-.section-title {
-    display: grid !important;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-
-    min-width: 0;
-    overflow: visible;
-}
-
-.section-drag-handle {
-    grid-column: 1;
-}
-
-.section-label {
-    grid-column: 2;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.section-title .dropdown {
-    grid-column: 3;
-    justify-self: end;
-    margin-left: 0 !important;
-    position: relative;
-    z-index: 200002;
-}
-
-/* ---------- Row options should not sit on top of section dropdown ---------- */
-
-.row {
-    position: relative;
-    padding-right: 48px;
-    overflow: visible !important;
-}
-
-.options-dropdown {
-    position: absolute;
-    top: 10px !important;
-    right: 10px !important;
-    transform: none !important;
-    margin: 0 !important;
-    z-index: 80;
-}
-
-/* When a section dropdown is active, let it beat the row gear */
-.row:has(.section-title .dropdown:hover) .options-dropdown,
-.row:has(.section-title .dropdown:focus-within) .options-dropdown {
-    z-index: 10;
-    opacity: 0.35;
-    pointer-events: none;
-}
-
-.row:has(.options-dropdown:hover),
-.row:has(.options-dropdown:focus-within),
-.column:has(.dropdown:hover),
-.column:has(.dropdown:focus-within),
-.section-card:has(.dropdown:hover),
-.section-card:has(.dropdown:focus-within) {
-    z-index: 999999;
-}
-
-/* ---------- Dropdown menus ---------- */
-
-.dropdown-content {
-    max-width: min(220px, calc(100vw - 28px));
-    min-width: 160px;
-
-    white-space: nowrap;
-    overflow: hidden;
-    z-index: 999999 !important;
-}
-
-.dropdown-content a {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Section dropdown opens under the section menu button */
-.section-title .dropdown-content {
-    right: 0;
-    left: auto;
-    top: calc(100% + 8px);
-}
-
-/* Row dropdown opens under the gear */
-.options-dropdown .dropdown-content {
-    right: 0;
-    left: auto;
-    top: calc(100% + 8px);
-}
-
-/* ---------- Compact small-screen mode ---------- */
-
-@media (max-width: 700px) {
-    .content-sections-container {
-        padding: 10px 8px 28vh;
-    }
-
-    .section-group {
-        margin: 12px 0;
-        border-radius: 18px;
-    }
-
-    .section-group-header {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px;
-        align-items: center;
-
-        min-height: 0;
-        padding: 10px;
-        border-radius: 18px 18px 0 0;
-    }
-
-    .section-group-header-left {
-        min-width: 0;
-        gap: 7px;
-    }
-
-    .group-collapse-toggle,
-    .group-drag-handle {
-        width: 30px;
-        height: 30px;
-        min-width: 30px;
-        border-radius: 10px;
-        font-size: 13px;
-    }
-
-    .section-group-title-stack::before {
-        display: none;
-        content: none;
-    }
-
-    .editable-group-label {
-        font-size: 0.88rem;
-        padding: 3px 6px;
-        white-space: nowrap;
-    }
-
-    .section-group-meta {
-        padding-left: 6px;
-        font-size: 0.68rem;
-    }
-
-    .section-group-actions {
-        width: auto !important;
-        justify-content: flex-end;
-        flex-wrap: nowrap;
-        gap: 6px;
-    }
-
-    /* Make group action buttons icon-only on small screens */
-    .section-group-actions button {
-        width: 32px;
-        height: 32px;
-        min-width: 32px;
-        min-height: 32px;
-        padding: 0 !important;
-        border-radius: 10px;
-    }
-
-    .section-group-actions button span {
-        display: none !important;
-    }
-
-    .section-group-actions button i {
-        margin: 0;
-        font-size: 13px;
-    }
-
-    .group-rows-shell {
-        padding: 10px;
-        border-radius: 0 0 18px 18px;
-    }
-
-    .row {
-        gap: 7px;
-        padding: 8px 42px 8px 8px;
-        border-radius: 14px;
-        overflow-x: auto !important;
-        overflow-y: visible !important;
-    }
-
-    .row-drag-handle {
-        width: 28px;
-        min-width: 28px;
-        border-radius: 10px;
-    }
-
-    .options-dropdown {
-        top: 8px !important;
-        right: 8px !important;
-    }
-
-    .options-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 10px;
-    }
-
-    .column {
-        min-width: 150px;
-    }
-
-    .section-title {
-        min-height: 38px;
-        padding: 7px;
-        gap: 6px;
-        border-radius: 11px;
-        font-size: 0.72rem;
-        letter-spacing: 0.025em;
-    }
-
-    .section-drag-handle,
-    .dropbtn {
-        width: 27px;
-        height: 27px;
-        min-width: 27px;
-        border-radius: 9px;
-    }
-
-    .section-label {
-        max-width: 100%;
-    }
-
-    .section-content.open {
-        padding: 10px;
-    }
-
-    .dropdown-content {
-        min-width: 150px;
-        max-width: min(190px, calc(100vw - 24px));
-        padding: 6px;
-        border-radius: 12px;
-    }
-
-    .dropdown-content a {
-        min-height: 32px;
-        padding: 7px 9px;
-        font-size: 11px;
-    }
-
-    .image-editor-header {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .image-editor-header .btn-secondary {
-        width: 100%;
-    }
-
-    .image-layout-panel {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* Extra tiny screens */
-@media (max-width: 430px) {
-    .section-group-header {
-        grid-template-columns: 1fr;
-    }
-
-    .section-group-actions {
-        justify-content: flex-start;
-    }
-
-    .column {
-        min-width: 135px;
-    }
-
-    .section-title {
-        font-size: 0.68rem;
-    }
-
-    .dropdown-content {
-        min-width: 142px;
-    }
-}
-
-.row.dropdown-active {
-    z-index: 999999;
-}
-
-/* =========================================================
-   FIX DROPDOWN CLIPPING + COLUMN RESIZE + SMALL SECTION LABELS
-========================================================= */
-
-/* 1. Let dropdowns escape groups/rows/columns */
-.section-group,
-.group-rows-shell,
-.group-rows,
-.row,
-.column,
-.section-card,
-.section-title {
-    overflow: visible !important;
-}
-
-/* This was clipping dropdowns inside groups */
-.group-rows-shell {
-    overflow: visible !important;
-}
-
-/* Row horizontal scrolling clips dropdowns. Keep the row visible instead. */
-.row {
-    overflow: visible !important;
-}
-
-/* Keep dropdowns above nearby row/section controls */
-.section-group:has(.dropdown:hover),
-.section-group:has(.dropdown:focus-within),
-.section-group:has(.options-dropdown:hover),
-.section-group:has(.options-dropdown:focus-within),
-.row:has(.dropdown:hover),
-.row:has(.dropdown:focus-within),
-.row:has(.options-dropdown:hover),
-.row:has(.options-dropdown:focus-within),
-.column:has(.dropdown:hover),
-.column:has(.dropdown:focus-within),
-.section-card:has(.dropdown:hover),
-.section-card:has(.dropdown:focus-within) {
-    z-index: 999999 !important;
-}
-
-/* Make dropdown menus float cleanly above everything */
-.dropdown-content {
-    z-index: 1000000 !important;
-    overflow: visible !important;
-}
-
-.section-title .dropdown-content,
-.options-dropdown .dropdown-content {
-    position: absolute;
-    right: 0;
-    left: auto;
-        top: 100% !important;
-}
-
-.dropdown,
-.options-dropdown {
-    position: relative;
-}
-
-/* Invisible bridge so the menu does not disappear while moving cursor down */
-.dropdown::after,
-.options-dropdown::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 100%;
-    height: 10px;
-}
-
-/* Keep menu open when hovering either the button or the menu */
-.dropdown:hover .dropdown-content,
-.dropdown:focus-within .dropdown-content,
-.options-dropdown:hover .dropdown-content,
-.options-dropdown:focus-within .dropdown-content {
-    display: block !important;
-}
-
-.dropdown-content {
-    pointer-events: auto;
-    z-index: 1000000 !important;
-}
-
-.section-title .dropdown,
-.options-dropdown {
-    z-index: 1000001 !important;
-}
-
-/* 2. Allow columns to actually resize smaller */
-.column {
-    min-width: 40px !important;
-    flex-shrink: 1 !important;
-}
-
-/* Resize handle should keep its own width */
-.column-resize-handle {
-    flex: 0 0 7px !important;
-    min-width: 7px !important;
-}
-
-/* When a column is narrow, don't let controls force it wider */
-.section-card,
-.section-title,
-.section-label {
-    min-width: 0 !important;
-}
-
-/* 3. Keep section names visible in small/narrow columns */
-.section-title {
-    grid-template-columns: auto minmax(0, 1fr) auto !important;
-}
-
-.section-label {
-    display: block !important;
-    min-width: 0 !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* More forgiving layout on small screens */
-@media (max-width: 700px) {
-    .row {
-        overflow: visible !important;
-        padding-right: 42px;
-    }
-
-    .column {
-        min-width: 48px !important;
-    }
-
-    .section-title {
-        display: grid !important;
-        grid-template-columns: auto auto;
-        grid-template-areas:
-            "drag menu"
-            "label label";
-        justify-content: start;
-        align-items: center;
-        gap: 5px;
-        padding: 6px;
-    }
-
-    .section-drag-handle {
-        grid-area: drag;
-    }
-
-    .section-title .dropdown {
-        grid-area: menu;
-        justify-self: start;
-    }
-
-    .section-label {
-        grid-area: label;
-        width: 100%;
-        font-size: 0.68rem;
-        line-height: 1.15;
-        letter-spacing: 0.02em;
-        white-space: normal;
-        overflow: visible;
-        text-overflow: unset;
-        word-break: break-word;
-    }
-
-    .section-drag-handle,
-    .dropbtn {
-        width: 24px !important;
-        height: 24px !important;
-        min-width: 24px !important;
-        font-size: 12px;
-    }
-}
-
-/* Ultra-narrow columns: keep at least a readable abbreviation-like label */
-@media (max-width: 430px) {
-    .column {
-        min-width: 44px !important;
-    }
-
-    .section-label {
-        font-size: 0.62rem;
-    }
-}
-
-/* =========================================================
-   CLEAN SECTION TITLES + NARROW SECTION MODE
-========================================================= */
-
-/* Normal sections should stay normal */
-.section-title {
-    display: grid !important;
-    grid-template-columns: auto minmax(0, 1fr) auto !important;
-    align-items: center;
-    gap: 8px;
-}
-
-.section-label {
-    display: block !important;
-    min-width: 0 !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* Only truly narrow cards get compact styling */
-.section-card.is-narrow-section .section-title {
-    grid-template-columns: auto 1fr auto !important;
-    gap: 5px;
-    padding: 6px;
-    min-height: 36px;
-}
-
-.section-card.is-narrow-section .section-label {
-    font-size: 0.62rem;
-    letter-spacing: 0.01em;
-    text-transform: none;
-}
-
-/* Tiny columns: hide the long name and use a small top-left badge */
-.section-card.is-tiny-section .section-title {
-    grid-template-columns: 1fr auto !important;
-    grid-template-areas:
-        "label menu"
-        "drag drag";
-    align-items: start;
-    min-height: 54px;
-}
-
-.section-card.is-tiny-section .section-label {
-    grid-area: label;
-
-    display: inline-flex !important;
-    align-items: center;
-
-    width: fit-content;
-    max-width: 100%;
-
-    padding: 3px 6px;
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.12);
     border-radius: 999px;
 
-    color: rgba(255, 255, 255, 0.92);
-    background: rgba(126, 226, 204, 0.13);
-    border: 1px solid rgba(126, 226, 204, 0.22);
+    cursor: grab;
+}
 
-    font-size: 0.56rem;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
+.music-editor-info {
+    min-width: 0;
+}
 
+.music-editor-title {
+    font-size: 0.86rem;
+    font-weight: 850;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
-.section-card.is-tiny-section .section-drag-handle {
-    grid-area: drag;
-    width: 100% !important;
-    min-width: 0 !important;
-    height: 22px !important;
-    margin: 0;
-    font-size: 11px;
-    border-radius: 8px;
+.music-editor-subtitle {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.58);
 }
 
-.section-card.is-tiny-section .section-title .dropdown {
-    grid-area: menu;
-    justify-self: end;
+.music-editor-track audio {
+    width: 100%;
 }
 
-.section-card.is-tiny-section .dropbtn {
-    width: 22px !important;
-    min-width: 22px !important;
-    height: 22px !important;
-    border-radius: 8px;
-    font-size: 14px;
+.music-remove-button {
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 999px;
+    color: white;
+    background: rgba(231, 76, 60, 0.86);
+    cursor: pointer;
 }
 
-/* Keep row options anchored to the right side of the row */
-.row {
-    position: relative;
+.music-editor-empty {
+    list-style: none;
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.62);
+    text-align: center;
 }
 
-.row > .options-dropdown {
-    position: absolute !important;
-    top: 8px !important;
-    right: 8px !important;
-    left: auto !important;
-    transform: none !important;
-    margin: 0 !important;
-    z-index: 1000001 !important;
-}
+@media (max-width: 760px) {
+    .music-editor-track {
+        grid-template-columns: 34px minmax(0, 1fr) 38px;
+        border-radius: 22px;
+    }
 
-/* Row dropdown opens from the right edge */
-.row > .options-dropdown .dropdown-content {
-    right: 0 !important;
-    left: auto !important;
-    top: 100% !important;
+    .music-editor-track audio {
+        grid-column: 1 / -1;
+    }
 }
-.dropdown-content a.danger-menu-item,
-.section-group-actions .danger-action {
-    color: #ffe1e7 !important;
-}
-
-.dropdown-content a.danger-menu-item:hover {
-    background: rgba(255, 122, 144, 0.16) !important;
-    color: #ffffff !important;
-}
-
-.link-card-editor-container {
-    padding: 10px !important;
-}
-
-.link-card-editor-grid {
+.video-modal-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 0.9fr);
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 14px;
 }
 
-.link-card-editor-panel {
+.video-modal-card {
+    position: relative;
+    padding: 10px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: white;
+    cursor: pointer;
+}
+
+.video-modal-card.selected {
+    border-color: rgba(126, 226, 204, 0.78);
+    background: rgba(126, 226, 204, 0.13);
+}
+
+.video-select-toggle {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #7ee2cc;
+    cursor: pointer;
+}
+
+.video-modal-preview video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+    background: #000;
+    object-fit: cover;
+}
+
+.video-modal-title,
+.video-editor-title {
+    font-size: 0.86rem;
+    font-weight: 850;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.video-modal-subtitle,
+.video-editor-subtitle {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.58);
+}
+
+.video-sortable {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
 
-    padding: 12px;
+.video-editor-item {
+    display: grid;
+    grid-template-columns: 34px minmax(180px, 260px) minmax(140px, 1fr) 38px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.video-editor-item video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 12px;
+    background: #000;
+    object-fit: cover;
+}
+
+.video-editor-handle {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.12);
+    border-radius: 999px;
+    cursor: grab;
+}
+
+.video-remove-button {
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 999px;
+    color: white;
+    background: rgba(231, 76, 60, 0.86);
+    cursor: pointer;
+}
+
+.video-editor-empty,
+.video-modal-empty {
+    list-style: none;
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.62);
+    text-align: center;
+}
+
+@media (max-width: 760px) {
+    .video-editor-item {
+        grid-template-columns: 34px minmax(0, 1fr) 38px;
+    }
+
+    .video-editor-item video {
+        grid-column: 1 / -1;
+    }
+}
+
+.selected-videos {
+    margin-top: 8px;
+    max-height: min(520px, 55dvh);
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding: 10px;
     border-radius: 16px;
 
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
-.link-card-editor-panel label {
-    margin: 0;
-    color: rgba(255, 255, 255, 0.82);
-    background: transparent;
+.video-sortable {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    list-style: none;
     padding: 0;
-
-    font-size: 0.76rem;
-    font-weight: 850;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    margin: 0;
 }
 
-.link-card-image-preview {
-    min-height: 150px;
+.video-editor-item {
+    display: grid;
+    grid-template-columns: 34px minmax(160px, 260px) minmax(120px, 1fr) 38px;
+    align-items: center;
+    gap: 12px;
+
+    padding: 10px 12px;
+    border-radius: 18px;
+
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.video-editor-preview-button {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+
+    border: none;
+    border-radius: 14px;
+    overflow: hidden;
+
+    background: rgba(0, 0, 0, 0.32);
+    color: rgba(255, 255, 255, 0.92);
+
+    cursor: pointer;
+}
+
+.video-thumb-canvas {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
+    object-fit: cover;
+}
+
+.video-editor-preview-button.has-thumbnail .video-thumb-canvas,
+.public-video-preview-button.has-thumbnail .video-thumb-canvas {
+    display: block;
+}
+
+.video-thumb-fallback {
+    position: relative;
+    z-index: 1;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.video-editor-preview-button.has-thumbnail .video-thumb-fallback,
+.public-video-preview-button.has-thumbnail .video-thumb-fallback {
+    display: none;
+}
+
+.video-thumb-fallback i {
+    font-size: 2.2rem;
+}
+
+.video-thumb-fallback span {
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.video-thumb-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
 
     display: flex;
     align-items: center;
     justify-content: center;
 
-    border-radius: 16px;
-    border: 1px dashed rgba(255, 255, 255, 0.16);
+    background: rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
 
-    color: rgba(255, 255, 255, 0.52);
-    background:
-        linear-gradient(135deg, rgba(255,255,255,0.055), rgba(255,255,255,0.02)),
-        rgba(0,0,0,0.22);
+.video-thumb-overlay i {
+    width: 42px;
+    height: 42px;
 
-    background-size: cover;
-    background-position: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.58);
+    color: white;
+    font-size: 1rem;
+}
+
+.video-editor-preview-button:hover .video-thumb-overlay,
+.public-video-preview-button:hover .video-thumb-overlay {
+    opacity: 1;
+}
+
+.video-editor-info {
+    min-width: 0;
+}
+
+.video-editor-title {
+    font-size: 0.86rem;
+    font-weight: 850;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.video-editor-subtitle {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.58);
+}
+
+.video-editor-handle {
+    width: 30px;
+    height: 30px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.12);
+    border-radius: 999px;
+
+    cursor: grab;
+}
+
+.video-remove-button {
+    width: 34px;
+    height: 34px;
+
+    border: none;
+    border-radius: 999px;
+
+    color: white;
+    background: rgba(231, 76, 60, 0.86);
+
+    cursor: pointer;
+}
+
+.video-preview-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999999;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+}
+
+.video-preview-modal.is-open {
+    display: flex;
+}
+
+.video-preview-dialog {
+    width: min(900px, 92vw);
+    max-height: 88dvh;
+
+    background: #151820;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
     overflow: hidden;
 }
 
-.link-card-image-preview.has-image {
-    border-style: solid;
-    border-color: rgba(126, 226, 204, 0.28);
-}
-
-.link-card-editor-actions {
+.video-preview-header {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    padding: 12px 14px;
+
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.link-card-style-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+.video-preview-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
-.link-card-style-grid input[type="color"] {
-    width: 100%;
-    height: 38px;
-    padding: 2px;
+.video-preview-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+
     border-radius: 10px;
+    width: 34px;
+    height: 34px;
+
+    cursor: pointer;
 }
 
-@media (max-width: 850px) {
-    .link-card-editor-grid {
-        grid-template-columns: 1fr;
+.video-preview-player {
+    width: 100%;
+    max-height: 70dvh;
+    background: #000;
+    display: block;
+}
+
+@media (max-width: 760px) {
+    .selected-videos {
+        max-height: min(460px, 48dvh);
+    }
+
+    .video-editor-item {
+        grid-template-columns: 34px minmax(0, 1fr) 38px;
+    }
+
+    .video-editor-preview-button {
+        grid-column: 1 / -1;
+    }
+
+    .video-editor-info {
+        grid-column: 2 / 3;
     }
 }
 </style>
@@ -5039,7 +5642,7 @@ body.is-sorting-images .section-group {
     <div class="big-content-container">
 
         <div class="content-container">
-                        <div class="editor-page-title">
+            <div class="editor-page-title">
                 {{ page_content.name if page_content else "Untitled Page" }}
             </div>
 
@@ -5168,6 +5771,8 @@ body.is-sorting-images .section-group {
                         <option value="contact_form">Contact Form</option>
                         <option value="calendar">Calendar</option>
                         <option value="youtube_video">Youtube Video</option>
+                        <option value="video">Video</option>
+                        <option value="music">Music</option>
 
                     </select><br><br>
 
@@ -5239,6 +5844,21 @@ body.is-sorting-images .section-group {
                                 value="0">
 
                             <span id="groupBackgroundOverlayOpacityValue" class="range-value">0</span>
+
+                            <label>Padding</label>
+                            <input type="range" id="groupPadding" min="0" max="80" step="2" value="0">
+                            <span id="groupPaddingValue" class="range-value">0px</span>
+
+                            <label>Corner Radius</label>
+                            <input type="range" id="groupBorderRadius" min="0" max="60" step="2" value="0">
+                            <span id="groupBorderRadiusValue" class="range-value">0px</span>
+
+                            <label>Max Group Width</label>
+                            <input type="number" id="groupMaxWidth" min="0" max="2400" step="20" value="0"
+                                placeholder="0 = full width">
+                            <small style="color: rgba(255,255,255,0.58); font-weight: 600;">
+                                Use 0 for full width. Example: 900, 1180, 1400.
+                            </small>
                         </div>
                         <div class="color-option">
                             <label>Background</label>
@@ -5267,18 +5887,6 @@ body.is-sorting-images .section-group {
                         <div class="color-option">
                             {% set palette_context = 'page_editor_group' %}
                             {% include 'components/color_palette.html' %}
-                        </div>
-
-                        <div class="color-option">
-                            <label>Padding</label>
-                            <input type="range" id="groupPadding" min="0" max="80" step="2" value="0">
-                            <span id="groupPaddingValue" class="range-value">0px</span>
-                        </div>
-
-                        <div class="color-option">
-                            <label>Corner Radius</label>
-                            <input type="range" id="groupBorderRadius" min="0" max="60" step="2" value="0">
-                            <span id="groupBorderRadiusValue" class="range-value">0px</span>
                         </div>
 
                     </div>
@@ -5790,7 +6398,10 @@ body.is-sorting-images .section-group {
                 map: 'Map',
                 contact_form: 'Contact Form',
                 calendar: 'Calendar',
-                youtube_video: 'YouTube'
+                youtube_video: 'YouTube',
+                music: 'Music',
+                video: 'Video',
+                videos: 'Video'
             };
 
             return labels[sectionType] || sectionType;
@@ -5821,7 +6432,7 @@ body.is-sorting-images .section-group {
 
                     applyGroupContainerStyles(groupContainer, group);
 
-groupContainer.innerHTML = `
+                    groupContainer.innerHTML = `
     <div class="section-group-header">
         <div class="section-group-header-left">
             <button type="button"
@@ -5924,22 +6535,22 @@ groupContainer.innerHTML = `
 
             // Render the grid in the sections container in the order of row_number
             rows.forEach(row => {
-let parentContainer = null;
+                let parentContainer = null;
 
-if (row.section_group_id && groupContainersById[row.section_group_id]) {
-    const groupContainer = groupContainersById[row.section_group_id];
-    const groupRowsContainer = groupContainer.querySelector('.group-rows');
+                if (row.section_group_id && groupContainersById[row.section_group_id]) {
+                    const groupContainer = groupContainersById[row.section_group_id];
+                    const groupRowsContainer = groupContainer.querySelector('.group-rows');
 
-    const emptyMessage = groupRowsContainer.querySelector('.empty-group-message');
-    if (emptyMessage) {
-        emptyMessage.remove();
-    }
+                    const emptyMessage = groupRowsContainer.querySelector('.empty-group-message');
+                    if (emptyMessage) {
+                        emptyMessage.remove();
+                    }
 
-    parentContainer = groupRowsContainer;
-} else {
-    console.warn(`Skipping ungrouped row ${row.id}. Rows must belong to a group.`);
-    return;
-}
+                    parentContainer = groupRowsContainer;
+                } else {
+                    console.warn(`Skipping ungrouped row ${row.id}. Rows must belong to a group.`);
+                    return;
+                }
                 const rowId = row.id;
                 // console.log('Rows Generating in LOOP: ', rowId);
                 const rowElement = document.createElement('div');
@@ -5997,21 +6608,21 @@ if (row.section_group_id && groupContainersById[row.section_group_id]) {
                 deleteRowOption.onclick = function (e) {
                     e.stopPropagation();
 
-const rowEl = document.querySelector(`.row[data-row-id="${rowId}"]`);
-const sectionCount = rowEl
-    ? rowEl.querySelectorAll(':scope .section-card').length
-    : 0;
+                    const rowEl = document.querySelector(`.row[data-row-id="${rowId}"]`);
+                    const sectionCount = rowEl
+                        ? rowEl.querySelectorAll(':scope .section-card').length
+                        : 0;
 
-const message =
-    sectionCount > 0
-        ? `Delete this row?\n\nThis will also permanently delete ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this row.\n\nThis cannot be undone.`
-        : `Delete this empty row?\n\nThis cannot be undone.`;
+                    const message =
+                        sectionCount > 0
+                            ? `Delete this row?\n\nThis will also permanently delete ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this row.\n\nThis cannot be undone.`
+                            : `Delete this empty row?\n\nThis cannot be undone.`;
 
-const confirmed = confirm(message);
+                    const confirmed = confirm(message);
 
-if (!confirmed) return;
+                    if (!confirmed) return;
 
-deleteRow(rowId);
+                    deleteRow(rowId);
                 };
                 dropdownContent.appendChild(deleteRowOption);
 
@@ -6074,13 +6685,13 @@ deleteRow(rowId);
 
 
                     if (section && section.isSection) {
-const sectionCard = document.createElement('div');
-sectionCard.classList.add('section-card');
-sectionCard.classList.add(`section-type-${section.section_type}`);
-sectionCard.dataset.sectionId = section.id;
-sectionCard.dataset.columnId = section.column_id;
-sectionCard.dataset.rowId = rowId;
-sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
+                        const sectionCard = document.createElement('div');
+                        sectionCard.classList.add('section-card');
+                        sectionCard.classList.add(`section-type-${section.section_type}`);
+                        sectionCard.dataset.sectionId = section.id;
+                        sectionCard.dataset.columnId = section.column_id;
+                        sectionCard.dataset.rowId = rowId;
+                        sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
 
                         const sectionElement = document.createElement('div');
                         sectionElement.classList.add('section-title');
@@ -6135,7 +6746,7 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
                         dropdownContent.appendChild(deleteSectionLink);
                         const isImageSection = ['images', 'image_gallery', 'image'].includes(section.section_type);
 
-                       if (isImageSection) {
+                        if (isImageSection) {
                             const deleteSelectedImagesLink = document.createElement('a');
                             deleteSelectedImagesLink.href = '#';
                             deleteSelectedImagesLink.classList.add('delete-selected-images');
@@ -6208,6 +6819,7 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
                             <option value="contain" ${(section.content?.image_fit || 'cover') === 'contain' ? 'selected' : ''}>Contain</option>
                         </select>
                     </div>
+                    
 
                     <div class="image-layout-field">
                         <label>Corner Radius</label>
@@ -6309,7 +6921,164 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
                 ${section.content['youtube_url'] ? `<iframe width="560" height="315" src="${section.content['youtube_url'].replace('watch?v=', 'embed/')}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>` : ''}
             </div>
         </div>`;
-                        } else if (section.section_type === 'button') {
+                        } else if (section.section_type === 'video' || section.section_type === 'videos') {
+    const content = section.content || {};
+
+    sectionContent.innerHTML = `
+        <form class="update-section-form video-section-form"
+              data-section-id="${section.id}"
+              data-section-type="video"
+              data-page-id="${pageId}">
+
+            <div class="image-editor-header">
+                <div>
+                    <label>Videos</label>
+                    <small>Choose video files from your Asset Library and display them on the public page.</small>
+                </div>
+
+                <button type="button" class="btn-secondary" onclick="openVideoLibraryPicker('${section.id}')">
+                    <i class="fas fa-video"></i> Pick Videos
+                </button>
+            </div>
+
+            <div class="image-layout-panel">
+                <div class="image-layout-field">
+                    <label>Title</label>
+                    <input type="text"
+                           name="video_title"
+                           value="${escapeAttr(content.title || 'Videos')}">
+                </div>
+
+                <div class="image-layout-field">
+                    <label>Layout</label>
+                    <select name="video_layout">
+                        <option value="grid" ${(content.layout || 'grid') === 'grid' ? 'selected' : ''}>Grid</option>
+                        <option value="stack" ${(content.layout || 'grid') === 'stack' ? 'selected' : ''}>Stacked</option>
+                        <option value="featured" ${(content.layout || 'grid') === 'featured' ? 'selected' : ''}>Featured</option>
+                    </select>
+                </div>
+
+                <label class="image-toggle-row">
+                    <input type="checkbox" name="video_show_filenames"
+                        ${content.show_filenames !== false ? 'checked' : ''}>
+                    Show filenames
+                </label>
+
+                <label class="image-toggle-row">
+                    <input type="checkbox" name="video_show_download"
+                        ${content.show_download ? 'checked' : ''}>
+                    Show download links
+                </label>
+
+                <div class="image-layout-field">
+                    <label>Corner Radius</label>
+                    <input type="range"
+                           name="video_corner_radius"
+                           min="0"
+                           max="40"
+                           step="2"
+                           value="${content.corner_radius || 18}">
+                    <span class="range-value">${content.corner_radius || 18}px</span>
+                </div>
+
+                <div class="image-layout-field">
+                    <label>Max Width</label>
+                    <input type="number"
+                           name="video_max_width"
+                           min="240"
+                           max="1600"
+                           step="20"
+                           value="${content.max_width || 900}">
+                </div>
+            </div>
+
+            <div class="image-layout-field">
+                <label>Description</label>
+                <textarea name="video_description" rows="3">${escapeHtml(content.description || '')}</textarea>
+            </div>
+
+            <label>Selected Videos</label>
+            <div class="selected-videos">
+                <ul class="video-sortable" id="video-sortable-${section.id}"></ul>
+            </div>
+        </form>
+    `;
+}
+                        
+                        else if (section.section_type === 'music') {
+                            const content = section.content || {};
+
+                            sectionContent.innerHTML = `
+        <form class="update-section-form music-section-form"
+              data-section-id="${section.id}"
+              data-section-type="music"
+              data-page-id="${pageId}">
+
+            <div class="image-editor-header">
+                <div>
+                    <label>Music</label>
+                    <small>Choose audio files from your Asset Library and display them as a public music player.</small>
+                </div>
+
+                <button type="button" class="btn-secondary" onclick="openMusicLibraryPicker('${section.id}')">
+                    <i class="fas fa-music"></i> Pick Music
+                </button>
+            </div>
+
+            <div class="image-layout-panel">
+                <div class="image-layout-field">
+                    <label>Title</label>
+                    <input type="text"
+                           name="music_title"
+                           value="${escapeAttr(content.title || 'Music')}">
+                </div>
+
+                <div class="image-layout-field">
+                    <label>Layout</label>
+                    <select name="music_layout">
+                        <option value="list" ${(content.layout || 'list') === 'list' ? 'selected' : ''}>Track List</option>
+                        <option value="compact" ${(content.layout || 'list') === 'compact' ? 'selected' : ''}>Compact Pills</option>
+                    </select>
+                </div>
+
+                <label class="image-toggle-row">
+                    <input type="checkbox" name="music_show_track_numbers"
+                        ${content.show_track_numbers !== false ? 'checked' : ''}>
+                    Show track numbers
+                </label>
+
+                <label class="image-toggle-row">
+                    <input type="checkbox" name="music_show_download"
+                        ${content.show_download ? 'checked' : ''}>
+                    Show download links
+                </label>
+
+                <div class="image-layout-field">
+                    <label>Player Radius</label>
+                    <input type="range"
+                           name="music_player_radius"
+                           min="0"
+                           max="40"
+                           step="2"
+                           value="${content.player_radius || 18}">
+                    <span class="range-value">${content.player_radius || 18}px</span>
+                </div>
+            </div>
+
+            <div class="image-layout-field">
+                <label>Description</label>
+                <textarea name="music_description" rows="3">${escapeHtml(content.description || '')}</textarea>
+            </div>
+
+            <label>Selected Music</label>
+            <div class="selected-music">
+                <ul class="music-sortable" id="music-sortable-${section.id}"></ul>
+            </div>
+        </form>
+    `;
+                        }
+
+                        else if (section.section_type === 'button') {
                             sectionContent.innerHTML = `
         <div class="update-text-container section-container">
             <form class="update-section-form" data-section-id="${section.id}"
@@ -6326,9 +7095,9 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
         </div>`;
                         }
                         else if (section.section_type === 'link_card') {
-    const content = section.content || {};
+                            const content = section.content || {};
 
-    sectionContent.innerHTML = `
+                            sectionContent.innerHTML = `
         <div class="section-container link-card-editor-container">
             <form class="update-section-form link-card-section-form"
                   data-section-id="${section.id}"
@@ -6435,6 +7204,15 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
                             </div>
 
                             <div>
+    <label>Width</label>
+    <input type="number"
+           name="link_card_width"
+           min="120"
+           max="1400"
+           value="${content.width || 420}">
+</div>
+
+                            <div>
                                 <label>Height</label>
                                 <input type="number"
                                        name="link_card_height"
@@ -6459,7 +7237,7 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
             </form>
         </div>
     `;
-}
+                        }
 
                         else if (section.section_type === 'text') {
                             sectionContent.innerHTML = `
@@ -7216,14 +7994,15 @@ sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
             initializeEditableGroupLabels();
             syncEmptyGroupMessages();
             updateGroupRowCounts();
-restoreCollapsedSectionGroups();
-updateNarrowSectionCards();
+            restoreCollapsedSectionGroups();
+            updateNarrowSectionCards();
+            keepDropdownsInViewport();
 
-sections.forEach(section => {
-    if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
-        loadUploadedImages(section.id);
-    }
-});
+            sections.forEach(section => {
+                if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
+                    loadUploadedImages(section.id);
+                }
+            });
 
             function addRowAbove(currentRowId) {
                 // console.log("ADD ROW ABOVE: ", currentRowId)
@@ -7404,8 +8183,8 @@ sections.forEach(section => {
                     .catch((error) => {
                         console.error('Error updating column widths:', error);
                     });
-                    updateNarrowSectionCards();
-                    
+                updateNarrowSectionCards();
+
             }
 
 
@@ -7697,10 +8476,19 @@ sections.forEach(section => {
             });
 
 
-document.querySelectorAll(".image-section-form").forEach(function (form) {
-    const sectionId = form.getAttribute("data-section-id");
+            document.querySelectorAll(".image-section-form").forEach(function (form) {
+                const sectionId = form.getAttribute("data-section-id");
 
-    loadUploadedImages(sectionId);
+                loadUploadedImages(sectionId);
+            });
+            document.querySelectorAll(".music-section-form").forEach(function (form) {
+                const sectionId = form.getAttribute("data-section-id");
+                loadSectionMusic(sectionId);
+            });
+
+            document.querySelectorAll(".video-section-form").forEach(function (form) {
+    const sectionId = form.getAttribute("data-section-id");
+    loadSectionVideos(sectionId);
 });
             // });
             // Function to initialize CodeMirror for a textarea
@@ -8260,52 +9048,52 @@ document.querySelectorAll(".image-section-form").forEach(function (form) {
         }
     </script>
     <script>
-function openLibraryPicker(sectionId) {
-    if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
-        alert('Asset library modal is not loaded.');
-        return;
-    }
-
-    window.PhotoLibraryModal.open({
-        mode: 'multiple',
-        sectionId: sectionId,
-        assetType: 'image',
-        title: 'Choose Images',
-        subtitle: 'Choose images from your Asset Library for this section.'
-    });
-}
-
-function openGroupBackgroundLibraryPicker() {
-    if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
-        alert('Asset library modal is not loaded.');
-        return;
-    }
-
-    window.PhotoLibraryModal.open({
-        mode: 'single',
-        assetType: 'image',
-        title: 'Choose Group Background',
-        subtitle: 'Choose an image from your Asset Library.',
-        onConfirm: function (selection) {
-            const imageUrl = selection.imageUrls?.[0] || selection.assetUrls?.[0] || '';
-            if (!imageUrl) return;
-
-            const input = document.getElementById('groupBackgroundImageUrl');
-            const preview = document.getElementById('groupBackgroundImagePreview');
-
-            if (input) input.value = imageUrl;
-
-            if (preview) {
-                preview.classList.add('has-image');
-                preview.style.backgroundImage = `url("${imageUrl}")`;
+        function openLibraryPicker(sectionId) {
+            if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
+                alert('Asset library modal is not loaded.');
+                return;
             }
 
-            if (typeof updateGroupStylePreview === 'function') {
-                updateGroupStylePreview();
-            }
+            window.PhotoLibraryModal.open({
+                mode: 'multiple',
+                sectionId: sectionId,
+                assetType: 'image',
+                title: 'Choose Images',
+                subtitle: 'Choose images from your Asset Library for this section.'
+            });
         }
-    });
-}
+
+        function openGroupBackgroundLibraryPicker() {
+            if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
+                alert('Asset library modal is not loaded.');
+                return;
+            }
+
+            window.PhotoLibraryModal.open({
+                mode: 'single',
+                assetType: 'image',
+                title: 'Choose Group Background',
+                subtitle: 'Choose an image from your Asset Library.',
+                onConfirm: function (selection) {
+                    const imageUrl = selection.imageUrls?.[0] || selection.assetUrls?.[0] || '';
+                    if (!imageUrl) return;
+
+                    const input = document.getElementById('groupBackgroundImageUrl');
+                    const preview = document.getElementById('groupBackgroundImagePreview');
+
+                    if (input) input.value = imageUrl;
+
+                    if (preview) {
+                        preview.classList.add('has-image');
+                        preview.style.backgroundImage = `url("${imageUrl}")`;
+                    }
+
+                    if (typeof updateGroupStylePreview === 'function') {
+                        updateGroupStylePreview();
+                    }
+                }
+            });
+        }
     </script>
     <!-- Image Functions -->
     <script>
@@ -8333,9 +9121,9 @@ function openGroupBackgroundLibraryPicker() {
             }
         }
 
-let currentDraggedLi = null;
-let currentPlaceholder = null;
-let imageSortableInstances = {};
+        let currentDraggedLi = null;
+        let currentPlaceholder = null;
+        let imageSortableInstances = {};
 
         function createPlaceholder() {
             const ph = document.createElement("li");
@@ -8374,163 +9162,163 @@ let imageSortableInstances = {};
 
         var selectedImages = {};
 
-function initializeImageSortable(sectionId) {
-    const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
-    if (!uploadedImagesUl) return;
-
-    if (imageSortableInstances[sectionId]) {
-        imageSortableInstances[sectionId].destroy();
-        delete imageSortableInstances[sectionId];
-    }
-
-imageSortableInstances[sectionId] = Sortable.create(uploadedImagesUl, {
-    group: {
-        name: 'section-images',
-        pull: true,
-        put: true
-    },
-    animation: 160,
-    forceFallback: true,
-    fallbackOnBody: true,
-    fallbackClass: 'image-sortable-fallback',
-    fallbackTolerance: 4,
-        draggable: 'li.image-thumb-item',
-        ghostClass: 'image-sortable-ghost',
-        chosenClass: 'image-sortable-chosen',
-        dragClass: 'image-sortable-drag',
-        swapThreshold: 0.65,
-
-filter: 'button, .image-delete-button',
-        preventOnFilter: false,
-
-        onStart: function (event) {
-            event.originalEvent?.stopPropagation();
-
-            document.body.classList.add('is-sorting-images');
-
-            // Prevent the section/row/group drag systems from interpreting this as their drag.
-            event.item.dataset.imageDragging = 'true';
-        },
-
-        onMove: function (event) {
-            // Only allow image thumbs to move into image lists.
-            return event.to && event.to.classList.contains('sortable');
-        },
-
-        onAdd: function (event) {
-            const movedItem = event.item;
-            const sourceSection = movedItem.dataset.sectionId;
-            const targetSection = event.to.id.replace('sortable-', '');
-            const sourceLinkId = movedItem.dataset.linkId;
-
-            if (!sourceLinkId || !targetSection || sourceSection === targetSection) {
-                saveImageOrderForList(event.to);
-                return;
-            }
-
-            moveImageToSection(sourceLinkId, sourceSection, targetSection);
-        },
-
-        onUpdate: function (event) {
-            saveImageOrderForList(event.to);
-        },
-
-        onEnd: function (event) {
-            document.body.classList.remove('is-sorting-images');
-
-            if (event.item) {
-                delete event.item.dataset.imageDragging;
-            }
-
-            // If it was moved within the same list, make sure order saves.
-            if (event.from === event.to) {
-                saveImageOrderForList(event.to);
-            }
-
-            reloadIframe();
-        }
-    });
-}
-
-function saveImageOrderForList(listEl) {
-    if (!listEl) return;
-
-    const sectionId = listEl.id.replace('sortable-', '');
-
-    const orderData = Array.from(listEl.querySelectorAll('li.image-thumb-item')).map((li, index) => ({
-        link_id: parseInt(li.dataset.linkId, 10),
-        order: index + 1,
-        sectionId: parseInt(sectionId, 10)
-    }));
-
-    if (orderData.length > 0) {
-        updateImageOrder(orderData);
-    }
-}
-
- function loadUploadedImages(sectionId) {
-    if (!sectionId) return;
-
-    fetch(`/get_uploaded_images?section_id=${sectionId}`)
-        .then(response => response.json())
-        .then(data => {
+        function initializeImageSortable(sectionId) {
             const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
             if (!uploadedImagesUl) return;
 
-            uploadedImagesUl.innerHTML = "";
-
-            if (!selectedImages[sectionId]) {
-                selectedImages[sectionId] = [];
+            if (imageSortableInstances[sectionId]) {
+                imageSortableInstances[sectionId].destroy();
+                delete imageSortableInstances[sectionId];
             }
 
-            data.images.forEach(picture => {
-                const li = document.createElement("li");
-                li.classList.add('image-thumb-item');
+            imageSortableInstances[sectionId] = Sortable.create(uploadedImagesUl, {
+                group: {
+                    name: 'section-images',
+                    pull: true,
+                    put: true
+                },
+                animation: 160,
+                forceFallback: true,
+                fallbackOnBody: true,
+                fallbackClass: 'image-sortable-fallback',
+                fallbackTolerance: 4,
+                draggable: 'li.image-thumb-item',
+                ghostClass: 'image-sortable-ghost',
+                chosenClass: 'image-sortable-chosen',
+                dragClass: 'image-sortable-drag',
+                swapThreshold: 0.65,
 
-                li.setAttribute("data-link-id", picture.link_id);
-                li.setAttribute("data-order", picture.order);
-                li.setAttribute("data-id", picture.id);
-                li.setAttribute("data-section-id", sectionId);
-                li.draggable = false;
+                filter: 'button, .image-delete-button',
+                preventOnFilter: false,
 
-                const img = document.createElement("img");
-                img.src = picture.url;
-                img.draggable = false;
+                onStart: function (event) {
+                    event.originalEvent?.stopPropagation();
 
-const deleteButton = document.createElement("button");
-deleteButton.type = "button";
-deleteButton.className = "image-delete-button";
-deleteButton.title = "Remove image";
-deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+                    document.body.classList.add('is-sorting-images');
 
-deleteButton.addEventListener("click", function (event) {
-    event.preventDefault();
-    event.stopPropagation();
+                    // Prevent the section/row/group drag systems from interpreting this as their drag.
+                    event.item.dataset.imageDragging = 'true';
+                },
 
-    const confirmed = confirm("Remove this image from this section?");
+                onMove: function (event) {
+                    // Only allow image thumbs to move into image lists.
+                    return event.to && event.to.classList.contains('sortable');
+                },
 
-    if (!confirmed) return;
+                onAdd: function (event) {
+                    const movedItem = event.item;
+                    const sourceSection = movedItem.dataset.sectionId;
+                    const targetSection = event.to.id.replace('sortable-', '');
+                    const sourceLinkId = movedItem.dataset.linkId;
 
-    deleteSectionImage(picture.link_id, sectionId);
-});
+                    if (!sourceLinkId || !targetSection || sourceSection === targetSection) {
+                        saveImageOrderForList(event.to);
+                        return;
+                    }
 
-li.appendChild(img);
-li.appendChild(deleteButton);
-uploadedImagesUl.appendChild(li);
+                    moveImageToSection(sourceLinkId, sourceSection, targetSection);
+                },
+
+                onUpdate: function (event) {
+                    saveImageOrderForList(event.to);
+                },
+
+                onEnd: function (event) {
+                    document.body.classList.remove('is-sorting-images');
+
+                    if (event.item) {
+                        delete event.item.dataset.imageDragging;
+                    }
+
+                    // If it was moved within the same list, make sure order saves.
+                    if (event.from === event.to) {
+                        saveImageOrderForList(event.to);
+                    }
+
+                    reloadIframe();
+                }
             });
+        }
 
-initializeImageSortable(sectionId);
+        function saveImageOrderForList(listEl) {
+            if (!listEl) return;
 
-requestAnimationFrame(() => {
-    const sectionContent = document.getElementById(`section-content-${sectionId}`);
+            const sectionId = listEl.id.replace('sortable-', '');
 
-    if (sectionContent && sectionContent.classList.contains('open')) {
-        updateOpenSectionLayout(sectionContent);
-    }
-});
-        })
-        .catch(error => console.error("Error:", error));
-}
+            const orderData = Array.from(listEl.querySelectorAll('li.image-thumb-item')).map((li, index) => ({
+                link_id: parseInt(li.dataset.linkId, 10),
+                order: index + 1,
+                sectionId: parseInt(sectionId, 10)
+            }));
+
+            if (orderData.length > 0) {
+                updateImageOrder(orderData);
+            }
+        }
+
+        function loadUploadedImages(sectionId) {
+            if (!sectionId) return;
+
+            fetch(`/get_uploaded_images?section_id=${sectionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const uploadedImagesUl = document.getElementById(`sortable-${sectionId}`);
+                    if (!uploadedImagesUl) return;
+
+                    uploadedImagesUl.innerHTML = "";
+
+                    if (!selectedImages[sectionId]) {
+                        selectedImages[sectionId] = [];
+                    }
+
+                    data.images.forEach(picture => {
+                        const li = document.createElement("li");
+                        li.classList.add('image-thumb-item');
+
+                        li.setAttribute("data-link-id", picture.link_id);
+                        li.setAttribute("data-order", picture.order);
+                        li.setAttribute("data-id", picture.id);
+                        li.setAttribute("data-section-id", sectionId);
+                        li.draggable = false;
+
+                        const img = document.createElement("img");
+                        img.src = picture.url;
+                        img.draggable = false;
+
+                        const deleteButton = document.createElement("button");
+                        deleteButton.type = "button";
+                        deleteButton.className = "image-delete-button";
+                        deleteButton.title = "Remove image";
+                        deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+
+                        deleteButton.addEventListener("click", function (event) {
+                            event.preventDefault();
+                            event.stopPropagation();
+
+                            const confirmed = confirm("Remove this image from this section?");
+
+                            if (!confirmed) return;
+
+                            deleteSectionImage(picture.link_id, sectionId);
+                        });
+
+                        li.appendChild(img);
+                        li.appendChild(deleteButton);
+                        uploadedImagesUl.appendChild(li);
+                    });
+
+                    initializeImageSortable(sectionId);
+
+                    requestAnimationFrame(() => {
+                        const sectionContent = document.getElementById(`section-content-${sectionId}`);
+
+                        if (sectionContent && sectionContent.classList.contains('open')) {
+                            updateOpenSectionLayout(sectionContent);
+                        }
+                    });
+                })
+                .catch(error => console.error("Error:", error));
+        }
         // Function to add image to the list of selected images for a specific section
         function addToSelectedImages(sectionId, imageId) {
             // Add image ID to the selected images list for this section
@@ -9118,24 +9906,35 @@ requestAnimationFrame(() => {
             const sectionType = document.getElementById('section-type').value;
             const rowId = document.getElementById('row-id-input').value || null;
             const columnId = document.getElementById('column-id-input').value || null;
-let content = {};
+            let content = {};
 
-if (sectionType === 'link_card') {
-    content = {
-        header: 'Link Card',
-        body: 'Add a short description here.',
-        footer: 'Learn more',
-        url: '#',
-        background_image_url: '',
-        background_color: '#1f232b',
-        text_color: '#ffffff',
-        overlay_color: '#000000',
-        overlay_opacity: 0.25,
-        height: 240,
-        border_radius: 18,
-        open_in_new_tab: true
-    };
-}
+            if (sectionType === 'link_card') {
+                content = {
+                    header: 'Link Card',
+                    body: 'Add a short description here.',
+                    footer: 'Learn more',
+                    url: '#',
+                    background_image_url: '',
+                    background_color: '#1f232b',
+                    text_color: '#ffffff',
+                    overlay_color: '#000000',
+                    overlay_opacity: 0.25,
+                    height: 240,
+                    border_radius: 18,
+                    open_in_new_tab: true
+                };
+            }
+
+            if (sectionType === 'music') {
+                content = {
+                    title: 'Music',
+                    description: '',
+                    layout: 'list',
+                    show_download: false,
+                    show_track_numbers: true,
+                    player_radius: 18
+                };
+            }
 
             const data = {
                 section_type: sectionType,
@@ -9236,48 +10035,48 @@ if (sectionType === 'link_card') {
         });
 
         function toggleDropdown(dropdownContent) {
-    if (!dropdownContent) return;
+            if (!dropdownContent) return;
 
-    const isOpen = dropdownContent.classList.contains('dropdown-open');
+            const isOpen = dropdownContent.classList.contains('dropdown-open');
 
-    document.querySelectorAll('.dropdown-content.dropdown-open').forEach(menu => {
-        if (menu !== dropdownContent) {
-            menu.classList.remove('dropdown-open');
-            menu.style.display = 'none';
+            document.querySelectorAll('.dropdown-content.dropdown-open').forEach(menu => {
+                if (menu !== dropdownContent) {
+                    menu.classList.remove('dropdown-open');
+                    menu.style.display = 'none';
+                }
+            });
+
+            document.querySelectorAll('.row.dropdown-active').forEach(row => {
+                row.classList.remove('dropdown-active');
+            });
+
+            if (isOpen) {
+                dropdownContent.classList.remove('dropdown-open');
+                dropdownContent.style.display = 'none';
+                return;
+            }
+
+            dropdownContent.classList.add('dropdown-open');
+            dropdownContent.style.display = 'block';
+
+            const row = dropdownContent.closest('.row');
+            if (row) {
+                row.classList.add('dropdown-active');
+            }
         }
-    });
 
-    document.querySelectorAll('.row.dropdown-active').forEach(row => {
-        row.classList.remove('dropdown-active');
-    });
+        document.addEventListener('click', function (event) {
+            if (event.target.closest('.options-dropdown, .dropdown')) return;
 
-    if (isOpen) {
-        dropdownContent.classList.remove('dropdown-open');
-        dropdownContent.style.display = 'none';
-        return;
-    }
+            document.querySelectorAll('.dropdown-content.dropdown-open').forEach(menu => {
+                menu.classList.remove('dropdown-open');
+                menu.style.display = 'none';
+            });
 
-    dropdownContent.classList.add('dropdown-open');
-    dropdownContent.style.display = 'block';
-
-    const row = dropdownContent.closest('.row');
-    if (row) {
-        row.classList.add('dropdown-active');
-    }
-}
-
-document.addEventListener('click', function (event) {
-    if (event.target.closest('.options-dropdown, .dropdown')) return;
-
-    document.querySelectorAll('.dropdown-content.dropdown-open').forEach(menu => {
-        menu.classList.remove('dropdown-open');
-        menu.style.display = 'none';
-    });
-
-    document.querySelectorAll('.row.dropdown-active').forEach(row => {
-        row.classList.remove('dropdown-active');
-    });
-});
+            document.querySelectorAll('.row.dropdown-active').forEach(row => {
+                row.classList.remove('dropdown-active');
+            });
+        });
 
     </script>
 
@@ -9365,43 +10164,43 @@ document.addEventListener('click', function (event) {
                 .catch(error => console.error('Error creating section group:', error));
         }
 
-function deleteSectionGroup(groupId) {
-    const groupEl = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
+        function deleteSectionGroup(groupId) {
+            const groupEl = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
 
-    const rowCount = groupEl
-        ? groupEl.querySelectorAll(':scope .group-rows > .row').length
-        : 0;
+            const rowCount = groupEl
+                ? groupEl.querySelectorAll(':scope .group-rows > .row').length
+                : 0;
 
-    const sectionCount = groupEl
-        ? groupEl.querySelectorAll(':scope .section-card').length
-        : 0;
+            const sectionCount = groupEl
+                ? groupEl.querySelectorAll(':scope .section-card').length
+                : 0;
 
-    const message =
-        rowCount > 0 || sectionCount > 0
-            ? `Delete this group?\n\nThis will also permanently delete ${rowCount} row${rowCount === 1 ? '' : 's'} and ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this group.\n\nThis cannot be undone.`
-            : `Delete this empty group?\n\nThis cannot be undone.`;
+            const message =
+                rowCount > 0 || sectionCount > 0
+                    ? `Delete this group?\n\nThis will also permanently delete ${rowCount} row${rowCount === 1 ? '' : 's'} and ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this group.\n\nThis cannot be undone.`
+                    : `Delete this empty group?\n\nThis cannot be undone.`;
 
-    if (!confirm(message)) {
-        return;
-    }
-
-    fetch(`/delete_section_group/${groupId}`, {
-        method: 'DELETE',
-        headers: {
-            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
-        }
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                populateSections();
-                reloadIframe();
-            } else {
-                alert(data.error || 'Failed to delete section group.');
+            if (!confirm(message)) {
+                return;
             }
-        })
-        .catch(error => console.error('Error deleting section group:', error));
-}
+
+            fetch(`/delete_section_group/${groupId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateSections();
+                        reloadIframe();
+                    } else {
+                        alert(data.error || 'Failed to delete section group.');
+                    }
+                })
+                .catch(error => console.error('Error deleting section group:', error));
+        }
 
         function closeOpenSectionPanels() {
             document.querySelectorAll('.section-content.open').forEach(content => {
@@ -9419,162 +10218,162 @@ function deleteSectionGroup(groupId) {
         }
 
         function initializeGroupAndRowSorting() {
-    sortableInstances.forEach(instance => instance.destroy());
-    sortableInstances = [];
+            sortableInstances.forEach(instance => instance.destroy());
+            sortableInstances = [];
 
-    const sectionsContainer = document.getElementById('sections-container');
-    if (!sectionsContainer) return;
+            const sectionsContainer = document.getElementById('sections-container');
+            if (!sectionsContainer) return;
 
-    const groupSortable = Sortable.create(sectionsContainer, {
-        animation: 160,
-        handle: '.group-drag-handle',
-        draggable: '#sections-container > .section-group',
-        ghostClass: 'sortable-ghost',
-        chosenClass: 'sortable-chosen',
-        fallbackOnBody: true,
-        swapThreshold: 0.65,
+            const groupSortable = Sortable.create(sectionsContainer, {
+                animation: 160,
+                handle: '.group-drag-handle',
+                draggable: '#sections-container > .section-group',
+                ghostClass: 'sortable-ghost',
+                chosenClass: 'sortable-chosen',
+                fallbackOnBody: true,
+                swapThreshold: 0.65,
 
-        group: {
-            name: 'section-groups',
-            pull: false,
-            put: false
-        },
+                group: {
+                    name: 'section-groups',
+                    pull: false,
+                    put: false
+                },
 
-        filter: 'button, input, textarea, select, a, .editable-group-label, .row, .row-drag-handle, .section-card, .section-title',
-        preventOnFilter: false,
+                filter: 'button, input, textarea, select, a, .editable-group-label, .row, .row-drag-handle, .section-card, .section-title',
+                preventOnFilter: false,
 
-        onStart: function () {
-            closeOpenSectionPanels();
-            document.body.classList.add('is-sorting', 'is-sorting-groups');
-        },
+                onStart: function () {
+                    closeOpenSectionPanels();
+                    document.body.classList.add('is-sorting', 'is-sorting-groups');
+                },
 
-        onEnd: function () {
-            document.body.classList.remove('is-sorting', 'is-sorting-groups');
-            saveFullEditorOrder();
-        }
-    });
-
-    sortableInstances.push(groupSortable);
-
-document.querySelectorAll('.group-rows').forEach(rowContainer => {
-        const rowSortable = Sortable.create(rowContainer, {
-            animation: 160,
-            handle: '.row-drag-handle',
-            draggable: '.row',
-            group: {
-                name: 'page-rows',
-                pull: true,
-                put: true
-            },
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
-            fallbackOnBody: true,
-            emptyInsertThreshold: 30,
-            swapThreshold: 0.65,
-
-            filter: '.section-card, .section-title, .section-content, .column, .column-resize-handle, .uploaded-images, .image-thumb-item, button, input, textarea, select, a, .dropdown, .options-dropdown',
-            preventOnFilter: false,
-
-            onStart: function () {
-                closeOpenSectionPanels();
-                document.body.classList.add('is-sorting', 'is-sorting-rows');
-
-                removeEmptyGroupMessages();
-            },
-
-            onAdd: function () {
-                removeEmptyGroupMessages();
-            },
-
-            onRemove: function () {
-                removeEmptyGroupMessages();
-            },
-
-            onSort: function () {
-                removeEmptyGroupMessages();
-            },
-
-onEnd: function () {
-    document.body.classList.remove('is-sorting', 'is-sorting-rows');
-
-    requestAnimationFrame(() => {
-        syncEmptyGroupMessages();
-        updateGroupRowCounts();
-        saveFullEditorOrder();
-    });
-}
-        });
-
-        sortableInstances.push(rowSortable);
-    });
-}
-
-function saveFullEditorOrder() {
-    const groupIds = [];
-    const rowData = [];
-    let rowNumber = 1;
-
-    const sectionsContainer = document.getElementById('sections-container');
-    if (!sectionsContainer) return;
-
-    const groups = sectionsContainer.querySelectorAll(':scope > .section-group');
-
-    groups.forEach(groupEl => {
-        const groupId = parseInt(groupEl.dataset.groupId, 10);
-        if (!groupId) return;
-
-        groupIds.push(groupId);
-
-        const groupRowsContainer = groupEl.querySelector(':scope .group-rows');
-        if (!groupRowsContainer) return;
-
-        const rows = groupRowsContainer.querySelectorAll(':scope > .row');
-
-        rows.forEach(rowEl => {
-            const rowId = parseInt(rowEl.dataset.rowId, 10);
-            if (!rowId) return;
-
-            rowData.push({
-                row_id: rowId,
-                row_number: rowNumber++,
-                section_group_id: groupId
+                onEnd: function () {
+                    document.body.classList.remove('is-sorting', 'is-sorting-groups');
+                    saveFullEditorOrder();
+                }
             });
-        });
-    });
 
-    console.log('Saving editor order:', {
-        group_ids: groupIds,
-        rows: rowData
-    });
+            sortableInstances.push(groupSortable);
 
-    fetch('/update_editor_group_and_row_order', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
-        },
-        body: JSON.stringify({
-            group_ids: groupIds,
-            rows: rowData
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
-            console.log('Saved editor order response:', data);
+            document.querySelectorAll('.group-rows').forEach(rowContainer => {
+                const rowSortable = Sortable.create(rowContainer, {
+                    animation: 160,
+                    handle: '.row-drag-handle',
+                    draggable: '.row',
+                    group: {
+                        name: 'page-rows',
+                        pull: true,
+                        put: true
+                    },
+                    ghostClass: 'sortable-ghost',
+                    chosenClass: 'sortable-chosen',
+                    fallbackOnBody: true,
+                    emptyInsertThreshold: 30,
+                    swapThreshold: 0.65,
 
-            if (data.success) {
-                updateGroupRowCounts();
-                reloadIframe();
-            } else {
-                alert(data.error || 'Failed to save editor order.');
-                populateSections();
-            }
-        })
-        .catch(error => {
-            console.error('Error saving editor order:', error);
-            populateSections();
-        });
-}
+                    filter: '.section-card, .section-title, .section-content, .column, .column-resize-handle, .uploaded-images, .image-thumb-item, button, input, textarea, select, a, .dropdown, .options-dropdown',
+                    preventOnFilter: false,
+
+                    onStart: function () {
+                        closeOpenSectionPanels();
+                        document.body.classList.add('is-sorting', 'is-sorting-rows');
+
+                        removeEmptyGroupMessages();
+                    },
+
+                    onAdd: function () {
+                        removeEmptyGroupMessages();
+                    },
+
+                    onRemove: function () {
+                        removeEmptyGroupMessages();
+                    },
+
+                    onSort: function () {
+                        removeEmptyGroupMessages();
+                    },
+
+                    onEnd: function () {
+                        document.body.classList.remove('is-sorting', 'is-sorting-rows');
+
+                        requestAnimationFrame(() => {
+                            syncEmptyGroupMessages();
+                            updateGroupRowCounts();
+                            saveFullEditorOrder();
+                        });
+                    }
+                });
+
+                sortableInstances.push(rowSortable);
+            });
+        }
+
+        function saveFullEditorOrder() {
+            const groupIds = [];
+            const rowData = [];
+            let rowNumber = 1;
+
+            const sectionsContainer = document.getElementById('sections-container');
+            if (!sectionsContainer) return;
+
+            const groups = sectionsContainer.querySelectorAll(':scope > .section-group');
+
+            groups.forEach(groupEl => {
+                const groupId = parseInt(groupEl.dataset.groupId, 10);
+                if (!groupId) return;
+
+                groupIds.push(groupId);
+
+                const groupRowsContainer = groupEl.querySelector(':scope .group-rows');
+                if (!groupRowsContainer) return;
+
+                const rows = groupRowsContainer.querySelectorAll(':scope > .row');
+
+                rows.forEach(rowEl => {
+                    const rowId = parseInt(rowEl.dataset.rowId, 10);
+                    if (!rowId) return;
+
+                    rowData.push({
+                        row_id: rowId,
+                        row_number: rowNumber++,
+                        section_group_id: groupId
+                    });
+                });
+            });
+
+            console.log('Saving editor order:', {
+                group_ids: groupIds,
+                rows: rowData
+            });
+
+            fetch('/update_editor_group_and_row_order', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    group_ids: groupIds,
+                    rows: rowData
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Saved editor order response:', data);
+
+                    if (data.success) {
+                        updateGroupRowCounts();
+                        reloadIframe();
+                    } else {
+                        alert(data.error || 'Failed to save editor order.');
+                        populateSections();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error saving editor order:', error);
+                    populateSections();
+                });
+        }
 
 
 
@@ -9597,7 +10396,11 @@ function saveFullEditorOrder() {
             const overlayColorInput = document.getElementById('groupBackgroundOverlayColor');
             const overlayOpacityInput = document.getElementById('groupBackgroundOverlayOpacity');
             const overlayOpacityValue = document.getElementById('groupBackgroundOverlayOpacityValue');
+            const maxWidthInput = document.getElementById('groupMaxWidth');
 
+            if (maxWidthInput) {
+                maxWidthInput.value = group.max_width || 0;
+            }
             if (imageUrlInput) imageUrlInput.value = group.background_image_url || '';
             if (imageSizeInput) imageSizeInput.value = group.background_image_size || 'cover';
             if (imagePositionInput) imagePositionInput.value = group.background_image_position || 'center';
@@ -9733,6 +10536,7 @@ function saveFullEditorOrder() {
             const overlayOpacity = document.getElementById('groupBackgroundOverlayOpacity')?.value || 0;
             const overlayOpacityValue = document.getElementById('groupBackgroundOverlayOpacityValue');
 
+
             if (overlayOpacityValue) {
                 overlayOpacityValue.textContent = overlayOpacity;
             }
@@ -9802,6 +10606,7 @@ function saveFullEditorOrder() {
                     background_color: document.getElementById('groupBackgroundColor').value,
                     padding: document.getElementById('groupPadding').value,
                     border_radius: document.getElementById('groupBorderRadius').value,
+                    max_width: document.getElementById('groupMaxWidth')?.value || 0,
                     background_image_url: document.getElementById('groupBackgroundImageUrl')?.value.trim() || '',
                     background_image_size: document.getElementById('groupBackgroundImageSize')?.value || 'cover',
                     background_image_position: document.getElementById('groupBackgroundImagePosition')?.value || 'center',
@@ -9941,52 +10746,52 @@ function saveFullEditorOrder() {
             return 'single';
         }
 
-function applyGroupContainerStyles(groupContainer, group) {
-    if (!groupContainer || !group) return;
+        function applyGroupContainerStyles(groupContainer, group) {
+            if (!groupContainer || !group) return;
 
-    const rawBackground = (group.background_color || '').trim();
+            const rawBackground = (group.background_color || '').trim();
 
-    const background =
-        !rawBackground ||
-        rawBackground === 'transparent' ||
-        rawBackground === 'rgba(0,0,0,0)' ||
-        rawBackground === 'rgba(0, 0, 0, 0)'
-            ? 'transparent'
-            : rawBackground;
+            const background =
+                !rawBackground ||
+                    rawBackground === 'transparent' ||
+                    rawBackground === 'rgba(0,0,0,0)' ||
+                    rawBackground === 'rgba(0, 0, 0, 0)'
+                    ? 'transparent'
+                    : rawBackground;
 
-    const imageUrl = group.background_image_url || '';
-    const imageSize = group.background_image_size || 'cover';
-    const imagePosition = group.background_image_position || 'center';
-    const overlayColor = group.background_overlay_color || 'transparent';
-    const overlayOpacity = group.background_overlay_opacity || 0;
+            const imageUrl = group.background_image_url || '';
+            const imageSize = group.background_image_size || 'cover';
+            const imagePosition = group.background_image_position || 'center';
+            const overlayColor = group.background_overlay_color || 'transparent';
+            const overlayOpacity = group.background_overlay_opacity || 0;
 
-    /*
-      IMPORTANT:
-      Do not style the outer .section-group directly.
-      That creates the square/boxy outline you are seeing in DevTools.
-    */
-    groupContainer.style.background = 'transparent';
-    groupContainer.style.backgroundColor = 'transparent';
-    groupContainer.style.backgroundImage = 'none';
-    groupContainer.style.backgroundSize = '';
-    groupContainer.style.backgroundPosition = '';
-    groupContainer.style.backgroundRepeat = '';
+            /*
+              IMPORTANT:
+              Do not style the outer .section-group directly.
+              That creates the square/boxy outline you are seeing in DevTools.
+            */
+            groupContainer.style.background = 'transparent';
+            groupContainer.style.backgroundColor = 'transparent';
+            groupContainer.style.backgroundImage = 'none';
+            groupContainer.style.backgroundSize = '';
+            groupContainer.style.backgroundPosition = '';
+            groupContainer.style.backgroundRepeat = '';
 
-    /*
-      Also do not let saved group padding/radius control the OUTER editor group.
-      The editor UI should keep its own clean rounded card style.
-    */
-    groupContainer.style.padding = '';
-    groupContainer.style.borderRadius = '';
+            /*
+              Also do not let saved group padding/radius control the OUTER editor group.
+              The editor UI should keep its own clean rounded card style.
+            */
+            groupContainer.style.padding = '';
+            groupContainer.style.borderRadius = '';
 
-    groupContainer.style.setProperty('--group-bg', background);
-    groupContainer.style.setProperty('--group-bg-image', imageUrl ? `url("${imageUrl}")` : 'none');
-    groupContainer.style.setProperty('--group-bg-size', imageUrl ? imageSize : 'cover');
-    groupContainer.style.setProperty('--group-bg-position', imageUrl ? imagePosition : 'center');
-    groupContainer.style.setProperty('--group-bg-repeat', imageUrl ? 'no-repeat' : 'no-repeat');
-    groupContainer.style.setProperty('--group-overlay-color', overlayColor);
-    groupContainer.style.setProperty('--group-overlay-opacity', overlayOpacity);
-}
+            groupContainer.style.setProperty('--group-bg', background);
+            groupContainer.style.setProperty('--group-bg-image', imageUrl ? `url("${imageUrl}")` : 'none');
+            groupContainer.style.setProperty('--group-bg-size', imageUrl ? imageSize : 'cover');
+            groupContainer.style.setProperty('--group-bg-position', imageUrl ? imagePosition : 'center');
+            groupContainer.style.setProperty('--group-bg-repeat', imageUrl ? 'no-repeat' : 'no-repeat');
+            groupContainer.style.setProperty('--group-overlay-color', overlayColor);
+            groupContainer.style.setProperty('--group-overlay-opacity', overlayOpacity);
+        }
         function clearGroupBackgroundImage() {
             const input = document.getElementById('groupBackgroundImageUrl');
             if (input) {
@@ -10085,12 +10890,12 @@ function applyGroupContainerStyles(groupContainer, group) {
 
         function handleSectionDragStart(event) {
             if (
-    event.target.closest('.uploaded-images') ||
-    event.target.closest('.image-thumb-item') ||
-    event.target.closest('.image-checkbox')
-) {
-    return;
-}
+                event.target.closest('.uploaded-images') ||
+                event.target.closest('.image-thumb-item') ||
+                event.target.closest('.image-checkbox')
+            ) {
+                return;
+            }
             const card = event.currentTarget;
 
             if (!sectionHandleDragArmed && !event.target.closest('.section-drag-handle')) {
@@ -10270,222 +11075,647 @@ function applyGroupContainerStyles(groupContainer, group) {
         }
 
         function toggleSectionGroupCollapse(groupId) {
-    const group = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
-    if (!group) return;
+            const group = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
+            if (!group) return;
 
-    group.classList.toggle('collapsed');
+            group.classList.toggle('collapsed');
 
-    const isCollapsed = group.classList.contains('collapsed');
+            const isCollapsed = group.classList.contains('collapsed');
 
-    try {
-        const collapsedGroups = JSON.parse(localStorage.getItem('collapsedSectionGroups') || '{}');
-        collapsedGroups[groupId] = isCollapsed;
-        localStorage.setItem('collapsedSectionGroups', JSON.stringify(collapsedGroups));
-    } catch (error) {
-        console.warn('Could not save collapsed group state:', error);
-    }
-}
-
-function restoreCollapsedSectionGroups() {
-    let collapsedGroups = {};
-
-    try {
-        collapsedGroups = JSON.parse(localStorage.getItem('collapsedSectionGroups') || '{}');
-    } catch (error) {
-        collapsedGroups = {};
-    }
-
-    document.querySelectorAll('.section-group').forEach(group => {
-        const groupId = group.dataset.groupId;
-
-        if (collapsedGroups[groupId]) {
-            group.classList.add('collapsed');
-        }
-    });
-}
-
-function updateGroupRowCounts() {
-    document.querySelectorAll('.section-group').forEach(group => {
-        const groupId = group.dataset.groupId;
-        const rowCountEl = group.querySelector(`.group-row-count[data-group-id="${groupId}"]`);
-        const rowCount = group.querySelectorAll(':scope .group-rows > .row').length;
-
-        if (!rowCountEl) return;
-
-        rowCountEl.textContent = rowCount === 1 ? '1 row' : `${rowCount} rows`;
-    });
-}
-
-function deleteSectionImage(linkId, sectionId) {
-    fetch(`/delete_section_image/${linkId}`, {
-        method: 'DELETE',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
-        }
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success || data.status === 'success') {
-                loadUploadedImages(sectionId);
-                reloadIframe();
-            } else {
-                alert(data.error || data.message || 'Failed to remove image.');
+            try {
+                const collapsedGroups = JSON.parse(localStorage.getItem('collapsedSectionGroups') || '{}');
+                collapsedGroups[groupId] = isCollapsed;
+                localStorage.setItem('collapsedSectionGroups', JSON.stringify(collapsedGroups));
+            } catch (error) {
+                console.warn('Could not save collapsed group state:', error);
             }
-        })
-        .catch(error => {
-            console.error('Error removing image:', error);
-            alert('Error removing image.');
-        });
-}
+        }
+
+        function restoreCollapsedSectionGroups() {
+            let collapsedGroups = {};
+
+            try {
+                collapsedGroups = JSON.parse(localStorage.getItem('collapsedSectionGroups') || '{}');
+            } catch (error) {
+                collapsedGroups = {};
+            }
+
+            document.querySelectorAll('.section-group').forEach(group => {
+                const groupId = group.dataset.groupId;
+
+                if (collapsedGroups[groupId]) {
+                    group.classList.add('collapsed');
+                }
+            });
+        }
+
+        function updateGroupRowCounts() {
+            document.querySelectorAll('.section-group').forEach(group => {
+                const groupId = group.dataset.groupId;
+                const rowCountEl = group.querySelector(`.group-row-count[data-group-id="${groupId}"]`);
+                const rowCount = group.querySelectorAll(':scope .group-rows > .row').length;
+
+                if (!rowCountEl) return;
+
+                rowCountEl.textContent = rowCount === 1 ? '1 row' : `${rowCount} rows`;
+            });
+        }
+
+        function deleteSectionImage(linkId, sectionId) {
+            fetch(`/delete_section_image/${linkId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success || data.status === 'success') {
+                        loadUploadedImages(sectionId);
+                        reloadIframe();
+                    } else {
+                        alert(data.error || data.message || 'Failed to remove image.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error removing image:', error);
+                    alert('Error removing image.');
+                });
+        }
     </script>
     <script>
         function updateNarrowSectionCards() {
-    document.querySelectorAll('.column').forEach(column => {
-        const width = column.getBoundingClientRect().width;
-        const sectionCard = column.querySelector('.section-card');
+            document.querySelectorAll('.column').forEach(column => {
+                const width = column.getBoundingClientRect().width;
+                const sectionCard = column.querySelector('.section-card');
 
-        if (!sectionCard) return;
+                if (!sectionCard) return;
 
-        sectionCard.classList.toggle('is-narrow-section', width < 160);
-        sectionCard.classList.toggle('is-tiny-section', width < 150);
-    });
-}
+                sectionCard.classList.toggle('is-narrow-section', width < 160);
+                sectionCard.classList.toggle('is-tiny-section', width < 150);
+            });
+        }
 
-window.addEventListener('resize', updateNarrowSectionCards);
+        window.addEventListener('resize', updateNarrowSectionCards);
     </script>
 
     <script>
         function escapeHtml(value) {
-    return String(value ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
+            return String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function escapeAttr(value) {
+            return escapeHtml(value);
+        }
+
+        function openLinkCardBackgroundLibraryPicker(sectionId) {
+            const onConfirm = function (selection) {
+                console.log('Selected link card image:', selection);
+
+                let imageUrl = '';
+
+                // Your photo_library_modal.js returns this format:
+                // { mode: 'single', imageIds: [...], imageUrls: [...], sectionId: null }
+                if (selection && Array.isArray(selection.imageUrls)) {
+                    imageUrl = selection.imageUrls[0] || '';
+                }
+
+                // Fallbacks in case another modal format is used later
+                if (!imageUrl && Array.isArray(selection)) {
+                    const firstImage = selection[0];
+                    imageUrl =
+                        firstImage?.url ||
+                        firstImage?.public_url ||
+                        firstImage?.image_url ||
+                        firstImage?.src ||
+                        firstImage?.thumbnail_url ||
+                        '';
+                }
+
+                if (!imageUrl && selection) {
+                    imageUrl =
+                        selection.url ||
+                        selection.public_url ||
+                        selection.image_url ||
+                        selection.src ||
+                        selection.thumbnail_url ||
+                        '';
+                }
+
+                if (!imageUrl) {
+                    console.warn('Selected image did not include a usable URL:', selection);
+                    return;
+                }
+
+                setLinkCardBackgroundImage(sectionId, imageUrl);
+            };
+
+            if (window.PhotoLibraryModal && typeof window.PhotoLibraryModal.open === 'function') {
+                window.PhotoLibraryModal.open({
+                    mode: 'single',
+                    title: 'Choose Link Card Background',
+                    onConfirm
+                });
+                return;
+            }
+
+            if (window.photoLibraryModal && typeof window.photoLibraryModal.open === 'function') {
+                window.photoLibraryModal.open({
+                    mode: 'single',
+                    title: 'Choose Link Card Background',
+                    onConfirm
+                });
+                return;
+            }
+
+            if (typeof openPhotoLibraryModal === 'function') {
+                openPhotoLibraryModal({
+                    mode: 'single',
+                    title: 'Choose Link Card Background',
+                    onConfirm
+                });
+                return;
+            }
+
+            alert('Photo library modal is not loaded.');
+        }
+
+        function setLinkCardBackgroundImage(sectionId, imageUrl) {
+            const input = document.getElementById(`linkCardBackgroundImage-${sectionId}`);
+            const preview = document.getElementById(`linkCardImagePreview-${sectionId}`);
+
+            console.log('Setting link card image:', {
+                sectionId,
+                imageUrl,
+                input,
+                preview
+            });
+
+            if (input) {
+                input.value = imageUrl;
+
+                // Helpful debug check
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            if (preview) {
+                preview.classList.add('has-image');
+                preview.style.backgroundImage = `url("${imageUrl}")`;
+
+                const label = preview.querySelector('span');
+                if (label) {
+                    label.textContent = '';
+                }
+            }
+        }
+
+        function clearLinkCardBackgroundImage(sectionId) {
+            const input = document.getElementById(`linkCardBackgroundImage-${sectionId}`);
+            const preview = document.getElementById(`linkCardImagePreview-${sectionId}`);
+
+            if (input) {
+                input.value = '';
+            }
+
+            if (preview) {
+                preview.classList.remove('has-image');
+                preview.style.backgroundImage = '';
+                const label = preview.querySelector('span');
+                if (label) label.textContent = 'No image selected';
+            }
+        }
+
+        function keepDropdownsInViewport() {
+            document.querySelectorAll('.dropdown, .options-dropdown').forEach(dropdown => {
+                const menu = dropdown.querySelector('.dropdown-content');
+                if (!menu) return;
+
+                dropdown.addEventListener('mouseenter', () => {
+                    requestAnimationFrame(() => {
+                        menu.classList.remove('dropdown-align-left', 'dropdown-align-right');
+
+                        // Default: right-align like you already have.
+                        menu.classList.add('dropdown-align-right');
+
+                        const rect = menu.getBoundingClientRect();
+                        const viewportPadding = 12;
+
+                        if (rect.left < viewportPadding) {
+                            menu.classList.remove('dropdown-align-right');
+                            menu.classList.add('dropdown-align-left');
+                        }
+
+                        if (rect.right > window.innerWidth - viewportPadding) {
+                            menu.classList.remove('dropdown-align-left');
+                            menu.classList.add('dropdown-align-right');
+                        }
+                    });
+                });
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', keepDropdownsInViewport);
+
+
+        function openVideoLibraryPicker(sectionId) {
+    if (!window.VideoLibraryModal || typeof window.VideoLibraryModal.open !== 'function') {
+        alert('Video library modal is not loaded.');
+        return;
+    }
+
+    window.VideoLibraryModal.open({
+        mode: 'multiple',
+        sectionId: sectionId,
+        title: 'Choose Videos',
+        subtitle: 'Choose video files from your Asset Library for this section.'
+    });
 }
 
-function escapeAttr(value) {
-    return escapeHtml(value);
+        function openMusicLibraryPicker(sectionId) {
+            if (!window.MusicLibraryModal || typeof window.MusicLibraryModal.open !== 'function') {
+                alert('Music library modal is not loaded.');
+                return;
+            }
+
+            window.MusicLibraryModal.open({
+                mode: 'multiple',
+                sectionId: sectionId,
+                title: 'Choose Music',
+                subtitle: 'Choose audio files from your Asset Library for this section.'
+            });
+        }
+
+        let musicSortableInstances = {};
+
+        function loadSectionMusic(sectionId) {
+            fetch(`/get_section_music?section_id=${sectionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const list = document.getElementById(`music-sortable-${sectionId}`);
+                    if (!list) return;
+
+                    list.innerHTML = '';
+
+                    const tracks = data.tracks || [];
+
+                    if (!tracks.length) {
+                        list.innerHTML = `
+                    <li class="music-editor-empty">
+                        No music selected yet.
+                    </li>
+                `;
+                        return;
+                    }
+
+                    tracks.forEach((track, index) => {
+                        const li = document.createElement('li');
+                        li.className = 'music-editor-track';
+                        li.dataset.linkId = track.link_id;
+                        li.dataset.assetId = track.asset_id;
+                        li.dataset.sectionId = sectionId;
+
+                        li.innerHTML = `
+                    <span class="music-editor-handle">☰</span>
+
+                    <div class="music-editor-info">
+                        <div class="music-editor-title">${escapeHtml(track.filename || 'Untitled track')}</div>
+                        <div class="music-editor-subtitle">${escapeHtml((track.extension || '').toUpperCase())} · ${escapeHtml(track.file_size_label || '')}</div>
+                    </div>
+
+                    <audio controls preload="metadata">
+                        <source src="${escapeAttr(track.url)}" type="${escapeAttr(track.mime_type || 'audio/mpeg')}">
+                    </audio>
+
+                    <button type="button" class="music-remove-button" onclick="removeMusicTrack('${sectionId}', '${track.link_id}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+
+                        list.appendChild(li);
+                    });
+
+                    initializeMusicSortable(sectionId);
+                })
+                .catch(error => {
+                    console.error('Error loading section music:', error);
+                });
+        }
+
+        function initializeMusicSortable(sectionId) {
+            const list = document.getElementById(`music-sortable-${sectionId}`);
+            if (!list || typeof Sortable === 'undefined') return;
+
+            if (musicSortableInstances[sectionId]) {
+                musicSortableInstances[sectionId].destroy();
+            }
+
+            musicSortableInstances[sectionId] = Sortable.create(list, {
+                animation: 150,
+                handle: '.music-editor-handle',
+                draggable: '.music-editor-track',
+                onEnd: function () {
+                    const orderedLinkIds = Array.from(list.querySelectorAll('.music-editor-track'))
+                        .map(item => item.dataset.linkId)
+                        .filter(Boolean);
+
+                    fetch('/reorder_section_music', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                        },
+                        body: JSON.stringify({
+                            section_id: sectionId,
+                            ordered_link_ids: orderedLinkIds
+                        })
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success || data.status === 'success') {
+                                reloadIframe();
+                            }
+                        });
+                }
+            });
+        }
+
+        function removeMusicTrack(sectionId, linkId) {
+            fetch('/remove_music_from_section', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    sectionId: sectionId,
+                    linkIds: [linkId]
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success || data.status === 'success') {
+                        loadSectionMusic(sectionId);
+                        reloadIframe();
+                    } else {
+                        alert(data.message || data.error || 'Failed to remove track.');
+                    }
+                });
+        }
+
+        let videoSortableInstances = {};
+
+function loadSectionVideos(sectionId) {
+    fetch(`/get_section_videos?section_id=${sectionId}`)
+        .then(response => response.json())
+        .then(data => {
+            const list = document.getElementById(`video-sortable-${sectionId}`);
+            if (!list) return;
+
+            list.innerHTML = '';
+
+            const videos = data.videos || [];
+
+            if (!videos.length) {
+                list.innerHTML = `
+                    <li class="video-editor-empty">
+                        No videos selected yet.
+                    </li>
+                `;
+                return;
+            }
+
+            videos.forEach(video => {
+                const li = document.createElement('li');
+                li.className = 'video-editor-item';
+                li.dataset.linkId = video.link_id;
+                li.dataset.assetId = video.asset_id;
+                li.dataset.sectionId = sectionId;
+
+                li.innerHTML = `
+                    <span class="video-editor-handle">☰</span>
+
+<button type="button"
+        class="video-editor-preview-button"
+        data-video-url="${escapeAttr(video.url)}"
+        data-video-mime="${escapeAttr(video.mime_type || 'video/mp4')}"
+        onclick="event.preventDefault(); event.stopPropagation(); openEditorVideoPreview('${escapeAttr(video.url)}', '${escapeAttr(video.mime_type || 'video/mp4')}', '${escapeAttr(video.filename || 'Video Preview')}')">
+
+    <canvas class="video-thumb-canvas" aria-hidden="true"></canvas>
+
+    <div class="video-thumb-fallback">
+        <i class="fas fa-play-circle"></i>
+        <span>Preview Video</span>
+    </div>
+
+    <div class="video-thumb-overlay">
+        <i class="fas fa-play"></i>
+    </div>
+</button>
+
+                    <div class="video-editor-info">
+                        <div class="video-editor-title">${escapeHtml(video.filename || 'Untitled video')}</div>
+                        <div class="video-editor-subtitle">${escapeHtml((video.extension || '').toUpperCase())} · ${escapeHtml(video.file_size_label || '')}</div>
+                    </div>
+
+                    <button type="button" class="video-remove-button" onclick="removeVideoItem('${sectionId}', '${video.link_id}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+
+                list.appendChild(li);
+            });
+
+            initializeVideoSortable(sectionId);
+            generateEditorVideoThumbnails();
+        })
+        .catch(error => {
+            console.error('Error loading section videos:', error);
+        });
 }
 
-function openLinkCardBackgroundLibraryPicker(sectionId) {
-    const onConfirm = function (selection) {
-        console.log('Selected link card image:', selection);
+function initializeVideoSortable(sectionId) {
+    const list = document.getElementById(`video-sortable-${sectionId}`);
+    if (!list || typeof Sortable === 'undefined') return;
 
-        let imageUrl = '';
+    if (videoSortableInstances[sectionId]) {
+        videoSortableInstances[sectionId].destroy();
+    }
 
-        // Your photo_library_modal.js returns this format:
-        // { mode: 'single', imageIds: [...], imageUrls: [...], sectionId: null }
-        if (selection && Array.isArray(selection.imageUrls)) {
-            imageUrl = selection.imageUrls[0] || '';
+    videoSortableInstances[sectionId] = Sortable.create(list, {
+        animation: 150,
+        handle: '.video-editor-handle',
+        draggable: '.video-editor-item',
+        onEnd: function () {
+            const orderedLinkIds = Array.from(list.querySelectorAll('.video-editor-item'))
+                .map(item => item.dataset.linkId)
+                .filter(Boolean);
+
+            fetch('/reorder_section_videos', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                },
+                body: JSON.stringify({
+                    section_id: sectionId,
+                    ordered_link_ids: orderedLinkIds
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success || data.status === 'success') {
+                        reloadIframe();
+                    }
+                });
         }
+    });
+}
 
-        // Fallbacks in case another modal format is used later
-        if (!imageUrl && Array.isArray(selection)) {
-            const firstImage = selection[0];
-            imageUrl =
-                firstImage?.url ||
-                firstImage?.public_url ||
-                firstImage?.image_url ||
-                firstImage?.src ||
-                firstImage?.thumbnail_url ||
-                '';
-        }
+function removeVideoItem(sectionId, linkId) {
+    fetch('/remove_video_from_section', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+        },
+        body: JSON.stringify({
+            sectionId: sectionId,
+            linkIds: [linkId]
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success || data.status === 'success') {
+                loadSectionVideos(sectionId);
+                reloadIframe();
+            } else {
+                alert(data.message || data.error || 'Failed to remove video.');
+            }
+        });
+}
 
-        if (!imageUrl && selection) {
-            imageUrl =
-                selection.url ||
-                selection.public_url ||
-                selection.image_url ||
-                selection.src ||
-                selection.thumbnail_url ||
-                '';
-        }
+function generateEditorVideoThumbnails() {
+    document.querySelectorAll('.video-editor-preview-button[data-video-url]').forEach(button => {
+        if (button.dataset.thumbnailGenerated === 'true') return;
 
-        if (!imageUrl) {
-            console.warn('Selected image did not include a usable URL:', selection);
-            return;
-        }
+        const videoUrl = button.dataset.videoUrl;
+        const canvas = button.querySelector('.video-thumb-canvas');
 
-        setLinkCardBackgroundImage(sectionId, imageUrl);
+        if (!videoUrl || !canvas) return;
+
+        button.dataset.thumbnailGenerated = 'true';
+
+        const video = document.createElement('video');
+
+        video.src = videoUrl;
+        video.muted = true;
+        video.preload = 'metadata';
+        video.playsInline = true;
+
+        video.addEventListener('loadedmetadata', function () {
+            const targetTime = Math.min(1, Math.max(0, (video.duration || 1) * 0.1));
+
+            try {
+                video.currentTime = targetTime;
+            } catch (error) {
+                console.warn('Could not seek editor video thumbnail:', error);
+            }
+        });
+
+        video.addEventListener('seeked', function () {
+            try {
+                const width = video.videoWidth || 320;
+                const height = video.videoHeight || 180;
+
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, width, height);
+
+                button.classList.add('has-thumbnail');
+
+                video.removeAttribute('src');
+                video.load();
+            } catch (error) {
+                console.warn('Could not draw editor video thumbnail:', error);
+            }
+        });
+
+        video.addEventListener('error', function () {
+            console.warn('Could not load editor video thumbnail:', videoUrl, video.error);
+        });
+    });
+}
+
+function openEditorVideoPreview(videoUrl, mimeType, title) {
+    const modal = document.getElementById('editorVideoPreviewModal');
+    const player = document.getElementById('editorVideoPreviewPlayer');
+    const titleEl = document.getElementById('editorVideoPreviewTitle');
+
+    if (!modal || !player) return;
+
+    player.pause();
+    player.removeAttribute('src');
+    player.innerHTML = '';
+
+    player.src = videoUrl;
+    player.type = mimeType || 'video/mp4';
+    player.load();
+
+    player.onerror = function () {
+        console.error('Editor video failed to load:', player.error, videoUrl);
     };
 
-    if (window.PhotoLibraryModal && typeof window.PhotoLibraryModal.open === 'function') {
-        window.PhotoLibraryModal.open({
-            mode: 'single',
-            title: 'Choose Link Card Background',
-            onConfirm
-        });
-        return;
+    if (titleEl) {
+        titleEl.textContent = title || 'Video Preview';
     }
 
-    if (window.photoLibraryModal && typeof window.photoLibraryModal.open === 'function') {
-        window.photoLibraryModal.open({
-            mode: 'single',
-            title: 'Choose Link Card Background',
-            onConfirm
-        });
-        return;
-    }
-
-    if (typeof openPhotoLibraryModal === 'function') {
-        openPhotoLibraryModal({
-            mode: 'single',
-            title: 'Choose Link Card Background',
-            onConfirm
-        });
-        return;
-    }
-
-    alert('Photo library modal is not loaded.');
+    modal.classList.add('is-open');
 }
 
-function setLinkCardBackgroundImage(sectionId, imageUrl) {
-    const input = document.getElementById(`linkCardBackgroundImage-${sectionId}`);
-    const preview = document.getElementById(`linkCardImagePreview-${sectionId}`);
+function closeEditorVideoPreview() {
+    const modal = document.getElementById('editorVideoPreviewModal');
+    const player = document.getElementById('editorVideoPreviewPlayer');
 
-    console.log('Setting link card image:', {
-        sectionId,
-        imageUrl,
-        input,
-        preview
-    });
-
-    if (input) {
-        input.value = imageUrl;
-
-        // Helpful debug check
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+    if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.innerHTML = '';
+        player.load();
     }
 
-    if (preview) {
-        preview.classList.add('has-image');
-        preview.style.backgroundImage = `url("${imageUrl}")`;
-
-        const label = preview.querySelector('span');
-        if (label) {
-            label.textContent = '';
-        }
-    }
-}
-
-function clearLinkCardBackgroundImage(sectionId) {
-    const input = document.getElementById(`linkCardBackgroundImage-${sectionId}`);
-    const preview = document.getElementById(`linkCardImagePreview-${sectionId}`);
-
-    if (input) {
-        input.value = '';
-    }
-
-    if (preview) {
-        preview.classList.remove('has-image');
-        preview.style.backgroundImage = '';
-        const label = preview.querySelector('span');
-        if (label) label.textContent = 'No image selected';
+    if (modal) {
+        modal.classList.remove('is-open');
     }
 }
     </script>
+
+<div id="editorVideoPreviewModal" class="video-preview-modal" onclick="closeEditorVideoPreview()">
+    <div class="video-preview-dialog" onclick="event.stopPropagation();">
+        <div class="video-preview-header">
+            <div id="editorVideoPreviewTitle" class="video-preview-title">Video Preview</div>
+
+            <button type="button" class="video-preview-close" onclick="closeEditorVideoPreview()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <video id="editorVideoPreviewPlayer"
+               class="video-preview-player"
+               controls
+               preload="metadata"
+               playsinline>
+            Your browser does not support the video element.
+        </video>
+    </div>
+</div>
 
     {% endblock %}
 </body>

@@ -19,6 +19,11 @@
 
     <!-- Bootstrap JS (optional, but required for certain features like modals) -->
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+    <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+/>
     <!-- Favicon -->
     {% set navbar_style = website.public_navbar_style or {} %}
     {% set icon_url = navbar_style.get('icon_url') %}
@@ -520,7 +525,7 @@
     }
 
 
-    .row-container {
+    /* .row-container {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
@@ -530,9 +535,9 @@
         max-width: 100%;
         height: fit-content;
         box-sizing: border-box;
-    }
+    } */
 
-    .row {
+    /* .row {
         display: flex;
         flex-wrap: nowrap;
 
@@ -543,7 +548,39 @@
 
         justify-content: center;
         align-items: center;
+    } */
+
+    /* .row {
+    display: flex;
+    flex-wrap: nowrap;
+
+    width: 100%;
+    max-width: 100%;
+    height: fit-content;
+    box-sizing: border-box;
+
+    justify-content: center;
+    align-items: stretch;
+    gap: 0;
+} */
+
+    /* .public-section-group .row > .section-container {
+    box-sizing: border-box;
+    padding: 6px;
+    min-width: 0;
+} */
+
+    /* @media (max-width: 760px) {
+    .public-section-group .row {
+        flex-wrap: wrap;
     }
+
+    .public-section-group .row > .section-container {
+        width: 100% !important;
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+} */
 
     .navbar {
         position: fixed;
@@ -874,7 +911,8 @@
 
     @media (max-width: 700px) {
         .uwebia-images {
-            width: calc(100% - 24px);
+            /* width: calc(100% - 24px); */
+            width: 100%;
         }
 
         .uwebia-feature-grid {
@@ -914,13 +952,13 @@
         z-index: 1;
     }
 
-    .public-section-group .row-container {
+    /* .public-section-group .row-container {
         margin-bottom: 2px;
-    }
+    } */
 
-    .public-section-group .row-container:last-child {
+    /* .public-section-group .row-container:last-child {
         margin-bottom: 0;
-    }
+    } */
 
     .public-section-group .text-area {
         padding-top: 2px;
@@ -988,8 +1026,13 @@
         flex-direction: column;
         justify-content: space-between;
 
-        width: 100%;
+        width: min(100%, var(--link-card-width, 420px));
+
+        max-width: 100%;
         min-height: var(--link-card-height, 240px);
+
+        margin-left: auto;
+        margin-right: auto;
 
         padding: 20px;
         box-sizing: border-box;
@@ -1086,9 +1129,23 @@
         transform: translateX(3px);
     }
 
+    /* .public-section-group .row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 12px;
+} */
+
+    /* Preserve the editor-set section width.
+   Do NOT set flex-basis here or it overrides the inline width. */
+
+    /* Card width setting controls the card inside its section */
     .section-container>.uwebia-link-card {
-        width: 100%;
-        max-width: none;
+        width: min(100%, var(--link-card-width, 420px));
+        max-width: 100%;
+        margin-left: auto;
+        margin-right: auto;
     }
 
     .calendar-subscribe-row {
@@ -1257,18 +1314,791 @@
         color: #ffffff;
         opacity: 1;
     }
+
     .modal-backdrop {
-    z-index: 1900 !important;
+        z-index: 1900 !important;
+    }
+
+    #eventModal {
+        z-index: 2000 !important;
+    }
+
+    #eventModal .modal-dialog {
+        position: relative;
+        z-index: 2001 !important;
+        margin-top: calc(var(--navbar-page-offset, 58px) + 32px);
+    }
+
+.public-row-container {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 2px;
 }
 
-#eventModal {
-    z-index: 2000 !important;
+.public-row {
+    display: flex;
+    flex-wrap: nowrap;
+
+    width: 100%;
+    max-width: 100%;
+
+    justify-content: center;
+    align-items: flex-start;
+    gap: 12px;
+
+    box-sizing: border-box;
 }
 
-#eventModal .modal-dialog {
+.public-section-cell {
+    flex: 0 1 auto;
+
+    width: auto;
+    max-width: min(100%, var(--section-width, 100%));
+    min-width: 0;
+
+    box-sizing: border-box;
+    padding: 6px;
+
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.public-section-cell > * {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.public-section-cell > .text-area,
+.public-section-cell > .uwebia-images,
+.public-section-cell > .uwebia-music,
+.public-section-cell > .uwebia-video-section,
+.public-section-cell > .youtube-video-container,
+.public-section-cell > .contact-form-container,
+.public-section-cell > [id^="map"],
+.public-section-cell > .calendar-container {
+    width: 100%;
+}
+
+.public-section-cell > .uwebia-link-card,
+.public-section-cell > .virtual-tour-button {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 760px) {
+    .public-row {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .public-section-cell {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: 100%;
+        padding: 6px;
+    }
+}
+
+.main-content {
+    width: 100%;
+    max-width: var(--public-page-max-width, 1180px);
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+}
+
+.public-section-group-inner {
+    width: 100%;
+    max-width: var(--public-page-max-width, 1180px);
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+}
+/* Image sections should actually use their editor-set section width */
+.public-section-cell:has(> .uwebia-images) {
+    flex: 0 1 var(--section-width, 100%);
+    width: var(--section-width, 100%);
+    max-width: min(100%, var(--section-width, 100%));
+}
+
+/* Image wrapper fills that section cell */
+.public-section-cell:has(> .uwebia-images) > .uwebia-images {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block;
+}
+
+/* Single images fill the available image section width */
+.public-section-cell:has(> .uwebia-images) .uwebia-single-image {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+}
+
+/* Image layout containers also fill the cell */
+.public-section-cell:has(> .uwebia-images) .uwebia-image-grid,
+.public-section-cell:has(> .uwebia-images) .uwebia-image-masonry,
+.public-section-cell:has(> .uwebia-images) .uwebia-image-carousel,
+.public-section-cell:has(> .uwebia-images) .uwebia-feature-grid,
+.public-section-cell:has(> .uwebia-images) .uwebia-slideshow {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+html {
+    min-height: 100%;
+}
+
+body.public-page-body {
     position: relative;
-    z-index: 2001 !important;
-    margin-top: calc(var(--navbar-page-offset, 58px) + 32px);
+    min-height: 100svh;
+    background: transparent !important;
+    overflow-x: hidden;
+}
+
+.site-fixed-background {
+    position: fixed;
+    inset: 0;
+height: 100lvh;
+min-height: 100dvh;
+
+    z-index: 0;
+    pointer-events: none;
+    transform: translateZ(0);
+}
+
+/* Only the actual page content sits above the fixed background */
+.content-area {
+    position: relative;
+    z-index: 1;
+}
+
+/* Navbar must always sit above public groups/rows/sections */
+.public-navbar {
+    position: fixed;
+    z-index: 100000 !important;
+}
+
+/* Navbar dropdowns / side panel should sit even higher */
+.public-navbar-menu,
+.public-navbar-dropdown-menu,
+.public-navbar-overflow-menu {
+    z-index: 100010 !important;
+}
+
+html,
+body.public-page-body {
+    background: {{ website.background_color or '#000' }} !important;
+}
+
+.uwebia-music {
+    width: 100%;
+    max-width: 900px;
+    margin: 10px auto;
+    padding: 18px;
+    box-sizing: border-box;
+
+    color: inherit;
+    background: rgba(0, 0, 0, 0.34);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 22px;
+
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.uwebia-music-header {
+    text-align: left;
+    margin-bottom: 14px;
+}
+
+.uwebia-music-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 900;
+}
+
+.uwebia-music-description {
+    margin: 5px 0 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.uwebia-music-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.uwebia-music-track {
+    display: grid;
+    grid-template-columns: auto 42px minmax(120px, 260px) minmax(240px, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+
+    padding: 10px 12px;
+    border-radius: var(--music-player-radius, 18px);
+
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.uwebia-music-track-number {
+    color: rgba(255, 255, 255, 0.55);
+    font-weight: 850;
+    font-size: 0.78rem;
+}
+
+.uwebia-music-icon {
+    width: 42px;
+    height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(126, 226, 204, 0.14);
+    color: #7ee2cc;
+}
+
+.uwebia-music-info {
+    min-width: 0;
+    text-align: left;
+}
+
+.uwebia-music-track-title {
+    font-size: 0.88rem;
+    font-weight: 850;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.uwebia-music-track-subtitle {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    opacity: 0.65;
+}
+
+.uwebia-music-track audio {
+    width: 100%;
+}
+
+.uwebia-music-download {
+    color: #7ee2cc;
+    text-decoration: none;
+    font-size: 1rem;
+}
+
+@media (max-width: 760px) {
+    .uwebia-music {
+        width: 100%;
+        padding: 14px;
+    }
+
+    .uwebia-music-track {
+        grid-template-columns: auto 42px minmax(0, 1fr) auto;
+        border-radius: 22px;
+    }
+
+    .uwebia-music-track audio {
+        grid-column: 1 / -1;
+    }
+}
+
+.uwebia-video-section {
+    width: 100%;
+    max-width: var(--video-max-width, 900px);
+    margin: 10px auto;
+    padding: 18px;
+    box-sizing: border-box;
+
+    color: inherit;
+    background: rgba(0, 0, 0, 0.34);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 22px;
+
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.uwebia-video-header {
+    margin-bottom: 14px;
+    text-align: left;
+}
+
+.uwebia-video-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 900;
+}
+
+.uwebia-video-description {
+    margin: 5px 0 0;
+    opacity: 0.7;
+    font-size: 0.9rem;
+}
+
+.uwebia-video-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+    gap: 14px;
+}
+
+.uwebia-video-stack .uwebia-video-list,
+.uwebia-video-featured .uwebia-video-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.uwebia-video-card {
+    overflow: hidden;
+    border-radius: var(--video-radius, 18px);
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.uwebia-video-card video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    object-fit: cover;
+}
+
+.uwebia-video-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+}
+
+.uwebia-video-filename {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
+.uwebia-video-download {
+    color: #7ee2cc;
+    text-decoration: none;
+}
+
+.uwebia-video-empty {
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    opacity: 0.68;
+    text-align: center;
+}
+.public-video-preview-button {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+
+    border: none;
+    border-radius: var(--video-radius, 18px) var(--video-radius, 18px) 0 0;
+
+    background: rgba(0, 0, 0, 0.32);
+    color: rgba(255, 255, 255, 0.92);
+
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.uwebia-video-card {
+    overflow: hidden;
+}
+
+.uwebia-video-card > video {
+    display: none;
+}
+.video-thumb-canvas {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
+    object-fit: cover;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-canvas {
+    display: block;
+}
+
+.video-thumb-fallback {
+    position: relative;
+    z-index: 1;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-fallback {
+    display: none;
+}
+
+.video-thumb-fallback i {
+    font-size: 2.6rem;
+}
+
+.video-thumb-fallback span {
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.video-thumb-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.video-thumb-overlay i {
+    width: 42px;
+    height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.58);
+    color: white;
+    font-size: 1rem;
+}
+
+.public-video-preview-button .video-thumb-overlay {
+    opacity: 1;
+}
+
+/* Actual fullscreen modal */
+.video-preview-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200000;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+
+    padding: 20px;
+    box-sizing: border-box;
+
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.video-preview-modal.is-open {
+    display: flex;
+}
+
+.video-preview-dialog {
+    width: min(900px, 92vw);
+    max-height: 88dvh;
+
+    background: #151820;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+
+.video-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    padding: 12px 14px;
+
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-preview-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.video-preview-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+
+    border-radius: 10px;
+    width: 34px;
+    height: 34px;
+
+    cursor: pointer;
+}
+
+.video-preview-close:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.video-preview-player {
+    width: 100%;
+    max-height: 70dvh;
+    background: #000;
+    display: block;
+}
+
+/* Video sections should use their editor-set section width */
+.public-section-cell:has(> .uwebia-video-section) {
+    flex: 0 1 var(--section-width, 100%);
+    width: var(--section-width, 100%);
+    max-width: min(100%, var(--section-width, 100%));
+}
+
+/* Video wrapper fills that section cell */
+.public-section-cell:has(> .uwebia-video-section) > .uwebia-video-section {
+    width: 100% !important;
+    max-width: min(100%, var(--video-max-width, 900px)) !important;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* The video grid/list fills the video wrapper */
+.public-section-cell:has(> .uwebia-video-section) .uwebia-video-list {
+    width: 100%;
+}
+
+/* The preview button should behave like a video frame, not a tiny button */
+.public-video-preview-button {
+    display: block;
+    width: 100%;
+    min-width: 220px;
+    aspect-ratio: 16 / 9;
+    padding: 0;
+    line-height: normal;
+}
+
+/* On mobile, remove min-width so it never overflows */
+@media (max-width: 760px) {
+    .public-section-cell:has(> .uwebia-video-section) {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .public-video-preview-button {
+        min-width: 0;
+    }
+}
+.public-video-preview-button,
+.public-video-preview-button * {
+    color: #ffffff !important;
+}
+
+.public-video-preview-button .video-thumb-fallback i,
+.public-video-preview-button .video-thumb-fallback span {
+    color: #ffffff !important;
+}
+.public-video-preview-button .video-thumb-overlay i {
+    width: 46px;
+    height: 46px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62) !important;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+
+    color: #ffffff !important;
+    font-size: 1rem;
+}
+.public-video-preview-button {
+    display: block;
+    width: 100%;
+    min-width: 220px;
+    aspect-ratio: 16 / 9;
+    padding: 0;
+    line-height: normal;
+
+    position: relative;
+    overflow: hidden;
+    border: none;
+    cursor: pointer;
+
+    background:
+        radial-gradient(circle at center, rgba(126, 226, 204, 0.18), transparent 45%),
+        rgba(0, 0, 0, 0.42);
+
+    transform: translateZ(0);
+    transition:
+        transform 0.22s ease,
+        box-shadow 0.22s ease,
+        filter 0.22s ease,
+        background 0.22s ease;
+}
+
+.public-video-preview-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.08),
+            rgba(0, 0, 0, 0.42)
+        );
+
+    pointer-events: none;
+    transition: background 0.22s ease;
+}
+
+.public-video-preview-button:hover {
+    transform: scale(1.025);
+    filter: brightness(1.08);
+    box-shadow:
+        0 18px 38px rgba(0, 0, 0, 0.34),
+        0 0 0 1px rgba(126, 226, 204, 0.35);
+}
+
+.public-video-preview-button:hover::after {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(126, 226, 204, 0.08),
+            rgba(0, 0, 0, 0.48)
+        );
+}
+
+.video-thumb-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    opacity: 1;
+    pointer-events: none;
+}
+
+.video-play-icon {
+    width: 58px;
+    height: 58px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    box-shadow:
+        0 12px 28px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+    transition:
+        transform 0.22s ease,
+        background 0.22s ease,
+        border-color 0.22s ease;
+}
+
+.video-play-icon::before {
+    content: "";
+    display: block;
+
+    width: 0;
+    height: 0;
+
+    margin-left: 4px;
+
+    border-top: 12px solid transparent;
+    border-bottom: 12px solid transparent;
+    border-left: 18px solid #ffffff;
+}
+
+.public-video-preview-button:hover .video-play-icon {
+    transform: scale(1.12);
+    background: rgba(126, 226, 204, 0.82);
+    border-color: rgba(255, 255, 255, 0.58);
+}
+
+.public-video-preview-button:hover .video-play-icon::before {
+    border-left-color: #10251f;
+}
+
+.video-thumb-canvas {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
+    object-fit: cover;
+    z-index: 0;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-canvas {
+    display: block;
+}
+
+.video-thumb-fallback {
+    position: relative;
+    z-index: 2;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    color: #ffffff;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-fallback {
+    display: none;
+}
+
+@media (max-width: 760px) {
+    .public-video-preview-button {
+        min-width: 0;
+    }
+
+    .video-play-icon {
+        width: 52px;
+        height: 52px;
+    }
 }
 </style>
 
@@ -1280,22 +2110,27 @@
 <body class="public-page-body" style="
 --navbar-page-offset: {{ 58 + navbar_margin }}px;
 --navbar-anchor-offset: {{ navbar_anchor_offset }}px;
-background: {{ website.background_color or '#ffffff' }};
+--public-page-max-width: 1180px;
 color: {{ website.text_color or '#000000' }};
+">
+<div class="site-fixed-background" aria-hidden="true" style="
+    background: {{ website.background_color or '#ffffff' }};
 
     {% if website.background_image_url %}
         background-image: url('{{ website.background_image_url }}');
         background-repeat: {{ 'repeat' if website.background_image_repeat else 'no-repeat' }};
-        background-position: center;
-        background-size:
-            {% if website.background_image_repeat %}
-                {{ website.background_image_zoom or 100 }}px auto
-            {% else %}
-                {{ website.background_image_zoom or 100 }}% auto
-            {% endif %};
-        background-attachment: fixed;
+        background-position: center center;
+
+        {% set bg_zoom = website.background_image_zoom or 100 %}
+        {% set repeat_zoom_multiplier = 2.0 %}
+background-size:
+        {% if website.background_image_repeat %}
+            {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto
+        {% else %}
+            cover
+        {% endif %}
     {% endif %}
-">
+"></div>
     {% include 'components/public_navbar.html' %}
     <!-- {% if content.is_preview %}
     <div class="preview-banner">Preview</div>
@@ -1339,303 +2174,457 @@ background: {{ group.background_color or 'transparent' }};
         {% endif %}
         --group-overlay-color: {{ group.background_overlay_color or 'transparent' }};
         --group-overlay-opacity: {{ group.background_overlay_opacity or 0 }};
-        padding: {{ group.padding if group.padding is not none else 0 }}px;
-        border-radius: {{ group.border_radius if group.border_radius is not none else 0 }}px;
-        box-sizing: border-box;
-        width: 100%;
-    ">
 
-                {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
-                {% set first_section = sections_in_row[0] %}
+padding: {{ group.padding if group.padding is not none else 0 }}px;
+border-radius: {{ group.border_radius if group.border_radius is not none else 0 }}px;
+box-sizing: border-box;
+width: 100%;
+max-width: {% if group.max_width %}{{ group.max_width }}px{% else %}100%{% endif %};
+margin-left: auto;
+margin-right: auto;
+">
+                <div class="public-section-group-inner">
 
-                {% if first_section.section_group_id == group.id %}
-                <div class="row-container">
-                    <div class="row">
-                        {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
-                        {% for section in sorted_sections %}
+                    {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
+                    {% set first_section = sections_in_row[0] %}
 
-                        <!-- paste your full section-container block here -->
-                        <div class="section-container" style="width: {{ section.width }}%;">
+                    {% if first_section.section_group_id == group.id %}
+                    <div class="public-row-container">
+                        <div class="public-row">
+                            {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
+                            {% for section in sorted_sections %}
 
-                            {% if section.section_type in ['images', 'image_gallery', 'image'] %}
-                            {% set images = content.pictures_by_section.get(section.id, []) %}
-                            {% set image_layout = section.content.get('image_layout') or ('single' if
-                            section.section_type == 'image' else 'fade_slideshow') %}
-                            {% set image_fit = section.content.get('image_fit', 'cover') %}
-                            {% set image_radius = section.content.get('image_radius', '10') %}
-                            {% set show_thumbnails = section.content.get('show_thumbnails', True) %}
-                            {% set autoplay = section.content.get('autoplay', False) %}
+                            <!-- paste your full section-container block here -->
+                            <div class="section-container public-section-cell"
+                                style="--section-width: {{ section.width }}%;">
 
-                            <div class="uwebia-images uwebia-images-{{ image_layout }}"
-                                data-section-id="{{ section.id }}" data-layout="{{ image_layout }}"
-                                data-autoplay="{{ 'true' if autoplay else 'false' }}"
-                                style="--image-fit: {{ image_fit }}; --image-radius: {{ image_radius }}px;">
+                                {% if section.section_type in ['images', 'image_gallery', 'image'] %}
+                                {% set images = content.pictures_by_section.get(section.id, []) %}
+                                {% set image_layout = section.content.get('image_layout') or ('single' if
+                                section.section_type == 'image' else 'fade_slideshow') %}
+                                {% set image_fit = section.content.get('image_fit', 'cover') %}
+                                
+                                {% set image_radius = section.content.get('image_radius', '10') %}
+                                {% set show_thumbnails = section.content.get('show_thumbnails', True) %}
+                                {% set autoplay = section.content.get('autoplay', False) %}
 
-                                {% if images %}
-                                {% if image_layout == 'single' %}
-                                <img class="uwebia-single-image" src="{{ images[0] }}" loading="lazy">
+                                <div class="uwebia-images uwebia-images-{{ image_layout }}"
+                                    data-section-id="{{ section.id }}" data-layout="{{ image_layout }}"
+                                    data-autoplay="{{ 'true' if autoplay else 'false' }}"
+                                    style="--image-fit: {{ image_fit }}; --image-radius: {{ image_radius }}px;">
 
-                                {% elif image_layout == 'grid' %}
-                                <div class="uwebia-image-grid">
-                                    {% for imageUrl in images %}
-                                    <img src="{{ imageUrl }}" loading="lazy">
-                                    {% endfor %}
-                                </div>
+                                    {% if images %}
+                                    {% if image_layout == 'single' %}
+                                    <img class="uwebia-single-image" src="{{ images[0] }}" loading="lazy">
 
-                                {% elif image_layout == 'masonry' %}
-                                <div class="uwebia-image-masonry">
-                                    {% for imageUrl in images %}
-                                    <img src="{{ imageUrl }}" loading="lazy">
-                                    {% endfor %}
-                                </div>
-
-                                {% elif image_layout == 'carousel' %}
-                                <div class="uwebia-image-carousel">
-                                    {% for imageUrl in images %}
-                                    <img src="{{ imageUrl }}" loading="lazy">
-                                    {% endfor %}
-                                </div>
-
-                                {% elif image_layout == 'feature_grid' %}
-                                <div class="uwebia-feature-grid">
-                                    {% for imageUrl in images %}
-                                    <img src="{{ imageUrl }}" loading="lazy"
-                                        class="{% if loop.first %}featured{% endif %}">
-                                    {% endfor %}
-                                </div>
-
-                                {% elif image_layout in ['slideshow', 'fade_slideshow'] %}
-                                <div class="uwebia-slideshow" data-section-id="{{ section.id }}">
-                                    {% for imageUrl in images %}
-                                    <div class="uwebia-slide {% if loop.first %}active{% endif %}">
+                                    {% elif image_layout == 'grid' %}
+                                    <div class="uwebia-image-grid">
+                                        {% for imageUrl in images %}
                                         <img src="{{ imageUrl }}" loading="lazy">
+                                        {% endfor %}
                                     </div>
-                                    {% endfor %}
 
-                                    {% if image_layout == 'slideshow' %}
-                                    <button type="button" class="uwebia-slide-arrow prev"
-                                        onclick="moveUwebiaSlide('{{ section.id }}', -1)">
-                                        &#10094;
-                                    </button>
-
-                                    <button type="button" class="uwebia-slide-arrow next"
-                                        onclick="moveUwebiaSlide('{{ section.id }}', 1)">
-                                        &#10095;
-                                    </button>
-                                    {% endif %}
-                                </div>
-
-                                {% if show_thumbnails %}
-                                <div class="uwebia-image-thumbnails">
-                                    {% for imageUrl in images %}
-                                    <button type="button"
-                                        onclick="showUwebiaSlide('{{ section.id }}', {{ loop.index0 }})">
+                                    {% elif image_layout == 'masonry' %}
+                                    <div class="uwebia-image-masonry">
+                                        {% for imageUrl in images %}
                                         <img src="{{ imageUrl }}" loading="lazy">
-                                    </button>
-                                    {% endfor %}
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout == 'carousel' %}
+                                    <div class="uwebia-image-carousel">
+                                        {% for imageUrl in images %}
+                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout == 'feature_grid' %}
+                                    <div class="uwebia-feature-grid">
+                                        {% for imageUrl in images %}
+                                        <img src="{{ imageUrl }}" loading="lazy"
+                                            class="{% if loop.first %}featured{% endif %}">
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout in ['slideshow', 'fade_slideshow'] %}
+                                    <div class="uwebia-slideshow" data-section-id="{{ section.id }}">
+                                        {% for imageUrl in images %}
+                                        <div class="uwebia-slide {% if loop.first %}active{% endif %}">
+                                            <img src="{{ imageUrl }}" loading="lazy">
+                                        </div>
+                                        {% endfor %}
+
+                                        {% if image_layout == 'slideshow' %}
+                                        <button type="button" class="uwebia-slide-arrow prev"
+                                            onclick="moveUwebiaSlide('{{ section.id }}', -1)">
+                                            &#10094;
+                                        </button>
+
+                                        <button type="button" class="uwebia-slide-arrow next"
+                                            onclick="moveUwebiaSlide('{{ section.id }}', 1)">
+                                            &#10095;
+                                        </button>
+                                        {% endif %}
+                                    </div>
+
+                                    {% if show_thumbnails %}
+                                    <div class="uwebia-image-thumbnails">
+                                        {% for imageUrl in images %}
+                                        <button type="button"
+                                            onclick="showUwebiaSlide('{{ section.id }}', {{ loop.index0 }})">
+                                            <img src="{{ imageUrl }}" loading="lazy">
+                                        </button>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    {% endif %}
+                                    {% else %}
+                                    <p>No images in this section.</p>
+                                    {% endif %}
+
                                 </div>
-                                {% endif %}
-                                {% endif %}
-                                {% else %}
-                                <p>No images in this section.</p>
-                                {% endif %}
+                                {% elif section.section_type == 'link_card' %}
+                                {% set card = section.content or {} %}
+                                {% set header = card.get('header', 'Link Card') %}
+                                {% set body = card.get('body', '') %}
+                                {% set footer = card.get('footer', 'Learn more') %}
+                                {% set url = card.get('url', '#') %}
+                                {% set bg_image = card.get('background_image_url', '') %}
+                                {% set bg_color = card.get('background_color', '#1f232b') %}
+                                {% set text_color = card.get('text_color', '#ffffff') %}
+                                {% set overlay_color = card.get('overlay_color', '#000000') %}
+                                {% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
+                                {% set width = card.get('width', 420) %}
 
-                            </div>
-                            {% elif section.section_type == 'link_card' %}
-                            {% set card = section.content or {} %}
-                            {% set header = card.get('header', 'Link Card') %}
-                            {% set body = card.get('body', '') %}
-                            {% set footer = card.get('footer', 'Learn more') %}
-                            {% set url = card.get('url', '#') %}
-                            {% set bg_image = card.get('background_image_url', '') %}
-                            {% set bg_color = card.get('background_color', '#1f232b') %}
-                            {% set text_color = card.get('text_color', '#ffffff') %}
-                            {% set overlay_color = card.get('overlay_color', '#000000') %}
-                            {% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
-                            {% set height = card.get('height', 240) %}
-                            {% set radius = card.get('border_radius', 18) %}
-                            {% set open_new_tab = card.get('open_in_new_tab', True) %}
+                                {% set height = card.get('height', 240) %}
+                                {% set radius = card.get('border_radius', 18) %}
+                                {% set open_new_tab = card.get('open_in_new_tab', True) %}
 
-                            {% set overlay_hex = overlay_color.lstrip('#') %}
-                            {% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-                            {% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-                            {% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                {% set overlay_hex = overlay_color.lstrip('#') %}
+                                {% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                {% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                {% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
 
-                            <a class="uwebia-link-card" href="{{ url or '#' }}" {% if open_new_tab %}target="_blank"
-                                rel="noopener noreferrer" {% endif %} style="
-        --link-card-height: {{ height }}px;
-        --link-card-radius: {{ radius }}px;
-        --link-card-bg: {{ bg_color }};
-        --link-card-text: {{ text_color }};
-        --link-card-overlay-rgb: {{ overlay_r }}, {{ overlay_g }}, {{ overlay_b }};
-        --link-card-overlay-opacity: {{ overlay_opacity }};
-        --link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};
-   ">
-                                <div class="uwebia-link-card-header">{{ header }}</div>
+                                <a class="uwebia-link-card" href="{{ url or '#' }}" {% if open_new_tab %}target="_blank"
+                                    rel="noopener noreferrer" {% endif %} style="
+                                    --link-card-width: {{ width }}px;
+                                    --link-card-height: {{ height }}px;
+                                    --link-card-radius: {{ radius }}px;
+                                    --link-card-bg: {{ bg_color }};
+                                    --link-card-text: {{ text_color }};
+                                    --link-card-overlay-rgb: {{ overlay_r }}, {{ overlay_g }}, {{ overlay_b }};
+                                    --link-card-overlay-opacity: {{ overlay_opacity }};
+                                    --link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};
+                            ">
+                                    <div class="uwebia-link-card-header">{{ header }}</div>
 
-                                {% if body %}
-                                <div class="uwebia-link-card-body">{{ body }}</div>
-                                {% endif %}
+                                    {% if body %}
+                                    <div class="uwebia-link-card-body">{{ body }}</div>
+                                    {% endif %}
 
-                                {% if footer %}
-                                <div class="uwebia-link-card-footer">{{ footer }}</div>
-                                {% endif %}
-                            </a>
-                            {% elif section.section_type == 'code' %}
-                            <div class="text-area">
-                                {{ section.content['text'] | safe }}
-                            </div>
-                            {% elif section.section_type == 'text' %}
-                            {% set bg = section.content.get('background_color', '#000000') %}
-                            {% set opacity = section.content.get('background_opacity', '0')|float %}
-                            {% set padding = section.content.get('padding', '20') %}
-                            {% set radius = section.content.get('border_radius', '10') %}
-                            {% set shadow = section.content.get('box_shadow', 'medium') %}
-                            {% set shadow_css = {
-                            'none': 'none',
-                            'light': '0 2px 8px rgba(0,0,0,0.18)',
-                            'medium': '0 6px 18px rgba(0,0,0,0.28)',
-                            'heavy': '0 10px 28px rgba(0,0,0,0.4)'
-                            }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
-                            rgba(0,0,0,0.28)'
-                            %}
-                            {% set bg_hex = bg.lstrip('#') %}
-                            {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
-                            {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
-                            {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                                    {% if footer %}
+                                    <div class="uwebia-link-card-footer">{{ footer }}</div>
+                                    {% endif %}
+                                </a>
+                                {% elif section.section_type == 'code' %}
+                                <div class="text-area">
+                                    {{ section.content['text'] | safe }}
+                                </div>
+                                {% elif section.section_type == 'text' %}
+                                {% set bg = section.content.get('background_color', '#000000') %}
+                                {% set opacity = section.content.get('background_opacity', '0')|float %}
+                                {% set padding = section.content.get('padding', '20') %}
+                                {% set radius = section.content.get('border_radius', '10') %}
+                                {% set shadow = section.content.get('box_shadow', 'medium') %}
+                                {% set shadow_css = {
+                                'none': 'none',
+                                'light': '0 2px 8px rgba(0,0,0,0.18)',
+                                'medium': '0 6px 18px rgba(0,0,0,0.28)',
+                                'heavy': '0 10px 28px rgba(0,0,0,0.4)'
+                                }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
+                                rgba(0,0,0,0.28)'
+                                %}
+                                {% set bg_hex = bg.lstrip('#') %}
+                                {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                                {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                                {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
 
-                            <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+                                <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
             padding: {{ padding }}px;
             border-radius: {{ radius }}px;
             box-shadow: {{ shadow_css }};">
-                                {{ section.content['html'] | safe }}
-                            </div>
+                                    {{ section.content['html'] | safe }}
+                                </div>
 
-                            {% elif section.section_type == 'button' %}
-                            {% if section.content['enabled'] %}
-                            <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
-                                section.content['text']
-                                }}</a>
-                            {% endif %}
-                            {% elif section.section_type == 'map' %}
-                            {% if section.content['enabled'] %}
-                            <div id="map_{{ section.id }}" style="height: 400px;"></div>
-                            <script id="map-data_{{ section.id }}" type="application/json">
+                                {% elif section.section_type == 'button' %}
+                                {% if section.content['enabled'] %}
+                                <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
+                                    section.content['text']
+                                    }}</a>
+                                {% endif %}
+                                {% elif section.section_type == 'map' %}
+                                {% if section.content['enabled'] %}
+                                <div id="map_{{ section.id }}" style="height: 400px;"></div>
+                                <script id="map-data_{{ section.id }}" type="application/json">
                     {{ section.content | tojson }}
                 </script>
-                            {% endif %}
-                            {% elif section.section_type == 'calendar' %}
-                            <div class="calendar-container section-container" data-section-id="{{ section.id }}">
-                                <div id="calendar-{{ section.id }}" class="calendar"></div>
-                                <!-- Add a button to subscribe to this section's calendar -->
-                                <div class="calendar-subscribe-row">
-                                    <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}"
-                                        class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
-                                        Subscribe to Calendar
-                                    </a>
-                                    <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
-                                        class="calendar-subscribe-button">
-                                        Open in Calendar App
-                                    </a>
+                                {% endif %}
+                                {% elif section.section_type == 'calendar' %}
+                                <div class="calendar-container section-container" data-section-id="{{ section.id }}">
+                                    <div id="calendar-{{ section.id }}" class="calendar"></div>
+                                    <!-- Add a button to subscribe to this section's calendar -->
+                                    <div class="calendar-subscribe-row">
+                                        <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}"
+                                            class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
+                                            Subscribe to Calendar
+                                        </a>
+                                        <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
+                                            class="calendar-subscribe-button">
+                                            Open in Calendar App
+                                        </a>
 
-                                    <button type="button" class="calendar-copy-button"
-                                        onclick="copyCalendarFeedUrl('{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}')">
-                                        Copy Calendar Link
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            {% elif section.section_type == 'contact_form' %}
-                            {% if section.content['enabled'] %}
-                            <div class="contact-form-container">
-                                <h2>{{ section.content['title'] }}</h2>
-                                <form id="contactForm-{{ section.id }}" class="contact-form">
-                                    <input type="hidden" name="section_id" value="{{ section.id }}">
-
-                                    <div class="form-group">
-                                        <label for="senders_email_{{ section.id }}">Your Email:</label><br>
-                                        <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
-                                            class="dynamic-width form-control" style="padding: 10px;" required>
+                                        <button type="button" class="calendar-copy-button"
+                                            onclick="copyCalendarFeedUrl('{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}')">
+                                            Copy Calendar Link
+                                        </button>
                                     </div>
-
-                                    <div class="form-group">
-                                        <label for="message_subject_{{ section.id }}">Subject:</label><br>
-                                        <input type="text" id="message_subject_{{ section.id }}" name="message_subject"
-                                            class="dynamic-width form-control" style="padding: 10px;" required>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="message_body_{{ section.id }}">Message:</label><br>
-                                        <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
-                                            class="dynamic-width form-control" style="padding: 10px;"
-                                            required></textarea>
-                                    </div>
-
-                                    <button type="submit" class="btn btn-primary">Submit</button>
-                                </form>
-
-                                <div id="successMessage-{{ section.id }}" style="display: none;">
-                                    <h2>Message Sent!</h2>
                                 </div>
-                            </div>
-                            {% endif %}
-                            {% elif section.section_type == 'youtube_video' %}
-                            <div class="youtube-video-container">
-                                <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
-                                    {% if section.content['youtube_url'] %}
-                                    <iframe width="100%" height="100%"
-                                        src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}"
-                                        frameborder="0"
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                        allowfullscreen></iframe>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            {% endif %}
 
 
+{% elif section.section_type == 'music' %}
+{% set music = content.music_by_section.get(section.id, []) if content.music_by_section is defined else [] %}
+{% set music_content = section.content or {} %}
 
+<div class="uwebia-music uwebia-music-{{ music_content.get('layout', 'list') }}"
+     style="--music-player-radius: {{ music_content.get('player_radius', 18) }}px;">
 
-                        </div>
+    {% if music_content.get('title') or music_content.get('description') %}
+    <div class="uwebia-music-header">
+        {% if music_content.get('title') %}
+        <h3 class="uwebia-music-title">{{ music_content.get('title') }}</h3>
+        {% endif %}
 
+        {% if music_content.get('description') %}
+        <p class="uwebia-music-description">{{ music_content.get('description') }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
 
-                        {% endfor %}
+    <div class="uwebia-music-list">
+        {% for track in music %}
+        <div class="uwebia-music-track">
+            {% if music_content.get('show_track_numbers', True) %}
+            <div class="uwebia-music-track-number">
+                {{ loop.index }}
+            </div>
+            {% endif %}
+
+            <div class="uwebia-music-icon">
+                <i class="fas fa-music"></i>
+            </div>
+
+            <div class="uwebia-music-info">
+                <div class="uwebia-music-track-title" title="{{ track.filename }}">
+                    {{ track.filename }}
+                </div>
+
+                <div class="uwebia-music-track-subtitle">
+                    {{ track.extension|upper if track.extension }}{% if track.file_size_label %} · {{ track.file_size_label }}{% endif %}
+                </div>
+            </div>
+
+            <audio controls preload="metadata">
+                <source src="{{ track.url }}" type="{{ track.mime_type or 'audio/mpeg' }}">
+                Your browser does not support the audio element.
+            </audio>
+
+            {% if music_content.get('show_download') %}
+            <a class="uwebia-music-download" href="{{ track.url }}" download title="Download track">
+                <i class="fas fa-download"></i>
+            </a>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="uwebia-music-empty">
+            No music has been added yet.
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% elif section.section_type == 'video' or section.section_type == 'videos' %}
+    {% set videos = content.videos_by_section.get(section.id, []) if content.videos_by_section is defined else [] %}
+    {% set video_content = section.content or {} %}
+
+    <div class="uwebia-video-section uwebia-video-{{ video_content.get('layout', 'grid') }}"
+         style="
+            --video-radius: {{ video_content.get('corner_radius', 18) }}px;
+            --video-max-width: {{ video_content.get('max_width', 900) }}px;
+         ">
+
+        {% if video_content.get('title') or video_content.get('description') %}
+        <div class="uwebia-video-header">
+            {% if video_content.get('title') %}
+            <h3 class="uwebia-video-title">{{ video_content.get('title') }}</h3>
+            {% endif %}
+
+            {% if video_content.get('description') %}
+            <p class="uwebia-video-description">{{ video_content.get('description') }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="uwebia-video-list">
+            {% for video in videos %}
+            <div class="uwebia-video-card">
+<button type="button"
+        class="public-video-preview-button"
+        data-video-url="{{ video.url }}"
+        data-video-mime="{{ video.mime_type or 'video/mp4' }}"
+        onclick="event.preventDefault(); event.stopPropagation(); openPublicVideoPreview('{{ video.url }}', '{{ video.mime_type or 'video/mp4' }}', '{{ video.filename|e }}')">
+
+    <canvas class="video-thumb-canvas" aria-hidden="true"></canvas>
+
+    <div class="video-thumb-fallback">
+        <i class="fas fa-play-circle"></i>
+        <span>Preview Video</span>
+    </div>
+
+<div class="video-thumb-overlay">
+    <span class="video-play-icon" aria-hidden="true"></span>
+</div>
+</button>
+
+                {% if video_content.get('show_filenames', True) or video_content.get('show_download') %}
+                <div class="uwebia-video-meta">
+                    {% if video_content.get('show_filenames', True) %}
+                    <div class="uwebia-video-filename" title="{{ video.filename }}">
+                        {{ video.filename }}
                     </div>
+                    {% endif %}
+
+                    {% if video_content.get('show_download') %}
+                    <a class="uwebia-video-download" href="{{ video.url }}" download title="Download video">
+                        <i class="fas fa-download"></i>
+                    </a>
+                    {% endif %}
                 </div>
                 {% endif %}
-                {% endfor %}
-
-            </section>
+            </div>
+            {% else %}
+            <div class="uwebia-video-empty">
+                No videos have been added yet.
+            </div>
             {% endfor %}
-
-
         </div>
-
-
     </div>
-<!-- Event Modal -->
-                            <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
-                                aria-hidden="true">
-                                <div class="modal-dialog">
-                                    <div class="modal-content modal-dark">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title" id="eventModalTitle"></h5>
-                                            <button type="button" class="close calendar-modal-close"
-                                                data-dismiss="modal" aria-label="Close">
-                                                <span aria-hidden="true">&times;</span>
-                                            </button>
+
+                                {% elif section.section_type == 'contact_form' %}
+                                {% if section.content['enabled'] %}
+                                <div class="contact-form-container">
+                                    <h2>{{ section.content['title'] }}</h2>
+                                    <form id="contactForm-{{ section.id }}" class="contact-form">
+                                        <input type="hidden" name="section_id" value="{{ section.id }}">
+
+                                        <div class="form-group">
+                                            <label for="senders_email_{{ section.id }}">Your Email:</label><br>
+                                            <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
+                                                class="dynamic-width form-control" style="padding: 10px;" required>
                                         </div>
-                                        <div class="modal-body" id="eventModalBody">
-                                            <!-- Event details will be populated here -->
+
+                                        <div class="form-group">
+                                            <label for="message_subject_{{ section.id }}">Subject:</label><br>
+                                            <input type="text" id="message_subject_{{ section.id }}"
+                                                name="message_subject" class="dynamic-width form-control"
+                                                style="padding: 10px;" required>
                                         </div>
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn btn-secondary" data-dismiss="modal">
-                                                Close
-                                            </button>
+
+                                        <div class="form-group">
+                                            <label for="message_body_{{ section.id }}">Message:</label><br>
+                                            <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
+                                                class="dynamic-width form-control" style="padding: 10px;"
+                                                required></textarea>
                                         </div>
+
+                                        <button type="submit" class="btn btn-primary">Submit</button>
+                                    </form>
+
+                                    <div id="successMessage-{{ section.id }}" style="display: none;">
+                                        <h2>Message Sent!</h2>
                                     </div>
                                 </div>
+                                {% endif %}
+                                {% elif section.section_type == 'youtube_video' %}
+                                <div class="youtube-video-container">
+                                    <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
+                                        {% if section.content['youtube_url'] %}
+                                        <iframe width="100%" height="100%"
+                                            src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}"
+                                            frameborder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowfullscreen></iframe>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                
+
+
+
+
                             </div>
+
+
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        </div>
+    </div>
+    <!-- Event Modal -->
+    <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content modal-dark">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="eventModalTitle"></h5>
+                    <button type="button" class="close calendar-modal-close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="eventModalBody">
+                    <!-- Event details will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="publicVideoPreviewModal" class="video-preview-modal" onclick="closePublicVideoPreview()">
+    <div class="video-preview-dialog" onclick="event.stopPropagation();">
+        <div class="video-preview-header">
+            <div id="publicVideoPreviewTitle" class="video-preview-title">Video Preview</div>
+
+            <button type="button" class="video-preview-close" onclick="closePublicVideoPreview()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <video id="publicVideoPreviewPlayer"
+               class="video-preview-player"
+               controls
+               preload="metadata"
+               playsinline>
+            Your browser does not support the video element.
+        </video>
+    </div>
+</div>
 
     <!-- <script>
     // Example JavaScript to set styles dynamically
@@ -1982,6 +2971,105 @@ document.body.style.color = text_color;
                     prompt('Copy this calendar subscription link:', url);
                 });
         }
+    </script>
+    <script>
+        function openPublicVideoPreview(videoUrl, mimeType, title) {
+    const modal = document.getElementById('publicVideoPreviewModal');
+    const player = document.getElementById('publicVideoPreviewPlayer');
+    const titleEl = document.getElementById('publicVideoPreviewTitle');
+
+    if (!modal || !player) return;
+
+    player.pause();
+    player.removeAttribute('src');
+    player.innerHTML = '';
+
+    player.src = videoUrl;
+    player.type = mimeType || 'video/mp4';
+    player.load();
+
+    player.onerror = function () {
+        console.error('Public video failed to load:', player.error, videoUrl);
+    };
+
+    if (titleEl) {
+        titleEl.textContent = title || 'Video Preview';
+    }
+
+    modal.classList.add('is-open');
+}
+
+function closePublicVideoPreview() {
+    const modal = document.getElementById('publicVideoPreviewModal');
+    const player = document.getElementById('publicVideoPreviewPlayer');
+
+    if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.innerHTML = '';
+        player.load();
+    }
+
+    if (modal) {
+        modal.classList.remove('is-open');
+    }
+}
+
+function generatePublicVideoThumbnails() {
+    document.querySelectorAll('.public-video-preview-button[data-video-url]').forEach(button => {
+        if (button.dataset.thumbnailGenerated === 'true') return;
+
+        const videoUrl = button.dataset.videoUrl;
+        const canvas = button.querySelector('.video-thumb-canvas');
+
+        if (!videoUrl || !canvas) return;
+
+        button.dataset.thumbnailGenerated = 'true';
+
+        const video = document.createElement('video');
+
+        video.src = videoUrl;
+        video.muted = true;
+        video.preload = 'metadata';
+        video.playsInline = true;
+
+        video.addEventListener('loadedmetadata', function () {
+            const targetTime = Math.min(1, Math.max(0, (video.duration || 1) * 0.1));
+
+            try {
+                video.currentTime = targetTime;
+            } catch (error) {
+                console.warn('Could not seek public video thumbnail:', error);
+            }
+        });
+
+        video.addEventListener('seeked', function () {
+            try {
+                const width = video.videoWidth || 320;
+                const height = video.videoHeight || 180;
+
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, width, height);
+
+                button.classList.add('has-thumbnail');
+
+                video.removeAttribute('src');
+                video.load();
+            } catch (error) {
+                console.warn('Could not draw public video thumbnail:', error);
+            }
+        });
+
+        video.addEventListener('error', function () {
+            console.warn('Could not load public video thumbnail:', videoUrl, video.error);
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', generatePublicVideoThumbnails);
     </script>
 </body>
 

@@ -1,0 +1,716 @@
+/* =========================================================
+   VIDEO LIBRARY MODAL
+   Video cards, selection state, preview controls
+========================================================= */
+
+#videoLibraryModal .video-modal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+
+    max-height: min(560px, 58dvh);
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding: 14px;
+    border-radius: 18px;
+
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+#videoLibraryModal .video-modal-card {
+    position: relative;
+
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    padding: 10px;
+    border-radius: 18px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04));
+    border: 1px solid rgba(255, 255, 255, 0.13);
+
+    color: #ffffff;
+    cursor: pointer;
+
+    box-shadow:
+        0 10px 24px rgba(0, 0, 0, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.07);
+
+    transition:
+        transform 0.16s ease,
+        border-color 0.16s ease,
+        background 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+#videoLibraryModal .video-modal-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(126, 226, 204, 0.46);
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.13), rgba(255, 255, 255, 0.055));
+    box-shadow:
+        0 14px 30px rgba(0, 0, 0, 0.24),
+        0 0 0 1px rgba(126, 226, 204, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+#videoLibraryModal .video-modal-card.selected {
+    border-color: #7ee2cc !important;
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.28), rgba(126, 226, 204, 0.10)) !important;
+    box-shadow:
+        0 16px 36px rgba(0, 0, 0, 0.26),
+        0 0 0 2px rgba(126, 226, 204, 0.42),
+        inset 0 1px 0 rgba(255, 255, 255, 0.16) !important;
+}
+
+#videoLibraryModal .video-modal-card.selected::after {
+    content: "Selected";
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 4;
+
+    padding: 4px 8px;
+    border-radius: 999px;
+
+    background: #7ee2cc;
+    color: #10251f;
+
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* Select toggle */
+#videoLibraryModal .video-select-toggle {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 5;
+
+    width: 34px;
+    height: 34px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 999px;
+
+    background: rgba(0, 0, 0, 0.56);
+    color: rgba(255, 255, 255, 0.72);
+
+    cursor: pointer;
+
+    transition:
+        transform 0.16s ease,
+        background 0.16s ease,
+        color 0.16s ease,
+        border-color 0.16s ease;
+}
+
+#videoLibraryModal .video-select-toggle:hover {
+    transform: scale(1.08);
+    color: #ffffff;
+    border-color: rgba(126, 226, 204, 0.75);
+    background: rgba(126, 226, 204, 0.20);
+}
+
+#videoLibraryModal .video-modal-card.selected .video-select-toggle {
+    color: #10251f;
+    background: #7ee2cc;
+    border-color: #7ee2cc;
+}
+
+/* Video preview area */
+#videoLibraryModal .video-modal-preview {
+    position: relative;
+
+    width: 100%;
+    aspect-ratio: 16 / 9;
+
+    overflow: hidden;
+    border-radius: 14px;
+
+    background:
+        radial-gradient(circle at center, rgba(126, 226, 204, 0.14), transparent 42%),
+        #000000;
+
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 10px 22px rgba(0, 0, 0, 0.26);
+}
+
+/* This keeps the browser video controls usable */
+#videoLibraryModal .video-modal-preview video {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    background: #000000;
+
+    border: 0;
+}
+
+/* Optional hover glow over video preview */
+#videoLibraryModal .video-modal-preview::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.02),
+            rgba(0, 0, 0, 0.22)
+        );
+
+    opacity: 0.65;
+    transition: opacity 0.16s ease;
+}
+
+#videoLibraryModal .video-modal-card:hover .video-modal-preview::after {
+    opacity: 0.25;
+}
+
+/* Text */
+#videoLibraryModal .video-modal-info {
+    min-width: 0;
+    text-align: left;
+}
+
+#videoLibraryModal .video-modal-title {
+    color: rgba(255, 255, 255, 0.96);
+
+    font-size: 0.88rem;
+    font-weight: 900;
+    line-height: 1.2;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#videoLibraryModal .video-modal-subtitle {
+    margin-top: 4px;
+
+    color: rgba(255, 255, 255, 0.58);
+
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+/* Empty state */
+#videoLibraryModal .video-modal-empty {
+    grid-column: 1 / -1;
+
+    padding: 24px;
+    border-radius: 16px;
+
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.04);
+
+    color: rgba(255, 255, 255, 0.64);
+    text-align: center;
+    font-weight: 800;
+}
+
+/* Scrollbar */
+#videoLibraryModal .video-modal-grid::-webkit-scrollbar {
+    width: 8px;
+}
+
+#videoLibraryModal .video-modal-grid::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 999px;
+}
+
+#videoLibraryModal .video-modal-grid::-webkit-scrollbar-thumb {
+    background: rgba(126, 226, 204, 0.42);
+    border-radius: 999px;
+}
+
+#videoLibraryModal .video-modal-grid::-webkit-scrollbar-thumb:hover {
+    background: rgba(126, 226, 204, 0.62);
+}
+
+/* Shared folder styling, if not already loaded elsewhere */
+#videoLibraryModal #videoModalFolderGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    min-height: 52px;
+    margin-bottom: 14px;
+    padding: 12px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 16px;
+}
+
+#videoLibraryModal #videoModalFolderGrid .folder-item {
+    width: 112px;
+    min-height: 92px;
+    padding: 12px 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.055);
+
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+
+    text-align: center;
+    cursor: pointer;
+
+    box-sizing: border-box;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+#videoLibraryModal #videoModalFolderGrid .folder-item:hover {
+    background: rgba(126, 226, 204, 0.11);
+    border-color: rgba(126, 226, 204, 0.32);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.20);
+}
+
+#videoLibraryModal #videoModalFolderGrid .folder-item.active-folder {
+    background: rgba(255, 206, 115, 0.13);
+    border-color: rgba(255, 206, 115, 0.45);
+}
+
+#videoLibraryModal #videoModalFolderGrid .folder-item i {
+    display: block;
+    margin-bottom: 7px;
+
+    color: #ffd982;
+    font-size: 2.4rem;
+}
+
+#videoLibraryModal #videoModalFolderGrid .folder-item p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.78);
+
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1.2;
+
+    word-break: break-word;
+}
+
+/* Upload progress */
+#videoLibraryModal .upload-progress-wrapper {
+    margin-top: 12px;
+    max-width: 460px;
+}
+
+#videoLibraryModal .upload-progress-bar {
+    width: 100%;
+    height: 12px;
+
+    background: rgba(255, 255, 255, 0.075);
+    border-radius: 999px;
+    overflow: hidden;
+
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#videoLibraryModal .upload-progress-fill {
+    width: 0%;
+    height: 100%;
+
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+#videoLibraryModal .upload-progress-text {
+    margin-top: 6px;
+
+    color: rgba(255, 255, 255, 0.68);
+
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+@media (max-width: 760px) {
+    #videoLibraryModal .video-modal-grid {
+        grid-template-columns: 1fr;
+        max-height: min(500px, 56dvh);
+        padding: 8px;
+    }
+
+    #videoLibraryModal .video-modal-card {
+        padding: 10px;
+        border-radius: 16px;
+    }
+
+    #videoLibraryModal .video-modal-preview {
+        border-radius: 12px;
+    }
+
+    #videoLibraryModal .video-select-toggle {
+        width: 32px;
+        height: 32px;
+    }
+}
+
+/* =========================================================
+   SHARED FOLDER STYLING FOR MUSIC + VIDEO LIBRARY MODALS
+   Matches the photo library modal folder cards
+========================================================= */
+
+#musicLibraryModal #musicModalFolderGrid,
+#videoLibraryModal #videoModalFolderGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    min-height: 52px;
+    margin-bottom: 14px;
+    padding: 12px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 16px;
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item,
+#videoLibraryModal #videoModalFolderGrid .folder-item {
+    width: 112px;
+    min-height: 92px;
+    padding: 12px 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.055);
+
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+
+    text-align: center;
+    cursor: pointer;
+
+    box-sizing: border-box;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item:hover,
+#videoLibraryModal #videoModalFolderGrid .folder-item:hover {
+    background: rgba(126, 226, 204, 0.11);
+    border-color: rgba(126, 226, 204, 0.32);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.20);
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item.active-folder,
+#videoLibraryModal #videoModalFolderGrid .folder-item.active-folder {
+    background: rgba(255, 206, 115, 0.13);
+    border-color: rgba(255, 206, 115, 0.45);
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item i,
+#videoLibraryModal #videoModalFolderGrid .folder-item i {
+    display: block;
+    margin-bottom: 7px;
+
+    color: #ffd982;
+    font-size: 2.4rem;
+}
+
+#musicLibraryModal #musicModalFolderGrid .folder-item p,
+#videoLibraryModal #videoModalFolderGrid .folder-item p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.78);
+
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1.2;
+
+    word-break: break-word;
+}
+#musicLibraryModal .upload-progress-wrapper,
+#videoLibraryModal .upload-progress-wrapper {
+    margin-top: 12px;
+    max-width: 460px;
+}
+
+#musicLibraryModal .upload-progress-bar,
+#videoLibraryModal .upload-progress-bar {
+    width: 100%;
+    height: 12px;
+
+    background: rgba(255, 255, 255, 0.075);
+    border-radius: 999px;
+    overflow: hidden;
+
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#musicLibraryModal .upload-progress-fill,
+#videoLibraryModal .upload-progress-fill {
+    width: 0%;
+    height: 100%;
+
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+#musicLibraryModal .upload-progress-text,
+#videoLibraryModal .upload-progress-text {
+    margin-top: 6px;
+
+    color: rgba(255, 255, 255, 0.68);
+
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+#videoLibraryModal .video-modal-preview-button {
+    position: relative;
+
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+
+    padding: 0;
+    border: none;
+    border-radius: 14px;
+    overflow: hidden;
+
+    background:
+        radial-gradient(circle at center, rgba(126, 226, 204, 0.16), transparent 42%),
+        #000000;
+
+    color: #ffffff;
+    cursor: pointer;
+
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 10px 22px rgba(0, 0, 0, 0.26);
+
+    transition:
+        transform 0.18s ease,
+        filter 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+#videoLibraryModal .video-modal-preview-button:hover {
+    transform: scale(1.02);
+    filter: brightness(1.08);
+    box-shadow:
+        inset 0 0 0 1px rgba(126, 226, 204, 0.36),
+        0 14px 30px rgba(0, 0, 0, 0.32);
+}
+
+#videoLibraryModal .video-modal-thumb-canvas {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
+    object-fit: cover;
+}
+
+#videoLibraryModal .video-modal-preview-button.has-thumbnail .video-modal-thumb-canvas {
+    display: block;
+}
+
+#videoLibraryModal .video-modal-preview-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.04),
+            rgba(0, 0, 0, 0.44)
+        );
+
+    pointer-events: none;
+}
+
+#videoLibraryModal .video-modal-thumb-fallback {
+    position: relative;
+    z-index: 2;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    color: #ffffff;
+    font-size: 0.76rem;
+    font-weight: 850;
+}
+
+#videoLibraryModal .video-modal-preview-button.has-thumbnail .video-modal-thumb-fallback span:not(.video-modal-play-icon) {
+    display: none;
+}
+
+#videoLibraryModal .video-modal-play-icon {
+    width: 54px;
+    height: 54px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+
+    background: rgba(0, 0, 0, 0.64);
+    border: 1px solid rgba(255, 255, 255, 0.30);
+
+    box-shadow:
+        0 12px 28px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+    transition:
+        transform 0.18s ease,
+        background 0.18s ease;
+}
+
+#videoLibraryModal .video-modal-play-icon::before {
+    content: "";
+
+    width: 0;
+    height: 0;
+
+    margin-left: 4px;
+
+    border-top: 11px solid transparent;
+    border-bottom: 11px solid transparent;
+    border-left: 17px solid #ffffff;
+}
+
+#videoLibraryModal .video-modal-preview-button:hover .video-modal-play-icon {
+    transform: scale(1.12);
+    background: rgba(126, 226, 204, 0.84);
+}
+
+#videoLibraryModal .video-modal-preview-button:hover .video-modal-play-icon::before {
+    border-left-color: #10251f;
+}
+
+/* Dedicated video preview modal */
+.video-library-preview-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000010;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+
+    padding: 20px;
+    box-sizing: border-box;
+
+    background: rgba(0, 0, 0, 0.76);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.video-library-preview-modal.is-open {
+    display: flex;
+}
+
+.video-library-preview-dialog {
+    width: min(920px, 92vw);
+    max-height: 88dvh;
+
+    overflow: hidden;
+
+    background: #151820;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.video-library-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    padding: 12px 14px;
+
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.video-library-preview-title {
+    min-width: 0;
+
+    font-size: 0.95rem;
+    font-weight: 850;
+
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.video-library-preview-close {
+    width: 34px;
+    height: 34px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border: none;
+    border-radius: 10px;
+
+    background: rgba(255, 255, 255, 0.10);
+    color: #ffffff;
+
+    font-size: 24px;
+    line-height: 1;
+
+    cursor: pointer;
+}
+
+.video-library-preview-close:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.video-library-preview-player {
+    display: block;
+
+    width: 100%;
+    max-height: 70dvh;
+
+    background: #000000;
+}

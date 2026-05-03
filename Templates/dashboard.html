@@ -348,7 +348,7 @@
             /* Hidden by default */
             position: fixed;
             /* Stay in place */
-            z-index: 1000;
+            z-index: 1000002;
             /* Sit on top of overlay */
             left: 50%;
             top: 50%;
@@ -1553,7 +1553,7 @@
                 0 14px 30px rgba(0, 0, 0, 0.25),
                 inset 0 1px 0 rgba(255, 255, 255, 0.045);
 
-            overflow: hidden;
+            overflow: visible;
         }
 
         .page-folder-card.open {
@@ -1716,6 +1716,36 @@
             background: rgba(126, 226, 204, 0.14);
             border-color: rgba(126, 226, 204, 0.45);
         }
+        
+        .website-list,
+.website-dashboard-card,
+.dashboard-pages-area,
+.dashboard-folder-section,
+.page-folder-list,
+.page-folder-card,
+.page-folder-body,
+.page-container,
+.root-page-container,
+.folder-page-container {
+    overflow: visible !important;
+}
+
+.page-box {
+    position: relative;
+    z-index: 1;
+}
+
+.page-box.menu-open {
+    z-index: 10000;
+}
+
+.page-menu-container {
+    z-index: 10001;
+}
+
+.page-menu {
+    z-index: 10002;
+}
 
         .website-background-image-card {
             min-width: 280px;
@@ -1825,12 +1855,204 @@
             border-radius: 10px;
             background: rgba(0, 0, 0, 0.25);
         }
+
+        .security-warning-banner {
+    width: min(1400px, calc(100% - 32px));
+    margin: 18px auto 0;
+    padding: 14px 16px;
+
+    display: flex;
+    align-items: center;
+    gap: 14px;
+
+    color: #fff7df;
+    background:
+        linear-gradient(135deg, rgba(255, 196, 87, 0.16), rgba(255, 120, 120, 0.10)),
+        rgba(38, 32, 25, 0.96);
+
+    border: 1px solid rgba(255, 196, 87, 0.38);
+    border-radius: 16px;
+
+    box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.security-warning-icon {
+    width: 42px;
+    height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+
+    color: #ffd982;
+    background: rgba(255, 196, 87, 0.14);
+
+    border: 1px solid rgba(255, 196, 87, 0.34);
+    border-radius: 14px;
+
+    font-size: 1.1rem;
+}
+
+.security-warning-copy {
+    min-width: 0;
+
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    line-height: 1.35;
+}
+
+.security-warning-copy strong {
+    color: #ffffff;
+    font-size: 0.92rem;
+    font-weight: 850;
+}
+
+.security-warning-copy span {
+    color: rgba(255, 247, 223, 0.86);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.security-warning-action {
+    margin-left: auto;
+    white-space: nowrap;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 9px 12px;
+
+    color: #1f1605;
+    background: linear-gradient(135deg, #ffd982, #fff1ba);
+
+    border: 1px solid rgba(255, 217, 130, 0.8);
+    border-radius: 10px;
+
+    font-size: 0.82rem;
+    font-weight: 850;
+    text-decoration: none;
+
+    transition:
+        transform 0.16s ease,
+        box-shadow 0.16s ease,
+        background 0.16s ease;
+}
+
+.security-warning-action:hover {
+    color: #120c02;
+    background: linear-gradient(135deg, #ffe39b, #fff7cf);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 760px) {
+    .security-warning-banner {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .security-warning-action {
+        margin-left: 0;
+        width: 100%;
+    }
+}
+
+.security-warning-actions {
+    margin-left: auto;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.security-warning-dismiss {
+    white-space: nowrap;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 9px 12px;
+
+    color: rgba(255, 247, 223, 0.9);
+    background: rgba(255, 255, 255, 0.065);
+
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+
+    font-size: 0.82rem;
+    font-weight: 850;
+
+    cursor: pointer;
+
+    transition:
+        transform 0.16s ease,
+        box-shadow 0.16s ease,
+        background 0.16s ease,
+        border-color 0.16s ease;
+}
+
+.security-warning-dismiss:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.11);
+    border-color: rgba(255, 255, 255, 0.24);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 760px) {
+    .security-warning-actions {
+        margin-left: 0;
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .security-warning-action,
+    .security-warning-dismiss {
+        width: 100%;
+    }
+}
     </style>
 
 </head>
 
 <body>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+{% if current_user.is_authenticated and current_user.two_factor_needs_attention %}
+<div class="security-warning-banner" id="twoFactorSecurityWarning">
+    <div class="security-warning-icon">
+        <i class="fas fa-triangle-exclamation"></i>
+    </div>
+
+    <div class="security-warning-copy">
+        <strong>Security notice</strong>
+        <span>
+            Two-factor authentication was disabled because
+            {{ current_user.two_factor_disabled_reason or 'a security recovery action was required' }}.
+            You can test your email settings and re-enable 2FA, or dismiss this notice if you do not want to use 2FA.
+        </span>
+    </div>
+
+    <div class="security-warning-actions">
+        <a class="security-warning-action" href="{{ url_for('email_server_settings') }}">
+            Review Email Settings
+        </a>
+
+        <button type="button" class="security-warning-dismiss" onclick="dismissTwoFactorWarning()">
+            Dismiss
+        </button>
+    </div>
+</div>
+{% endif %}
 
     <!-- <div class="navbar">
         <a href="{{ url_for('dashboard') }}" class="home-button">
@@ -2871,11 +3093,11 @@
                             </option>
                         </select>
                         <label class="navbar-style-checkbox">
-    <input type="checkbox" id="navbarSidePanelUseNavbarBackground_{{ website.id }}"
-        {% if (website.public_navbar_style or {}).get('side_panel_use_navbar_background', False) %}checked{% endif %}
-        onchange="updateFullNavbarPreview('{{ website.id }}')">
-    Use navbar background for menu panels
-</label>
+                            <input type="checkbox" id="navbarSidePanelUseNavbarBackground_{{ website.id }}" {% if
+                                (website.public_navbar_style or {}).get('side_panel_use_navbar_background', False)
+                                %}checked{% endif %} onchange="updateFullNavbarPreview('{{ website.id }}')">
+                            Use navbar background for menu panels
+                        </label>
                     </div>
                 </div>
             </div>
@@ -3150,7 +3372,7 @@
                 const margin = document.getElementById(`navbarMargin_${websiteId}`)?.value || 0;
                 const dropdownMode = document.getElementById(`navbarDropdownMode_${websiteId}`)?.value || 'dropdown';
                 const sidePanelUseNavbarBackground =
-    document.getElementById(`navbarSidePanelUseNavbarBackground_${websiteId}`)?.checked || false;
+                    document.getElementById(`navbarSidePanelUseNavbarBackground_${websiteId}`)?.checked || false;
 
                 console.log('Saving navbar background:', background);
 
@@ -3395,51 +3617,51 @@
                 preview.style.webkitBackdropFilter = `blur(${blur}px)`;
                 preview.style.borderRadius = `${radius}px`;
                 preview.style.boxShadow = shadow ? '0 10px 26px rgba(0,0,0,0.35)' : 'none';
-                                updateNavbarBackgroundPreview(websiteId);
+                updateNavbarBackgroundPreview(websiteId);
                 updateNavbarTextPreview(websiteId);
             }
 
             function initializeNavbarStyle(websiteId, savedBackground) {
-    const container = document.getElementById(`navbarGradientColors_${websiteId}`);
-    const directionSelect = document.getElementById(`navbarGradientDirection_${websiteId}`);
+                const container = document.getElementById(`navbarGradientColors_${websiteId}`);
+                const directionSelect = document.getElementById(`navbarGradientDirection_${websiteId}`);
 
-    if (!container || !directionSelect) return;
+                if (!container || !directionSelect) return;
 
-    container.innerHTML = '';
+                container.innerHTML = '';
 
-    const cleanBackground = String(savedBackground || '').trim();
+                const cleanBackground = String(savedBackground || '').trim();
 
-    if (cleanBackground && cleanBackground.startsWith('linear-gradient')) {
-        const inner = cleanBackground
-            .replace(/^linear-gradient\(/, '')
-            .replace(/\)$/, '');
+                if (cleanBackground && cleanBackground.startsWith('linear-gradient')) {
+                    const inner = cleanBackground
+                        .replace(/^linear-gradient\(/, '')
+                        .replace(/\)$/, '');
 
-        const parts = splitCssGradientParts(inner);
+                    const parts = splitCssGradientParts(inner);
 
-        const direction = parts[0]?.includes('to ')
-            ? parts.shift()
-            : 'to right';
+                    const direction = parts[0]?.includes('to ')
+                        ? parts.shift()
+                        : 'to right';
 
-        directionSelect.value = direction;
+                    directionSelect.value = direction;
 
-        parts.forEach(color => {
-            addNavbarColorStop(websiteId, normalizeNavbarPickerColor(color));
-        });
+                    parts.forEach(color => {
+                        addNavbarColorStop(websiteId, normalizeNavbarPickerColor(color));
+                    });
 
-    } else if (cleanBackground) {
-        addNavbarColorStop(websiteId, normalizeNavbarPickerColor(cleanBackground));
+                } else if (cleanBackground) {
+                    addNavbarColorStop(websiteId, normalizeNavbarPickerColor(cleanBackground));
 
-    } else {
-        addNavbarColorStop(websiteId, '#141414');
-    }
+                } else {
+                    addNavbarColorStop(websiteId, '#141414');
+                }
 
-    directionSelect.addEventListener('change', function () {
-        updateNavbarBackgroundPreview(websiteId);
-    });
+                directionSelect.addEventListener('change', function () {
+                    updateNavbarBackgroundPreview(websiteId);
+                });
 
-    updateNavbarBackgroundPreview(websiteId);
-    updateNavbarTextPreview(websiteId);
-}
+                updateNavbarBackgroundPreview(websiteId);
+                updateNavbarTextPreview(websiteId);
+            }
 
             function normalizeNavbarPickerColor(color) {
                 const clean = String(color || '').trim();
@@ -3967,10 +4189,14 @@
 
                 const imageUrl = imageInput?.value || '';
                 const repeat = repeatInput?.checked || false;
-                const zoom = zoomInput?.value || 100;
+                const zoom = Number(zoomInput?.value || 100);
+                const repeatZoomMultiplier = 2.0;
+                const repeatZoom = Math.round(zoom * repeatZoomMultiplier);
 
                 if (zoomValue) {
-                    zoomValue.textContent = `${zoom}%`;
+                    zoomValue.textContent = repeat
+                        ? `${zoom}% (${repeatZoom}px tile width)`
+                        : `${zoom}%`;
                 }
 
                 if (!preview) return;
@@ -3996,7 +4222,7 @@
                         preview.style.backgroundRepeat = `${repeat ? 'repeat' : 'no-repeat'}, no-repeat`;
                         preview.style.backgroundPosition = 'center, center';
                         preview.style.backgroundSize = repeat
-                            ? `${zoom}px auto, cover`
+                            ? `${repeatZoom}px auto, cover`
                             : `${zoom}% auto, cover`;
                     } else {
                         preview.style.backgroundColor = background;
@@ -4004,7 +4230,7 @@
                         preview.style.backgroundRepeat = repeat ? 'repeat' : 'no-repeat';
                         preview.style.backgroundPosition = 'center';
                         preview.style.backgroundSize = repeat
-                            ? `${zoom}px auto`
+                            ? `${repeatZoom}px auto`
                             : `${zoom}% auto`;
                     }
                 } else {
@@ -4148,25 +4374,44 @@
             //     })).filter(item => item.name && item.url);
             // }
 
-            function togglePageMenu(pageId) {
-                const menu = document.getElementById(`pageMenu_${pageId}`);
+function togglePageMenu(pageId) {
+    const menu = document.getElementById(`pageMenu_${pageId}`);
+    if (!menu) return;
 
-                document.querySelectorAll('.page-menu.show').forEach(openMenu => {
-                    if (openMenu !== menu) {
-                        openMenu.classList.remove('show');
-                    }
-                });
+    const pageBox = menu.closest('.page-box');
 
-                menu.classList.toggle('show');
+    document.querySelectorAll('.page-menu.show').forEach(openMenu => {
+        if (openMenu !== menu) {
+            openMenu.classList.remove('show');
+
+            const openPageBox = openMenu.closest('.page-box');
+            if (openPageBox) {
+                openPageBox.classList.remove('menu-open');
             }
+        }
+    });
 
-            document.addEventListener('click', function (event) {
-                if (!event.target.closest('.page-menu-container')) {
-                    document.querySelectorAll('.page-menu.show').forEach(menu => {
-                        menu.classList.remove('show');
-                    });
-                }
-            });
+    const willOpen = !menu.classList.contains('show');
+
+    menu.classList.toggle('show', willOpen);
+
+    if (pageBox) {
+        pageBox.classList.toggle('menu-open', willOpen);
+    }
+}
+
+document.addEventListener('click', function (event) {
+    if (!event.target.closest('.page-menu-container')) {
+        document.querySelectorAll('.page-menu.show').forEach(menu => {
+            menu.classList.remove('show');
+
+            const pageBox = menu.closest('.page-box');
+            if (pageBox) {
+                pageBox.classList.remove('menu-open');
+            }
+        });
+    }
+});
         </script>
 
         <script>
@@ -4916,60 +5161,93 @@
             }
 
             function openModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (!modal) return;
+                const modal = document.getElementById(modalId);
+                if (!modal) return;
 
-    let overlay = document.querySelector('.modal-overlay');
+                let overlay = document.querySelector('.modal-overlay');
 
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.classList.add('modal-overlay');
-        document.body.appendChild(overlay);
-    }
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.classList.add('modal-overlay');
+                    document.body.appendChild(overlay);
+                }
 
-    overlay.style.display = 'block';
-    modal.style.display = 'block';
-}
+                overlay.style.display = 'block';
+                modal.style.display = 'block';
+            }
 
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
+            function closeModal(modalId) {
+                const modal = document.getElementById(modalId);
 
-    if (modal) {
-        modal.style.display = 'none';
-    }
+                if (modal) {
+                    modal.style.display = 'none';
+                }
 
-    const anyOpenModal = Array.from(document.querySelectorAll('.modal'))
-        .some(openModal => openModal.style.display === 'block');
+                const anyOpenModal = Array.from(document.querySelectorAll('.modal'))
+                    .some(openModal => openModal.style.display === 'block');
 
-    const overlay = document.querySelector('.modal-overlay');
+                const overlay = document.querySelector('.modal-overlay');
 
-    if (overlay && !anyOpenModal) {
-        overlay.style.display = 'none';
-    }
-}
+                if (overlay && !anyOpenModal) {
+                    overlay.style.display = 'none';
+                }
+            }
 
-function closeAllModals() {
-    document.querySelectorAll('.modal').forEach(modal => {
-        modal.style.display = 'none';
-    });
+            function closeAllModals() {
+                document.querySelectorAll('.modal').forEach(modal => {
+                    modal.style.display = 'none';
+                });
 
-    const overlay = document.querySelector('.modal-overlay');
+                const overlay = document.querySelector('.modal-overlay');
 
-    if (overlay) {
-        overlay.style.display = 'none';
-    }
-}
+                if (overlay) {
+                    overlay.style.display = 'none';
+                }
+            }
 
-document.addEventListener('click', function (event) {
-    if (event.target.classList.contains('modal-overlay')) {
-        closeAllModals();
-    }
+            document.addEventListener('click', function (event) {
+                if (event.target.classList.contains('modal-overlay')) {
+                    closeAllModals();
+                }
 
-    if (event.target.classList.contains('modal')) {
-        closeAllModals();
-    }
-});
+                if (event.target.classList.contains('modal')) {
+                    closeAllModals();
+                }
+            });
         </script>
+
+        <script>
+async function dismissTwoFactorWarning() {
+    const csrfTokenInput = document.querySelector('input[name="csrf_token"]');
+    const csrfToken = csrfTokenInput ? csrfTokenInput.value : '';
+
+    try {
+        const response = await fetch('/admin/dashboard/settings/2fa/dismiss-warning', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            }
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || result.status !== 'success') {
+            alert(result.message || 'Could not dismiss 2FA warning.');
+            return;
+        }
+
+        const banner = document.getElementById('twoFactorSecurityWarning');
+
+        if (banner) {
+            banner.remove();
+        }
+
+    } catch (error) {
+        console.error(error);
+        alert('Could not dismiss 2FA warning.');
+    }
+}
+</script>
         {% endblock %}
 
 
