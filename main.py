@@ -184,6 +184,88 @@ class User(UserMixin, db.Model):
     def __repr__(self):
         return f"<User {self.username}>"
 
+class PublicUser(UserMixin, db.Model):
+    __tablename__ = 'public_user'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+
+    username = db.Column(db.String(80), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    email_verified_at = db.Column(db.DateTime, nullable=True)
+    verification_email_sent_at = db.Column(db.DateTime, nullable=True)
+    password_reset_requested_at = db.Column(db.DateTime, nullable=True)
+    last_verification_email_sent_at = db.Column(db.DateTime, nullable=True)
+
+    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    website = db.relationship('Website', backref=db.backref('public_users', lazy=True, cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'username', name='uq_public_user_username_per_website'),
+        db.UniqueConstraint('website_id', 'email', name='uq_public_user_email_per_website'),
+    )
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @validates('username')
+    def normalize_public_username(self, key, value):
+        return (value or '').strip().lower()
+
+    @validates('email')
+    def normalize_public_email(self, key, value):
+        return (value or '').strip().lower()
+
+    def __repr__(self):
+        return f"<PublicUser {self.username} website={self.website_id}>"
+
+class ForumThread(db.Model):
+    __tablename__ = 'forum_thread'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=True, index=True)
+
+    title = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+
+    is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_pinned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    website = db.relationship('Website', backref=db.backref('forum_threads', lazy=True, cascade='all, delete-orphan'))
+    author = db.relationship('PublicUser', backref=db.backref('forum_threads', lazy=True))
+
+    def visible_reply_count(self):
+        return ForumReply.query.filter_by(
+            thread_id=self.id,
+            is_hidden=False
+        ).count()
+
+
+
+    def __repr__(self):
+        return f"<ForumThread {self.id} {self.title}>"
+
 class EmailServerSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
@@ -202,6 +284,32 @@ class EmailServerSettings(db.Model):
 
     def __repr__(self):
         return f"<EmailServerSettings {self.id}>"
+
+class ForumReply(db.Model):
+    __tablename__ = 'forum_reply'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    thread_id = db.Column(db.Integer, db.ForeignKey('forum_thread.id'), nullable=False, index=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=True, index=True)
+
+    body = db.Column(db.Text, nullable=False)
+
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    thread = db.relationship('ForumThread', backref=db.backref('replies', lazy=True, cascade='all, delete-orphan'))
+    website = db.relationship('Website', backref=db.backref('forum_replies', lazy=True, cascade='all, delete-orphan'))
+    author = db.relationship('PublicUser', backref=db.backref('forum_replies', lazy=True))
+
+    def __repr__(self):
+        return f"<ForumReply {self.id} thread={self.thread_id}>"
 
 class ContactMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -268,8 +376,30 @@ class Website(db.Model):
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
 
+    forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    forum_title = db.Column(db.String(120), nullable=False, default='Forum')
+    forum_description = db.Column(db.String(500), nullable=True)
+
+    forum_account_verification_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default='0'
+    )
+
+    forum_allow_unverified_login = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default='0'
+    )
+
     def __repr__(self):
         return f"<Website {self.id} - {self.name}>"
+
 
 
 class PublicPageContent(db.Model):
@@ -8314,6 +8444,749 @@ def delete_saved_color():
 
     return jsonify({'success': True})
 
+
+@app.route('/forum')
+def public_forum():
+    website = Website.query.first()
+
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    if not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user = get_public_user()
+
+    if website.forum_require_login_to_view and not public_user:
+        return redirect(url_for('public_forum_login', next=url_for('public_forum')))
+
+    threads = ForumThread.query.filter_by(
+        website_id=website.id,
+        is_hidden=False
+    ).order_by(
+        ForumThread.is_pinned.desc(),
+        ForumThread.updated_at.desc()
+    ).all()
+
+    content = {
+        'current_page_url': url_for('public_forum')
+    }
+
+    return render_template(
+        'public_forum.html',
+        website=website,
+        threads=threads,
+        public_user=public_user,
+        content=content
+    )
+
+@app.route('/forum/register', methods=['GET', 'POST'])
+def public_forum_register():
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip().lower()
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
+
+        if not username or not email or not password:
+            flash('Please fill out all fields.', 'error')
+            return redirect(url_for('public_forum_register'))
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+            return redirect(url_for('public_forum_register'))
+
+        existing = PublicUser.query.filter(
+            PublicUser.website_id == website.id,
+            or_(
+                PublicUser.username == username,
+                PublicUser.email == email
+            )
+        ).first()
+
+        if existing:
+            flash('That username or email is already in use.', 'error')
+            return redirect(url_for('public_forum_register'))
+
+        public_user = PublicUser(
+            website_id=website.id,
+            username=username,
+            email=email,
+            email_verified=not website.forum_account_verification_enabled
+        )
+        public_user.set_password(password)
+
+        db.session.add(public_user)
+        db.session.commit()
+
+        if website.forum_account_verification_enabled:
+            try:
+                send_public_user_verification_email(public_user)
+                flash('Account created. Please check your email to verify your account.', 'success')
+            except Exception as e:
+                print(f'Public user verification email failed: {e}')
+                flash(
+                    'Account created, but the verification email could not be sent. Please contact the site owner.',
+                    'error'
+                )
+
+            if website.forum_allow_unverified_login:
+                public_user_login(public_user)
+
+            return redirect(url_for('public_forum_login'))
+
+        public_user_login(public_user)
+
+        return redirect(url_for('public_forum'))
+
+    content = {
+        'current_page_url': url_for('public_forum_register')
+    }
+
+    return render_template(
+        'public_forum_register.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/forum/login', methods=['GET', 'POST'])
+def public_forum_login():
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    if request.method == 'POST':
+        login_value = (request.form.get('login') or '').strip().lower()
+        password = request.form.get('password') or ''
+
+        public_user = PublicUser.query.filter(
+            PublicUser.website_id == website.id,
+            or_(
+                PublicUser.username == login_value,
+                PublicUser.email == login_value
+            )
+        ).first()
+
+        if not public_user or not public_user.check_password(password):
+            flash('Invalid username/email or password.', 'error')
+            return redirect(url_for('public_forum_login'))
+
+        if public_user.is_banned or not public_user.is_active_public:
+            flash('This account cannot access the forum.', 'error')
+            return redirect(url_for('public_forum_login'))
+
+        if (
+                website.forum_account_verification_enabled
+                and not website.forum_allow_unverified_login
+                and not public_user.email_verified
+        ):
+            flash('Please verify your email before logging in.', 'error')
+            return redirect(url_for('public_forum_resend_verification'))
+
+        public_user_login(public_user)
+
+        next_url = request.args.get('next') or url_for('public_forum')
+        return redirect(next_url)
+
+    content = {
+        'current_page_url': url_for('public_forum_login')
+    }
+
+    return render_template(
+        'public_forum_login.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+
+@app.route('/forum/forgot-password', methods=['GET', 'POST'])
+def public_forum_forgot_password():
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+
+        generic_message = (
+            'If that email matches a forum account and email sending is configured, '
+            'a password reset link has been sent.'
+        )
+
+        public_user = PublicUser.query.filter_by(
+            website_id=website.id,
+            email=email
+        ).first()
+
+        if public_user and not public_user.is_banned and public_user.is_active_public:
+            try:
+                send_public_user_password_reset_email(public_user)
+            except Exception as e:
+                print(f'Public forum password reset email failed: {e}')
+
+        flash(generic_message, 'success')
+        return redirect(url_for('public_forum_login'))
+
+    content = {
+        'current_page_url': url_for('public_forum_forgot_password')
+    }
+
+    return render_template(
+        'public_forum_forgot_password.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/forum/reset-password/<token>', methods=['GET', 'POST'])
+def public_forum_reset_password(token):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user, error = verify_public_user_password_reset_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('public_forum_login'))
+
+    if public_user.website_id != website.id:
+        return "Not Found", 404
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not password:
+            flash('Please enter a new password.', 'error')
+            return redirect(request.path)
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+            return redirect(request.path)
+
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return redirect(request.path)
+
+        public_user.set_password(password)
+
+        # If verification is enabled, a password-reset-confirmed user
+        # can reasonably be treated as email verified.
+        if website.forum_account_verification_enabled:
+            public_user.email_verified = True
+            public_user.email_verified_at = datetime.utcnow()
+
+        db.session.commit()
+
+        public_user_logout()
+
+        flash('Password updated successfully. Please log in.', 'success')
+        return redirect(url_for('public_forum_login'))
+
+    content = {
+        'current_page_url': url_for('public_forum_reset_password', token=token)
+    }
+
+    return render_template(
+        'public_forum_reset_password.html',
+        website=website,
+        public_user=get_public_user(),
+        token=token,
+        content=content
+    )
+
+@app.route('/forum/verify-email/<token>')
+def public_forum_verify_email(token):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user, error = verify_public_user_verification_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('public_forum_login'))
+
+    if public_user.website_id != website.id:
+        return "Not Found", 404
+
+    public_user.email_verified = True
+    public_user.email_verified_at = datetime.utcnow()
+
+    db.session.commit()
+
+    flash('Your email has been verified. You can now log in.', 'success')
+    return redirect(url_for('public_forum_login'))
+
+@app.route('/forum/resend-verification', methods=['GET', 'POST'])
+def public_forum_resend_verification():
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+
+        generic_message = (
+            'If that email matches an unverified forum account, '
+            'a new verification email has been sent.'
+        )
+
+        public_user = PublicUser.query.filter_by(
+            website_id=website.id,
+            email=email
+        ).first()
+
+        if (
+            public_user
+            and not public_user.email_verified
+            and not public_user.is_banned
+            and public_user.is_active_public
+        ):
+            try:
+                send_public_user_verification_email(public_user)
+            except Exception as e:
+                print(f'Public forum verification resend failed: {e}')
+
+        flash(generic_message, 'success')
+        return redirect(url_for('public_forum_login'))
+
+    content = {
+        'current_page_url': url_for('public_forum_resend_verification')
+    }
+
+    return render_template(
+        'public_forum_resend_verification.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/forum/logout', methods=['POST'])
+def public_forum_logout():
+    public_user_logout()
+    return redirect(url_for('public_forum'))
+
+@app.route('/forum/thread/new', methods=['GET', 'POST'])
+def public_forum_new_thread():
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user = get_public_user()
+
+    if website.forum_require_login_to_post and not public_user:
+        return redirect(url_for('public_forum_login', next=url_for('public_forum_new_thread')))
+
+    if request.method == 'POST':
+        title = (request.form.get('title') or '').strip()
+        body = (request.form.get('body') or '').strip()
+
+        if not title or not body:
+            flash('Please enter a title and message.', 'error')
+            return redirect(url_for('public_forum_new_thread'))
+
+        thread = ForumThread(
+            website_id=website.id,
+            public_user_id=public_user.id if public_user else None,
+            title=title[:180],
+            body=body,
+            ip_address=get_request_ip(),
+            user_agent=request.headers.get('User-Agent')
+        )
+
+        db.session.add(thread)
+        db.session.commit()
+
+        return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+    content = {
+        'current_page_url': url_for('public_forum_new_thread')
+    }
+
+    return render_template(
+        'public_forum_new_thread.html',
+        website=website,
+        public_user=public_user,
+        content=content
+    )
+
+@app.route('/forum/thread/<int:thread_id>', methods=['GET', 'POST'])
+def public_forum_thread(thread_id):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user = get_public_user()
+
+    thread = ForumThread.query.filter_by(
+        id=thread_id,
+        website_id=website.id
+    ).first_or_404()
+
+    if thread.is_hidden:
+        return "Thread not found", 404
+
+    if website.forum_require_login_to_view and not public_user:
+        return redirect(url_for('public_forum_login', next=url_for('public_forum_thread', thread_id=thread.id)))
+
+    if request.method == 'POST':
+        if thread.is_locked:
+            flash('This thread is locked.', 'error')
+            return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+        if website.forum_require_login_to_post and not public_user:
+            return redirect(url_for('public_forum_login', next=url_for('public_forum_thread', thread_id=thread.id)))
+
+        body = (request.form.get('body') or '').strip()
+
+        if not body:
+            flash('Please enter a reply.', 'error')
+            return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+        reply = ForumReply(
+            thread_id=thread.id,
+            website_id=website.id,
+            public_user_id=public_user.id if public_user else None,
+            body=body,
+            ip_address=get_request_ip(),
+            user_agent=request.headers.get('User-Agent')
+        )
+
+        thread.updated_at = datetime.utcnow()
+
+        db.session.add(reply)
+        db.session.commit()
+
+        return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+    replies = ForumReply.query.filter_by(
+        thread_id=thread.id,
+        is_hidden=False
+    ).order_by(ForumReply.created_at.asc()).all()
+
+    content = {
+        'current_page_url': url_for('public_forum_thread', thread_id=thread.id)
+    }
+
+    return render_template(
+        'public_forum_thread.html',
+        website=website,
+        thread=thread,
+        replies=replies,
+        public_user=public_user,
+        content=content
+    )
+
+@app.route('/admin/forum')
+@login_required
+def admin_forum():
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    threads = ForumThread.query.filter_by(
+        website_id=website.id
+    ).order_by(
+        ForumThread.created_at.desc()
+    ).all()
+
+    users = PublicUser.query.filter_by(
+        website_id=website.id
+    ).order_by(PublicUser.created_at.desc()).all()
+
+    return render_template(
+        'admin_forum.html',
+        website=website,
+        threads=threads,
+        users=users,
+        email_settings=get_email_settings()
+    )
+
+@app.route('/admin/forum/settings', methods=['POST'])
+@login_required
+def update_forum_settings():
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    website.forum_enabled = request.form.get('forum_enabled') == 'on'
+    website.forum_show_in_navbar = request.form.get('forum_show_in_navbar') == 'on'
+    website.forum_require_login_to_view = request.form.get('forum_require_login_to_view') == 'on'
+    website.forum_require_login_to_post = request.form.get('forum_require_login_to_post') == 'on'
+    website.forum_title = (request.form.get('forum_title') or 'Forum').strip()[:120]
+    website.forum_description = (request.form.get('forum_description') or '').strip()
+    website.forum_account_verification_enabled = (
+            request.form.get('forum_account_verification_enabled') == 'on'
+    )
+
+    website.forum_allow_unverified_login = (
+            request.form.get('forum_allow_unverified_login') == 'on'
+    )
+
+    db.session.commit()
+
+    flash('Forum settings saved.', 'success')
+    return redirect(url_for('admin_forum'))
+
+@app.route('/admin/forum/thread/<int:thread_id>/moderate', methods=['POST'])
+@login_required
+def moderate_forum_thread(thread_id):
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    thread = ForumThread.query.filter_by(
+        id=thread_id,
+        website_id=website.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'hide':
+        thread.is_hidden = True
+    elif action == 'unhide':
+        thread.is_hidden = False
+    elif action == 'lock':
+        thread.is_locked = True
+    elif action == 'unlock':
+        thread.is_locked = False
+    elif action == 'pin':
+        thread.is_pinned = True
+    elif action == 'unpin':
+        thread.is_pinned = False
+    elif action == 'delete':
+        db.session.delete(thread)
+        db.session.commit()
+        return redirect(url_for('admin_forum'))
+
+    db.session.commit()
+    return redirect(url_for('admin_forum'))
+
+@app.route('/admin/forum/reply/<int:reply_id>/moderate', methods=['POST'])
+@login_required
+def moderate_forum_reply(reply_id):
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    reply = ForumReply.query.filter_by(
+        id=reply_id,
+        website_id=website.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'hide':
+        reply.is_hidden = True
+    elif action == 'unhide':
+        reply.is_hidden = False
+    elif action == 'delete':
+        db.session.delete(reply)
+        db.session.commit()
+        return redirect(url_for('admin_forum'))
+
+    db.session.commit()
+    return redirect(url_for('admin_forum'))
+
+def generate_public_user_password_reset_token(public_user):
+    serializer = get_recovery_serializer()
+
+    return serializer.dumps(
+        {
+            'public_user_id': public_user.id,
+            'website_id': public_user.website_id,
+            'purpose': 'public_user_password_reset'
+        },
+        salt='uwebia-public-user-password-reset'
+    )
+
+
+def verify_public_user_password_reset_token(token, max_age_seconds=1800):
+    serializer = get_recovery_serializer()
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-public-user-password-reset',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, 'This password reset link has expired.'
+    except BadSignature:
+        return None, 'This password reset link is invalid.'
+
+    if data.get('purpose') != 'public_user_password_reset':
+        return None, 'This password reset link is invalid.'
+
+    public_user = PublicUser.query.filter_by(
+        id=data.get('public_user_id'),
+        website_id=data.get('website_id')
+    ).first()
+
+    if not public_user:
+        return None, 'This password reset link is invalid.'
+
+    return public_user, None
+
+
+def generate_public_user_verification_token(public_user):
+    serializer = get_recovery_serializer()
+
+    return serializer.dumps(
+        {
+            'public_user_id': public_user.id,
+            'website_id': public_user.website_id,
+            'purpose': 'public_user_email_verification'
+        },
+        salt='uwebia-public-user-email-verification'
+    )
+
+
+def verify_public_user_verification_token(token, max_age_seconds=86400):
+    serializer = get_recovery_serializer()
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-public-user-email-verification',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, 'This verification link has expired.'
+    except BadSignature:
+        return None, 'This verification link is invalid.'
+
+    if data.get('purpose') != 'public_user_email_verification':
+        return None, 'This verification link is invalid.'
+
+    public_user = PublicUser.query.filter_by(
+        id=data.get('public_user_id'),
+        website_id=data.get('website_id')
+    ).first()
+
+    if not public_user:
+        return None, 'This verification link is invalid.'
+
+    return public_user, None
+
+def send_public_user_password_reset_email(public_user):
+    token = generate_public_user_password_reset_token(public_user)
+
+    reset_url = url_for(
+        'public_forum_reset_password',
+        token=token,
+        _external=True
+    )
+
+    subject = f'Reset your {public_user.website.name} forum password'
+
+    body = f"""A password reset was requested for your forum account.
+
+Reset your password here:
+{reset_url}
+
+This link expires in 30 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+
+    send_account_recovery_email(public_user.email, subject, body)
+
+    public_user.password_reset_requested_at = datetime.utcnow()
+    db.session.commit()
+
+
+def send_public_user_verification_email(public_user):
+    token = generate_public_user_verification_token(public_user)
+
+    verification_url = url_for(
+        'public_forum_verify_email',
+        token=token,
+        _external=True
+    )
+
+    subject = f'Verify your {public_user.website.name} forum account'
+
+    body = f"""Welcome to the forum.
+
+Verify your email address here:
+{verification_url}
+
+This link expires in 24 hours.
+
+If you did not create this account, you can ignore this email.
+"""
+
+    send_account_recovery_email(public_user.email, subject, body)
+
+    public_user.verification_email_sent_at = datetime.utcnow()
+    db.session.commit()
+
+@app.route('/admin/forum/user/<int:public_user_id>/moderate', methods=['POST'])
+@login_required
+def moderate_public_user(public_user_id):
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    public_user = PublicUser.query.filter_by(
+        id=public_user_id,
+        website_id=website.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'ban':
+        public_user.is_banned = True
+    elif action == 'unban':
+        public_user.is_banned = False
+    elif action == 'deactivate':
+        public_user.is_active_public = False
+    elif action == 'activate':
+        public_user.is_active_public = True
+
+    db.session.commit()
+    return redirect(url_for('admin_forum'))
+
+def get_public_user():
+    public_user_id = session.get('public_user_id')
+    website_id = session.get('public_user_website_id')
+
+    if not public_user_id or not website_id:
+        return None
+
+    return PublicUser.query.filter_by(
+        id=public_user_id,
+        website_id=website_id,
+        is_banned=False,
+        is_active_public=True
+    ).first()
+
+
+def public_user_login(public_user):
+    session['public_user_id'] = public_user.id
+    session['public_user_website_id'] = public_user.website_id
+    public_user.last_login_at = datetime.utcnow()
+    db.session.commit()
+
+
+def public_user_logout():
+    session.pop('public_user_id', None)
+    session.pop('public_user_website_id', None)
+
+
+def get_request_ip():
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+
+    return ip_address
 
 def get_user_timezone(user=None):
     user = user or current_user

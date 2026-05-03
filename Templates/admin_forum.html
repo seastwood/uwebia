@@ -1,0 +1,287 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+    body {
+        background: #363339;
+        color: #fff;
+        font-family: Roboto, Arial, sans-serif;
+    }
+
+    .admin-forum-shell {
+        width: min(1300px, calc(100% - 32px));
+        margin: 28px auto 60px;
+    }
+
+    .admin-forum-card {
+        margin-bottom: 18px;
+        padding: 18px;
+        background:
+            linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+            #1e1d20;
+        border: 1px solid rgba(255,255,255,0.09);
+        border-radius: 18px;
+        box-shadow: 0 18px 40px rgba(0,0,0,0.32);
+    }
+
+    .admin-forum-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+    }
+
+    input,
+    textarea {
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 10px;
+        padding: 10px;
+        border: none;
+        border-radius: 10px;
+        background: #444;
+        color: #fff;
+    }
+
+    label {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    label input {
+        width: auto;
+        margin: 0;
+    }
+
+    button,
+    .admin-forum-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        margin: 3px;
+        padding: 8px 11px;
+        color: rgba(255,255,255,0.88);
+        background: rgba(255,255,255,0.065);
+        border: 1px solid rgba(255,255,255,0.105);
+        border-radius: 10px;
+        font-size: 0.82rem;
+        font-weight: 750;
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    button:hover,
+    .admin-forum-button:hover {
+        color: #fff;
+        background: rgba(126,226,204,0.13);
+        border-color: rgba(126,226,204,0.34);
+    }
+
+    .admin-forum-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .admin-forum-table th,
+    .admin-forum-table td {
+        padding: 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        vertical-align: top;
+    }
+
+    .muted {
+        opacity: 0.65;
+    }
+</style>
+
+<div class="admin-forum-shell">
+    <div class="admin-forum-card">
+        <h1>Forum Settings</h1>
+        {% if website.forum_account_verification_enabled and (not email_settings or not email_settings.is_active) %}
+<div class="admin-forum-warning">
+    <h3>Email verification is enabled, but your email server is not active. New public users may not be able to verify accounts.
+     </h3>
+</div>
+{% endif %}
+
+        <form method="POST" action="{{ url_for('update_forum_settings') }}">
+            <div class="admin-forum-grid">
+                <div>
+                    <label>
+                        <input type="checkbox" name="forum_enabled" {% if website.forum_enabled %}checked{% endif %}>
+                        Enable forum
+                    </label>
+
+                    <label>
+                        <input type="checkbox" name="forum_show_in_navbar" {% if website.forum_show_in_navbar %}checked{% endif %}>
+                        Show Forum in public navbar
+                    </label>
+
+                    <label>
+                        <input type="checkbox" name="forum_require_login_to_view" {% if website.forum_require_login_to_view %}checked{% endif %}>
+                        Require login to view
+                    </label>
+
+                    <label>
+                        <input type="checkbox" name="forum_require_login_to_post" {% if website.forum_require_login_to_post %}checked{% endif %}>
+                        Require login to post
+                    </label>
+                    <label>
+    <input type="checkbox"
+           name="forum_account_verification_enabled"
+           {% if website.forum_account_verification_enabled %}checked{% endif %}>
+    Require email verification for new public forum accounts
+</label>
+
+<label>
+    <input type="checkbox"
+           name="forum_allow_unverified_login"
+           {% if website.forum_allow_unverified_login %}checked{% endif %}>
+    Allow unverified public users to log in
+</label>
+                </div>
+
+                <div>
+                    <p>Forum Title</p>
+                    <input name="forum_title" value="{{ website.forum_title or 'Forum' }}">
+
+                    <p>Forum Description</p>
+                    <textarea name="forum_description">{{ website.forum_description or '' }}</textarea>
+                </div>
+            </div>
+
+            <button type="submit">Save Forum Settings</button>
+
+            {% if website.forum_enabled %}
+            <a class="admin-forum-button" href="{{ url_for('public_forum') }}" target="_blank">
+                View Public Forum
+            </a>
+            {% endif %}
+        </form>
+    </div>
+
+    <div class="admin-forum-card">
+        <h2>Threads</h2>
+
+        <table class="admin-forum-table">
+            <thead>
+                <tr>
+                    <th>Thread</th>
+                    <th>Status</th>
+                    <th>Author</th>
+                    <th>Created</th>
+                    <th>Moderate</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for thread in threads %}
+                <tr>
+                    <td>
+                        <strong>{{ thread.title }}</strong>
+                        <div class="muted">{{ thread.body[:140] }}{% if thread.body|length > 140 %}...{% endif %}</div>
+                    </td>
+
+                    <td>
+                        {% if thread.is_hidden %}Hidden{% else %}Visible{% endif %}
+                        {% if thread.is_locked %} · Locked{% endif %}
+                        {% if thread.is_pinned %} · Pinned{% endif %}
+                    </td>
+
+                    <td>{{ thread.author.username if thread.author else 'Guest' }}</td>
+                    <td>{{ thread.created_at.strftime('%b %d, %Y') }}</td>
+
+                    <td>
+                        <form method="POST" action="{{ url_for('moderate_forum_thread', thread_id=thread.id) }}">
+                            {% if thread.is_hidden %}
+                            <button name="action" value="unhide">Unhide</button>
+                            {% else %}
+                            <button name="action" value="hide">Hide</button>
+                            {% endif %}
+
+                            {% if thread.is_locked %}
+                            <button name="action" value="unlock">Unlock</button>
+                            {% else %}
+                            <button name="action" value="lock">Lock</button>
+                            {% endif %}
+
+                            {% if thread.is_pinned %}
+                            <button name="action" value="unpin">Unpin</button>
+                            {% else %}
+                            <button name="action" value="pin">Pin</button>
+                            {% endif %}
+
+                            <button name="action" value="delete" onclick="return confirm('Delete this thread and all replies?')">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="muted">No forum threads yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="admin-forum-card">
+        <h2>Public Users</h2>
+
+        <table class="admin-forum-table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Moderate</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for public_user in users %}
+                <tr>
+                    <td>{{ public_user.username }}</td>
+                    <td>{{ public_user.email }}</td>
+                    <td>
+                        {% if public_user.is_banned %}
+                            Banned
+                        {% elif not public_user.is_active_public %}
+                            Inactive
+                        {% else %}
+                            Active
+                        {% endif %}
+                    </td>
+                    <td>{{ public_user.created_at.strftime('%b %d, %Y') }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('moderate_public_user', public_user_id=public_user.id) }}">
+                            {% if public_user.is_banned %}
+                            <button name="action" value="unban">Unban</button>
+                            {% else %}
+                            <button name="action" value="ban">Ban</button>
+                            {% endif %}
+
+                            {% if public_user.is_active_public %}
+                            <button name="action" value="deactivate">Deactivate</button>
+                            {% else %}
+                            <button name="action" value="activate">Activate</button>
+                            {% endif %}
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="muted">No public users yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends 'public_base.html' %}
+
+{% block title %}
+{{ website.forum_title or 'Forum' }}
+{% endblock %}
+
+{% block head %}
+<style>
+    .forum-shell {
+        width: min(1100px, calc(100% - 28px));
+        margin: 38px auto 50px;
+    }
+
+    .forum-hero,
+    .forum-card {
+        background: rgba(0, 0, 0, 0.34);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 20px;
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .forum-hero {
+        padding: 24px;
+        margin-bottom: 18px;
+    }
+
+    .forum-hero h1 {
+        margin: 0 0 6px;
+        font-size: clamp(1.8rem, 4vw, 3rem);
+    }
+
+    .forum-hero p {
+        margin: 0;
+        opacity: 0.78;
+    }
+
+    .forum-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+    }
+
+    .forum-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 10px 14px;
+        border-radius: 999px;
+
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.12);
+
+        color: inherit;
+        text-decoration: none;
+        font-weight: 800;
+        cursor: pointer;
+    }
+
+    .forum-button:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .forum-thread-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .forum-card {
+        display: block;
+        padding: 18px;
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .forum-thread-title {
+        margin: 0 0 6px;
+        font-size: 1.1rem;
+        font-weight: 900;
+    }
+
+    .forum-meta {
+        opacity: 0.66;
+        font-size: 0.86rem;
+    }
+
+    .forum-empty {
+        padding: 22px;
+        text-align: center;
+        opacity: 0.72;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="forum-shell">
+    <section class="forum-hero">
+        <h1>{{ website.forum_title or 'Forum' }}</h1>
+
+        {% if website.forum_description %}
+            <p>{{ website.forum_description }}</p>
+        {% else %}
+            <p>Start a thread, ask a question, or join the conversation.</p>
+        {% endif %}
+
+        <div class="forum-actions">
+            {% if public_user %}
+                <a class="forum-button" href="{{ url_for('public_forum_new_thread') }}">Start Thread</a>
+
+                <form action="{{ url_for('public_forum_logout') }}" method="POST">
+                    <button class="forum-button" type="submit">Log Out</button>
+                </form>
+            {% else %}
+                <a class="forum-button" href="{{ url_for('public_forum_login') }}">Log In</a>
+                <a class="forum-button" href="{{ url_for('public_forum_register') }}">Create Account</a>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="forum-thread-list">
+        {% for thread in threads %}
+            <a class="forum-card" href="{{ url_for('public_forum_thread', thread_id=thread.id) }}">
+                <h2 class="forum-thread-title">
+                    {% if thread.is_pinned %}📌 {% endif %}
+                    {{ thread.title }}
+                </h2>
+
+                <div class="forum-meta">
+                    Posted by {{ thread.author.username if thread.author else 'Guest' }}
+                    · {{ thread.created_at.strftime('%b %d, %Y') }}
+                    · {{ thread.visible_reply_count() }} replies
+                    {% if thread.is_locked %} · Locked{% endif %}
+                </div>
+            </a>
+        {% else %}
+            <div class="forum-card forum-empty">
+                No threads yet. Be the first to start one.
+            </div>
+        {% endfor %}
+    </section>
+</main>
+{% endblock %}

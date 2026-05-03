@@ -70,6 +70,12 @@
 
     {% if navbar_items %}
     <div class="public-navbar-right">
+        {% if website.forum_enabled and website.forum_show_in_navbar %}
+<a href="{{ url_for('public_forum') }}"
+   class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+    {{ website.forum_title or 'Forum' }}
+</a>
+{% endif %}
         {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
@@ -129,6 +135,12 @@
 
 <div id="publicNavbarMenu" class="public-navbar-menu">
     <div class="public-navbar-menu-glass">
+        {% if website.forum_enabled and website.forum_show_in_navbar %}
+<a href="{{ url_for('public_forum') }}"
+   class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+    {{ website.forum_title or 'Forum' }}
+</a>
+{% endif %}
         {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
