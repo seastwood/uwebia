@@ -6096,7 +6096,10 @@
         });
 
         // Add event listener to the Refresh button
-        document.getElementById("refreshButton").addEventListener("click", reloadIframe);
+document.getElementById("refreshButton").addEventListener("click", function () {
+    reloadIframe();
+    refreshVisibleMediaCounts();
+});
 
         // Function to reload the iframe and maintain scroll position
         function reloadIframe() {
@@ -11379,13 +11382,18 @@
                         li.dataset.linkId = track.link_id;
                         li.dataset.assetId = track.asset_id;
                         li.dataset.sectionId = sectionId;
+                        const uniqueListenCount = Number(track.unique_play_count || 0);
 
                         li.innerHTML = `
                     <span class="music-editor-handle">☰</span>
 
                     <div class="music-editor-info">
                         <div class="music-editor-title">${escapeHtml(track.filename || 'Untitled track')}</div>
-                        <div class="music-editor-subtitle">${escapeHtml((track.extension || '').toUpperCase())} · ${escapeHtml(track.file_size_label || '')}</div>
+<div class="music-editor-subtitle">
+    ${escapeHtml((track.extension || '').toUpperCase())}
+    · ${escapeHtml(track.file_size_label || '')}
+    · ${uniqueListenCount} unique ${uniqueListenCount === 1 ? 'listen' : 'listens'}
+</div>
                     </div>
 
                     <audio controls preload="metadata">
@@ -11496,6 +11504,7 @@ function loadSectionVideos(sectionId) {
                 li.dataset.linkId = video.link_id;
                 li.dataset.assetId = video.asset_id;
                 li.dataset.sectionId = sectionId;
+                const uniquePlayCount = Number(video.unique_play_count || 0);
 
                 li.innerHTML = `
                     <span class="video-editor-handle">☰</span>
@@ -11520,7 +11529,11 @@ function loadSectionVideos(sectionId) {
 
                     <div class="video-editor-info">
                         <div class="video-editor-title">${escapeHtml(video.filename || 'Untitled video')}</div>
-                        <div class="video-editor-subtitle">${escapeHtml((video.extension || '').toUpperCase())} · ${escapeHtml(video.file_size_label || '')}</div>
+            <div class="video-editor-subtitle">
+                ${escapeHtml((video.extension || '').toUpperCase())}
+                · ${escapeHtml(video.file_size_label || '')}
+                · ${uniquePlayCount} unique ${uniquePlayCount === 1 ? 'play' : 'plays'}
+            </div>
                     </div>
 
                     <button type="button" class="video-remove-button" onclick="removeVideoItem('${sectionId}', '${video.link_id}')">
@@ -11694,6 +11707,21 @@ function closeEditorVideoPreview() {
     if (modal) {
         modal.classList.remove('is-open');
     }
+}
+function refreshVisibleMediaCounts() {
+    document.querySelectorAll('.music-sortable[id^="music-sortable-"]').forEach(list => {
+        const sectionId = list.id.replace('music-sortable-', '');
+        if (sectionId) {
+            loadSectionMusic(sectionId);
+        }
+    });
+
+    document.querySelectorAll('.video-sortable[id^="video-sortable-"]').forEach(list => {
+        const sectionId = list.id.replace('video-sortable-', '');
+        if (sectionId) {
+            loadSectionVideos(sectionId);
+        }
+    });
 }
     </script>
 

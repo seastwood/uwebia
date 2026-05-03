@@ -1597,19 +1597,27 @@ body.public-page-body {
 @media (max-width: 760px) {
     .uwebia-music {
         width: 100%;
-        padding: 14px;
+        padding: 10px;
+        border-radius: 16px;
     }
 
     .uwebia-music-track {
-        grid-template-columns: auto 42px minmax(0, 1fr) auto;
-        border-radius: 22px;
+        /* grid-template-columns: auto 30px minmax(0, 1fr) auto; */
+        gap: 7px;
+        padding: 7px;
+        border-radius: 14px;
     }
 
     .uwebia-music-track audio {
         grid-column: 1 / -1;
+        height: 32px;
+    }
+
+    .uwebia-music-track-title {
+        font-size: 0.76rem;
+        -webkit-line-clamp: 2;
     }
 }
-
 .uwebia-video-section {
     width: 100%;
     max-width: var(--video-max-width, 900px);
@@ -2100,6 +2108,506 @@ body.public-page-body {
         height: 52px;
     }
 }
+.uwebia-media-count {
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.uwebia-video-meta .uwebia-media-count {
+    flex: 0 0 auto;
+}
+
+/* =========================================================
+   Public Music Player - pill style
+   Overrides older grid-based music player styles
+========================================================= */
+
+.uwebia-music {
+    width: 100%;
+    max-width: 900px;
+    margin: 12px auto;
+    padding: 16px;
+
+    color: inherit;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)),
+        rgba(0, 0, 0, 0.32);
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 26px;
+
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.uwebia-music-header {
+    text-align: left;
+    margin-bottom: 12px;
+}
+
+.uwebia-music-title {
+    margin: 0;
+    font-size: 1.12rem;
+    line-height: 1.2;
+    font-weight: 900;
+}
+
+.uwebia-music-description {
+    margin: 5px 0 0;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.88rem;
+    line-height: 1.35;
+}
+
+.uwebia-music-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.uwebia-music-track {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 12px;
+
+    border-radius: 999px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.045)),
+        rgba(255, 255, 255, 0.035);
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.055),
+        0 8px 20px rgba(0, 0, 0, 0.16);
+
+    box-sizing: border-box;
+
+    transition:
+        background 0.18s ease,
+        border-color 0.18s ease,
+        transform 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+.uwebia-music-track:hover {
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.12), rgba(255, 255, 255, 0.055)),
+        rgba(255, 255, 255, 0.045);
+
+    border-color: rgba(126, 226, 204, 0.28);
+
+    transform: translateY(-1px);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.07),
+        0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
+.uwebia-music-art {
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.uwebia-music-track-number {
+    min-width: 22px;
+
+    color: rgba(255, 255, 255, 0.55);
+
+    font-size: 0.76rem;
+    font-weight: 900;
+    line-height: 1;
+    text-align: center;
+}
+
+.uwebia-music-icon {
+    width: 38px;
+    height: 38px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    flex: 0 0 auto;
+
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.13);
+
+    border: 1px solid rgba(126, 226, 204, 0.20);
+    border-radius: 999px;
+
+    font-size: 0.9rem;
+}
+
+.uwebia-music-info {
+    flex: 1 1 260px;
+    min-width: 160px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    text-align: left;
+    overflow: hidden;
+}
+
+.uwebia-music-track-title {
+    display: block;
+
+    max-width: 100%;
+
+    color: rgba(255, 255, 255, 0.96);
+
+    font-size: 0.9rem;
+    font-weight: 900;
+    line-height: 1.18;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.uwebia-music-meta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px 7px;
+
+    margin-top: 4px;
+
+    color: rgba(255, 255, 255, 0.58);
+
+    font-size: 0.72rem;
+    font-weight: 750;
+    line-height: 1.15;
+}
+
+.uwebia-music-meta-row span {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.uwebia-music-meta-row span:not(:first-child)::before {
+    content: "·";
+    margin-right: 7px;
+    color: rgba(255, 255, 255, 0.34);
+}
+
+.uwebia-music-meta-row .uwebia-media-count {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.58);
+
+    font-size: inherit;
+    font-weight: inherit;
+    letter-spacing: 0;
+    line-height: inherit;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.uwebia-music-track audio {
+    flex: 0 1 340px;
+
+    width: clamp(220px, 38vw, 340px);
+    height: 34px;
+
+    min-width: 220px;
+}
+
+.uwebia-music-download {
+    width: 36px;
+    height: 36px;
+
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.10);
+
+    border: 1px solid rgba(126, 226, 204, 0.18);
+    border-radius: 999px;
+
+    text-decoration: none;
+    font-size: 0.92rem;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease;
+}
+
+.uwebia-music-download:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.18);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+}
+
+
+.uwebia-music-track {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-left {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-art {
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.uwebia-music-info {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    text-align: left;
+    overflow: hidden;
+}
+
+.uwebia-music-track-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.uwebia-music-track audio {
+    flex: 0 1 340px;
+    width: clamp(220px, 38vw, 340px);
+    min-width: 220px;
+}
+
+/* @media (max-width: 820px) {
+    .uwebia-music-track {
+        flex-wrap: wrap;
+        align-items: center;
+        position: relative;
+        padding-right: 56px;
+    }
+
+    .uwebia-music-left {
+        flex: 1 1 100%;
+        padding-right: 0;
+    }
+
+    .uwebia-music-track audio {
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+    }
+
+    .uwebia-music-download {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+}
+
+@media (max-width: 520px) {
+    .uwebia-music-left {
+        align-items: flex-start;
+    }
+
+    .uwebia-music-track-title {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+    }
+} */
+
+/* =========================================================
+   FINAL Public Music Mobile Fix
+   Keeps icon + title/info together on small screens
+========================================================= */
+
+.uwebia-music-track {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-left {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-art {
+    width: auto !important;
+    flex: 0 0 auto !important;
+
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.uwebia-music-info {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    width: auto !important;
+
+    flex-direction: column;
+    justify-content: center;
+
+    overflow: hidden;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.uwebia-music-track-title {
+    display: block !important;
+    width: 100%;
+    min-width: 0;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.uwebia-music-meta-row {
+    display: flex !important;
+    align-items: center;
+    flex-wrap: wrap;
+
+    min-width: 0;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+
+
+@media (max-width: 520px) {
+    .uwebia-music {
+        padding: 12px;
+        border-radius: 22px;
+    }
+
+    .uwebia-music-track {
+        border-radius: 24px;
+        gap: 10px;
+    }
+
+    .uwebia-music-left {
+        align-items: center;
+        gap: 10px;
+    }
+
+    .uwebia-music-track-number {
+        min-width: 18px;
+        font-size: 0.7rem;
+    }
+
+    .uwebia-music-icon {
+        width: 34px;
+        height: 34px;
+        font-size: 0.82rem;
+    }
+
+    .uwebia-music-track-title {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        font-size: 0.84rem;
+    }
+
+    .uwebia-music-meta-row {
+        font-size: 0.68rem;
+        gap: 4px 6px;
+    }
+}
+
+@media (max-width: 760px) {
+    .uwebia-music-track {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "info download"
+            "player player";
+        align-items: center;
+        gap: 10px;
+
+        padding: 12px;
+        border-radius: 24px;
+    }
+
+    .uwebia-music-left {
+        grid-area: info;
+        min-width: 0;
+
+        display: flex !important;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .uwebia-music-art {
+        width: auto !important;
+        flex: 0 0 auto !important;
+    }
+
+    .uwebia-music-info {
+        min-width: 0 !important;
+        width: auto !important;
+    }
+
+    .uwebia-music-track audio {
+        grid-area: player;
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 34px;
+    }
+
+    .uwebia-music-download {
+        grid-area: download;
+        align-self: center;
+    }
+
+    .uwebia-music-track-title {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+}
 </style>
 
 {% set nav_style = website.public_navbar_style or {} %}
@@ -2413,27 +2921,43 @@ margin-right: auto;
     <div class="uwebia-music-list">
         {% for track in music %}
         <div class="uwebia-music-track">
-            {% if music_content.get('show_track_numbers', True) %}
-            <div class="uwebia-music-track-number">
-                {{ loop.index }}
-            </div>
+<div class="uwebia-music-left">
+    <div class="uwebia-music-art">
+        {% if music_content.get('show_track_numbers', True) %}
+        <span class="uwebia-music-track-number">
+            {{ loop.index }}
+        </span>
+        {% endif %}
+
+        <span class="uwebia-music-icon">
+            <i class="fas fa-music"></i>
+        </span>
+    </div>
+
+    <div class="uwebia-music-info">
+        <div class="uwebia-music-track-title" title="{{ track.filename }}">
+            {{ track.filename }}
+        </div>
+
+        <div class="uwebia-music-meta-row">
+            {% if track.extension %}
+            <span>{{ track.extension|upper }}</span>
             {% endif %}
 
-            <div class="uwebia-music-icon">
-                <i class="fas fa-music"></i>
-            </div>
+            {% if track.file_size_label %}
+            <span>{{ track.file_size_label }}</span>
+            {% endif %}
 
-            <div class="uwebia-music-info">
-                <div class="uwebia-music-track-title" title="{{ track.filename }}">
-                    {{ track.filename }}
-                </div>
-
-                <div class="uwebia-music-track-subtitle">
-                    {{ track.extension|upper if track.extension }}{% if track.file_size_label %} · {{ track.file_size_label }}{% endif %}
-                </div>
-            </div>
-
-            <audio controls preload="metadata">
+            <span class="uwebia-media-count" id="assetPlayCount_{{ track.asset_id or track.id }}">
+                {{ track.unique_play_count or 0 }} unique listens
+            </span>
+        </div>
+    </div>
+</div>
+            <audio controls preload="metadata"
+                data-asset-id="{{ track.asset_id or track.id }}"
+                data-track-counted="false"
+                class="uwebia-trackable-media uwebia-trackable-audio">
                 <source src="{{ track.url }}" type="{{ track.mime_type or 'audio/mpeg' }}">
                 Your browser does not support the audio element.
             </audio>
@@ -2480,8 +3004,7 @@ margin-right: auto;
         class="public-video-preview-button"
         data-video-url="{{ video.url }}"
         data-video-mime="{{ video.mime_type or 'video/mp4' }}"
-        onclick="event.preventDefault(); event.stopPropagation(); openPublicVideoPreview('{{ video.url }}', '{{ video.mime_type or 'video/mp4' }}', '{{ video.filename|e }}')">
-
+        onclick="event.preventDefault(); event.stopPropagation(); openPublicVideoPreview('{{ video.url }}', '{{ video.mime_type or 'video/mp4' }}', '{{ video.filename|e }}', '{{ video.asset_id or video.id }}')">
     <canvas class="video-thumb-canvas" aria-hidden="true"></canvas>
 
     <div class="video-thumb-fallback">
@@ -2489,9 +3012,9 @@ margin-right: auto;
         <span>Preview Video</span>
     </div>
 
-<div class="video-thumb-overlay">
-    <span class="video-play-icon" aria-hidden="true"></span>
-</div>
+    <div class="video-thumb-overlay">
+        <span class="video-play-icon" aria-hidden="true"></span>
+    </div>
 </button>
 
                 {% if video_content.get('show_filenames', True) or video_content.get('show_download') %}
@@ -2501,6 +3024,10 @@ margin-right: auto;
                         {{ video.filename }}
                     </div>
                     {% endif %}
+
+                        <div class="uwebia-media-count" id="assetPlayCount_{{ video.asset_id or video.id }}">
+    {{ video.unique_play_count or 0 }} unique plays
+    </div>
 
                     {% if video_content.get('show_download') %}
                     <a class="uwebia-video-download" href="{{ video.url }}" download title="Download video">
@@ -2619,6 +3146,7 @@ margin-right: auto;
         <video id="publicVideoPreviewPlayer"
                class="video-preview-player"
                controls
+               autoplay
                preload="metadata"
                playsinline>
             Your browser does not support the video element.
@@ -2973,10 +3501,10 @@ document.body.style.color = text_color;
         }
     </script>
     <script>
-        function openPublicVideoPreview(videoUrl, mimeType, title) {
+function openPublicVideoPreview(videoUrl, videoMime, videoTitle, assetId) {
     const modal = document.getElementById('publicVideoPreviewModal');
-    const player = document.getElementById('publicVideoPreviewPlayer');
     const titleEl = document.getElementById('publicVideoPreviewTitle');
+    const player = document.getElementById('publicVideoPreviewPlayer');
 
     if (!modal || !player) return;
 
@@ -2984,19 +3512,37 @@ document.body.style.color = text_color;
     player.removeAttribute('src');
     player.innerHTML = '';
 
+    player.dataset.assetId = assetId || '';
+    player.dataset.trackCounted = 'false';
+
+    player.onplay = function () {
+        if (this.dataset.trackCounted === 'true') return;
+
+        this.dataset.trackCounted = 'true';
+        trackAssetPlay(this.dataset.assetId, 'video');
+    };
+
     player.src = videoUrl;
-    player.type = mimeType || 'video/mp4';
+    player.setAttribute('data-video-mime', videoMime || 'video/mp4');
     player.load();
+
+    if (titleEl) {
+        titleEl.textContent = videoTitle || 'Video Preview';
+    }
+
+    modal.classList.add('is-open');
+
+    const playPromise = player.play();
+
+    if (playPromise !== undefined) {
+        playPromise.catch(error => {
+            console.warn('Autoplay was blocked by the browser:', error);
+        });
+    }
 
     player.onerror = function () {
         console.error('Public video failed to load:', player.error, videoUrl);
     };
-
-    if (titleEl) {
-        titleEl.textContent = title || 'Video Preview';
-    }
-
-    modal.classList.add('is-open');
 }
 
 function closePublicVideoPreview() {
@@ -3070,7 +3616,73 @@ function generatePublicVideoThumbnails() {
 }
 
 document.addEventListener('DOMContentLoaded', generatePublicVideoThumbnails);
+
+
     </script>
+
+    <script>
+function pluralizeUniqueMediaCount(count, type) {
+    const safeCount = Number(count || 0);
+
+    if (type === 'audio') {
+        return `${safeCount} unique ${safeCount === 1 ? 'listen' : 'listens'}`;
+    }
+
+    return `${safeCount} unique ${safeCount === 1 ? 'play' : 'plays'}`;
+}
+
+function updateAssetPlayCountDisplay(assetId, uniquePlayCount, mediaType) {
+    document.querySelectorAll(`#assetPlayCount_${assetId}`).forEach(el => {
+        el.textContent = pluralizeUniqueMediaCount(uniquePlayCount, mediaType);
+    });
+}
+
+function trackAssetPlay(assetId, mediaType) {
+    if (!assetId) return Promise.resolve(null);
+
+    return fetch(`/asset/${assetId}/track-play`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            media_type: mediaType
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateAssetPlayCountDisplay(assetId, data.unique_play_count, mediaType);
+            }
+
+            return data;
+        })
+        .catch(error => {
+            console.error('Could not track asset play:', error);
+            return null;
+        });
+}
+
+function attachAudioPlayTracking() {
+    document.querySelectorAll('audio.uwebia-trackable-audio').forEach(audio => {
+        if (audio.dataset.playTrackingReady === 'true') return;
+
+        audio.dataset.playTrackingReady = 'true';
+
+        audio.addEventListener('play', function () {
+            if (this.dataset.trackCounted === 'true') return;
+
+            this.dataset.trackCounted = 'true';
+
+            trackAssetPlay(this.dataset.assetId, 'audio');
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', attachAudioPlayTracking);
+</script>
+
+
 </body>
 
 </html>

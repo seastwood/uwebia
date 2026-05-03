@@ -612,11 +612,17 @@ class Asset(db.Model):
     url = db.Column(db.String(700), nullable=False)
     thumbnail_url = db.Column(db.String(700), nullable=True)
 
+
     asset_type = db.Column(db.String(30), nullable=False, default='misc')
     mime_type = db.Column(db.String(120), nullable=True)
     extension = db.Column(db.String(20), nullable=True)
 
     file_size = db.Column(db.Integer, nullable=False, default=0)
+
+    unique_play_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    play_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    last_played_at = db.Column(db.DateTime, nullable=True)
+
 
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -633,8 +639,33 @@ class Asset(db.Model):
             'extension': self.extension,
             'file_size': self.file_size,
             'file_size_label': format_bytes(self.file_size),
+            'play_count': self.play_count or 0,
+            'last_played_at': self.last_played_at.isoformat() if self.last_played_at else None,
             'upload_date': self.upload_date.isoformat() if self.upload_date else None
         }
+
+class AssetPlay(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    asset_id = db.Column(
+        db.Integer,
+        db.ForeignKey('asset.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+
+    visitor_id_hash = db.Column(db.String(64), nullable=False, index=True)
+
+    first_played_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_played_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    play_count = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+
+    asset = db.relationship('Asset', backref=db.backref('play_records', cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('asset_id', 'visitor_id_hash', name='uq_asset_visitor_play'),
+    )
 
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -5555,6 +5586,19 @@ def add_assets_to_section():
     })
 
 
+def get_or_create_asset_visitor_id():
+    visitor_id = request.cookies.get('uwebia_asset_visitor_id')
+
+    if visitor_id:
+        return visitor_id, False
+
+    visitor_id = secrets.token_urlsafe(32)
+    return visitor_id, True
+
+
+def hash_asset_visitor_id(visitor_id):
+    return hashlib.sha256(visitor_id.encode('utf-8')).hexdigest()
+
 @app.route('/get_section_videos', methods=['GET'])
 @login_required
 def get_section_videos():
@@ -5590,7 +5634,10 @@ def get_section_videos():
             'order': link.order,
             'filename': asset.original_filename,
             'extension': asset.extension,
-            'file_size_label': format_bytes(asset.file_size)
+            'file_size_label': format_bytes(asset.file_size),
+            'play_count': asset.play_count or 0,
+            'unique_play_count': asset.unique_play_count or 0,
+            'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
         }
         for asset, link in results
     ]
@@ -5688,7 +5735,10 @@ def get_section_music():
             'order': link.order,
             'filename': asset.original_filename,
             'extension': asset.extension,
-            'file_size_label': format_bytes(asset.file_size)
+            'file_size_label': format_bytes(asset.file_size),
+            'play_count': asset.play_count or 0,
+            'unique_play_count': asset.unique_play_count or 0,
+            'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
         }
         for asset, link in results
     ]
@@ -6573,12 +6623,16 @@ def render_public_page(website, page, is_preview=False):
         music_by_section[section.id] = [
             {
                 'id': asset.id,
+                'asset_id': asset.id,
                 'link_id': link.id,
                 'url': asset.url,
                 'mime_type': asset.mime_type or 'audio/mpeg',
                 'filename': asset.original_filename,
                 'extension': asset.extension,
-                'file_size_label': format_bytes(asset.file_size)
+                'file_size_label': format_bytes(asset.file_size),
+                'play_count': asset.play_count or 0,
+                'unique_play_count': asset.unique_play_count or 0,
+                'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
             }
             for asset, link in music_assets
         ]
@@ -6603,7 +6657,10 @@ def render_public_page(website, page, is_preview=False):
                 'mime_type': asset.mime_type or 'video/mp4',
                 'filename': asset.original_filename,
                 'extension': asset.extension,
-                'file_size_label': format_bytes(asset.file_size)
+                'file_size_label': format_bytes(asset.file_size),
+                'play_count': asset.play_count or 0,
+                'unique_play_count': asset.unique_play_count or 0,
+                'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
             }
             for asset, link in video_assets
         ]
@@ -6671,6 +6728,65 @@ def render_public_page(website, page, is_preview=False):
 
     return response
 
+@app.route('/asset/<int:asset_id>/track-play', methods=['POST'])
+def track_asset_play(asset_id):
+    asset = Asset.query.get_or_404(asset_id)
+
+    if asset.asset_type not in ['audio', 'video']:
+        return jsonify({
+            'success': False,
+            'message': 'Only audio and video assets can be tracked.'
+        }), 400
+
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_id_hash = hash_asset_visitor_id(visitor_id)
+
+    play_record = AssetPlay.query.filter_by(
+        asset_id=asset.id,
+        visitor_id_hash=visitor_id_hash
+    ).first()
+
+    is_unique_play = play_record is None
+
+    if play_record:
+        play_record.play_count = (play_record.play_count or 0) + 1
+        play_record.last_played_at = datetime.utcnow()
+    else:
+        play_record = AssetPlay(
+            asset_id=asset.id,
+            visitor_id_hash=visitor_id_hash,
+            first_played_at=datetime.utcnow(),
+            last_played_at=datetime.utcnow(),
+            play_count=1
+        )
+
+        db.session.add(play_record)
+        asset.unique_play_count = (asset.unique_play_count or 0) + 1
+
+    asset.play_count = (asset.play_count or 0) + 1
+    asset.last_played_at = datetime.utcnow()
+
+    db.session.commit()
+
+    response = jsonify({
+        'success': True,
+        'asset_id': asset.id,
+        'play_count': asset.play_count or 0,
+        'unique_play_count': asset.unique_play_count or 0,
+        'is_unique_play': is_unique_play,
+        'last_played_at': asset.last_played_at.isoformat()
+    })
+
+    if should_set_cookie:
+        response.set_cookie(
+            'uwebia_asset_visitor_id',
+            visitor_id,
+            max_age=60 * 60 * 24 * 365,
+            httponly=True,
+            samesite='Lax'
+        )
+
+    return response
 
 @app.route('/admin/dashboard/analytics/geoip/backfill', methods=['POST'])
 @login_required
@@ -8531,7 +8647,7 @@ def audit_assets_cli():
 
 if __name__ == '__main__':
     # Run migrations
-    run_migrations()
+    # run_migrations()
 
     # Create all tables
     with app.app_context():
