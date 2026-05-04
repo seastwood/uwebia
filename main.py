@@ -7972,6 +7972,9 @@ def edit_public_navbar_style(website_id):
     website.public_navbar_style = {
         **existing_style,
         'title': data.get('title', website.name),
+        'title_font_family': data.get('title_font_family', 'inherit'),
+        'title_font_size': data.get('title_font_size', 16),
+        'title_bold': data.get('title_bold', True),
         'icon_url': data.get('icon_url', ''),
         'background': data.get('background', 'rgba(20,20,20,0.9)'),
         'text_color': data.get('text_color', '#ffffff'),
