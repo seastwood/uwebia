@@ -1,0 +1,87 @@
+<div id="videoLibraryModal" class="modal library-modal" style="display:none;">
+    <div class="modal-content library-modal-content">
+        <span class="close library-modal-close" onclick="VideoLibraryModal.close()">&times;</span>
+
+        <div class="library-container">
+            <div class="library-header">
+                <h2><i class="fas fa-video"></i> Select Videos from Asset Library</h2>
+
+                <p id="videoLibraryModalSubtitle" class="library-modal-subtitle">
+                    Choose video files to add to your video section.
+                </p>
+
+                <div class="modal-library-toolbar">
+                    <button type="button" class="btn-primary"
+                        onclick="document.getElementById('videoLibraryFileInput').click()">
+                        <i class="fas fa-upload"></i>
+                        Upload Videos
+                    </button>
+
+                    <button type="button" class="btn-secondary" onclick="VideoLibraryModal.createFolder()">
+                        <i class="fas fa-folder-plus"></i>
+                        New Folder
+                    </button>
+
+                    <input
+                        type="file"
+                        id="videoLibraryFileInput"
+                        multiple
+                        accept="video/*,.mp4,.webm,.mov,.m4v"
+                        style="display:none"
+                        onchange="VideoLibraryModal.handleUpload(event)">
+                </div>
+
+                <div class="upload-progress-wrapper" id="videoModalUploadProgressWrapper" style="display:none;">
+                    <div class="upload-progress-bar">
+                        <div class="upload-progress-fill" id="videoModalUploadProgressFill"></div>
+                    </div>
+                    <div class="upload-progress-text" id="videoModalUploadProgressText">0%</div>
+                </div>
+            </div>
+
+            <div class="library-modal-section-label">Folders</div>
+            <div id="videoModalFolderGrid" class="folder-grid"></div>
+
+            <hr class="library-modal-divider">
+
+            <div id="videoModalCurrentFolderName" class="library-modal-section-label">
+                Root Videos
+            </div>
+
+            <div id="videoModalVideoGrid" class="video-modal-grid"></div>
+
+            <div class="library-modal-footer">
+                <span id="videoSelectionCount" class="library-selection-count">
+                    0 videos selected
+                </span>
+
+                <button id="videoLibraryConfirmButton"
+                    class="library-confirm-button"
+                    onclick="VideoLibraryModal.confirmSelection()">
+                    Add Selected to Section
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="videoLibraryPreviewModal" class="video-library-preview-modal" onclick="VideoLibraryModal.closePreview()">
+    <div class="video-library-preview-dialog" onclick="event.stopPropagation();">
+        <div class="video-library-preview-header">
+            <div id="videoLibraryPreviewTitle" class="video-library-preview-title">
+                Video Preview
+            </div>
+
+            <button type="button" class="video-library-preview-close" onclick="VideoLibraryModal.closePreview()">
+                &times;
+            </button>
+        </div>
+
+        <video id="videoLibraryPreviewPlayer"
+               class="video-library-preview-player"
+               controls
+               preload="metadata"
+               playsinline>
+            Your browser does not support the video element.
+        </video>
+    </div>
+</div>

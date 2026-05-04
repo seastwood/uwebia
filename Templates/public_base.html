@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>{% block title %}{{ website.name if website else 'Public Page' }}{% endblock %}</title>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800;900&display=swap">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+    />
+
+    {% set navbar_style = website.public_navbar_style or {} %}
+    {% set icon_url = navbar_style.get('icon_url') %}
+
+    {% if icon_url %}
+        {% if icon_url.endswith('.svg') %}
+            <link rel="icon" type="image/svg+xml" href="{{ icon_url }}">
+        {% elif icon_url.endswith('.png') %}
+            <link rel="icon" type="image/png" href="{{ icon_url }}">
+        {% endif %}
+    {% else %}
+        <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+    {% endif %}
+
+    {% set nav_style = website.public_navbar_style or {} %}
+    {% set navbar_margin = nav_style.get('margin', 0)|int %}
+    {% set navbar_anchor_offset = 78 + navbar_margin %}
+    {% set navbar_page_offset = 58 + navbar_margin %}
+
+    <style>
+        html {
+            min-height: 100%;
+            scroll-behavior: smooth;
+            scroll-padding-top: var(--navbar-anchor-offset, 78px);
+            background: {{ website.background_color or '#000000' }} !important;
+        }
+
+        body.public-page-body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            max-width: 100%;
+            min-height: 100svh;
+
+            position: relative;
+            overflow-x: hidden;
+
+            font-family: 'Roboto', Arial, sans-serif;
+
+            background: transparent !important;
+            color: {{ website.text_color or '#ffffff' }};
+        }
+
+        .site-fixed-background {
+            position: fixed;
+            inset: 0;
+
+            height: 100lvh;
+            min-height: 100dvh;
+
+            z-index: 0;
+            pointer-events: none;
+            transform: translateZ(0);
+
+            background: {{ website.background_color or '#ffffff' }};
+
+            {% if website.background_image_url %}
+                background-image: url('{{ website.background_image_url }}');
+                background-repeat: {{ 'repeat' if website.background_image_repeat else 'no-repeat' }};
+                background-position: center center;
+
+                {% set bg_zoom = website.background_image_zoom or 100 %}
+                {% set repeat_zoom_multiplier = 2.0 %}
+
+                background-size:
+                    {% if website.background_image_repeat %}
+                        {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto
+                    {% else %}
+                        cover
+                    {% endif %};
+            {% endif %}
+        }
+
+        .public-page-shell {
+            position: relative;
+            z-index: 1;
+            min-height: 100svh;
+
+            padding-top: var(--navbar-page-offset, 58px);
+            box-sizing: border-box;
+        }
+
+        .public-navbar {
+            position: fixed;
+            z-index: 100000 !important;
+        }
+
+        .public-navbar-menu,
+        .public-navbar-dropdown-menu,
+        .public-navbar-overflow-menu {
+            z-index: 100010 !important;
+        }
+
+        a {
+            color: inherit;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        .public-flash-wrap {
+    width: min(720px, calc(100% - 28px));
+    margin: 24px auto 0;
+
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.public-flash {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+
+    padding: 12px 14px;
+
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+
+    color: inherit;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04)),
+        rgba(0, 0, 0, 0.34);
+
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.public-flash-icon {
+    width: 22px;
+    min-width: 22px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    margin-top: 1px;
+}
+
+.public-flash-success {
+    color: #dffff7;
+    border-color: rgba(126, 226, 204, 0.38);
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.18), rgba(255, 255, 255, 0.04)),
+        rgba(0, 0, 0, 0.34);
+}
+
+.public-flash-success .public-flash-icon {
+    color: #7ee2cc;
+}
+
+.public-flash-error,
+.public-flash-danger {
+    color: #ffe7e7;
+    border-color: rgba(255, 120, 120, 0.42);
+    background:
+        linear-gradient(135deg, rgba(255, 120, 120, 0.18), rgba(255, 255, 255, 0.04)),
+        rgba(0, 0, 0, 0.34);
+}
+
+.public-flash-error .public-flash-icon,
+.public-flash-danger .public-flash-icon {
+    color: #ff9c9c;
+}
+
+.public-flash-warning {
+    color: #fff4d6;
+    border-color: rgba(255, 206, 115, 0.42);
+    background:
+        linear-gradient(135deg, rgba(255, 206, 115, 0.18), rgba(255, 255, 255, 0.04)),
+        rgba(0, 0, 0, 0.34);
+}
+
+.public-flash-warning .public-flash-icon {
+    color: #ffd982;
+}
+
+.public-flash-info,
+.public-flash-message {
+    color: inherit;
+}
+
+@media (max-width: 560px) {
+    .public-flash-wrap {
+        margin-top: 18px;
+    }
+
+    .public-flash {
+        border-radius: 14px;
+        padding: 11px 12px;
+        font-size: 0.86rem;
+    }
+}
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+
+<body class="public-page-body" style="
+    --navbar-page-offset: {{ navbar_page_offset }}px;
+    --navbar-anchor-offset: {{ navbar_anchor_offset }}px;
+    --public-page-max-width: 1180px;
+">
+    <div class="site-fixed-background" aria-hidden="true"></div>
+
+    {% include 'components/public_navbar.html' %}
+
+    <div class="public-page-shell">
+        <div class="public-flash-wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="public-flash public-flash-{{ category }}">
+                    <span class="public-flash-icon">
+                        {% if category in ['success'] %}
+                            <i class="fas fa-check-circle"></i>
+                        {% elif category in ['error', 'danger'] %}
+                            <i class="fas fa-exclamation-circle"></i>
+                        {% elif category in ['warning'] %}
+                            <i class="fas fa-exclamation-triangle"></i>
+                        {% else %}
+                            <i class="fas fa-info-circle"></i>
+                        {% endif %}
+                    </span>
+
+                    <span class="public-flash-message">
+                        {{ message }}
+                    </span>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+        {% block content %}{% endblock %}
+    </div>
+
+    
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

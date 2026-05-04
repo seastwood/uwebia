@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+    .two-factor-page {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #1f1f22;
+        color: #ffffff;
+    }
+
+    .two-factor-card {
+        width: min(420px, 100%);
+        background: #2a2a2f;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 18px;
+        padding: 24px;
+        box-shadow: 0 18px 45px rgba(0,0,0,0.35);
+    }
+
+    .two-factor-card h1 {
+        margin: 0 0 8px;
+        font-size: 1.45rem;
+    }
+
+    .two-factor-card p {
+        color: rgba(255,255,255,0.68);
+        line-height: 1.5;
+    }
+
+    .two-factor-card input {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 12px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: #1f1f22;
+        color: #fff;
+        font-size: 1.2rem;
+        letter-spacing: 0.18em;
+        text-align: center;
+    }
+
+    .two-factor-card button {
+        width: 100%;
+        margin-top: 16px;
+        padding: 12px;
+        border: 0;
+        border-radius: 12px;
+        background: #7ee2cc;
+        color: #10251f;
+        font-weight: 850;
+        cursor: pointer;
+    }
+
+    .flash-message {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.08);
+    }
+</style>
+
+<div class="two-factor-page">
+    <form class="two-factor-card" method="POST" action="{{ request.path }}">
+        <h1>Two-Factor Authentication</h1>
+        <p>Enter the 6-digit code sent to your email address.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <input
+            type="text"
+            name="code"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="6"
+            autocomplete="one-time-code"
+            placeholder="000000"
+            required
+        >
+
+        <button type="submit">Verify Code</button>
+    </form>
+</div>
+
+{% endblock %}

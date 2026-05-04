@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            min-height: 160px;
+            overflow: hidden;
+
+            color: {{ website.text_color or '#000000' }};
+            font-family: 'Roboto', sans-serif;
+        }
+
+        body {
+            padding-top: 58px;
+
+            background-color: {{ website.background_color or '#ffffff' }};
+
+            {% if website.background_image_url %}
+                background-image: url("{{ website.background_image_url }}");
+                background-repeat: {% if website.background_image_repeat %}repeat{% else %}no-repeat{% endif %};
+                background-position: center;
+
+                {% if website.background_image_repeat %}
+                    background-size: {{ website.background_image_zoom or 100 }}px auto;
+                {% else %}
+                    background-size: {{ website.background_image_zoom or 100 }}% auto;
+                {% endif %}
+            {% else %}
+                background-image: none;
+                background-repeat: no-repeat;
+                background-position: center;
+                background-size: cover;
+            {% endif %}
+        }
+
+        .navbar-preview-spacer {
+            height: 80px;
+        }
+    </style>
+</head>
+
+<body>
+    {% include 'components/public_navbar.html' %}
+
+    <div class="navbar-preview-spacer"></div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+body {
+    font-family: 'Roboto', sans-serif;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    /* overflow: hidden; */
+    /* background-color: #363339; */
+    background: linear-gradient(to bottom right, #38353c, #1c1a1d);
+    color: #ffffff;
+}

@@ -1,15 +1,31 @@
+
 import io
 import logging
 import os
 import random
 import shutil
+import smtplib
 import subprocess
+import ssl
+import uuid
+import copy
+import re
+import ipaddress
+import secrets
+import hashlib
+import json
+import mimetypes
+import time
+from pathlib import Path
 from calendar import Calendar
-
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime
+from PIL import Image, ImageOps
 import pytz
 from dateutil import parser
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, Response, \
-    flash
+    flash, make_response
 from flask_login import LoginManager, login_user, logout_user, login_required
 from flask_login import current_user, UserMixin
 from flask_mail import Mail, Message
@@ -19,8 +35,14 @@ from icalendar import Calendar, Event
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from sqlalchemy import func, or_
+from sqlalchemy.orm import validates
+from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from datetime import datetime, timedelta
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+from flask import send_file
+
 
 from bs4 import BeautifulSoup
 
@@ -31,6 +53,8 @@ template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Temp
 
 # Set admin page API key
 ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY', 'default_api_key')
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Path to the database folder and database file
 database_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database')
@@ -46,7 +70,7 @@ if not os.path.exists(database_path) and os.path.exists(instance_path):
     shutil.copyfile(instance_path, database_path)
 
 # Set the static folder path inside the database folder
-static_folder = os.path.join(database_folder, 'Static')
+static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 # Ensure the static folder exists
 os.makedirs(static_folder, exist_ok=True)
 
@@ -62,35 +86,49 @@ app.secret_key = 'your_secret_key'  # Secret key for session management
 # Set the SQLAlchemy database URI to use the database in the database folder
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{database_path}'
 
-# Configure Flask-Mail
-app.config['MAIL_SERVER'] = '24.118.2.29'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USERNAME'] = 'code@nodaro.com'
-app.config['MAIL_PASSWORD'] = '2857'
-app.config['MAIL_DEFAULT_SENDER'] = 'uwebia-inquiry@nodaro.com'
-
 db = SQLAlchemy(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-mail = Mail(app)
 migrate = Migrate(app, db)  # Add this line to initialize Flask-Migrate
 
-# Define the host and port of ollama3
-HOST = '192.168.1.214'
-PORT = 11435
+MAX_UPLOAD_MB = 10
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
-# Run Flask-Migrate commands to initialize and apply migrations
-def run_migrations():
-    migrate_command = ['flask', '--app', 'main', 'db', 'migrate', '-m', 'Migration maintenance.']
-    upgrade_command = ['flask', '--app', 'main', 'db', 'upgrade']
+PUBLIC_MAX_WIDTH = 1600
+THUMB_SIZE = (500, 500)
+PUBLIC_QUALITY = 82
+THUMB_QUALITY = 75
 
-    subprocess.run(migrate_command, cwd=os.path.dirname(__file__), check=True)
-    subprocess.run(upgrade_command, cwd=os.path.dirname(__file__), check=True)
+EMERGENCY_LOGIN_TOKENS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'instance',
+    'emergency_login_tokens.json'
+)
 
+SECURITY_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'security.json'
+)
+
+DEFAULT_SECURITY_CONFIG = {
+    "allow_emergency_login": False,
+    "emergency_login_expiration_minutes": 10
+}
+
+SERVER_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'server.json'
+)
+
+DEFAULT_SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 5772,
+    "debug": False
+}
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -102,9 +140,35 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(150), nullable=False)
+
+    two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    two_factor_email = db.Column(db.String(255), nullable=True)
+    two_factor_activated_at = db.Column(db.DateTime, nullable=True)
+    two_factor_last_email_settings_version = db.Column(db.String(64), nullable=True)
+    two_factor_disabled_reason = db.Column(db.String(255), nullable=True)
+    two_factor_disabled_at = db.Column(db.DateTime, nullable=True)
+    two_factor_needs_attention = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default='0'
+    )
+    admin_url_key = db.Column(db.String(120), nullable=True)
+    admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
+
+    timezone = db.Column(db.String(100), nullable=False, default='America/Chicago')
+    date_format = db.Column(db.String(50), nullable=False, default='%b %d, %Y %I:%M %p')
+
     websites = db.relationship('Website', backref='owner', lazy=True, cascade="all, delete-orphan")
-    liked_pages = db.relationship('PublicPageContent', secondary='user_likes', back_populates='liked_by')
     _is_active = db.Column(db.Boolean, default=True)  # Use a different attribute name
+
+    @validates('username')
+    def normalize_username(self, key, value):
+        return value.strip().lower()
+
+    @validates('email')
+    def normalize_email(self, key, value):
+        return value.strip().lower()
 
     def get_id(self):
         return str(self.id)
@@ -130,14 +194,402 @@ class User(UserMixin, db.Model):
     def __repr__(self):
         return f"<User {self.username}>"
 
+class PublicUser(UserMixin, db.Model):
+    __tablename__ = 'public_user'
 
+    id = db.Column(db.Integer, primary_key=True)
 
-user_likes = db.Table('user_likes',
-                      db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
-                      db.Column('page_content_id', db.Integer, db.ForeignKey('public_page_content.id'),
-                                primary_key=True)
-                      )
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
 
+    username = db.Column(db.String(80), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    email_verified_at = db.Column(db.DateTime, nullable=True)
+    verification_email_sent_at = db.Column(db.DateTime, nullable=True)
+    password_reset_requested_at = db.Column(db.DateTime, nullable=True)
+    last_verification_email_sent_at = db.Column(db.DateTime, nullable=True)
+
+    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    website = db.relationship('Website', backref=db.backref('public_users', lazy=True, cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'username', name='uq_public_user_username_per_website'),
+        db.UniqueConstraint('website_id', 'email', name='uq_public_user_email_per_website'),
+    )
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @validates('username')
+    def normalize_public_username(self, key, value):
+        return (value or '').strip().lower()
+
+    @validates('email')
+    def normalize_public_email(self, key, value):
+        return (value or '').strip().lower()
+
+    def __repr__(self):
+        return f"<PublicUser {self.username} website={self.website_id}>"
+
+class ForumThread(db.Model):
+    __tablename__ = 'forum_thread'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=True, index=True)
+
+    title = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+
+    is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_pinned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    website = db.relationship('Website', backref=db.backref('forum_threads', lazy=True, cascade='all, delete-orphan'))
+    author = db.relationship('PublicUser', backref=db.backref('forum_threads', lazy=True))
+
+    reply_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    vote_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+
+    __table_args__ = (
+        db.Index('ix_forum_thread_website_hidden_updated', 'website_id', 'is_hidden', 'updated_at'),
+        db.Index('ix_forum_thread_website_hidden_created', 'website_id', 'is_hidden', 'created_at'),
+        db.Index('ix_forum_thread_website_hidden_votes', 'website_id', 'is_hidden', 'vote_count_cached'),
+        db.Index('ix_forum_thread_website_hidden_replies', 'website_id', 'is_hidden', 'reply_count'),
+    )
+
+    def visible_reply_count(self):
+        return ForumReply.query.filter_by(
+            thread_id=self.id,
+            is_hidden=False
+        ).count()
+
+    def vote_count(self):
+        return ForumThreadVote.query.filter_by(thread_id=self.id).count()
+
+    def user_has_voted(self, public_user):
+        if not public_user:
+            return False
+
+        return ForumThreadVote.query.filter_by(
+            thread_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
+
+    def __repr__(self):
+        return f"<ForumThread {self.id} {self.title}>"
+
+class EmailServerSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    smtp_host = db.Column(db.String(255), nullable=False)
+    smtp_port = db.Column(db.Integer, nullable=False, default=587)
+    smtp_username = db.Column(db.String(255), nullable=False)
+    smtp_password = db.Column(db.String(255), nullable=False)
+
+    use_tls = db.Column(db.Boolean, default=True)
+    use_ssl = db.Column(db.Boolean, default=False)
+
+    from_email = db.Column(db.String(255), nullable=False)
+    from_name = db.Column(db.String(255), nullable=True)
+
+    is_active = db.Column(db.Boolean, default=True)
+
+    def __repr__(self):
+        return f"<EmailServerSettings {self.id}>"
+
+class ForumReply(db.Model):
+    __tablename__ = 'forum_reply'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    thread_id = db.Column(db.Integer, db.ForeignKey('forum_thread.id'), nullable=False, index=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=True, index=True)
+
+    body = db.Column(db.Text, nullable=False)
+
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+
+    vote_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0', index=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    thread = db.relationship('ForumThread', backref=db.backref('replies', lazy=True, cascade='all, delete-orphan'))
+    website = db.relationship('Website', backref=db.backref('forum_replies', lazy=True, cascade='all, delete-orphan'))
+    author = db.relationship('PublicUser', backref=db.backref('forum_replies', lazy=True))
+
+    __table_args__ = (
+        db.Index('ix_forum_reply_thread_hidden_created', 'thread_id', 'is_hidden', 'created_at'),
+        db.Index('ix_forum_reply_website_hidden_created', 'website_id', 'is_hidden', 'created_at'),
+    )
+
+    def vote_count(self):
+        return ForumReplyVote.query.filter_by(reply_id=self.id).count()
+
+    def user_has_voted(self, public_user):
+        if not public_user:
+            return False
+
+        return ForumReplyVote.query.filter_by(
+            reply_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
+
+    def __repr__(self):
+        return f"<ForumReply {self.id} thread={self.thread_id}>"
+
+class ForumThreadVote(db.Model):
+    __tablename__ = 'forum_thread_vote'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    thread_id = db.Column(
+        db.Integer,
+        db.ForeignKey('forum_thread.id'),
+        nullable=False,
+        index=True
+    )
+
+    website_id = db.Column(
+        db.Integer,
+        db.ForeignKey('website.id'),
+        nullable=False,
+        index=True
+    )
+
+    public_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_user.id'),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    thread = db.relationship(
+        'ForumThread',
+        backref=db.backref('votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    public_user = db.relationship(
+        'PublicUser',
+        backref=db.backref('thread_votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'thread_id',
+            'public_user_id',
+            name='uq_forum_thread_vote_once_per_user'
+        ),
+        db.Index('ix_forum_thread_vote_thread_user', 'thread_id', 'public_user_id'),
+        db.Index('ix_forum_thread_vote_website_thread', 'website_id', 'thread_id'),
+    )
+
+class ForumReplyVote(db.Model):
+    __tablename__ = 'forum_reply_vote'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    reply_id = db.Column(
+        db.Integer,
+        db.ForeignKey('forum_reply.id'),
+        nullable=False,
+        index=True
+    )
+
+    website_id = db.Column(
+        db.Integer,
+        db.ForeignKey('website.id'),
+        nullable=False,
+        index=True
+    )
+
+    public_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_user.id'),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    reply = db.relationship(
+        'ForumReply',
+        backref=db.backref('votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    public_user = db.relationship(
+        'PublicUser',
+        backref=db.backref('reply_votes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'reply_id',
+            'public_user_id',
+            name='uq_forum_reply_vote_once_per_user'
+        ),
+        db.Index('ix_forum_reply_vote_reply_user', 'reply_id', 'public_user_id'),
+        db.Index('ix_forum_reply_vote_website_reply', 'website_id', 'reply_id'),
+    )
+
+class PageComment(db.Model):
+    __tablename__ = 'page_comment'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    page_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=False, index=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False, index=True)
+
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=True, index=True)
+
+    display_name = db.Column(db.String(120), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0', index=True)
+    is_approved = db.Column(db.Boolean, nullable=False, default=True, server_default='1', index=True)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    website = db.relationship('Website', backref=db.backref('page_comments', lazy=True, cascade='all, delete-orphan'))
+    page = db.relationship('PublicPageContent', backref=db.backref('page_comments', lazy=True, cascade='all, delete-orphan'))
+    section = db.relationship('PageSection', backref=db.backref('comments', lazy=True, cascade='all, delete-orphan'))
+    author = db.relationship('PublicUser', backref=db.backref('page_comments', lazy=True))
+
+    like_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0', index=True)
+
+    def like_count(self):
+        return self.like_count_cached or 0
+
+    def user_has_liked(self, public_user):
+        if not public_user:
+            return False
+
+        return PageCommentLike.query.filter_by(
+            comment_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
+
+    __table_args__ = (
+        db.Index('ix_page_comment_section_visible_created', 'section_id', 'is_hidden', 'is_approved', 'created_at'),
+        db.Index('ix_page_comment_page_section_created', 'page_id', 'section_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f"<PageComment {self.id} section={self.section_id}>"
+
+class PageCommentLike(db.Model):
+    __tablename__ = 'page_comment_like'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    comment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('page_comment.id'),
+        nullable=False,
+        index=True
+    )
+
+    website_id = db.Column(
+        db.Integer,
+        db.ForeignKey('website.id'),
+        nullable=False,
+        index=True
+    )
+
+    section_id = db.Column(
+        db.Integer,
+        db.ForeignKey('page_section.id'),
+        nullable=False,
+        index=True
+    )
+
+    public_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_user.id'),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    comment = db.relationship(
+        'PageComment',
+        backref=db.backref('likes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    public_user = db.relationship(
+        'PublicUser',
+        backref=db.backref('comment_likes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'comment_id',
+            'public_user_id',
+            name='uq_page_comment_like_once_per_user'
+        ),
+        db.Index('ix_page_comment_like_comment_user', 'comment_id', 'public_user_id'),
+        db.Index('ix_page_comment_like_section_comment', 'section_id', 'comment_id'),
+    )
+
+class ContactMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=True)
+    page_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False)
+
+    sender_email = db.Column(db.String(255), nullable=False)
+    recipient_email = db.Column(db.String(255), nullable=True)
+    subject = db.Column(db.String(255), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+
+    contact_form_title = db.Column(db.String(255), nullable=True)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    referrer = db.Column(db.Text, nullable=True)
+
+    status = db.Column(db.String(50), nullable=False, default='pending')
+    error_message = db.Column(db.Text, nullable=True)
+
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<ContactMessage {self.id} {self.sender_email} {self.subject}>"
 
 class WebsiteTag(db.Model):
     __tablename__ = 'website_tag'
@@ -165,22 +617,74 @@ class Website(db.Model):
                                            cascade="all, delete-orphan")
     tags = db.relationship('Tag', secondary='website_tag', backref=db.backref('websites', lazy=True))
 
+    background_color = db.Column(db.String(500), default='#ffffff')
+    text_color = db.Column(db.String(20), default='#000000')
+    background_image_url = db.Column(db.String(500), nullable=True)
+    background_image_repeat = db.Column(db.Boolean, default=False)
+    background_image_zoom = db.Column(db.Integer, default=100)
+
+    public_navbar_items = db.Column(db.JSON, default=list)
+    public_navbar_style = db.Column(db.JSON, default=dict)
+
+    forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    forum_title = db.Column(db.String(120), nullable=False, default='Forum')
+    forum_description = db.Column(db.String(500), nullable=True)
+
+    forum_account_verification_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default='0'
+    )
+
+    forum_allow_unverified_login = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default='0'
+    )
+
     def __repr__(self):
         return f"<Website {self.id} - {self.name}>"
+
 
 
 class PublicPageContent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+
+    page_folder_id = db.Column(db.Integer, db.ForeignKey('page_folder.id'), nullable=True)
+    folder_sort_order = db.Column(db.Integer, default=0)
+
+    page_folder = db.relationship('PageFolder', backref=db.backref('pages', lazy=True))
+
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500), nullable=True)  # Add description field
-    all_pictures = db.relationship('Picture', backref='page_content', lazy=True)
+    sort_order = db.Column(db.Integer, default=0)
+    slug = db.Column(db.String(120), nullable=False)
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'slug', name='unique_page_slug_per_website'),
+    )
+    # all_pictures = db.relationship('Picture', backref='page_content', lazy=True)
+    # Use a 'secondary' join to find pictures through sections and then through section_images
+    all_pictures = db.relationship(
+        'Picture',
+        secondary='join(PageSection, SectionImage, PageSection.id == SectionImage.section_id)',
+        primaryjoin='PublicPageContent.id == PageSection.page_content_id',
+        secondaryjoin='SectionImage.picture_id == Picture.id',
+        viewonly=True
+    )
     sections = db.relationship('PageSection', backref='public_page_content', lazy=True, cascade="all, delete-orphan")
     site_active_status = db.Column(db.Boolean, default=False)
+
     tags = db.relationship('Tag', secondary='page_tag', backref=db.backref('pages', lazy=True))
-    liked_by = db.relationship('User', secondary='user_likes', back_populates='liked_pages')
-    background_color = db.Column(db.String(20), default='#ffffff')  # Default to white
+    background_color = db.Column(db.String(200), default='#ffffff')  # Default to white
     text_color = db.Column(db.String(20), default='#000000')  # Default to black
+
+    messages = db.relationship('ContactMessage', backref='page', lazy=True)
 
     def __repr__(self):
         return f"<PublicPageContent {self.id}>"
@@ -191,6 +695,7 @@ class Row(db.Model):
     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=False)
     row_number = db.Column(db.Integer, nullable=False)
     columns = db.relationship('Column', backref='row', cascade='all, delete-orphan', lazy=True)
+    section_group_id = db.Column(db.Integer, db.ForeignKey('section_group.id'), nullable=True)
 
     def __repr__(self):
         return f"<Row {self.id} - Page Content: {self.page_content_id}, Row Number: {self.row_number}>"
@@ -214,6 +719,7 @@ class PageSection(db.Model):
     order = db.Column(db.Integer)
     content = db.Column(db.JSON)
     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
+    messages = db.relationship('ContactMessage', backref='section', lazy=True, cascade='all, delete-orphan')
 
     # Define a one-to-one relationship with Column
     column = db.relationship('Column', backref='section', uselist=False)
@@ -230,22 +736,83 @@ class PageSection(db.Model):
             'column_number': column.column_number if column else None,
             'row_id': column.row.id if column else None,
             'row_number': column.row.row_number if column else None,
+            'section_group_id': column.row.section_group_id if column and column.row else None,
             'width': column.width if column else None  # Include width
         }
 
     def __repr__(self):
         return f"<PageSection {self.id} - {self.section_type}>"
 
+class SectionGroup(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    page_content_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_page_content.id'),
+        nullable=False
+    )
+
+    name = db.Column(db.String(100), default='Section Group')
+    anchor_slug = db.Column(db.String(120), nullable=True)
+    group_order = db.Column(db.Integer, default=0)
+
+    background_color = db.Column(db.String(255), default='transparent')
+    background_opacity = db.Column(db.Float, default=1)
+    padding = db.Column(db.Integer, default=20)
+    border_radius = db.Column(db.Integer, default=0)
+    max_width = db.Column(db.Integer, nullable=True)
+
+    background_image_url = db.Column(db.String(500), nullable=True)
+    background_image_size = db.Column(db.String(50), default='cover')
+    background_image_position = db.Column(db.String(50), default='center')
+    background_overlay_color = db.Column(db.String(50), default='transparent')
+    background_overlay_opacity = db.Column(db.Float, default=0)
+
+# class Picture(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     url = db.Column(db.String(1000))
+#     order = db.Column(db.Integer)
+#     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
+#     section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_picture_section_id'))
+#
+#     def __repr__(self):
+#         return f"<Picture {self.id}>"
 
 class Picture(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    url = db.Column(db.String(1000))
-    order = db.Column(db.Integer)
-    page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
-    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_picture_section_id'))
+    url = db.Column(db.String(500), nullable=False)          # optimized public image
+    thumbnail_url = db.Column(db.String(500), nullable=True) # library/grid thumbnail
+    original_url = db.Column(db.String(500), nullable=True)  # optional original
+    # Track who owns the image
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Folder organization (Optional, can be null for "Main Dropbox")
+    folder_id = db.Column(db.Integer, db.ForeignKey('folder.id'), nullable=True)
+    # Metadata
+    upload_date = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+    # Relationship to the "Junction" table below
+    section_usages = db.relationship('SectionImage', backref='image', cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<Picture {self.id}>"
+        return f"<Picture {self.id} - {self.url}>"
+
+
+class Folder(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # This allows pictures to be grouped
+    pictures = db.relationship('Picture', backref='parent_folder', lazy=True)
+
+
+class SectionImage(db.Model):
+    __tablename__ = 'section_images'
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False)
+    picture_id = db.Column(db.Integer, db.ForeignKey('picture.id'), nullable=False)
+    # This is where 'order' lives now, so an image can be 1st in Section A
+    # but 5th in Section B
+    order = db.Column(db.Integer, default=0)
 
 
 class CalendarEvent(db.Model):
@@ -268,6 +835,217 @@ class CalendarEvent(db.Model):
             'section_id': self.section_id
         }
 
+class CalendarFeedSubscriber(db.Model):
+    __tablename__ = 'calendar_feed_subscriber'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    section_id = db.Column(
+        db.Integer,
+        db.ForeignKey('page_section.id'),
+        nullable=False,
+        index=True
+    )
+
+    subscriber_hash = db.Column(db.String(64), nullable=False, index=True)
+
+    user_agent = db.Column(db.Text, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+
+    first_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    request_count = db.Column(db.Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'section_id',
+            'subscriber_hash',
+            name='unique_calendar_feed_subscriber'
+        ),
+    )
+
+class SavedColor(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    color = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class PageFolder(db.Model):
+    __tablename__ = 'page_folder'
+
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    name = db.Column(db.String(120), nullable=False, default='New Folder')
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    website = db.relationship('Website', backref=db.backref('page_folders', lazy=True, cascade='all, delete-orphan'))
+
+    def active_page_count(self):
+        return PublicPageContent.query.filter_by(
+            page_folder_id=self.id,
+            site_active_status=True
+        ).count()
+
+    def total_page_count(self):
+        return PublicPageContent.query.filter_by(
+            page_folder_id=self.id
+        ).count()
+
+class PageVisit(db.Model):
+    __tablename__ = 'page_visit'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    page_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=False)
+
+    visitor_id = db.Column(db.String(64), nullable=False, index=True)
+
+    path = db.Column(db.String(500), nullable=True)
+    referrer = db.Column(db.Text, nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+
+    country = db.Column(db.String(100), nullable=True)
+    country_iso = db.Column(db.String(10), nullable=True)
+    region = db.Column(db.String(100), nullable=True)
+    city = db.Column(db.String(100), nullable=True)
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
+    location_source = db.Column(db.String(50), nullable=True)
+
+    asn_number = db.Column(db.Integer, nullable=True)
+    asn_organization = db.Column(db.String(255), nullable=True)
+
+    geoip_database_type = db.Column(db.String(100), nullable=True)
+
+    visited_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    website = db.relationship('Website', backref=db.backref('page_visits', lazy=True, cascade='all, delete-orphan'))
+    page = db.relationship('PublicPageContent', backref=db.backref('page_visits', lazy=True, cascade='all, delete-orphan'))
+
+    def __repr__(self):
+        return f"<PageVisit website={self.website_id} page={self.page_id} visitor={self.visitor_id}>"
+
+class AnalyticsSettings(db.Model):
+    __tablename__ = 'analytics_settings'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+
+    geoip_enabled = db.Column(db.Boolean, nullable=False, default=False)
+
+    geoip_city_database_path = db.Column(db.String(500), nullable=True)
+    geoip_city_database_name = db.Column(db.String(255), nullable=True)
+    geoip_city_database_type = db.Column(db.String(100), nullable=True)
+
+    geoip_country_database_path = db.Column(db.String(500), nullable=True)
+    geoip_country_database_name = db.Column(db.String(255), nullable=True)
+    geoip_country_database_type = db.Column(db.String(100), nullable=True)
+
+    geoip_asn_database_path = db.Column(db.String(500), nullable=True)
+    geoip_asn_database_name = db.Column(db.String(255), nullable=True)
+    geoip_asn_database_type = db.Column(db.String(100), nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('analytics_settings', uselist=False))
+
+    def __repr__(self):
+        return f"<AnalyticsSettings user={self.user_id} geoip_enabled={self.geoip_enabled}>"
+
+class SectionAsset(db.Model):
+    __tablename__ = 'section_assets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False)
+    asset_id = db.Column(db.Integer, db.ForeignKey('asset.id'), nullable=False)
+    usage_type = db.Column(db.String(50), nullable=True)
+    order = db.Column(db.Integer, default=0)
+
+class AssetFolder(db.Model):
+    __tablename__ = 'asset_folder'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    asset_type = db.Column(db.String(30), nullable=True)  # optional: image, audio, pdf, document, misc
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    assets = db.relationship('Asset', backref='parent_folder', lazy=True)
+
+
+class Asset(db.Model):
+    __tablename__ = 'asset'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    folder_id = db.Column(db.Integer, db.ForeignKey('asset_folder.id'), nullable=True)
+
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename = db.Column(db.String(255), nullable=False)
+
+    url = db.Column(db.String(700), nullable=False)
+    thumbnail_url = db.Column(db.String(700), nullable=True)
+
+
+    asset_type = db.Column(db.String(30), nullable=False, default='misc')
+    mime_type = db.Column(db.String(120), nullable=True)
+    extension = db.Column(db.String(20), nullable=True)
+
+    file_size = db.Column(db.Integer, nullable=False, default=0)
+
+    unique_play_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    play_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    last_played_at = db.Column(db.DateTime, nullable=True)
+
+
+    upload_date = db.Column(db.DateTime, default=datetime.utcnow)
+
+    section_usages = db.relationship('SectionAsset', backref='asset', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'original_filename': self.original_filename,
+            'url': self.url,
+            'thumbnail_url': self.thumbnail_url,
+            'asset_type': self.asset_type,
+            'mime_type': self.mime_type,
+            'extension': self.extension,
+            'file_size': self.file_size,
+            'file_size_label': format_bytes(self.file_size),
+            'play_count': self.play_count or 0,
+            'last_played_at': self.last_played_at.isoformat() if self.last_played_at else None,
+            'upload_date': self.upload_date.isoformat() if self.upload_date else None
+        }
+
+class AssetPlay(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    asset_id = db.Column(
+        db.Integer,
+        db.ForeignKey('asset.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+
+    visitor_id_hash = db.Column(db.String(64), nullable=False, index=True)
+
+    first_played_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_played_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    play_count = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+
+    asset = db.relationship('Asset', backref=db.backref('play_records', cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('asset_id', 'visitor_id_hash', name='uq_asset_visitor_play'),
+    )
 
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -275,99 +1053,956 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 
 # Set the upload folder path
 UPLOAD_FOLDER = os.path.join(static_folder, 'uploads')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-from flask import send_file
-import requests
-import json
 
 # API endpoint
 ollama_url = 'http://192.168.1.214:11434/api/generate'
 
+# from cryptography.fernet import Fernet
+# print(Fernet.generate_key().decode())
+
+def slugify(value):
+    value = value.lower().strip()
+    value = re.sub(r'[^a-z0-9\s-]', '', value)
+    value = re.sub(r'[\s-]+', '-', value)
+    return value.strip('-') or 'page'
+
+
+def get_unique_slug(website_id, name, current_page_id=None):
+    base_slug = slugify(name)
+    slug = base_slug
+    counter = 2
+
+    while True:
+        query = PublicPageContent.query.filter_by(
+            website_id=website_id,
+            slug=slug
+        )
+
+        if current_page_id:
+            query = query.filter(PublicPageContent.id != current_page_id)
+
+        existing = query.first()
+
+        if not existing:
+            return slug
+
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+def slugify_anchor(value):
+    value = (value or '').strip().lower()
+    value = re.sub(r'[^a-z0-9]+', '-', value)
+    value = value.strip('-')
+    return value or 'section-group'
+
+ASSET_LIBRARY_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'asset_library.json'
+)
+
+DEFAULT_ASSET_LIBRARY_CONFIG = {
+    "max_total_storage_mb": 500,
+    "max_single_file_mb": 100,
+    "allowed_extensions": {
+        "images": ["png", "jpg", "jpeg", "gif", "webp", "svg"],
+        "audio": ["mp3", "wav", "ogg", "m4a", "aac"],
+        "videos": ["mp4", "webm", "mov", "m4v"],
+        "pdfs": ["pdf"],
+        "documents": ["txt", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx"],
+        "misc": ["zip", "json"]
+    },
+    "blocked_extensions": ["py", "php", "exe", "bat", "cmd", "sh", "js", "html", "htm", "css", "jar"]
+}
+
+# Run Flask-Migrate commands to initialize and apply migrations
+def run_migrations():
+    """
+    Apply existing database migrations.
+
+    Do not auto-generate migrations on startup.
+    Auto-generating migrations every time the app starts can fail
+    and can also create messy/incorrect migration files.
+    """
+    upgrade_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'upgrade'
+    ]
+
+    try:
+        subprocess.run(
+            upgrade_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+        print("Database migrations applied successfully.")
+
+    except subprocess.CalledProcessError as e:
+        print("Database migration failed.")
+        print("The app will continue starting, but the database may be out of date.")
+        print(f"Command failed: {e}")
+
+        # Do NOT raise here if you want the app to keep starting.
+        # raise
+
+@app.cli.command("safe-upgrade-db")
+def safe_upgrade_db():
+    """Safely apply existing database migrations."""
+    upgrade_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'upgrade'
+    ]
+
+    try:
+        subprocess.run(
+            upgrade_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+        print("Database upgraded successfully.")
+
+    except subprocess.CalledProcessError as e:
+        print("Database upgrade failed.")
+        print(f"Command failed: {e}")
+
+@app.cli.command("make-migration")
+def make_migration():
+    """Create a new migration after model changes."""
+    message = input("Migration message: ").strip() or "Manual migration"
+
+    # Always upgrade first so Alembic does not complain that the target database is outdated.
+    upgrade_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'upgrade'
+    ]
+
+    migrate_command = [
+        'flask',
+        '--app',
+        'main',
+        'db',
+        'migrate',
+        '-m',
+        message
+    ]
+
+    try:
+        subprocess.run(
+            upgrade_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+
+        subprocess.run(
+            migrate_command,
+            cwd=os.path.dirname(__file__),
+            check=True
+        )
+
+        print("Migration created successfully.")
+        print("Review the migration file, then run:")
+        print("flask --app main db upgrade")
+
+    except subprocess.CalledProcessError as e:
+        print("Migration creation failed.")
+        print(f"Command failed: {e}")
+
+def user_owns_section(section):
+    page = PublicPageContent.query.get(section.page_content_id)
+    if not page:
+        return False
+
+    website = Website.query.get(page.website_id)
+    return bool(website and website.user_id == current_user.id)
+
+def get_asset_library_config():
+    try:
+        with open(ASSET_LIBRARY_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+
+        config = DEFAULT_ASSET_LIBRARY_CONFIG.copy()
+        config.update(loaded)
+        return config
+
+    except FileNotFoundError:
+        return DEFAULT_ASSET_LIBRARY_CONFIG
+
+
+def mb_to_bytes(value):
+    return int(float(value) * 1024 * 1024)
+
+
+def get_asset_extension(filename):
+    return filename.rsplit('.', 1)[-1].lower().strip() if '.' in filename else ''
+
+
+def get_asset_type_from_extension(extension):
+    config = get_asset_library_config()
+    allowed = config.get('allowed_extensions', {})
+
+    for asset_type, extensions in allowed.items():
+        if extension in extensions:
+            if asset_type == 'images':
+                return 'image'
+            if asset_type == 'pdfs':
+                return 'pdf'
+            return asset_type.rstrip('s')
+
+    return 'misc'
+
+
+def is_allowed_asset_file(filename):
+    config = get_asset_library_config()
+    extension = get_asset_extension(filename)
+
+    if not extension:
+        return False
+
+    if extension in config.get('blocked_extensions', []):
+        return False
+
+    allowed_extensions = []
+    for extensions in config.get('allowed_extensions', {}).values():
+        allowed_extensions.extend(extensions)
+
+    return extension in allowed_extensions
+
+
+def get_user_asset_storage_bytes(user_id):
+    total = db.session.query(func.coalesce(func.sum(Asset.file_size), 0)).filter_by(
+        user_id=user_id
+    ).scalar()
+
+    return int(total or 0)
+
+
+def format_bytes(num_bytes):
+    num_bytes = float(num_bytes or 0)
+
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if num_bytes < 1024:
+            return f"{num_bytes:.1f} {unit}" if unit != 'B' else f"{int(num_bytes)} {unit}"
+        num_bytes /= 1024
+
+    return f"{num_bytes:.1f} PB"
+
+def save_asset_file(file_storage, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+
+    original_filename = secure_filename(file_storage.filename or '')
+    extension = get_asset_extension(original_filename)
+
+    if not original_filename or not extension:
+        raise ValueError('Invalid filename.')
+
+    if not is_allowed_asset_file(original_filename):
+        raise ValueError(f'File type .{extension} is not allowed.')
+
+    file_storage.seek(0, os.SEEK_END)
+    file_size = file_storage.tell()
+    file_storage.seek(0)
+
+    asset_type = get_asset_type_from_extension(extension)
+    mime_type = file_storage.mimetype or mimetypes.guess_type(original_filename)[0]
+
+    base_name = uuid.uuid4().hex
+
+    # Keep images optimized like your current library does.
+    if asset_type == 'image' and extension.lower() != 'svg':
+        saved = save_optimized_versions(file_storage, output_dir)
+
+        return {
+            'original_filename': original_filename,
+            'stored_filename': saved['public_filename'],
+            'thumbnail_filename': saved['thumb_filename'],
+            'asset_type': 'image',
+            'mime_type': 'image/webp',
+            'extension': 'webp',
+            'file_size': os.path.getsize(os.path.join(output_dir, saved['public_filename']))
+        }
+
+    # SVG and non-image files: save directly.
+    stored_filename = f"{base_name}.{extension}"
+    filepath = os.path.join(output_dir, stored_filename)
+
+    file_storage.save(filepath)
+
+    return {
+        'original_filename': original_filename,
+        'stored_filename': stored_filename,
+        'thumbnail_filename': None,
+        'asset_type': asset_type,
+        'mime_type': mime_type,
+        'extension': extension,
+        'file_size': os.path.getsize(filepath)
+    }
+
+@app.route('/admin/dashboard/assets', endpoint='asset_library')
+@login_required
+def asset_library():
+    asset_type = request.args.get('type', 'image')
+    folder_id = request.args.get('folder_id')
+
+    valid_types = ['image', 'audio', 'video', 'pdf', 'document', 'misc', 'all']
+    if asset_type not in valid_types:
+        asset_type = 'image'
+
+    folders_query = AssetFolder.query.filter_by(user_id=current_user.id)
+
+    if asset_type != 'all':
+        folders_query = folders_query.filter(
+            or_(
+                AssetFolder.asset_type == asset_type,
+                AssetFolder.asset_type == None
+            )
+        )
+
+    folders = folders_query.order_by(AssetFolder.name).all()
+
+    assets_query = Asset.query.filter_by(user_id=current_user.id)
+
+    if folder_id in ('', None, 'root'):
+        assets_query = assets_query.filter(Asset.folder_id == None)
+        current_folder = None
+    else:
+        current_folder = AssetFolder.query.filter_by(
+            id=folder_id,
+            user_id=current_user.id
+        ).first_or_404()
+
+        assets_query = assets_query.filter(Asset.folder_id == current_folder.id)
+
+    if asset_type != 'all':
+        assets_query = assets_query.filter(Asset.asset_type == asset_type)
+
+    assets = assets_query.order_by(Asset.upload_date.desc()).all()
+
+    config = get_asset_library_config()
+    used_bytes = get_user_asset_storage_bytes(current_user.id)
+    max_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
+
+    storage = {
+        'used_bytes': used_bytes,
+        'max_bytes': max_bytes,
+        'used_label': format_bytes(used_bytes),
+        'max_label': format_bytes(max_bytes),
+        'percent': min(100, round((used_bytes / max_bytes) * 100, 1)) if max_bytes else 0,
+        'remaining_label': format_bytes(max(0, max_bytes - used_bytes))
+    }
+
+    return render_template(
+        'asset_library.html',
+        folders=folders,
+        assets=assets,
+        current_folder=current_folder,
+        current_type=asset_type,
+        storage=storage,
+        asset_config=config
+    )
+
+def get_user_asset_folder(user_id):
+    return os.path.abspath(
+        os.path.join(uploads_folder, str(user_id), 'assets')
+    )
+
+
+def safe_asset_file_path(user_id, filename):
+    """
+    Build a safe path inside the user's asset folder.
+    Prevents accidental deletion outside uploads/<user_id>/assets.
+    """
+    if not filename:
+        return None
+
+    asset_folder = get_user_asset_folder(user_id)
+    path = os.path.abspath(os.path.join(asset_folder, os.path.basename(filename)))
+
+    if not path.startswith(asset_folder + os.sep):
+        return None
+
+    return path
+
+
+def get_asset_filenames(asset):
+    filenames = set()
+
+    if asset.stored_filename:
+        filenames.add(os.path.basename(asset.stored_filename))
+
+    if asset.thumbnail_url:
+        filenames.add(os.path.basename(asset.thumbnail_url))
+
+    return filenames
+
+
+def delete_asset_files_from_disk(asset):
+    deleted = []
+    missing = []
+    errors = []
+
+    for filename in get_asset_filenames(asset):
+        path = safe_asset_file_path(asset.user_id, filename)
+
+        if not path:
+            errors.append(f"Unsafe path skipped: {filename}")
+            continue
+
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                deleted.append(path)
+            except Exception as e:
+                errors.append(f"{path}: {e}")
+        else:
+            missing.append(path)
+
+    return {
+        "deleted": deleted,
+        "missing": missing,
+        "errors": errors
+    }
+
+
+def get_referenced_asset_filenames(user_id):
+    """
+    Files that the database thinks should exist for this user's new Asset library.
+    """
+    referenced = set()
+
+    assets = Asset.query.filter_by(user_id=user_id).all()
+
+    for asset in assets:
+        referenced.update(get_asset_filenames(asset))
+
+    return referenced
+
+
+def scan_user_asset_folder(user_id):
+    """
+    Compare /static/uploads/<user_id>/assets against Asset database rows.
+    """
+    asset_folder = get_user_asset_folder(user_id)
+
+    referenced = get_referenced_asset_filenames(user_id)
+    actual = set()
+
+    if os.path.exists(asset_folder):
+        for filename in os.listdir(asset_folder):
+            path = safe_asset_file_path(user_id, filename)
+
+            if path and os.path.isfile(path):
+                actual.add(filename)
+
+    orphan_files = sorted(actual - referenced)
+    missing_files = sorted(referenced - actual)
+
+    orphan_bytes = 0
+
+    for filename in orphan_files:
+        path = safe_asset_file_path(user_id, filename)
+        if path and os.path.exists(path):
+            orphan_bytes += os.path.getsize(path)
+
+    return {
+        "user_id": user_id,
+        "asset_folder": asset_folder,
+        "referenced_count": len(referenced),
+        "actual_count": len(actual),
+        "orphan_files": orphan_files,
+        "missing_files": missing_files,
+        "orphan_bytes": orphan_bytes
+    }
+
+@app.route('/admin/assets/upload', methods=['POST'])
+@login_required
+def asset_upload():
+    files = request.files.getlist('asset')
+    folder_id = request.form.get('folder_id') or None
+
+
+    if not files:
+        return jsonify({'status': 'error', 'error': 'No files selected.'}), 400
+
+    config = get_asset_library_config()
+    max_single_bytes = mb_to_bytes(config.get('max_single_file_mb', 50))
+    max_total_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
+    used_bytes = get_user_asset_storage_bytes(current_user.id)
+
+    incoming_total = 0
+
+    for file in files:
+        if not file or not file.filename:
+            continue
+
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(0)
+
+        incoming_total += size
+
+        if size > max_single_bytes:
+            return jsonify({
+                'status': 'error',
+                'error': f'"{file.filename}" exceeds the {config.get("max_single_file_mb", 50)} MB single-file limit.'
+            }), 400
+
+        if not is_allowed_asset_file(file.filename):
+            extension = get_asset_extension(file.filename)
+            return jsonify({
+                'status': 'error',
+                'error': f'"{file.filename}" has a file type that is not allowed: .{extension}'
+            }), 400
+
+    if used_bytes + incoming_total > max_total_bytes:
+        return jsonify({
+            'status': 'error',
+            'error': f'Upload would exceed your storage limit. You have {format_bytes(max_total_bytes - used_bytes)} remaining.'
+        }), 400
+
+    if folder_id:
+        folder = AssetFolder.query.filter_by(
+            id=folder_id,
+            user_id=current_user.id
+        ).first_or_404()
+        folder_id = folder.id
+
+    user_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
+    os.makedirs(user_folder, exist_ok=True)
+
+    created_assets = []
+    saved_disk_filenames = []
+
+    try:
+        for file in files:
+            if not file or not file.filename:
+                continue
+
+            saved = save_asset_file(file, user_folder)
+
+            saved_disk_filenames.append(saved['stored_filename'])
+
+            if saved.get('thumbnail_filename'):
+                saved_disk_filenames.append(saved['thumbnail_filename'])
+
+            asset_url = url_for(
+                'static',
+                filename=f'uploads/{current_user.id}/assets/{saved["stored_filename"]}'
+            )
+
+            thumbnail_url = None
+            if saved.get('thumbnail_filename'):
+                thumbnail_url = url_for(
+                    'static',
+                    filename=f'uploads/{current_user.id}/assets/{saved["thumbnail_filename"]}'
+                )
+
+            asset = Asset(
+                user_id=current_user.id,
+                folder_id=folder_id,
+                original_filename=saved['original_filename'],
+                stored_filename=saved['stored_filename'],
+                url=asset_url,
+                thumbnail_url=thumbnail_url,
+                asset_type=saved['asset_type'],
+                mime_type=saved['mime_type'],
+                extension=saved['extension'],
+                file_size=saved['file_size']
+            )
+
+            db.session.add(asset)
+            created_assets.append(asset)
+
+
+
+        db.session.commit()
+
+
+    except Exception as e:
+        db.session.rollback()
+        for filename in saved_disk_filenames:
+            path = safe_asset_file_path(current_user.id, filename)
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as cleanup_error:
+                    print(f"Failed to clean up upload leftover {path}: {cleanup_error}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 400
+
+    return jsonify({
+        'status': 'success',
+        'assets': [asset.to_dict() for asset in created_assets],
+        'storage': {
+            'used_label': format_bytes(get_user_asset_storage_bytes(current_user.id)),
+            'max_label': format_bytes(max_total_bytes)
+        }
+    })
+
+@app.route('/admin/assets/download/<int:asset_id>')
+@login_required
+def download_asset(asset_id):
+    asset = Asset.query.filter_by(
+        id=asset_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    asset_path = os.path.join(
+        uploads_folder,
+        str(current_user.id),
+        'assets',
+        asset.stored_filename
+    )
+
+    if not os.path.exists(asset_path):
+        return "File not found", 404
+
+    return send_file(
+        asset_path,
+        as_attachment=True,
+        download_name=asset.original_filename
+    )
+
+@app.route('/admin/assets/create_folder', methods=['POST'])
+@login_required
+def create_asset_folder():
+    data = request.get_json() or {}
+
+    name = (data.get('name') or '').strip()
+    asset_type = (data.get('asset_type') or None)
+
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Folder name is required.'}), 400
+
+    folder = AssetFolder(
+        name=name,
+        user_id=current_user.id,
+        asset_type=asset_type if asset_type != 'all' else None
+    )
+
+    db.session.add(folder)
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'folder_id': folder.id
+    })
+
+
+@app.route('/admin/assets/move', methods=['POST'])
+@login_required
+def move_asset():
+    data = request.get_json() or {}
+
+    asset_id = data.get('asset_id')
+    folder_id = data.get('folder_id')
+
+    if folder_id == 'root':
+        folder_id = None
+
+    asset = Asset.query.filter_by(
+        id=asset_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    if folder_id:
+        folder = AssetFolder.query.filter_by(
+            id=folder_id,
+            user_id=current_user.id
+        ).first_or_404()
+
+        asset.folder_id = folder.id
+    else:
+        asset.folder_id = None
+
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+
+@app.route('/admin/assets/delete/<int:asset_id>', methods=['POST'])
+@login_required
+def delete_asset(asset_id):
+    asset = Asset.query.filter_by(
+        id=asset_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    try:
+        # Keep filenames before deleting the DB row.
+        files_to_delete = list(get_asset_filenames(asset))
+
+        # Delete DB record first.
+        db.session.delete(asset)
+        db.session.commit()
+
+        # Then delete files from disk after DB commit succeeds.
+        disk_result = {
+            "deleted": [],
+            "missing": [],
+            "errors": []
+        }
+
+        for filename in files_to_delete:
+            fake_asset = type("TempAssetRef", (), {
+                "user_id": current_user.id,
+                "stored_filename": filename,
+                "thumbnail_url": None
+            })()
+
+            result = delete_asset_files_from_disk(fake_asset)
+
+            disk_result["deleted"].extend(result["deleted"])
+            disk_result["missing"].extend(result["missing"])
+            disk_result["errors"].extend(result["errors"])
+
+        return jsonify({
+            'status': 'success',
+            'disk_cleanup': disk_result
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/admin/assets/root', methods=['GET'])
+@login_required
+def get_asset_library_root():
+    asset_type = request.args.get('type', 'image')
+
+    folders_query = AssetFolder.query.filter_by(user_id=current_user.id)
+
+    if asset_type != 'all':
+        folders_query = folders_query.filter(
+            or_(
+                AssetFolder.asset_type == asset_type,
+                AssetFolder.asset_type == None
+            )
+        )
+
+    folders = folders_query.order_by(AssetFolder.name).all()
+
+    assets_query = Asset.query.filter_by(
+        user_id=current_user.id,
+        folder_id=None
+    )
+
+    if asset_type != 'all':
+        assets_query = assets_query.filter_by(asset_type=asset_type)
+
+    assets = assets_query.order_by(Asset.upload_date.desc()).all()
+
+    return jsonify({
+        'folders': [
+            {
+                'id': folder.id,
+                'name': folder.name,
+                'asset_type': folder.asset_type
+            }
+            for folder in folders
+        ],
+        'assets': [asset.to_dict() for asset in assets]
+    })
+
+
+@app.route('/admin/assets/folder/<int:folder_id>', methods=['GET'])
+@login_required
+def get_asset_library_folder(folder_id):
+    folder = AssetFolder.query.filter_by(
+        id=folder_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    asset_type = request.args.get('type', 'image')
+
+    assets_query = Asset.query.filter_by(
+        user_id=current_user.id,
+        folder_id=folder.id
+    )
+
+    if asset_type != 'all':
+        assets_query = assets_query.filter_by(asset_type=asset_type)
+
+    assets = assets_query.order_by(Asset.upload_date.desc()).all()
+
+    return jsonify({
+        'folder': {
+            'id': folder.id,
+            'name': folder.name,
+            'asset_type': folder.asset_type
+        },
+        'assets': [asset.to_dict() for asset in assets]
+    })
+
+# @app.route('/add_assets_to_section', methods=['POST'])
+# @login_required
+# def add_assets_to_section():
+#     data = request.get_json() or {}
+#
+#     section_id = data.get('section_id')
+#     asset_ids = data.get('asset_ids') or []
+#     usage_type = data.get('usage_type') or 'section-image'
+#
+#     section = PageSection.query.get_or_404(section_id)
+#     page = PublicPageContent.query.get_or_404(section.page_content_id)
+#     website = Website.query.get_or_404(page.website_id)
+#
+#     if website.user_id != current_user.id:
+#         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+#
+#     for asset_id in asset_ids:
+#         asset = Asset.query.filter_by(
+#             id=asset_id,
+#             user_id=current_user.id
+#         ).first()
+#
+#         if not asset:
+#             continue
+#
+#         # Image sections should only accept images.
+#         if section.section_type in ['image', 'image_gallery', 'images'] and asset.asset_type != 'image':
+#             continue
+#
+#         max_order = db.session.query(func.max(SectionAsset.order)).filter_by(
+#             section_id=section.id
+#         ).scalar() or 0
+#
+#         link = SectionAsset(
+#             section_id=section.id,
+#             asset_id=asset.id,
+#             usage_type=usage_type,
+#             order=max_order + 1
+#         )
+#
+#         db.session.add(link)
+#
+#     db.session.commit()
+#
+#     return jsonify({'status': 'success'})
+
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
 def update_page_colors(page_id):
-    data = request.json
-    background_color = data.get('background_color')
-    text_color = data.get('text_color')
+    data = request.get_json()
+
+    background_color = (data.get('background_color') or '').strip()
+    text_color = (data.get('text_color') or '').strip()
 
     page_content = PublicPageContent.query.get(page_id)
     if not page_content:
         return jsonify({'error': 'Page not found'}), 404
 
+    if not background_color:
+        return jsonify({'error': 'Background color is required'}), 400
+
+    if not text_color:
+        return jsonify({'error': 'Text color is required'}), 400
+
     page_content.background_color = background_color
     page_content.text_color = text_color
+
     db.session.commit()
 
-    return jsonify({'message': 'Page colors updated successfully'}), 200
+    return jsonify({
+        'message': 'Page colors updated successfully',
+        'background_color': page_content.background_color,
+        'text_color': page_content.text_color
+    }), 200
 
 
-@app.route('/get_response_stream', methods=['POST'])
-@login_required
-def get_response_stream():
-    try:
-        # Get user input (prompt) from request JSON
-        request_data = request.get_json()
-        prompt = request_data.get('prompt', '')
-        code = request_data.get('code', '')
-        print("PROMPT: ", prompt)
+#
+# @app.route('/get_response_stream', methods=['POST'])
+# @login_required
+# def get_response_stream():
+#     try:
+#         # Get user input (prompt) from request JSON
+#         request_data = request.get_json()
+#         prompt = request_data.get('prompt', '')
+#         code = request_data.get('code', '')
+#         print("PROMPT: ", prompt)
+#
+#         adjusted_prompt = (
+#                               "Generate code that includes embedded HTML, CSS, and JavaScript. Include all necessary "
+#                               "header link sources, script sources, and stylesheets within the HTML code itself (no separate files). "
+#                               "Ensure everything is encapsulated within <html>, <head>, <body>, <style>, <script> and tags. Your response should consist "
+#                               "solely of code; do not include any explanatory text or comments. Do not wrap your code in the ``` marks. Here is the prompt: ") + prompt + (
+#                               " Here is my current code for you to edit, only remove code if necessary to achieve the desired functionality: " + code)
+#
+#         # Construct payload with user-provided prompt
+#         payload = {
+#             "model": "deepseek-coder:6.7b",
+#             "prompt": adjusted_prompt,
+#             "stream": True  # Set stream to true to receive responses in a stream
+#         }
+#
+#
+#         # Send POST request to Ollama API with JSON payload and stream the response
+#         response = requests.post(ollama_url, json=payload, stream=True)
+#
+#         # Ensure the request was successful (status code 200)
+#         if response.status_code == 200:
+#             # Stream the response content line by line
+#             def generate_response():
+#                 text = ''
+#                 for line in response.iter_lines():
+#                     if line:
+#                         # Decode JSON from each line
+#                         data = json.loads(line)
+#
+#                         # Extract the response portion from each JSON object
+#                         if 'response' in data:
+#                             yield data['response']
+#                             print(data['response'], end='')
+#                         else:
+#                             yield "No response received\n"
+#
+#             # Return a streaming response to the client
+#             return Response(generate_response(), content_type='text/plain')
+#
+#         else:
+#             return f"Error: {response.status_code} - {response.text}"
+#
+#     except requests.exceptions.RequestException as e:
+#         return f"Request failed: {e}"
 
-        adjusted_prompt = (
-                              "Generate code that includes embedded HTML, CSS, and JavaScript. Include all necessary "
-                              "header link sources, script sources, and stylesheets within the HTML code itself (no separate files). "
-                              "Ensure everything is encapsulated within <html>, <head>, <body>, <style>, <script> and tags. Your response should consist "
-                              "solely of code; do not include any explanatory text or comments. Do not wrap your code in the ``` marks. Here is the prompt: ") + prompt + (
-                              " Here is my current code for you to edit, only remove code if necessary to achieve the desired functionality: " + code)
-
-        # Construct payload with user-provided prompt
-        payload = {
-            "model": "deepseek-coder:6.7b",
-            "prompt": adjusted_prompt,
-            "stream": True  # Set stream to true to receive responses in a stream
-        }
+def normalize_admin_url_key(value):
+    value = (value or '').strip().lower()
+    value = re.sub(r'[^a-z0-9_-]+', '-', value)
+    value = value.strip('-_')
+    return value
 
 
-        # Send POST request to Ollama API with JSON payload and stream the response
-        response = requests.post(ollama_url, json=payload, stream=True)
-
-        # Ensure the request was successful (status code 200)
-        if response.status_code == 200:
-            # Stream the response content line by line
-            def generate_response():
-                text = ''
-                for line in response.iter_lines():
-                    if line:
-                        # Decode JSON from each line
-                        data = json.loads(line)
-
-                        # Extract the response portion from each JSON object
-                        if 'response' in data:
-                            yield data['response']
-                            print(data['response'], end='')
-                        else:
-                            yield "No response received\n"
-
-            # Return a streaming response to the client
-            return Response(generate_response(), content_type='text/plain')
-
-        else:
-            return f"Error: {response.status_code} - {response.text}"
-
-    except requests.exceptions.RequestException as e:
-        return f"Request failed: {e}"
+def admin_url_key_is_enabled():
+    return bool(
+        current_user.is_authenticated
+        and getattr(current_user, 'admin_url_key_enabled', False)
+        and getattr(current_user, 'admin_url_key', None)
+    )
 
 
-@app.route('/user_collections')
-@login_required
-def user_collections():
-    # Fetch the user's liked pages from the database
-    user = current_user  # Assuming you are using Flask-Login for user management
-    print("CURRENT USER LOADING COLLECTIONS: ", user)
-    liked_pages = user.liked_pages  # Fetch liked pages associated with the current user
-    return render_template('user_collections.html', liked_pages=liked_pages)
-
+def admin_url_key_required_for_user(user):
+    return bool(
+        user
+        and getattr(user, 'admin_url_key_enabled', False)
+        and getattr(user, 'admin_url_key', None)
+    )
 
 @app.route('/capture', methods=['GET'])
 def capture_webpage():
@@ -397,137 +2032,15 @@ def capture_webpage():
         driver.quit()
 
 
-@app.route('/browse_websites')
-def browse_websites():
-    return render_template('browse.html')
 
-
-@app.route('/search_websites', methods=['GET'])
-def search_websites():
-    query = request.args.get('query', '')
-    page = request.args.get('page', 1, type=int)
-
-    page_query = PublicPageContent.query.filter(PublicPageContent.site_active_status == True)
-
-    if query:
-        keywords = query.split()
-
-        # Filter by either tag names, page names, or descriptions
-        tag_filters = [func.lower(Tag.name).like(f"%{keyword.lower()}%") for keyword in keywords]
-        name_filters = [func.lower(PublicPageContent.name).like(f"%{keyword.lower()}%") for keyword in keywords]
-        description_filters = [func.lower(PublicPageContent.description).like(f"%{keyword.lower()}%") for keyword in keywords]
-        website_description_filters = [func.lower(Website.description).like(f"%{keyword.lower()}%") for keyword in keywords]
-
-        page_query = (
-            page_query
-            .join(PageTag)
-            .join(Tag)
-            .join(Website)
-            .filter(
-                or_(
-                    *tag_filters,
-                    *name_filters,
-                    *description_filters,
-                    *website_description_filters
-                )
-            )
-            .group_by(PublicPageContent.id)
-        )
-
-    print("PAGE QUERY: ", page_query)  # Debugging: Print the SQL query
-    pages = page_query.paginate(page=page, per_page=10)
-
-    results = []
-    for page_content in pages.items:
-        website_url = url_for('public_page', website_id=page_content.website_id, page_id=page_content.id)
-        tags = [tag.name for tag in page_content.tags]
-        results.append({
-            'id': page_content.id,
-            'name': page_content.name,
-            'description': page_content.description,
-            'tags': tags,
-            'url': website_url
-        })
-
-    print("RESULTS: ", results)  # Debugging: Print the results
-
-    # If no results found, generate random websites
-    if not results:
-        return generate_random_websites()  # Directly return the generated random websites
-
-    return jsonify({
-        'pages': results,
-        'total': pages.total,
-        'num_pages': pages.pages,
-        'current_page': pages.page
-    })
-
-def generate_random_websites():
-    websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
-    if not websites:
-        return jsonify({'websites': []})  # Return an empty list in the expected format
-
-    random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
-
-    results = []
-    for website in random_websites:
-        website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
-        results.append({
-            'id': website.id,
-            'name': website.name,
-            'description': website.description,
-            'tags': [tag.name for tag in website.tags],
-            'url': website_url
-        })
-
-    return jsonify({
-        'pages': results,
-    })
-
-@app.route('/random_websites', methods=['GET'])
-def random_websites():
-    websites = Website.query.join(PublicPageContent).filter(PublicPageContent.site_active_status == True).all()
-    if not websites:
-        return jsonify({'websites': []})  # Return an empty list in the expected format
-
-    random_websites = random.sample(websites, min(len(websites), 5))  # Get up to 5 random websites
-
-    results = []
-    for website in random_websites:
-        website_url = url_for('public_page', website_id=website.id, page_id=website.public_page_contents[0].id)
-        results.append({
-            'id': website.id,  # Include the page ID in the results
-            'name': website.name,
-            'description': website.description,
-            'tags': [tag.name for tag in website.tags],
-            'url': website_url
-        })
-
-    return jsonify({'websites': results})  # Return random websites in the expected format
-
-
-# Like page route
-@app.route('/like_page/<int:page_id>', methods=['POST'])
-@login_required  # Ensure the user is logged in before they can like a page
-def like_page(page_id):
-    page = PublicPageContent.query.get_or_404(page_id)
-    if page not in current_user.liked_pages:
-        current_user.liked_pages.append(page)
-        db.session.commit()
-        return jsonify(success=True, message="Page liked"), 200
-    else:
-        return jsonify(success=False, message="Page already liked"), 400
-
-
-def delete_associated_pictures(section_id):
+def delete_associated_section_images(section_id):
     try:
-        # Delete associated pictures
-        pictures = Picture.query.filter_by(section_id=section_id).all()
-        for picture in pictures:
-            db.session.delete(picture)
+        links = SectionImage.query.filter_by(section_id=section_id).all()
+        for link in links:
+            db.session.delete(link)
         db.session.commit()
     except Exception as e:
-        db.session.rollback()  # Rollback changes in case of error
+        db.session.rollback()
         raise e
 
 
@@ -609,6 +2122,17 @@ def delete_column(column_id):
     except Exception as e:
         db.session.rollback()  # Rollback changes in case of error
         return jsonify({'error': str(e)}), 500
+
+
+def delete_associated_pictures(section_id):
+    try:
+        links = SectionImage.query.filter_by(section_id=section_id).all()
+        for link in links:
+            db.session.delete(link)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        raise e
 
 
 def check_for_undefined_columns():
@@ -694,51 +2218,94 @@ def get_rows_and_columns(page_content_id):
     columns_data = [column.to_dict() for column in columns]
     return jsonify({'rows': rows_data, 'columns': columns_data})
 
-
 @app.route('/get_sections_and_structure/<int:page_content_id>', methods=['GET'])
 @login_required
 def get_sections_and_structure(page_content_id):
     try:
-        # Query PublicPageContent object by id and include the associated Website
         page_content = PublicPageContent.query.filter_by(id=page_content_id).first()
         if not page_content:
             return jsonify({'error': 'Page content not found'}), 404
 
-        # Query PageSection objects filtered by page_content_id and sort them by order number
-        sections = PageSection.query.filter_by(page_content_id=page_content_id).order_by(PageSection.order).all()
+        sections = PageSection.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(PageSection.order).all()
 
-        # Query rows associated with the given page_content_id and sort them by row_number
-        rows = Row.query.filter_by(page_content_id=page_content_id).order_by(Row.row_number).all()
+        rows = Row.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(Row.row_number).all()
 
-        # Query columns associated with the given rows and sort them by row_number and column_number
-        columns = Column.query.join(Row).filter(Column.row_id == Row.id).filter(
-            Row.page_content_id == page_content_id).order_by(Row.row_number, Column.column_number).all()
+        columns = Column.query.join(Row).filter(
+            Column.row_id == Row.id,
+            Row.page_content_id == page_content_id
+        ).order_by(Row.row_number, Column.column_number).all()
 
-        # Sort sections by row_number
-        sections.sort(key=lambda x: x.column.row.row_number)
+        section_groups = SectionGroup.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(SectionGroup.group_order).all()
 
-        # Convert each Section, Row, and Column object to a dictionary
+        sections.sort(
+            key=lambda x: (
+                x.column.row.section_group_id or 0,
+                x.column.row.row_number,
+                x.order
+            )
+        )
+
         sections_data = [section.to_dict() for section in sections]
-        rows_data = [{'id': row.id, 'row_number': row.row_number} for row in rows]
-        columns_data = [{'row_id': column.row_id, 'row_number': column.row.row_number,
-                         'column_number': column.column_number, 'column_id': column.id,
-                         'width': column.width} for column in columns]
 
-        # Serialize the associated Website object
+        rows_data = [
+            {
+                'id': row.id,
+                'row_number': row.row_number,
+                'section_group_id': row.section_group_id
+            }
+            for row in rows
+        ]
+
+        columns_data = [
+            {
+                'row_id': column.row_id,
+                'row_number': column.row.row_number,
+                'section_group_id': column.row.section_group_id,
+                'column_number': column.column_number,
+                'column_id': column.id,
+                'width': column.width
+            }
+            for column in columns
+        ]
+
+        groups_data = [
+            {
+                'id': group.id,
+                'name': group.name,
+                'group_order': group.group_order,
+                'background_color': group.background_color,
+                'background_opacity': group.background_opacity,
+                'padding': group.padding,
+                'border_radius': group.border_radius,
+                'max_width': group.max_width,
+                'background_image_url': group.background_image_url,
+                'background_image_size': group.background_image_size or 'cover',
+                'background_image_position': group.background_image_position or 'center',
+                'background_overlay_color': group.background_overlay_color or '#000000',
+                'background_overlay_opacity': group.background_overlay_opacity or 0
+            }
+            for group in section_groups
+        ]
+
         website_data = {
             'id': page_content.website.id,
             'name': page_content.website.name,
             'description': page_content.website.description,
             'user_id': page_content.website.user_id,
             'tags': [tag.name for tag in page_content.website.tags]
-            # Add more fields as needed
         }
 
-        # Combine all data into a single response JSON object
         response_data = {
             'sections': sections_data,
             'rows': rows_data,
             'columns': columns_data,
+            'groups': groups_data,
             'website': website_data
         }
 
@@ -747,6 +2314,335 @@ def get_sections_and_structure(page_content_id):
     except Exception as e:
         print(f"Error retrieving sections and structure: {str(e)}")
         return jsonify({'error': 'Internal Server Error'}), 500
+
+@app.route('/create_section_group/<int:page_content_id>', methods=['POST'])
+@login_required
+def create_section_group(page_content_id):
+    try:
+        page_content = PublicPageContent.query.get_or_404(page_content_id)
+
+        group_count = SectionGroup.query.filter_by(
+            page_content_id=page_content.id
+        ).count()
+
+        new_group = SectionGroup(
+            page_content_id=page_content.id,
+            name=f'Section Group {group_count + 1}',
+            group_order=group_count + 1,
+            background_color='transparent',
+            padding=0,
+            border_radius=0
+        )
+
+        db.session.add(new_group)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'group_id': new_group.id
+        })
+
+    except Exception as e:
+        print(f"Error creating section group: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/delete_section_group/<int:group_id>', methods=['DELETE'])
+@login_required
+def delete_section_group(group_id):
+    try:
+        group = SectionGroup.query.get_or_404(group_id)
+
+        page_content = PublicPageContent.query.get_or_404(group.page_content_id)
+        website = Website.query.get_or_404(page_content.website_id)
+
+        if website.user_id != current_user.id:
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized.'
+            }), 403
+
+        rows = Row.query.filter_by(section_group_id=group.id).all()
+
+        for row in rows:
+            columns = Column.query.filter_by(row_id=row.id).all()
+
+            for column in columns:
+                section = column.section
+
+                if section:
+                    SectionImage.query.filter_by(section_id=section.id).delete()
+                    CalendarEvent.query.filter_by(section_id=section.id).delete()
+                    db.session.delete(section)
+
+                db.session.delete(column)
+
+            db.session.delete(row)
+
+        db.session.delete(group)
+
+        db.session.flush()
+
+        # Re-number remaining groups on this page
+        remaining_groups = SectionGroup.query.filter_by(
+            page_content_id=page_content.id
+        ).order_by(SectionGroup.group_order, SectionGroup.id).all()
+
+        for index, remaining_group in enumerate(remaining_groups, start=1):
+            remaining_group.group_order = index
+
+        # Re-number remaining rows on this page
+        remaining_rows = Row.query.filter_by(
+            page_content_id=page_content.id
+        ).order_by(Row.row_number, Row.id).all()
+
+        for index, remaining_row in enumerate(remaining_rows, start=1):
+            remaining_row.row_number = index
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error deleting section group: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/update_section_group/<int:group_id>', methods=['PUT'])
+@login_required
+def update_section_group(group_id):
+    try:
+        group = SectionGroup.query.get_or_404(group_id)
+        data = request.get_json()
+
+        name = data.get('name')
+        background_color = data.get('background_color')
+        padding = data.get('padding')
+        border_radius = data.get('border_radius')
+        max_width = data.get('max_width')
+
+        if name is not None:
+            group.name = name
+            group.anchor_slug = slugify_anchor(name)
+
+        if background_color is not None:
+            group.background_color = background_color
+
+        if padding is not None:
+            group.padding = int(padding)
+
+        if border_radius is not None:
+            group.border_radius = int(border_radius)
+
+        if max_width is not None:
+            try:
+                max_width_value = int(max_width or 0)
+            except (TypeError, ValueError):
+                max_width_value = 0
+
+            # 0 means full width / no cap
+            group.max_width = max_width_value if max_width_value > 0 else None
+
+        group.background_image_url = data.get('background_image_url') or None
+        group.background_image_size = data.get('background_image_size') or 'cover'
+        group.background_image_position = data.get('background_image_position') or 'center'
+        group.background_overlay_color = data.get('background_overlay_color') or '#000000'
+        group.background_overlay_opacity = float(data.get('background_overlay_opacity') or 0)
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'group': {
+                'id': group.id,
+                'name': group.name,
+                'anchor_slug': group.anchor_slug,
+                'max_width': group.max_width
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print("Error updating section group:", str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/move_row_to_group/<int:row_id>', methods=['PUT'])
+@login_required
+def move_row_to_group(row_id):
+    row = Row.query.get_or_404(row_id)
+    data = request.json or {}
+
+    section_group_id = data.get('section_group_id')
+
+    if not section_group_id:
+        return jsonify({
+            'success': False,
+            'error': 'Rows must belong to a group.'
+        }), 400
+
+    group = SectionGroup.query.filter_by(
+        id=section_group_id,
+        page_content_id=row.page_content_id
+    ).first_or_404()
+
+    row.section_group_id = group.id
+    db.session.commit()
+
+    return jsonify({"success": True})
+
+@app.route('/update_section_group_order', methods=['POST'])
+@login_required
+def update_section_group_order():
+    try:
+        data = request.get_json()
+        group_ids = data.get('group_ids', [])
+
+        for index, group_id in enumerate(group_ids, start=1):
+            group = SectionGroup.query.get(group_id)
+            if group:
+                group.group_order = index
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error updating group order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/update_row_order_and_groups', methods=['POST'])
+@login_required
+def update_row_order_and_groups():
+    try:
+        data = request.get_json()
+        rows = data.get('rows', [])
+
+        for row_item in rows:
+            row = Row.query.get(row_item.get('row_id'))
+
+            if row:
+                row.row_number = row_item.get('row_number')
+                row.section_group_id = row_item.get('section_group_id')
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error updating row order and groups: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def update_link_card_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    def safe_float(value, fallback, min_value=None, max_value=None):
+        try:
+            number = float(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'header': clean(form_data.get('link_card_header'), 'Link Card'),
+        'body': clean(form_data.get('link_card_body'), ''),
+        'footer': clean(form_data.get('link_card_footer'), ''),
+        'url': clean(form_data.get('link_card_url'), '#'),
+
+        # image/background
+        'background_image_url': clean(form_data.get('link_card_background_image_url'), ''),
+        'background_color': clean(form_data.get('link_card_background_color'), '#1f232b'),
+        'text_color': clean(form_data.get('link_card_text_color'), '#ffffff'),
+        'overlay_color': clean(form_data.get('link_card_overlay_color'), '#000000'),
+        'overlay_opacity': safe_float(
+            form_data.get('link_card_overlay_opacity'),
+            0.25,
+            0,
+            1
+        ),
+
+        # presentation
+        'width': safe_int(
+            form_data.get('link_card_width'),
+            420,
+            120,
+            1400
+        ),
+        'height': safe_int(
+            form_data.get('link_card_height'),
+            240,
+            120,
+            800
+        ),
+        'border_radius': safe_int(
+            form_data.get('link_card_border_radius'),
+            18,
+            0,
+            80
+        ),
+        'open_in_new_tab': form_data.get('link_card_open_new_tab') == 'on'
+    }
+
+    return section
+
+@app.route('/update_editor_group_and_row_order', methods=['POST'])
+@login_required
+def update_editor_group_and_row_order():
+    try:
+        data = request.get_json()
+
+        group_ids = data.get('group_ids', [])
+        rows = data.get('rows', [])
+
+        for index, group_id in enumerate(group_ids, start=1):
+            group = SectionGroup.query.get(group_id)
+            if group:
+                group.group_order = index
+
+        for row_item in rows:
+            row = Row.query.get(row_item.get('row_id'))
+            section_group_id = row_item.get('section_group_id')
+
+            if row:
+                if not section_group_id:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Rows must belong to a group.'
+                    }), 400
+
+                row.row_number = row_item.get('row_number')
+                row.section_group_id = section_group_id
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"Error updating editor order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/add_column', methods=['POST'])
 @login_required
@@ -781,6 +2677,41 @@ def add_column():
 
     return jsonify({'message': 'Column added successfully', 'column_id': new_column.id}), 200
 
+@app.route('/add_row_to_group/<int:page_content_id>/<int:group_id>', methods=['POST'])
+@login_required
+def add_row_to_group(page_content_id, group_id):
+    try:
+        group = SectionGroup.query.get_or_404(group_id)
+
+        last_row = Row.query.filter_by(
+            page_content_id=page_content_id
+        ).order_by(Row.row_number.desc()).first()
+
+        new_row_number = (last_row.row_number + 1) if last_row else 1
+
+        new_row = Row(
+            page_content_id=page_content_id,
+            row_number=new_row_number,
+            section_group_id=group.id
+        )
+
+        db.session.add(new_row)
+        db.session.flush()
+
+        new_column = Column(
+            row_id=new_row.id,
+            column_number=1,
+            width=100
+        )
+
+        db.session.add(new_column)
+        db.session.commit()
+
+        return jsonify({'success': True, 'row_id': new_row.id})
+
+    except Exception as e:
+        print(f"Error adding row to group: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/update-column-widths', methods=['POST'])
 @login_required
@@ -809,8 +2740,14 @@ def update_column_width_in_db(column_id, new_width):
         print(f'Column {column_id} not found')
 
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route('/admin/register', methods=['GET', 'POST'])
 def register():
+    # 1. Block registration if any user already exists
+    user_count = User.query.count()
+    if user_count >= 1:
+        flash('Registration is disabled. An admin account already exists.', 'error')
+        return redirect(url_for('login'))
+
     if request.method == 'POST':
         username = request.form['username']
         email = request.form['email']
@@ -820,24 +2757,23 @@ def register():
             flash('Please fill out all fields', 'error')
             return redirect(url_for('register'))
 
-        # Check if user already exists
+        # Standard check for duplicate emails (though technically redundant if only 1 user allowed)
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
             flash('Email address already in use', 'error')
             return redirect(url_for('register'))
-
-        # Create new user
-        new_user = User(username=username, email=email)
+        new_user = User(
+            username=username,
+            email=email
+        )
         new_user.set_password(password)
-
         db.session.add(new_user)
         db.session.commit()
 
-        flash('Account created successfully. Please log in.', 'success')
-        return redirect(url_for('login'))  # Adjust this as per your login route
+        flash('Admin account created successfully. Please log in.', 'success')
+        return redirect(url_for('login'))
 
     return render_template('register.html')
-
 
 # @app.route('/login', methods=['GET', 'POST'])
 # def login():
@@ -863,98 +2799,1585 @@ def register():
 #     session.pop('user_id', None)
 #     return redirect(url_for('login'))
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
+ADMIN_PROTECTED_PREFIXES = (
+    '/admin',
+    '/dashboard',
+    '/create_website',
+    '/create_page',
+    '/edit_website',
+    '/edit_website_style',
+    '/edit_page',
+    '/duplicate_page',
+    '/replace_page',
+    '/delete_page',
+    '/delete_website',
+    '/library',
+    '/saved_colors',
+)
+
+@app.before_request
+def require_admin_url_key_for_admin_routes():
+    if request.endpoint in ('static',):
+        return None
+
+    # Allow public pages and public contact form
+    public_endpoints = {
+        'home_page',
+        'public_page_by_slug',
+        'public_page',
+        'send_email',
+        'serve_static',
+        'login',
+        'two_factor_login',
+        'register',
+        'logout',
+        'forgot_password',
+        'reset_password',
+        'emergency_login',
+        'request_username'
+    }
+
+    if request.endpoint in public_endpoints:
+        return None
+
+    path = request.path or ''
+
+    is_admin_like_path = path.startswith(ADMIN_PROTECTED_PREFIXES)
+
+    if not is_admin_like_path:
+        return None
+
+    if is_admin_like_path:
+        admin_user = User.query.first()
+
+        if admin_url_key_required_for_user(admin_user) and not session.get('admin_path_verified'):
+            return "Not Found", 404
+
+    if admin_url_key_is_enabled() and not session.get('admin_path_verified'):
+        return "Not Found", 404
+
+    return None
+
+@app.route('/admin/forgot-password', methods=['GET', 'POST'])
+@app.route('/admin/forgot-password/<admin_key>', methods=['GET', 'POST'])
+def forgot_password(admin_key=None):
+    admin_user = User.query.first()
+
+    if admin_url_key_required_for_user(admin_user):
+        if admin_key != admin_user.admin_url_key:
+            return "Not Found", 404
+
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        email = request.form.get('email', '').strip().lower()
+
+        # Always show a generic success message so we do not reveal valid emails.
+        generic_message = 'If that email matches the admin account and email sending is configured, a reset link has been sent.'
+
+        user = User.query.filter_by(email=email).first()
+
+        if user:
+            email_settings = get_email_settings()
+
+            if email_settings and email_settings.is_active:
+                token = generate_password_reset_token(user)
+                reset_url = url_for('reset_password', token=token, _external=True)
+
+                print("")
+                print("========================================")
+                print("UWEBIA PASSWORD RESET LINK")
+                print(f"User: {user.username}")
+                print(f"Email: {user.email}")
+                print(f"Reset URL: {reset_url}")
+                print("Expires in 30 minutes")
+                print("========================================")
+                print("")
+
+                body = f"""A password reset was requested for your Uwebia admin account.
+
+Reset your password here:
+{reset_url}
+
+This link expires in 30 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+
+                try:
+                    send_account_recovery_email(
+                        user.email,
+                        'Reset your Uwebia admin password',
+                        body
+                    )
+                except Exception as e:
+                    print(f"Password reset email failed: {e}")
+
+        flash(generic_message, 'success')
+        return redirect(request.path)
+
+    return render_template(
+        'forgot_password.html',
+        admin_key=admin_key
+    )
+
+
+@app.route('/admin/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    user, error = verify_password_reset_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not password:
+            flash('Please enter a new password.', 'error')
+            return redirect(request.path)
+
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return redirect(request.path)
+
+        user.set_password(password)
+
+        # Changing password should force a clean login.
+        db.session.commit()
+
+        flash('Password updated successfully. Please log in.', 'success')
+        return redirect(get_admin_login_url_for_user(user))
+
+    return render_template(
+        'reset_password.html',
+        token=token
+    )
+
+def get_recovery_serializer():
+    return URLSafeTimedSerializer(app.secret_key)
+
+
+def generate_password_reset_token(user):
+    serializer = get_recovery_serializer()
+
+    return serializer.dumps(
+        {
+            'user_id': user.id,
+            'purpose': 'password_reset'
+        },
+        salt='uwebia-password-reset'
+    )
+
+
+def verify_password_reset_token(token, max_age_seconds=1800):
+    serializer = get_recovery_serializer()
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-password-reset',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, 'This password reset link has expired.'
+    except BadSignature:
+        return None, 'This password reset link is invalid.'
+
+    if data.get('purpose') != 'password_reset':
+        return None, 'This password reset link is invalid.'
+
+    user = User.query.get(data.get('user_id'))
+
+    if not user:
+        return None, 'This password reset link is invalid.'
+
+    return user, None
+
+
+def send_account_recovery_email(to_email, subject, body):
+    settings = get_email_settings()
+
+    if not settings or not settings.is_active:
+        raise RuntimeError('Email server is not configured or active.')
+
+    if not settings.smtp_host or not settings.smtp_port or not settings.smtp_username or not settings.smtp_password or not settings.from_email:
+        raise RuntimeError('Email server settings are incomplete.')
+
+    if settings.use_tls and settings.use_ssl:
+        raise RuntimeError('Email server cannot use both TLS and SSL.')
+
+    msg = MIMEMultipart()
+    msg['From'] = (
+        f"{settings.from_name} <{settings.from_email}>"
+        if settings.from_name else settings.from_email
+    )
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    if settings.use_ssl:
+        server = smtplib.SMTP_SSL(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+    else:
+        server = smtplib.SMTP(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+
+        if settings.use_tls:
+            server.starttls()
+
+    try:
+        server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(msg)
+    finally:
+        server.quit()
+
+
+@app.route('/admin/request-username', methods=['GET', 'POST'])
+@app.route('/admin/request-username/<admin_key>', methods=['GET', 'POST'])
+def request_username(admin_key=None):
+    admin_user = User.query.first()
+
+    if admin_url_key_required_for_user(admin_user):
+        if admin_key != admin_user.admin_url_key:
+            return "Not Found", 404
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+
+        generic_message = 'If that email matches the admin account and email sending is configured, the username has been sent.'
+
+        user = User.query.filter_by(email=email).first()
+
+        if user:
+            email_settings = get_email_settings()
+
+            if email_settings and email_settings.is_active:
+                login_url = get_admin_login_url_for_user(user)
+
+                print("")
+                print("========================================")
+                print("UWEBIA USERNAME RECOVERY")
+                print(f"Email: {user.email}")
+                print(f"Username: {user.username}")
+                print(f"Login URL: {login_url}")
+                print("========================================")
+                print("")
+
+                body = f"""Your Uwebia admin username is:
+
+{user.username}
+
+Login here:
+{login_url}
+
+If you did not request this, you can ignore this email.
+"""
+
+                try:
+                    send_account_recovery_email(
+                        user.email,
+                        'Your Uwebia admin username',
+                        body
+                    )
+                except Exception as e:
+                    print(f"Username recovery email failed: {e}")
+
+        flash(generic_message, 'success')
+        return redirect(request.path)
+
+    return render_template(
+        'request_username.html',
+        admin_key=admin_key
+    )
+
+def get_admin_login_url_for_user(user):
+    if user and user.admin_url_key_enabled and user.admin_url_key:
+        return url_for('login', admin_key=user.admin_url_key, _external=True)
+
+    return url_for('login', _external=True)
+
+@app.route('/admin/dashboard/settings/2fa/dismiss-warning', methods=['POST'])
+@login_required
+def dismiss_two_factor_warning():
+    current_user.two_factor_needs_attention = False
+    current_user.two_factor_disabled_reason = None
+    current_user.two_factor_disabled_at = None
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'message': '2FA warning dismissed.'
+    })
+
+@app.route('/admin/2fa', methods=['GET', 'POST'])
+@app.route('/admin/2fa/<admin_key>', methods=['GET', 'POST'])
+def two_factor_login(admin_key=None):
+    user_id = session.get('pre_2fa_user_id')
+
+    if not user_id:
+        return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    user = User.query.get(user_id)
+
+    if not user:
+        clear_pending_two_factor_code()
+        session.pop('pre_2fa_user_id', None)
+        session.pop('pre_2fa_admin_key', None)
+        return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+
+        pending_error = get_pending_two_factor_error(user.id, 'login')
+
+        if pending_error:
+            clear_pending_two_factor_code()
+            session.pop('pre_2fa_user_id', None)
+            session.pop('pre_2fa_admin_key', None)
+
+            flash(pending_error, 'error')
+            return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+        expected_hash = session.get('pending_2fa_code_hash')
+
+        if not expected_hash or not check_password_hash(expected_hash, code):
+            flash('Invalid verification code.', 'error')
+            return redirect(request.path)
+
+        login_user(user)
+
+        if admin_url_key_required_for_user(user):
+            session['admin_path_verified'] = True
+
+        clear_pending_two_factor_code()
+        session.pop('pre_2fa_user_id', None)
+        session.pop('pre_2fa_admin_key', None)
+
+        flash('Logged in successfully.', 'success')
+        return redirect(url_for('dashboard'))
+
+    return render_template('two_factor_login.html', admin_key=admin_key)
+
+def disable_user_2fa(user, reason=None, needs_attention=True):
+    user.two_factor_enabled = False
+    user.two_factor_email = None
+    user.two_factor_activated_at = None
+    user.two_factor_last_email_settings_version = None
+
+    user.two_factor_disabled_reason = reason
+    user.two_factor_disabled_at = datetime.utcnow()
+    user.two_factor_needs_attention = bool(needs_attention)
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+@app.route('/admin/login/<admin_key>', methods=['GET', 'POST'])
+def login(admin_key=None):
+    # Force setup if no user exists
+    if User.query.count() == 0:
+        return redirect(url_for('register'))
+
+    admin_user = User.query.first()
+
+    if admin_url_key_required_for_user(admin_user):
+        expected_key = admin_user.admin_url_key
+
+        if admin_key != expected_key:
+            return "Not Found", 404
+
+        session['admin_path_verified'] = True
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip().lower()
+        password = request.form.get('password', '')
+
         user = User.query.filter_by(username=username).first()
-        print("USER OBJECT RETRIEVED FROM DATABASE: ", user)
 
         if user and user.check_password(password):
-            login_user(user)  # Log in the user using Flask-Login
+            if user.two_factor_enabled:
+                email_settings = get_email_settings()
+                current_fingerprint = get_email_settings_fingerprint(email_settings)
+
+                if current_fingerprint != user.two_factor_last_email_settings_version:
+                    disable_user_2fa(
+                        user,
+                        reason='email server settings changed',
+                        needs_attention=True
+                    )
+
+                    db.session.commit()
+
+                    flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
+                    return redirect(request.path)
+
+                code = generate_two_factor_code()
+                set_pending_two_factor_code(user.id, code, 'login')
+
+                print("")
+                print("========================================")
+                print("UWEBIA 2FA LOGIN CODE")
+                print(f"User: {user.username}")
+                print(f"Email: {user.two_factor_email or user.email}")
+                print(f"Code: {code}")
+                print("Expires in 10 minutes")
+                print("========================================")
+                print("")
+
+                try:
+                    send_two_factor_email(
+                        user.two_factor_email or user.email,
+                        code,
+                        purpose='login'
+                    )
+                except Exception as e:
+                    clear_pending_two_factor_code()
+
+                    flash(f'Could not send 2FA login code: {str(e)}', 'error')
+                    return redirect(request.path)
+
+                session['pre_2fa_user_id'] = user.id
+                session['pre_2fa_admin_key'] = admin_key
+
+                return redirect(
+                    url_for('two_factor_login', admin_key=admin_key) if admin_key else url_for('two_factor_login'))
+
+            login_user(user)
+
+            if admin_url_key_required_for_user(user):
+                session['admin_path_verified'] = True
+
             flash('Logged in successfully', 'success')
-            return redirect(url_for('dashboard'))  # Redirect to the dashboard
+            return redirect(url_for('dashboard'))
         else:
             flash('Invalid username or password', 'error')
-            return redirect(url_for('login'))  # Redirect back to login on failure
+            return redirect(request.path)
 
-    return render_template('login.html')
+    return render_template(
+        'login.html',
+        admin_key=admin_key
+    )
 
 
-@app.route('/logout')
-@login_required  # Ensure the user is logged in before they can log out
+@app.route('/admin/logout')
+@login_required
 def logout():
-    logout_user()  # Log out the user using Flask-Login
+    user = current_user
+    login_key = user.admin_url_key if user.admin_url_key_enabled and user.admin_url_key else None
+
+    logout_user()
+    session.pop('admin_path_verified', None)
+
     flash('Logged out successfully', 'success')
+
+    if login_key:
+        return redirect(url_for('login', admin_key=login_key))
+
     return redirect(url_for('login'))
 
 
 from flask_wtf.csrf import generate_csrf
 
 
-@app.route('/dashboard')
+@app.context_processor
+def inject_current_website():
+    if not current_user.is_authenticated:
+        return {
+            'current_website': None,
+            'current_website_pages': []
+        }
+
+    website = Website.query.filter_by(user_id=current_user.id).first()
+
+    if not website:
+        return {
+            'current_website': None,
+            'current_website_pages': []
+        }
+
+    pages = PublicPageContent.query.filter_by(website_id=website.id) \
+        .order_by(PublicPageContent.id).all()
+
+    return {
+        'current_website': website,
+        'current_website_pages': pages
+    }
+
+
+@app.route('/admin/dashboard')
 @login_required
 def dashboard():
     user = current_user
-    print(f"LOGGED IN USER: {user}")
 
+    # This currently returns a list because of your model relationship
     websites = user.websites
-    print(f"USER'S WEBSITES: {websites}")
 
-    # Retrieve all pages for each website
+    # Logic: If they have at least one, has_site is True
+    has_site = len(websites) > 0
+
     website_pages = {}
+    website_page_groups = {}
+    website_page_folders = {}
+
     for website in websites:
-        pages = PublicPageContent.query.filter_by(website_id=website.id).all()
-        print(f"WEBSITE {website.id} PAGES: {pages}")
+        pages = PublicPageContent.query.filter_by(
+            website_id=website.id
+        ).order_by(
+            PublicPageContent.sort_order,
+            PublicPageContent.folder_sort_order,
+            PublicPageContent.id
+        ).all()
+
+        folders = PageFolder.query.filter_by(
+            website_id=website.id
+        ).order_by(
+            PageFolder.sort_order,
+            PageFolder.id
+        ).all()
+
         website_pages[website] = pages
 
-    csrf_token = generate_csrf()  # Generate CSRF token
-    return render_template('dashboard.html', websites=websites, website_pages=website_pages, csrf_token=csrf_token)
+        website_page_folders[website.id] = [
+            {
+                'id': folder.id,
+                'name': folder.name,
+                'sort_order': folder.sort_order,
+                'active_count': sum(
+                    1 for page in pages if page.page_folder_id == folder.id and page.site_active_status),
+                'total_count': sum(1 for page in pages if page.page_folder_id == folder.id)
+            }
+            for folder in folders
+        ]
+
+        website_page_groups[website.id] = {}
+
+        for page in pages:
+            groups = SectionGroup.query.filter_by(
+                page_content_id=page.id
+            ).order_by(SectionGroup.group_order).all()
+
+            website_page_groups[website.id][page.id] = [
+                {
+                    'id': group.id,
+                    'name': group.name,
+                    'anchor_slug': group.anchor_slug
+                }
+                for group in groups
+                if group.anchor_slug
+            ]
+
+    csrf_token = generate_csrf()
+
+    email_settings = get_email_settings()
+
+    return render_template(
+        'dashboard.html',
+        websites=websites,
+        website_pages=website_pages,
+        website_page_groups=website_page_groups,
+        website_page_folders=website_page_folders,
+        user_has_website=has_site,
+        csrf_token=csrf_token,
+        email_settings=email_settings
+    )
+
+@app.route('/create_page_folder/<int:website_id>', methods=['POST'])
+@login_required
+def create_page_folder(website_id):
+    website = Website.query.filter_by(
+        id=website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    name = (data.get('name') or 'New Folder').strip() or 'New Folder'
+
+    max_order = db.session.query(func.max(PageFolder.sort_order)).filter_by(
+        website_id=website.id
+    ).scalar() or 0
+
+    folder = PageFolder(
+        website_id=website.id,
+        name=name,
+        sort_order=max_order + 1
+    )
+
+    db.session.add(folder)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'folder': {
+            'id': folder.id,
+            'name': folder.name,
+            'active_count': 0,
+            'total_count': 0
+        }
+    })
+
+@app.route('/rename_page_folder/<int:folder_id>', methods=['POST'])
+@login_required
+def rename_page_folder(folder_id):
+    folder = PageFolder.query.get_or_404(folder_id)
+    website = Website.query.filter_by(
+        id=folder.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Folder name is required.'}), 400
+
+    folder.name = name
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'folder': {
+            'id': folder.id,
+            'name': folder.name
+        }
+    })
+
+@app.route('/move_page_to_folder/<int:page_id>', methods=['POST'])
+@login_required
+def move_page_to_folder(page_id):
+    page = PublicPageContent.query.get_or_404(page_id)
+    website = Website.query.filter_by(
+        id=page.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    folder_id = data.get('folder_id')
+
+    if folder_id in ('', None, 'root'):
+        page.page_folder_id = None
+
+        max_order = db.session.query(func.max(PublicPageContent.sort_order)).filter_by(
+            website_id=website.id,
+            page_folder_id=None
+        ).scalar() or 0
+
+        page.sort_order = max_order + 1
+        page.folder_sort_order = 0
+
+    else:
+        folder = PageFolder.query.filter_by(
+            id=folder_id,
+            website_id=website.id
+        ).first_or_404()
+
+        max_order = db.session.query(func.max(PublicPageContent.folder_sort_order)).filter_by(
+            website_id=website.id,
+            page_folder_id=folder.id
+        ).scalar() or 0
+
+        page.page_folder_id = folder.id
+        page.folder_sort_order = max_order + 1
+
+    db.session.commit()
+
+    return jsonify({'success': True})
 
 
-# Route to handle sending email
+@app.route('/delete_page_folder/<int:folder_id>', methods=['POST'])
+@login_required
+def delete_page_folder(folder_id):
+    folder = PageFolder.query.get_or_404(folder_id)
+    website = Website.query.filter_by(
+        id=folder.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    pages = PublicPageContent.query.filter_by(
+        page_folder_id=folder.id
+    ).all()
+
+    max_order = db.session.query(func.max(PublicPageContent.sort_order)).filter_by(
+        website_id=website.id,
+        page_folder_id=None
+    ).scalar() or 0
+
+    for index, page in enumerate(pages, start=1):
+        page.page_folder_id = None
+        page.sort_order = max_order + index
+        page.folder_sort_order = 0
+
+    db.session.delete(folder)
+    db.session.commit()
+
+    return jsonify({'success': True})
+
+@app.route('/reorder_pages/<int:website_id>', methods=['POST'])
+@login_required
+def reorder_pages(website_id):
+    website = Website.query.filter_by(
+        id=website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json() or {}
+    page_ids = data.get('page_ids', [])
+    folder_id = data.get('folder_id', 'root')
+
+    resolved_folder_id = None
+
+    if folder_id not in ('root', '', None):
+        folder = PageFolder.query.filter_by(
+            id=folder_id,
+            website_id=website.id
+        ).first_or_404()
+
+        resolved_folder_id = folder.id
+
+    for index, page_id in enumerate(page_ids):
+        page = PublicPageContent.query.filter_by(
+            id=page_id,
+            website_id=website.id
+        ).first()
+
+        if not page:
+            continue
+
+        page.page_folder_id = resolved_folder_id
+
+        if resolved_folder_id:
+            page.folder_sort_order = index
+        else:
+            page.sort_order = index
+            page.folder_sort_order = 0
+
+    db.session.commit()
+
+    return jsonify({'success': True})
+
+def get_email_settings_fingerprint(settings):
+    """
+    Used to detect whether SMTP settings changed after 2FA was activated.
+    Do not include smtp_password in a way that reveals it. We hash the combined config.
+    """
+    if not settings:
+        return None
+
+    raw = "|".join([
+        settings.smtp_host or '',
+        str(settings.smtp_port or ''),
+        settings.smtp_username or '',
+        settings.smtp_password or '',
+        settings.from_email or '',
+        settings.from_name or '',
+        str(bool(settings.use_tls)),
+        str(bool(settings.use_ssl)),
+        str(bool(settings.is_active)),
+    ])
+
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def generate_two_factor_code():
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def set_pending_two_factor_code(user_id, code, purpose):
+    session['pending_2fa_user_id'] = user_id
+    session['pending_2fa_code_hash'] = generate_password_hash(code)
+    session['pending_2fa_purpose'] = purpose
+    session['pending_2fa_expires_at'] = (
+        datetime.utcnow() + timedelta(minutes=10)
+    ).isoformat()
+
+
+def get_pending_two_factor_error(user_id, purpose):
+    if session.get('pending_2fa_user_id') != user_id:
+        return 'No matching verification code is pending.'
+
+    if session.get('pending_2fa_purpose') != purpose:
+        return 'This verification code is not valid for this action.'
+
+    expires_raw = session.get('pending_2fa_expires_at')
+
+    if not expires_raw:
+        return 'This verification code expired.'
+
+    try:
+        expires_at = datetime.fromisoformat(expires_raw)
+    except ValueError:
+        return 'This verification code expired.'
+
+    if datetime.utcnow() > expires_at:
+        return 'This verification code expired.'
+
+    return None
+
+
+def clear_pending_two_factor_code():
+    session.pop('pending_2fa_user_id', None)
+    session.pop('pending_2fa_code_hash', None)
+    session.pop('pending_2fa_purpose', None)
+    session.pop('pending_2fa_expires_at', None)
+
+
+def send_two_factor_email(to_email, code, purpose='login'):
+    settings = get_email_settings()
+
+    if not settings or not settings.is_active:
+        raise RuntimeError('Email server is not configured or active.')
+
+    if not settings.smtp_host or not settings.smtp_port or not settings.smtp_username or not settings.smtp_password or not settings.from_email:
+        raise RuntimeError('Email server settings are incomplete.')
+
+    if settings.use_tls and settings.use_ssl:
+        raise RuntimeError('Email server cannot use both TLS and SSL.')
+
+    subject = 'Your Uwebia verification code'
+
+    if purpose == 'activation':
+        intro = 'Use this code to activate two-factor authentication for your Uwebia admin account.'
+    else:
+        intro = 'Use this code to finish logging in to your Uwebia admin account.'
+
+    body = f"""{intro}
+
+Verification code: {code}
+
+This code expires in 10 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+
+    msg = MIMEMultipart()
+    msg['From'] = (
+        f"{settings.from_name} <{settings.from_email}>"
+        if settings.from_name else settings.from_email
+    )
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    if settings.use_ssl:
+        server = smtplib.SMTP_SSL(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+    else:
+        server = smtplib.SMTP(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=10
+        )
+
+        if settings.use_tls:
+            server.starttls()
+
+    try:
+        server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(msg)
+    finally:
+        server.quit()
+
+@app.route('/admin/dashboard/settings/2fa/start', methods=['POST'])
+@login_required
+def start_two_factor_activation():
+    email_settings = get_email_settings()
+
+    if not email_settings or not email_settings.is_active:
+        return jsonify({
+            'status': 'error',
+            'message': 'Email server settings must be saved and active before enabling 2FA.'
+        }), 400
+
+    two_factor_email = request.form.get('two_factor_email', '').strip().lower()
+
+    if not two_factor_email:
+        two_factor_email = current_user.email
+
+    code = generate_two_factor_code()
+    set_pending_two_factor_code(current_user.id, code, 'activation')
+
+    print("")
+    print("========================================")
+    print("UWEBIA 2FA ACTIVATION CODE")
+    print(f"User: {current_user.username}")
+    print(f"Email: {two_factor_email}")
+    print(f"Code: {code}")
+    print("Expires in 10 minutes")
+    print("========================================")
+    print("")
+
+    try:
+        send_two_factor_email(two_factor_email, code, purpose='activation')
+    except Exception as e:
+        clear_pending_two_factor_code()
+
+        return jsonify({
+            'status': 'error',
+            'message': f'Could not send 2FA activation email: {str(e)}'
+        }), 400
+
+    session['pending_2fa_email'] = two_factor_email
+
+    return jsonify({
+        'status': 'success',
+        'message': f'Activation code sent to {two_factor_email}. Enter the code to enable 2FA.'
+    })
+
+
+@app.route('/admin/dashboard/settings/2fa/confirm', methods=['POST'])
+@login_required
+def confirm_two_factor_activation():
+    code = request.form.get('code', '').strip()
+
+    if not code:
+        return jsonify({
+            'status': 'error',
+            'message': 'Please enter the activation code.'
+        }), 400
+
+    pending_error = get_pending_two_factor_error(current_user.id, 'activation')
+
+    if pending_error:
+        clear_pending_two_factor_code()
+        return jsonify({
+            'status': 'error',
+            'message': pending_error
+        }), 400
+
+    expected_hash = session.get('pending_2fa_code_hash')
+
+    if not expected_hash or not check_password_hash(expected_hash, code):
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid activation code.'
+        }), 400
+
+    email_settings = get_email_settings()
+    fingerprint = get_email_settings_fingerprint(email_settings)
+
+    current_user.two_factor_enabled = True
+    current_user.two_factor_email = session.get('pending_2fa_email') or current_user.email
+    current_user.two_factor_activated_at = datetime.utcnow()
+    current_user.two_factor_last_email_settings_version = fingerprint
+    current_user.two_factor_disabled_reason = None
+    current_user.two_factor_disabled_at = None
+    current_user.two_factor_needs_attention = False
+
+    db.session.commit()
+    clear_pending_two_factor_code()
+    session.pop('pending_2fa_email', None)
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Two-factor authentication is now enabled.'
+    })
+
+
+@app.route('/admin/dashboard/settings/2fa/disable', methods=['POST'])
+@login_required
+def disable_two_factor_authentication():
+    disable_user_2fa(
+        current_user,
+        reason='you manually disabled it',
+        needs_attention=False
+    )
+    current_user.two_factor_disabled_reason = None
+    current_user.two_factor_disabled_at = None
+    current_user.two_factor_needs_attention = False
+
+    db.session.commit()
+    clear_pending_two_factor_code()
+    session.pop('pending_2fa_email', None)
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Two-factor authentication has been disabled.'
+    })
+
+@app.route('/admin/email_server_settings')
+@login_required
+def email_server_settings():
+    user = current_user
+    csrf_token = generate_csrf()
+
+    email_settings = get_email_settings()
+
+    return render_template(
+        'email_server_settings.html',
+        csrf_token=csrf_token,
+        email_settings = email_settings,
+        two_factor_enabled=current_user.two_factor_enabled
+    )
+
+
+def get_email_settings():
+    return EmailServerSettings.query.first()
+
+@app.route('/save_email_settings', methods=['POST'])
+@login_required
+def save_email_settings():
+    settings = EmailServerSettings.query.first()
+    old_fingerprint = get_email_settings_fingerprint(settings) if settings else None
+
+    if not settings:
+        settings = EmailServerSettings()
+        db.session.add(settings)
+
+    settings.smtp_host = request.form.get('smtp_host', '').strip()
+    settings.smtp_port = int(request.form.get('smtp_port', 587))
+    settings.smtp_username = request.form.get('smtp_username', '').strip()
+
+    raw_password = request.form.get('smtp_password', '').strip()
+    if raw_password:
+        settings.smtp_password = raw_password
+
+    settings.from_email = request.form.get('from_email', '').strip()
+    settings.from_name = request.form.get('from_name', '').strip()
+    settings.use_tls = request.form.get('use_tls') == 'on'
+    settings.use_ssl = request.form.get('use_ssl') == 'on'
+    settings.is_active = request.form.get('is_active') == 'on'
+
+    db.session.commit()
+
+    new_fingerprint = get_email_settings_fingerprint(settings)
+
+    two_factor_disabled = False
+
+    if old_fingerprint and old_fingerprint != new_fingerprint:
+        users_with_2fa = User.query.filter_by(two_factor_enabled=True).all()
+
+        for user in users_with_2fa:
+            disable_user_2fa(
+                user,
+                reason='email server settings changed',
+                needs_attention=True
+            )
+
+        db.session.commit()
+        two_factor_disabled = len(users_with_2fa) > 0
+
+    return jsonify({
+        'status': 'success',
+        'message': (
+            'Email settings saved successfully. 2FA was disabled because email server settings changed.'
+            if two_factor_disabled
+            else 'Email settings saved successfully.'
+        ),
+        'two_factor_disabled': two_factor_disabled
+    })
+
+
+@app.route('/admin/dashboard/messages')
+@login_required
+def messages_page():
+    status_filter = request.args.get('status', 'all')
+    read_filter = request.args.get('read', 'all')
+    search = request.args.get('q', '').strip()
+
+    query = ContactMessage.query.order_by(ContactMessage.created_at.desc())
+
+    if status_filter != 'all':
+        query = query.filter(ContactMessage.status == status_filter)
+
+    if read_filter == 'unread':
+        query = query.filter(ContactMessage.is_read == False)
+    elif read_filter == 'read':
+        query = query.filter(ContactMessage.is_read == True)
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            or_(
+                ContactMessage.sender_email.ilike(like),
+                ContactMessage.subject.ilike(like),
+                ContactMessage.body.ilike(like),
+                ContactMessage.recipient_email.ilike(like)
+            )
+        )
+
+    messages = query.all()
+    unread_count = ContactMessage.query.filter_by(is_read=False).count()
+
+    return render_template(
+        'messages.html',
+        messages=messages,
+        unread_count=unread_count,
+        status_filter=status_filter,
+        read_filter=read_filter,
+        search=search
+    )
+
+@app.route('/admin/dashboard/messages/<int:message_id>/read', methods=['POST'])
+@login_required
+def mark_message_read(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+
+    if not msg.is_read:
+        msg.is_read = True
+        msg.read_at = datetime.utcnow()
+        db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+@app.route('/admin/dashboard/messages/<int:message_id>/unread', methods=['POST'])
+@login_required
+def mark_message_unread(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+
+    msg.is_read = False
+    msg.read_at = None
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+@app.route('/admin/dashboard/messages/unread_count')
+@login_required
+def unread_messages_count():
+    count = ContactMessage.query.filter_by(is_read=False).count()
+    return jsonify({'count': count})
+
+@app.route('/admin/dashboard/messages/live')
+@login_required
+def messages_live():
+    unread_count = ContactMessage.query.filter_by(is_read=False).count()
+
+    latest_messages = (
+        ContactMessage.query
+        .order_by(ContactMessage.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    return jsonify({
+        'unread_count': unread_count,
+        'messages': [
+            {
+                'id': msg.id,
+                'sender_email': msg.sender_email,
+                'recipient_email': msg.recipient_email,
+                'subject': msg.subject,
+                'body': msg.body,
+                'body_preview': (msg.body[:120] + '...') if len(msg.body) > 120 else msg.body,
+                'created_at': msg.created_at.strftime('%b %d, %Y %I:%M %p'),
+                'is_read': msg.is_read,
+                'status': msg.status,
+                'error_message': msg.error_message,
+                'ip_address': msg.ip_address,
+                'referrer': msg.referrer,
+                'contact_form_title': msg.contact_form_title,
+            }
+            for msg in latest_messages
+        ]
+    })
+
+
+@app.route('/admin/dashboard/messages/<int:message_id>/delete', methods=['POST'])
+@login_required
+def delete_message(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+    db.session.delete(msg)
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.context_processor
+def inject_unread_message_count():
+    if current_user.is_authenticated:
+        unread_message_count = ContactMessage.query.filter_by(is_read=False).count()
+    else:
+        unread_message_count = 0
+
+    return dict(unread_message_count=unread_message_count)
+
 @app.route('/send_email', methods=['POST'])
 def send_email():
-    # Get form data
-    sender_email = request.form['senders_email']
-    subject = request.form['message_subject']
-    body = request.form['message_body']
+    sender_email = request.form.get('senders_email', '').strip()
+    subject = request.form.get('message_subject', '').strip()
+    body = request.form.get('message_body', '').strip()
+    section_id = request.form.get('section_id')
 
-    # Get the contact email from the database
-    contact_content = PublicPageContent.query.first()
-    if contact_content is None:
-        return jsonify({'status': 'error', 'message': 'No contact email found'})
-    # Construct the email body with the sender's email included
-    formatted_body = f"""
-    You have received a new message from your uwebia website contact form.
+    if not sender_email or not subject or not body or not section_id:
+        return jsonify({
+            'status': 'error',
+            'message': 'Missing required fields'
+        }), 400
 
-    Here are the details:
-
-    Sender Email: {sender_email}
-    Subject: {subject}
-    Message Body:
-    {body}
-    """
-
-    recipient_email = contact_content.contact_email
-
-    # Create message
-    message = Message(subject=subject,
-                      # sender=sender_email,
-                      recipients=[recipient_email],
-                      body=formatted_body)
-
-    # Send email
     try:
-        mail.send(message)
-        return jsonify({'status': 'success', 'message': 'Email sent successfully'})
+        section_id = int(section_id)
+    except ValueError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid section id'
+        }), 400
+
+    section = PageSection.query.get(section_id)
+    if not section or section.section_type != 'contact_form':
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid contact form section'
+        }), 404
+
+    recipient_email = None
+    contact_form_title = None
+
+    if section.content and isinstance(section.content, dict):
+        recipient_email = (section.content.get('email') or '').strip()
+        contact_form_title = section.content.get('title')
+
+    page_id = getattr(section, 'page_content_id', None)
+    website_id = None
+
+    if section.public_page_content:
+        website_id = section.public_page_content.website_id
+
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+
+    user_agent = request.headers.get('User-Agent')
+    referrer = request.referrer
+
+    contact_message = ContactMessage(
+        website_id=website_id,
+        page_id=page_id,
+        section_id=section_id,
+        sender_email=sender_email,
+        recipient_email=recipient_email,
+        subject=subject,
+        body=body,
+        contact_form_title=contact_form_title,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        referrer=referrer,
+        status='stored'
+    )
+
+    db.session.add(contact_message)
+    db.session.commit()
+
+    email_settings = get_email_settings()
+
+    # Important:
+    # If SMTP is not configured, still treat the public form submission as successful
+    # because the message has already been saved in the admin inbox.
+    if not email_settings or not email_settings.is_active:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email server is not configured. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message sent successfully.'
+        })
+
+    if not recipient_email:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'No recipient email found for this contact form. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    if (
+        not email_settings.smtp_host
+        or not email_settings.smtp_port
+        or not email_settings.smtp_username
+        or not email_settings.smtp_password
+        or not email_settings.from_email
+    ):
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email server settings are incomplete. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    if email_settings.use_tls and email_settings.use_ssl:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email server cannot use both TLS and SSL. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    formatted_body = f"""You have received a new message from your Uwebia website contact form.
+
+Sender Email: {sender_email}
+Subject: {subject}
+
+Message Body:
+{body}
+
+---
+Contact Form: {contact_form_title or ''}
+IP Address: {ip_address or ''}
+Referrer: {referrer or ''}
+"""
+
+    msg = MIMEMultipart()
+    msg['From'] = (
+        f"{email_settings.from_name} <{email_settings.from_email}>"
+        if email_settings.from_name else email_settings.from_email
+    )
+    msg['To'] = recipient_email
+    msg['Subject'] = subject
+    msg['Reply-To'] = sender_email
+    msg.attach(MIMEText(formatted_body, 'plain', 'utf-8'))
+
+    try:
+        if email_settings.use_ssl:
+            server = smtplib.SMTP_SSL(
+                email_settings.smtp_host,
+                email_settings.smtp_port,
+                timeout=10
+            )
+        else:
+            server = smtplib.SMTP(
+                email_settings.smtp_host,
+                email_settings.smtp_port,
+                timeout=10
+            )
+
+            if email_settings.use_tls:
+                server.starttls()
+
+        try:
+            server.login(email_settings.smtp_username, email_settings.smtp_password)
+            server.send_message(msg)
+        finally:
+            server.quit()
+
+        contact_message.status = 'sent'
+        contact_message.sent_at = datetime.utcnow()
+        contact_message.error_message = None
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPAuthenticationError:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email login failed. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPConnectError:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Could not connect to the email server. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPServerDisconnected:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'The email server disconnected unexpectedly. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPRecipientsRefused:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'The recipient email address was refused. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPException as e:
+        contact_message.status = 'stored'
+        contact_message.error_message = f'Email sending failed: {str(e)}. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except ssl.SSLError:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'SSL/TLS handshake failed. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Failed to send email: {str(e)}'})
+        import traceback
+        traceback.print_exc()
+
+        contact_message.status = 'stored'
+        contact_message.error_message = f'Unexpected email error: {str(e)}. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+@app.route('/send_test_email', methods=['POST'])
+@login_required
+def send_test_email():
+    smtp_host = request.form.get('smtp_host', '').strip()
+    smtp_port = request.form.get('smtp_port', '').strip()
+    smtp_username = request.form.get('smtp_username', '').strip()
+    smtp_password = request.form.get('smtp_password', '').strip()
+    from_email = request.form.get('from_email', '').strip()
+    from_name = request.form.get('from_name', '').strip()
+    test_recipient = request.form.get('test_email', '').strip()
+
+    use_tls = request.form.get('use_tls') == 'on'
+    use_ssl = request.form.get('use_ssl') == 'on'
+    is_active = request.form.get('is_active') == 'on'
+
+    if not is_active:
+        return jsonify({
+            'status': 'error',
+            'message': 'Email sending is currently disabled.'
+        }), 400
+
+    if not test_recipient:
+        return jsonify({
+            'status': 'error',
+            'message': 'Test email address is required.'
+        }), 400
+
+    if not smtp_host or not smtp_port or not smtp_username or not smtp_password or not from_email:
+        return jsonify({
+            'status': 'error',
+            'message': 'Missing required SMTP settings.'
+        }), 400
+
+    try:
+        smtp_port = int(smtp_port)
+    except ValueError:
+        return jsonify({
+            'status': 'error',
+            'message': 'SMTP port must be a valid number.'
+        }), 400
+
+    if use_tls and use_ssl:
+        return jsonify({
+            'status': 'error',
+            'message': 'Choose either TLS or SSL, not both.'
+        }), 400
+
+    subject = 'Uwebia Test Email'
+    body = """This is a test email from your Uwebia email server configuration.
+
+If you received this, your SMTP settings are working.
+"""
+
+    msg = MIMEMultipart()
+    msg['From'] = f"{from_name} <{from_email}>" if from_name else from_email
+    msg['To'] = test_recipient
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    try:
+        if use_ssl:
+            server = smtplib.SMTP_SSL(
+                smtp_host,
+                smtp_port,
+                timeout=10
+            )
+        else:
+            server = smtplib.SMTP(
+                smtp_host,
+                smtp_port,
+                timeout=10
+            )
+            if use_tls:
+                server.starttls()
+
+        server.login(smtp_username, smtp_password)
+        server.send_message(msg)
+        server.quit()
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Test email sent successfully to {test_recipient}.'
+        })
+
+    except smtplib.SMTPAuthenticationError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Email login failed. Check your username or app password.'
+        }), 400
+
+    except smtplib.SMTPConnectError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Could not connect to the email server. Check host and port.'
+        }), 400
+
+    except smtplib.SMTPServerDisconnected:
+        return jsonify({
+            'status': 'error',
+            'message': 'The email server disconnected unexpectedly. Check TLS/SSL settings and port.'
+        }), 400
+
+    except smtplib.SMTPRecipientsRefused:
+        return jsonify({
+            'status': 'error',
+            'message': 'The test recipient email address was refused by the server.'
+        }), 400
+
+    except smtplib.SMTPException as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Email sending failed: {str(e)}'
+        }), 400
+
+    except ssl.SSLError:
+        return jsonify({
+            'status': 'error',
+            'message': 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
+        }), 400
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': f'Unexpected server error while sending test email: {str(e)}'
+        }), 500
 
 @app.route('/create_website', methods=['POST'])
 @login_required
 def create_website():
+    # Check if a website already exists for this user
+    existing_site = Website.query.filter_by(user_id=current_user.id).first()
+
+    if existing_site:
+        # You could flash a message or redirect back to their existing site
+        return "You already have a website!", 400
     name = request.form['name']
     description = request.form['description']
     tags = request.form.get('tags', '')  # Get tags from the form, default to empty string if not provided
@@ -962,6 +4385,18 @@ def create_website():
     user = current_user
     new_website = Website(name=name, owner=user, description=description)
     db.session.add(new_website)
+    db.session.commit()
+
+    home_page = PublicPageContent(
+        website_id=new_website.id,
+        name='Home',
+        description='Root page',
+        slug='home',
+        sort_order=0,
+        site_active_status=False
+    )
+
+    db.session.add(home_page)
     db.session.commit()
 
     # Process tags
@@ -979,6 +4414,25 @@ def create_website():
 
     return redirect(url_for('dashboard'))
 
+@app.route('/<string:page_slug>')
+def public_page_by_slug(page_slug):
+    website = Website.query.first()
+
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    page = PublicPageContent.query.filter_by(
+        website_id=website.id,
+        slug=page_slug
+    ).first()
+
+    if not page:
+        return "Page Not Found", 404
+
+    if not page.site_active_status:
+        return "Site Inactive", 404
+
+    return render_public_page(website, page)
 
 @app.route('/create_page/<int:website_id>', methods=['GET', 'POST'])
 @login_required
@@ -993,7 +4447,7 @@ def create_page(website_id):
         description = request.form['description']
         tags = request.form.get('tags', '')  # Get tags from the form, default to empty string if not provided
 
-        new_content = PublicPageContent(name=name, description=description, website_id=website_id)
+        new_content = PublicPageContent(name=name, description=description, website_id=website_id, slug=get_unique_slug(website_id, name))
         db.session.add(new_content)
         db.session.commit()
 
@@ -1015,37 +4469,87 @@ def create_page(website_id):
     # Render template for GET request
     return render_template('create_page.html', website=website)
 
-
 @app.route('/edit_website/<int:website_id>', methods=['POST'])
 @login_required
 def edit_website(website_id):
     website = Website.query.get_or_404(website_id)
-    if website.owner.id != current_user.id:
-        return jsonify({'status': 'error', 'message': 'Unauthorized access'})
 
-    new_name = request.form.get('name')
-    new_tags = request.form.get('tags')
-    new_description = request.form.get('description')  # Get the updated description from the form
+    if website.user_id != current_user.id:
+        return jsonify({
+            'status': 'error',
+            'message': 'Unauthorized access'
+        }), 403
 
-    # Update website name
-    if new_name:
-        website.name = new_name
+    data = request.get_json()
 
-    # Update website description
-    if new_description:
-        website.description = new_description
+    website.name = data.get('name', website.name)
+    website.description = data.get('description', website.description)
+    website.background_color = data.get('background_color', website.background_color)
+    website.text_color = data.get('text_color', website.text_color)
+    website.public_navbar_items = data.get(
+        'public_navbar_items',
+        website.public_navbar_items
+    )
 
-    # Update website tags
-    if new_tags:
-        tag_names = [tag.strip() for tag in new_tags.split(',')]
-        website.tags.clear()
-        for tag_name in tag_names:
-            tag = Tag.query.filter_by(name=tag_name).first() or Tag(name=tag_name)
-            website.tags.append(tag)
+    # Replace tags
+    new_tags = data.get('tags', '')
+    tag_names = [tag.strip() for tag in new_tags.split(',') if tag.strip()]
+
+    website.tags.clear()
+
+    for tag_name in tag_names:
+        tag = Tag.query.filter_by(name=tag_name).first()
+
+        if not tag:
+            tag = Tag(name=tag_name)
+            db.session.add(tag)
+
+        website.tags.append(tag)
 
     db.session.commit()
-    return jsonify({'message': 'Website updated successfully'})
 
+    return jsonify({
+        'success': True,
+        'message': 'Website updated successfully'
+    })
+
+@app.route('/edit_website_style/<int:website_id>', methods=['POST'])
+@login_required
+def edit_website_style(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized access'
+        }), 403
+
+    data = request.get_json()
+
+    website.background_color = data.get('background_color', website.background_color)
+    website.text_color = data.get('text_color', website.text_color)
+
+    website.background_image_url = data.get('background_image_url') or None
+    website.background_image_repeat = bool(data.get('background_image_repeat', False))
+
+    try:
+        zoom = int(data.get('background_image_zoom') or 100)
+    except ValueError:
+        zoom = 100
+
+    website.background_image_zoom = max(25, min(1000, zoom))
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Website style updated successfully',
+        'background_color': website.background_color,
+        'text_color': website.text_color,
+        'background_image_url': website.background_image_url,
+        'background_image_repeat': website.background_image_repeat,
+        'background_image_zoom': website.background_image_zoom
+    })
 
 @app.route('/edit_page/<int:website_id>/<int:page_id>', methods=['POST'])
 @login_required
@@ -1058,6 +4562,9 @@ def edit_page(website_id, page_id):
     # Update page name
     if new_name:
         page.name = new_name
+
+        if page.slug != 'home':
+            page.slug = get_unique_slug(website_id, new_name, current_page_id=page.id)
 
     # Update page description
     if new_description:
@@ -1074,8 +4581,362 @@ def edit_page(website_id, page_id):
     db.session.commit()
     return jsonify({'message': 'Page updated successfully'})
 
+def copy_section_links_and_events(old_section, new_section):
+    """
+    Copies section relationships that live outside PageSection.content.
 
-@app.route('/remove_tag/website/<int:website_id>/<string:tag_name>', methods=['POST'])
+    New system:
+    - SectionAsset -> Asset
+
+    Legacy compatibility:
+    - SectionImage -> Picture
+
+    Calendar:
+    - CalendarEvent
+    """
+
+    # New asset-library section links
+    source_assets = SectionAsset.query.filter_by(
+        section_id=old_section.id
+    ).order_by(SectionAsset.order).all()
+
+    for old_link in source_assets:
+        db.session.add(SectionAsset(
+            section_id=new_section.id,
+            asset_id=old_link.asset_id,
+            usage_type=old_link.usage_type,
+            order=old_link.order
+        ))
+
+    # Legacy image-library links, safe to keep for old pages/data
+    source_images = SectionImage.query.filter_by(
+        section_id=old_section.id
+    ).order_by(SectionImage.order).all()
+
+    for old_img in source_images:
+        db.session.add(SectionImage(
+            section_id=new_section.id,
+            picture_id=old_img.picture_id,
+            order=old_img.order
+        ))
+
+    # Calendar events
+    source_events = CalendarEvent.query.filter_by(
+        section_id=old_section.id
+    ).all()
+
+    for old_event in source_events:
+        db.session.add(CalendarEvent(
+            title=old_event.title,
+            description=old_event.description,
+            start=old_event.start,
+            end=old_event.end,
+            background_color=old_event.background_color,
+            section_id=new_section.id
+        ))
+
+def copy_section_group(old_group, new_page_id):
+    return SectionGroup(
+        page_content_id=new_page_id,
+        name=old_group.name,
+        anchor_slug=old_group.anchor_slug,
+        group_order=old_group.group_order,
+
+        background_color=old_group.background_color,
+        background_opacity=old_group.background_opacity,
+        padding=old_group.padding,
+        border_radius=old_group.border_radius,
+        max_width=old_group.max_width,
+
+        background_image_url=old_group.background_image_url,
+        background_image_size=old_group.background_image_size,
+        background_image_position=old_group.background_image_position,
+        background_overlay_color=old_group.background_overlay_color,
+        background_overlay_opacity=old_group.background_overlay_opacity
+    )
+
+@app.route('/duplicate_page/<int:website_id>/<int:page_id>', methods=['POST'])
+@login_required
+def duplicate_page(website_id, page_id):
+    try:
+        website = Website.query.filter_by(
+            id=website_id,
+            user_id=current_user.id
+        ).first_or_404()
+
+        original_page = PublicPageContent.query.filter_by(
+            id=page_id,
+            website_id=website.id
+        ).first_or_404()
+
+        copy_name = get_copy_name(original_page.website_id, original_page.name)
+
+        new_page = PublicPageContent(
+            website_id=original_page.website_id,
+            page_folder_id=original_page.page_folder_id,
+            folder_sort_order=original_page.folder_sort_order,
+            sort_order=(original_page.sort_order or 0) + 1,
+
+            name=copy_name,
+            description=original_page.description,
+            site_active_status=False,
+
+            background_color=original_page.background_color,
+            text_color=original_page.text_color,
+
+            slug=get_unique_slug(original_page.website_id, copy_name)
+        )
+
+        db.session.add(new_page)
+        db.session.flush()
+
+        # Copy tags
+        for tag in original_page.tags:
+            new_page.tags.append(tag)
+
+        # Copy groups
+        group_map = {}
+
+        original_groups = SectionGroup.query.filter_by(
+            page_content_id=original_page.id
+        ).order_by(SectionGroup.group_order, SectionGroup.id).all()
+
+        for old_group in original_groups:
+            new_group = copy_section_group(old_group, new_page.id)
+
+            db.session.add(new_group)
+            db.session.flush()
+
+            group_map[old_group.id] = new_group.id
+
+        # Copy sections
+        section_map = {}
+
+        original_sections = PageSection.query.filter_by(
+            page_content_id=original_page.id
+        ).order_by(PageSection.order, PageSection.id).all()
+
+        for old_section in original_sections:
+            new_section = PageSection(
+                section_type=old_section.section_type,
+                order=old_section.order,
+                content=copy.deepcopy(old_section.content or {}),
+                page_content_id=new_page.id
+            )
+
+            db.session.add(new_section)
+            db.session.flush()
+
+            section_map[old_section.id] = new_section.id
+
+            copy_section_links_and_events(old_section, new_section)
+
+        # Copy rows and columns
+        original_rows = Row.query.filter_by(
+            page_content_id=original_page.id
+        ).order_by(Row.row_number, Row.id).all()
+
+        for old_row in original_rows:
+            new_row = Row(
+                page_content_id=new_page.id,
+                row_number=old_row.row_number,
+                section_group_id=(
+                    group_map.get(old_row.section_group_id)
+                    if old_row.section_group_id
+                    else None
+                )
+            )
+
+            db.session.add(new_row)
+            db.session.flush()
+
+            original_columns = Column.query.filter_by(
+                row_id=old_row.id
+            ).order_by(Column.column_number, Column.id).all()
+
+            for old_column in original_columns:
+                db.session.add(Column(
+                    row_id=new_row.id,
+                    column_number=old_column.column_number,
+                    width=old_column.width,
+                    section_id=(
+                        section_map.get(old_column.section_id)
+                        if old_column.section_id
+                        else None
+                    )
+                ))
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'page_id': new_page.id,
+            'page_name': new_page.name,
+            'slug': new_page.slug
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error duplicating page: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/replace_page/<int:target_page_id>/<int:source_page_id>', methods=['POST'])
+@login_required
+def replace_page(target_page_id, source_page_id):
+    try:
+        target_page = PublicPageContent.query.get_or_404(target_page_id)
+        source_page = PublicPageContent.query.get_or_404(source_page_id)
+
+        target_website = Website.query.get_or_404(target_page.website_id)
+        source_website = Website.query.get_or_404(source_page.website_id)
+
+        if target_website.user_id != current_user.id or source_website.user_id != current_user.id:
+            return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+        if target_page.id == source_page.id:
+            return jsonify({
+                "success": False,
+                "error": "Cannot replace a page with itself."
+            }), 400
+
+        # Keep target identity/url fields.
+        # Do not overwrite target_page.name, target_page.slug, or target_page.site_active_status.
+        target_page.description = source_page.description
+        target_page.background_color = source_page.background_color
+        target_page.text_color = source_page.text_color
+
+        # Replace tags
+        target_page.tags.clear()
+        for tag in source_page.tags:
+            target_page.tags.append(tag)
+
+        # Delete existing target sections and dependent relationships first.
+        old_target_sections = PageSection.query.filter_by(
+            page_content_id=target_page.id
+        ).all()
+
+        for section in old_target_sections:
+            SectionAsset.query.filter_by(section_id=section.id).delete()
+            SectionImage.query.filter_by(section_id=section.id).delete()
+            CalendarEvent.query.filter_by(section_id=section.id).delete()
+            db.session.delete(section)
+
+        db.session.flush()
+
+        # Delete rows/columns and groups after sections.
+        # Columns are delete-orphan through Row.columns, so deleting Row removes Columns.
+        Row.query.filter_by(page_content_id=target_page.id).delete()
+        SectionGroup.query.filter_by(page_content_id=target_page.id).delete()
+
+        db.session.flush()
+
+        # Copy source groups
+        group_map = {}
+
+        source_groups = SectionGroup.query.filter_by(
+            page_content_id=source_page.id
+        ).order_by(SectionGroup.group_order, SectionGroup.id).all()
+
+        for old_group in source_groups:
+            new_group = copy_section_group(old_group, target_page.id)
+
+            db.session.add(new_group)
+            db.session.flush()
+
+            group_map[old_group.id] = new_group.id
+
+        # Copy source sections
+        section_map = {}
+
+        source_sections = PageSection.query.filter_by(
+            page_content_id=source_page.id
+        ).order_by(PageSection.order, PageSection.id).all()
+
+        for old_section in source_sections:
+            new_section = PageSection(
+                section_type=old_section.section_type,
+                order=old_section.order,
+                content=copy.deepcopy(old_section.content or {}),
+                page_content_id=target_page.id
+            )
+
+            db.session.add(new_section)
+            db.session.flush()
+
+            section_map[old_section.id] = new_section.id
+
+            copy_section_links_and_events(old_section, new_section)
+
+        # Copy source rows and columns
+        source_rows = Row.query.filter_by(
+            page_content_id=source_page.id
+        ).order_by(Row.row_number, Row.id).all()
+
+        for old_row in source_rows:
+            new_row = Row(
+                page_content_id=target_page.id,
+                row_number=old_row.row_number,
+                section_group_id=(
+                    group_map.get(old_row.section_group_id)
+                    if old_row.section_group_id
+                    else None
+                )
+            )
+
+            db.session.add(new_row)
+            db.session.flush()
+
+            source_columns = Column.query.filter_by(
+                row_id=old_row.id
+            ).order_by(Column.column_number, Column.id).all()
+
+            for old_column in source_columns:
+                db.session.add(Column(
+                    row_id=new_row.id,
+                    column_number=old_column.column_number,
+                    width=old_column.width,
+                    section_id=(
+                        section_map.get(old_column.section_id)
+                        if old_column.section_id
+                        else None
+                    )
+                ))
+
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "target_page_id": target_page.id
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error replacing page: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+def get_copy_name(website_id, original_name):
+    base_name = f"{original_name} Copy"
+    existing_names = {
+        p.name for p in PublicPageContent.query.filter_by(website_id=website_id).all()
+    }
+
+    if base_name not in existing_names:
+        return base_name
+
+    i = 2
+    while f"{base_name} {i}" in existing_names:
+        i += 1
+
+    return f"{base_name} {i}"
+
+@app.route('/remove_tag/page/<int:website_id>/<string:tag_name>', methods=['POST'])
 @login_required
 def remove_website_tag(website_id, tag_name):
     if 'user_id' not in session:
@@ -1110,7 +4971,7 @@ def get_page_details(page_id):
     return jsonify({'name': page.name, 'description': page.description, 'tags': [tag.name for tag in page.tags]})
 
 
-@app.route('/api/website/<int:website_id>/pages', methods=['GET'])
+@app.route('/api/page/<int:website_id>/pages', methods=['GET'])
 def get_pages_for_website(website_id):
     try:
         website = Website.query.get_or_404(website_id)
@@ -1133,32 +4994,39 @@ def page_editor(website_id, page_id):
         return jsonify({'status': 'error', 'message': 'Page does not belong to this website'})
 
     site_active_status = content.site_active_status
-    sections = PageSection.query.filter_by(page_content_id=page_id).order_by(
-        PageSection.order).all()  # Filter sections by page_id
+    sections = PageSection.query.filter_by(page_content_id=page_id).order_by(PageSection.order).all()
 
-    # Example: Set max_columns to a fixed value, e.g., 3
-    max_columns = 10
+    navbar_pages = PublicPageContent.query.filter_by(
+        website_id=website.id
+    ).order_by(PublicPageContent.name).all()
 
     for section in sections:
-        if section.column:  # Check if the section is associated with a column
+        if section.column:
             section.row_id = section.column.row_id
             section.row_number = section.column.row.row_number
             section.column_id = section.column.id
             section.column_number = section.column.column_number
 
-    return render_template('page_editor.html',
-                           site_active_status=site_active_status,
-                           sections=sections,
-                           page_id=page_id,
-                           website=website,
-                           page_content=content
-                           )
+    return render_template(
+        'page_editor.html',
+        site_active_status=site_active_status,
+        sections=sections,
+        page_id=page_id,
+        website=website,
+        page_content=content,
+        navbar_pages=navbar_pages
+    )
+
 
 @app.route('/delete_page/<int:website_id>/<int:page_id>', methods=['POST'])
 @login_required
 def delete_page(website_id, page_id):
     page = PublicPageContent.query.filter_by(id=page_id, website_id=website_id).first()
     if page:
+        if page.slug == 'home':
+            return jsonify({
+                'error': 'The root page cannot be deleted. Use Replace Page to change its content or edit it directly.'
+            }), 400
         # Check if the user owns the website
         website = Website.query.filter_by(id=website_id, user_id=current_user.id).first()
         if website:
@@ -1179,6 +5047,7 @@ def delete_page(website_id, page_id):
             return jsonify({'error': 'You are not authorized to delete this page'}), 403
     else:
         return jsonify({'error': 'Page not found'}), 404
+
 
 @app.route('/delete_website/<int:website_id>', methods=['POST'])
 @login_required
@@ -1212,46 +5081,238 @@ def allowed_file(filename):
 @app.route('/swap_section_positions/<int:first_section_id>/<int:second_section_id>', methods=['PUT'])
 @login_required
 def swap_section_positions(first_section_id, second_section_id):
-    # Get the sections from the database
-    first_section = PageSection.query.get(first_section_id)
-    second_section = PageSection.query.get(second_section_id)
+    first_column = Column.query.filter_by(section_id=first_section_id).first()
+    second_column = Column.query.filter_by(section_id=second_section_id).first()
 
-    if first_section and second_section:
-        # Swap the sections' column references
-        first_section.column, second_section.column = second_section.column, first_section.column
+    if not first_column or not second_column:
+        return jsonify({'error': 'One or both sections not found in columns'}), 404
 
-        # Commit changes to the database
-        db.session.commit()
+    first_column.section_id, second_column.section_id = second_column.section_id, first_column.section_id
 
-        return jsonify({'message': 'Sections position swapped successfully'}), 200
-    else:
-        return jsonify({'error': 'One or both sections not found'}), 404
+    db.session.commit()
+    return jsonify({'message': 'Sections position swapped successfully'}), 200
 
 
 @app.route('/update_section_position/<int:section_id>', methods=['PUT'])
 @login_required
 def update_section_position(section_id):
-    data = request.json
+    data = request.get_json()
     column_id = data.get('columnId')
-    column = Column.query.get(column_id)
-
-    # Check if the target column already contains any sections
-    existing_sections_in_column = PageSection.query.filter_by(column=column).first()
-    if existing_sections_in_column and existing_sections_in_column.id != section_id:
-        return jsonify({'error': 'Column already contains a section'}), 400
 
     section = PageSection.query.get(section_id)
-    if section:
-        # Check if the column is not None before updating
-        if column:
-            section.column = column
-        # Check if the row is not None before updating
-        if column and column.row:
-            section.row = column.row
-        db.session.commit()
-        return jsonify({'message': 'Section position updated successfully'}), 200
-    else:
+    target_column = Column.query.get(column_id)
+
+    if not section:
         return jsonify({'error': 'Section not found'}), 404
+
+    if not target_column:
+        return jsonify({'error': 'Target column not found'}), 404
+
+    if target_column.section_id is not None and target_column.section_id != section_id:
+        return jsonify({'error': 'Column already contains a section'}), 400
+
+    current_column = Column.query.filter_by(section_id=section_id).first()
+
+    if current_column and current_column.id != target_column.id:
+        current_column.section_id = None
+
+    target_column.section_id = section_id
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Section position updated successfully',
+        'row_id': target_column.row_id,
+        'column_id': target_column.id
+    }), 200
+
+@app.route('/move_or_swap_section/<int:section_id>', methods=['PUT'])
+@login_required
+def move_or_swap_section(section_id):
+    try:
+        data = request.get_json() or {}
+
+        source_column_id = data.get('sourceColumnId')
+        target_column_id = data.get('targetColumnId')
+
+        section = PageSection.query.get_or_404(section_id)
+        source_column = Column.query.get(source_column_id)
+        target_column = Column.query.get(target_column_id)
+
+        if not source_column or not target_column:
+            return jsonify({
+                'success': False,
+                'error': 'Source or target column not found.'
+            }), 404
+
+        if source_column.id == target_column.id:
+            return jsonify({
+                'success': True,
+                'message': 'Section already in this column.'
+            })
+
+        # Security check: make sure this section belongs to the logged-in user's website.
+        page = PublicPageContent.query.get_or_404(section.page_content_id)
+        website = Website.query.get_or_404(page.website_id)
+
+        if website.user_id != current_user.id:
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized.'
+            }), 403
+
+        # Make sure both columns belong to the same page.
+        if source_column.row.page_content_id != page.id or target_column.row.page_content_id != page.id:
+            return jsonify({
+                'success': False,
+                'error': 'Columns do not belong to the same page.'
+            }), 400
+
+        if source_column.section_id != section.id:
+            # Recover from stale frontend data by finding the true source column.
+            true_source_column = Column.query.filter_by(section_id=section.id).first()
+
+            if not true_source_column:
+                return jsonify({
+                    'success': False,
+                    'error': 'Section is not assigned to a column.'
+                }), 400
+
+            source_column = true_source_column
+
+        target_section_id = target_column.section_id
+
+        # Move into empty column OR swap with occupied column.
+        target_column.section_id = section.id
+        source_column.section_id = target_section_id
+
+        # Keep section.order roughly aligned with visual cell position.
+        section.order = target_column.column_number or section.order
+
+        if target_section_id:
+            swapped_section = PageSection.query.get(target_section_id)
+            if swapped_section:
+                swapped_section.order = source_column.column_number or swapped_section.order
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Section moved successfully.'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f'Error moving/swapping section: {e}')
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/move_section_to_new_row/<int:section_id>', methods=['PUT'])
+@login_required
+def move_section_to_new_row(section_id):
+    data = request.get_json()
+    target_row_id = data.get('targetRowId')
+
+    section = PageSection.query.get(section_id)
+    target_row = Row.query.get(target_row_id)
+
+    if not section:
+        return jsonify({'error': 'Section not found'}), 404
+
+    if not target_row:
+        return jsonify({'error': 'Target row not found'}), 404
+
+    empty_column = None
+    for col in target_row.columns:
+        if col.section_id is None:
+            empty_column = col
+            break
+
+    if not empty_column:
+        next_col_num = max([c.column_number for c in target_row.columns], default=0) + 1
+        empty_column = Column(
+            row_id=target_row.id,
+            column_number=next_col_num,
+            section_id=None,
+            width=100
+        )
+        db.session.add(empty_column)
+        db.session.flush()
+
+    current_column = Column.query.filter_by(section_id=section_id).first()
+    if current_column:
+        current_column.section_id = None
+
+    empty_column.section_id = section_id
+
+    db.session.commit()
+
+    return jsonify({'message': 'Section moved successfully'})
+
+
+@app.route('/insert_section_before_row/<int:section_id>', methods=['PUT'])
+@login_required
+def insert_section_before_row(section_id):
+    data = request.get_json()
+    target_row_id = data.get('targetRowId')
+
+    section = PageSection.query.get(section_id)
+    target_row = Row.query.get(target_row_id)
+
+    if not section:
+        return jsonify({'error': 'Section not found'}), 404
+
+    if not target_row:
+        return jsonify({'error': 'Target row not found'}), 404
+
+    try:
+        insert_row_number = target_row.row_number
+        page_content_id = target_row.page_content_id
+
+        rows_to_shift = (
+            Row.query
+            .filter(
+                Row.page_content_id == page_content_id,
+                Row.row_number >= insert_row_number
+            )
+            .order_by(Row.row_number.desc())
+            .all()
+        )
+
+        for row in rows_to_shift:
+            row.row_number += 1
+
+        new_row = Row(
+            page_content_id=page_content_id,
+            row_number=insert_row_number
+        )
+        db.session.add(new_row)
+        db.session.flush()
+
+        new_column = Column(
+            row_id=new_row.id,
+            column_number=1,
+            section_id=None,
+            width=100
+        )
+        db.session.add(new_column)
+        db.session.flush()
+
+        current_column = Column.query.filter_by(section_id=section_id).first()
+        if current_column:
+            current_column.section_id = None
+
+        new_column.section_id = section_id
+
+        db.session.commit()
+        return jsonify({'message': 'Section inserted into new row successfully'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 
 # Assuming you have a Flask app instance named 'app'
@@ -1388,15 +5449,18 @@ def add_row_above(row_id):
 @login_required
 def remove_section(page_id, section_id):
     section = PageSection.query.get_or_404(section_id)
-    # Get the order of the section to be removed
     removed_order = section.order
-    delete_associated_pictures(section.id)
+
+    delete_associated_section_images(section.id)
+
     db.session.delete(section)
     db.session.commit()
 
-    # Update the order numbers of remaining sections with order greater than the removed section
-    remaining_sections = PageSection.query.filter(PageSection.page_content_id == page_id,
-                                                  PageSection.order > removed_order).all()
+    remaining_sections = PageSection.query.filter(
+        PageSection.page_content_id == page_id,
+        PageSection.order > removed_order
+    ).all()
+
     for s in remaining_sections:
         s.order -= 1
 
@@ -1441,6 +5505,210 @@ def update_section_order():
         return 'Section order updated successfully', 200
     else:
         return 'Section not found', 404
+
+
+@app.route('/admin/library/upload', methods=['POST'])
+@login_required
+def library_upload():
+    files = request.files.getlist('picture')
+    folder_id = request.form.get('folder_id')
+
+    user_folder = os.path.join(uploads_folder, str(current_user.id))
+    os.makedirs(user_folder, exist_ok=True)
+
+    for file in files:
+        if not file or not allowed_file(file.filename):
+            continue
+
+        # size check
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+
+        if file_size > MAX_UPLOAD_BYTES:
+            return jsonify({
+                'status': 'error',
+                'error': f'"{file.filename}" exceeds the {MAX_UPLOAD_MB} MB limit.'
+            }), 400
+
+        try:
+            saved = save_optimized_versions(file, user_folder)
+
+            public_url = url_for(
+                'static',
+                filename=f'uploads/{current_user.id}/{saved["public_filename"]}'
+            )
+            thumb_url = url_for(
+                'static',
+                filename=f'uploads/{current_user.id}/{saved["thumb_filename"]}'
+            )
+
+            new_pic = Picture(
+                url=public_url,
+                thumbnail_url=thumb_url,
+                user_id=current_user.id,
+                folder_id=folder_id
+            )
+            db.session.add(new_pic)
+
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'error': f'Failed to process "{file.filename}": {str(e)}'
+            }), 400
+
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+def ensure_rgb(image: Image.Image) -> Image.Image:
+    if image.mode in ("RGBA", "LA"):
+        background = Image.new("RGB", image.size, (255, 255, 255))
+        background.paste(image, mask=image.getchannel("A"))
+        return background
+    if image.mode != "RGB":
+        return image.convert("RGB")
+    return image
+
+
+def save_optimized_versions(file_storage, output_dir: str) -> dict:
+    os.makedirs(output_dir, exist_ok=True)
+
+    base_name = uuid.uuid4().hex
+
+    with Image.open(file_storage.stream) as img:
+        img = ImageOps.exif_transpose(img)
+        img = ensure_rgb(img)
+
+        # Public image
+        public_img = img.copy()
+        if public_img.width > PUBLIC_MAX_WIDTH:
+            ratio = PUBLIC_MAX_WIDTH / public_img.width
+            new_height = int(public_img.height * ratio)
+            public_img = public_img.resize((PUBLIC_MAX_WIDTH, new_height), Image.LANCZOS)
+
+        public_filename = f"{base_name}.webp"
+        public_path = os.path.join(output_dir, public_filename)
+        public_img.save(public_path, "WEBP", quality=PUBLIC_QUALITY, method=6)
+
+        # Thumbnail
+        thumb_img = img.copy()
+        thumb_img.thumbnail(THUMB_SIZE, Image.LANCZOS)
+
+        thumb_filename = f"{base_name}_thumb.webp"
+        thumb_path = os.path.join(output_dir, thumb_filename)
+        thumb_img.save(thumb_path, "WEBP", quality=THUMB_QUALITY, method=6)
+
+    return {
+        "public_filename": public_filename,
+        "thumb_filename": thumb_filename,
+    }
+
+@app.route('/get_library_root', methods=['GET'])
+@login_required
+def get_library_root():
+    all_folders = Folder.query.filter_by(user_id=current_user.id).all()
+    root_images = Picture.query.filter_by(user_id=current_user.id, folder_id=None).all()
+    return jsonify({
+        'folders': [{'id': f.id, 'name': f.name} for f in all_folders],
+        'images': [{'id': i.id, 'url': i.url} for i in root_images]
+    })
+
+
+@app.route('/get_library_folder/<int:folder_id>', methods=['GET'])
+@login_required
+def get_library_folder(folder_id):
+    # Verify the folder belongs to the user
+    folder = Folder.query.filter_by(id=folder_id, user_id=current_user.id).first_or_404()
+
+    # Get images inside this specific folder
+    images = Picture.query.filter_by(user_id=current_user.id, folder_id=folder_id).all()
+
+    return jsonify({
+        'folders': [],  # Assuming no nested folders for now
+        'images': [{'id': i.id, 'url': i.url} for i in images]
+    })
+
+
+@app.route('/admin/dashboard/library')
+@login_required
+def old_photo_library_redirect():
+    return redirect(url_for('asset_library'))
+
+def migrate_pictures_to_assets():
+    pictures = Picture.query.all()
+
+    for pic in pictures:
+        existing = Asset.query.filter_by(
+            user_id=pic.user_id,
+            url=pic.url
+        ).first()
+
+        if existing:
+            continue
+
+        filename = os.path.basename(pic.url or 'image.webp')
+        extension = get_asset_extension(filename) or 'webp'
+
+        asset = Asset(
+            user_id=pic.user_id,
+            folder_id=None,
+            original_filename=filename,
+            stored_filename=filename,
+            url=pic.url,
+            thumbnail_url=pic.thumbnail_url,
+            asset_type='image',
+            mime_type='image/webp' if extension == 'webp' else f'image/{extension}',
+            extension=extension,
+            file_size=0
+        )
+
+        db.session.add(asset)
+
+    db.session.commit()
+
+@app.route('/admin/dashboard/library', endpoint='photo_library')
+@login_required
+def photo_library():
+    folders = Folder.query.filter_by(user_id=current_user.id).all()
+    root_pictures = Picture.query.filter_by(
+        user_id=current_user.id,
+        folder_id=None
+    ).order_by(Picture.upload_date.desc()).all()
+
+    return render_template(
+        'photo_library.html',
+        folders=folders,
+        root_pictures=root_pictures,
+        current_folder=None
+    )
+
+
+def update_images_section(section, form_data):
+    section.content = {
+        'image_layout': form_data.get('image_layout', 'single'),
+        'image_fit': form_data.get('image_fit', 'cover'),
+        'image_radius': form_data.get('image_radius', '10'),
+        'show_thumbnails': form_data.get('show_thumbnails') == 'on',
+        'autoplay': form_data.get('autoplay') == 'on'
+    }
+
+    # Optional but recommended: migrate old section types forward.
+    section.section_type = 'images'
+
+    return section
+
+@app.route('/section/add_image', methods=['POST'])
+@login_required
+def link_image_to_section():
+    data = request.json
+    section_id = data.get('section_id')
+    picture_id = data.get('picture_id')
+
+    # Add to junction table
+    link = SectionImage(section_id=section_id, picture_id=picture_id)
+    db.session.add(link)
+    db.session.commit()
+    return jsonify({'status': 'success'})
 
 
 @app.route('/update_public_images', methods=['POST'])
@@ -1549,16 +5817,74 @@ def update_public_images():
 
     else:
         return jsonify({'status': 'error', 'message': 'Invalid section type'})
+#
+# @app.route('/delete_section_image/<int:link_id>', methods=['DELETE'])
+# @login_required
+# def delete_section_image(link_id):
+#     try:
+#         section_image = SectionImage.query.get_or_404(link_id)
+#
+#         section = PageSection.query.get_or_404(section_image.section_id)
+#         page = PublicPageContent.query.get_or_404(section.page_content_id)
+#         website = Website.query.get_or_404(page.website_id)
+#
+#         if website.user_id != current_user.id:
+#             return jsonify({
+#                 'success': False,
+#                 'error': 'Unauthorized.'
+#             }), 403
+#
+#         db.session.delete(section_image)
+#         db.session.commit()
+#
+#         return jsonify({
+#             'success': True,
+#             'message': 'Image removed from section.'
+#         })
+#
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({
+#             'success': False,
+#             'error': str(e)
+#         }), 500
 
-
-@app.route('/get_uploaded_images')
+@app.route('/get_uploaded_images', methods=['GET'])
+@login_required
 def get_uploaded_images():
-    section_id = request.args.get('section_id')
-    if not section_id:
-        return jsonify({'status': 'error', 'message': 'Section ID is missing'})
+    section_id = request.args.get('section_id', type=int)
 
-    pictures = Picture.query.filter_by(section_id=section_id).order_by(Picture.order).all()
-    images_data = [{'id': picture.id, 'url': picture.url, 'order': picture.order} for picture in pictures]
+    if not section_id:
+        return jsonify({'images': []})
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'images': []}), 403
+
+    results = (
+        db.session.query(Asset, SectionAsset)
+        .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+        .filter(
+            SectionAsset.section_id == section.id,
+            Asset.asset_type == 'image'
+        )
+        .order_by(SectionAsset.order)
+        .all()
+    )
+
+    images_data = [
+        {
+            'id': asset.id,
+            'asset_id': asset.id,
+            'link_id': link.id,
+            'url': asset.url,
+            'thumbnail_url': asset.thumbnail_url or asset.url,
+            'order': link.order,
+            'filename': asset.original_filename
+        }
+        for asset, link in results
+    ]
 
     return jsonify({'images': images_data})
 
@@ -1610,6 +5936,411 @@ def delete_image():
             return jsonify({'status': 'error', 'message': str(e)})
     else:
         return jsonify({'status': 'error', 'message': 'Image not found'})
+
+
+from flask import render_template, request, jsonify, url_for
+from flask_login import login_required, current_user
+import os
+
+
+@app.route('/add_assets_to_section', methods=['POST'])
+@login_required
+def add_assets_to_section():
+    data = request.get_json() or {}
+
+    section_id = data.get('section_id')
+    asset_ids = (
+        data.get('asset_ids')
+        or data.get('image_ids')
+        or data.get('audio_ids')
+        or data.get('video_ids')
+        or []
+    )
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    section_asset_rules = {
+        'image': 'image',
+        'image_gallery': 'image',
+        'images': 'image',
+        'music': 'audio',
+        'video': 'video',
+        'videos': 'video',
+    }
+
+    required_asset_type = section_asset_rules.get(section.section_type)
+
+    if not required_asset_type:
+        return jsonify({
+            'status': 'error',
+            'message': f'This section does not accept library assets: {section.section_type}'
+        }), 400
+
+    usage_type = data.get('usage_type') or {
+        'image': 'section-image',
+        'image_gallery': 'section-image',
+        'images': 'section-image',
+        'music': 'section-music',
+        'video': 'section-video',
+        'videos': 'section-video',
+    }.get(section.section_type, 'section-asset')
+
+    max_order = db.session.query(func.coalesce(func.max(SectionAsset.order), 0)).filter_by(
+        section_id=section.id
+    ).scalar() or 0
+
+    added = 0
+
+    for asset_id in asset_ids:
+        asset = Asset.query.filter_by(
+            id=asset_id,
+            user_id=current_user.id,
+            asset_type=required_asset_type
+        ).first()
+
+        if not asset:
+            continue
+
+        existing = SectionAsset.query.filter_by(
+            section_id=section.id,
+            asset_id=asset.id,
+            usage_type=usage_type
+        ).first()
+
+        if existing:
+            continue
+
+        max_order += 1
+
+        db.session.add(SectionAsset(
+            section_id=section.id,
+            asset_id=asset.id,
+            usage_type=usage_type,
+            order=max_order
+        ))
+
+        added += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'success': True,
+        'added': added
+    })
+
+
+def get_or_create_asset_visitor_id():
+    visitor_id = request.cookies.get('uwebia_asset_visitor_id')
+
+    if visitor_id:
+        return visitor_id, False
+
+    visitor_id = secrets.token_urlsafe(32)
+    return visitor_id, True
+
+
+def hash_asset_visitor_id(visitor_id):
+    return hashlib.sha256(visitor_id.encode('utf-8')).hexdigest()
+
+@app.route('/get_section_videos', methods=['GET'])
+@login_required
+def get_section_videos():
+    section_id = request.args.get('section_id', type=int)
+
+    if not section_id:
+        return jsonify({'videos': []})
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'videos': []}), 403
+
+    results = (
+        db.session.query(Asset, SectionAsset)
+        .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+        .filter(
+            SectionAsset.section_id == section.id,
+            Asset.asset_type == 'video'
+        )
+        .order_by(SectionAsset.order)
+        .all()
+    )
+
+    videos_data = [
+        {
+            'id': asset.id,
+            'asset_id': asset.id,
+            'link_id': link.id,
+            'url': asset.url,
+            'thumbnail_url': asset.thumbnail_url or '',
+            'mime_type': asset.mime_type or 'video/mp4',
+            'order': link.order,
+            'filename': asset.original_filename,
+            'extension': asset.extension,
+            'file_size_label': format_bytes(asset.file_size),
+            'play_count': asset.play_count or 0,
+            'unique_play_count': asset.unique_play_count or 0,
+            'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
+        }
+        for asset, link in results
+    ]
+
+    return jsonify({'videos': videos_data})
+
+
+@app.route('/remove_video_from_section', methods=['POST'])
+@login_required
+def remove_video_from_section():
+    data = request.get_json() or {}
+
+    section_id = data.get('sectionId') or data.get('section_id')
+    link_ids = data.get('linkIds') or data.get('link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    if not link_ids:
+        return jsonify({'status': 'error', 'message': 'No videos selected.'}), 400
+
+    SectionAsset.query.filter(
+        SectionAsset.id.in_(link_ids),
+        SectionAsset.section_id == section.id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'success': True,
+        'message': 'Video removed from section.'
+    })
+
+
+@app.route('/reorder_section_videos', methods=['POST'])
+@login_required
+def reorder_section_videos():
+    data = request.get_json() or {}
+
+    section_id = data.get('section_id')
+    ordered_link_ids = data.get('ordered_link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    for index, link_id in enumerate(ordered_link_ids, start=1):
+        link = SectionAsset.query.filter_by(
+            id=link_id,
+            section_id=section.id
+        ).first()
+
+        if link:
+            link.order = index
+
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'success': True})
+
+@app.route('/get_section_music', methods=['GET'])
+@login_required
+def get_section_music():
+    section_id = request.args.get('section_id', type=int)
+
+    if not section_id:
+        return jsonify({'tracks': []})
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'tracks': []}), 403
+
+    results = (
+        db.session.query(Asset, SectionAsset)
+        .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+        .filter(
+            SectionAsset.section_id == section.id,
+            Asset.asset_type == 'audio'
+        )
+        .order_by(SectionAsset.order)
+        .all()
+    )
+
+    tracks_data = [
+        {
+            'id': asset.id,
+            'asset_id': asset.id,
+            'link_id': link.id,
+            'url': asset.url,
+            'mime_type': asset.mime_type or 'audio/mpeg',
+            'order': link.order,
+            'filename': asset.original_filename,
+            'extension': asset.extension,
+            'file_size_label': format_bytes(asset.file_size),
+            'play_count': asset.play_count or 0,
+            'unique_play_count': asset.unique_play_count or 0,
+            'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
+        }
+        for asset, link in results
+    ]
+
+    return jsonify({'tracks': tracks_data})
+
+
+@app.route('/remove_music_from_section', methods=['POST'])
+@login_required
+def remove_music_from_section():
+    data = request.get_json() or {}
+
+    section_id = data.get('sectionId') or data.get('section_id')
+    link_ids = data.get('linkIds') or data.get('link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    if not link_ids:
+        return jsonify({'status': 'error', 'message': 'No tracks selected.'}), 400
+
+    SectionAsset.query.filter(
+        SectionAsset.id.in_(link_ids),
+        SectionAsset.section_id == section.id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'success': True,
+        'message': 'Music removed from section.'
+    })
+
+
+@app.route('/reorder_section_music', methods=['POST'])
+@login_required
+def reorder_section_music():
+    data = request.get_json() or {}
+
+    section_id = data.get('section_id')
+    ordered_link_ids = data.get('ordered_link_ids') or []
+
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
+
+    for index, link_id in enumerate(ordered_link_ids, start=1):
+        link = SectionAsset.query.filter_by(
+            id=link_id,
+            section_id=section.id
+        ).first()
+
+        if link:
+            link.order = index
+
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'success': True})
+
+@app.route('/add_images_from_library', methods=['POST'])
+@login_required
+def add_images_from_library_legacy():
+    data = request.get_json() or {}
+
+    return add_assets_to_section()
+
+
+# Create a new folder
+@app.route('/admin/library/create_folder', methods=['POST'])
+@login_required
+def create_folder():
+    data = request.json
+    name = data.get('name')
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Name is required'}), 400
+
+    new_folder = Folder(name=name, user_id=current_user.id)
+    db.session.add(new_folder)
+    db.session.commit()
+    return jsonify({'status': 'success', 'folder_id': new_folder.id})
+
+
+# View a specific folder
+@app.route('/admin/dashboard/library/folder/<int:folder_id>', endpoint='view_folder')
+@login_required
+def view_folder(folder_id):
+    folder = Folder.query.filter_by(
+        id=folder_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    folders = Folder.query.filter_by(user_id=current_user.id).all()
+    pictures = Picture.query.filter_by(
+        user_id=current_user.id,
+        folder_id=folder_id
+    ).order_by(Picture.upload_date.desc()).all()
+
+    return render_template(
+        'photo_library.html',
+        folders=folders,
+        root_pictures=pictures,
+        current_folder=folder
+    )
+
+
+# Move image to folder
+@app.route('/admin/library/move_image', methods=['POST'])
+@login_required
+def move_image():
+    data = request.json
+    image_id = data.get('image_id')
+    folder_id = data.get('folder_id')
+
+    # If dropped on 'Main Library', set folder_id to None
+    if folder_id == "root":
+        folder_id = None
+
+    image = Picture.query.filter_by(id=image_id, user_id=current_user.id).first()
+    if image:
+        image.folder_id = folder_id
+        db.session.commit()
+        return jsonify({'status': 'success'})
+    return jsonify({'status': 'error'}), 404
+
+
+# Revamped Delete (Handles database and physical file)
+@app.route('/admin/library/delete_image/<int:image_id>', methods=['POST'])
+@login_required
+def delete_library_image(image_id):
+    image = Picture.query.filter_by(id=image_id, user_id=current_user.id).first()
+    if not image:
+        return jsonify({'status': 'error', 'message': 'Not found'}), 404
+
+    try:
+        # 1. Determine local path from URL
+        # URL is usually: /static/uploads/1/image.jpg
+        # We need: project_root/static/uploads/1/image.jpg
+        relative_path = image.url.lstrip('/')
+        full_path = os.path.join(app.root_path, relative_path)
+
+        # 2. Delete file from disk
+        if os.path.exists(full_path):
+            os.remove(full_path)
+
+        # 3. Delete from DB (cascades to section_usages)
+        db.session.delete(image)
+        db.session.commit()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/update_public_text', methods=['POST'])
@@ -1749,81 +6480,1294 @@ def serve_static(filename):
     print("Request for static file:", filename)
     return send_from_directory(app.static_folder, filename)
 
+def should_track_page_visit(is_preview=False):
+    if is_preview:
+        return False
+
+    # Do not count your own logged-in admin/editor visits.
+    if current_user.is_authenticated:
+        return False
+
+    user_agent = (request.headers.get('User-Agent') or '').lower()
+
+    bot_keywords = [
+        'bot',
+        'crawler',
+        'spider',
+        'preview',
+        'facebookexternalhit',
+        'slackbot',
+        'discordbot',
+        'whatsapp',
+        'telegrambot'
+    ]
+
+    if any(keyword in user_agent for keyword in bot_keywords):
+        return False
+
+    return True
+
+def get_analytics_settings_for_user(user_id):
+    settings = AnalyticsSettings.query.filter_by(user_id=user_id).first()
+
+    if not settings:
+        settings = AnalyticsSettings(
+            user_id=user_id,
+            geoip_enabled=False
+        )
+        db.session.add(settings)
+        db.session.commit()
+
+    return settings
+
+
+def is_public_ip_address(ip_address):
+    if not ip_address:
+        return False
+
+    try:
+        ip = ipaddress.ip_address(ip_address)
+        return not (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_link_local
+        )
+    except ValueError:
+        return False
+
+
+def lookup_ip_location_for_website(website, ip_address):
+    """
+    Optional local GeoIP lookup.
+    No third-party API call is made.
+
+    Supports using multiple local databases at once:
+    - City: country, region, city, lat/lon
+    - Country: country only
+    - ASN: network/provider
+    """
+    if not website or not ip_address:
+        return {}
+
+    if not is_public_ip_address(ip_address):
+        return {}
+
+    settings = AnalyticsSettings.query.filter_by(user_id=website.user_id).first()
+
+    if not settings or not settings.geoip_enabled:
+        return {}
+
+    try:
+        import geoip2.database
+
+        result = {
+            'location_source': 'local_geoip'
+        }
+
+        # 1. City database, best location option
+        if settings.geoip_city_database_path and os.path.exists(settings.geoip_city_database_path):
+            try:
+                with geoip2.database.Reader(settings.geoip_city_database_path) as reader:
+                    response = reader.city(ip_address)
+
+                    result.update({
+                        'geoip_database_type': settings.geoip_city_database_type,
+                        'country': response.country.name,
+                        'country_iso': response.country.iso_code,
+                        'region': response.subdivisions.most_specific.name,
+                        'city': response.city.name,
+                        'latitude': response.location.latitude,
+                        'longitude': response.location.longitude
+                    })
+            except Exception as e:
+                print(f"GeoIP City lookup failed for {ip_address}: {e}")
+
+        # 2. Country fallback if City was not available or did not return country
+        if not result.get('country') and settings.geoip_country_database_path and os.path.exists(settings.geoip_country_database_path):
+            try:
+                with geoip2.database.Reader(settings.geoip_country_database_path) as reader:
+                    response = reader.country(ip_address)
+
+                    result.update({
+                        'geoip_database_type': result.get('geoip_database_type') or settings.geoip_country_database_type,
+                        'country': response.country.name,
+                        'country_iso': response.country.iso_code
+                    })
+            except Exception as e:
+                print(f"GeoIP Country lookup failed for {ip_address}: {e}")
+
+        # 3. ASN can be added alongside City/Country
+        if settings.geoip_asn_database_path and os.path.exists(settings.geoip_asn_database_path):
+            try:
+                with geoip2.database.Reader(settings.geoip_asn_database_path) as reader:
+                    response = reader.asn(ip_address)
+
+                    result.update({
+                        'asn_number': response.autonomous_system_number,
+                        'asn_organization': response.autonomous_system_organization
+                    })
+
+                    if result.get('geoip_database_type'):
+                        result['geoip_database_type'] = f"{result['geoip_database_type']} + {settings.geoip_asn_database_type}"
+                    else:
+                        result['geoip_database_type'] = settings.geoip_asn_database_type
+
+            except Exception as e:
+                print(f"GeoIP ASN lookup failed for {ip_address}: {e}")
+
+        return result
+
+    except Exception as e:
+        print(f"GeoIP lookup failed for {ip_address}: {e}")
+        return {}
+
+def cleanup_unused_geoip_files(user_id):
+    """
+    Delete unused .mmdb files for this user from database/analytics.
+
+    Keeps only files currently referenced by AnalyticsSettings.
+    Removes old temp files, old single-database files, and leftovers from previous versions.
+    """
+    analytics_folder = os.path.join(database_folder, 'analytics')
+
+    if not os.path.exists(analytics_folder):
+        return 0
+
+    settings = AnalyticsSettings.query.filter_by(user_id=user_id).first()
+
+    active_paths = set()
+
+    if settings:
+        possible_paths = [
+            getattr(settings, 'geoip_city_database_path', None),
+            getattr(settings, 'geoip_country_database_path', None),
+            getattr(settings, 'geoip_asn_database_path', None),
+        ]
+
+        for path in possible_paths:
+            if path:
+                active_paths.add(os.path.abspath(path))
+
+    deleted_count = 0
+
+    for filename in os.listdir(analytics_folder):
+        if not filename.lower().endswith('.mmdb'):
+            continue
+
+        # Only clean files for this user.
+        # Prevent accidentally deleting another user's files in the future.
+        if not filename.startswith(f'user_{user_id}_geoip_'):
+            continue
+
+        file_path = os.path.abspath(os.path.join(analytics_folder, filename))
+
+        if file_path not in active_paths:
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+                print(f"Deleted unused GeoIP database: {file_path}")
+            except Exception as e:
+                print(f"Failed to delete unused GeoIP database {file_path}: {e}")
+
+    return deleted_count
+
+@app.route('/admin/dashboard/analytics/geoip/upload', methods=['POST'])
+@login_required
+def upload_geoip_database():
+    settings = get_analytics_settings_for_user(current_user.id)
+
+    geoip_file = request.files.get('geoip_database')
+
+    if not geoip_file or not geoip_file.filename:
+        return jsonify({
+            'success': False,
+            'message': 'Please choose a GeoIP .mmdb database file.'
+        }), 400
+
+    filename = secure_filename(geoip_file.filename)
+
+    if not filename.lower().endswith('.mmdb'):
+        return jsonify({
+            'success': False,
+            'message': 'Only .mmdb GeoIP database files are allowed.'
+        }), 400
+
+    analytics_folder = os.path.join(database_folder, 'analytics')
+    os.makedirs(analytics_folder, exist_ok=True)
+
+    temp_path = os.path.join(
+        analytics_folder,
+        f'user_{current_user.id}_geoip_upload_temp.mmdb'
+    )
+
+    geoip_file.save(temp_path)
+
+    try:
+        import geoip2.database
+
+        with geoip2.database.Reader(temp_path) as reader:
+            database_type = reader.metadata().database_type
+
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        return jsonify({
+            'success': False,
+            'message': f'Could not read this GeoIP database: {str(e)}'
+        }), 400
+
+    city_types = ['GeoLite2-City', 'GeoIP2-City']
+    country_types = ['GeoLite2-Country', 'GeoIP2-Country']
+    asn_types = ['GeoLite2-ASN', 'GeoIP2-ASN']
+
+    if database_type in city_types:
+        final_path = os.path.join(
+            analytics_folder,
+            f'user_{current_user.id}_geoip_city.mmdb'
+        )
+
+        if os.path.exists(final_path):
+            os.remove(final_path)
+
+        os.replace(temp_path, final_path)
+
+        settings.geoip_city_database_path = final_path
+        settings.geoip_city_database_name = filename
+        settings.geoip_city_database_type = database_type
+
+        message = f'{database_type} uploaded. City-level location lookup is enabled.'
+
+    elif database_type in country_types:
+        final_path = os.path.join(
+            analytics_folder,
+            f'user_{current_user.id}_geoip_country.mmdb'
+        )
+
+        if os.path.exists(final_path):
+            os.remove(final_path)
+
+        os.replace(temp_path, final_path)
+
+        settings.geoip_country_database_path = final_path
+        settings.geoip_country_database_name = filename
+        settings.geoip_country_database_type = database_type
+
+        message = f'{database_type} uploaded. Country-level lookup is enabled.'
+
+    elif database_type in asn_types:
+        final_path = os.path.join(
+            analytics_folder,
+            f'user_{current_user.id}_geoip_asn.mmdb'
+        )
+
+        if os.path.exists(final_path):
+            os.remove(final_path)
+
+        os.replace(temp_path, final_path)
+
+        settings.geoip_asn_database_path = final_path
+        settings.geoip_asn_database_name = filename
+        settings.geoip_asn_database_type = database_type
+
+        message = f'{database_type} uploaded. Network/provider lookup is enabled.'
+
+    else:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        return jsonify({
+            'success': False,
+            'message': f'This database type is "{database_type}". Supported types are City, Country, and ASN .mmdb databases.'
+        }), 400
+
+    settings.geoip_enabled = True
+    settings.updated_at = datetime.utcnow()
+
+    db.session.commit()
+    cleanup_unused_geoip_files(current_user.id)
+
+    return jsonify({
+        'success': True,
+        'message': message,
+        'geoip_database_type': database_type,
+        'geoip_city_database_name': settings.geoip_city_database_name,
+        'geoip_country_database_name': settings.geoip_country_database_name,
+        'geoip_asn_database_name': settings.geoip_asn_database_name
+    })
+
+
+@app.route('/admin/dashboard/analytics/geoip/disable', methods=['POST'])
+@login_required
+def disable_geoip_database():
+    settings = get_analytics_settings_for_user(current_user.id)
+
+    settings.geoip_enabled = False
+    settings.updated_at = datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Approximate location and network analytics disabled.'
+    })
+
+
+@app.route('/admin/dashboard/analytics/geoip/delete', methods=['POST'])
+@login_required
+def delete_geoip_database():
+    settings = get_analytics_settings_for_user(current_user.id)
+
+    paths_to_delete = [
+        settings.geoip_city_database_path,
+        settings.geoip_country_database_path,
+        settings.geoip_asn_database_path
+    ]
+
+    for path in paths_to_delete:
+        if path and os.path.exists(path):
+            os.remove(path)
+
+    settings.geoip_enabled = False
+
+    settings.geoip_city_database_path = None
+    settings.geoip_city_database_name = None
+    settings.geoip_city_database_type = None
+
+    settings.geoip_country_database_path = None
+    settings.geoip_country_database_name = None
+    settings.geoip_country_database_type = None
+
+    settings.geoip_asn_database_path = None
+    settings.geoip_asn_database_name = None
+    settings.geoip_asn_database_type = None
+
+    settings.updated_at = datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'All local GeoIP databases deleted.'
+    })
+
+GEOIP_DB_PATH = os.path.join(database_folder, 'GeoLite2-City.mmdb')
+
+def lookup_ip_location(ip_address):
+    if not ip_address:
+        return {}
+
+    if ip_address.startswith(('127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.',
+                              '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
+                              '172.28.', '172.29.', '172.30.', '172.31.')):
+        return {}
+
+    if not os.path.exists(GEOIP_DB_PATH):
+        return {}
+
+    try:
+        import geoip2.database
+
+        with geoip2.database.Reader(GEOIP_DB_PATH) as reader:
+            response = reader.city(ip_address)
+
+            return {
+                'country': response.country.name,
+                'region': response.subdivisions.most_specific.name,
+                'city': response.city.name,
+                'latitude': response.location.latitude,
+                'longitude': response.location.longitude,
+                'source': 'geoip_local'
+            }
+
+    except Exception:
+        return {}
+
+def track_page_visit(website, page, visitor_id):
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+
+    location = lookup_ip_location_for_website(website, ip_address)
+    print("Tracking visit IP:", ip_address)
+    print("GeoIP location:", location)
+
+    visit = PageVisit(
+        website_id=website.id,
+        page_id=page.id,
+        visitor_id=visitor_id,
+        path=request.path,
+        referrer=request.referrer,
+        user_agent=request.headers.get('User-Agent'),
+        ip_address=ip_address,
+
+        country=location.get('country'),
+        country_iso=location.get('country_iso'),
+        region=location.get('region'),
+        city=location.get('city'),
+        latitude=location.get('latitude'),
+        longitude=location.get('longitude'),
+        location_source=location.get('location_source'),
+
+        asn_number=location.get('asn_number'),
+        asn_organization=location.get('asn_organization'),
+        geoip_database_type=location.get('geoip_database_type')
+    )
+
+    db.session.add(visit)
+    db.session.commit()
+
+@app.route('/admin/dashboard/settings', methods=['GET', 'POST'])
+@login_required
+def settings_page():
+    timezone_choices = pytz.common_timezones
+
+    if request.method == 'POST':
+        admin_url_key_enabled = request.form.get('admin_url_key_enabled') == 'on'
+        admin_url_key = normalize_admin_url_key(request.form.get('admin_url_key'))
+
+        if admin_url_key_enabled and not admin_url_key:
+            flash('Please enter an admin URL key or turn off the custom admin login URL setting.', 'error')
+            return redirect(url_for('settings_page'))
+
+        current_user.admin_url_key_enabled = admin_url_key_enabled
+        current_user.admin_url_key = admin_url_key if admin_url_key_enabled else None
+
+        timezone_name = request.form.get('timezone', 'America/Chicago').strip()
+        date_format = request.form.get('date_format', '%b %d, %Y %I:%M %p').strip()
+
+        if timezone_name not in pytz.all_timezones:
+            flash('Invalid timezone selected.', 'error')
+            return redirect(url_for('settings_page'))
+
+        allowed_date_formats = [
+            '%b %d, %Y %I:%M %p',
+            '%m/%d/%Y %I:%M %p',
+            '%Y-%m-%d %H:%M',
+            '%d %b %Y %H:%M'
+        ]
+
+        if date_format not in allowed_date_formats:
+            date_format = '%b %d, %Y %I:%M %p'
+
+        current_user.timezone = timezone_name
+        current_user.date_format = date_format
+
+        account_username = request.form.get('account_username', '').strip().lower()
+        account_email = request.form.get('account_email', '').strip().lower()
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_new_password = request.form.get('confirm_new_password', '')
+
+        if not account_username:
+            flash('Username cannot be blank.', 'error')
+            return redirect(url_for('settings_page'))
+
+        if not account_email:
+            flash('Email cannot be blank.', 'error')
+            return redirect(url_for('settings_page'))
+
+        existing_username = User.query.filter(
+            User.username == account_username,
+            User.id != current_user.id
+        ).first()
+
+        if existing_username:
+            flash('That username is already in use.', 'error')
+            return redirect(url_for('settings_page'))
+
+        existing_email = User.query.filter(
+            User.email == account_email,
+            User.id != current_user.id
+        ).first()
+
+        if existing_email:
+            flash('That email is already in use.', 'error')
+            return redirect(url_for('settings_page'))
+
+        password_change_requested = bool(new_password or confirm_new_password)
+
+        if password_change_requested:
+            if not current_password:
+                flash('Enter your current password to change your password.', 'error')
+                return redirect(url_for('settings_page'))
+
+            if not current_user.check_password(current_password):
+                flash('Current password is incorrect.', 'error')
+                return redirect(url_for('settings_page'))
+
+            if new_password != confirm_new_password:
+                flash('New passwords do not match.', 'error')
+                return redirect(url_for('settings_page'))
+
+            current_user.set_password(new_password)
+
+        current_user.username = account_username
+        current_user.email = account_email
+
+        db.session.commit()
+
+        if current_user.admin_url_key_enabled and current_user.admin_url_key:
+            flash(
+                f'Settings saved. Your custom admin login URL is /admin/login/{current_user.admin_url_key}',
+                'success'
+            )
+        else:
+            flash('Settings saved. Custom admin login URL is disabled.', 'success')
+        return redirect(url_for('settings_page'))
+
+    return render_template(
+        'settings.html',
+        timezone_choices=timezone_choices,
+        selected_timezone=current_user.timezone or 'America/Chicago',
+        selected_date_format=current_user.date_format or '%b %d, %Y %I:%M %p',
+        admin_url_key_enabled = current_user.admin_url_key_enabled,
+        admin_url_key = current_user.admin_url_key or '',
+        two_factor_enabled=current_user.two_factor_enabled,
+        two_factor_email=current_user.two_factor_email or current_user.email,
+        email_settings=get_email_settings(),
+        account_username=current_user.username,
+        account_email=current_user.email,
+    )
+
+
+def render_public_page(website, page, is_preview=False):
+    sections = PageSection.query.filter_by(
+        page_content_id=page.id
+    ).order_by(PageSection.order).all()
+
+    pictures_by_section = {}
+    music_by_section = {}
+    videos_by_section = {}
+
+    for section in sections:
+        section_assets = (
+            db.session.query(Asset.url)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'image'
+            )
+            .order_by(SectionAsset.order)
+            .all()
+        )
+
+        pictures_by_section[section.id] = [asset.url for asset in section_assets]
+        music_assets = (
+            db.session.query(Asset, SectionAsset)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'audio'
+            )
+            .order_by(SectionAsset.order)
+            .all()
+        )
+
+        music_by_section[section.id] = [
+            {
+                'id': asset.id,
+                'asset_id': asset.id,
+                'link_id': link.id,
+                'url': asset.url,
+                'mime_type': asset.mime_type or 'audio/mpeg',
+                'filename': asset.original_filename,
+                'extension': asset.extension,
+                'file_size_label': format_bytes(asset.file_size),
+                'play_count': asset.play_count or 0,
+                'unique_play_count': asset.unique_play_count or 0,
+                'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
+            }
+            for asset, link in music_assets
+        ]
+        video_assets = (
+            db.session.query(Asset, SectionAsset)
+            .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+            .filter(
+                SectionAsset.section_id == section.id,
+                Asset.asset_type == 'video'
+            )
+            .order_by(SectionAsset.order)
+            .all()
+        )
+
+        videos_by_section[section.id] = [
+            {
+                'id': asset.id,
+                'asset_id': asset.id,
+                'link_id': link.id,
+                'url': asset.url,
+                'thumbnail_url': asset.thumbnail_url or '',
+                'mime_type': asset.mime_type or 'video/mp4',
+                'filename': asset.original_filename,
+                'extension': asset.extension,
+                'file_size_label': format_bytes(asset.file_size),
+                'play_count': asset.play_count or 0,
+                'unique_play_count': asset.unique_play_count or 0,
+                'last_played_at': asset.last_played_at.isoformat() if asset.last_played_at else None
+            }
+            for asset, link in video_assets
+        ]
+
+    comments_by_section = {}
+
+    for section in sections:
+        if section.section_type != 'comments':
+            continue
+
+        comment_settings = section.content or {}
+        comments_per_page = int(comment_settings.get('comments_per_page') or 25)
+
+        comments = PageComment.query.filter_by(
+            section_id=section.id,
+            is_hidden=False,
+            is_approved=True
+        ).order_by(
+            PageComment.created_at.desc()
+        ).limit(comments_per_page).all()
+
+        comments_by_section[section.id] = comments
+
+    section_groups = SectionGroup.query.filter_by(
+        page_content_id=page.id
+    ).order_by(SectionGroup.group_order).all()
+
+    public_page_content = {
+        'page_id': page.id,
+        'page_slug': page.slug,
+        'current_page_url': url_for('public_page_by_slug', page_slug=page.slug),
+        'sections': [section.to_dict() for section in sections],
+        'groups': [
+    {
+        'id': group.id,
+        'name': group.name,
+        'anchor_slug': group.anchor_slug,
+        'group_order': group.group_order,
+
+        'background_color': group.background_color or 'transparent',
+        'background_opacity': group.background_opacity,
+
+        'padding': group.padding,
+        'border_radius': group.border_radius,
+        'max_width': group.max_width,
+
+        'background_image_url': group.background_image_url,
+        'background_image_size': group.background_image_size or 'cover',
+        'background_image_position': group.background_image_position or 'center',
+        'background_overlay_color': group.background_overlay_color or 'transparent',
+        'background_overlay_opacity': group.background_overlay_opacity or 0
+    }
+    for group in section_groups
+],
+        'pictures_by_section': pictures_by_section,
+        'music_by_section': music_by_section,
+        'videos_by_section': videos_by_section,
+        'comments_by_section': comments_by_section,
+        'public_user': get_public_user(),
+        'is_preview': is_preview
+    }
+
+    html = render_template(
+        'public.html',
+        website=website,
+        content=public_page_content
+    )
+
+    response = make_response(html)
+
+    if should_track_page_visit(is_preview=is_preview):
+        visitor_id = request.cookies.get('uwebia_visitor_id')
+
+        if not visitor_id:
+            visitor_id = uuid.uuid4().hex
+
+            response.set_cookie(
+                'uwebia_visitor_id',
+                visitor_id,
+                max_age=60 * 60 * 24 * 365,
+                httponly=True,
+                samesite='Lax'
+            )
+
+        track_page_visit(website, page, visitor_id)
+
+    return response
+
+@app.route('/asset/<int:asset_id>/track-play', methods=['POST'])
+def track_asset_play(asset_id):
+    asset = Asset.query.get_or_404(asset_id)
+
+    if asset.asset_type not in ['audio', 'video']:
+        return jsonify({
+            'success': False,
+            'message': 'Only audio and video assets can be tracked.'
+        }), 400
+
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_id_hash = hash_asset_visitor_id(visitor_id)
+
+    play_record = AssetPlay.query.filter_by(
+        asset_id=asset.id,
+        visitor_id_hash=visitor_id_hash
+    ).first()
+
+    is_unique_play = play_record is None
+
+    if play_record:
+        play_record.play_count = (play_record.play_count or 0) + 1
+        play_record.last_played_at = datetime.utcnow()
+    else:
+        play_record = AssetPlay(
+            asset_id=asset.id,
+            visitor_id_hash=visitor_id_hash,
+            first_played_at=datetime.utcnow(),
+            last_played_at=datetime.utcnow(),
+            play_count=1
+        )
+
+        db.session.add(play_record)
+        asset.unique_play_count = (asset.unique_play_count or 0) + 1
+
+    asset.play_count = (asset.play_count or 0) + 1
+    asset.last_played_at = datetime.utcnow()
+
+    db.session.commit()
+
+    response = jsonify({
+        'success': True,
+        'asset_id': asset.id,
+        'play_count': asset.play_count or 0,
+        'unique_play_count': asset.unique_play_count or 0,
+        'is_unique_play': is_unique_play,
+        'last_played_at': asset.last_played_at.isoformat()
+    })
+
+    if should_set_cookie:
+        response.set_cookie(
+            'uwebia_asset_visitor_id',
+            visitor_id,
+            max_age=60 * 60 * 24 * 365,
+            httponly=True,
+            samesite='Lax'
+        )
+
+    return response
+
+@app.route('/admin/dashboard/analytics/geoip/backfill', methods=['POST'])
+@login_required
+def backfill_geoip_locations():
+    websites = Website.query.filter_by(user_id=current_user.id).all()
+    website_ids = [website.id for website in websites]
+
+    if not website_ids:
+        return jsonify({
+            'success': True,
+            'updated_count': 0,
+            'message': 'No websites found.'
+        })
+
+    website_by_id = {website.id: website for website in websites}
+
+    visits = PageVisit.query.filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.ip_address.isnot(None),
+        PageVisit.ip_address != '',
+        PageVisit.country.is_(None)
+    ).limit(1000).all()
+
+    updated_count = 0
+
+    for visit in visits:
+        website = website_by_id.get(visit.website_id)
+
+        if not website:
+            continue
+
+        location = lookup_ip_location_for_website(website, visit.ip_address)
+
+        if not location:
+            continue
+
+        visit.country = location.get('country')
+        visit.country_iso = location.get('country_iso')
+        visit.region = location.get('region')
+        visit.city = location.get('city')
+        visit.latitude = location.get('latitude')
+        visit.longitude = location.get('longitude')
+        visit.location_source = location.get('location_source')
+
+        updated_count += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'updated_count': updated_count,
+        'message': f'Backfilled location data for {updated_count} visits.'
+    })
+
+@app.route('/admin/dashboard/analytics')
+@login_required
+def analytics_page():
+    websites = Website.query.filter_by(user_id=current_user.id).all()
+
+    website_ids = [website.id for website in websites]
+    csrf_token = generate_csrf()
+
+    if not website_ids:
+        return render_template(
+            'analytics.html',
+            websites=[],
+            total_page_views=0,
+            total_unique_visitors=0,
+            visits_by_day=[],
+            page_stats=[],
+            referrer_stats=[],
+            analytics_settings=get_analytics_settings_for_user(current_user.id),
+            country_stats=[],
+            city_stats=[],
+            asn_stats=[],
+            days=30,
+            recent_visits=[],
+            calendar_subscriber_summary={
+                'active_7_days': 0,
+                'active_30_days': 0,
+                'total_seen': 0,
+                'total_requests': 0,
+                'top_calendars': []
+            },
+            csrf_token=csrf_token
+        )
+
+    days = 30
+    start_date = get_utc_start_for_user_local_days(days, current_user)
+
+    total_page_views = PageVisit.query.filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).count()
+
+    total_unique_visitors = db.session.query(
+        func.count(func.distinct(PageVisit.visitor_id))
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).scalar() or 0
+
+    visits_for_chart = PageVisit.query.filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).all()
+
+    user_timezone = get_user_timezone(current_user)
+
+    visits_by_day_map = {}
+
+    for visit in visits_for_chart:
+        visited_at = visit.visited_at
+
+        if visited_at.tzinfo is None:
+            visited_at = pytz.utc.localize(visited_at)
+
+        local_day = visited_at.astimezone(user_timezone).date().isoformat()
+
+        if local_day not in visits_by_day_map:
+            visits_by_day_map[local_day] = {
+                'date': local_day,
+                'page_views': 0,
+                'visitor_ids': set()
+            }
+
+        visits_by_day_map[local_day]['page_views'] += 1
+        visits_by_day_map[local_day]['visitor_ids'].add(visit.visitor_id)
+
+    visits_by_day = []
+
+    local_today = datetime.now(user_timezone).date()
+    local_start_day = local_today - timedelta(days=days - 1)
+
+    for i in range(days):
+        day = (local_start_day + timedelta(days=i)).isoformat()
+        item = visits_by_day_map.get(day)
+        day_date = datetime.strptime(day, '%Y-%m-%d').date()
+
+        visits_by_day.append({
+            'date': day,
+            'label': day_date.strftime('%b %d'),
+            'page_views': item['page_views'] if item else 0,
+            'unique_visitors': len(item['visitor_ids']) if item else 0
+        })
+
+    page_stats = db.session.query(
+        PublicPageContent.id,
+        PublicPageContent.name,
+        PublicPageContent.slug,
+        func.count(PageVisit.id).label('page_views'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).join(
+        PageVisit,
+        PageVisit.page_id == PublicPageContent.id
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).group_by(
+        PublicPageContent.id
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    referrer_stats = db.session.query(
+        PageVisit.referrer,
+        func.count(PageVisit.id).label('visits')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.referrer.isnot(None),
+        PageVisit.referrer != ''
+    ).group_by(
+        PageVisit.referrer
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    analytics_settings = get_analytics_settings_for_user(current_user.id)
+
+    country_stats = db.session.query(
+        PageVisit.country,
+        PageVisit.country_iso,
+        func.count(PageVisit.id).label('visits'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.country.isnot(None),
+        PageVisit.country != ''
+    ).group_by(
+        PageVisit.country,
+        PageVisit.country_iso
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    city_stats = db.session.query(
+        PageVisit.city,
+        PageVisit.region,
+        PageVisit.country,
+        func.count(PageVisit.id).label('visits'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.city.isnot(None),
+        PageVisit.city != ''
+    ).group_by(
+        PageVisit.city,
+        PageVisit.region,
+        PageVisit.country
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    asn_stats = db.session.query(
+        PageVisit.asn_number,
+        PageVisit.asn_organization,
+        func.count(PageVisit.id).label('visits'),
+        func.count(func.distinct(PageVisit.visitor_id)).label('unique_visitors')
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date,
+        PageVisit.asn_number.isnot(None)
+    ).group_by(
+        PageVisit.asn_number,
+        PageVisit.asn_organization
+    ).order_by(
+        func.count(PageVisit.id).desc()
+    ).limit(20).all()
+
+    recent_visit_rows = db.session.query(
+        PageVisit,
+        PublicPageContent
+    ).join(
+        PublicPageContent,
+        PageVisit.page_id == PublicPageContent.id
+    ).filter(
+        PageVisit.website_id.in_(website_ids),
+        PageVisit.visited_at >= start_date
+    ).order_by(
+        PageVisit.visited_at.desc()
+    ).limit(20).all()
+
+    recent_visits = []
+
+    for visit, page in recent_visit_rows:
+        recent_visits.append({
+            'page_name': page.name if page else 'Unknown Page',
+            'path': visit.path or '',
+            'visited_at': format_user_datetime(visit.visited_at, current_user),
+            'ip_address': visit.ip_address,
+            'country': visit.country,
+            'city': visit.city,
+
+            'asn_organization': visit.asn_organization
+        })
+
+        calendar_subscriber_summary = get_calendar_subscriber_summary_for_websites(website_ids)
+
+    return render_template(
+        'analytics.html',
+        websites=websites,
+        total_page_views=total_page_views,
+        total_unique_visitors=total_unique_visitors,
+        visits_by_day=visits_by_day,
+        page_stats=page_stats,
+        referrer_stats=referrer_stats,
+        country_stats=country_stats,
+        city_stats=city_stats,
+        analytics_settings=analytics_settings,
+        days=days,
+        asn_stats=asn_stats,
+        recent_visits=recent_visits,
+        calendar_subscriber_summary=calendar_subscriber_summary,
+        csrf_token=csrf_token
+    )
 
 @app.route('/')
 def home_page():
-    return render_template('home.html')
+    website = Website.query.first()
 
+    if not website:
+        return render_template('no_site_found.html'), 404
 
-@app.route('/website/<int:website_id>/<int:page_id>')
+    page = PublicPageContent.query.filter_by(
+        website_id=website.id,
+        slug='home'
+    ).first()
+
+    if not page:
+        return "Root page not found. Please create a page with the slug /home.", 404
+
+    if not page.site_active_status:
+        return "Root page is not published.", 404
+
+    return render_public_page(website, page)
+#
+# @app.route('/page/<int:website_id>/<int:page_id>')
+# def public_page(website_id, page_id):
+#     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+#
+#     if content is None:
+#         return jsonify({'status': 'error', 'message': 'Public page content not found'})
+#
+#     if not content.site_active_status:
+#         return jsonify({'status': 'error', 'message': 'Public page is currently inactive'})
+#
+#     sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
+#
+#     pictures_by_section = {}
+#     for section in sections:
+#         results = (
+#             db.session.query(Picture, SectionImage)
+#             .join(SectionImage, Picture.id == SectionImage.picture_id)
+#             .filter(SectionImage.section_id == section.id)
+#             .order_by(SectionImage.order)
+#             .all()
+#         )
+#
+#         pictures_by_section[section.id] = [picture.url for picture, link in results]
+#
+#     sections_dict = [section.to_dict() for section in sections]
+#
+#     public_page_content = {
+#         'page_id': content.id,
+#         'sections': sections_dict,
+#         'pictures_by_section': pictures_by_section,
+#         'background_color': content.background_color,
+#         'text_color': content.text_color
+#     }
+#
+#     print("Sections Data:", sections_dict)
+#     print("Pictures by Section:", pictures_by_section)
+#     print("COLORS: ", content.background_color, ", ", content.text_color)
+#
+#     return render_template('public.html', content=public_page_content)
+
+@app.route('/page/<int:website_id>/<int:page_id>')
 def public_page(website_id, page_id):
-    content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+    page = PublicPageContent.query.filter_by(
+        website_id=website_id,
+        id=page_id
+    ).first_or_404()
 
-    if content is None:
-        return jsonify({'status': 'error', 'message': 'Public page content not found'})
+    return redirect(url_for('public_page_by_slug', page_slug=page.slug))
 
-    if not content.site_active_status:
-        return jsonify({'status': 'error', 'message': 'Public page is currently inactive'})
-
-    sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
-
-    pictures_by_section = {}
-    for section in sections:
-        section_pictures = Picture.query.filter_by(section_id=section.id).order_by(Picture.order).all()
-        pictures_by_section[section.id] = [picture.url for picture in section_pictures]
-
-    sections_dict = [section.to_dict() for section in sections]
-
-    public_page_content = {
-        'page_id': content.id,
-        'sections': sections_dict,
-        'pictures_by_section': pictures_by_section,
-        'background_color': content.background_color,
-        'text_color': content.text_color
-    }
-
-    print("Sections Data:", sections_dict)
-    print("Pictures by Section:", pictures_by_section)
-    print("COLORS: ", content.background_color, ", ", content.text_color)
-
-    return render_template('public.html', content=public_page_content)
-
+# @app.route('/preview_page/<int:website_id>/<int:page_id>')
+# @login_required
+# def preview_page(website_id, page_id):
+#     # Use db.session.get for SQLAlchemy 2.0 compatibility
+#     website = db.session.get(Website, website_id)
+#     if not website or website.user_id != current_user.id:
+#         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
+#
+#     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+#
+#     if content is None:
+#         return jsonify({'status': 'error', 'message': 'Public page content not found'})
+#
+#     sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
+#
+#     pictures_by_section = {}
+#     for section in sections:
+#         # NEW LOGIC: Join SectionImage and Picture to get the URLs for this specific section
+#         section_assets = (
+#             db.session.query(Asset.url)
+#             .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+#             .filter(
+#                 SectionAsset.section_id == section.id,
+#                 Asset.asset_type == 'image'
+#             )
+#             .order_by(SectionAsset.order)
+#             .all()
+#         )
+#
+#         pictures_by_section[section.id] = [asset.url for asset in section_assets]
+#
+#     sections_dict = [section.to_dict() for section in sections]
+#
+#     # public_page_content = {
+#     #     'page_id': content.id,
+#     #     'sections': sections_dict,
+#     #     'pictures_by_section': pictures_by_section,
+#     #     'background_color': content.background_color,
+#     #     'text_color': content.text_color
+#     # }
+#     #
+#     # return render_template('public.html', content=public_page_content)
+#
+#     section_groups = SectionGroup.query.filter_by(
+#         page_content_id=content.id
+#     ).order_by(SectionGroup.group_order).all()
+#
+#     public_page_content = {
+#         'page_id': content.id,
+#         'sections': sections_dict,
+#         'page_slug': content.slug,
+#         'current_page_url': url_for('public_page_by_slug', page_slug=content.slug),
+#         'groups': [
+#     {
+#         'id': group.id,
+#         'name': group.name,
+#         'anchor_slug': group.anchor_slug,
+#         'group_order': group.group_order,
+#
+#         'background_color': group.background_color or 'transparent',
+#         'background_opacity': group.background_opacity,
+#
+#         'padding': group.padding,
+#         'border_radius': group.border_radius,
+#
+#         'background_image_url': group.background_image_url,
+#         'background_image_size': group.background_image_size or 'cover',
+#         'background_image_position': group.background_image_position or 'center',
+#         'background_overlay_color': group.background_overlay_color or 'transparent',
+#         'background_overlay_opacity': group.background_overlay_opacity or 0
+#     }
+#     for group in section_groups
+# ],
+#         'pictures_by_section': pictures_by_section,
+#         'is_preview': True
+#     }
+#
+#     return render_template(
+#         'public.html',
+#         website=website,
+#         content=public_page_content
+#     )
 
 @app.route('/preview_page/<int:website_id>/<int:page_id>')
 @login_required
 def preview_page(website_id, page_id):
-    website = Website.query.get_or_404(website_id)
-    if website.user_id != current_user.id:
-        return jsonify({'status': 'error', 'message': 'Unauthorized access'})
+    website = db.session.get(Website, website_id)
 
-    content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
+    if not website or website.user_id != current_user.id:
+        return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 
-    if content is None:
-        return jsonify({'status': 'error', 'message': 'Public page content not found'})
+    page = PublicPageContent.query.filter_by(
+        website_id=website_id,
+        id=page_id
+    ).first_or_404()
 
-    sections = PageSection.query.filter_by(page_content_id=content.id).order_by(PageSection.order).all()
+    return render_public_page(website, page, is_preview=True)
 
-    pictures_by_section = {}
-    for section in sections:
-        section_pictures = Picture.query.filter_by(section_id=section.id).order_by(Picture.order).all()
-        pictures_by_section[section.id] = [picture.url for picture in section_pictures]
+@app.route('/section/<int:section_id>/comments')
+def get_public_section_comments(section_id):
+    section = PageSection.query.get_or_404(section_id)
 
-    sections_dict = [section.to_dict() for section in sections]
+    if section.section_type != 'comments':
+        return jsonify({
+            'success': False,
+            'message': 'This section is not a comments section.'
+        }), 400
 
-    public_page_content = {
-        'page_id': content.id,
-        'sections': sections_dict,
-        'pictures_by_section': pictures_by_section,
-        'background_color': content.background_color,
-        'text_color': content.text_color
-    }
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
 
-    print("Sections Data:", sections_dict)
-    print("Pictures by Section:", pictures_by_section)
-    print("COLORS: ", content.background_color, ", ", content.text_color)
+    if not page.site_active_status:
+        return jsonify({
+            'success': False,
+            'message': 'This page is not published.'
+        }), 404
 
-    return render_template('public.html', content=public_page_content)
+    settings = section.content or {}
 
+    if not settings.get('enabled', True):
+        return jsonify({
+            'success': False,
+            'message': 'Comments are disabled.'
+        }), 403
+
+    page_number = request.args.get('page', 1, type=int)
+    per_page = int(settings.get('comments_per_page') or 25)
+    per_page = max(5, min(per_page, 100))
+
+    pagination = PageComment.query.filter_by(
+        section_id=section.id,
+        is_hidden=False,
+        is_approved=True
+    ).order_by(
+        PageComment.created_at.desc()
+    ).paginate(
+        page=page_number,
+        per_page=per_page,
+        error_out=False
+    )
+    public_user = get_public_user()
+
+    return jsonify({
+        'success': True,
+        'comments': [
+            {
+                'id': comment.id,
+                'display_name': comment.display_name,
+                'body': comment.body,
+                'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p'),
+                'like_count': comment.like_count_cached or 0,
+                'liked_by_current_user': comment.user_has_liked(public_user)
+            }
+            for comment in pagination.items
+        ],
+        'pagination': {
+            'page': pagination.page,
+            'pages': pagination.pages,
+            'has_prev': pagination.has_prev,
+            'has_next': pagination.has_next,
+            'prev_num': pagination.prev_num,
+            'next_num': pagination.next_num,
+            'total': pagination.total
+        }
+    })
 
 def update_map_section(section, form_data):
     latitude = form_data.get('latitude')
@@ -1831,44 +7775,83 @@ def update_map_section(section, form_data):
     map_marker_label = form_data.get('map_marker_label')
     map_enabled = form_data.get('map_enabled') == 'on'
 
+    def parse_coordinate(value, min_val, max_val):
+        try:
+            val = float(value)
+            if val < min_val or val > max_val:
+                return None
+            return val
+        except (TypeError, ValueError):
+            return None
+
+    lat = parse_coordinate(latitude, -90, 90)
+    lng = parse_coordinate(longitude, -180, 180)
+
+    # Optional: fallback to previous values if invalid
+    existing = section.content or {}
+
     section.content = {
-        'latitude': latitude,
-        'longitude': longitude,
+        'latitude': lat if lat is not None else existing.get('latitude'),
+        'longitude': lng if lng is not None else existing.get('longitude'),
         'marker_label': map_marker_label,
         'enabled': map_enabled
     }
+
     return section
 
+@app.route('/preview_navbar/<int:website_id>')
+@login_required
+def preview_navbar(website_id):
+    website = db.session.get(Website, website_id)
 
+    if not website or website.user_id != current_user.id:
+        return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 
-
+    return render_template(
+        'navbar_preview.html',
+        website=website
+    )
 def update_text_section(section, form_data):
-    html_content = form_data.get('text')
+    import json
 
-    # Parse the HTML content
+    html_content = form_data.get('text', '')
+    delta_raw = form_data.get('delta')
+
+    background_color = form_data.get('background_color', '#000000')
+    background_opacity = form_data.get('background_opacity', '0')
+    padding = form_data.get('padding', '20')
+    border_radius = form_data.get('border_radius', '10')
+    box_shadow = form_data.get('box_shadow', 'medium')
+
     soup = BeautifulSoup(html_content, 'html.parser')
 
-    # Remove the ql-clipboard div
-    ql_clipboard = soup.find('div', class_='ql-clipboard')
-    if ql_clipboard:
-        ql_clipboard.decompose()
+    for clipboard in soup.find_all('div', class_='ql-clipboard'):
+        clipboard.decompose()
 
-    # Remove the ql-tooltip ql-hidden div
-    ql_tooltip = soup.find('div', class_='ql-tooltip ql-hidden')
-    if ql_tooltip:
-        ql_tooltip.decompose()
+    for tooltip in soup.find_all('div', class_='ql-tooltip'):
+        tooltip.decompose()
 
-    # Save the modified HTML content
-    section.content = {'html': str(soup)}
-    print("HTML CONTENT SAVED: ", section.content['html'])
+    try:
+        delta_data = json.loads(delta_raw) if delta_raw else None
+    except json.JSONDecodeError:
+        delta_data = None
+
+    section.content = {
+        'html': str(soup),
+        'delta': delta_data,
+        'background_color': background_color,
+        'background_opacity': background_opacity,
+        'padding': padding,
+        'border_radius': border_radius,
+        'box_shadow': box_shadow
+    }
 
     return section
 
-
-def update_code_section(section, form_data):
-    text_content = form_data.get('text')
-    section.content = {'text': text_content}
-    return section
+# def update_code_section(section, form_data):
+#     text_content = form_data.get('text')
+#     section.content = {'text': text_content}
+#     return section
 
 
 def update_button_section(section, form_data):
@@ -1921,6 +7904,29 @@ def update_contact_section(section, form_data):
     }
     return section
 
+@app.route('/edit_public_navbar/<int:website_id>', methods=['POST'])
+@login_required
+def edit_public_navbar(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized access'
+        }), 403
+
+    data = request.get_json() or {}
+    navbar_items = data.get('public_navbar_items', [])
+
+    website.public_navbar_items = navbar_items
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': 'Public navbar updated successfully',
+        'public_navbar_items': website.public_navbar_items
+    })
 
 def update_navbar_section(section, form_data):
     navbar_names = form_data.getlist('navbar_names')
@@ -1932,12 +7938,177 @@ def update_navbar_section(section, form_data):
     section.content = {'navbar_items': navbar_items}
     return section
 
+@app.route('/edit_public_navbar_style/<int:website_id>', methods=['POST'])
+@login_required
+def edit_public_navbar_style(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
+
+    data = request.get_json() or {}
+
+    try:
+        margin = int(data.get('margin') or 0)
+    except ValueError:
+        margin = 0
+
+    margin = max(0, min(80, margin))
+
+    dropdown_mode = (data.get('dropdown_mode') or 'dropdown').strip()
+
+    # Normalize possible variants
+    if dropdown_mode in ['side-panel', 'sidepanel', 'side_panel']:
+        dropdown_mode = 'side_panel'
+    else:
+        dropdown_mode = 'dropdown'
+
+    side_panel_use_navbar_background = bool(
+        data.get('side_panel_use_navbar_background', False)
+    )
+
+    existing_style = website.public_navbar_style or {}
+
+    website.public_navbar_style = {
+        **existing_style,
+        'title': data.get('title', website.name),
+        'icon_url': data.get('icon_url', ''),
+        'background': data.get('background', 'rgba(20,20,20,0.9)'),
+        'text_color': data.get('text_color', '#ffffff'),
+        'opacity': data.get('opacity', 0.9),
+        'blur': data.get('blur', 14),
+        'border_radius': data.get('border_radius', 0),
+        'shadow': data.get('shadow', True),
+        'sticky': data.get('sticky', True),
+        'title_alignment': data.get('title_alignment', 'left'),
+        'margin': margin,
+        'dropdown_mode': dropdown_mode,
+        'side_panel_use_navbar_background': side_panel_use_navbar_background,
+    }
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'public_navbar_style': website.public_navbar_style
+    })
+
+@app.route('/upload_public_navbar_icon/<int:website_id>', methods=['POST'])
+@login_required
+def upload_public_navbar_icon(website_id):
+    website = Website.query.get_or_404(website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
+
+    if 'icon' not in request.files:
+        return jsonify({'success': False, 'message': 'No icon file uploaded'}), 400
+
+    file = request.files['icon']
+
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'No selected file'}), 400
+
+    if not (
+            file.filename.lower().endswith('.svg') or
+            file.filename.lower().endswith('.png')
+    ):
+        return jsonify({'success': False, 'message': 'Only SVG and PNG files are allowed'}), 400
+
+    extension = file.filename.rsplit('.', 1)[1].lower()
+
+
+    user_icon_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id), 'navbar')
+    os.makedirs(user_icon_folder, exist_ok=True)
+
+    filename = f'public-icon.{extension}'
+    filepath = os.path.join(user_icon_folder, filename)
+
+    for old_filename in ['public-icon.svg', 'public-icon.png']:
+        old_path = os.path.join(user_icon_folder, old_filename)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    file.save(filepath)
+
+    icon_url = url_for(
+        'static',
+        filename=f'uploads/{current_user.id}/navbar/{filename}'
+    )
+
+    style = website.public_navbar_style or {}
+    style['icon_url'] = icon_url
+    website.public_navbar_style = style
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'icon_url': icon_url
+    })
+
+def update_music_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'title': clean(form_data.get('music_title'), 'Music'),
+        'description': clean(form_data.get('music_description'), ''),
+        'layout': clean(form_data.get('music_layout'), 'list'),
+        'show_download': form_data.get('music_show_download') == 'on',
+        'show_track_numbers': form_data.get('music_show_track_numbers') == 'on',
+        'player_radius': safe_int(form_data.get('music_player_radius'), 18, 0, 40),
+    }
+
+    return section
+
+def update_video_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'title': clean(form_data.get('video_title'), 'Videos'),
+        'description': clean(form_data.get('video_description'), ''),
+        'layout': clean(form_data.get('video_layout'), 'grid'),
+        'show_download': form_data.get('video_show_download') == 'on',
+        'show_filenames': form_data.get('video_show_filenames') == 'on',
+        'corner_radius': safe_int(form_data.get('video_corner_radius'), 18, 0, 40),
+        'max_width': safe_int(form_data.get('video_max_width'), 900, 240, 1600),
+    }
+
+    return section
 
 @app.route('/update_section', methods=['POST'])
 @login_required
 def update_section():
-
-
     section_id = request.form.get('section_id')
     section_type = request.form.get('section_type')
 
@@ -1953,20 +8124,30 @@ def update_section():
 
     if section_type == 'map':
         section = update_map_section(section, form_data)
-    elif section_type == 'code':
-        section = update_code_section(section, form_data)
+    # elif section_type == 'code':
+    #     section = update_code_section(section, form_data)
+    elif section_type == 'images':
+        section = update_images_section(section, form_data)
     elif section_type == 'text':
         section = update_text_section(section, form_data)
     elif section_type == 'button':
         section = update_button_section(section, form_data)
     elif section_type == 'contact_form':
         section = update_contact_section(section, form_data)
-    elif section_type == 'header':
-        section = update_header_section(section, form_data)
+    # elif section_type == 'header':
+    #     section = update_header_section(section, form_data)
     elif section_type == 'youtube_video':
         section = update_youtube_video_section(section, form_data)
-    elif section_type == 'navbar':
-        section = update_navbar_section(section, form_data)
+    elif section_type in ['video', 'videos']:
+        section = update_video_section(section, form_data)
+    # elif section_type == 'navbar':
+    #     section = update_navbar_section(section, form_data)
+    elif section_type == 'link_card':
+        section = update_link_card_section(section, form_data)
+    elif section_type == 'music':
+        section = update_music_section(section, form_data)
+    elif section_type == 'comments':
+        section = update_comments_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -1999,56 +8180,81 @@ def toggle_public_page():
         return jsonify({'status': 'error', 'message': 'Failed to update public page status'})
 
 
+@app.route('/remove_images_from_section', methods=['POST'])
+@login_required
+def remove_images_from_section():
+    data = request.json
+    section_id = data.get('sectionId')
+    link_ids = data.get('linkIds')  # These are SectionImage IDs
+
+    if not link_ids:
+        return jsonify({'status': 'error', 'message': 'No images selected'})
+
+    # Delete the links, not the pictures
+    SectionImage.query.filter(
+        SectionImage.id.in_(link_ids),
+        SectionImage.section_id == section_id
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Images removed from section'})
+
+
 def update_image_order(order_list):
     try:
-        # Update the order of images in the database
-        for order in order_list:
-            picture_id = order.get('id')
-            new_order = order.get('order')
-            section_id = order.get('sectionId')  # Get the section ID
+        # order_list expected format: [{'link_id': 12, 'order': 1, 'sectionId': 5}, ...]
+        for item in order_list:
+            link_id = item.get('link_id')
+            new_order = item.get('order')
+            new_section_id = item.get('sectionId')
 
-            # Check if the picture exists
-            picture = Picture.query.get(picture_id)
-            if not picture:
-                return {'status': 'error', 'message': f'Picture with ID {picture_id} does not exist'}
+            # Query the SectionImage (the link), not the Picture itself
+            link = db.session.get(SectionImage, link_id)
 
-            # Check if the section exists
-            section = PageSection.query.get(section_id)
-            if not section:
-                return {'status': 'error', 'message': f'Section with ID {section_id} does not exist'}
+            if not link:
+                # Fallback: if link_id isn't provided, try to find it via picture_id and section_id
+                # (This helps if your JS is still sending 'id' instead of 'link_id')
+                picture_id = item.get('id')
+                link = SectionImage.query.filter_by(
+                    picture_id=picture_id,
+                    section_id=new_section_id
+                ).first()
 
-            # Update the picture's order and section ID
-            print(f"Updating order for picture {picture_id} to {new_order} in section {section_id}")  # Debug statement
-            picture.order = new_order
-            picture.section_id = section_id
+            if link:
+                print(f"Moving link {link.id}: Section {link.section_id} -> {new_section_id}, Order -> {new_order}")
+                link.order = new_order
+                link.section_id = new_section_id
+            else:
+                print(f"Link not found for item: {item}")
+                continue
 
-        # Commit the changes to the database
         db.session.commit()
-        return {'status': 'success', 'message': 'Image order updated'}
+        return {'status': 'success', 'message': 'Image order and sections updated'}
+
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating image order: {str(e)}")  # Debug statement
+        print(f"Error updating image order: {str(e)}")
         return {'status': 'error', 'message': str(e)}
 
 
-@app.route('/update_image_order', methods=['POST'])
-@login_required
-def update_image_order_route():
-    # if not session.get('logged_in'):
-    #     return jsonify({'status': 'error', 'message': 'Unauthorized'})
-
-    # current_user is guaranteed to exist and be logged in
-    user_id = current_user.id  # or .get_id() depending on your User model
-
-    print(f"Logged in as user {user_id}")
-
-    order_list = request.json
-
-    if not isinstance(order_list, list) or not all(isinstance(order, dict) for order in order_list):
-        return jsonify({'status': 'error', 'message': 'Invalid request format'})
-
-    result = update_image_order(order_list)
-    return jsonify(result)
+# @app.route('/update_image_order', methods=['POST'])
+# @login_required
+# def update_image_order_route():
+#     # if not session.get('logged_in'):
+#     #     return jsonify({'status': 'error', 'message': 'Unauthorized'})
+#
+#     # current_user is guaranteed to exist and be logged in
+#     user_id = current_user.id  # or .get_id() depending on your User model
+#
+#     print(f"Logged in as user {user_id}")
+#
+#     order_list = request.json
+#
+#     if not isinstance(order_list, list) or not all(isinstance(order, dict) for order in order_list):
+#         return jsonify({'status': 'error', 'message': 'Invalid request format'})
+#
+#     result = update_image_order(order_list)
+#     return jsonify(result)
 
 
 @app.route('/delete_selected_images', methods=['POST'])
@@ -2075,89 +8281,443 @@ def delete_selected_images():
         return {'status': 'error', 'message': error_message}
 
 
+# @app.route('/move_image_to_section', methods=['POST'])
+# @login_required
+# def move_image_to_section():
+#     data = request.json
+#
+#     if not data or 'sourceLinkId' not in data or 'sourceSection' not in data or 'targetSection' not in data:
+#         return jsonify({'status': 'error', 'message': 'Invalid request format'})
+#
+#     source_link_id = data['sourceLinkId']
+#     source_section_id = int(data['sourceSection'])
+#     target_section_id = int(data['targetSection'])
+#
+#     try:
+#         link = db.session.get(SectionImage, source_link_id)
+#
+#         if not link:
+#             return jsonify({'status': 'error', 'message': 'SectionImage link not found'})
+#
+#         if link.section_id != source_section_id:
+#             return jsonify({'status': 'error', 'message': 'Source section mismatch'})
+#
+#         # Move link to new section
+#         link.section_id = target_section_id
+#
+#         db.session.flush()
+#
+#         # Re-number source section
+#         source_links = SectionImage.query.filter_by(section_id=source_section_id).order_by(SectionImage.order).all()
+#         for index, item in enumerate(source_links, start=1):
+#             item.order = index
+#
+#         # Put moved image at end of target section
+#         target_links = SectionImage.query.filter_by(section_id=target_section_id).order_by(SectionImage.order).all()
+#         for index, item in enumerate(target_links, start=1):
+#             item.order = index
+#
+#         db.session.commit()
+#         return jsonify({'status': 'success', 'message': 'Image moved successfully'})
+#
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/delete_section_image/<int:link_id>', methods=['DELETE'])
+@login_required
+def delete_section_image(link_id):
+    try:
+        section_asset = SectionAsset.query.get_or_404(link_id)
+        section = PageSection.query.get_or_404(section_asset.section_id)
+
+        if not user_owns_section(section):
+            return jsonify({'success': False, 'error': 'Unauthorized.'}), 403
+
+        db.session.delete(section_asset)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Image removed from section.'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/update_image_order', methods=['POST'])
+@login_required
+def update_image_order_route():
+    order_list = request.get_json() or []
+
+    if not isinstance(order_list, list):
+        return jsonify({'status': 'error', 'message': 'Invalid request format'}), 400
+
+    try:
+        for item in order_list:
+            link_id = item.get('link_id')
+            section_id = item.get('sectionId')
+            new_order = item.get('order')
+
+            link = SectionAsset.query.get(link_id)
+
+            if not link:
+                continue
+
+            section = PageSection.query.get(link.section_id)
+
+            if not section or not user_owns_section(section):
+                continue
+
+            # Allow moving order within target section too.
+            if section_id:
+                target_section = PageSection.query.get(section_id)
+
+                if target_section and user_owns_section(target_section):
+                    link.section_id = target_section.id
+
+            link.order = int(new_order or 0)
+
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Image order updated.'
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
 @app.route('/move_image_to_section', methods=['POST'])
 @login_required
 def move_image_to_section():
-    data = request.json
+    data = request.get_json() or {}
 
-    if not data or 'sourceOrder' not in data or 'sourceSection' not in data or 'targetSection' not in data:
-        return jsonify({'status': 'error', 'message': 'Invalid request format'})
-
-    source_order = data['sourceOrder']
-    source_section_id = data['sourceSection']
-    target_section_id = data['targetSection']
+    source_link_id = data.get('sourceLinkId')
+    source_section_id = int(data.get('sourceSection'))
+    target_section_id = int(data.get('targetSection'))
 
     try:
-        # Find the picture to be moved
-        picture = Picture.query.filter_by(order=source_order, section_id=source_section_id).first()
+        link = SectionAsset.query.get_or_404(source_link_id)
 
-        if picture:
-            # Update the section ID of the picture
-            picture.section_id = target_section_id
+        if link.section_id != source_section_id:
+            return jsonify({'status': 'error', 'message': 'Source section mismatch'}), 400
 
-            # Get all pictures in the source section and update their orders
-            source_section_pictures = Picture.query.filter_by(section_id=source_section_id).order_by(
-                Picture.order).all()
-            for index, pic in enumerate(source_section_pictures, start=1):
-                pic.order = index
+        source_section = PageSection.query.get_or_404(source_section_id)
+        target_section = PageSection.query.get_or_404(target_section_id)
 
-            # Get all pictures in the target section and update their orders
-            target_section_pictures = Picture.query.filter_by(section_id=target_section_id).order_by(
-                Picture.order).all()
-            for index, pic in enumerate(target_section_pictures, start=len(source_section_pictures) + 1):
-                pic.order = index
+        if not user_owns_section(source_section) or not user_owns_section(target_section):
+            return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
 
-            db.session.commit()
-            return jsonify({'status': 'success', 'message': 'Image moved successfully'})
-        else:
-            return jsonify({'status': 'error', 'message': 'Image not found'})
+        if target_section.section_type not in ['image', 'image_gallery', 'images']:
+            return jsonify({'status': 'error', 'message': 'Target section does not accept images'}), 400
+
+        max_order = db.session.query(func.coalesce(func.max(SectionAsset.order), 0)).filter_by(
+            section_id=target_section.id
+        ).scalar() or 0
+
+        link.section_id = target_section.id
+        link.order = max_order + 1
+
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Image moved.'})
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# @app.route('/calendar/events/<int:section_id>.ics')
+# def download_calendar_events(section_id):
+#     # Fetch events from the database based on the provided section_id
+#     events = CalendarEvent.query.filter_by(section_id=section_id).all()
+#
+#     # Check if events exist for the provided section_id
+#     if not events:
+#         return Response(status=404)
+#
+#     # Generate iCal feed for the specified section
+#     cal = Calendar()
+#     cal.add('prodid', '-//My Calendar//example.com//')
+#     cal.add('version', '2.0')
+#
+#     for event in events:
+#         event_obj = Event()
+#         event_obj.add('summary', event.title)
+#         event_obj.add('dtstart', event.start)
+#         event_obj.add('dtend', event.end)
+#         cal.add_component(event_obj)
+#
+#     # Return the iCal feed as a response
+#     return Response(cal.to_ical(), mimetype='text/calendar')
+
+def get_client_ip():
+    forwarded_for = request.headers.get('X-Forwarded-For')
+
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+
+    return request.remote_addr or ''
+
+
+def track_calendar_feed_subscriber(section_id):
+    ip_address = get_client_ip()
+    user_agent = request.headers.get('User-Agent', '')
+
+    raw_identity = f'{section_id}|{ip_address}|{user_agent}'
+    subscriber_hash = hashlib.sha256(raw_identity.encode('utf-8')).hexdigest()
+
+    subscriber = CalendarFeedSubscriber.query.filter_by(
+        section_id=section_id,
+        subscriber_hash=subscriber_hash
+    ).first()
+
+    now = datetime.utcnow()
+
+    if subscriber:
+        subscriber.last_seen_at = now
+        subscriber.request_count += 1
+    else:
+        subscriber = CalendarFeedSubscriber(
+            section_id=section_id,
+            subscriber_hash=subscriber_hash,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            first_seen_at=now,
+            last_seen_at=now,
+            request_count=1
+        )
+        db.session.add(subscriber)
+
+    db.session.commit()
+
+def get_calendar_active_subscriber_count(section_id, days=30):
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    return CalendarFeedSubscriber.query.filter(
+        CalendarFeedSubscriber.section_id == section_id,
+        CalendarFeedSubscriber.last_seen_at >= cutoff
+    ).count()
+
+@app.route('/admin/calendar/<int:section_id>/subscriber_count')
+@login_required
+def calendar_subscriber_count(section_id):
+    section = PageSection.query.get_or_404(section_id)
+
+    if not user_owns_section(section):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    active_7_days = get_calendar_active_subscriber_count(section_id, days=7)
+    active_30_days = get_calendar_active_subscriber_count(section_id, days=30)
+    total_seen = CalendarFeedSubscriber.query.filter_by(section_id=section_id).count()
+
+    return jsonify({
+        'success': True,
+        'section_id': section_id,
+        'active_7_days': active_7_days,
+        'active_30_days': active_30_days,
+        'total_seen': total_seen
+    })
+
+def get_calendar_subscriber_summary_for_websites(website_ids):
+    if not website_ids:
+        return {
+            'active_7_days': 0,
+            'active_30_days': 0,
+            'total_seen': 0,
+            'total_requests': 0,
+            'top_calendars': []
+        }
+
+    now = datetime.utcnow()
+    cutoff_7 = now - timedelta(days=7)
+    cutoff_30 = now - timedelta(days=30)
+
+    base_query = (
+        db.session.query(CalendarFeedSubscriber)
+        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
+        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .filter(PublicPageContent.website_id.in_(website_ids))
+    )
+
+    active_7_days = base_query.filter(
+        CalendarFeedSubscriber.last_seen_at >= cutoff_7
+    ).count()
+
+    active_30_days = base_query.filter(
+        CalendarFeedSubscriber.last_seen_at >= cutoff_30
+    ).count()
+
+    total_seen = base_query.count()
+
+    total_requests = (
+        db.session.query(func.coalesce(func.sum(CalendarFeedSubscriber.request_count), 0))
+        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
+        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .filter(PublicPageContent.website_id.in_(website_ids))
+        .scalar()
+        or 0
+    )
+
+    top_rows = (
+        db.session.query(
+            PageSection.id.label('section_id'),
+            PublicPageContent.name.label('page_name'),
+            PublicPageContent.slug.label('page_slug'),
+            func.count(CalendarFeedSubscriber.id).label('active_30_days'),
+            func.coalesce(func.sum(CalendarFeedSubscriber.request_count), 0).label('requests')
+        )
+        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
+        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .filter(
+            PublicPageContent.website_id.in_(website_ids),
+            CalendarFeedSubscriber.last_seen_at >= cutoff_30
+        )
+        .group_by(PageSection.id, PublicPageContent.name, PublicPageContent.slug)
+        .order_by(func.count(CalendarFeedSubscriber.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    top_calendars = [
+        {
+            'section_id': row.section_id,
+            'page_name': row.page_name,
+            'page_slug': row.page_slug,
+            'active_30_days': row.active_30_days,
+            'requests': row.requests
+        }
+        for row in top_rows
+    ]
+
+    return {
+        'active_7_days': active_7_days,
+        'active_30_days': active_30_days,
+        'total_seen': total_seen,
+        'total_requests': int(total_requests or 0),
+        'top_calendars': top_calendars
+    }
 
 @app.route('/calendar/events/<int:section_id>.ics')
-def download_calendar_events(section_id):
-    # Fetch events from the database based on the provided section_id
-    events = CalendarEvent.query.filter_by(section_id=section_id).all()
+def calendar_events_feed(section_id):
+    section = PageSection.query.get_or_404(section_id)
 
-    # Check if events exist for the provided section_id
-    if not events:
-        return Response(status=404)
+    if section.section_type != 'calendar':
+        return Response('Not a calendar section', status=404)
 
-    # Generate iCal feed for the specified section
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    # Only expose calendar feeds from active public pages.
+    if not page.site_active_status:
+        return Response('Calendar is not public', status=404)
+
+    track_calendar_feed_subscriber(section_id)
+
+    events = (
+        CalendarEvent.query
+        .filter_by(section_id=section_id)
+        .order_by(CalendarEvent.start)
+        .all()
+    )
+
     cal = Calendar()
-    cal.add('prodid', '-//My Calendar//example.com//')
+    cal.add('prodid', '-//Uwebia Calendar//uwebia//EN')
     cal.add('version', '2.0')
+    cal.add('calscale', 'GREGORIAN')
+    cal.add('method', 'PUBLISH')
+
+    calendar_name = f'{website.name} - {page.name}'
+    cal.add('X-WR-CALNAME', calendar_name)
+    cal.add('X-WR-CALDESC', f'Calendar feed for {page.name}')
+    cal.add('X-WR-TIMEZONE', 'America/Chicago')
+
+    # Some calendar apps may use this as a hint, but they can ignore it.
+    cal.add('REFRESH-INTERVAL;VALUE=DURATION', 'PT15M')
+    cal.add('X-PUBLISHED-TTL', 'PT15M')
+
+    now = datetime.utcnow()
 
     for event in events:
         event_obj = Event()
-        event_obj.add('summary', event.title)
+
+        event_obj.add('uid', f'uwebia-event-{event.id}@{request.host}')
+        event_obj.add('summary', event.title or 'Untitled Event')
+
+        if event.description:
+            event_obj.add('description', event.description)
+
+        event_obj.add('dtstamp', now)
+        event_obj.add('last-modified', now)
+
         event_obj.add('dtstart', event.start)
-        event_obj.add('dtend', event.end)
+
+        if event.end:
+            event_obj.add('dtend', event.end)
+        else:
+            # Calendar feeds behave better when every event has an end.
+            event_obj.add('dtend', event.start + timedelta(hours=1))
+
+        event_obj.add(
+            'url',
+            url_for(
+                'public_page_by_slug',
+                page_slug=page.slug,
+                _external=True
+            )
+        )
+
         cal.add_component(event_obj)
 
-    # Return the iCal feed as a response
-    return Response(cal.to_ical(), mimetype='text/calendar')
+    response = make_response(cal.to_ical())
+    response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
+    response.headers['Content-Disposition'] = f'inline; filename="uwebia-calendar-{section_id}.ics"'
 
+    # Do not aggressively cache. Calendar apps will still refresh on their own schedule.
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+
+    return response
 
 @app.route('/page/<int:section_id>/add_event', methods=['POST'])
 @login_required
 def add_event(section_id):
     try:
-        data = request.json
+        data = request.get_json()
+
         title = data.get('title')
         description = data.get('description')
         start_str = data.get('start')
         end_str = data.get('end')
         background_color = data.get('backgroundColor')
 
-        # Set the local time zone to Central Standard Time (CST)
         local_timezone = pytz.timezone('America/Chicago')
 
-        # Parse datetime strings and convert to local timezone
-        start = parser.parse(str(start_str)).astimezone(local_timezone)
-        end = parser.parse(str(end_str)).astimezone(local_timezone)
+        start = parser.parse(str(start_str))
+        end = parser.parse(str(end_str)) if end_str else None
+
+        if start.tzinfo is None:
+            start = local_timezone.localize(start)
+        else:
+            start = start.astimezone(local_timezone)
+
+        if end:
+            if end.tzinfo is None:
+                end = local_timezone.localize(end)
+            else:
+                end = end.astimezone(local_timezone)
 
         event = CalendarEvent(
             title=title,
@@ -2170,13 +8730,15 @@ def add_event(section_id):
 
         db.session.add(event)
         db.session.commit()
-        return jsonify({'message': 'Event added successfully'}), 201
-    except KeyError as e:
-        return jsonify({'error': f'Missing key in request data: {e}'}), 400
-    except ValueError as e:
-        return jsonify({'error': f'Invalid date format: {e}'}), 400
+
+        return jsonify({
+            'message': 'Event added successfully',
+            'event': event.to_dict()
+        }), 201
+
     except Exception as e:
-        return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/page/<int:section_id>/events', methods=['GET'])
@@ -2188,36 +8750,1945 @@ def get_events(section_id):
 @app.route('/page/<int:section_id>/update_event', methods=['POST'])
 @login_required
 def update_event(section_id):
-    data = request.json
-    event = CalendarEvent.query.get(data['id'])
-    if event:
-        event.title = data['title']
-        event.start = data['start']
-        event.end = data['end']
+    try:
+        data = request.get_json()
+        event_id = data.get('id')
+
+        if not event_id:
+            return jsonify({'message': 'Event id is required'}), 400
+
+        event = CalendarEvent.query.filter_by(id=event_id, section_id=section_id).first()
+        if not event:
+            return jsonify({'message': 'Event not found'}), 404
+
+        local_timezone = pytz.timezone('America/Chicago')
+
+        start = parser.parse(str(data.get('start'))) if data.get('start') else None
+        end = parser.parse(str(data.get('end'))) if data.get('end') else None
+
+        if start:
+            if start.tzinfo is None:
+                start = local_timezone.localize(start)
+            else:
+                start = start.astimezone(local_timezone)
+
+        if end:
+            if end.tzinfo is None:
+                end = local_timezone.localize(end)
+            else:
+                end = end.astimezone(local_timezone)
+
+        event.title = data.get('title', event.title)
+        event.description = data.get('description', event.description)
+        event.start = start or event.start
+        event.end = end
+        event.background_color = data.get('backgroundColor', event.background_color)
+
         db.session.commit()
-        return jsonify({'message': 'Event updated successfully'}), 200
-    return jsonify({'message': 'Event not found'}), 404
+        return jsonify({
+            'message': 'Event updated successfully',
+            'event': event.to_dict()
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/page/<int:section_id>/delete_event', methods=['POST'])
 @login_required
 def delete_event(section_id):
-    data = request.json
-    event = CalendarEvent.query.get(data['id'])
-    if event:
-        db.session.delete(event)
+    try:
+        data = request.get_json()
+        event_id = data.get('id')
+
+        if not event_id:
+            return jsonify({'message': 'Event id is required'}), 400
+
+        event = CalendarEvent.query.filter_by(id=event_id, section_id=section_id).first()
+        if event:
+            db.session.delete(event)
+            db.session.commit()
+            return jsonify({'message': 'Event deleted successfully'}), 200
+
+        return jsonify({'message': 'Event not found'}), 404
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/saved_colors', methods=['GET'])
+@login_required
+def get_saved_colors():
+    colors = SavedColor.query.filter_by(user_id=current_user.id).order_by(SavedColor.created_at.desc()).all()
+    return jsonify({'colors': [c.color for c in colors]})
+
+@app.route('/saved_colors', methods=['POST'])
+@login_required
+def save_color():
+    data = request.get_json()
+    color = data.get('color')
+
+    if not color:
+        return jsonify({'success': False, 'error': 'Missing color'}), 400
+
+    exists = SavedColor.query.filter_by(user_id=current_user.id, color=color).first()
+    if not exists:
+        db.session.add(SavedColor(user_id=current_user.id, color=color))
         db.session.commit()
-        return jsonify({'message': 'Event deleted successfully'}), 200
-    return jsonify({'message': 'Event not found'}), 404
+
+    return jsonify({'success': True})
+
+@app.route('/saved_colors', methods=['DELETE'])
+@login_required
+def delete_saved_color():
+    data = request.get_json()
+    color = data.get('color')
+
+    SavedColor.query.filter_by(user_id=current_user.id, color=color).delete()
+    db.session.commit()
+
+    return jsonify({'success': True})
 
 
-if __name__ == '__main__':
-    # Run migrations
-    # run_migrations()
+@app.route('/forum')
+def public_forum():
+    website = Website.query.first()
 
-    # Create all tables
-    with app.app_context():
-        db.create_all()
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    if not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user = get_public_user()
+
+    if website.forum_require_login_to_view and not public_user:
+        return redirect(url_for('public_forum_login', next=url_for('public_forum')))
+
+    sort = request.args.get('sort', 'relevant')
+
+    threads_query = ForumThread.query.filter(
+        ForumThread.website_id == website.id,
+        ForumThread.is_hidden == False
+    )
+
+    if sort == 'newest':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.created_at.desc()
+        )
+
+    elif sort == 'oldest':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.created_at.asc()
+        )
+
+    elif sort == 'most_upvoted':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.vote_count_cached.desc(),
+            ForumThread.updated_at.desc()
+        )
+
+    elif sort == 'most_active':
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.reply_count.desc(),
+            ForumThread.updated_at.desc()
+        )
+
+    else:
+        sort = 'relevant'
+        threads_query = threads_query.order_by(
+            ForumThread.is_pinned.desc(),
+            ForumThread.vote_count_cached.desc(),
+            ForumThread.reply_count.desc(),
+            ForumThread.updated_at.desc(),
+            ForumThread.created_at.desc()
+        )
+
+    page = request.args.get('page', 1, type=int)
+    per_page = 25
+
+    threads_pagination = threads_query.paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+
+    threads = threads_pagination.items
+
+    content = {
+        'current_page_url': url_for('public_forum')
+    }
+
+    return render_template(
+        'public_forum.html',
+        website=website,
+        threads=threads,
+        threads_pagination=threads_pagination,
+        public_user=public_user,
+        current_sort=sort,
+        content=content
+    )
+
+@app.route('/forum/thread/<int:thread_id>/vote', methods=['POST'])
+def public_forum_vote_thread(thread_id):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return jsonify({'success': False, 'message': 'Forum is disabled.'}), 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return jsonify({
+            'success': False,
+            'message': 'Please log in to upvote.'
+        }), 401
+
+    thread = ForumThread.query.filter_by(
+        id=thread_id,
+        website_id=website.id,
+        is_hidden=False
+    ).first_or_404()
+
+    existing_vote = ForumThreadVote.query.filter_by(
+        thread_id=thread.id,
+        public_user_id=public_user.id
+    ).first()
+
+    if existing_vote:
+        db.session.delete(existing_vote)
+        thread.vote_count_cached = max(0, (thread.vote_count_cached or 0) - 1)
+        voted = False
+    else:
+        vote = ForumThreadVote(
+            thread_id=thread.id,
+            website_id=website.id,
+            public_user_id=public_user.id
+        )
+        db.session.add(vote)
+        thread.vote_count_cached = (thread.vote_count_cached or 0) + 1
+        voted = True
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'voted': voted,
+        'vote_count': thread.vote_count_cached or 0
+    })
+
+@app.route('/forum/reply/<int:reply_id>/vote', methods=['POST'])
+def public_forum_vote_reply(reply_id):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return jsonify({'success': False, 'message': 'Forum is disabled.'}), 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return jsonify({
+            'success': False,
+            'message': 'Please log in to upvote.'
+        }), 401
+
+    reply = ForumReply.query.filter_by(
+        id=reply_id,
+        website_id=website.id,
+        is_hidden=False
+    ).first_or_404()
+
+    existing_vote = ForumReplyVote.query.filter_by(
+        reply_id=reply.id,
+        public_user_id=public_user.id
+    ).first()
+
+    if existing_vote:
+        db.session.delete(existing_vote)
+        reply.vote_count_cached = max(0, (reply.vote_count_cached or 0) - 1)
+        voted = False
+    else:
+        vote = ForumReplyVote(
+            reply_id=reply.id,
+            website_id=website.id,
+            public_user_id=public_user.id
+        )
+        db.session.add(vote)
+        reply.vote_count_cached = (reply.vote_count_cached or 0) + 1
+        voted = True
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'voted': voted,
+        'vote_count': reply.vote_count_cached or 0
+    })
+
+@app.route('/account/register', methods=['GET', 'POST'])
+@app.route('/forum/register', methods=['GET', 'POST'])
+def public_forum_register():
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip().lower()
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
+
+        if not username or not email or not password:
+            flash('Please fill out all fields.', 'error')
+            return redirect(url_for('public_forum_register'))
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+            return redirect(url_for('public_forum_register'))
+
+        existing = PublicUser.query.filter(
+            PublicUser.website_id == website.id,
+            or_(
+                PublicUser.username == username,
+                PublicUser.email == email
+            )
+        ).first()
+
+        if existing:
+            flash('That username or email is already in use.', 'error')
+            return redirect(url_for('public_forum_register'))
+
+        public_user = PublicUser(
+            website_id=website.id,
+            username=username,
+            email=email,
+            email_verified=not website.forum_account_verification_enabled
+        )
+        public_user.set_password(password)
+
+        db.session.add(public_user)
+        db.session.commit()
+
+        if website.forum_account_verification_enabled:
+            try:
+                send_public_user_verification_email(public_user)
+                flash('Account created. Please check your email to verify your account.', 'success')
+            except Exception as e:
+                print(f'Public user verification email failed: {e}')
+                flash(
+                    'Account created, but the verification email could not be sent. Please contact the site owner.',
+                    'error'
+                )
+
+            if website.forum_allow_unverified_login:
+                public_user_login(public_user)
+
+            return redirect(
+                url_for(
+                    'public_forum_login',
+                    next=request.args.get('next') or url_for('home_page')
+                )
+            )
+
+        public_user_login(public_user)
+
+        next_url = request.args.get('next')
+
+        if not next_url:
+            if website.forum_enabled:
+                next_url = url_for('public_forum')
+            else:
+                next_url = url_for('home_page')
+
+        return redirect(next_url)
+
+    content = {
+        'current_page_url': url_for('public_forum_register')
+    }
+
+    return render_template(
+        'public_forum_register.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/account/login', methods=['GET', 'POST'])
+@app.route('/forum/login', methods=['GET', 'POST'])
+def public_forum_login():
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    if request.method == 'POST':
+        login_value = (request.form.get('login') or '').strip().lower()
+        password = request.form.get('password') or ''
+
+        public_user = PublicUser.query.filter(
+            PublicUser.website_id == website.id,
+            or_(
+                PublicUser.username == login_value,
+                PublicUser.email == login_value
+            )
+        ).first()
+
+        if not public_user or not public_user.check_password(password):
+            flash('Invalid username/email or password.', 'error')
+            return redirect(url_for('public_forum_login'))
+
+        if public_user.is_banned or not public_user.is_active_public:
+            flash('This account cannot access the forum.', 'error')
+            return redirect(url_for('public_forum_login'))
+
+        if (
+                website.forum_account_verification_enabled
+                and not website.forum_allow_unverified_login
+                and not public_user.email_verified
+        ):
+            flash('Please verify your email before logging in.', 'error')
+            return redirect(url_for('public_forum_resend_verification'))
+
+        public_user_login(public_user)
+
+        next_url = request.args.get('next')
+
+        if not next_url:
+            if website.forum_enabled:
+                next_url = url_for('public_forum')
+            else:
+                next_url = url_for('home_page')
+
+        return redirect(next_url)
+
+    content = {
+        'current_page_url': url_for('public_forum_login')
+    }
+
+    return render_template(
+        'public_forum_login.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/account/forgot-password', methods=['GET', 'POST'])
+@app.route('/forum/forgot-password', methods=['GET', 'POST'])
+def public_forum_forgot_password():
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+
+        generic_message = (
+            'If that email matches an account and email sending is configured, '
+            'a password reset link has been sent.'
+        )
+
+        public_user = PublicUser.query.filter_by(
+            website_id=website.id,
+            email=email
+        ).first()
+
+        if public_user and not public_user.is_banned and public_user.is_active_public:
+            try:
+                send_public_user_password_reset_email(public_user)
+            except Exception as e:
+                print(f'Public forum password reset email failed: {e}')
+
+        flash(generic_message, 'success')
+        return redirect(url_for('public_forum_login'))
+
+    content = {
+        'current_page_url': url_for('public_forum_forgot_password')
+    }
+
+    return render_template(
+        'public_forum_forgot_password.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/account/reset-password/<token>', methods=['GET', 'POST'])
+@app.route('/forum/reset-password/<token>', methods=['GET', 'POST'])
+def public_forum_reset_password(token):
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    public_user, error = verify_public_user_password_reset_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('public_forum_login'))
+
+    if public_user.website_id != website.id:
+        return "Not Found", 404
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not password:
+            flash('Please enter a new password.', 'error')
+            return redirect(request.path)
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+            return redirect(request.path)
+
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return redirect(request.path)
+
+        public_user.set_password(password)
+
+        # If verification is enabled, a password-reset-confirmed user
+        # can reasonably be treated as email verified.
+        if website.forum_account_verification_enabled:
+            public_user.email_verified = True
+            public_user.email_verified_at = datetime.utcnow()
+
+        db.session.commit()
+
+        public_user_logout()
+
+        flash('Password updated successfully. Please log in.', 'success')
+        return redirect(url_for('public_forum_login'))
+
+    content = {
+        'current_page_url': url_for('public_forum_reset_password', token=token)
+    }
+
+    return render_template(
+        'public_forum_reset_password.html',
+        website=website,
+        public_user=get_public_user(),
+        token=token,
+        content=content
+    )
+
+@app.route('/account/verify-email/<token>')
+@app.route('/forum/verify-email/<token>')
+def public_forum_verify_email(token):
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    public_user, error = verify_public_user_verification_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('public_forum_login'))
+
+    if public_user.website_id != website.id:
+        return "Not Found", 404
+
+    public_user.email_verified = True
+    public_user.email_verified_at = datetime.utcnow()
+
+    db.session.commit()
+
+    flash('Your email has been verified. You can now log in.', 'success')
+    return redirect(url_for('public_forum_login'))
+
+@app.route('/account/resend-verification', methods=['GET', 'POST'])
+@app.route('/forum/resend-verification', methods=['GET', 'POST'])
+def public_forum_resend_verification():
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+
+        generic_message = (
+            'If that email matches an unverified account, '
+            'a new verification email has been sent.'
+        )
+
+        public_user = PublicUser.query.filter_by(
+            website_id=website.id,
+            email=email
+        ).first()
+
+        if (
+            public_user
+            and not public_user.email_verified
+            and not public_user.is_banned
+            and public_user.is_active_public
+        ):
+            try:
+                send_public_user_verification_email(public_user)
+            except Exception as e:
+                print(f'Public forum verification resend failed: {e}')
+
+        flash(generic_message, 'success')
+        return redirect(url_for('public_forum_login'))
+
+    content = {
+        'current_page_url': url_for('public_forum_resend_verification')
+    }
+
+    return render_template(
+        'public_forum_resend_verification.html',
+        website=website,
+        public_user=get_public_user(),
+        content=content
+    )
+
+@app.route('/forum/logout', methods=['POST'])
+@app.route('/account/logout', methods=['POST'])
+def public_forum_logout():
+    website = Website.query.first()
+
+    public_user_logout()
+
+    next_url = request.form.get('next') or request.referrer
+
+    if next_url:
+        return redirect(next_url)
+
+    if website and website.forum_enabled:
+        return redirect(url_for('public_forum'))
+
+    return redirect(url_for('home_page'))
+
+@app.route('/forum/thread/new', methods=['GET', 'POST'])
+def public_forum_new_thread():
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user = get_public_user()
+
+    if website.forum_require_login_to_post and not public_user:
+        return redirect(url_for('public_forum_login', next=url_for('public_forum_new_thread')))
+
+    if request.method == 'POST':
+        title = (request.form.get('title') or '').strip()
+        body = (request.form.get('body') or '').strip()
+
+        if not title or not body:
+            flash('Please enter a title and message.', 'error')
+            return redirect(url_for('public_forum_new_thread'))
+
+        thread = ForumThread(
+            website_id=website.id,
+            public_user_id=public_user.id if public_user else None,
+            title=title[:180],
+            body=body,
+            ip_address=get_request_ip(),
+            user_agent=request.headers.get('User-Agent')
+        )
+
+        db.session.add(thread)
+        db.session.commit()
+
+        return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+    content = {
+        'current_page_url': url_for('public_forum_new_thread')
+    }
+
+    return render_template(
+        'public_forum_new_thread.html',
+        website=website,
+        public_user=public_user,
+        content=content
+    )
+
+@app.route('/forum/thread/<int:thread_id>', methods=['GET', 'POST'])
+def public_forum_thread(thread_id):
+    website = Website.query.first()
+
+    if not website or not website.forum_enabled:
+        return "Forum is disabled", 404
+
+    public_user = get_public_user()
+
+    thread = ForumThread.query.filter_by(
+        id=thread_id,
+        website_id=website.id
+    ).first_or_404()
+
+    if thread.is_hidden:
+        return "Thread not found", 404
+
+    if website.forum_require_login_to_view and not public_user:
+        return redirect(url_for('public_forum_login', next=url_for('public_forum_thread', thread_id=thread.id)))
+
+    if request.method == 'POST':
+        if thread.is_locked:
+            flash('This thread is locked.', 'error')
+            return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+        if website.forum_require_login_to_post and not public_user:
+            return redirect(url_for('public_forum_login', next=url_for('public_forum_thread', thread_id=thread.id)))
+
+        body = (request.form.get('body') or '').strip()
+
+        if not body:
+            flash('Please enter a reply.', 'error')
+            return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+        reply = ForumReply(
+            thread_id=thread.id,
+            website_id=website.id,
+            public_user_id=public_user.id if public_user else None,
+            body=body,
+            ip_address=get_request_ip(),
+            user_agent=request.headers.get('User-Agent')
+        )
+
+        thread.reply_count = (thread.reply_count or 0) + 1
+        thread.updated_at = datetime.utcnow()
+
+        db.session.add(reply)
+        db.session.commit()
+
+        return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+    reply_page = request.args.get('reply_page', 1, type=int)
+    replies_per_page = 50
+
+    replies_pagination = ForumReply.query.filter_by(
+        thread_id=thread.id,
+        is_hidden=False
+    ).order_by(
+        ForumReply.created_at.asc()
+    ).paginate(
+        page=reply_page,
+        per_page=replies_per_page,
+        error_out=False
+    )
+
+    replies = replies_pagination.items
+
+    content = {
+        'current_page_url': url_for('public_forum_thread', thread_id=thread.id)
+    }
+
+    return render_template(
+        'public_forum_thread.html',
+        website=website,
+        thread=thread,
+        replies=replies,
+        replies_pagination=replies_pagination,
+        public_user=public_user,
+        content=content
+    )
+
+@app.route('/admin/forum')
+@login_required
+def admin_forum():
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    threads = ForumThread.query.filter_by(
+        website_id=website.id
+    ).order_by(
+        ForumThread.created_at.desc()
+    ).all()
+
+    users = PublicUser.query.filter_by(
+        website_id=website.id
+    ).order_by(PublicUser.created_at.desc()).all()
+
+    return render_template(
+        'admin_forum.html',
+        website=website,
+        threads=threads,
+        users=users,
+        email_settings=get_email_settings()
+    )
+
+@app.route('/admin/forum/settings', methods=['POST'])
+@login_required
+def update_forum_settings():
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    website.forum_enabled = request.form.get('forum_enabled') == 'on'
+    website.forum_show_in_navbar = request.form.get('forum_show_in_navbar') == 'on'
+    website.forum_require_login_to_view = request.form.get('forum_require_login_to_view') == 'on'
+    website.forum_require_login_to_post = request.form.get('forum_require_login_to_post') == 'on'
+    website.forum_title = (request.form.get('forum_title') or 'Forum').strip()[:120]
+    website.forum_description = (request.form.get('forum_description') or '').strip()
+    website.forum_account_verification_enabled = (
+            request.form.get('forum_account_verification_enabled') == 'on'
+    )
+
+    website.forum_allow_unverified_login = (
+            request.form.get('forum_allow_unverified_login') == 'on'
+    )
+
+    db.session.commit()
+
+    flash('Forum settings saved.', 'success')
+    return redirect(url_for('admin_forum'))
+
+@app.route('/admin/forum/thread/<int:thread_id>/moderate', methods=['POST'])
+@login_required
+def moderate_forum_thread(thread_id):
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    thread = ForumThread.query.filter_by(
+        id=thread_id,
+        website_id=website.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'hide':
+        thread.is_hidden = True
+    elif action == 'unhide':
+        thread.is_hidden = False
+    elif action == 'lock':
+        thread.is_locked = True
+    elif action == 'unlock':
+        thread.is_locked = False
+    elif action == 'pin':
+        thread.is_pinned = True
+    elif action == 'unpin':
+        thread.is_pinned = False
+    elif action == 'delete':
+        db.session.delete(thread)
+        db.session.commit()
+        return redirect(url_for('admin_forum'))
+
+    db.session.commit()
+    return redirect(url_for('admin_forum'))
+
+@app.route('/admin/forum/reply/<int:reply_id>/moderate', methods=['POST'])
+@login_required
+def moderate_forum_reply(reply_id):
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    reply = ForumReply.query.filter_by(
+        id=reply_id,
+        website_id=website.id
+    ).first_or_404()
+
+    thread = ForumThread.query.filter_by(
+        id=reply.thread_id,
+        website_id=website.id
+    ).first()
+
+    action = request.form.get('action')
+
+    if action == 'hide':
+        if not reply.is_hidden:
+            reply.is_hidden = True
+
+            if thread:
+                thread.reply_count = max(0, (thread.reply_count or 0) - 1)
+
+    elif action == 'unhide':
+        if reply.is_hidden:
+            reply.is_hidden = False
+
+            if thread:
+                thread.reply_count = (thread.reply_count or 0) + 1
+
+    elif action == 'delete':
+        was_visible = not reply.is_hidden
+
+        if was_visible and thread:
+            thread.reply_count = max(0, (thread.reply_count or 0) - 1)
+
+        db.session.delete(reply)
+        db.session.commit()
+
+        return redirect(url_for('admin_forum'))
+
+    db.session.commit()
+    return redirect(url_for('admin_forum'))
+
+def update_comments_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
+
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'title': clean(form_data.get('comments_title'), 'Comments'),
+        'description': clean(form_data.get('comments_description'), ''),
+        'enabled': form_data.get('comments_enabled') == 'on',
+        'require_login': form_data.get('comments_require_login') == 'on',
+        'allow_anonymous': form_data.get('comments_allow_anonymous') == 'on',
+        'manual_approval': form_data.get('comments_manual_approval') == 'on',
+        'show_comment_count': form_data.get('comments_show_count') == 'on',
+        'comments_per_page': safe_int(form_data.get('comments_per_page'), 25, 5, 100),
+    }
+
+    section.section_type = 'comments'
+
+    return section
+
+@app.route('/section/<int:section_id>/comment', methods=['POST'])
+def submit_page_comment(section_id):
+    section = PageSection.query.get_or_404(section_id)
+
+    if section.section_type != 'comments':
+        return jsonify({
+            'success': False,
+            'message': 'This section does not accept comments.'
+        }), 400
+
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    if not page.site_active_status:
+        return jsonify({
+            'success': False,
+            'message': 'This page is not published.'
+        }), 404
+
+    settings = section.content or {}
+
+    if not settings.get('enabled', True):
+        return jsonify({
+            'success': False,
+            'message': 'Comments are disabled for this section.'
+        }), 403
+
+    public_user = get_public_user()
+
+    require_login = settings.get('require_login', False)
+    allow_anonymous = settings.get('allow_anonymous', True)
+
+    if require_login and not public_user:
+        return jsonify({
+            'success': False,
+            'requires_login': True,
+            'message': 'Please log in to comment.'
+        }), 401
+
+    body = (request.form.get('comment_body') or '').strip()
+    anonymous_name = (request.form.get('comment_name') or '').strip()
+
+    if not body:
+        return jsonify({
+            'success': False,
+            'message': 'Please enter a comment.'
+        }), 400
+
+    if len(body) > 3000:
+        return jsonify({
+            'success': False,
+            'message': 'Comment is too long.'
+        }), 400
+
+    if public_user:
+        display_name = public_user.username
+    else:
+        if not allow_anonymous:
+            return jsonify({
+                'success': False,
+                'requires_login': True,
+                'message': 'Please log in to comment.'
+            }), 401
+
+        if not anonymous_name:
+            return jsonify({
+                'success': False,
+                'message': 'Please enter your name.'
+            }), 400
+
+        display_name = anonymous_name[:120]
+
+    comment = PageComment(
+        website_id=website.id,
+        page_id=page.id,
+        section_id=section.id,
+        public_user_id=public_user.id if public_user else None,
+        display_name=display_name,
+        body=body,
+        is_approved=not settings.get('manual_approval', False),
+        ip_address=get_request_ip(),
+        user_agent=request.headers.get('User-Agent')
+    )
+
+    db.session.add(comment)
+    db.session.commit()
+
+    if comment.is_approved:
+        message = 'Comment posted.'
+    else:
+        message = 'Comment submitted and awaiting approval.'
+
+    return jsonify({
+        'success': True,
+        'message': message,
+        'approved': comment.is_approved,
+        'comment': {
+            'id': comment.id,
+            'display_name': comment.display_name,
+            'body': comment.body,
+            'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p')
+        }
+    })
+
+def serialize_page_comment(comment):
+    return {
+        'id': comment.id,
+        'section_id': comment.section_id,
+        'page_id': comment.page_id,
+        'website_id': comment.website_id,
+        'public_user_id': comment.public_user_id,
+        'display_name': comment.display_name,
+        'body': comment.body,
+        'is_hidden': bool(comment.is_hidden),
+        'is_approved': bool(comment.is_approved),
+        'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p') if comment.created_at else '',
+        'author_username': comment.author.username if comment.author else None,
+        'like_count': comment.like_count_cached or 0,
+        'ip_address': comment.ip_address or '',
+    }
+
+@app.route('/admin/section/<int:section_id>/comments', methods=['GET'])
+@login_required
+def get_section_comments(section_id):
+    section = PageSection.query.get_or_404(section_id)
+
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized.'
+        }), 403
+
+    if section.section_type != 'comments':
+        return jsonify({
+            'success': False,
+            'message': 'This section is not a comments section.'
+        }), 400
+
+    status = request.args.get('status', 'all')
+    page_number = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = max(5, min(per_page, 100))
+
+    query = PageComment.query.filter_by(
+        section_id=section.id
+    )
+
+    if status == 'pending':
+        query = query.filter(PageComment.is_approved == False)
+    elif status == 'approved':
+        query = query.filter(
+            PageComment.is_approved == True,
+            PageComment.is_hidden == False
+        )
+    elif status == 'hidden':
+        query = query.filter(PageComment.is_hidden == True)
+    elif status == 'visible':
+        query = query.filter(
+            PageComment.is_hidden == False,
+            PageComment.is_approved == True
+        )
+
+    pagination = query.order_by(
+        PageComment.created_at.desc()
+    ).paginate(
+        page=page_number,
+        per_page=per_page,
+        error_out=False
+    )
+
+    pending_count = PageComment.query.filter_by(
+        section_id=section.id,
+        is_approved=False
+    ).count()
+
+    hidden_count = PageComment.query.filter_by(
+        section_id=section.id,
+        is_hidden=True
+    ).count()
+
+    total_count = PageComment.query.filter_by(
+        section_id=section.id
+    ).count()
+
+    visible_count = PageComment.query.filter_by(
+        section_id=section.id,
+        is_hidden=False,
+        is_approved=True
+    ).count()
+
+    return jsonify({
+        'success': True,
+        'comments': [
+            serialize_page_comment(comment)
+            for comment in pagination.items
+        ],
+        'pagination': {
+            'page': pagination.page,
+            'pages': pagination.pages,
+            'has_prev': pagination.has_prev,
+            'has_next': pagination.has_next,
+            'prev_num': pagination.prev_num,
+            'next_num': pagination.next_num,
+            'total': pagination.total
+        },
+        'counts': {
+            'total': total_count,
+            'visible': visible_count,
+            'pending': pending_count,
+            'hidden': hidden_count
+        }
+    })
+
+@app.route('/admin/page-comment/<int:comment_id>/moderate-json', methods=['POST'])
+@login_required
+def moderate_page_comment_json(comment_id):
+    comment = PageComment.query.get_or_404(comment_id)
+
+    website = Website.query.filter_by(
+        id=comment.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json(silent=True) or {}
+    action = data.get('action') or request.form.get('action')
+
+    if action == 'hide':
+        comment.is_hidden = True
+
+    elif action == 'unhide':
+        comment.is_hidden = False
+
+    elif action == 'approve':
+        comment.is_approved = True
+        comment.is_hidden = False
+
+    elif action == 'unapprove':
+        comment.is_approved = False
+
+    elif action == 'delete':
+        section_id = comment.section_id
+        db.session.delete(comment)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'deleted': True,
+            'section_id': section_id,
+            'message': 'Comment deleted.'
+        })
+
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid moderation action.'
+        }), 400
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'deleted': False,
+        'message': 'Comment updated.',
+        'comment': serialize_page_comment(comment)
+    })
+
+@app.route('/admin/page-comment/<int:comment_id>/moderate', methods=['POST'])
+@login_required
+def moderate_page_comment(comment_id):
+    comment = PageComment.query.get_or_404(comment_id)
+
+    website = Website.query.filter_by(
+        id=comment.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'hide':
+        comment.is_hidden = True
+
+    elif action == 'unhide':
+        comment.is_hidden = False
+
+    elif action == 'approve':
+        comment.is_approved = True
+
+    elif action == 'unapprove':
+        comment.is_approved = False
+
+    elif action == 'delete':
+        db.session.delete(comment)
+        db.session.commit()
+
+        return redirect(request.referrer or url_for('dashboard'))
+
+    db.session.commit()
+
+    return redirect(request.referrer or url_for('dashboard'))
+
+def website_uses_public_accounts(website):
+    if not website:
+        return False
+
+    if website.forum_enabled:
+        return True
+
+    comments_section_exists = PageSection.query.join(
+        PublicPageContent,
+        PageSection.page_content_id == PublicPageContent.id
+    ).filter(
+        PublicPageContent.website_id == website.id,
+        PageSection.section_type == 'comments'
+    ).first() is not None
+
+    return comments_section_exists
+
+def generate_public_user_password_reset_token(public_user):
+    serializer = get_recovery_serializer()
+
+    return serializer.dumps(
+        {
+            'public_user_id': public_user.id,
+            'website_id': public_user.website_id,
+            'purpose': 'public_user_password_reset'
+        },
+        salt='uwebia-public-user-password-reset'
+    )
+
+@app.route('/account/change-password', methods=['GET', 'POST'])
+def public_account_change_password():
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return redirect(url_for(
+            'public_forum_login',
+            next=url_for('public_account_change_password')
+        ))
+
+    if request.method == 'POST':
+        current_password = request.form.get('current_password') or ''
+        new_password = request.form.get('new_password') or ''
+        confirm_password = request.form.get('confirm_password') or ''
+
+        if not public_user.check_password(current_password):
+            flash('Current password is incorrect.', 'error')
+            return redirect(url_for('public_account_change_password'))
+
+        if len(new_password) < 8:
+            flash('New password must be at least 8 characters.', 'error')
+            return redirect(url_for('public_account_change_password'))
+
+        if new_password != confirm_password:
+            flash('New passwords do not match.', 'error')
+            return redirect(url_for('public_account_change_password'))
+
+        public_user.set_password(new_password)
+        db.session.commit()
+
+        flash('Password updated successfully.', 'success')
+        return redirect(url_for('home_page'))
+
+    content = {
+        'current_page_url': url_for('public_account_change_password')
+    }
+
+    return render_template(
+        'public_account_change_password.html',
+        website=website,
+        public_user=public_user,
+        content=content
+    )
+
+def verify_public_user_password_reset_token(token, max_age_seconds=1800):
+    serializer = get_recovery_serializer()
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-public-user-password-reset',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, 'This password reset link has expired.'
+    except BadSignature:
+        return None, 'This password reset link is invalid.'
+
+    if data.get('purpose') != 'public_user_password_reset':
+        return None, 'This password reset link is invalid.'
+
+    public_user = PublicUser.query.filter_by(
+        id=data.get('public_user_id'),
+        website_id=data.get('website_id')
+    ).first()
+
+    if not public_user:
+        return None, 'This password reset link is invalid.'
+
+    return public_user, None
+
+
+def generate_public_user_verification_token(public_user):
+    serializer = get_recovery_serializer()
+
+    return serializer.dumps(
+        {
+            'public_user_id': public_user.id,
+            'website_id': public_user.website_id,
+            'purpose': 'public_user_email_verification'
+        },
+        salt='uwebia-public-user-email-verification'
+    )
+
+
+def verify_public_user_verification_token(token, max_age_seconds=86400):
+    serializer = get_recovery_serializer()
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-public-user-email-verification',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, 'This verification link has expired.'
+    except BadSignature:
+        return None, 'This verification link is invalid.'
+
+    if data.get('purpose') != 'public_user_email_verification':
+        return None, 'This verification link is invalid.'
+
+    public_user = PublicUser.query.filter_by(
+        id=data.get('public_user_id'),
+        website_id=data.get('website_id')
+    ).first()
+
+    if not public_user:
+        return None, 'This verification link is invalid.'
+
+    return public_user, None
+
+def send_public_user_password_reset_email(public_user):
+    token = generate_public_user_password_reset_token(public_user)
+
+    reset_url = url_for(
+        'public_forum_reset_password',
+        token=token,
+        _external=True
+    )
+
+    subject = f'Reset your {public_user.website.name} account password'
+
+    body = f"""A password reset was requested for your account.
+
+Reset your password here:
+{reset_url}
+
+This link expires in 30 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+
+    send_account_recovery_email(public_user.email, subject, body)
+
+    public_user.password_reset_requested_at = datetime.utcnow()
+    db.session.commit()
+
+
+def send_public_user_verification_email(public_user):
+    token = generate_public_user_verification_token(public_user)
+
+    verification_url = url_for(
+        'public_forum_verify_email',
+        token=token,
+        _external=True
+    )
+
+    subject = f'Verify your {public_user.website.name} forum account'
+
+    body = f"""Welcome to the forum.
+
+Verify your email address here:
+{verification_url}
+
+This link expires in 24 hours.
+
+If you did not create this account, you can ignore this email.
+"""
+
+    send_account_recovery_email(public_user.email, subject, body)
+
+    public_user.verification_email_sent_at = datetime.utcnow()
+    db.session.commit()
+
+@app.route('/comment/<int:comment_id>/like', methods=['POST'])
+def toggle_page_comment_like(comment_id):
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return jsonify({
+            'success': False,
+            'message': 'Public accounts are not enabled.'
+        }), 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return jsonify({
+            'success': False,
+            'requires_login': True,
+            'message': 'Please log in to like comments.'
+        }), 401
+
+    comment = PageComment.query.filter_by(
+        id=comment_id,
+        is_hidden=False,
+        is_approved=True
+    ).first_or_404()
+
+    if comment.website_id != website.id:
+        return jsonify({
+            'success': False,
+            'message': 'Comment not found.'
+        }), 404
+
+    existing_like = PageCommentLike.query.filter_by(
+        comment_id=comment.id,
+        public_user_id=public_user.id
+    ).first()
+
+    if existing_like:
+        db.session.delete(existing_like)
+        comment.like_count_cached = max(0, (comment.like_count_cached or 0) - 1)
+        liked = False
+    else:
+        like = PageCommentLike(
+            comment_id=comment.id,
+            website_id=comment.website_id,
+            section_id=comment.section_id,
+            public_user_id=public_user.id
+        )
+
+        db.session.add(like)
+        comment.like_count_cached = (comment.like_count_cached or 0) + 1
+        liked = True
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'liked': liked,
+        'like_count': comment.like_count_cached or 0
+    })
+
+@app.route('/admin/forum/user/<int:public_user_id>/moderate', methods=['POST'])
+@login_required
+def moderate_public_user(public_user_id):
+    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+
+    public_user = PublicUser.query.filter_by(
+        id=public_user_id,
+        website_id=website.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'ban':
+        public_user.is_banned = True
+    elif action == 'unban':
+        public_user.is_banned = False
+    elif action == 'deactivate':
+        public_user.is_active_public = False
+    elif action == 'activate':
+        public_user.is_active_public = True
+
+    db.session.commit()
+    return redirect(url_for('admin_forum'))
+
+def get_public_user():
+    public_user_id = session.get('public_user_id')
+    website_id = session.get('public_user_website_id')
+
+    if not public_user_id or not website_id:
+        return None
+
+    return PublicUser.query.filter_by(
+        id=public_user_id,
+        website_id=website_id,
+        is_banned=False,
+        is_active_public=True
+    ).first()
+
+@app.context_processor
+def inject_public_account_context():
+    website = Website.query.first()
+    public_user = get_public_user() if website else None
+
+    return {
+        'navbar_public_user': public_user,
+        'navbar_public_accounts_enabled': website_uses_public_accounts(website) if website else False
+    }
+
+def public_user_login(public_user):
+    session['public_user_id'] = public_user.id
+    session['public_user_website_id'] = public_user.website_id
+    public_user.last_login_at = datetime.utcnow()
+    db.session.commit()
+
+
+def public_user_logout():
+    session.pop('public_user_id', None)
+    session.pop('public_user_website_id', None)
+
+
+def get_request_ip():
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    if ip_address and ',' in ip_address:
+        ip_address = ip_address.split(',')[0].strip()
+
+    return ip_address
+
+def get_user_timezone(user=None):
+    user = user or current_user
+
+    timezone_name = getattr(user, 'timezone', None) or 'America/Chicago'
+
+    try:
+        return pytz.timezone(timezone_name)
+    except Exception:
+        return pytz.timezone('America/Chicago')
+
+
+def format_user_datetime(value, user=None, fmt=None):
+    if not value:
+        return ''
+
+    user = user or current_user
+    user_timezone = get_user_timezone(user)
+
+    fmt = fmt or getattr(user, 'date_format', None) or '%b %d, %Y %I:%M %p'
+
+    # Your SQLite datetimes are naive, but stored as UTC.
+    if value.tzinfo is None:
+        value = pytz.utc.localize(value)
+
+    local_value = value.astimezone(user_timezone)
+
+    return local_value.strftime(fmt)
+
+
+def get_utc_start_for_user_local_days(days, user=None):
+    user_timezone = get_user_timezone(user)
+
+    local_today = datetime.now(user_timezone).date()
+
+    local_start = user_timezone.localize(
+        datetime.combine(
+            local_today - timedelta(days=days - 1),
+            datetime.min.time()
+        )
+    )
+
+    return local_start.astimezone(pytz.utc).replace(tzinfo=None)
+
+@app.cli.command("disable-2fa")
+def disable_2fa_cli():
+    """Emergency disable 2FA for the admin account."""
+    user = User.query.first()
+
+    if not user:
+        print("No user found.")
+        return
+
+    disable_user_2fa(
+        user,
+        reason='an emergency server recovery command was used',
+        needs_attention=True
+    )
+
+    db.session.commit()
+
+    print(f"2FA disabled for {user.username}.")
+
+@app.cli.command("reset-admin-password")
+def reset_admin_password_cli():
+    """Emergency reset the admin password from the server terminal."""
+    import getpass
+
+    user = User.query.first()
+
+    if not user:
+        print("No user found.")
+        return
+
+    print(f"Resetting password for admin user: {user.username}")
+    new_password = getpass.getpass("New password: ")
+    confirm_password = getpass.getpass("Confirm password: ")
+
+    if not new_password:
+        print("Password cannot be empty.")
+        return
+
+    if new_password != confirm_password:
+        print("Passwords do not match.")
+        return
+
+    if len(new_password) < 10:
+        print("Password should be at least 10 characters.")
+        return
+
+    user.set_password(new_password)
+
+    # Optional but recommended for a true emergency reset:
+    disable_user_2fa(
+        user,
+        reason='an emergency admin password recovery was performed',
+        needs_attention=True
+    )
+
+    db.session.commit()
+
+    print(f"Password reset successfully for {user.username}.")
+    print("2FA was disabled. Log in, verify email settings, then re-enable 2FA.")
+
+def load_emergency_login_tokens():
+    if not os.path.exists(EMERGENCY_LOGIN_TOKENS_PATH):
+        return []
+
+    try:
+        with open(EMERGENCY_LOGIN_TOKENS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_emergency_login_tokens(tokens):
+    os.makedirs(os.path.dirname(EMERGENCY_LOGIN_TOKENS_PATH), exist_ok=True)
+
+    with open(EMERGENCY_LOGIN_TOKENS_PATH, 'w', encoding='utf-8') as f:
+        json.dump(tokens, f, indent=2)
+
+
+def hash_emergency_login_token(token):
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def cleanup_expired_emergency_login_tokens(tokens):
+    now = int(time.time())
+
+    return [
+        token_record
+        for token_record in tokens
+        if int(token_record.get('expires_at', 0)) > now
+    ]
+
+def get_security_config():
+    try:
+        with open(SECURITY_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+
+        config = DEFAULT_SECURITY_CONFIG.copy()
+        config.update(loaded)
+        return config
+
+    except FileNotFoundError:
+        return DEFAULT_SECURITY_CONFIG
+
+    except Exception as e:
+        print(f"Security config could not be loaded: {e}")
+        return DEFAULT_SECURITY_CONFIG
+
+
+def emergency_login_is_enabled():
+    config = get_security_config()
+    return bool(config.get("allow_emergency_login", False))
+
+
+def get_emergency_login_expiration_seconds():
+    config = get_security_config()
+
+    try:
+        minutes = int(config.get("emergency_login_expiration_minutes", 10))
+    except (TypeError, ValueError):
+        minutes = 10
+
+    minutes = max(1, min(minutes, 60))
+
+    return minutes * 60
+
+@app.cli.command("emergency-login")
+def emergency_login_cli():
+    """Create a one-time emergency admin login link without changing password or 2FA."""
+    if not emergency_login_is_enabled():
+        print("Emergency login is disabled in config/security.json.")
+        print("Set allow_emergency_login to true, then run this command again.")
+        return
+    user = User.query.first()
+
+    if not user:
+        print("No admin user found.")
+        return
+
+    confirm = input(
+        "This creates a one-time admin login link that bypasses password and 2FA. Type EMERGENCY to continue: "
+    ).strip()
+
+    if confirm != "EMERGENCY":
+        print("Emergency login cancelled.")
+        return
+
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = hash_emergency_login_token(raw_token)
+
+    now = int(time.time())
+    expires_at = now + get_emergency_login_expiration_seconds()
+
+    tokens = cleanup_expired_emergency_login_tokens(load_emergency_login_tokens())
+
+    tokens.append({
+        "token_hash": token_hash,
+        "user_id": user.id,
+        "created_at": now,
+        "expires_at": expires_at,
+        "used": False
+    })
+
+    save_emergency_login_tokens(tokens)
+
+    path = f"/admin/emergency-login/{raw_token}"
+    full_url = f"{get_emergency_login_base_url()}{path}"
+
+    print("")
+    print("========================================")
+    print("UWEBIA EMERGENCY LOGIN LINK")
+    print("This link is single-use.")
+    print("")
+    print(f"Path: {path}")
+    print(f"URL:  {full_url}")
+    print("========================================")
+    print("")
+
+
+def get_emergency_login_base_url():
+    config = get_security_config()
+
+    base_url = (config.get("emergency_login_base_url") or "").strip()
+
+    if not base_url:
+        return "http://127.0.0.1:5000"
+
+    return base_url.rstrip("/")
+
+@app.route('/admin/emergency-login/<token>')
+def emergency_login(token):
+    if not emergency_login_is_enabled():
+        return "Emergency login is disabled.", 404
+    token_hash = hash_emergency_login_token(token)
+
+    tokens = cleanup_expired_emergency_login_tokens(load_emergency_login_tokens())
+
+    matching_token = None
+
+    for token_record in tokens:
+        if (
+            token_record.get('token_hash') == token_hash
+            and not token_record.get('used')
+        ):
+            matching_token = token_record
+            break
+
+    if not matching_token:
+        save_emergency_login_tokens(tokens)
+        return "Emergency login link is invalid or expired.", 404
+
+    user = User.query.get(matching_token.get('user_id'))
+
+    if not user:
+        return "Emergency login user not found.", 404
+
+    # Mark token as used and save before logging in.
+    matching_token['used'] = True
+    matching_token['used_at'] = int(time.time())
+    save_emergency_login_tokens(tokens)
+
+    login_user(user)
+
+    if admin_url_key_required_for_user(user):
+        session['admin_path_verified'] = True
+
+    user.two_factor_disabled_reason = 'an emergency server login link was used'
+    user.two_factor_disabled_at = datetime.utcnow()
+    user.two_factor_needs_attention = True
+
+    db.session.commit()
+
+    flash(
+        'Emergency login successful. Please review your security settings.',
+        'warning'
+    )
+
+    return redirect(url_for('dashboard'))
+
+@app.cli.command("rebuild-forum-counts")
+def rebuild_forum_counts():
+    """Recalculate cached forum reply and vote counts."""
+    print("Rebuilding forum counts...")
+
+    threads = ForumThread.query.all()
+
+    for thread in threads:
+        visible_reply_count = ForumReply.query.filter_by(
+            thread_id=thread.id,
+            is_hidden=False
+        ).count()
+
+        thread_vote_count = ForumThreadVote.query.filter_by(
+            thread_id=thread.id
+        ).count()
+
+        thread.reply_count = visible_reply_count
+        thread.vote_count_cached = thread_vote_count
+
+    replies = ForumReply.query.all()
+
+    for reply in replies:
+        reply_vote_count = ForumReplyVote.query.filter_by(
+            reply_id=reply.id
+        ).count()
+
+        reply.vote_count_cached = reply_vote_count
+
+    db.session.commit()
+
+    print("Forum counts rebuilt successfully.")
+
+@app.cli.command("audit-assets")
+def audit_assets_cli():
+    """Scan uploaded asset files for orphans and missing database files."""
+    users = User.query.all()
+
+    if not users:
+        print("No users found.")
+        return
+
+    total_orphans = 0
+    total_missing = 0
+    total_orphan_bytes = 0
+
+    for user in users:
+        report = scan_user_asset_folder(user.id)
+
+        total_orphans += len(report["orphan_files"])
+        total_missing += len(report["missing_files"])
+        total_orphan_bytes += report["orphan_bytes"]
+
+        print("")
+        print("========================================")
+        print(f"User: {user.username} ({user.id})")
+        print(f"Folder: {report['asset_folder']}")
+        print(f"Database files: {report['referenced_count']}")
+        print(f"Disk files: {report['actual_count']}")
+        print(f"Orphan files: {len(report['orphan_files'])}")
+        print(f"Missing files: {len(report['missing_files'])}")
+        print(f"Orphan size: {format_bytes(report['orphan_bytes'])}")
+
+        if report["orphan_files"]:
+            print("")
+            print("Orphans:")
+            for filename in report["orphan_files"]:
+                print(f"  - {filename}")
+
+        if report["missing_files"]:
+            print("")
+            print("Missing database files:")
+            for filename in report["missing_files"]:
+                print(f"  - {filename}")
+
+    print("")
+    print("========================================")
+    print("ASSET AUDIT SUMMARY")
+    print(f"Total orphan files: {total_orphans}")
+    print(f"Total missing files: {total_missing}")
+    print(f"Total orphan size: {format_bytes(total_orphan_bytes)}")
+
+def get_server_config():
+    config = DEFAULT_SERVER_CONFIG.copy()
+
+    try:
+        with open(SERVER_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+
+        if isinstance(loaded, dict):
+            config.update(loaded)
+
+    except FileNotFoundError:
+        os.makedirs(os.path.dirname(SERVER_CONFIG_PATH), exist_ok=True)
+
+        with open(SERVER_CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4)
+
+    except json.JSONDecodeError as e:
+        print(f"Invalid server config JSON. Using defaults. Error: {e}")
+
+    host = str(config.get("host") or DEFAULT_SERVER_CONFIG["host"]).strip()
+
+    try:
+        port = int(config.get("port", DEFAULT_SERVER_CONFIG["port"]))
+    except (TypeError, ValueError):
+        port = DEFAULT_SERVER_CONFIG["port"]
+
+    if port < 1 or port > 65535:
+        port = DEFAULT_SERVER_CONFIG["port"]
+
+    debug = bool(config.get("debug", DEFAULT_SERVER_CONFIG["debug"]))
+
+    host = os.environ.get("HOST", host)
+
+    try:
+        port = int(os.environ.get("PORT", port))
+    except (TypeError, ValueError):
+        pass
+
+    debug_env = os.environ.get("FLASK_DEBUG")
+    if debug_env is not None:
+        debug = debug_env.lower() in ("1", "true", "yes", "on")
+
+    return {
+        "host": host,
+        "port": port,
+        "debug": debug
+    }
 
         # Check if any PublicPageContent objects exist
         # existing_public_page_content = PublicPageContent.query.first()
@@ -2242,6 +10713,18 @@ if __name__ == '__main__':
         # else:
         #     print("PublicPageContent already exists. No initialization needed.")
 
-    # Get the port from the environment variable or default to 5000
-    port = int(os.environ.get('PORT', 5772))
-    app.run(debug=False, host='192.168.1.230', port=port)
+if __name__ == '__main__':
+    # Run migrations
+    # run_migrations()
+
+    # Create all tables
+    with app.app_context():
+        db.create_all()
+
+server_config = get_server_config()
+
+app.run(
+    debug=server_config["debug"],
+    host=server_config["host"],
+    port=server_config["port"]
+)

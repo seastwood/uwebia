@@ -16,27 +16,50 @@
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
     <!-- Bootstrap CSS -->
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Initialize Bootstrap modal
-        var myModal = new bootstrap.Modal(document.getElementById('eventModal'));
-    </script>
 
     <!-- Bootstrap JS (optional, but required for certain features like modals) -->
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+    <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+/>
     <!-- Favicon -->
+    {% set navbar_style = website.public_navbar_style or {} %}
+    {% set icon_url = navbar_style.get('icon_url') %}
+
+    {% if icon_url %}
+    {% if icon_url.endswith('.svg') %}
+    <link rel="icon" type="image/svg+xml" href="{{ icon_url }}">
+    {% elif icon_url.endswith('.png') %}
+    <link rel="icon" type="image/png" href="{{ icon_url }}">
+    {% endif %}
+    {% else %}
     <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
-
-
+    {% endif %}
 </head>
 <title>Public Page</title>
 <style>
+    html {
+        scroll-behavior: smooth;
+        scroll-padding-top: var(--navbar-anchor-offset, 78px);
+    }
+
+    .public-section-group {
+        scroll-margin-top: var(--navbar-anchor-offset, 78px);
+    }
+
+    .public-page-body {
+        padding-top: var(--navbar-page-offset, 58px);
+    }
+
     html,
     body {
         margin: 0;
         padding: 0;
         width: 100%;
         max-width: 100%;
+        min-height: 100%;
         overflow-x: hidden;
         /* Prevent horizontal scrolling */
         font-family: 'Roboto', sans-serif;
@@ -47,6 +70,13 @@
     }
 
 
+
+    .public-page-body {
+        min-height: 100vh;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-attachment: fixed;
+    }
 
     /* CSS for banner */
     .banner {
@@ -77,15 +107,15 @@
     }
 
     .content-area {
-    text-align: center;
-    /* display: flex; */
-    /* flex-direction: column; */
-    align-items: center;
-    /* margin-bottom: 50px; */
-    /* text-align: center; */
-    height: auto;
-    overflow: hidden;
-}
+        text-align: center;
+        /* display: flex; */
+        /* flex-direction: column; */
+        align-items: center;
+        margin-bottom: 50px;
+        /* text-align: center; */
+        height: auto;
+        overflow: hidden;
+    }
 
 
 
@@ -100,7 +130,7 @@
     .fc-direction-ltr {
         direction: ltr;
         text-align: left;
-        height: 425px;
+        /* height: 425px; */
     }
 
     /* CSS for the button */
@@ -156,10 +186,13 @@
         text-align: left;
         /* margin-left: 10%;
         margin-right: 10%; */
-        padding-top: 10px;
+        /* padding-top: 10px;
         padding-bottom: 10px;
         padding-left: 20px;
-        padding-right: 20px;
+        padding-right: 20px; */
+        margin-left: 20px;
+        margin-right: 20px;
+        /* margin-top: 20px */
     }
 
     .single-image-container {
@@ -178,7 +211,7 @@
         /* Ensure images cover the entire container */
     }
 
-    .section-container{
+    .section-container {
         position: relative;
     }
 
@@ -216,14 +249,27 @@
         left: 0;
         width: 100%;
         height: 100%;
+
     }
 
     .mySlides img {
-        width: 100%;
+        /* 1. The Rounding */
+        /* border-radius: 10px; */
+
+        /* 2. The Fix: Force the image to behave like a block */
+        display: block;
+
+        /* 3. The Sizing: Ensure it fits the container without "leaking" out */
+        max-width: 100%;
         height: 100%;
-        object-fit:contain;
-        /* Ensure images cover the entire container */
+
+        /* 4. The Alignment: If it doesn't fill the width, center it */
+        margin: 0 auto;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
+
+
 
     .thumbnail-container {
         overflow-x: auto;
@@ -314,15 +360,36 @@
     }
 
 
-    /* Contact Form Container */
     .contact-form-container {
-        margin-top: 20px;
+        margin: 20px auto;
         padding: 20px;
+
+        /* width: calc(100% - 40px);
+    max-width: 600px; */
+        /* box-sizing: border-box; */
+
         border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        /* width: 80%; */
-        border-color: #797979;
-        border-style: solid;
+        box-shadow: 1px 0px 10px 5px rgba(0, 0, 0, 0.4);
+        background-color: #00000045;
+    }
+
+    .calendar-container,
+    .contact-form-container,
+    .text-area,
+    [id^="map"] {
+        width: calc(100% - 40px);
+        max-width: 900px;
+        margin-left: auto;
+        margin-right: auto;
+        box-sizing: border-box;
+    }
+
+    .contact-form-container {
+        max-width: 600px;
+    }
+
+    .text-area {
+        max-width: 900px;
     }
 
     /* Contact Form Title */
@@ -359,12 +426,10 @@
     }
 
     .calendar-container {
-        width: 100%;
-        max-width: 800px;
-        height: 100%;
-        /* Adjust the maximum width as needed */
+        width: calc(100% - 40px);
+        max-width: 1000px;
+        height: auto;
         margin: 0 auto;
-        /* Center the container horizontally */
         padding-top: 20px;
         padding-bottom: 20px;
         box-sizing: border-box;
@@ -372,12 +437,40 @@
     }
 
     .calendar {
-        height: 100%;
-        background-color: transparent;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 5, 10, 0.1);
+        height: auto;
+        border-radius: 14px;
         color: white;
         padding: 10px;
+        box-shadow: 1px 0px 10px 5px rgba(0, 0, 0, 0.4);
+        background-color: #00000045;
+        overflow: hidden;
+    }
+
+    .calendar .fc {
+        height: auto !important;
+    }
+
+    .calendar .fc-view-harness {
+        height: auto !important;
+    }
+
+    .calendar .fc-scrollgrid {
+        height: auto !important;
+    }
+
+    @media (max-width: 700px) {
+        .calendar {
+            min-height: 620px;
+            padding: 6px;
+        }
+
+        .calendar .fc-view-harness {
+            min-height: 540px;
+        }
+
+        .calendar .fc-scrollgrid {
+            min-height: 540px;
+        }
     }
 
     .modal-content {
@@ -432,103 +525,2455 @@
     }
 
 
-    /* CSS for row container */
-    .row-container {
+    /* .row-container {
         display: flex;
-        /* Use flexbox to display rows horizontally */
         flex-wrap: wrap;
-        /* Allow rows to wrap to the next line */
         justify-content: center;
-        /* Center rows horizontally */
         margin-bottom: 20px;
-        /* Add margin between rows */
-        width: 100vw;
-        height: fit-content;
-    }
 
-    /* CSS for each row */
-    .row {
-        display: flex;
-        /* Use flexbox to display items horizontally */
-        flex-wrap: nowrap;
-        /* Prevent items from wrapping */
-        /* margin-right: -10px; */
-        /* Compensate for margin-right of items */
-        width: 100vw;
-        /* justify-content: center; */
+        width: 100%;
+        max-width: 100%;
         height: fit-content;
-        /* align-items: center; */
-        /* Allow rows to wrap to the next line */
+        box-sizing: border-box;
+    } */
+
+    /* .row {
+        display: flex;
+        flex-wrap: nowrap;
+
+        width: 100%;
+        max-width: 100%;
+        height: fit-content;
+        box-sizing: border-box;
+
         justify-content: center;
         align-items: center;
+    } */
+
+    /* .row {
+    display: flex;
+    flex-wrap: nowrap;
+
+    width: 100%;
+    max-width: 100%;
+    height: fit-content;
+    box-sizing: border-box;
+
+    justify-content: center;
+    align-items: stretch;
+    gap: 0;
+} */
+
+    /* .public-section-group .row > .section-container {
+    box-sizing: border-box;
+    padding: 6px;
+    min-width: 0;
+} */
+
+    /* @media (max-width: 760px) {
+    .public-section-group .row {
+        flex-wrap: wrap;
     }
+
+    .public-section-group .row > .section-container {
+        width: 100% !important;
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+} */
 
     .navbar {
         position: fixed;
-        top: 0;
-        left: 0;
-        /* width: 100%; */
-        background-color: rgba(39, 39, 39, 0.7);
+        /* top: 12px; */
+        /* left: 12px; */
         z-index: 1000;
-        /* padding-left: 10px; */
-        padding-top: 5px;
-        border-radius: 5px;
     }
 
     .navbar-toggle {
         cursor: pointer;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
-        height: 20px;
+        justify-content: center;
+        gap: 5px;
+        width: 48px;
+        height: 48px;
+        padding: 10px;
+        background: rgba(28, 28, 28, 0.72);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+        transition: background 0.25s ease, transform 0.2s ease, box-shadow 0.25s ease;
     }
 
+    .navbar-toggle:hover {
+        background: rgba(40, 40, 40, 0.9);
+        transform: translateY(-1px);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+    }
 
     .bar {
-        width: 35px;
+        width: 100%;
         height: 3px;
-        background-color: #fff;
-        margin: px 0;
-        /* font-weight: bolder; */
-        border-radius: 10px;
+        background: #ffffff;
+        border-radius: 999px;
+        transition: transform 0.25s ease, opacity 0.25s ease, background 0.25s ease;
+    }
+
+    .navbar:hover .bar {
+        background: #dffcff;
     }
 
     .navbar-menu {
-        display: none;
+        display: block;
         position: absolute;
         top: 100%;
         left: 0;
-        background-color: #252525;
-        padding: 10px 20px;
+        min-width: 220px;
+        padding: 8px;
+        background: rgba(26, 26, 26, 0.94);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
         z-index: 1001;
+
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-8px) scale(0.98);
+        transform-origin: top left;
+        pointer-events: none;
+        transition: opacity 0.22s ease, transform 0.22s ease, visibility 0.22s ease;
     }
 
-    .navbar:hover .navbar-menu {
-        display: block;
+    .navbar:hover .navbar-menu,
+    .navbar:focus-within .navbar-menu {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
     }
 
     .navbar-menu a {
         display: block;
-        color: #fff;
-        padding: 5px;
-        padding-left: 10px;
-        transition: background-color 0.5s;
-        padding-right: 10px;
+        color: #f5f5f5;
+        text-decoration: none;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 0.96rem;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
     }
 
     .navbar-menu a:hover {
-        background-color: #555;
-        /* Change background color on hover */
+        background: rgba(255, 255, 255, 0.08);
+        color: #8ff7ff;
+        transform: translateX(2px);
     }
+
+    .navbar-menu a:not(:last-child) {
+        margin-bottom: 4px;
+    }
+
+    .navbar.open .bar:nth-child(1) {
+        transform: translateY(8px) rotate(45deg);
+    }
+
+    .navbar.open .bar:nth-child(2) {
+        opacity: 0;
+    }
+
+    .navbar.open .bar:nth-child(3) {
+        transform: translateY(-8px) rotate(-45deg);
+    }
+
+    .ql-align-center {
+        text-align: center;
+    }
+
+    .ql-align-right {
+        text-align: right;
+    }
+
+    .ql-align-justify {
+        text-align: justify;
+    }
+
+    .ql-font-arial {
+        font-family: Arial, sans-serif;
+    }
+
+    .ql-font-georgia {
+        font-family: Georgia, serif;
+    }
+
+    .ql-font-times {
+        font-family: "Times New Roman", serif;
+    }
+
+    .ql-font-verdana {
+        font-family: Verdana, sans-serif;
+    }
+
+    .ql-font-trebuchet {
+        font-family: "Trebuchet MS", sans-serif;
+    }
+
+    .ql-font-garamond {
+        font-family: Garamond, serif;
+    }
+
+    .ql-font-courier {
+        font-family: "Courier New", monospace;
+    }
+
+    .ql-font-monospace {
+        font-family: monospace;
+    }
+
+    .uwebia-images {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    .uwebia-images img {
+        border-radius: var(--image-radius, 10px);
+        object-fit: var(--image-fit, cover);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Single */
+    .uwebia-single-image {
+        width: 100%;
+        max-height: 720px;
+        display: block;
+    }
+
+    /* Side-by-side grid */
+    .uwebia-image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+    }
+
+    .uwebia-image-grid img {
+        width: 100%;
+        height: 260px;
+        display: block;
+    }
+
+    /* Masonry */
+    .uwebia-image-masonry {
+        columns: 3 220px;
+        column-gap: 12px;
+    }
+
+    .uwebia-image-masonry img {
+        width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 0 12px;
+        break-inside: avoid;
+    }
+
+    /* Carousel strip */
+    .uwebia-image-carousel {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 10px;
+    }
+
+    .uwebia-image-carousel img {
+        flex: 0 0 min(78vw, 420px);
+        height: 300px;
+        scroll-snap-align: center;
+    }
+
+    /* Feature grid */
+    .uwebia-feature-grid {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        grid-auto-rows: 180px;
+        gap: 12px;
+    }
+
+    .uwebia-feature-grid img {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .uwebia-feature-grid img.featured {
+        grid-row: span 2;
+    }
+
+    /* Slideshow */
+    .uwebia-slideshow {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border-radius: var(--image-radius, 10px);
+    }
+
+    .uwebia-slide {
+        position: absolute;
+        inset: 0;
+        display: none;
+    }
+
+    .uwebia-slide.active {
+        display: block;
+    }
+
+    .uwebia-images-fade_slideshow .uwebia-slide {
+        opacity: 0;
+        display: block;
+        transition: opacity 0.8s ease;
+    }
+
+    .uwebia-images-fade_slideshow .uwebia-slide.active {
+        opacity: 1;
+    }
+
+    .uwebia-slide img {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .uwebia-slide-arrow {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+
+        width: 42px;
+        height: 42px;
+
+        border: none;
+        border-radius: 999px;
+
+        background: rgba(0, 0, 0, 0.45);
+        color: #ffffff;
+
+        font-size: 24px;
+        cursor: pointer;
+        z-index: 5;
+    }
+
+    .uwebia-slide-arrow:hover {
+        background: rgba(0, 0, 0, 0.68);
+    }
+
+    .uwebia-slide-arrow.prev {
+        left: 12px;
+    }
+
+    .uwebia-slide-arrow.next {
+        right: 12px;
+    }
+
+    .uwebia-image-thumbnails {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        justify-content: center;
+        padding: 10px 0 0;
+    }
+
+    .uwebia-image-thumbnails button {
+        width: 72px;
+        height: 54px;
+        padding: 0;
+        border: 2px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        cursor: pointer;
+        overflow: hidden;
+    }
+
+    .uwebia-image-thumbnails button.active {
+        border-color: rgba(126, 226, 204, 0.85);
+    }
+
+    .uwebia-image-thumbnails img {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    @media (max-width: 700px) {
+        .uwebia-images {
+            /* width: calc(100% - 24px); */
+            width: 100%;
+        }
+
+        .uwebia-feature-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .uwebia-feature-grid img.featured {
+            grid-row: span 1;
+        }
+
+        .uwebia-image-grid img,
+        .uwebia-image-carousel img {
+            height: 220px;
+        }
+    }
+
+    .public-section-group {
+        position: relative;
+        overflow: hidden;
+        background-repeat: no-repeat;
+    }
+
+    .public-section-group::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+
+        background: var(--group-overlay-color, transparent);
+        opacity: var(--group-overlay-opacity, 0);
+
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .public-section-group>* {
+        position: relative;
+        z-index: 1;
+    }
+
+    /* .public-section-group .row-container {
+        margin-bottom: 2px;
+    } */
+
+    /* .public-section-group .row-container:last-child {
+        margin-bottom: 0;
+    } */
+
+    .public-section-group .text-area {
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
+
+    .public-section-group .uwebia-images {
+        margin: 6px auto;
+
+    }
+
+    .public-section-group:focus,
+    .public-section-group:focus-visible {
+        outline: none;
+    }
+
+    /* Keep real form inputs normal */
+    .public-section-group input,
+    .public-section-group textarea,
+    .public-section-group select,
+    .public-section-group button {
+        caret-color: auto;
+        outline: revert;
+    }
+
+    /* Force image sections to fully use their allotted public row space */
+    .section-container>.uwebia-images {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        display: block;
+    }
+
+    /* Single image should fill the section width */
+    .uwebia-single-image {
+        width: 100% !important;
+        max-width: none !important;
+        height: auto !important;
+        max-height: none !important;
+        display: block !important;
+        object-fit: var(--image-fit, cover);
+    }
+
+    /* Make all image layouts fill the section wrapper */
+    .uwebia-image-grid,
+    .uwebia-image-masonry,
+    .uwebia-image-carousel,
+    .uwebia-feature-grid,
+    .uwebia-slideshow {
+        width: 100% !important;
+        max-width: none !important;
+    }
+
+    /* Make images inside layout containers use available space */
+    .uwebia-image-grid img,
+    .uwebia-image-carousel img,
+    .uwebia-feature-grid img,
+    .uwebia-slide img {
+        max-width: none !important;
+    }
+
+    .uwebia-link-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+
+        width: min(100%, var(--link-card-width, 420px));
+
+        max-width: 100%;
+        min-height: var(--link-card-height, 240px);
+
+        margin-left: auto;
+        margin-right: auto;
+
+        padding: 20px;
+        box-sizing: border-box;
+
+        color: var(--link-card-text, #ffffff);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+            var(--link-card-bg, #1f232b);
+
+        background-image:
+            linear-gradient(rgba(var(--link-card-overlay-rgb, 0, 0, 0), var(--link-card-overlay-opacity, 0.25)),
+                rgba(var(--link-card-overlay-rgb, 0, 0, 0), var(--link-card-overlay-opacity, 0.25))),
+            var(--link-card-bg-image, none);
+
+        background-size: cover;
+        background-position: center;
+
+        border-radius: var(--link-card-radius, 18px);
+        overflow: hidden;
+
+        text-decoration: none !important;
+        box-shadow:
+            0 12px 28px rgba(0, 0, 0, 0.24),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+        transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease,
+            filter 0.18s ease;
+    }
+
+    .uwebia-link-card:hover {
+        transform: translateY(-2px);
+        filter: brightness(1.04);
+        box-shadow:
+            0 18px 36px rgba(0, 0, 0, 0.32),
+            inset 0 1px 0 rgba(255, 255, 255, 0.10);
+    }
+
+    .uwebia-link-card-header {
+        position: relative;
+        z-index: 1;
+
+        width: fit-content;
+        max-width: 100%;
+
+        padding: 6px 10px;
+        border-radius: 999px;
+
+        background: rgba(0, 0, 0, 0.34);
+        color: inherit;
+
+        font-size: 0.76rem;
+        font-weight: 900;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+    }
+
+    .uwebia-link-card-body {
+        position: relative;
+        z-index: 1;
+
+        margin: auto 0;
+
+        color: inherit;
+        text-align: left;
+        font-size: clamp(1.1rem, 2vw, 1.65rem);
+        font-weight: 800;
+        line-height: 1.12;
+    }
+
+    .uwebia-link-card-footer {
+        position: relative;
+        z-index: 1;
+
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+
+        width: fit-content;
+        max-width: 100%;
+
+        color: inherit;
+        font-size: 0.9rem;
+        font-weight: 800;
+    }
+
+    .uwebia-link-card-footer::after {
+        content: "→";
+        transition: transform 0.18s ease;
+    }
+
+    .uwebia-link-card:hover .uwebia-link-card-footer::after {
+        transform: translateX(3px);
+    }
+
+    /* .public-section-group .row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 12px;
+} */
+
+    /* Preserve the editor-set section width.
+   Do NOT set flex-basis here or it overrides the inline width. */
+
+    /* Card width setting controls the card inside its section */
+    .section-container>.uwebia-link-card {
+        width: min(100%, var(--link-card-width, 420px));
+        max-width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .calendar-subscribe-row {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+    }
+
+    .calendar-subscribe-button,
+    .calendar-copy-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 10px 14px;
+        border-radius: 999px;
+
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.10);
+        color: inherit;
+
+        font-size: 0.9rem;
+        font-weight: 800;
+        text-decoration: none;
+        cursor: pointer;
+
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    }
+
+    .calendar-subscribe-button:hover,
+    .calendar-copy-button:hover {
+        background: rgba(255, 255, 255, 0.18);
+        text-decoration: none;
+    }
+
+    .calendar-copy-button {
+        font-family: inherit;
+    }
+
+    .calendar .fc-theme-standard td,
+    .calendar .fc-theme-standard th,
+    .calendar .fc-theme-standard .fc-scrollgrid {
+        border-color: rgba(255, 255, 255, 0.16);
+    }
+
+    .calendar .fc-col-header,
+    .calendar .fc-col-header-cell,
+    .calendar .fc-scrollgrid-section-header,
+    .calendar .fc-scrollgrid-section-header th {
+        background: rgba(0, 0, 0, 0.28) !important;
+    }
+
+    .calendar .fc-col-header-cell-cushion {
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .calendar .fc-daygrid-day {
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .calendar .fc-day-today {
+        background: rgba(126, 226, 204, 0.14) !important;
+    }
+
+    .calendar .fc-daygrid-day-number {
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    .calendar .fc-day-other .fc-daygrid-day-number {
+        color: rgba(255, 255, 255, 0.36);
+    }
+
+    .calendar .fc-toolbar-title {
+        color: #ffffff;
+        font-weight: 900;
+    }
+
+    .calendar .fc-button {
+        border-radius: 999px !important;
+        border-color: rgba(255, 255, 255, 0.16) !important;
+        background: rgba(255, 255, 255, 0.10) !important;
+        color: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    .calendar .fc-button:hover {
+        background: rgba(255, 255, 255, 0.18) !important;
+    }
+
+    .calendar .fc-event {
+        border: none;
+        border-radius: 8px;
+        padding: 2px 4px;
+    }
+
+    .calendar .fc-col-header-cell {
+        padding: 8px 6px !important;
+        background: rgba(0, 0, 0, 0.28) !important;
+    }
+
+    .calendar .fc-col-header-cell-cushion {
+        display: block;
+        padding: 0 !important;
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .calendar .fc-daygrid-day-frame {
+        padding: 6px !important;
+        min-height: 92px;
+    }
+
+    .calendar .fc-daygrid-day-top {
+        margin-bottom: 4px;
+    }
+
+    .calendar .fc-daygrid-day-number {
+        padding: 0 !important;
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    #eventModal {
+        z-index: 2000;
+    }
+
+    #eventModal .modal-dialog {
+        margin-top: calc(var(--navbar-page-offset, 58px) + 32px);
+    }
+
+    #eventModal .modal-content {
+        border-radius: 16px;
+        overflow: hidden;
+        background: rgba(39, 39, 39, 0.96);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    #eventModal .modal-header,
+    #eventModal .modal-footer {
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .calendar-modal-close {
+        color: #ffffff;
+        opacity: 0.85;
+        text-shadow: none;
+    }
+
+    .calendar-modal-close:hover {
+        color: #ffffff;
+        opacity: 1;
+    }
+
+    .modal-backdrop {
+        z-index: 1900 !important;
+    }
+
+    #eventModal {
+        z-index: 2000 !important;
+    }
+
+    #eventModal .modal-dialog {
+        position: relative;
+        z-index: 2001 !important;
+        margin-top: calc(var(--navbar-page-offset, 58px) + 32px);
+    }
+
+.public-row-container {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 2px;
+}
+
+.public-row {
+    /* display: flex; */
+    flex-wrap: nowrap;
+
+    width: 100%;
+    max-width: 100%;
+
+    justify-content: center;
+    align-items: flex-start;
+    gap: 12px;
+
+    box-sizing: border-box;
+}
+
+.public-section-cell {
+    flex: 0 1 auto;
+
+    width: auto;
+    max-width: min(100%, var(--section-width, 100%));
+    min-width: 0;
+
+    box-sizing: border-box;
+    padding: 6px;
+
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.public-section-cell > * {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.public-section-cell > .text-area,
+.public-section-cell > .uwebia-images,
+.public-section-cell > .uwebia-music,
+.public-section-cell > .uwebia-video-section,
+.public-section-cell > .youtube-video-container,
+.public-section-cell > .contact-form-container,
+.public-section-cell > [id^="map"],
+.public-section-cell > .calendar-container {
+    width: 100%;
+}
+
+.public-section-cell > .uwebia-link-card,
+.public-section-cell > .virtual-tour-button {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 760px) {
+    .public-row {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .public-section-cell {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: 100%;
+        padding: 6px;
+    }
+}
+
+.main-content {
+    width: 100%;
+    max-width: var(--public-page-max-width, 1180px);
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+}
+
+.public-section-group-inner {
+    width: 100%;
+    max-width: var(--public-page-max-width, 1180px);
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+}
+/* Image sections should actually use their editor-set section width */
+.public-section-cell:has(> .uwebia-images) {
+    flex: 0 1 var(--section-width, 100%);
+    width: var(--section-width, 100%);
+    max-width: min(100%, var(--section-width, 100%));
+}
+
+/* Image wrapper fills that section cell */
+.public-section-cell:has(> .uwebia-images) > .uwebia-images {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block;
+}
+
+/* Single images fill the available image section width */
+.public-section-cell:has(> .uwebia-images) .uwebia-single-image {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+}
+
+/* Image layout containers also fill the cell */
+.public-section-cell:has(> .uwebia-images) .uwebia-image-grid,
+.public-section-cell:has(> .uwebia-images) .uwebia-image-masonry,
+.public-section-cell:has(> .uwebia-images) .uwebia-image-carousel,
+.public-section-cell:has(> .uwebia-images) .uwebia-feature-grid,
+.public-section-cell:has(> .uwebia-images) .uwebia-slideshow {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+html {
+    min-height: 100%;
+}
+
+body.public-page-body {
+    position: relative;
+    min-height: 100svh;
+    background: transparent !important;
+    overflow-x: hidden;
+}
+
+.site-fixed-background {
+    position: fixed;
+    inset: 0;
+height: 100lvh;
+min-height: 100dvh;
+
+    z-index: 0;
+    pointer-events: none;
+    transform: translateZ(0);
+}
+
+/* Only the actual page content sits above the fixed background */
+.content-area {
+    position: relative;
+    z-index: 1;
+}
+
+/* Navbar must always sit above public groups/rows/sections */
+.public-navbar {
+    position: fixed;
+    z-index: 100000 !important;
+}
+
+/* Navbar dropdowns / side panel should sit even higher */
+.public-navbar-menu,
+.public-navbar-dropdown-menu,
+.public-navbar-overflow-menu {
+    z-index: 100010 !important;
+}
+
+html,
+body.public-page-body {
+    background: {{ website.background_color or '#000' }} !important;
+}
+
+.uwebia-music {
+    width: 100%;
+    max-width: 900px;
+    margin: 10px auto;
+    padding: 18px;
+    box-sizing: border-box;
+
+    color: inherit;
+    background: rgba(0, 0, 0, 0.34);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 22px;
+
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.uwebia-music-header {
+    text-align: left;
+    margin-bottom: 14px;
+}
+
+.uwebia-music-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 900;
+}
+
+.uwebia-music-description {
+    margin: 5px 0 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.uwebia-music-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.uwebia-music-track {
+    display: grid;
+    grid-template-columns: auto 42px minmax(120px, 260px) minmax(240px, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+
+    padding: 10px 12px;
+    border-radius: var(--music-player-radius, 18px);
+
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.uwebia-music-track-number {
+    color: rgba(255, 255, 255, 0.55);
+    font-weight: 850;
+    font-size: 0.78rem;
+}
+
+.uwebia-music-icon {
+    width: 42px;
+    height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(126, 226, 204, 0.14);
+    color: #7ee2cc;
+}
+
+.uwebia-music-info {
+    min-width: 0;
+    text-align: left;
+}
+
+.uwebia-music-track-title {
+    font-size: 0.88rem;
+    font-weight: 850;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.uwebia-music-track-subtitle {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    opacity: 0.65;
+}
+
+.uwebia-music-track audio {
+    width: 100%;
+}
+
+.uwebia-music-download {
+    color: #7ee2cc;
+    text-decoration: none;
+    font-size: 1rem;
+}
+
+@media (max-width: 760px) {
+    .uwebia-music {
+        width: 100%;
+        padding: 10px;
+        border-radius: 16px;
+    }
+
+    .uwebia-music-track {
+        /* grid-template-columns: auto 30px minmax(0, 1fr) auto; */
+        gap: 7px;
+        padding: 7px;
+        border-radius: 14px;
+    }
+
+    .uwebia-music-track audio {
+        grid-column: 1 / -1;
+        height: 32px;
+    }
+
+    .uwebia-music-track-title {
+        font-size: 0.76rem;
+        -webkit-line-clamp: 2;
+    }
+}
+.uwebia-video-section {
+    width: 100%;
+    max-width: var(--video-max-width, 900px);
+    margin: 10px auto;
+    padding: 18px;
+    box-sizing: border-box;
+
+    color: inherit;
+    background: rgba(0, 0, 0, 0.34);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 22px;
+
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.uwebia-video-header {
+    margin-bottom: 14px;
+    text-align: left;
+}
+
+.uwebia-video-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 900;
+}
+
+.uwebia-video-description {
+    margin: 5px 0 0;
+    opacity: 0.7;
+    font-size: 0.9rem;
+}
+
+.uwebia-video-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+    gap: 14px;
+}
+
+.uwebia-video-stack .uwebia-video-list,
+.uwebia-video-featured .uwebia-video-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.uwebia-video-card {
+    overflow: hidden;
+    border-radius: var(--video-radius, 18px);
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.uwebia-video-card video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    object-fit: cover;
+}
+
+.uwebia-video-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+}
+
+.uwebia-video-filename {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
+.uwebia-video-download {
+    color: #7ee2cc;
+    text-decoration: none;
+}
+
+.uwebia-video-empty {
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    opacity: 0.68;
+    text-align: center;
+}
+.public-video-preview-button {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+
+    border: none;
+    border-radius: var(--video-radius, 18px) var(--video-radius, 18px) 0 0;
+
+    background: rgba(0, 0, 0, 0.32);
+    color: rgba(255, 255, 255, 0.92);
+
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.uwebia-video-card {
+    overflow: hidden;
+}
+
+.uwebia-video-card > video {
+    display: none;
+}
+.video-thumb-canvas {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
+    object-fit: cover;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-canvas {
+    display: block;
+}
+
+.video-thumb-fallback {
+    position: relative;
+    z-index: 1;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-fallback {
+    display: none;
+}
+
+.video-thumb-fallback i {
+    font-size: 2.6rem;
+}
+
+.video-thumb-fallback span {
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.video-thumb-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.video-thumb-overlay i {
+    width: 42px;
+    height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.58);
+    color: white;
+    font-size: 1rem;
+}
+
+.public-video-preview-button .video-thumb-overlay {
+    opacity: 1;
+}
+
+/* Actual fullscreen modal */
+.video-preview-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200000;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+
+    padding: 20px;
+    box-sizing: border-box;
+
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.video-preview-modal.is-open {
+    display: flex;
+}
+
+.video-preview-dialog {
+    width: min(900px, 92vw);
+    max-height: 88dvh;
+
+    background: #151820;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+
+.video-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    padding: 12px 14px;
+
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-preview-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.video-preview-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+
+    border-radius: 10px;
+    width: 34px;
+    height: 34px;
+
+    cursor: pointer;
+}
+
+.video-preview-close:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.video-preview-player {
+    width: 100%;
+    max-height: 70dvh;
+    background: #000;
+    display: block;
+}
+
+/* Video sections should use their editor-set section width */
+.public-section-cell:has(> .uwebia-video-section) {
+    flex: 0 1 var(--section-width, 100%);
+    width: var(--section-width, 100%);
+    max-width: min(100%, var(--section-width, 100%));
+}
+
+/* Video wrapper fills that section cell */
+.public-section-cell:has(> .uwebia-video-section) > .uwebia-video-section {
+    width: 100% !important;
+    max-width: min(100%, var(--video-max-width, 900px)) !important;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* The video grid/list fills the video wrapper */
+.public-section-cell:has(> .uwebia-video-section) .uwebia-video-list {
+    width: 100%;
+}
+
+/* The preview button should behave like a video frame, not a tiny button */
+.public-video-preview-button {
+    display: block;
+    width: 100%;
+    min-width: 220px;
+    aspect-ratio: 16 / 9;
+    padding: 0;
+    line-height: normal;
+}
+
+/* On mobile, remove min-width so it never overflows */
+@media (max-width: 760px) {
+    .public-section-cell:has(> .uwebia-video-section) {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .public-video-preview-button {
+        min-width: 0;
+    }
+}
+.public-video-preview-button,
+.public-video-preview-button * {
+    color: #ffffff !important;
+}
+
+.public-video-preview-button .video-thumb-fallback i,
+.public-video-preview-button .video-thumb-fallback span {
+    color: #ffffff !important;
+}
+.public-video-preview-button .video-thumb-overlay i {
+    width: 46px;
+    height: 46px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62) !important;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+
+    color: #ffffff !important;
+    font-size: 1rem;
+}
+.public-video-preview-button {
+    display: block;
+    width: 100%;
+    min-width: 220px;
+    aspect-ratio: 16 / 9;
+    padding: 0;
+    line-height: normal;
+
+    position: relative;
+    overflow: hidden;
+    border: none;
+    cursor: pointer;
+
+    background:
+        radial-gradient(circle at center, rgba(126, 226, 204, 0.18), transparent 45%),
+        rgba(0, 0, 0, 0.42);
+
+    transform: translateZ(0);
+    transition:
+        transform 0.22s ease,
+        box-shadow 0.22s ease,
+        filter 0.22s ease,
+        background 0.22s ease;
+}
+
+.public-video-preview-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.08),
+            rgba(0, 0, 0, 0.42)
+        );
+
+    pointer-events: none;
+    transition: background 0.22s ease;
+}
+
+.public-video-preview-button:hover {
+    transform: scale(1.025);
+    filter: brightness(1.08);
+    box-shadow:
+        0 18px 38px rgba(0, 0, 0, 0.34),
+        0 0 0 1px rgba(126, 226, 204, 0.35);
+}
+
+.public-video-preview-button:hover::after {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(126, 226, 204, 0.08),
+            rgba(0, 0, 0, 0.48)
+        );
+}
+
+.video-thumb-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    opacity: 1;
+    pointer-events: none;
+}
+
+.video-play-icon {
+    width: 58px;
+    height: 58px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    box-shadow:
+        0 12px 28px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+    transition:
+        transform 0.22s ease,
+        background 0.22s ease,
+        border-color 0.22s ease;
+}
+
+.video-play-icon::before {
+    content: "";
+    display: block;
+
+    width: 0;
+    height: 0;
+
+    margin-left: 4px;
+
+    border-top: 12px solid transparent;
+    border-bottom: 12px solid transparent;
+    border-left: 18px solid #ffffff;
+}
+
+.public-video-preview-button:hover .video-play-icon {
+    transform: scale(1.12);
+    background: rgba(126, 226, 204, 0.82);
+    border-color: rgba(255, 255, 255, 0.58);
+}
+
+.public-video-preview-button:hover .video-play-icon::before {
+    border-left-color: #10251f;
+}
+
+.video-thumb-canvas {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
+    object-fit: cover;
+    z-index: 0;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-canvas {
+    display: block;
+}
+
+.video-thumb-fallback {
+    position: relative;
+    z-index: 2;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    color: #ffffff;
+}
+
+.public-video-preview-button.has-thumbnail .video-thumb-fallback {
+    display: none;
+}
+
+@media (max-width: 760px) {
+    .public-video-preview-button {
+        min-width: 0;
+    }
+
+    .video-play-icon {
+        width: 52px;
+        height: 52px;
+    }
+}
+.uwebia-media-count {
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.uwebia-video-meta .uwebia-media-count {
+    flex: 0 0 auto;
+}
+
+/* =========================================================
+   Public Music Player - pill style
+   Overrides older grid-based music player styles
+========================================================= */
+
+.uwebia-music {
+    width: 100%;
+    max-width: 900px;
+    margin: 12px auto;
+    padding: 16px;
+
+    color: inherit;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)),
+        rgba(0, 0, 0, 0.32);
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 26px;
+
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.uwebia-music-header {
+    text-align: left;
+    margin-bottom: 12px;
+}
+
+.uwebia-music-title {
+    margin: 0;
+    font-size: 1.12rem;
+    line-height: 1.2;
+    font-weight: 900;
+}
+
+.uwebia-music-description {
+    margin: 5px 0 0;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.88rem;
+    line-height: 1.35;
+}
+
+.uwebia-music-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.uwebia-music-track {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 12px;
+
+    border-radius: 999px;
+
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.045)),
+        rgba(255, 255, 255, 0.035);
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.055),
+        0 8px 20px rgba(0, 0, 0, 0.16);
+
+    box-sizing: border-box;
+
+    transition:
+        background 0.18s ease,
+        border-color 0.18s ease,
+        transform 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+.uwebia-music-track:hover {
+    background:
+        linear-gradient(135deg, rgba(126, 226, 204, 0.12), rgba(255, 255, 255, 0.055)),
+        rgba(255, 255, 255, 0.045);
+
+    border-color: rgba(126, 226, 204, 0.28);
+
+    transform: translateY(-1px);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.07),
+        0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
+.uwebia-music-art {
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.uwebia-music-track-number {
+    min-width: 22px;
+
+    color: rgba(255, 255, 255, 0.55);
+
+    font-size: 0.76rem;
+    font-weight: 900;
+    line-height: 1;
+    text-align: center;
+}
+
+.uwebia-music-icon {
+    width: 38px;
+    height: 38px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    flex: 0 0 auto;
+
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.13);
+
+    border: 1px solid rgba(126, 226, 204, 0.20);
+    border-radius: 999px;
+
+    font-size: 0.9rem;
+}
+
+.uwebia-music-info {
+    flex: 1 1 260px;
+    min-width: 160px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    text-align: left;
+    overflow: hidden;
+}
+
+.uwebia-music-track-title {
+    display: block;
+
+    max-width: 100%;
+
+    color: rgba(255, 255, 255, 0.96);
+
+    font-size: 0.9rem;
+    font-weight: 900;
+    line-height: 1.18;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.uwebia-music-meta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px 7px;
+
+    margin-top: 4px;
+
+    color: rgba(255, 255, 255, 0.58);
+
+    font-size: 0.72rem;
+    font-weight: 750;
+    line-height: 1.15;
+}
+
+.uwebia-music-meta-row span {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.uwebia-music-meta-row span:not(:first-child)::before {
+    content: "·";
+    margin-right: 7px;
+    color: rgba(255, 255, 255, 0.34);
+}
+
+.uwebia-music-meta-row .uwebia-media-count {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.58);
+
+    font-size: inherit;
+    font-weight: inherit;
+    letter-spacing: 0;
+    line-height: inherit;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.uwebia-music-track audio {
+    flex: 0 1 340px;
+
+    width: clamp(220px, 38vw, 340px);
+    height: 34px;
+
+    min-width: 220px;
+}
+
+.uwebia-music-download {
+    width: 36px;
+    height: 36px;
+
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #7ee2cc;
+    background: rgba(126, 226, 204, 0.10);
+
+    border: 1px solid rgba(126, 226, 204, 0.18);
+    border-radius: 999px;
+
+    text-decoration: none;
+    font-size: 0.92rem;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease;
+}
+
+.uwebia-music-download:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.18);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+}
+
+
+.uwebia-music-track {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-left {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-art {
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.uwebia-music-info {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    text-align: left;
+    overflow: hidden;
+}
+
+.uwebia-music-track-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.uwebia-music-track audio {
+    flex: 0 1 340px;
+    width: clamp(220px, 38vw, 340px);
+    min-width: 220px;
+}
+
+/* @media (max-width: 820px) {
+    .uwebia-music-track {
+        flex-wrap: wrap;
+        align-items: center;
+        position: relative;
+        padding-right: 56px;
+    }
+
+    .uwebia-music-left {
+        flex: 1 1 100%;
+        padding-right: 0;
+    }
+
+    .uwebia-music-track audio {
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+    }
+
+    .uwebia-music-download {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+}
+
+@media (max-width: 520px) {
+    .uwebia-music-left {
+        align-items: flex-start;
+    }
+
+    .uwebia-music-track-title {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+    }
+} */
+
+/* =========================================================
+   FINAL Public Music Mobile Fix
+   Keeps icon + title/info together on small screens
+========================================================= */
+
+.uwebia-music-track {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-left {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+}
+
+.uwebia-music-art {
+    width: auto !important;
+    flex: 0 0 auto !important;
+
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.uwebia-music-info {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    width: auto !important;
+
+    flex-direction: column;
+    justify-content: center;
+
+    overflow: hidden;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.uwebia-music-track-title {
+    display: block !important;
+    width: 100%;
+    min-width: 0;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.uwebia-music-meta-row {
+    display: flex !important;
+    align-items: center;
+    flex-wrap: wrap;
+
+    min-width: 0;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+
+
+@media (max-width: 520px) {
+    .uwebia-music {
+        padding: 12px;
+        border-radius: 22px;
+    }
+
+    .uwebia-music-track {
+        border-radius: 24px;
+        gap: 10px;
+    }
+
+    .uwebia-music-left {
+        align-items: center;
+        gap: 10px;
+    }
+
+    .uwebia-music-track-number {
+        min-width: 18px;
+        font-size: 0.7rem;
+    }
+
+    .uwebia-music-icon {
+        width: 34px;
+        height: 34px;
+        font-size: 0.82rem;
+    }
+
+    .uwebia-music-track-title {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        font-size: 0.84rem;
+    }
+
+    .uwebia-music-meta-row {
+        font-size: 0.68rem;
+        gap: 4px 6px;
+    }
+}
+
+@media (max-width: 760px) {
+    .uwebia-music-track {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "info download"
+            "player player";
+        align-items: center;
+        gap: 10px;
+
+        padding: 12px;
+        border-radius: 24px;
+    }
+
+    .uwebia-music-left {
+        grid-area: info;
+        min-width: 0;
+
+        display: flex !important;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .uwebia-music-art {
+        width: auto !important;
+        flex: 0 0 auto !important;
+    }
+
+    .uwebia-music-info {
+        min-width: 0 !important;
+        width: auto !important;
+    }
+
+    .uwebia-music-track audio {
+        grid-area: player;
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 34px;
+    }
+
+    .uwebia-music-download {
+        grid-area: download;
+        align-self: center;
+    }
+
+    .uwebia-music-track-title {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+}
+
+.uwebia-comments {
+    width: 100%;
+    max-width: 820px;
+    margin: 14px auto;
+    padding: 18px;
+
+    color: inherit;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025)),
+        rgba(0,0,0,0.32);
+
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 24px;
+
+    box-shadow: 0 14px 34px rgba(0,0,0,0.22);
+
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.uwebia-comments-header {
+    text-align: left;
+    margin-bottom: 14px;
+}
+
+.uwebia-comments-header h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 900;
+}
+
+.uwebia-comments-header p {
+    margin: 6px 0 0;
+    opacity: 0.72;
+}
+
+.uwebia-comments-count {
+    display: inline-flex;
+    margin-top: 10px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    font-size: 0.78rem;
+    font-weight: 850;
+    opacity: 0.78;
+}
+
+.uwebia-comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+
+    max-height: 420px;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding-right: 6px;
+    margin-right: -6px;
+
+    scroll-behavior: smooth;
+}
+
+.uwebia-comments-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.uwebia-comments-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.22);
+    border-radius: 999px;
+}
+
+.uwebia-comments-list::-webkit-scrollbar-thumb {
+    background: rgba(126, 226, 204, 0.35);
+    border-radius: 999px;
+    border: 2px solid rgba(0, 0, 0, 0.22);
+}
+
+.uwebia-comments-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(126, 226, 204, 0.55);
+}
+
+@media (max-width: 700px) {
+    .uwebia-comments-list {
+        max-height: 340px;
+    }
+}
+
+.uwebia-comment {
+    padding: 9px 10px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.065);
+    border: 1px solid rgba(255,255,255,0.095);
+    text-align: left;
+}
+
+.uwebia-comment-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+
+    margin-bottom: 5px;
+}
+
+.uwebia-comment-meta {
+    min-width: 0;
+
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.uwebia-comment-meta strong {
+    font-weight: 900;
+    font-size: 0.86rem;
+    line-height: 1.15;
+}
+
+.uwebia-comment-meta span {
+    opacity: 0.56;
+    font-size: 0.72rem;
+    line-height: 1.15;
+}
+
+.uwebia-comment-body {
+    white-space: pre-wrap;
+    line-height: 1.35;
+    font-size: 0.88rem;
+    opacity: 0.92;
+}
+
+.uwebia-comments-empty {
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.055);
+    opacity: 0.72;
+}
+
+.uwebia-comment-form {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.uwebia-comment-form input,
+.uwebia-comment-form textarea {
+    width: 100%;
+    box-sizing: border-box;
+
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.16);
+
+    padding: 11px 12px;
+
+    background: rgba(255,255,255,0.10);
+    color: inherit;
+
+    font: inherit;
+}
+
+.uwebia-comment-form textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.uwebia-comment-form button,
+.uwebia-comments-login-required a {
+    width: fit-content;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 10px 14px;
+
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.16);
+
+    background: rgba(255,255,255,0.12);
+    color: inherit;
+
+    font-weight: 850;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.uwebia-comment-form button:hover,
+.uwebia-comments-login-required a:hover {
+    background: rgba(126,226,204,0.14);
+    border-color: rgba(126,226,204,0.34);
+}
+
+.uwebia-comment-feedback {
+    font-size: 0.86rem;
+    font-weight: 800;
+    opacity: 0.82;
+}
+
+.uwebia-comments-login-required {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.065);
+    border: 1px solid rgba(255,255,255,0.10);
+}
+
+.uwebia-comments-login-required p {
+    margin: 0 0 10px;
+}
+.uwebia-comments-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.uwebia-comments-pagination button,
+.uwebia-comments-pagination span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 34px;
+    padding: 8px 12px;
+
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+
+    background: rgba(255,255,255,0.08);
+    color: inherit;
+
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 850;
+}
+
+.uwebia-comments-pagination button {
+    cursor: pointer;
+}
+
+.uwebia-comments-pagination button:hover {
+    background: rgba(126,226,204,0.14);
+    border-color: rgba(126,226,204,0.34);
+}
+
+.uwebia-comments-pagination button.active {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126,226,204,0.72);
+}
+
+.uwebia-comments-pagination button:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+}
+.uwebia-comment-footer {
+    display: none;
+}
+
+.uwebia-comment-like-button {
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+
+    min-height: 26px;
+    padding: 4px 8px;
+
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.13);
+
+    background: rgba(255,255,255,0.065);
+    color: inherit;
+
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 850;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        color 0.16s ease;
+}
+
+.uwebia-comment-like-button:hover {
+    background: rgba(126,226,204,0.14);
+    border-color: rgba(126,226,204,0.34);
+    transform: translateY(-1px);
+}
+
+.uwebia-comment-like-button.liked {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126,226,204,0.72);
+}
+
+.uwebia-comment-like-button i {
+    font-size: 0.68rem;
+}
+
+.uwebia-comment-like-button:hover {
+    background: rgba(126,226,204,0.14);
+    border-color: rgba(126,226,204,0.34);
+    transform: translateY(-1px);
+}
+
+.uwebia-comment-like-button.liked {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126,226,204,0.72);
+}
+
+.uwebia-comment-like-button i {
+    font-size: 0.78rem;
+}
 </style>
 
-<body>
-    {% if content.is_preview %}
-    <div class="preview-banner">Preview</div>
+{% set nav_style = website.public_navbar_style or {} %}
+{% set navbar_margin = nav_style.get('margin', 0)|int %}
+{% set navbar_anchor_offset = 78 + navbar_margin %}
+{% set navbar_page_offset = 58 + navbar_margin %}
+
+<body class="public-page-body" style="
+--navbar-page-offset: {{ 58 + navbar_margin }}px;
+--navbar-anchor-offset: {{ navbar_anchor_offset }}px;
+--public-page-max-width: 1180px;
+color: {{ website.text_color or '#000000' }};
+">
+<div class="site-fixed-background" aria-hidden="true" style="
+    background: {{ website.background_color or '#ffffff' }};
+
+    {% if website.background_image_url %}
+        background-image: url('{{ website.background_image_url }}');
+        background-repeat: {{ 'repeat' if website.background_image_repeat else 'no-repeat' }};
+        background-position: center center;
+
+        {% set bg_zoom = website.background_image_zoom or 100 %}
+        {% set repeat_zoom_multiplier = 2.0 %}
+background-size:
+        {% if website.background_image_repeat %}
+            {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto
+        {% else %}
+            cover
+        {% endif %}
     {% endif %}
+"></div>
+    {% include 'components/public_navbar.html' %}
+    <!-- {% if content.is_preview %}
+    <div class="preview-banner">Preview</div>
+    {% endif %} -->
     {% set navbar_rendered = False %}
     {% for section in content['sections'] %}
-    {% if section.section_type == 'navbar' and not navbar_rendered %}
+
+    <!-- {% if section.section_type == 'navbar' and not navbar_rendered %}
     <div class="navbar">
         <div class="navbar-toggle" onclick="toggleMenu()">
             <div class="bar"></div>
@@ -541,345 +2986,798 @@
             {% endfor %}
         </div>
     </div>
-    {% set navbar_rendered = True %}
+    {% set navbar_rendered = True %} -->
+
     {% endif %}
     {% endfor %}
 
+
+
     <!-- Public Page Content -->
+
     <div class="content-area">
+        <div class="main-content">
 
-        {% for section in content['sections'] %}
-        {% if section.section_type == 'header' %}
-        <div class="banner-background">
-        </div>
-        <!-- Banner -->
-        <div class="banner">
-            <span class="banner-text">{{ section.content['text'] }}</span>
-        </div>
+            {% for group in content.get('groups', []) %}
+            <section class="public-section-group" id="{{ group.anchor_slug or ('section-group-' ~ group.id) }}" style="
+background: {{ group.background_color or 'transparent' }};
+        {% if group.background_image_url %}
+            background-image: url('{{ group.background_image_url }}');
+            background-size: {{ group.background_image_size or 'cover' }};
+            background-position: {{ group.background_image_position or 'center' }};
+            background-repeat: no-repeat;
         {% endif %}
-        {% endfor %}
+        --group-overlay-color: {{ group.background_overlay_color or 'transparent' }};
+        --group-overlay-opacity: {{ group.background_overlay_opacity or 0 }};
 
-        {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
-        <div class="row-container">
-            <div class="row">
-                {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
-                {% for section in sorted_sections %}
-                <div class="section-container" style="width: {{ section.width }}%;">
+padding: {{ group.padding if group.padding is not none else 0 }}px;
+border-radius: {{ group.border_radius if group.border_radius is not none else 0 }}px;
+box-sizing: border-box;
+width: 100%;
+max-width: {% if group.max_width %}{{ group.max_width }}px{% else %}100%{% endif %};
+margin-left: auto;
+margin-right: auto;
+">
+                <div class="public-section-group-inner">
 
-                    {% if section.section_type == 'image_gallery' %}
-                    <div class="slideshow-thumbnail-container">
-                        <div class="slideshow-container" data-section-id="{{ section.id }}">
-                            {% if section.id in content.pictures_by_section %}
-                            {% for imageUrl in content.pictures_by_section[section.id] %}
-                            <div class="mySlides fade" data-section-id="{{ section.id }}">
-                                <img src="{{ imageUrl }}">
-                            </div>
-                            {% endfor %}
-                            {% else %}
-                            <p>No images in this section.</p>
-                            {% endif %}
-                        </div>
-                        <div style="text-align:center">
-                            <div class="thumbnail-container" data-section-id="{{ section.id }}">
-                                {% if section.id in content.pictures_by_section %}
-                                {% for imageUrl in content.pictures_by_section[section.id] %}
-                                <div class="thumbnail">
-                                    <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
-                                        onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
+                    {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
+                    {% set first_section = sections_in_row[0] %}
+
+                    {% if first_section.section_group_id == group.id %}
+                    <div class="public-row-container">
+                        <div class="public-row">
+                            {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
+                            {% for section in sorted_sections %}
+
+                            <!-- paste your full section-container block here -->
+                            <div class="section-container public-section-cell"
+                                style="--section-width: {{ section.width }}%;">
+
+                                {% if section.section_type in ['images', 'image_gallery', 'image'] %}
+                                {% set images = content.pictures_by_section.get(section.id, []) %}
+                                {% set image_layout = section.content.get('image_layout') or ('single' if
+                                section.section_type == 'image' else 'fade_slideshow') %}
+                                {% set image_fit = section.content.get('image_fit', 'cover') %}
+                                
+                                {% set image_radius = section.content.get('image_radius', '10') %}
+                                {% set show_thumbnails = section.content.get('show_thumbnails', True) %}
+                                {% set autoplay = section.content.get('autoplay', False) %}
+
+                                <div class="uwebia-images uwebia-images-{{ image_layout }}"
+                                    data-section-id="{{ section.id }}" data-layout="{{ image_layout }}"
+                                    data-autoplay="{{ 'true' if autoplay else 'false' }}"
+                                    style="--image-fit: {{ image_fit }}; --image-radius: {{ image_radius }}px;">
+
+                                    {% if images %}
+                                    {% if image_layout == 'single' %}
+                                    <img class="uwebia-single-image" src="{{ images[0] }}" loading="lazy">
+
+                                    {% elif image_layout == 'grid' %}
+                                    <div class="uwebia-image-grid">
+                                        {% for imageUrl in images %}
+                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout == 'masonry' %}
+                                    <div class="uwebia-image-masonry">
+                                        {% for imageUrl in images %}
+                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout == 'carousel' %}
+                                    <div class="uwebia-image-carousel">
+                                        {% for imageUrl in images %}
+                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout == 'feature_grid' %}
+                                    <div class="uwebia-feature-grid">
+                                        {% for imageUrl in images %}
+                                        <img src="{{ imageUrl }}" loading="lazy"
+                                            class="{% if loop.first %}featured{% endif %}">
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout in ['slideshow', 'fade_slideshow'] %}
+                                    <div class="uwebia-slideshow" data-section-id="{{ section.id }}">
+                                        {% for imageUrl in images %}
+                                        <div class="uwebia-slide {% if loop.first %}active{% endif %}">
+                                            <img src="{{ imageUrl }}" loading="lazy">
+                                        </div>
+                                        {% endfor %}
+
+                                        {% if image_layout == 'slideshow' %}
+                                        <button type="button" class="uwebia-slide-arrow prev"
+                                            onclick="moveUwebiaSlide('{{ section.id }}', -1)">
+                                            &#10094;
+                                        </button>
+
+                                        <button type="button" class="uwebia-slide-arrow next"
+                                            onclick="moveUwebiaSlide('{{ section.id }}', 1)">
+                                            &#10095;
+                                        </button>
+                                        {% endif %}
+                                    </div>
+
+                                    {% if show_thumbnails %}
+                                    <div class="uwebia-image-thumbnails">
+                                        {% for imageUrl in images %}
+                                        <button type="button"
+                                            onclick="showUwebiaSlide('{{ section.id }}', {{ loop.index0 }})">
+                                            <img src="{{ imageUrl }}" loading="lazy">
+                                        </button>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    {% endif %}
+                                    {% else %}
+                                    <p>No images in this section.</p>
+                                    {% endif %}
+
                                 </div>
-                                {% endfor %}
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    {% elif section.section_type == 'image' %}
-                    <div class="single-image-container">
-                        <!-- <div class="slideshow-container" data-section-id="{{ section.id }}"> -->
-                        {% if section.id in content.pictures_by_section %}
-                        <!-- {% for imageUrl in content.pictures_by_section[section.id] %} -->
-                        <!-- <div class="mySlides fade" data-section-id="{{ section.id }}"> -->
-                        <img src="{{ imageUrl }}">
-                        <!-- </div> -->
-                        <!-- {% endfor %} -->
-                        {% else %}
-                        <p>No images in this section.</p>
-                        {% endif %}
-                        <!-- </div>
-                    <div style="text-align:center">
-                        <div class="thumbnail-container" data-section-id="{{ section.id }}">
-                            {% if section.id in content.pictures_by_section %}
-                            {% for imageUrl in content.pictures_by_section[section.id] %}
-                            <div class="thumbnail">
-                                <img src="{{ imageUrl }}" style="max-width:100px;max-height:75px;"
-                                    onclick="currentSlide('{{ section.id }}', '{{ loop.index }}')">
-                            </div>
-                            {% endfor %}
-                            {% endif %}
-                        </div>
-                    </div> -->
-                    </div>
-                    {% elif section.section_type == 'code' %}
-                    <div class="text-area">
-                        {{ section.content['text'] | safe }}
-                    </div>
-                    {% elif section.section_type == 'text' %}
-                    <div class="text-area">
-                        {{ section.content['html'] | safe }}
-                    </div>
+                                {% elif section.section_type == 'link_card' %}
+                                {% set card = section.content or {} %}
+                                {% set header = card.get('header', 'Link Card') %}
+                                {% set body = card.get('body', '') %}
+                                {% set footer = card.get('footer', 'Learn more') %}
+                                {% set url = card.get('url', '#') %}
+                                {% set bg_image = card.get('background_image_url', '') %}
+                                {% set bg_color = card.get('background_color', '#1f232b') %}
+                                {% set text_color = card.get('text_color', '#ffffff') %}
+                                {% set overlay_color = card.get('overlay_color', '#000000') %}
+                                {% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
+                                {% set width = card.get('width', 420) %}
 
-                    {% elif section.section_type == 'button' %}
-                    {% if section.content['enabled'] %}
-                    <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{ section.content['text']
-                        }}</a>
-                    {% endif %}
-                    {% elif section.section_type == 'map' %}
-                    {% if section.content['enabled'] %}
-                    <div id="map_{{ section.id }}" style="height: 400px;"></div>
-                    <script id="map-data_{{ section.id }}" type="application/json">
+                                {% set height = card.get('height', 240) %}
+                                {% set radius = card.get('border_radius', 18) %}
+                                {% set open_new_tab = card.get('open_in_new_tab', True) %}
+
+                                {% set overlay_hex = overlay_color.lstrip('#') %}
+                                {% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                {% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                {% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+
+                                <a class="uwebia-link-card" href="{{ url or '#' }}" {% if open_new_tab %}target="_blank"
+                                    rel="noopener noreferrer" {% endif %} style="
+                                    --link-card-width: {{ width }}px;
+                                    --link-card-height: {{ height }}px;
+                                    --link-card-radius: {{ radius }}px;
+                                    --link-card-bg: {{ bg_color }};
+                                    --link-card-text: {{ text_color }};
+                                    --link-card-overlay-rgb: {{ overlay_r }}, {{ overlay_g }}, {{ overlay_b }};
+                                    --link-card-overlay-opacity: {{ overlay_opacity }};
+                                    --link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};
+                            ">
+                                    <div class="uwebia-link-card-header">{{ header }}</div>
+
+                                    {% if body %}
+                                    <div class="uwebia-link-card-body">{{ body }}</div>
+                                    {% endif %}
+
+                                    {% if footer %}
+                                    <div class="uwebia-link-card-footer">{{ footer }}</div>
+                                    {% endif %}
+                                </a>
+                                {% elif section.section_type == 'code' %}
+                                <div class="text-area">
+                                    {{ section.content['text'] | safe }}
+                                </div>
+                                {% elif section.section_type == 'text' %}
+                                {% set bg = section.content.get('background_color', '#000000') %}
+                                {% set opacity = section.content.get('background_opacity', '0')|float %}
+                                {% set padding = section.content.get('padding', '20') %}
+                                {% set radius = section.content.get('border_radius', '10') %}
+                                {% set shadow = section.content.get('box_shadow', 'medium') %}
+                                {% set shadow_css = {
+                                'none': 'none',
+                                'light': '0 2px 8px rgba(0,0,0,0.18)',
+                                'medium': '0 6px 18px rgba(0,0,0,0.28)',
+                                'heavy': '0 10px 28px rgba(0,0,0,0.4)'
+                                }[shadow] if shadow in ['none', 'light', 'medium', 'heavy'] else '0 6px 18px
+                                rgba(0,0,0,0.28)'
+                                %}
+                                {% set bg_hex = bg.lstrip('#') %}
+                                {% set r = bg_hex[0:2]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                                {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
+                                {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
+
+                                <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+            padding: {{ padding }}px;
+            border-radius: {{ radius }}px;
+            box-shadow: {{ shadow_css }};">
+                                    {{ section.content['html'] | safe }}
+                                </div>
+
+                                {% elif section.section_type == 'button' %}
+                                {% if section.content['enabled'] %}
+                                <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
+                                    section.content['text']
+                                    }}</a>
+                                {% endif %}
+                                {% elif section.section_type == 'map' %}
+                                {% if section.content['enabled'] %}
+                                <div id="map_{{ section.id }}" style="height: 400px;"></div>
+                                <script id="map-data_{{ section.id }}" type="application/json">
                     {{ section.content | tojson }}
                 </script>
-                    {% endif %}
-                    {% elif section.section_type == 'calendar' %}
-                    <div class="calendar-container section-container" data-section-id="{{ section.id }}">
-                        <div id="calendar-{{ section.id }}" class="calendar"></div>
-                        <!-- Add a button to subscribe to this section's calendar -->
-                        <a href="/calendar/events/{{ section.id }}.ics" target="_blank" download class="button">Download
-                            Calendar</a>
-                    </div>
-                    <!-- Event Modal -->
-                    <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle"
-                        aria-hidden="true">
-                        <div class="modal-dialog">
-                            <div class="modal-content modal-dark">
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="eventModalTitle"></h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                        aria-label="Close"></button>
+                                {% endif %}
+                                {% elif section.section_type == 'calendar' %}
+                                <div class="calendar-container section-container" data-section-id="{{ section.id }}">
+                                    <div id="calendar-{{ section.id }}" class="calendar"></div>
+                                    <!-- Add a button to subscribe to this section's calendar -->
+                                    <div class="calendar-subscribe-row">
+                                        <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}"
+                                            class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
+                                            Subscribe to Calendar
+                                        </a>
+                                        <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
+                                            class="calendar-subscribe-button">
+                                            Open in Calendar App
+                                        </a>
+
+                                        <button type="button" class="calendar-copy-button"
+                                            onclick="copyCalendarFeedUrl('{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}')">
+                                            Copy Calendar Link
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="modal-body" id="eventModalBody">
-                                    <!-- Event details will be populated here -->
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary"
-                                        data-bs-dismiss="modal">Close</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    {% elif section.section_type == 'contact_form' %}
-                    {% if section.content['enabled'] %}
-                    <div class="contact-form-container">
-                        <h2>{{ section.content['title'] }}</h2>
-                        <form id="contactForm" class="contact-form">
-                            <div class="form-group">
-                                <label for="senders_email">Your Email:</label><br>
-                                <input type="email" id="senders_email" name="senders_email"
-                                    class="dynamic-width form-control" style="padding: 10px;">
-                            </div>
-                            <div class="form-group">
-                                <label for="message_subject">Subject:</label><br>
-                                <input type="text" id="message_subject" name="message_subject"
-                                    class="dynamic-width form-control" style="padding: 10px;">
-                            </div>
-                            <div class="form-group">
-                                <label for="message_body">Message:</label><br>
-                                <textarea id="message_body" name="message_body" rows="5"
-                                    class="dynamic-width form-control" style="padding: 10px;"></textarea>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Submit</button>
-                        </form>
-                        <div id="successMessage" style="display: none;">
-                            <h2>Message Sent!</h2>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% elif section.section_type == 'youtube_video' %}
-                    <div class="youtube-video-container">
-                        <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
-                            {% if section.content['youtube_url'] %}
-                            <iframe width="100%" height="100%"
-                                src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}" frameborder="0"
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                allowfullscreen></iframe>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endif %}
+
+                                {% elif section.section_type == 'comments' %}
+    {% set comments_content = section.content or {} %}
+    {% set comments = content.comments_by_section.get(section.id, []) if content.comments_by_section is defined else [] %}
+    {% set public_user = content.public_user if content.public_user is defined else none %}
+
+    {% if comments_content.get('enabled', True) %}
+    <div class="uwebia-comments"
+         data-section-id="{{ section.id }}"
+         data-require-login="{{ 'true' if comments_content.get('require_login') else 'false' }}">
+
+        <div class="uwebia-comments-header">
+            <h3>{{ comments_content.get('title', 'Comments') }}</h3>
+
+            {% if comments_content.get('description') %}
+                <p>{{ comments_content.get('description') }}</p>
+            {% endif %}
+
+            {% if comments_content.get('show_comment_count', True) %}
+<span class="uwebia-comments-count" id="commentsCount_{{ section.id }}">
+    {{ comments|length }} comments
+</span>
+            {% endif %}
+        </div>
+
+        <div class="uwebia-comments-list" id="commentsList_{{ section.id }}">
+            {% for comment in comments %}
+                <article class="uwebia-comment">
+    <div class="uwebia-comment-top">
+        <div class="uwebia-comment-meta">
+            <strong>{{ comment.display_name }}</strong>
+            <span>{{ comment.created_at.strftime('%b %d, %Y %I:%M %p') }}</span>
+        </div>
+    </div>
+
+    <div class="uwebia-comment-body">{{ comment.body }}</div>
+</article>
+            {% else %}
+                <div class="uwebia-comments-empty">
+                    No comments yet. Be the first to comment.
                 </div>
-                {% endfor %}
+            {% endfor %}
+        </div>
+        <div class="uwebia-comments-pagination"
+     id="commentsPagination_{{ section.id }}"
+     data-section-id="{{ section.id }}">
+</div>
+
+        {% if comments_content.get('require_login') and not public_user %}
+            <div class="uwebia-comments-login-required">
+                <p>Please log in to comment.</p>
+                <a href="{{ url_for('public_forum_login', next=content.current_page_url) }}">
+                    Log In
+                </a>
+                <a href="{{ url_for('public_forum_register', next=content.current_page_url) }}">
+                    Create Account
+                </a>
             </div>
+        {% else %}
+            <form class="uwebia-comment-form"
+                  data-section-id="{{ section.id }}"
+                  onsubmit="submitPageComment(event, '{{ section.id }}')">
+
+                {% if not public_user and comments_content.get('allow_anonymous', True) %}
+                    <input type="text"
+                           name="comment_name"
+                           placeholder="Your name"
+                           maxlength="120"
+                           required>
+                {% endif %}
+
+                <textarea name="comment_body"
+                          placeholder="Write a comment..."
+                          maxlength="3000"
+                          required></textarea>
+
+                <button type="submit">Post Comment</button>
+
+                <div class="uwebia-comment-feedback"
+                     id="commentFeedback_{{ section.id }}"></div>
+            </form>
+        {% endif %}
+    </div>
+    {% endif %}
+
+{% elif section.section_type == 'music' %}
+{% set music = content.music_by_section.get(section.id, []) if content.music_by_section is defined else [] %}
+{% set music_content = section.content or {} %}
+
+<div class="uwebia-music uwebia-music-{{ music_content.get('layout', 'list') }}"
+     style="--music-player-radius: {{ music_content.get('player_radius', 18) }}px;">
+
+    {% if music_content.get('title') or music_content.get('description') %}
+    <div class="uwebia-music-header">
+        {% if music_content.get('title') %}
+        <h3 class="uwebia-music-title">{{ music_content.get('title') }}</h3>
+        {% endif %}
+
+        {% if music_content.get('description') %}
+        <p class="uwebia-music-description">{{ music_content.get('description') }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="uwebia-music-list">
+        {% for track in music %}
+        <div class="uwebia-music-track">
+<div class="uwebia-music-left">
+    <div class="uwebia-music-art">
+        {% if music_content.get('show_track_numbers', True) %}
+        <span class="uwebia-music-track-number">
+            {{ loop.index }}
+        </span>
+        {% endif %}
+
+        <span class="uwebia-music-icon">
+            <i class="fas fa-music"></i>
+        </span>
+    </div>
+
+    <div class="uwebia-music-info">
+        <div class="uwebia-music-track-title" title="{{ track.filename }}">
+            {{ track.filename }}
+        </div>
+
+        <div class="uwebia-music-meta-row">
+            {% if track.extension %}
+            <span>{{ track.extension|upper }}</span>
+            {% endif %}
+
+            {% if track.file_size_label %}
+            <span>{{ track.file_size_label }}</span>
+            {% endif %}
+
+            <span class="uwebia-media-count" id="assetPlayCount_{{ track.asset_id or track.id }}">
+                {{ track.unique_play_count or 0 }} unique listens
+            </span>
+        </div>
+    </div>
+</div>
+            <audio controls preload="metadata"
+                data-asset-id="{{ track.asset_id or track.id }}"
+                data-track-counted="false"
+                class="uwebia-trackable-media uwebia-trackable-audio">
+                <source src="{{ track.url }}" type="{{ track.mime_type or 'audio/mpeg' }}">
+                Your browser does not support the audio element.
+            </audio>
+
+            {% if music_content.get('show_download') %}
+            <a class="uwebia-music-download" href="{{ track.url }}" download title="Download track">
+                <i class="fas fa-download"></i>
+            </a>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="uwebia-music-empty">
+            No music has been added yet.
         </div>
         {% endfor %}
     </div>
-</body>
+</div>
+{% elif section.section_type == 'video' or section.section_type == 'videos' %}
+    {% set videos = content.videos_by_section.get(section.id, []) if content.videos_by_section is defined else [] %}
+    {% set video_content = section.content or {} %}
+
+    <div class="uwebia-video-section uwebia-video-{{ video_content.get('layout', 'grid') }}"
+         style="
+            --video-radius: {{ video_content.get('corner_radius', 18) }}px;
+            --video-max-width: {{ video_content.get('max_width', 900) }}px;
+         ">
+
+        {% if video_content.get('title') or video_content.get('description') %}
+        <div class="uwebia-video-header">
+            {% if video_content.get('title') %}
+            <h3 class="uwebia-video-title">{{ video_content.get('title') }}</h3>
+            {% endif %}
+
+            {% if video_content.get('description') %}
+            <p class="uwebia-video-description">{{ video_content.get('description') }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="uwebia-video-list">
+            {% for video in videos %}
+            <div class="uwebia-video-card">
+<button type="button"
+        class="public-video-preview-button"
+        data-video-url="{{ video.url }}"
+        data-video-mime="{{ video.mime_type or 'video/mp4' }}"
+        onclick="event.preventDefault(); event.stopPropagation(); openPublicVideoPreview('{{ video.url }}', '{{ video.mime_type or 'video/mp4' }}', '{{ video.filename|e }}', '{{ video.asset_id or video.id }}')">
+    <canvas class="video-thumb-canvas" aria-hidden="true"></canvas>
+
+    <div class="video-thumb-fallback">
+        <i class="fas fa-play-circle"></i>
+        <span>Preview Video</span>
+    </div>
+
+    <div class="video-thumb-overlay">
+        <span class="video-play-icon" aria-hidden="true"></span>
+    </div>
+</button>
+
+                {% if video_content.get('show_filenames', True) or video_content.get('show_download') %}
+                <div class="uwebia-video-meta">
+                    {% if video_content.get('show_filenames', True) %}
+                    <div class="uwebia-video-filename" title="{{ video.filename }}">
+                        {{ video.filename }}
+                    </div>
+                    {% endif %}
+
+                        <div class="uwebia-media-count" id="assetPlayCount_{{ video.asset_id or video.id }}">
+    {{ video.unique_play_count or 0 }} unique plays
+    </div>
+
+                    {% if video_content.get('show_download') %}
+                    <a class="uwebia-video-download" href="{{ video.url }}" download title="Download video">
+                        <i class="fas fa-download"></i>
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="uwebia-video-empty">
+                No videos have been added yet.
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+                                {% elif section.section_type == 'contact_form' %}
+                                {% if section.content['enabled'] %}
+                                <div class="contact-form-container">
+                                    <h2>{{ section.content['title'] }}</h2>
+                                    <form id="contactForm-{{ section.id }}" class="contact-form">
+                                        <input type="hidden" name="section_id" value="{{ section.id }}">
+
+                                        <div class="form-group">
+                                            <label for="senders_email_{{ section.id }}">Your Email:</label><br>
+                                            <input type="email" id="senders_email_{{ section.id }}" name="senders_email"
+                                                class="dynamic-width form-control" style="padding: 10px;" required>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="message_subject_{{ section.id }}">Subject:</label><br>
+                                            <input type="text" id="message_subject_{{ section.id }}"
+                                                name="message_subject" class="dynamic-width form-control"
+                                                style="padding: 10px;" required>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="message_body_{{ section.id }}">Message:</label><br>
+                                            <textarea id="message_body_{{ section.id }}" name="message_body" rows="5"
+                                                class="dynamic-width form-control" style="padding: 10px;"
+                                                required></textarea>
+                                        </div>
+
+                                        <button type="submit" class="btn btn-primary">Submit</button>
+                                    </form>
+
+                                    <div id="successMessage-{{ section.id }}" style="display: none;">
+                                        <h2>Message Sent!</h2>
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% elif section.section_type == 'youtube_video' %}
+                                <div class="youtube-video-container">
+                                    <div class="youtube-video-embed" id="youtube-video-embed-{{ section.id }}">
+                                        {% if section.content['youtube_url'] %}
+                                        <iframe width="100%" height="100%"
+                                            src="{{ section.content['youtube_url'].replace('watch?v=', 'embed/') }}"
+                                            frameborder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowfullscreen></iframe>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                
 
 
-<script>
+
+
+                            </div>
+
+
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        </div>
+    </div>
+    <!-- Event Modal -->
+    <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content modal-dark">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="eventModalTitle"></h5>
+                    <button type="button" class="close calendar-modal-close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="eventModalBody">
+                    <!-- Event details will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="publicVideoPreviewModal" class="video-preview-modal" onclick="closePublicVideoPreview()">
+    <div class="video-preview-dialog" onclick="event.stopPropagation();">
+        <div class="video-preview-header">
+            <div id="publicVideoPreviewTitle" class="video-preview-title">Video Preview</div>
+
+            <button type="button" class="video-preview-close" onclick="closePublicVideoPreview()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <video id="publicVideoPreviewPlayer"
+               class="video-preview-player"
+               controls
+               autoplay
+               preload="metadata"
+               playsinline>
+            Your browser does not support the video element.
+        </video>
+    </div>
+</div>
+
+    <!-- <script>
     // Example JavaScript to set styles dynamically
 
-    const background_color = "{{ content.background_color }}";
-    const text_color = "{{ content.text_color }}";
+const background_color = "{{ content.background_color }}";
+const text_color = "{{ content.text_color }}";
 
-
-    document.body.style.backgroundColor = background_color;
-    document.body.style.color = text_color;
+document.body.style.background = background_color;
+document.body.style.color = text_color;
 
     console.log("BACKGROUND COLOR: ", background_color, " TEXT_COLOR: ", text_color)
-</script>
+</script> -->
 
+    <script>
+        function toggleMenu() {
+            var navbarMenu = document.getElementById("navbarMenu");
+            navbarMenu.classList.toggle("show");
+        }
 
+        function adjustContentOffset() {
+            const banner = document.querySelector('.banner');
+            const content = document.querySelector('.main-content');
 
-</body>
-<script>
-    function toggleMenu() {
-        var navbarMenu = document.getElementById("navbarMenu");
-        navbarMenu.classList.toggle("show");
-    }
-</script>
-<script>
-
-
-    const pageId = "{{ content.page_id }}";
-    // Function to fetch events from the backend
-    function fetchEvents(sectionId, successCallback, failureCallback) {
-        // Fetch events from the backend using the provided sectionId
-        return fetch(`/page/${sectionId}/events`)
-            .then(response => response.json())
-            .then(events => {
-                console.log('Fetched Events:', events); // Log fetched events
-                // Invoke the success callback with the fetched events
-                successCallback(events);
-            })
-            .catch(error => {
-                // Invoke the failure callback if an error occurs
-                failureCallback(error);
-            });
-    }
-
-    // Initialize the calendar
-    function initializeCalendar(sectionId, pageId) {
-        console.log('Initializing calendar for section ID:', sectionId);
-        const calendarEl = document.getElementById(`calendar-${sectionId}`);
-        console.log('Calendar element:', calendarEl);
-
-        const calendar = new FullCalendar.Calendar(calendarEl, {
-            // Add your FullCalendar options here
-            initialView: 'dayGridMonth',
-            events: (info, successCallback, failureCallback) => {
-                // Call fetchEvents with the sectionId parameter
-                fetchEvents(sectionId, successCallback, failureCallback);
-            },
-            eventClick: function (info) {
-                // Display a modal or popover with event details when clicked
-                // For example, you can use a library like Bootstrap for modal popups
-                console.log('Event Clicked:', info.event); // Log clicked event details
-
-                // Format start and end dates
-                const startDate = new Date(info.event.start);
-                const endDate = info.event.end ? new Date(info.event.end) : null;
-                const formattedStartDate = startDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }); // Adjust format as needed
-                const formattedEndDate = endDate ? endDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }) : null; // Adjust format as needed
-
-                $('#eventModalTitle').text(info.event.title);
-                $('#eventModalBody').html(`<p>Start: ${formattedStartDate}</p><p>End: ${formattedEndDate}</p><p>${info.event.extendedProps.description}</p>`);
-                $('#eventModal').modal('show');
-            },
-            // Add other options as needed
-        });
-        calendar.render();
-    }
-
-    // Call initializeCalendar for each calendar section
-    document.addEventListener('DOMContentLoaded', function () {
-        const calendarSections = document.querySelectorAll('.calendar-container');
-        calendarSections.forEach(function (section) {
-            const sectionId = section.getAttribute('data-section-id');
-            initializeCalendar(sectionId);
-        });
-    });
-
-</script>
-
-<script>
-
-
-
-    // Function to send email using AJAX
-    function sendEmail(formData) {
-        $.ajax({
-            type: 'POST',
-            url: '/send_email',  // Endpoint to handle email sending
-            data: formData,
-            success: function (response) {
-                console.log('Email sent successfully');
-                // Add your success message handling here
-                $('#contactForm').hide();
-                $('#successMessage').show();
-            },
-            error: function (xhr, status, error) {
-                console.error('Error sending email:', error);
-                // Add your error message handling here
-            }
-        });
-    }
-
-    // Function to handle form submission
-    $('#contactForm').submit(function (event) {
-        event.preventDefault();  // Prevent default form submission
-
-        // Get form data
-        var formData = {
-            senders_email: $('#senders_email').val(),
-            message_subject: $('#message_subject').val(),
-            message_body: $('#message_body').val()
-        };
-
-        // Send email
-        sendEmail(formData);
-    });
-    $(document).ready(function () {
-        // Function to initialize a map
-        function initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel) {
-            // Check if the map container exists
-            var mapContainer = document.getElementById(mapId);
-            if (!mapContainer) {
-                console.log('Map container not found for map:', mapId);
-                return;
-            }
-
-            if (mapEnabled) {
-                var map = L.map(mapId).setView([latitude, longitude], 16);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                }).addTo(map);
-                L.marker([latitude, longitude]).addTo(map)
-                    .bindPopup(mapMarkerLabel)
-                    .openPopup();
-            } else {
-                console.log('Map is disabled for map:', mapId);
-                $('#' + mapId).remove(); // Remove the map container if map is disabled
+            if (banner && content) {
+                content.style.marginTop = banner.offsetHeight + 'px';
             }
         }
 
-        // Parse the JSON data for each map
-        $('[id^="map-data"]').each(function () {
-            var mapId = this.id.replace('map-data', 'map'); // Generate map ID from map-data ID
-            var mapData = JSON.parse($(this).text());
-            var latitude = parseFloat(mapData.latitude);
-            var longitude = parseFloat(mapData.longitude);
-            var mapEnabled = mapData.enabled;
-            var mapMarkerLabel = mapData.marker_label;
+        window.addEventListener('load', adjustContentOffset);
+        window.addEventListener('resize', adjustContentOffset);
+    </script>
+    <script>
 
-            console.log('Map ID:', mapId);
-            console.log('Map data for map ' + mapId + ':', mapData); // Debugging line to check the map data
 
-            initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel);
+        const pageId = "{{ content.page_id }}";
+        // Function to fetch events from the backend
+        function fetchEvents(sectionId, successCallback, failureCallback) {
+            // Fetch events from the backend using the provided sectionId
+            return fetch(`/page/${sectionId}/events`)
+                .then(response => response.json())
+                .then(events => {
+                    console.log('Fetched Events:', events); // Log fetched events
+                    // Invoke the success callback with the fetched events
+                    successCallback(events);
+                })
+                .catch(error => {
+                    // Invoke the failure callback if an error occurs
+                    failureCallback(error);
+                });
+        }
+
+        // Initialize the calendar
+        function initializeCalendar(sectionId, pageId) {
+            console.log('Initializing calendar for section ID:', sectionId);
+            const calendarEl = document.getElementById(`calendar-${sectionId}`);
+            console.log('Calendar element:', calendarEl);
+
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                height: 'auto',
+                contentHeight: 'auto',
+                expandRows: false,
+                dayMaxEvents: false,
+                fixedWeekCount: false,
+                showNonCurrentDates: true,
+
+                events: (info, successCallback, failureCallback) => {
+                    fetchEvents(sectionId, successCallback, failureCallback);
+                },
+                eventClick: function (info) {
+                    // Display a modal or popover with event details when clicked
+                    // For example, you can use a library like Bootstrap for modal popups
+                    console.log('Event Clicked:', info.event); // Log clicked event details
+
+                    // Format start and end dates
+                    const startDate = new Date(info.event.start);
+                    const endDate = info.event.end ? new Date(info.event.end) : null;
+                    const formattedStartDate = startDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }); // Adjust format as needed
+                    const formattedEndDate = endDate ? endDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }) : null; // Adjust format as needed
+
+                    const description = info.event.extendedProps.description || '';
+                    const endText = formattedEndDate ? `<p><strong>End:</strong> ${formattedEndDate}</p>` : '';
+
+                    $('#eventModalTitle').text(info.event.title);
+                    $('#eventModalBody').html(`
+    <p><strong>Start:</strong> ${formattedStartDate}</p>
+    ${endText}
+    ${description ? `<p>${description}</p>` : ''}
+`);
+                    $('#eventModal').modal('show');
+                },
+                // Add other options as needed
+            });
+            calendar.render();
+        }
+
+        // Call initializeCalendar for each calendar section
+        document.addEventListener('DOMContentLoaded', function () {
+            const calendarSections = document.querySelectorAll('.calendar-container');
+            calendarSections.forEach(function (section) {
+                const sectionId = section.getAttribute('data-section-id');
+                initializeCalendar(sectionId);
+            });
         });
-    });
+
+    </script>
+
+    <script>
 
 
-</script>
-<!-- <script>
+
+        // Function to send email using AJAX
+        function sendEmail(formData) {
+            $.ajax({
+                type: 'POST',
+                url: '/send_email',  // Endpoint to handle email sending
+                data: formData,
+                success: function (response) {
+                    console.log('Email sent successfully');
+                    // Add your success message handling here
+                    $('#contactForm').hide();
+                    $('#successMessage').show();
+                },
+                error: function (xhr, status, error) {
+                    console.error('Error sending email:', error);
+                    // Add your error message handling here
+                }
+            });
+        }
+
+        $('.contact-form').on('submit', function (event) {
+            event.preventDefault();
+
+            const $form = $(this);
+            const sectionId = $form.find('input[name="section_id"]').val();
+            const $successMessage = $('#successMessage-' + sectionId);
+
+            const formData = {
+                section_id: sectionId,
+                senders_email: $form.find('input[name="senders_email"]').val(),
+                message_subject: $form.find('input[name="message_subject"]').val(),
+                message_body: $form.find('textarea[name="message_body"]').val()
+            };
+
+            $.ajax({
+                type: 'POST',
+                url: '/send_email',
+                data: formData,
+                success: function (response) {
+                    console.log('Send email response:', response);
+
+                    if (response.status === 'success') {
+                        $form.hide();
+                        $successMessage.text(response.message || 'Message sent!').show();
+                    } else {
+                        alert(response.message || 'Something went wrong.');
+                    }
+                },
+                error: function (xhr) {
+                    console.error('Error sending email:', xhr);
+
+                    let message = 'Something went wrong. Please try again.';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        message = xhr.responseJSON.message;
+                    }
+
+                    alert(message);
+                }
+            });
+        });
+
+
+        $(document).ready(function () {
+            // Function to initialize a map
+            function initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel) {
+                // Check if the map container exists
+                var mapContainer = document.getElementById(mapId);
+                if (!mapContainer) {
+                    console.log('Map container not found for map:', mapId);
+                    return;
+                }
+
+                if (mapEnabled) {
+                    var map = L.map(mapId).setView([latitude, longitude], 16);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    }).addTo(map);
+                    L.marker([latitude, longitude]).addTo(map)
+                        .bindPopup(mapMarkerLabel)
+                        .openPopup();
+                } else {
+                    console.log('Map is disabled for map:', mapId);
+                    $('#' + mapId).remove(); // Remove the map container if map is disabled
+                }
+            }
+
+            // Parse the JSON data for each map
+            $('[id^="map-data"]').each(function () {
+                var mapId = this.id.replace('map-data', 'map'); // Generate map ID from map-data ID
+                var mapData = JSON.parse($(this).text());
+                var latitude = parseFloat(mapData.latitude);
+                var longitude = parseFloat(mapData.longitude);
+                var mapEnabled = mapData.enabled;
+                var mapMarkerLabel = mapData.marker_label;
+
+                console.log('Map ID:', mapId);
+                console.log('Map data for map ' + mapId + ':', mapData); // Debugging line to check the map data
+
+                initializeMap(mapId, latitude, longitude, mapEnabled, mapMarkerLabel);
+            });
+        });
+
+
+    </script>
+    <!-- <script>
     // Calculate the height of the banner and set it to the banner background
     var bannerHeight = document.querySelector('.banner').offsetHeight;
     document.querySelector('.banner-background').style.height = bannerHeight + 'px';
@@ -891,64 +3789,564 @@
     document.querySelector('.banner-background').style.height = bannerHeight + 'px';
 </script> -->
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // Initialize slideshows for each section
-        var slideshows = document.querySelectorAll('.slideshow-container');
-        slideshows.forEach(function (slideshow) {
-            var sectionId = slideshow.getAttribute('data-section-id');
-            initializeSlideshow(sectionId);
+    <script>
+        const uwebiaSlideIndexes = {};
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.uwebia-images[data-layout="slideshow"], .uwebia-images[data-layout="fade_slideshow"]').forEach(section => {
+                const sectionId = section.dataset.sectionId;
+                uwebiaSlideIndexes[sectionId] = 0;
+                showUwebiaSlide(sectionId, 0);
+
+                const shouldAutoplay = section.dataset.autoplay === 'true' || section.dataset.layout === 'fade_slideshow';
+
+                if (shouldAutoplay) {
+                    setInterval(function () {
+                        moveUwebiaSlide(sectionId, 1);
+                    }, 6500);
+                }
+            });
         });
-    });
 
-    function initializeSlideshow(sectionId) {
-        var slideIndex = 0;
-        var slideTimer;
+        function showUwebiaSlide(sectionId, index) {
+            const wrapper = document.querySelector(`.uwebia-images[data-section-id="${sectionId}"]`);
+            if (!wrapper) return;
 
-        showSlides(sectionId);
+            const slides = wrapper.querySelectorAll('.uwebia-slide');
+            const thumbs = wrapper.querySelectorAll('.uwebia-image-thumbnails button');
 
-        // Thumbnail image controls
-        window.currentSlide = function (sectionId, n) {
-            clearTimeout(slideTimer);
-            showSlides(sectionId, slideIndex = n);
-        };
+            if (!slides.length) return;
 
-        function showSlides(sectionId, n) {
-    var i;
-    var slides = document.querySelectorAll('.mySlides[data-section-id="' + sectionId + '"]');
-    if (n === undefined) {
-        n = ++slideIndex;
-    }
-    if (n > slides.length) { slideIndex = 1 }
-    if (n < 1) { slideIndex = slides.length }
-    for (i = 0; i < slides.length; i++) {
-        slides[i].style.display = "none";
-    }
+            const normalizedIndex = (index + slides.length) % slides.length;
+            uwebiaSlideIndexes[sectionId] = normalizedIndex;
 
-    // Display the first slide without fade animation
-    if (n === 1) {
-        slides[slideIndex - 1].style.display = "block";
-        slides[slideIndex - 1].style.opacity = 1; // Set opacity to 1 for the first slide
-    } else {
-        // Apply fade animation for subsequent slides
-        slides[slideIndex - 1].style.display = "block";
-        slides[slideIndex - 1].style.opacity = 0;
-        var fadeInInterval = setInterval(function () {
-            if (slides[slideIndex - 1].style.opacity >= 1) {
-                clearInterval(fadeInInterval);
-            } else {
-                slides[slideIndex - 1].style.opacity = parseFloat(slides[slideIndex - 1].style.opacity) + 0.01;
+            slides.forEach((slide, i) => {
+                slide.classList.toggle('active', i === normalizedIndex);
+            });
+
+            thumbs.forEach((thumb, i) => {
+                thumb.classList.toggle('active', i === normalizedIndex);
+            });
+        }
+
+        function moveUwebiaSlide(sectionId, direction) {
+            const currentIndex = uwebiaSlideIndexes[sectionId] || 0;
+            showUwebiaSlide(sectionId, currentIndex + direction);
+        }
+    </script>
+    <!-- 
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize slideshows for each section
+            var slideshows = document.querySelectorAll('.slideshow-container');
+            slideshows.forEach(function (slideshow) {
+                var sectionId = slideshow.getAttribute('data-section-id');
+                initializeSlideshow(sectionId);
+            });
+        });
+
+        function initializeSlideshow(sectionId) {
+            var slideIndex = 0;
+            var slideTimer;
+
+            showSlides(sectionId);
+
+            // Thumbnail image controls
+            window.currentSlide = function (sectionId, n) {
+                clearTimeout(slideTimer);
+                showSlides(sectionId, slideIndex = n);
+            };
+
+            function showSlides(sectionId, n) {
+                var i;
+                var slides = document.querySelectorAll('.mySlides[data-section-id="' + sectionId + '"]');
+                if (n === undefined) {
+                    n = ++slideIndex;
+                }
+                if (n > slides.length) { slideIndex = 1 }
+                if (n < 1) { slideIndex = slides.length }
+                for (i = 0; i < slides.length; i++) {
+                    slides[i].style.display = "none";
+                }
+
+                // Display the first slide without fade animation
+                if (n === 1) {
+                    slides[slideIndex - 1].style.display = "block";
+                    slides[slideIndex - 1].style.opacity = 1; // Set opacity to 1 for the first slide
+                } else {
+                    // Apply fade animation for subsequent slides
+                    slides[slideIndex - 1].style.display = "block";
+                    slides[slideIndex - 1].style.opacity = 0;
+                    var fadeInInterval = setInterval(function () {
+                        if (slides[slideIndex - 1].style.opacity >= 1) {
+                            clearInterval(fadeInInterval);
+                        } else {
+                            slides[slideIndex - 1].style.opacity = parseFloat(slides[slideIndex - 1].style.opacity) + 0.01;
+                        }
+                    }, 20);
+                }
+
+                slideTimer = setTimeout(function () {
+                    slides[slideIndex - 1].style.opacity = 0;
+                    showSlides(sectionId, slideIndex += 1);
+                }, 10000);
             }
-        }, 20);
+
+        }
+    </script> -->
+    <script>
+        function copyCalendarFeedUrl(url) {
+            if (!navigator.clipboard) {
+                prompt('Copy this calendar subscription link:', url);
+                return;
+            }
+
+            navigator.clipboard.writeText(url)
+                .then(() => {
+                    alert('Calendar subscription link copied.');
+                })
+                .catch(() => {
+                    prompt('Copy this calendar subscription link:', url);
+                });
+        }
+    </script>
+    <script>
+function openPublicVideoPreview(videoUrl, videoMime, videoTitle, assetId) {
+    const modal = document.getElementById('publicVideoPreviewModal');
+    const titleEl = document.getElementById('publicVideoPreviewTitle');
+    const player = document.getElementById('publicVideoPreviewPlayer');
+
+    if (!modal || !player) return;
+
+    player.pause();
+    player.removeAttribute('src');
+    player.innerHTML = '';
+
+    player.dataset.assetId = assetId || '';
+    player.dataset.trackCounted = 'false';
+
+    player.onplay = function () {
+        if (this.dataset.trackCounted === 'true') return;
+
+        this.dataset.trackCounted = 'true';
+        trackAssetPlay(this.dataset.assetId, 'video');
+    };
+
+    player.src = videoUrl;
+    player.setAttribute('data-video-mime', videoMime || 'video/mp4');
+    player.load();
+
+    if (titleEl) {
+        titleEl.textContent = videoTitle || 'Video Preview';
     }
 
-    slideTimer = setTimeout(function () {
-        slides[slideIndex - 1].style.opacity = 0;
-        showSlides(sectionId, slideIndex += 1);
-    }, 10000);
+    modal.classList.add('is-open');
+
+    const playPromise = player.play();
+
+    if (playPromise !== undefined) {
+        playPromise.catch(error => {
+            console.warn('Autoplay was blocked by the browser:', error);
+        });
+    }
+
+    player.onerror = function () {
+        console.error('Public video failed to load:', player.error, videoUrl);
+    };
 }
 
+function closePublicVideoPreview() {
+    const modal = document.getElementById('publicVideoPreviewModal');
+    const player = document.getElementById('publicVideoPreviewPlayer');
+
+    if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.innerHTML = '';
+        player.load();
     }
+
+    if (modal) {
+        modal.classList.remove('is-open');
+    }
+}
+
+function generatePublicVideoThumbnails() {
+    document.querySelectorAll('.public-video-preview-button[data-video-url]').forEach(button => {
+        if (button.dataset.thumbnailGenerated === 'true') return;
+
+        const videoUrl = button.dataset.videoUrl;
+        const canvas = button.querySelector('.video-thumb-canvas');
+
+        if (!videoUrl || !canvas) return;
+
+        button.dataset.thumbnailGenerated = 'true';
+
+        const video = document.createElement('video');
+
+        video.src = videoUrl;
+        video.muted = true;
+        video.preload = 'metadata';
+        video.playsInline = true;
+
+        video.addEventListener('loadedmetadata', function () {
+            const targetTime = Math.min(1, Math.max(0, (video.duration || 1) * 0.1));
+
+            try {
+                video.currentTime = targetTime;
+            } catch (error) {
+                console.warn('Could not seek public video thumbnail:', error);
+            }
+        });
+
+        video.addEventListener('seeked', function () {
+            try {
+                const width = video.videoWidth || 320;
+                const height = video.videoHeight || 180;
+
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, width, height);
+
+                button.classList.add('has-thumbnail');
+
+                video.removeAttribute('src');
+                video.load();
+            } catch (error) {
+                console.warn('Could not draw public video thumbnail:', error);
+            }
+        });
+
+        video.addEventListener('error', function () {
+            console.warn('Could not load public video thumbnail:', videoUrl, video.error);
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', generatePublicVideoThumbnails);
+
+
+    </script>
+
+    <script>
+function pluralizeUniqueMediaCount(count, type) {
+    const safeCount = Number(count || 0);
+
+    if (type === 'audio') {
+        return `${safeCount} unique ${safeCount === 1 ? 'listen' : 'listens'}`;
+    }
+
+    return `${safeCount} unique ${safeCount === 1 ? 'play' : 'plays'}`;
+}
+
+function updateAssetPlayCountDisplay(assetId, uniquePlayCount, mediaType) {
+    document.querySelectorAll(`#assetPlayCount_${assetId}`).forEach(el => {
+        el.textContent = pluralizeUniqueMediaCount(uniquePlayCount, mediaType);
+    });
+}
+
+function trackAssetPlay(assetId, mediaType) {
+    if (!assetId) return Promise.resolve(null);
+
+    return fetch(`/asset/${assetId}/track-play`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            media_type: mediaType
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateAssetPlayCountDisplay(assetId, data.unique_play_count, mediaType);
+            }
+
+            return data;
+        })
+        .catch(error => {
+            console.error('Could not track asset play:', error);
+            return null;
+        });
+}
+
+function attachAudioPlayTracking() {
+    document.querySelectorAll('audio.uwebia-trackable-audio').forEach(audio => {
+        if (audio.dataset.playTrackingReady === 'true') return;
+
+        audio.dataset.playTrackingReady = 'true';
+
+        audio.addEventListener('play', function () {
+            if (this.dataset.trackCounted === 'true') return;
+
+            this.dataset.trackCounted = 'true';
+
+            trackAssetPlay(this.dataset.assetId, 'audio');
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', attachAudioPlayTracking);
+
+
 </script>
+<script>
+const uwebiaCommentPaginationState = {};
+
+function escapePublicCommentHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function loadPublicComments(sectionId, page = 1) {
+    const list = document.getElementById(`commentsList_${sectionId}`);
+    const paginationEl = document.getElementById(`commentsPagination_${sectionId}`);
+
+    if (!list) return;
+
+    uwebiaCommentPaginationState[sectionId] = page;
+
+    fetch(`/section/${sectionId}/comments?page=${page}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.message || 'Could not load comments.');
+            }
+
+            renderPublicComments(sectionId, data.comments);
+            renderPublicCommentsPagination(sectionId, data.pagination);
+        })
+        .catch(error => {
+            console.error(error);
+
+            if (paginationEl) {
+                paginationEl.innerHTML = '';
+            }
+        });
+}
+
+function renderPublicComments(sectionId, comments) {
+    const list = document.getElementById(`commentsList_${sectionId}`);
+
+    if (!list) return;
+
+    if (!comments || comments.length === 0) {
+        list.innerHTML = `
+            <div class="uwebia-comments-empty">
+                No comments yet. Be the first to comment.
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = comments.map(comment => {
+        const likedClass = comment.liked_by_current_user ? 'liked' : '';
+        const likeCount = Number(comment.like_count || 0);
+
+        return `
+    <article class="uwebia-comment" id="pageComment_${comment.id}">
+        <div class="uwebia-comment-top">
+            <div class="uwebia-comment-meta">
+                <strong>${escapePublicCommentHtml(comment.display_name || 'Anonymous')}</strong>
+                <span>${escapePublicCommentHtml(comment.created_at || '')}</span>
+            </div>
+
+            <button type="button"
+                    class="uwebia-comment-like-button ${likedClass}"
+                    data-comment-id="${comment.id}"
+                    title="Like this comment"
+                    onclick="togglePageCommentLike(event, '${comment.id}')">
+                <i class="fas fa-heart"></i>
+                <span id="pageCommentLikeCount_${comment.id}">${likeCount}</span>
+            </button>
+        </div>
+
+        <div class="uwebia-comment-body">${escapePublicCommentHtml(comment.body || '')}</div>
+    </article>
+`;
+    }).join('');
+
+    list.scrollTop = 0;
+}
+
+function renderPublicCommentsPagination(sectionId, pagination) {
+    const paginationEl = document.getElementById(`commentsPagination_${sectionId}`);
+
+    if (!paginationEl) return;
+
+    if (!pagination || pagination.pages <= 1) {
+        paginationEl.innerHTML = '';
+        return;
+    }
+
+    const buttons = [];
+
+    buttons.push(`
+        <button type="button"
+                ${pagination.has_prev ? '' : 'disabled'}
+                onclick="loadPublicComments('${sectionId}', ${pagination.prev_num || 1})">
+            ← Prev
+        </button>
+    `);
+
+    const currentPage = pagination.page;
+    const totalPages = pagination.pages;
+
+    const start = Math.max(1, currentPage - 2);
+    const end = Math.min(totalPages, currentPage + 2);
+    const countEl = document.getElementById(`commentsCount_${sectionId}`);
+    if (countEl && pagination) {
+        const total = pagination.total || 0;
+        countEl.textContent = `${total} ${total === 1 ? 'comment' : 'comments'}`;
+    }
+    if (start > 1) {
+        buttons.push(`
+            <button type="button" onclick="loadPublicComments('${sectionId}', 1)">1</button>
+        `);
+
+        if (start > 2) {
+            buttons.push(`<span>…</span>`);
+        }
+    }
+
+    for (let pageNum = start; pageNum <= end; pageNum++) {
+        buttons.push(`
+            <button type="button"
+                    class="${pageNum === currentPage ? 'active' : ''}"
+                    onclick="loadPublicComments('${sectionId}', ${pageNum})">
+                ${pageNum}
+            </button>
+        `);
+    }
+
+    if (end < totalPages) {
+        if (end < totalPages - 1) {
+            buttons.push(`<span>…</span>`);
+        }
+
+        buttons.push(`
+            <button type="button" onclick="loadPublicComments('${sectionId}', ${totalPages})">
+                ${totalPages}
+            </button>
+        `);
+    }
+
+    buttons.push(`
+        <button type="button"
+                ${pagination.has_next ? '' : 'disabled'}
+                onclick="loadPublicComments('${sectionId}', ${pagination.next_num || totalPages})">
+            Next →
+        </button>
+    `);
+
+    paginationEl.innerHTML = buttons.join('');
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.uwebia-comments[data-section-id]').forEach(section => {
+        loadPublicComments(section.dataset.sectionId, 1);
+    });
+});
+</script>
+<script>
+function submitPageComment(event, sectionId) {
+    event.preventDefault();
+
+    const form = event.target;
+    const feedback = document.getElementById(`commentFeedback_${sectionId}`);
+    const list = document.getElementById(`commentsList_${sectionId}`);
+
+    if (feedback) {
+        feedback.textContent = 'Posting...';
+    }
+
+    const formData = new FormData(form);
+
+    fetch(`/section/${sectionId}/comment`, {
+        method: 'POST',
+        body: formData
+    })
+        .then(async response => {
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw data;
+            }
+
+            return data;
+        })
+        .then(data => {
+            if (feedback) {
+                feedback.textContent = data.message || 'Comment posted.';
+            }
+
+if (data.approved) {
+    loadPublicComments(sectionId, 1);
+}
+
+            form.reset();
+        })
+        .catch(error => {
+            if (error && error.requires_login) {
+                window.location.href = "{{ url_for('public_forum_login', next=content.current_page_url) }}";
+                return;
+            }
+
+            if (feedback) {
+                feedback.textContent = error.message || 'Could not post comment.';
+            }
+        });
+}
+
+function togglePageCommentLike(event, commentId) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    fetch(`/comment/${commentId}/like`, {
+        method: 'POST'
+    })
+        .then(async response => {
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw data;
+            }
+
+            return data;
+        })
+        .then(data => {
+            const button = document.querySelector(
+                `.uwebia-comment-like-button[data-comment-id="${commentId}"]`
+            );
+
+            const countEl = document.getElementById(`pageCommentLikeCount_${commentId}`);
+
+            if (button) {
+                button.classList.toggle('liked', data.liked);
+            }
+
+            if (countEl) {
+                countEl.textContent = data.like_count || 0;
+            }
+        })
+        .catch(error => {
+            if (error && error.requires_login) {
+                window.location.href = "{{ url_for('public_forum_login', next=content.current_page_url) }}";
+                return;
+            }
+
+            alert(error.message || 'Could not like this comment.');
+        });
+}
+</script>
+
+</body>
 
 </html>

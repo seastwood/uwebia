@@ -1,0 +1,291 @@
+
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+
+<style>
+    .settings-page {
+        max-width: 760px;
+        margin: 40px auto;
+        padding: 24px;
+        color: #fff;
+    }
+
+    .settings-card {
+        background: #2a2a2a;
+        border-radius: 14px;
+        padding: 24px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .settings-card h1 {
+        margin-top: 0;
+        margin-bottom: 10px;
+    }
+
+    .settings-card p {
+        color: #cfcfcf;
+        margin-bottom: 20px;
+    }
+
+    .settings-group {
+        margin-bottom: 16px;
+    }
+
+    .settings-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #e8e8e8;
+        background: transparent;
+        padding: 0;
+    }
+
+    .form-control {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        background: #3a3a3a;
+        color: #fff;
+    }
+
+    .settings-check {
+        margin-top: 14px;
+    }
+
+    .settings-check label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 500;
+    }
+
+    .settings-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+    }
+
+    .settings-actions button,
+    .settings-actions a {
+        padding: 10px 16px;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .btn-primary {
+        background: #6200ea;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #3700b3;
+    }
+
+    .btn-secondary {
+        background: #444;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #555;
+    }
+
+    .settings-message {
+        margin-top: 16px;
+        color: #bfeecf;
+        min-height: 20px;
+    }
+    .settings-warning {
+    margin: 14px 0 20px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    color: #ffdda3;
+    background: rgba(255, 193, 7, 0.12);
+    border: 1px solid rgba(255, 193, 7, 0.28);
+    line-height: 1.45;
+}
+</style>
+</head>
+
+<div class="settings-page">
+    <div class="settings-card">
+        <h1>Email Server Settings</h1>
+        <p>Configure SMTP for your site contact form and send a test email.</p>
+        {% if two_factor_enabled %}
+<div class="settings-warning">
+    <strong>Heads up:</strong>
+    Editing and saving email server settings will disable two-factor authentication.
+    You will need to reactivate 2FA from Settings after confirming email sending still works.
+</div>
+{% endif %}
+
+        <form id="emailSettingsForm">
+            <div class="settings-group">
+                <label for="smtp_host">SMTP Host</label>
+                <input type="text" id="smtp_host" name="smtp_host" class="form-control"
+                    value="{{ email_settings.smtp_host if email_settings else '' }}"
+                    placeholder="smtp.example.com" required>
+            </div>
+
+            <div class="settings-group">
+                <label for="smtp_port">SMTP Port</label>
+                <input type="number" id="smtp_port" name="smtp_port" class="form-control"
+                    value="{{ email_settings.smtp_port if email_settings else 587 }}"
+                    placeholder="587" required>
+            </div>
+
+            <div class="settings-group">
+                <label for="smtp_username">SMTP Username</label>
+                <input type="text" id="smtp_username" name="smtp_username" class="form-control"
+                    value="{{ email_settings.smtp_username if email_settings else '' }}"
+                    placeholder="username@example.com" required>
+            </div>
+
+            <div class="settings-group">
+                <label for="smtp_password">SMTP Password</label>
+                <input type="password" id="smtp_password" name="smtp_password" class="form-control"
+                    value="{{ email_settings.smtp_password if email_settings else '' }}"
+                    placeholder="SMTP password" required>
+            </div>
+
+            <div class="settings-group">
+                <label for="from_email">From Email</label>
+                <input type="email" id="from_email" name="from_email" class="form-control"
+                    value="{{ email_settings.from_email if email_settings else '' }}"
+                    placeholder="noreply@example.com" required>
+            </div>
+
+            <div class="settings-group">
+                <label for="from_name">From Name</label>
+                <input type="text" id="from_name" name="from_name" class="form-control"
+                    value="{{ email_settings.from_name if email_settings else '' }}"
+                    placeholder="My Website">
+            </div>
+
+            <div class="settings-check">
+                <label>
+                    <input type="checkbox" name="use_tls" {% if not email_settings or email_settings.use_tls %}checked{% endif %}>
+                    Use TLS
+                </label>
+            </div>
+
+            <div class="settings-check">
+                <label>
+                    <input type="checkbox" name="use_ssl" {% if email_settings and email_settings.use_ssl %}checked{% endif %}>
+                    Use SSL
+                </label>
+            </div>
+
+            <div class="settings-check">
+                <label>
+                    <input type="checkbox" name="is_active" {% if not email_settings or email_settings.is_active %}checked{% endif %}>
+                    Enable email sending
+                </label>
+            </div>
+
+            <div class="settings-group" style="margin-top: 22px;">
+                <label for="testEmailInput">Send Test Email To</label>
+                <input type="email" id="testEmailInput" class="form-control" placeholder="you@example.com">
+            </div>
+
+            <div class="settings-actions">
+                <button type="submit" class="btn-primary">Save Settings</button>
+                <button type="button" id="sendTestEmailButton" class="btn-secondary">Send Test Email</button>
+                <a href="{{ url_for('dashboard') }}" class="btn-secondary">Back to Dashboard</a>
+            </div>
+
+            <div class="settings-message" id="settingsMessage"></div>
+        </form>
+    </div>
+</div>
+<script>
+    const emailSettingsForm = document.getElementById('emailSettingsForm');
+    const sendTestEmailButton = document.getElementById('sendTestEmailButton');
+    const settingsMessage = document.getElementById('settingsMessage');
+    const twoFactorEnabled = {{ 'true' if two_factor_enabled else 'false' }};
+
+    if (emailSettingsForm) {
+        emailSettingsForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            if (twoFactorEnabled) {
+    const confirmed = confirm(
+        'Editing and saving email server settings will disable two-factor authentication. You will need to reactivate 2FA afterward. Continue?'
+    );
+
+    if (!confirmed) {
+        return;
+    }
+}
+
+            const formData = new FormData(emailSettingsForm);
+
+            fetch('/save_email_settings', {
+                method: 'POST',
+                body: formData
+            })
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.message || 'Failed to save email settings.');
+                }
+                settingsMessage.textContent = data.message || 'Finished saving settings.';
+                if (data.two_factor_disabled) {
+    settingsMessage.style.color = '#ffcc8a';
+} else {
+    settingsMessage.style.color = '#bfeecf';
+}
+            })
+            .catch(error => {
+                console.error('Error saving email settings:', error);
+                settingsMessage.textContent = error.message || 'Failed to save email settings.';
+                settingsMessage.style.color = '#ff9d9d';
+            });
+        });
+    }
+
+    if (sendTestEmailButton) {
+        sendTestEmailButton.addEventListener('click', function () {
+            const formData = new FormData(emailSettingsForm);
+            const testEmail = document.getElementById('testEmailInput').value.trim();
+
+            if (!testEmail) {
+                settingsMessage.textContent = 'Please enter a test email address first.';
+                settingsMessage.style.color = '#ff9d9d';
+                return;
+            }
+
+            formData.append('test_email', testEmail);
+
+            fetch('/send_test_email', {
+                method: 'POST',
+                body: formData
+            })
+            .then(async response => {
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Failed to send test email.');
+                }
+
+                settingsMessage.textContent = data.message || 'Test email sent successfully.';
+                settingsMessage.style.color = '#bfeecf';
+            })
+            .catch(error => {
+                console.error('Error sending test email:', error);
+                settingsMessage.textContent = error.message || 'Failed to send test email.';
+                settingsMessage.style.color = '#ff9d9d';
+            });
+        });
+    }
+</script>
+{% endblock %}

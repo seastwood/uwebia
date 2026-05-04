@@ -1,0 +1,182 @@
+{% extends 'public_base.html' %}
+
+{% block title %}
+Forum Login
+{% endblock %}
+{% block head %}
+    <style>
+        body {
+            margin: 0;
+            font-family: Roboto, Arial, sans-serif;
+            background: {{ website.background_color or '#111' }};
+            color: {{ website.text_color or '#fff' }};
+        }
+
+        .forum-auth {
+            width: min(460px, calc(100% - 28px));
+            margin: 110px auto;
+            padding: 22px;
+            background: rgba(0,0,0,0.34);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.18);
+            padding: 12px;
+            background: rgba(255,255,255,0.1);
+            color: inherit;
+            font: inherit;
+        }
+
+        button,
+        a.button {
+            display: inline-flex;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.16);
+            background: rgba(255,255,255,0.12);
+            color: inherit;
+            font-weight: 800;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .forum-auth-links {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+
+    margin-top: 18px;
+    padding-top: 16px;
+
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.forum-auth-links a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    width: 100%;
+    min-height: 42px;
+
+    padding: 10px 12px;
+
+    color: inherit;
+    background: rgba(255, 255, 255, 0.075);
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+
+    text-decoration: none;
+
+    font-size: 0.88rem;
+    font-weight: 850;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease,
+        color 0.16s ease;
+}
+
+.forum-auth-links a:hover {
+    color: #ffffff;
+    background: rgba(126, 226, 204, 0.14);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+}
+
+.forum-auth-links i {
+    color: #7ee2cc;
+    font-size: 0.9rem;
+}
+.forum-auth-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.forum-auth-actions button,
+.forum-auth-secondary-button {
+    flex: 1 1 150px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 42px;
+    padding: 10px 14px;
+
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.16);
+
+    background: rgba(255,255,255,0.12);
+    color: inherit;
+
+    font: inherit;
+    font-weight: 850;
+    text-decoration: none;
+
+    cursor: pointer;
+
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        transform 0.16s ease;
+}
+
+.forum-auth-actions button:hover,
+.forum-auth-secondary-button:hover {
+    background: rgba(126, 226, 204, 0.14);
+    border-color: rgba(126, 226, 204, 0.34);
+    transform: translateY(-1px);
+}
+    </style>
+{% endblock %}
+
+{% block content %}
+
+
+    {% include 'components/public_navbar.html' %}
+
+    <form class="forum-auth" method="POST">
+        <h1>Log In</h1>
+
+        <input name="login" placeholder="Username or email" required>
+        <input name="password" type="password" placeholder="Password" required>
+
+<div class="forum-auth-actions">
+    <button type="submit">
+        Log In
+    </button>
+
+    <a class="forum-auth-secondary-button" href="{{ url_for('public_forum_register') }}">
+        Create Account
+    </a>
+</div>
+
+
+        <div class="forum-auth-links">
+
+
+    <a href="{{ url_for('public_forum_forgot_password') }}">
+        <i class="fas fa-key"></i>
+        Forgot password?
+    </a>
+
+    {% if website.forum_account_verification_enabled %}
+        <a href="{{ url_for('public_forum_resend_verification') }}">
+            <i class="fas fa-envelope-open-text"></i>
+            Resend verification email
+        </a>
+    {% endif %}
+
+
+
+{% endblock %}

@@ -1,0 +1,293 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+    .library-container { padding: 20px; }
+    .folder-grid { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 30px; }
+    
+    .folder-item {
+        text-align: center;
+        padding: 15px;
+        border: 2px dashed transparent;
+        border-radius: 10px;
+        transition: all 0.2s;
+        cursor: pointer;
+        width: 120px;
+    }
+
+    /* Visual feedback for dragging over a folder */
+    .folder-item.drag-over {
+        background: rgba(243, 156, 18, 0.1);
+        border-color: #f39c12;
+        transform: scale(1.05);
+    }
+
+    .folder-item i { color: #f39c12; margin-bottom: 5px; }
+
+    .image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 20px;
+        border: 2px solid #eee;
+        padding: 20px;
+        border-radius: 10px;
+    }
+
+    .image-card {
+        cursor: grab;
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        background: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .image-card:active { cursor: grabbing; }
+
+    .image-card img { width: 100%; height: 150px; object-fit: cover; pointer-events: none; }
+
+    .delete-btn {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        background: rgba(231, 76, 60, 0.8);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 5px 8px;
+        cursor: pointer;
+    }
+
+    .active-folder {
+    background: rgba(243, 156, 18, 0.1);
+    border-radius: 10px;
+    border: 1px solid #f39c12;
+    }
+
+    .upload-help {
+    margin-top: 8px;
+    margin-bottom: 14px;
+    color: #cfcfcf;
+    font-size: 0.92rem;
+}
+
+.upload-progress-wrapper {
+    margin-top: 12px;
+    max-width: 420px;
+}
+
+.upload-progress-bar {
+    width: 100%;
+    height: 12px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.upload-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #7ee2cc, #5eeef8);
+    transition: width 0.15s ease;
+}
+
+.upload-progress-text {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: #d7d7d7;
+}
+</style>
+
+
+<div class="library-container">
+    <div class="library-header">
+        <h2><i class="fas fa-images"></i> Photo Library</h2>
+    </div>
+
+    <div class="library-controls" style="margin-bottom: 20px;">
+        <button onclick="document.getElementById('fileInput').click()" class="btn-primary">Upload</button>
+        <button onclick="createFolder()" class="btn-secondary">New Folder</button>
+        <input type="file" id="fileInput" multiple style="display:none" onchange="handleUpload(event)">
+    </div>
+    <div class="upload-help">
+    Max file size: 10 MB per image. Best results: under 2–3 MB.
+</div>
+<div class="upload-progress-wrapper" id="uploadProgressWrapper" style="display:none;">
+    <div class="upload-progress-bar">
+        <div class="upload-progress-fill" id="uploadProgressFill"></div>
+    </div>
+    <div class="upload-progress-text" id="uploadProgressText">0%</div>
+</div>
+
+    <div style="margin-bottom: 10px; font-weight: bold;">Folders:</div>
+<div class="folder-grid">
+    <div class="folder-item {% if not current_folder %}active-folder{% endif %}"
+        onclick="window.location.href='{{ url_for('photo_library') }}'"
+         ondrop="dropToFolder(event, 'root')"
+         ondragover="allowDrop(event)"
+         ondragleave="clearDrag(event)">
+        <i class="fas fa-home fa-3x"></i>
+        <p>Main Library</p>
+    </div>
+
+    {% for folder in folders %}
+    <div class="folder-item {% if current_folder and current_folder.id == folder.id %}active-folder{% endif %}"
+        onclick="window.location.href='{{ url_for('view_folder', folder_id=folder.id) }}'"
+         ondrop="dropToFolder(event, '{{ folder.id }}')"
+         ondragover="allowDrop(event)"
+         ondragleave="clearDrag(event)">
+        <i class="fas fa-folder fa-3x"></i>
+        <p>{{ folder.name }}</p>
+    </div>
+    {% endfor %}
+</div>
+
+    <hr>
+    
+    <div style="margin: 10px 0; font-weight: bold;">
+        {% if current_folder %} Images in {{ current_folder.name }} {% else %} Root Images {% endif %}
+    </div>
+
+    <div class="image-grid">
+        {% for pic in root_pictures %}
+        <div class="image-card" draggable="true" ondragstart="dragStart(event, '{{ pic.id }}')">
+            <img src="{{ pic.thumbnail_url or pic.url }}" loading="lazy" alt="Library Image">
+            <button class="delete-btn" onclick="deleteImage('{{ pic.id }}')">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+// --- Drag and Drop Logic ---
+
+function dragStart(event, imageId) {
+    event.dataTransfer.setData("imageId", imageId);
+    event.dataTransfer.effectAllowed = "move";
+}
+
+function allowDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.add('drag-over');
+}
+
+function clearDrag(event) {
+    event.currentTarget.classList.remove('drag-over');
+}
+
+async function dropToFolder(event, folderId) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('drag-over');
+    
+    const imageId = event.dataTransfer.getData("imageId");
+    
+    try {
+        const response = await fetch('/admin/library/move_image', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                image_id: imageId,
+                folder_id: folderId
+            })
+        });
+        
+        const result = await response.json();
+        if (result.status === 'success') {
+            // Remove the element from the grid immediately for a "snappy" feel
+            location.reload(); 
+        }
+    } catch (error) {
+        console.error("Move failed:", error);
+    }
+}
+
+// --- Upload & Delete Logic ---
+
+async function handleUpload(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const MAX_FILE_SIZE_MB = 10;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+    for (const file of files) {
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            alert(`"${file.name}" is too large. Max allowed size is ${MAX_FILE_SIZE_MB} MB per image.`);
+            event.target.value = '';
+            return;
+        }
+    }
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('picture', files[i]);
+    }
+
+    const folderId = "{{ current_folder.id if current_folder else '' }}";
+    if (folderId) formData.append('folder_id', folderId);
+
+    const progressWrapper = document.getElementById('uploadProgressWrapper');
+    const progressFill = document.getElementById('uploadProgressFill');
+    const progressText = document.getElementById('uploadProgressText');
+
+    progressWrapper.style.display = 'block';
+    progressFill.style.width = '0%';
+    progressText.textContent = '0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/admin/library/upload', true);
+
+    xhr.upload.addEventListener('progress', function (e) {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = `${percent}%`;
+            progressText.textContent = `${percent}%`;
+        }
+    });
+
+    xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            progressFill.style.width = '100%';
+            progressText.textContent = 'Upload complete';
+            location.reload();
+        } else {
+            let message = 'Upload failed.';
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.error) message = data.error;
+            } catch (_) {}
+            alert(message);
+            progressWrapper.style.display = 'none';
+        }
+    };
+
+    xhr.onerror = function () {
+        alert('Upload failed.');
+        progressWrapper.style.display = 'none';
+    };
+
+    xhr.send(formData);
+}
+
+async function createFolder() {
+    const folderName = prompt("Folder name:");
+    if (!folderName) return;
+    const response = await fetch('/admin/library/create_folder', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name: folderName })
+    });
+    if (response.ok) location.reload();
+}
+
+async function deleteImage(imageId) {
+    if (!confirm("Delete this image?")) return;
+    const response = await fetch(`/admin/library/delete_image/${imageId}`, { method: 'POST' });
+    if (response.ok) location.reload();
+}
+</script>
+{% endblock %}

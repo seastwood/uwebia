@@ -21,8 +21,13 @@ node_modules/
 # Flask instance folder (often contains DB or secrets)
 instance/
 
+scratch/
+
 # Logs
 *.log
 
 # OS junk
 .DS_Store
+
+static/uploads/
+/migrations/

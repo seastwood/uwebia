@@ -1,0 +1,1449 @@
+{% set nav_style = website.public_navbar_style or {} %}
+{% set navbar_items = website.public_navbar_items or [] %}
+{% set navbar_margin = nav_style.get('margin', 0)|int %}
+{% set navbar_anchor_offset = 78 + navbar_margin %}
+{% set navbar_page_offset = 58 + navbar_margin %}
+{% set side_panel_use_navbar_background = nav_style.get('side_panel_use_navbar_background', False) %}
+
+{% if content is defined and content %}
+{% set current_page_url = content.get('current_page_url', '') %}
+{% else %}
+{% set current_page_url = '' %}
+{% endif %}
+
+{% set current_url_no_hash = current_page_url.split('#')[0] %}
+{% set dropdown_mode_raw = nav_style.get('dropdown_mode', 'dropdown') %}
+{% set dropdown_mode = dropdown_mode_raw|replace('-', '_') %}
+
+<nav class="public-navbar dropdown-mode-{{ dropdown_mode }} {% if side_panel_use_navbar_background %}menu-panels-use-navbar-bg{% endif %}"
+     data-dropdown-mode="{{ dropdown_mode }}"
+     style="
+        --navbar-page-offset: {{ navbar_page_offset }}px;
+        --navbar-background: {{ nav_style.get('background', 'rgba(20,20,20,0.9)') }};
+        --navbar-blur: blur({{ nav_style.get('blur', 14) }}px);
+        --navbar-menu-background: {% if nav_style.get('side_panel_use_navbar_background', False) %}{{ nav_style.get('background', 'rgba(20,20,20,0.72)') }}{% else %}rgba(20,20,20,0.72){% endif %};
+        --navbar-menu-blur: blur({{ nav_style.get('blur', 14) }}px);
+
+        background: transparent;
+        color: {{ nav_style.get('text_color', '#ffffff') }};
+        --navbar-text-color: {{ nav_style.get('text_color', '#ffffff') }};
+        --navbar-active-text-color: color-mix(in srgb, {{ nav_style.get('text_color', '#ffffff') }} 68%, #7ee2cc 32%);
+        border-radius: {{ nav_style.get('border_radius', 0) }}px;
+        box-shadow: {% if nav_style.get('shadow', True) %}0 6px 18px rgba(0,0,0,0.25){% else %}none{% endif %};
+        position: {% if nav_style.get('sticky', True) %}fixed{% else %}relative{% endif %};
+
+        {% if nav_style.get('sticky', True) %}
+            top: {{ navbar_margin }}px;
+            left: {{ navbar_margin }}px;
+            right: {{ navbar_margin }}px;
+            width: auto;
+        {% else %}
+            margin: {{ navbar_margin }}px;
+            width: calc(100% - {{ navbar_margin * 2 }}px);
+        {% endif %}
+     ">
+
+    <div class="public-navbar-left">
+
+        {% if navbar_items or website.forum_enabled or navbar_public_accounts_enabled %}
+        <button type="button" class="public-navbar-toggle" onclick="togglePublicNavbarMenu(event)"
+            aria-label="Open navigation menu">
+            <svg class="hamburger-icon" width="22" height="22" viewBox="0 0 24 24" fill="none"
+                xmlns="http://www.w3.org/2000/svg">
+                <path d="M4 7H20M4 12H20M4 17H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+        </button>
+        {% endif %}
+
+        <a href="/" class="public-navbar-brand title-align-{{ nav_style.get('title_alignment', 'left') }}"
+            title="Go to home page">
+
+            {% if nav_style.get('icon_url') %}
+            <img src="{{ nav_style.get('icon_url') }}" class="public-navbar-icon" alt="{{ website.name }} home">
+            {% endif %}
+
+            <span class="public-navbar-title">
+                {{ nav_style.get('title', website.name) }}
+            </span>
+        </a>
+    </div>
+
+{% if navbar_items or website.forum_enabled or navbar_public_accounts_enabled %}
+<div class="public-navbar-right">
+
+    {% if website.forum_enabled and website.forum_show_in_navbar %}
+        <a href="{{ url_for('public_forum') }}"
+           class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+            {{ website.forum_title or 'Forum' }}
+        </a>
+    {% endif %}
+
+    {% for item in navbar_items %}
+
+        {% if item.type == 'link' %}
+            {% set item_has_hash = '#' in item.url %}
+            {% set item_url_no_hash = item.url.split('#')[0] %}
+
+            <a href="{{ item.url }}"
+               class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                {{ item.name }}
+            </a>
+
+        {% elif item.type == 'group' %}
+            {% set group_active = namespace(value=false) %}
+
+            {% for child in item.children %}
+                {% set child_has_hash = '#' in child.url %}
+                {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
+                    {% set group_active.value = true %}
+                {% endif %}
+            {% endfor %}
+
+            <div class="public-navbar-dropdown {% if group_active.value %}active-navbar-dropdown{% endif %}">
+                <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
+                    {{ item.name }} ▾
+                </button>
+
+                <div class="public-navbar-dropdown-menu">
+                    <div class="public-navbar-menu-glass">
+                        {% for child in item.children %}
+                            {% set child_has_hash = '#' in child.url %}
+                            {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                            <a href="{{ child.url }}"
+                               class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                                {{ child.name }}
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+    {% endfor %}
+
+    <div class="public-navbar-dropdown public-navbar-overflow-dropdown" data-navbar-overflow>
+        <button type="button" class="public-navbar-overflow-button">
+            More ▾
+        </button>
+
+        <div class="public-navbar-dropdown-menu public-navbar-overflow-menu">
+            <div class="public-navbar-menu-glass"></div>
+        </div>
+    </div>
+
+    {% if navbar_public_accounts_enabled %}
+        <div class="public-navbar-dropdown public-account-dropdown" data-navbar-fixed-item="true">
+            <button type="button" class="public-account-button" title="Public account">
+                <i class="fas fa-user-circle"></i>
+
+                {% if navbar_public_user %}
+                    <span class="public-account-name">{{ navbar_public_user.username }}</span>
+                {% else %}
+                    <span class="public-account-name"></span>
+                {% endif %}
+
+                <span class="public-account-chevron">▾</span>
+            </button>
+
+            <div class="public-navbar-dropdown-menu public-account-menu">
+                <div class="public-navbar-menu-glass">
+                    {% if navbar_public_user %}
+                        <div class="public-account-menu-header">
+                            Signed in as <strong>{{ navbar_public_user.username }}</strong>
+                        </div>
+
+                        <a href="{{ url_for('public_account_change_password') }}">
+                            <i class="fas fa-key"></i>
+                            Change Password
+                        </a>
+
+                        <form method="POST"
+                              action="{{ url_for('public_forum_logout') }}"
+                              class="public-account-logout-form">
+                            <input type="hidden" name="next" value="{{ current_page_url or request.path }}">
+
+                            <button type="submit">
+                                <i class="fas fa-sign-out-alt"></i>
+                                Log Out
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{{ url_for('public_forum_login', next=current_page_url or request.path) }}">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Log In
+                        </a>
+
+                        <a href="{{ url_for('public_forum_register', next=current_page_url or request.path) }}">
+                            <i class="fas fa-user-plus"></i>
+                            Create Account
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<div id="publicNavbarMenu" class="public-navbar-menu">
+    <div class="public-navbar-menu-glass">
+
+        {% if navbar_public_accounts_enabled %}
+            <div class="public-navbar-menu-group public-account-menu-group is-open" data-menu-group>
+                <button type="button"
+                        class="public-navbar-menu-group-toggle"
+                        onclick="togglePublicNavbarMenuGroup(event, this)">
+                    <span>
+                        <i class="fas fa-user-circle"></i>
+                        {% if navbar_public_user %}
+                            {{ navbar_public_user.username }}
+                        {% else %}
+                            Account
+                        {% endif %}
+                    </span>
+                    <span class="public-navbar-menu-group-chevron">▾</span>
+                </button>
+
+                <div class="public-navbar-menu-group-links">
+                    {% if navbar_public_user %}
+                        <a href="{{ url_for('public_account_change_password') }}">
+                            <i class="fas fa-key"></i>
+                            Change Password
+                        </a>
+
+                        <form method="POST"
+                              action="{{ url_for('public_forum_logout') }}"
+                              class="public-account-mobile-logout-form">
+                            <input type="hidden" name="next" value="{{ current_page_url or request.path }}">
+
+                            <button type="submit">
+                                <i class="fas fa-sign-out-alt"></i>
+                                Log Out
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{{ url_for('public_forum_login', next=current_page_url or request.path) }}">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Log In
+                        </a>
+
+                        <a href="{{ url_for('public_forum_register', next=current_page_url or request.path) }}">
+                            <i class="fas fa-user-plus"></i>
+                            Create Account
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        {% if website.forum_enabled and website.forum_show_in_navbar %}
+            <a href="{{ url_for('public_forum') }}"
+               class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+                {{ website.forum_title or 'Forum' }}
+            </a>
+        {% endif %}
+
+        {% for item in navbar_items %}
+
+            {% if item.type == 'link' %}
+                {% set item_has_hash = '#' in item.url %}
+                {% set item_url_no_hash = item.url.split('#')[0] %}
+
+                <a href="{{ item.url }}"
+                   class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                    {{ item.name }}
+                </a>
+
+            {% elif item.type == 'group' %}
+                {% set group_active = namespace(value=false) %}
+
+                {% for child in item.children %}
+                    {% set child_has_hash = '#' in child.url %}
+                    {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                    {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
+                        {% set group_active.value = true %}
+                    {% endif %}
+                {% endfor %}
+
+                <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}"
+                     data-menu-group>
+                    <button type="button"
+                            class="public-navbar-menu-group-toggle"
+                            onclick="togglePublicNavbarMenuGroup(event, this)">
+                        <span>{{ item.name }}</span>
+                        <span class="public-navbar-menu-group-chevron">▾</span>
+                    </button>
+
+                    <div class="public-navbar-menu-group-links">
+                        {% for child in item.children %}
+                            {% set child_has_hash = '#' in child.url %}
+                            {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                            <a href="{{ child.url }}"
+                               class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                                {{ child.name }}
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+</nav>
+
+<style>
+
+    html {
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--navbar-anchor-offset, 78px);
+}
+
+.public-section-group {
+    scroll-margin-top: var(--navbar-anchor-offset, 78px);
+}
+
+.public-page-body {
+    padding-top: var(--navbar-page-offset, 58px);
+}
+
+    .public-navbar {
+        position: fixed;
+        /* top: 0; */
+        /* left: 0; */
+        /* right: 0; */
+        z-index: 9999;
+        min-height: 58px;
+        padding: 0 5px;
+        background: rgba(20, 20, 20, 0.9);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    }
+
+    .public-navbar {
+    position: fixed;
+    overflow: visible !important;
+    isolation: isolate;
+}
+
+.public-navbar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    background: var(--navbar-background, rgba(20, 20, 20, 0.9));
+    border-radius: inherit;
+
+    backdrop-filter: var(--navbar-blur, blur(14px));
+
+    z-index: -1;
+    pointer-events: none;
+}
+
+.public-navbar {
+    background: transparent !important;
+}
+
+    .public-navbar-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .public-navbar {
+        position: fixed;
+    }
+
+    .public-navbar-left {
+        display: flex;
+        align-items: center;
+        z-index: 2;
+    }
+
+    .public-navbar-icon {
+        width: 32px;
+        object-fit: contain;
+    }
+
+    .public-navbar-toggle {
+        width: 44px;
+        height: 44px;
+        border: none;
+        border-radius: 10px;
+        background: transparent;
+        color: inherit;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .public-navbar-toggle:hover {
+        background: rgba(255, 255, 255, 0.16);
+        transform: translateY(-1px);
+    }
+
+    .public-navbar-toggle:active {
+        transform: translateY(0);
+    }
+
+    .hamburger-icon {
+        display: block;
+    }
+
+.public-navbar-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+
+    width: min(42vw, 520px);
+    max-width: min(42vw, 520px);
+    min-width: 0;
+
+    flex: 0 0 min(42vw, 520px);
+
+    overflow: visible;
+    flex-wrap: nowrap;
+}
+
+.public-navbar-right > a,
+.public-navbar-right > .public-navbar-dropdown > button {
+    white-space: nowrap;
+}
+
+.public-navbar-right > .public-navbar-dropdown > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+    .public-navbar-right a,
+    .public-navbar-menu a,
+    .public-navbar-dropdown button,
+    .public-navbar-toggle {
+        color: inherit;
+        text-decoration: none;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font: inherit;
+        padding: 10px 12px;
+        border-radius: 8px;
+    }
+
+    .public-navbar-right a:hover,
+    .public-navbar-menu a:hover,
+    .public-navbar-dropdown button:hover {
+        color: var(--navbar-active-text-color, #7ee2cc);
+        background: transparent;
+    }
+
+    .public-navbar-dropdown {
+        position: relative;
+    }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 190px;
+        background: rgba(20, 20, 20, 0.96);
+        padding: 8px;
+        border-radius: 10px;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+    }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
+        display: block;
+    }
+
+    .public-navbar-dropdown-menu a {
+        display: block;
+    }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu {
+        display: none;
+        position: absolute;
+        top: 64px;
+        left: 12px;
+        width: 260px;
+        background: rgba(20, 20, 20, 0.98);
+        padding: 10px;
+        border-radius: 12px;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+    }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu.show {
+        display: block;
+    }
+
+    .public-navbar-menu a {
+        display: block;
+    }
+
+    .public-navbar-menu-group-title {
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 10px 12px 4px;
+        text-transform: uppercase;
+    }
+
+
+
+    .public-navbar-right a.active-navbar-link,
+    .public-navbar-menu a.active-navbar-link,
+    .public-navbar-dropdown button.active-navbar-link,
+    .public-navbar-dropdown.active-navbar-dropdown>button {
+        color: var(--navbar-active-text-color, #7ee2cc) !important;
+        font-weight: 850;
+
+        background: transparent !important;
+        box-shadow: none !important;
+        text-decoration: none !important;
+        border: none !important;
+
+        opacity: 1;
+    }
+
+    /* Subtle underline for active top-level navbar links */
+    .public-navbar-right a.active-navbar-link {
+        position: relative;
+    }
+
+    .public-navbar-right a.active-navbar-link::after {
+        content: "";
+        position: absolute;
+
+        left: 12px;
+        right: 12px;
+        bottom: 6px;
+
+        height: 1.5px;
+        border-radius: 999px;
+
+        background: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 0.65;
+
+        display: block !important;
+    }
+
+    /* Keep active hover subtle */
+    .public-navbar-right a.active-navbar-link:hover,
+    .public-navbar-menu a.active-navbar-link:hover,
+    .public-navbar-dropdown button.active-navbar-link:hover,
+    .public-navbar-dropdown.active-navbar-dropdown>button:hover {
+        color: var(--navbar-active-text-color, #7ee2cc) !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    .public-navbar-dropdown.active-navbar-dropdown>button {
+        position: relative;
+    }
+
+    .public-navbar-dropdown.active-navbar-dropdown>button::after {
+        content: "";
+        position: absolute;
+
+        left: 12px;
+        right: 18px;
+        bottom: 6px;
+
+        height: 1.5px;
+        border-radius: 999px;
+
+        background: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 0.65;
+
+        display: block !important;
+    }
+
+    .public-navbar-menu-group.active-navbar-menu-group .public-navbar-menu-group-title {
+        color: inherit;
+        opacity: 0.95;
+    }
+
+    /* Default dropdown behavior */
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 190px;
+        background: rgba(20, 20, 20, 0.96);
+        padding: 8px;
+        border-radius: 10px;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+    }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu {
+        display: block;
+    }
+
+    /* Top-right group dropdowns should always behave like normal dropdowns */
+    .public-navbar .public-navbar-dropdown {
+        position: relative;
+    }
+
+    .public-navbar .public-navbar-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+
+        min-width: 190px;
+
+        background: rgba(20, 20, 20, 0.96);
+        padding: 8px;
+        border-radius: 10px;
+
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+        z-index: 10005;
+    }
+
+    .public-navbar .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
+    .public-navbar .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
+        display: block;
+    }
+
+    .public-navbar .public-navbar-dropdown-menu a {
+        display: block;
+    }
+
+    /* =========================================================
+   SIDE PANEL MODE FOR HAMBURGER MENU
+   Full-height left drawer, hamburger stays accessible
+========================================================= */
+
+    .public-navbar.dropdown-mode-side_panel {
+        z-index: 10003;
+    }
+
+.public-navbar.dropdown-mode-side_panel .public-navbar-left {
+    position: static;
+    z-index: auto;
+}
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-toggle {
+        position: relative;
+        z-index: 10007;
+
+        background: rgba(20, 20, 20, 0.18);
+    }
+
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu {
+        display: flex !important;
+        flex-direction: column;
+        gap: 6px;
+
+        position: fixed !important;
+
+        top: 0 !important;
+        left: 0 !important;
+        right: auto !important;
+        bottom: 0 !important;
+
+        width: min(235px, 68vw) !important;
+        height: 100vh !important;
+
+        /*
+      This keeps the drawer full height but gives the hamburger
+      breathing room at the top.
+    */
+        padding: 72px 12px 18px !important;
+
+        /* background: rgba(20, 20, 20, 0.97) !important; */
+        background: var(--navbar-menu-background, rgba(20, 20, 20, 0.97)) !important;
+
+        
+        color: inherit;
+
+        border-radius: 0 !important;
+        box-shadow: 18px 0 42px rgba(0, 0, 0, 0.42) !important;
+
+        z-index: 10002 !important;
+
+        /* backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px); */
+        backdrop-filter: blur(var(--navbar-menu-blur, 14px));
+        -webkit-backdrop-filter: blur(var(--navbar-menu-blur, 14px));
+
+        overflow-y: auto;
+
+        transform: translateX(-105%);
+        opacity: 0;
+        pointer-events: none;
+
+        transition:
+            transform 0.26s ease,
+            opacity 0.2s ease;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu.show {
+        transform: translateX(0);
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a {
+        display: block;
+        width: 100%;
+
+        padding: 10px 11px;
+        border-radius: 0;
+        box-sizing: border-box;
+
+        font-size: 0.92rem;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu-group-title {
+        padding: 12px 11px 4px;
+        font-size: 0.72rem;
+    }
+
+    /* Active page underline inside side panel */
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a.active-navbar-link {
+        position: relative;
+        color: var(--navbar-active-text-color, #7ee2cc) !important;
+        font-weight: 850;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a.active-navbar-link::after {
+        content: "";
+        position: absolute;
+
+        left: 11px;
+        right: 11px;
+        bottom: 5px;
+
+        height: 1.5px;
+        border-radius: 999px;
+
+        background: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 0.75;
+
+        display: block !important;
+    }
+
+    /* =========================================================
+   SIDE PANEL COLLAPSIBLE GROUPS
+========================================================= */
+
+    .public-navbar-menu-group {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .public-navbar-menu-group-toggle {
+        width: 100%;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+
+        padding: 10px 11px;
+
+        color: inherit;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 850;
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+
+        cursor: pointer;
+        opacity: 0.72;
+
+        transition:
+            opacity 0.18s ease,
+            color 0.18s ease,
+            background 0.18s ease;
+    }
+
+    .public-navbar-menu-group-toggle:hover {
+        opacity: 1;
+        color: var(--navbar-active-text-color, #7ee2cc);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .public-navbar-menu-group-chevron {
+        font-size: 0.75rem;
+        transition: transform 0.18s ease;
+    }
+
+    .public-navbar-menu-group-links {
+        display: none;
+        flex-direction: column;
+        gap: 2px;
+
+        padding-left: 8px;
+        margin-left: 7px;
+
+        border-left: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .public-navbar-menu-group.is-open .public-navbar-menu-group-links {
+        display: flex;
+    }
+
+    .public-navbar-menu-group.is-open .public-navbar-menu-group-chevron {
+        transform: rotate(180deg);
+    }
+
+    .public-navbar-menu-group.active-navbar-menu-group .public-navbar-menu-group-toggle {
+        color: var(--navbar-active-text-color, #7ee2cc);
+        opacity: 1;
+    }
+
+    /* Gray toned side-panel scrollbar */
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(210, 210, 210, 0.42) rgba(255, 255, 255, 0.055);
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.055);
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb {
+        background: rgba(210, 210, 210, 0.38);
+        border-radius: 999px;
+        border: 2px solid rgba(20, 20, 20, 0.96);
+    }
+
+    .public-navbar.dropdown-mode-side_panel .public-navbar-menu::-webkit-scrollbar-thumb:hover {
+        background: rgba(230, 230, 230, 0.58);
+    }
+.public-navbar-brand {
+    position: absolute;
+    top: 50%;
+
+    min-height: 44px;
+    height: auto;
+    min-width: 0;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+
+    overflow: hidden;
+
+    color: inherit;
+    text-decoration: none;
+
+    font-weight: 700;
+    font-size: 1rem;
+
+    z-index: 10010;
+    cursor: pointer;
+
+    transform: translateY(-50%);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.public-navbar-title {
+    min-width: 0;
+    max-width: 100%;
+
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    line-height: 1.1;
+    max-height: 2.2em;
+
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+
+.public-navbar-left,
+.public-navbar-right {
+    position: relative;
+    z-index: 10020;
+}
+
+.public-navbar-brand.title-align-left {
+    left: 62px;
+    right: calc(min(42vw, 520px) + 28px);
+    max-width: none;
+    justify-content: flex-start;
+}
+
+.public-navbar-brand.title-align-center {
+    left: 50%;
+    right: auto;
+    width: calc(100vw - min(42vw, 520px) - 150px);
+    max-width: 720px;
+    transform: translate(-50%, -50%);
+    justify-content: center;
+}
+
+.public-navbar-brand.title-align-right {
+    left: auto;
+    right: 18px;
+    /* max-width: min(42vw, 520px); */
+    justify-content: flex-end;
+}
+
+/* When the right side has collapsed into More, let the title use more navbar space */
+.public-navbar.navbar-right-mostly-collapsed .public-navbar-brand.title-align-left {
+    max-width: calc(100vw - 150px);
+}
+
+.public-navbar.navbar-right-mostly-collapsed .public-navbar-brand.title-align-center {
+    max-width: calc(100vw - 180px);
+}
+
+.public-navbar.navbar-right-mostly-collapsed .public-navbar-brand.title-align-right {
+    max-width: calc(100vw - 150px);
+}
+
+.public-navbar-brand.title-align-center:hover {
+    transform: translate(-50%, -50%) scale(1.02);
+}
+
+
+@media (max-width: 800px) {
+    .public-navbar-brand.title-align-left {
+        right: 14px;
+    }
+
+    .public-navbar-brand.title-align-center {
+        width: calc(100vw - 120px);
+    }
+}
+/* =========================================================
+   MENU PANEL BLUR
+========================================================= */
+
+.public-navbar .public-navbar-dropdown-menu,
+.public-navbar .public-navbar-menu {
+    background: transparent !important;
+    overflow: hidden;
+    isolation: isolate;
+    
+}
+
+/* Dropdown menu blur */
+.public-navbar .public-navbar-dropdown-menu {
+    border-radius: 10px;
+}
+
+.public-navbar .public-navbar-dropdown-menu::before,
+.public-navbar .public-navbar-menu::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    background: rgba(20, 20, 20, 0.72);
+    backdrop-filter: var(--navbar-menu-blur, blur(14px));
+
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* If checkbox is checked, use navbar background for menu panels */
+.public-navbar.menu-panels-use-navbar-bg .public-navbar-dropdown-menu::before,
+.public-navbar.menu-panels-use-navbar-bg .public-navbar-menu::before {
+    background: var(--navbar-menu-background, rgba(20, 20, 20, 0.72));
+}
+
+/* Side panel needs fixed positioning preserved */
+.public-navbar.dropdown-mode-side_panel .public-navbar-menu {
+    position: fixed !important;
+    border-radius: 0 !important;
+}
+.public-navbar-left {
+    position: static;
+    z-index: auto;
+}
+
+.public-navbar-toggle {
+    position: relative;
+    z-index: 10030;
+}
+
+.public-navbar-right {
+    position: relative;
+    z-index: 10020;
+}
+
+.public-navbar-overflow-dropdown {
+    display: none;
+}
+
+.public-navbar-overflow-dropdown.has-overflow {
+    display: block;
+}
+
+.public-navbar-overflow-menu {
+    min-width: 210px;
+}
+
+/* Items moved into More should stack vertically */
+.public-navbar-overflow-menu > a,
+.public-navbar-overflow-menu > .public-navbar-dropdown {
+    display: block;
+    width: 100%;
+    
+}
+
+/* If an existing dropdown group gets moved inside More, make it behave like a vertical item */
+.public-navbar-overflow-menu > .public-navbar-dropdown {
+    position: relative;
+    
+}
+
+.public-navbar-overflow-menu > .public-navbar-dropdown > button {
+    width: 100%;
+    text-align: left;
+    justify-content: space-between;
+}
+
+/* Nested dropdowns inside the generated More menu */
+.public-navbar-overflow-menu .public-navbar-dropdown-menu {
+    position: static;
+    display: none;
+    min-width: 100%;
+    margin-top: 4px;
+    box-shadow: none;
+}
+
+.public-navbar-overflow-menu .public-navbar-dropdown:hover > .public-navbar-dropdown-menu,
+.public-navbar-overflow-menu .public-navbar-dropdown:focus-within > .public-navbar-dropdown-menu {
+    display: block;
+}
+.public-navbar-overflow-menu .public-navbar-menu-glass {
+    width: 100%;
+}
+.public-navbar.is-balancing-navbar * {
+    transition: none !important;
+}
+.public-navbar-overflow-menu .public-navbar-menu-glass > a,
+.public-navbar-overflow-menu .public-navbar-menu-glass > .public-navbar-dropdown {
+    display: block;
+    width: 100%;
+}
+
+.public-navbar-overflow-menu .public-navbar-menu-glass > .public-navbar-dropdown {
+    position: relative;
+}
+
+.public-navbar-overflow-menu .public-navbar-menu-glass > .public-navbar-dropdown > button {
+    width: 100%;
+    text-align: left;
+}
+.public-navbar-overflow-dropdown.is-measuring {
+    display: block !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+.public-account-dropdown {
+    flex: 0 0 auto;
+    margin-left: 4px;
+    order: 999;
+}
+
+.public-account-button {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 7px;
+
+    white-space: nowrap;
+}
+
+.public-account-button i {
+    font-size: 1.1rem;
+}
+
+.public-account-name {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.public-account-chevron {
+    opacity: 0.7;
+    font-size: 0.78rem;
+}
+
+.public-account-menu {
+    min-width: 220px !important;
+}
+
+.public-account-menu-header {
+    padding: 9px 11px;
+    margin-bottom: 5px;
+
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.78rem;
+    line-height: 1.25;
+
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.public-account-menu-header strong {
+    color: #ffffff;
+}
+
+.public-account-menu a,
+.public-account-logout-form button,
+.public-account-mobile-logout-form button {
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 10px 12px;
+
+    color: inherit;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+
+    cursor: pointer;
+}
+
+.public-account-menu a:hover,
+.public-account-logout-form button:hover,
+.public-account-mobile-logout-form button:hover {
+    color: var(--navbar-active-text-color, #7ee2cc);
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.public-account-logout-form,
+.public-account-mobile-logout-form {
+    margin: 0;
+}
+
+.public-account-mobile-logout-form button {
+    font-size: 0.92rem;
+}
+
+.public-account-menu-group i {
+    margin-right: 6px;
+}
+/* =========================================================
+   KEEP PUBLIC ACCOUNT ICON VISIBLE ON SMALL SCREENS
+========================================================= */
+
+@media (max-width: 800px) {
+    .public-navbar-right {
+        display: flex !important;
+        align-items: center;
+        justify-content: flex-end;
+
+        position: absolute;
+        top: 50%;
+        right: 8px;
+
+        width: auto !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        flex: 0 0 auto !important;
+
+        transform: translateY(-50%);
+        z-index: 10040;
+    }
+
+    /* Hide normal right-side nav links on mobile, but keep account */
+    .public-navbar-right > *:not(.public-account-dropdown) {
+        display: none !important;
+    }
+
+    .public-navbar-right > .public-account-dropdown {
+        display: block !important;
+        position: relative;
+        margin-left: 0;
+        order: 999;
+    }
+
+    .public-account-button {
+        width: 44px;
+        height: 44px;
+
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+
+        padding: 0 !important;
+        border-radius: 999px;
+    }
+
+    .public-account-button i {
+        font-size: 1.35rem;
+    }
+
+    /* On mobile, show just the icon, not the word Account/username */
+    .public-account-name,
+    .public-account-chevron {
+        display: none !important;
+    }
+
+    .public-account-menu {
+        right: 0 !important;
+        left: auto !important;
+        min-width: 220px !important;
+    }
+
+    /* Make room for the account icon so title does not sit under it */
+    .public-navbar-brand.title-align-left {
+        right: 64px !important;
+    }
+
+    .public-navbar-brand.title-align-center {
+        width: calc(100vw - 165px) !important;
+    }
+
+    .public-navbar-brand.title-align-right {
+        right: 64px !important;
+    }
+}
+</style>
+
+<script>
+    function togglePublicNavbarMenu(event) {
+        event.stopPropagation();
+
+        const menu = document.getElementById('publicNavbarMenu');
+        if (menu) {
+            menu.classList.toggle('show');
+            updatePublicNavbarPanelGroupLayout();
+        }
+    }
+
+    function togglePublicNavbarMenuGroup(event, button) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const group = button.closest('[data-menu-group]');
+        if (!group) return;
+
+        group.classList.toggle('is-open');
+    }
+
+    function updatePublicNavbarPanelGroupLayout() {
+        const menu = document.getElementById('publicNavbarMenu');
+        if (!menu) return;
+
+        menu.querySelectorAll('[data-menu-group]').forEach(group => {
+            group.classList.remove('is-open');
+        });
+    }
+
+    window.addEventListener('resize', updatePublicNavbarPanelGroupLayout);
+    window.addEventListener('DOMContentLoaded', updatePublicNavbarPanelGroupLayout);
+
+    document.addEventListener('click', function (event) {
+        const menu = document.getElementById('publicNavbarMenu');
+        const navbar = document.querySelector('.public-navbar');
+
+        if (menu && navbar && !navbar.contains(event.target)) {
+            menu.classList.remove('show');
+        }
+    });
+
+function initializePublicNavbarOverflow() {
+    const navbar = document.querySelector('.public-navbar');
+    const navbarRight = document.querySelector('.public-navbar-right');
+    const brand = document.querySelector('.public-navbar-brand');
+    const overflowDropdown = document.querySelector('[data-navbar-overflow]');
+    const overflowMenu = document.querySelector('.public-navbar-overflow-menu');
+    const overflowGlass = overflowMenu?.querySelector('.public-navbar-menu-glass');
+
+    if (!navbar || !navbarRight || !brand || !overflowDropdown || !overflowMenu || !overflowGlass) return;
+
+const originalItems = Array.from(navbarRight.children)
+    .filter(item => {
+        return item !== overflowDropdown && item.dataset.navbarFixedItem !== 'true';
+    });
+
+    originalItems.forEach((item, index) => {
+        item.dataset.navbarOriginalIndex = String(index);
+        item.dataset.navbarOverflowItem = 'true';
+    });
+
+    function getOuterWidth(element) {
+        const rect = element.getBoundingClientRect();
+        const styles = window.getComputedStyle(element);
+
+        const marginLeft = parseFloat(styles.marginLeft) || 0;
+        const marginRight = parseFloat(styles.marginRight) || 0;
+
+        return rect.width + marginLeft + marginRight;
+    }
+
+    function getMoreButtonWidth() {
+        const wasOpen = overflowDropdown.classList.contains('has-overflow');
+
+        overflowDropdown.classList.add('has-overflow');
+        overflowDropdown.classList.add('is-measuring');
+
+        const width = getOuterWidth(overflowDropdown);
+
+        overflowDropdown.classList.remove('is-measuring');
+
+        if (!wasOpen) {
+            overflowDropdown.classList.remove('has-overflow');
+        }
+
+        return width;
+    }
+
+    function restoreOriginalOrder() {
+        const movedItems = Array.from(overflowGlass.children)
+            .filter(item => item.dataset.navbarOverflowItem === 'true');
+
+        movedItems.forEach(item => {
+            navbarRight.insertBefore(item, overflowDropdown);
+        });
+
+        const sortedItems = Array.from(navbarRight.children)
+            .filter(item => item.dataset.navbarOverflowItem === 'true')
+            .sort((a, b) => {
+                return Number(a.dataset.navbarOriginalIndex) - Number(b.dataset.navbarOriginalIndex);
+            });
+
+        sortedItems.forEach(item => {
+            navbarRight.insertBefore(item, overflowDropdown);
+        });
+    }
+
+function updateOverflowVisibility() {
+    const hasOverflow = overflowGlass.children.length > 0;
+    overflowDropdown.classList.toggle('has-overflow', hasOverflow);
+}
+
+function getAvailableRightWidth() {
+    const navbarRect = navbar.getBoundingClientRect();
+
+    const rightLaneMax = Math.min(navbarRect.width * 0.42, 520);
+    const rightPadding = 12;
+
+    return Math.max(0, rightLaneMax - rightPadding);
+}
+
+    function getCurrentTopLevelItems() {
+        return Array.from(navbarRight.children)
+            .filter(item => item.dataset.navbarOverflowItem === 'true');
+    }
+
+function getTopLevelItemsWidth() {
+    const items = getCurrentTopLevelItems();
+
+    if (!items.length) return 0;
+
+    const gap = parseFloat(window.getComputedStyle(navbarRight).columnGap || window.getComputedStyle(navbarRight).gap) || 0;
+
+    const itemsWidth = items.reduce((total, item) => total + getOuterWidth(item), 0);
+    const gapsWidth = Math.max(0, items.length - 1) * gap;
+
+    return itemsWidth + gapsWidth;
+}
+
+    function moveLastItemIntoOverflow() {
+        const candidates = getCurrentTopLevelItems();
+        const lastItem = candidates[candidates.length - 1];
+
+        if (!lastItem) return false;
+
+        overflowGlass.prepend(lastItem);
+        return true;
+    }
+
+    function balanceNavbar() {
+        navbar.classList.add('is-balancing-navbar');
+
+        restoreOriginalOrder();
+        overflowDropdown.classList.remove('has-overflow');
+
+        const availableWidth = getAvailableRightWidth();
+        const moreWidth = getMoreButtonWidth();
+
+        let currentItemsWidth = getTopLevelItemsWidth();
+
+        // Everything fits without More.
+        if (currentItemsWidth <= availableWidth) {
+            updateOverflowVisibility();
+            navbar.classList.remove('is-balancing-navbar');
+            return;
+        }
+
+        // If anything overflows, reserve space for the More button.
+        let safety = 0;
+
+        while (
+            currentItemsWidth + moreWidth > availableWidth &&
+            getCurrentTopLevelItems().length > 0 &&
+            safety < 50
+        ) {
+            const moved = moveLastItemIntoOverflow();
+
+            if (!moved) break;
+
+            currentItemsWidth = getTopLevelItemsWidth();
+            safety++;
+        }
+
+updateOverflowVisibility();
+
+requestAnimationFrame(() => {
+    navbar.classList.remove('is-balancing-navbar');
+});
+    }
+
+    requestAnimationFrame(balanceNavbar);
+
+    window.addEventListener('load', balanceNavbar);
+    window.addEventListener('resize', () => requestAnimationFrame(balanceNavbar));
+
+    if ('ResizeObserver' in window) {
+        const resizeObserver = new ResizeObserver(() => {
+            requestAnimationFrame(balanceNavbar);
+        });
+
+        resizeObserver.observe(navbar);
+    }
+}
+
+window.addEventListener('DOMContentLoaded', initializePublicNavbarOverflow);
+</script>

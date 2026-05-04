@@ -1,0 +1,73 @@
+{# templates/components/photo_library_modal.html #}
+
+<div id="libraryModal" class="modal library-modal" style="display:none;">
+    <div class="modal-content library-modal-content">
+        <span class="close library-modal-close" onclick="PhotoLibraryModal.close()">&times;</span>
+
+        <div class="library-container">
+            <div class="library-header">
+                <h2><i class="fas fa-box-open"></i> Select from Asset Library</h2>
+
+                <p id="libraryModalSubtitle" class="library-modal-subtitle">
+                    Choose images to add to your page section.
+                </p>
+
+                <div class="modal-library-toolbar">
+                    <button type="button" class="btn-primary"
+                        onclick="document.getElementById('modalLibraryFileInput').click()">
+                        <i class="fas fa-upload"></i>
+                        Upload Images
+                    </button>
+
+                    <button type="button" class="btn-secondary" onclick="PhotoLibraryModal.createFolder()">
+                        <i class="fas fa-folder-plus"></i>
+                        New Folder
+                    </button>
+
+                    <input
+                        type="file"
+                        id="modalLibraryFileInput"
+                        multiple
+                        accept="image/*"
+                        style="display:none"
+                        onchange="PhotoLibraryModal.handleUpload(event)">
+                </div>
+
+                <div class="modal-upload-help">
+                    These uploads go into your Asset Library under Images.
+                </div>
+
+                <div class="upload-progress-wrapper" id="modalUploadProgressWrapper" style="display:none;">
+                    <div class="upload-progress-bar">
+                        <div class="upload-progress-fill" id="modalUploadProgressFill"></div>
+                    </div>
+                    <div class="upload-progress-text" id="modalUploadProgressText">0%</div>
+                </div>
+            </div>
+
+            <div class="library-modal-section-label">Folders</div>
+
+            <div id="modalFolderGrid" class="folder-grid"></div>
+
+            <hr class="library-modal-divider">
+
+            <div id="modalCurrentFolderName" class="library-modal-section-label">
+                Root Images
+            </div>
+
+            <div id="modalImageGrid" class="image-grid"></div>
+
+            <div class="library-modal-footer">
+                <span id="selectionCount" class="library-selection-count">
+                    0 images selected
+                </span>
+
+                <button id="libraryConfirmButton"
+                    class="library-confirm-button"
+                    onclick="PhotoLibraryModal.confirmSelection()">
+                    Add Selected to Section
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

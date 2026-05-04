@@ -1,33 +1,85 @@
 <div class="navbar">
-    <div class="base-navbar-item">
-    <a href="{{ url_for('dashboard') }}" class="base-navbar-home-button">
-        <img src="/static/uwebialogo1.svg" alt="Uwebia Logo" class="navbar-logo">
-    </a>
+    <div class="nav-left">
+        <a href="{{ url_for('dashboard') }}" class="base-navbar-home-button">
+            <img src="/static/orange-uw.svg" alt="Uwebia Logo" class="navbar-logo">
+        </a>
     </div>
-    <div class="base-navbar-item">
-    <button class="search-icon" id="searchIcon"><i class="fas fa-search"></i></button>
-    <div class="search-container">
-        <form class="search-form" id="searchForm" onsubmit="submitSearch(); return false;">
-            <input type="text" id="searchQuery" placeholder="Search">
-            <button type="submit" class="search-button"><i class="fas fa-chevron-right"></i></button>
-        </form>
-    </div>
-    </div>
-    <div class="base-navbar-item">
-    <a href="{{ url_for('user_collections') }}" class="collections-icon">
-        <i class="fas fa-star"></i> <!-- Star icon for collections -->
-    </a>
-    </div>
-    <div class="base-navbar-item">
-    <div class="profile-dropdown">
-        <button class="profile-icon" id="profileIcon">
-            <i class="fas fa-user-circle"></i> <!-- User icon for profile -->
+
+    <div class="nav-home">
+        <a href="{{ url_for('dashboard') }}" class="nav-link-btn">
+            <i class="fas fa-home"></i>
+        </a>
+    <!-- </div> -->
+
+    <!-- <div class="nav-pages"> -->
+        <div class="pages-dropdown" data-website-id="{{ current_website.id if current_website else '' }}">
+            <button class="nav-link-btn pages-btn" type="button">
+                <i class="fas fa-layer-group"></i>
+            </button>
+
+            <div class="pages-dropdown-content" id="pagesDropdownContent">
+                {% if current_website_pages %}
+                {% for page in current_website_pages %}
+                <a href="{{ url_for('page_editor', website_id=current_website.id, page_id=page.id) }}"
+                    class="{% if page.id == page_id %}active-page{% endif %}">
+                    {{ page.name }}
+                </a>
+                {% endfor %}
+                {% else %}
+                <div class="pages-empty">No pages found</div>
+                {% endif %}
+            </div>
+        </div>
+    <!-- </div> -->
+
+    <!-- <div class="nav-photo"> -->
+        <a href="{{ url_for('photo_library') }}" class="photo-library-btn">
+            <i class="fab fa-dropbox"></i>
+        </a>
+    <!-- </div> -->
+    <!-- <div class="nav-colors"> -->
+        <button type="button" class="nav-link-btn" onclick="toggleGlobalColorPalette()">
+            <i class="fas fa-palette"></i>
         </button>
-        <div class="dropdown-content" id="profileDropdownContent">
-            <a href="{{ url_for('logout') }}">Logout</a>
+    </div>
+
+    <div class="nav-right">
+        
+        <a href="{{ url_for('messages_page') }}" class="nav-messages">
+            <i class="fas fa-envelope"></i>
+            <span class="nav-badge" id="unreadMessagesBadge" {% if unread_message_count==0 %}style="display:none;" {%
+                endif %}>
+                {{ unread_message_count }}
+            </span>
+        </a>
+        <div class="profile-dropdown">
+            
+            <button class="profile-icon" id="profileIcon">
+                <i class="fas fa-user-circle"></i>
+            </button>
+            <div class="dropdown-content" id="profileDropdownContent">
+                <a href="{{ url_for('settings_page') }}" class="profile-menu-link">
+    <i class="fas fa-cog"></i>
+    <span>Settings</span>
+</a>
+<a href="{{ url_for('analytics_page') }}" class="profile-menu-link">
+    <i class="fas fa-chart-line"></i>
+    <span>Analytics</span>
+</a>
+                <a href="{{ url_for('email_server_settings') }}">Email Server</a>
+                <a href="{{ url_for('logout') }}">Logout</a>
+            </div>
         </div>
     </div>
+</div>
+<div id="globalColorPalettePanel" class="global-color-palette-panel">
+    <div class="global-color-palette-header" id="globalColorPaletteDragHandle">
+        <span><i class="fas fa-palette"></i> Saved Colors</span>
+        <button type="button" onclick="toggleGlobalColorPalette()">×</button>
     </div>
+
+    {% set palette_context = 'global_palette' %}
+    {% include 'components/color_palette.html' %}
 </div>
 
 <script src="{{ url_for('static', filename='js/navbar.js') }}" defer></script>

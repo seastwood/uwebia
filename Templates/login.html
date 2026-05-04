@@ -69,6 +69,27 @@
     text-align: center;
     margin-top: 25px;
 }
+
+.login-recovery-links {
+    margin-top: 14px;
+    font-size: 0.86rem;
+    color: #888;
+}
+
+.login-recovery-links a {
+    color: #9cf4df;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.login-recovery-links a:hover {
+    text-decoration: underline;
+}
+
+.login-recovery-links span {
+    margin: 0 6px;
+    color: #666;
+}
     </style>
 </head>
 <body>
@@ -77,13 +98,24 @@
     {% block content %}
     <div class="login-container">
         <h1>uwebia Login</h1>
-        <form method="POST" action="{{ url_for('login') }}">
+<form method="POST" action="{{ request.path }}">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
             <label for="password">Password:</label>
             <input type="password" id="password" name="password" required>
             <button type="submit">Login</button>
         </form>
+        <div class="login-recovery-links">
+    <a href="{% if admin_key %}{{ url_for('forgot_password', admin_key=admin_key) }}{% else %}{{ url_for('forgot_password') }}{% endif %}">
+        Forgot password?
+    </a>
+
+    <span>·</span>
+
+    <a href="{% if admin_key %}{{ url_for('request_username', admin_key=admin_key) }}{% else %}{{ url_for('request_username') }}{% endif %}">
+        Forgot username?
+    </a>
+</div>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 <ul>
@@ -93,7 +125,7 @@
                 </ul>
             {% endif %}
         {% endwith %}
-        <div class="footer">© 2024 - uwebia</div>
+        <div class="footer">uwebia</div>
     </div>
 </body>
 {% endblock %}
