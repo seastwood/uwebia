@@ -2983,6 +2983,170 @@
                         <input type="text" id="navbarTitle_{{ website.id }}" class="form-control"
                             value="{{ (website.public_navbar_style or {}).get('title', website.name) }}"
                             oninput="updateNavbarStylePreview('{{ website.id }}')">
+                            <label>Title Font</label>
+<select id="navbarTitleFontFamily_{{ website.id }}"
+        class="form-control navbar-title-font-select"
+        onchange="updateNavbarTitleTypographyPreview('{{ website.id }}')">
+    {% set current_navbar_title_font = (website.public_navbar_style or {}).get('title_font_family', 'inherit') %}
+
+    <option value="inherit"
+            style="font-family: inherit;"
+            {% if current_navbar_title_font == 'inherit' %}selected{% endif %}>
+        Default / Theme Font
+    </option>
+
+    <option value="'Arial', sans-serif"
+            style="font-family: Arial, sans-serif;"
+            {% if current_navbar_title_font == "'Arial', sans-serif" %}selected{% endif %}>
+        Arial
+    </option>
+
+    <option value="'Helvetica Neue', Helvetica, Arial, sans-serif"
+            style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;"
+            {% if current_navbar_title_font == "'Helvetica Neue', Helvetica, Arial, sans-serif" %}selected{% endif %}>
+        Helvetica Neue
+    </option>
+
+    <option value="'Inter', Arial, sans-serif"
+            style="font-family: 'Inter', Arial, sans-serif;"
+            {% if current_navbar_title_font == "'Inter', Arial, sans-serif" %}selected{% endif %}>
+        Inter
+    </option>
+
+    <option value="'Roboto', Arial, sans-serif"
+            style="font-family: 'Roboto', Arial, sans-serif;"
+            {% if current_navbar_title_font == "'Roboto', Arial, sans-serif" %}selected{% endif %}>
+        Roboto
+    </option>
+
+    <option value="'Trebuchet MS', sans-serif"
+            style="font-family: 'Trebuchet MS', sans-serif;"
+            {% if current_navbar_title_font == "'Trebuchet MS', sans-serif" %}selected{% endif %}>
+        Trebuchet MS
+    </option>
+
+    <option value="'Verdana', sans-serif"
+            style="font-family: Verdana, sans-serif;"
+            {% if current_navbar_title_font == "'Verdana', sans-serif" %}selected{% endif %}>
+        Verdana
+    </option>
+
+    <option value="'Tahoma', sans-serif"
+            style="font-family: Tahoma, sans-serif;"
+            {% if current_navbar_title_font == "'Tahoma', sans-serif" %}selected{% endif %}>
+        Tahoma
+    </option>
+
+    <option value="'Gill Sans', 'Gill Sans MT', Calibri, sans-serif"
+            style="font-family: 'Gill Sans', 'Gill Sans MT', Calibri, sans-serif;"
+            {% if current_navbar_title_font == "'Gill Sans', 'Gill Sans MT', Calibri, sans-serif" %}selected{% endif %}>
+        Gill Sans
+    </option>
+
+    <option value="'Lucida Grande', 'Lucida Sans Unicode', sans-serif"
+            style="font-family: 'Lucida Grande', 'Lucida Sans Unicode', sans-serif;"
+            {% if current_navbar_title_font == "'Lucida Grande', 'Lucida Sans Unicode', sans-serif" %}selected{% endif %}>
+        Lucida Sans
+    </option>
+
+    <option value="'Georgia', serif"
+            style="font-family: Georgia, serif;"
+            {% if current_navbar_title_font == "'Georgia', serif" %}selected{% endif %}>
+        Georgia
+    </option>
+
+    <option value="'Times New Roman', Times, serif"
+            style="font-family: 'Times New Roman', Times, serif;"
+            {% if current_navbar_title_font == "'Times New Roman', Times, serif" %}selected{% endif %}>
+        Times New Roman
+    </option>
+
+    <option value="'Palatino Linotype', Palatino, serif"
+            style="font-family: 'Palatino Linotype', Palatino, serif;"
+            {% if current_navbar_title_font == "'Palatino Linotype', Palatino, serif" %}selected{% endif %}>
+        Palatino
+    </option>
+
+    <option value="'Garamond', serif"
+            style="font-family: Garamond, serif;"
+            {% if current_navbar_title_font == "'Garamond', serif" %}selected{% endif %}>
+        Garamond
+    </option>
+
+    <option value="'Baskerville', serif"
+            style="font-family: Baskerville, serif;"
+            {% if current_navbar_title_font == "'Baskerville', serif" %}selected{% endif %}>
+        Baskerville
+    </option>
+
+    <option value="'Didot', serif"
+            style="font-family: Didot, serif;"
+            {% if current_navbar_title_font == "'Didot', serif" %}selected{% endif %}>
+        Didot
+    </option>
+
+    <option value="'Courier New', Courier, monospace"
+            style="font-family: 'Courier New', Courier, monospace;"
+            {% if current_navbar_title_font == "'Courier New', Courier, monospace" %}selected{% endif %}>
+        Courier New
+    </option>
+
+    <option value="'Lucida Console', Monaco, monospace"
+            style="font-family: 'Lucida Console', Monaco, monospace;"
+            {% if current_navbar_title_font == "'Lucida Console', Monaco, monospace" %}selected{% endif %}>
+        Lucida Console
+    </option>
+
+    <option value="'Brush Script MT', cursive"
+            style="font-family: 'Brush Script MT', cursive;"
+            {% if current_navbar_title_font == "'Brush Script MT', cursive" %}selected{% endif %}>
+        Brush Script
+    </option>
+
+    <option value="'Lucida Handwriting', cursive"
+            style="font-family: 'Lucida Handwriting', cursive;"
+            {% if current_navbar_title_font == "'Lucida Handwriting', cursive" %}selected{% endif %}>
+        Lucida Handwriting
+    </option>
+
+    <option value="'Comic Sans MS', cursive"
+            style="font-family: 'Comic Sans MS', cursive;"
+            {% if current_navbar_title_font == "'Comic Sans MS', cursive" %}selected{% endif %}>
+        Comic Sans
+    </option>
+
+    <option value="'Copperplate', fantasy"
+            style="font-family: Copperplate, fantasy;"
+            {% if current_navbar_title_font == "'Copperplate', fantasy" %}selected{% endif %}>
+        Copperplate
+    </option>
+
+    <option value="'Papyrus', fantasy"
+            style="font-family: Papyrus, fantasy;"
+            {% if current_navbar_title_font == "'Papyrus', fantasy" %}selected{% endif %}>
+        Papyrus
+    </option>
+</select>
+<label>Title Font Size</label>
+<input type="range"
+       id="navbarTitleFontSize_{{ website.id }}"
+       min="12"
+       max="42"
+       step="1"
+       value="{{ (website.public_navbar_style or {}).get('title_font_size', 16) }}"
+       oninput="updateNavbarTitleTypographyPreview('{{ website.id }}')">
+
+<span id="navbarTitleFontSizeValue_{{ website.id }}" class="range-value">
+    {{ (website.public_navbar_style or {}).get('title_font_size', 16) }}px
+</span>
+
+<label class="navbar-style-checkbox">
+    <input type="checkbox"
+           id="navbarTitleBold_{{ website.id }}"
+           {% if (website.public_navbar_style or {}).get('title_bold', True) %}checked{% endif %}
+           onchange="updateNavbarTitleTypographyPreview('{{ website.id }}')">
+    Bold title
+</label>
                         <select id="navbarTitleAlignment_{{ website.id }}" class="form-control"
                             onchange="updateFullNavbarPreview('{{ website.id }}')">
                             <option value="left" {% if (website.public_navbar_style or {}).get('title_alignment', 'left'
@@ -3341,7 +3505,9 @@
                 const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
                 const titleText = document.getElementById(`navbarTitleTextPreview_${websiteId}`);
                 const titleWrapper = document.getElementById(`navbarTitlePreview_${websiteId}`);
-
+                const titleFontFamily = document.getElementById(`navbarTitleFontFamily_${websiteId}`)?.value || 'inherit';
+                const titleFontSize = document.getElementById(`navbarTitleFontSize_${websiteId}`)?.value || 16;
+                const titleBold = document.getElementById(`navbarTitleBold_${websiteId}`)?.checked ?? true;
                 if (!preview || !titleText || !titleWrapper) return;
 
                 const title = document.getElementById(`navbarTitle_${websiteId}`).value || 'Preview Title';
@@ -3352,6 +3518,9 @@
                 const alignment = document.getElementById(`navbarTitleAlignment_${websiteId}`)?.value || 'left';
 
                 titleText.textContent = title;
+                titleText.style.fontFamily = titleFontFamily;
+                titleText.style.fontSize = `${titleFontSize}px`;
+                titleText.style.fontWeight = titleBold ? '850' : '400';
 
                 // preview.style.opacity = opacity;
                 preview.style.backdropFilter = `blur(${blur}px)`;
@@ -3367,6 +3536,9 @@
                 updateNavbarBackgroundPreview(websiteId);
 
                 const title = document.getElementById(`navbarTitle_${websiteId}`).value;
+                const titleFontFamily = document.getElementById(`navbarTitleFontFamily_${websiteId}`)?.value || 'inherit';
+                const titleFontSize = document.getElementById(`navbarTitleFontSize_${websiteId}`)?.value || 16;
+                const titleBold = document.getElementById(`navbarTitleBold_${websiteId}`)?.checked ?? true;
                 const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
                 const textColor = document.getElementById(`navbarTextColor_${websiteId}`).value;
                 const background = document.getElementById(`navbarBackground_${websiteId}`).value;
@@ -3402,7 +3574,10 @@
                         title_alignment: titleAlignment,
                         margin: margin,
                         dropdown_mode: dropdownMode,
-                        side_panel_use_navbar_background: sidePanelUseNavbarBackground
+                        side_panel_use_navbar_background: sidePanelUseNavbarBackground,
+                        title_font_family: titleFontFamily,
+                        title_font_size: titleFontSize,
+                        title_bold: titleBold
                     })
                 })
                     .then(response => response.json())
@@ -5254,6 +5429,37 @@
                     alert('Could not dismiss 2FA warning.');
                 }
             }
+function updateNavbarTitleTypographyPreview(websiteId) {
+    const fontSelect = document.getElementById(`navbarTitleFontFamily_${websiteId}`);
+    const sizeInput = document.getElementById(`navbarTitleFontSize_${websiteId}`);
+    const sizeValue = document.getElementById(`navbarTitleFontSizeValue_${websiteId}`);
+    const boldInput = document.getElementById(`navbarTitleBold_${websiteId}`);
+
+    const preview = document.getElementById(`navbarStylePreview_${websiteId}`);
+    const titleText = document.getElementById(`navbarTitleTextPreview_${websiteId}`);
+
+    const fontFamily = fontSelect?.value || 'inherit';
+    const fontSize = Number(sizeInput?.value || 16);
+    const isBold = boldInput?.checked ?? true;
+
+    if (sizeValue) {
+        sizeValue.textContent = `${fontSize}px`;
+    }
+
+    if (titleText) {
+        titleText.style.fontFamily = fontFamily;
+        titleText.style.fontSize = `${fontSize}px`;
+        titleText.style.fontWeight = isBold ? '850' : '400';
+    }
+
+    if (preview) {
+        preview.style.setProperty('--navbar-title-font-family', fontFamily);
+        preview.style.setProperty('--navbar-title-font-size', `${fontSize}px`);
+        preview.style.setProperty('--navbar-title-font-weight', isBold ? '850' : '400');
+    }
+
+    updateNavbarStylePreview(websiteId);
+}
         </script>
         {% endblock %}
 

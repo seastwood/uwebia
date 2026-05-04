@@ -18,6 +18,7 @@
 <nav class="public-navbar dropdown-mode-{{ dropdown_mode }} {% if side_panel_use_navbar_background %}menu-panels-use-navbar-bg{% endif %}"
      data-dropdown-mode="{{ dropdown_mode }}"
      style="
+     
         --navbar-page-offset: {{ navbar_page_offset }}px;
         --navbar-background: {{ nav_style.get('background', 'rgba(20,20,20,0.9)') }};
         --navbar-blur: blur({{ nav_style.get('blur', 14) }}px);
@@ -26,6 +27,9 @@
 
         background: transparent;
         color: {{ nav_style.get('text_color', '#ffffff') }};
+        --navbar-title-font-family: {{ nav_style.get('title_font_family', 'inherit') }};
+        --navbar-title-font-size: {{ nav_style.get('title_font_size', 16) }}px;
+        --navbar-title-font-weight: {% if nav_style.get('title_bold', True) %}850{% else %}400{% endif %};
         --navbar-text-color: {{ nav_style.get('text_color', '#ffffff') }};
         --navbar-active-text-color: color-mix(in srgb, {{ nav_style.get('text_color', '#ffffff') }} 68%, #7ee2cc 32%);
         border-radius: {{ nav_style.get('border_radius', 0) }}px;
@@ -873,6 +877,9 @@
 .public-navbar-title {
     min-width: 0;
     max-width: 100%;
+    font-family: var(--navbar-title-font-family, inherit);
+    font-size: var(--navbar-title-font-size, 16px);
+    font-weight: var(--navbar-title-font-weight, 850);
 
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -888,6 +895,10 @@
 
     overflow-wrap: anywhere;
     word-break: normal;
+}
+
+.navbar-title-font-preview-option {
+    font-size: 0.95rem;
 }
 
 .public-navbar-left,
@@ -933,7 +944,7 @@
 }
 
 .public-navbar-brand.title-align-center:hover {
-    transform: translate(-50%, -50%) scale(1.02);
+    transform: translate(-50%, -50%);
 }
 
 
@@ -1237,6 +1248,38 @@
     .public-navbar-brand.title-align-right {
         right: 64px !important;
     }
+}
+@media (max-width: 800px) {
+    .public-navbar-title {
+        font-size: min(var(--navbar-title-font-size, 16px), 24px);
+    }
+}
+
+.public-navbar-brand,
+.public-navbar-brand:link,
+.public-navbar-brand:visited,
+.public-navbar-brand:hover,
+.public-navbar-brand:focus,
+.public-navbar-brand:active {
+    color: inherit !important;
+    text-decoration: none !important;
+}
+
+.public-navbar-brand:hover {
+    opacity: 0.92;
+}
+
+.public-navbar-brand:hover .public-navbar-title,
+.public-navbar-brand:focus .public-navbar-title {
+    transform: scale(1.035);
+}
+
+.public-navbar-title {
+    transition:
+        transform 0.18s ease,
+        opacity 0.18s ease,
+        color 0.18s ease;
+    transform-origin: center;
 }
 </style>
 
