@@ -10717,17 +10717,13 @@ def get_server_config():
         #     print("PublicPageContent already exists. No initialization needed.")
 
 if __name__ == '__main__':
-    # Run migrations
-    # run_migrations()
-
-    # Create all tables
     with app.app_context():
         db.create_all()
 
-server_config = get_server_config()
+    server_config = get_server_config()
 
-app.run(
-    debug=server_config["debug"],
-    host=server_config["host"],
-    port=server_config["port"]
-)
+    app.run(
+        debug=server_config["debug"],
+        host=server_config["host"],
+        port=server_config["port"]
+    )
