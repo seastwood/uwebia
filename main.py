@@ -4015,13 +4015,6 @@ def send_email():
             'message': 'Invalid section id'
         }), 400
 
-    email_settings = get_email_settings()
-    if not email_settings or not email_settings.is_active:
-        return jsonify({
-            'status': 'error',
-            'message': 'Email server is not configured'
-        }), 400
-
     section = PageSection.query.get(section_id)
     if not section or section.section_type != 'contact_form':
         return jsonify({
@@ -4031,18 +4024,14 @@ def send_email():
 
     recipient_email = None
     contact_form_title = None
-    if section.content and isinstance(section.content, dict):
-        recipient_email = section.content.get('email')
-        contact_form_title = section.content.get('title')
 
-    if not recipient_email:
-        return jsonify({
-            'status': 'error',
-            'message': 'No recipient email found for this contact form'
-        }), 400
+    if section.content and isinstance(section.content, dict):
+        recipient_email = (section.content.get('email') or '').strip()
+        contact_form_title = section.content.get('title')
 
     page_id = getattr(section, 'page_content_id', None)
     website_id = None
+
     if section.public_page_content:
         website_id = section.public_page_content.website_id
 
@@ -4052,16 +4041,6 @@ def send_email():
 
     user_agent = request.headers.get('User-Agent')
     referrer = request.referrer
-
-    formatted_body = f"""
-You have received a new message from your uwebia website contact form.
-
-Sender Email: {sender_email}
-Subject: {subject}
-
-Message Body:
-{body}
-"""
 
     contact_message = ContactMessage(
         website_id=website_id,
@@ -4075,10 +4054,76 @@ Message Body:
         ip_address=ip_address,
         user_agent=user_agent,
         referrer=referrer,
-        status='pending'
+        status='stored'
     )
+
     db.session.add(contact_message)
     db.session.commit()
+
+    email_settings = get_email_settings()
+
+    # Important:
+    # If SMTP is not configured, still treat the public form submission as successful
+    # because the message has already been saved in the admin inbox.
+    if not email_settings or not email_settings.is_active:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email server is not configured. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message sent successfully.'
+        })
+
+    if not recipient_email:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'No recipient email found for this contact form. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    if (
+        not email_settings.smtp_host
+        or not email_settings.smtp_port
+        or not email_settings.smtp_username
+        or not email_settings.smtp_password
+        or not email_settings.from_email
+    ):
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email server settings are incomplete. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    if email_settings.use_tls and email_settings.use_ssl:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email server cannot use both TLS and SSL. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    formatted_body = f"""You have received a new message from your Uwebia website contact form.
+
+Sender Email: {sender_email}
+Subject: {subject}
+
+Message Body:
+{body}
+
+---
+Contact Form: {contact_form_title or ''}
+IP Address: {ip_address or ''}
+Referrer: {referrer or ''}
+"""
 
     msg = MIMEMultipart()
     msg['From'] = (
@@ -4103,14 +4148,15 @@ Message Body:
                 email_settings.smtp_port,
                 timeout=10
             )
+
             if email_settings.use_tls:
                 server.starttls()
 
-        server.login(email_settings.smtp_username, email_settings.smtp_password)
-
-        server.send_message(msg)
-
-        server.quit()
+        try:
+            server.login(email_settings.smtp_username, email_settings.smtp_password)
+            server.send_message(msg)
+        finally:
+            server.quit()
 
         contact_message.status = 'sent'
         contact_message.sent_at = datetime.utcnow()
@@ -4119,61 +4165,82 @@ Message Body:
 
         return jsonify({
             'status': 'success',
-            'message': 'Message sent successfully'
+            'message': 'Message received successfully.'
         })
 
     except smtplib.SMTPAuthenticationError:
-        contact_message.status = 'failed'
-        contact_message.error_message = 'Email login failed. Check your username or app password.'
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Email login failed. Message was saved to the admin inbox only.'
         db.session.commit()
 
         return jsonify({
-            'status': 'error',
-            'message': 'Email login failed. Check your username or app password.'
-        }), 400
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
 
     except smtplib.SMTPConnectError:
-        contact_message.status = 'failed'
-        contact_message.error_message = 'Could not connect to the email server. Check host and port.'
+        contact_message.status = 'stored'
+        contact_message.error_message = 'Could not connect to the email server. Message was saved to the admin inbox only.'
         db.session.commit()
 
         return jsonify({
-            'status': 'error',
-            'message': 'Could not connect to the email server. Check host and port.'
-        }), 400
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPServerDisconnected:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'The email server disconnected unexpectedly. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
+    except smtplib.SMTPRecipientsRefused:
+        contact_message.status = 'stored'
+        contact_message.error_message = 'The recipient email address was refused. Message was saved to the admin inbox only.'
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
 
     except smtplib.SMTPException as e:
-        contact_message.status = 'failed'
-        contact_message.error_message = f'Email sending failed: {str(e)}'
+        contact_message.status = 'stored'
+        contact_message.error_message = f'Email sending failed: {str(e)}. Message was saved to the admin inbox only.'
         db.session.commit()
 
         return jsonify({
-            'status': 'error',
-            'message': f'Email sending failed: {str(e)}'
-        }), 400
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
 
     except ssl.SSLError:
-        contact_message.status = 'failed'
-        contact_message.error_message = 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
+        contact_message.status = 'stored'
+        contact_message.error_message = 'SSL/TLS handshake failed. Message was saved to the admin inbox only.'
         db.session.commit()
 
         return jsonify({
-            'status': 'error',
-            'message': 'SSL/TLS handshake failed. Check whether your port matches SSL or TLS settings.'
-        }), 400
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
 
     except Exception as e:
         import traceback
         traceback.print_exc()
 
-        contact_message.status = 'failed'
-        contact_message.error_message = f'Unexpected server error: {str(e)}'
+        contact_message.status = 'stored'
+        contact_message.error_message = f'Unexpected email error: {str(e)}. Message was saved to the admin inbox only.'
         db.session.commit()
 
         return jsonify({
-            'status': 'error',
-            'message': 'Unexpected server error while sending email.'
-        }), 500
+            'status': 'success',
+            'message': 'Message received successfully.'
+        })
+
 @app.route('/send_test_email', methods=['POST'])
 @login_required
 def send_test_email():

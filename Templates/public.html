@@ -2659,7 +2659,7 @@ body.public-page-body {
 .uwebia-comments-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 7px;
 
     max-height: 420px;
     overflow-y: auto;
@@ -2697,35 +2697,48 @@ body.public-page-body {
 }
 
 .uwebia-comment {
-    padding: 13px;
-    border-radius: 16px;
-    background: rgba(255,255,255,0.075);
-    border: 1px solid rgba(255,255,255,0.10);
+    padding: 9px 10px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.065);
+    border: 1px solid rgba(255,255,255,0.095);
     text-align: left;
 }
 
-.uwebia-comment-meta {
+.uwebia-comment-top {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
-    flex-wrap: wrap;
 
-    margin-bottom: 8px;
+    margin-bottom: 5px;
+}
+
+.uwebia-comment-meta {
+    min-width: 0;
+
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    flex-wrap: wrap;
 }
 
 .uwebia-comment-meta strong {
     font-weight: 900;
+    font-size: 0.86rem;
+    line-height: 1.15;
 }
 
 .uwebia-comment-meta span {
-    opacity: 0.58;
-    font-size: 0.78rem;
+    opacity: 0.56;
+    font-size: 0.72rem;
+    line-height: 1.15;
 }
 
 .uwebia-comment-body {
     white-space: pre-wrap;
-    line-height: 1.5;
+    line-height: 1.35;
+    font-size: 0.88rem;
+    opacity: 0.92;
 }
 
 .uwebia-comments-empty {
@@ -2857,28 +2870,30 @@ body.public-page-body {
     cursor: not-allowed;
 }
 .uwebia-comment-footer {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 10px;
+    display: none;
 }
 
 .uwebia-comment-like-button {
+    flex: 0 0 auto;
+
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    justify-content: center;
+    gap: 5px;
 
-    min-height: 34px;
-    padding: 7px 11px;
+    min-height: 26px;
+    padding: 4px 8px;
 
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.13);
 
-    background: rgba(255,255,255,0.075);
+    background: rgba(255,255,255,0.065);
     color: inherit;
 
     font: inherit;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 850;
+    line-height: 1;
 
     cursor: pointer;
 
@@ -2887,6 +2902,22 @@ body.public-page-body {
         border-color 0.16s ease,
         transform 0.16s ease,
         color 0.16s ease;
+}
+
+.uwebia-comment-like-button:hover {
+    background: rgba(126,226,204,0.14);
+    border-color: rgba(126,226,204,0.34);
+    transform: translateY(-1px);
+}
+
+.uwebia-comment-like-button.liked {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126,226,204,0.72);
+}
+
+.uwebia-comment-like-button i {
+    font-size: 0.68rem;
 }
 
 .uwebia-comment-like-button:hover {
@@ -3221,13 +3252,15 @@ margin-right: auto;
         <div class="uwebia-comments-list" id="commentsList_{{ section.id }}">
             {% for comment in comments %}
                 <article class="uwebia-comment">
-                    <div class="uwebia-comment-meta">
-                        <strong>{{ comment.display_name }}</strong>
-                        <span>{{ comment.created_at.strftime('%b %d, %Y %I:%M %p') }}</span>
-                    </div>
+    <div class="uwebia-comment-top">
+        <div class="uwebia-comment-meta">
+            <strong>{{ comment.display_name }}</strong>
+            <span>{{ comment.created_at.strftime('%b %d, %Y %I:%M %p') }}</span>
+        </div>
+    </div>
 
-                    <div class="uwebia-comment-body">{{ comment.body }}</div>
-                </article>
+    <div class="uwebia-comment-body">{{ comment.body }}</div>
+</article>
             {% else %}
                 <div class="uwebia-comments-empty">
                     No comments yet. Be the first to comment.
@@ -4118,27 +4151,26 @@ function renderPublicComments(sectionId, comments) {
         const likeCount = Number(comment.like_count || 0);
 
         return `
-            <article class="uwebia-comment" id="pageComment_${comment.id}">
-                <div class="uwebia-comment-meta">
-                    <strong>${escapePublicCommentHtml(comment.display_name || 'Anonymous')}</strong>
-                    <span>${escapePublicCommentHtml(comment.created_at || '')}</span>
-                </div>
+    <article class="uwebia-comment" id="pageComment_${comment.id}">
+        <div class="uwebia-comment-top">
+            <div class="uwebia-comment-meta">
+                <strong>${escapePublicCommentHtml(comment.display_name || 'Anonymous')}</strong>
+                <span>${escapePublicCommentHtml(comment.created_at || '')}</span>
+            </div>
 
-                <div class="uwebia-comment-body">${escapePublicCommentHtml(comment.body || '')}</div>
+            <button type="button"
+                    class="uwebia-comment-like-button ${likedClass}"
+                    data-comment-id="${comment.id}"
+                    title="Like this comment"
+                    onclick="togglePageCommentLike(event, '${comment.id}')">
+                <i class="fas fa-heart"></i>
+                <span id="pageCommentLikeCount_${comment.id}">${likeCount}</span>
+            </button>
+        </div>
 
-                <div class="uwebia-comment-footer">
-                    <button type="button"
-                            class="uwebia-comment-like-button ${likedClass}"
-                            data-comment-id="${comment.id}"
-                            onclick="togglePageCommentLike(event, '${comment.id}')">
-                        <i class="fas fa-heart"></i>
-                        <span id="pageCommentLikeCount_${comment.id}">
-                            ${likeCount}
-                        </span>
-                    </button>
-                </div>
-            </article>
-        `;
+        <div class="uwebia-comment-body">${escapePublicCommentHtml(comment.body || '')}</div>
+    </article>
+`;
     }).join('');
 
     list.scrollTop = 0;
