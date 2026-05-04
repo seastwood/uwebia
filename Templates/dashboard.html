@@ -2774,6 +2774,22 @@
                             Repeat background image
                         </label>
 
+                        <label class="website-style-checkbox" id="websiteBackgroundRepeatXLabel_{{ website.id }}"
+                            style="display: {% if website.background_image_repeat %}inline-flex{% else %}none{% endif %} !important;">
+                            <input type="checkbox" id="websiteBackgroundRepeatX_{{ website.id }}" {% if
+                                website.background_image_repeat_x %}checked{% endif %}
+                                onchange="updateWebsiteBackgroundPreview('{{ website.id }}')">
+                            Also repeat horizontally
+                        </label>
+
+                        <label class="website-style-checkbox" id="websiteBackgroundMobileCoverLabel_{{ website.id }}"
+                            style="display: {% if website.background_image_repeat %}inline-flex{% else %}none{% endif %} !important;">
+                            <input type="checkbox" id="websiteBackgroundMobileCover_{{ website.id }}" {% if
+                                website.background_image_mobile_cover %}checked{% endif %}
+                                onchange="updateWebsiteBackgroundPreview('{{ website.id }}')">
+                            On small screens, fill screen instead of repeating
+                        </label>
+
                         <label>Image Size / Zoom</label>
                         <input type="range" id="websiteBackgroundZoom_{{ website.id }}" min="25" max="1000" step="5"
                             value="{{ website.background_image_zoom or 100 }}"
@@ -4351,6 +4367,10 @@
 
                 const imageInput = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`);
                 const repeatInput = document.getElementById(`websiteBackgroundRepeat_${websiteId}`);
+                const repeatXInput = document.getElementById(`websiteBackgroundRepeatX_${websiteId}`);
+                const repeatXLabel = document.getElementById(`websiteBackgroundRepeatXLabel_${websiteId}`);
+                const mobileCoverInput = document.getElementById(`websiteBackgroundMobileCover_${websiteId}`);
+                const mobileCoverLabel = document.getElementById(`websiteBackgroundMobileCoverLabel_${websiteId}`);
                 const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
                 const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
 
@@ -4371,14 +4391,33 @@
 
                 const imageUrl = imageInput?.value || '';
                 const repeat = repeatInput?.checked || false;
+                const repeatX = repeatXInput?.checked || false;
                 const zoom = Number(zoomInput?.value || 100);
                 const repeatZoomMultiplier = 2.0;
                 const repeatZoom = Math.round(zoom * repeatZoomMultiplier);
 
+                // Show/hide the "also repeat horizontally" and "mobile cover" checkboxes based on repeat toggle
+                if (repeatXLabel) {
+                    repeatXLabel.style.display = repeat ? 'inline-flex' : 'none';
+                }
+                if (mobileCoverLabel) {
+                    mobileCoverLabel.style.display = repeat ? 'inline-flex' : 'none';
+                }
+
+                // Determine CSS repeat value
+                let repeatValue = 'no-repeat';
+                if (repeat) {
+                    repeatValue = repeatX ? 'repeat' : 'repeat-y';
+                }
+
                 if (zoomValue) {
-                    zoomValue.textContent = repeat
-                        ? `${zoom}% (${repeatZoom}px tile width)`
-                        : `${zoom}%`;
+                    if (repeat && repeatX) {
+                        zoomValue.textContent = `${zoom}% (${repeatZoom}px tile width)`;
+                    } else if (repeat) {
+                        zoomValue.textContent = `${zoom}% (fills width, repeats vertically)`;
+                    } else {
+                        zoomValue.textContent = `${zoom}%`;
+                    }
                 }
 
                 if (!preview) return;
@@ -4398,22 +4437,26 @@
                 if (imageUrl) {
                     const isGradient = background.startsWith('linear-gradient');
 
+                    // For vertical-only repeat: image fills full width (100% wide), repeats downward
+                    // For full repeat: fixed px tile size
+                    const imageSize = (repeat && !repeatX)
+                        ? '100% auto'
+                        : repeat
+                            ? `${repeatZoom}px auto`
+                            : `${zoom}% auto`;
+
                     if (isGradient) {
                         preview.style.backgroundColor = 'transparent';
                         preview.style.backgroundImage = `url("${imageUrl}"), ${background}`;
-                        preview.style.backgroundRepeat = `${repeat ? 'repeat' : 'no-repeat'}, no-repeat`;
-                        preview.style.backgroundPosition = 'center, center';
-                        preview.style.backgroundSize = repeat
-                            ? `${repeatZoom}px auto, cover`
-                            : `${zoom}% auto, cover`;
+                        preview.style.backgroundRepeat = `${repeatValue}, no-repeat`;
+                        preview.style.backgroundPosition = 'center top, center';
+                        preview.style.backgroundSize = `${imageSize}, cover`;
                     } else {
                         preview.style.backgroundColor = background;
                         preview.style.backgroundImage = `url("${imageUrl}")`;
-                        preview.style.backgroundRepeat = repeat ? 'repeat' : 'no-repeat';
-                        preview.style.backgroundPosition = 'center';
-                        preview.style.backgroundSize = repeat
-                            ? `${repeatZoom}px auto`
-                            : `${zoom}% auto`;
+                        preview.style.backgroundRepeat = repeatValue;
+                        preview.style.backgroundPosition = repeat ? 'center top' : 'center';
+                        preview.style.backgroundSize = imageSize;
                     }
                 } else {
                     preview.style.background = background;
@@ -4484,6 +4527,8 @@
 
                 const backgroundImageUrl = document.getElementById(`websiteBackgroundImageUrl_${websiteId}`)?.value || '';
                 const backgroundImageRepeat = document.getElementById(`websiteBackgroundRepeat_${websiteId}`)?.checked || false;
+                const backgroundImageRepeatX = document.getElementById(`websiteBackgroundRepeatX_${websiteId}`)?.checked || false;
+                const backgroundImageMobileCover = document.getElementById(`websiteBackgroundMobileCover_${websiteId}`)?.checked || false;
                 const backgroundImageZoom = document.getElementById(`websiteBackgroundZoom_${websiteId}`)?.value || 100;
 
 
@@ -4498,6 +4543,8 @@
                         text_color: textColor,
                         background_image_url: backgroundImageUrl,
                         background_image_repeat: backgroundImageRepeat,
+                        background_image_repeat_x: backgroundImageRepeatX,
+                        background_image_mobile_cover: backgroundImageMobileCover,
                         background_image_zoom: backgroundImageZoom
                     })
                 })

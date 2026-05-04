@@ -1337,7 +1337,7 @@
 }
 
 .public-row {
-    /* display: flex; */
+    display: flex;
     flex-wrap: nowrap;
 
     width: 100%;
@@ -1351,10 +1351,10 @@
 }
 
 .public-section-cell {
-    flex: 0 1 auto;
-
-    width: auto;
-    max-width: min(100%, var(--section-width, 100%));
+    /* Claim the editor-set width as the flex basis so cells aren't squished */
+    flex: 0 0 var(--section-width, 100%);
+    width: var(--section-width, 100%);
+    max-width: var(--section-width, 100%);
     min-width: 0;
 
     box-sizing: border-box;
@@ -1386,6 +1386,19 @@
     flex: 0 1 auto;
 }
 
+/* When map/form/calendar/text are inside a flex cell, the cell is already
+   the width authority — override the standalone auto-margin/max-width rules
+   so they fill the cell instead of centering themselves within it */
+.public-section-cell > .calendar-container,
+.public-section-cell > .contact-form-container,
+.public-section-cell > .text-area,
+.public-section-cell > [id^="map"] {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+}
+
 @media (max-width: 760px) {
     .public-row {
         flex-wrap: wrap;
@@ -1410,18 +1423,11 @@
 
 .public-section-group-inner {
     width: 100%;
-    max-width: var(--public-page-max-width, 1180px);
     margin-left: auto;
     margin-right: auto;
     box-sizing: border-box;
 }
-/* Image sections should actually use their editor-set section width */
-.public-section-cell:has(> .uwebia-images) {
-    flex: 0 1 var(--section-width, 100%);
-    width: var(--section-width, 100%);
-    max-width: min(100%, var(--section-width, 100%));
-}
-
+/* Image sections fill their cell (cell width is already set via --section-width above) */
 /* Image wrapper fills that section cell */
 .public-section-cell:has(> .uwebia-images) > .uwebia-images {
     width: 100% !important;
@@ -2953,19 +2959,39 @@ color: {{ website.text_color or '#000000' }};
 
     {% if website.background_image_url %}
         background-image: url('{{ website.background_image_url }}');
-        background-repeat: {{ 'repeat' if website.background_image_repeat else 'no-repeat' }};
-        background-position: center center;
 
         {% set bg_zoom = website.background_image_zoom or 100 %}
         {% set repeat_zoom_multiplier = 2.0 %}
-background-size:
+        {% set repeat_x = website.background_image_repeat_x %}
+
         {% if website.background_image_repeat %}
-            {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto
+            {% if repeat_x %}
+                background-repeat: repeat;
+                background-position: center top;
+                background-size: {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto;
+            {% else %}
+                background-repeat: repeat-y;
+                background-position: center top;
+                background-size: 100% auto;
+            {% endif %}
         {% else %}
-            cover
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: {{ bg_zoom }}% auto;
         {% endif %}
     {% endif %}
 "></div>
+{% if website.background_image_url and website.background_image_repeat and website.background_image_mobile_cover %}
+<style>
+@media (max-width: 760px) {
+    .site-fixed-background {
+        background-repeat: no-repeat !important;
+        background-position: center center !important;
+        background-size: cover !important;
+    }
+}
+</style>
+{% endif %}
     {% include 'components/public_navbar.html' %}
     <!-- {% if content.is_preview %}
     <div class="preview-banner">Preview</div>
@@ -2996,29 +3022,28 @@ background-size:
     <!-- Public Page Content -->
 
     <div class="content-area">
-        <div class="main-content">
 
-            {% for group in content.get('groups', []) %}
-            <section class="public-section-group" id="{{ group.anchor_slug or ('section-group-' ~ group.id) }}" style="
+        {% for group in content.get('groups', []) %}
+        <section class="public-section-group" id="{{ group.anchor_slug or ('section-group-' ~ group.id) }}" style="
 background: {{ group.background_color or 'transparent' }};
-        {% if group.background_image_url %}
-            background-image: url('{{ group.background_image_url }}');
-            background-size: {{ group.background_image_size or 'cover' }};
-            background-position: {{ group.background_image_position or 'center' }};
-            background-repeat: no-repeat;
-        {% endif %}
-        --group-overlay-color: {{ group.background_overlay_color or 'transparent' }};
-        --group-overlay-opacity: {{ group.background_overlay_opacity or 0 }};
-
-padding: {{ group.padding if group.padding is not none else 0 }}px;
+    {% if group.background_image_url %}
+        background-image: url('{{ group.background_image_url }}');
+        background-size: {{ group.background_image_size or 'cover' }};
+        background-position: {{ group.background_image_position or 'center' }};
+        background-repeat: no-repeat;
+    {% endif %}
+    --group-overlay-color: {{ group.background_overlay_color or 'transparent' }};
+    --group-overlay-opacity: {{ group.background_overlay_opacity or 0 }};
+    --group-padding: {{ group.padding if group.padding is not none else 0 }}px;
 border-radius: {{ group.border_radius if group.border_radius is not none else 0 }}px;
 box-sizing: border-box;
 width: 100%;
-max-width: {% if group.max_width %}{{ group.max_width }}px{% else %}100%{% endif %};
-margin-left: auto;
-margin-right: auto;
 ">
-                <div class="public-section-group-inner">
+            <div class="public-section-group-inner" style="
+max-width: {% if group.max_width %}min({{ group.max_width }}px, var(--public-page-max-width, 1180px)){% else %}var(--public-page-max-width, 1180px){% endif %};
+padding: var(--group-padding, 0px);
+box-sizing: border-box;
+">
 
                     {% for section_row, sections_in_row in content['sections']|groupby('row_number') %}
                     {% set first_section = sections_in_row[0] %}
@@ -3521,7 +3546,6 @@ margin-right: auto;
                 </div>
             </section>
             {% endfor %}
-        </div>
     </div>
     <!-- Event Modal -->
     <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle" aria-hidden="true">
@@ -3586,7 +3610,7 @@ document.body.style.color = text_color;
 
         function adjustContentOffset() {
             const banner = document.querySelector('.banner');
-            const content = document.querySelector('.main-content');
+            const content = document.querySelector('.content-area');
 
             if (banner && content) {
                 content.style.marginTop = banner.offsetHeight + 'px';
