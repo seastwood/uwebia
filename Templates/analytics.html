@@ -1078,7 +1078,7 @@
 
                 setGeoIpUploadProgress(0, 'Preparing upload...');
 
-                xhr.open('POST', '/dashboard/analytics/geoip/upload', true);
+                xhr.open('POST', '/admin/dashboard/analytics/geoip/upload', true);
                 xhr.setRequestHeader('X-CSRFToken', analyticsCsrfToken);
 
                 xhr.upload.addEventListener('progress', function (event) {
@@ -1123,7 +1123,7 @@
     }
 
     function disableGeoIpDatabase() {
-        fetch('/dashboard/analytics/geoip/disable', {
+        fetch('/admin/dashboard/analytics/geoip/disable', {
             method: 'POST',
             headers: {
                 'X-CSRFToken': analyticsCsrfToken
@@ -1150,7 +1150,7 @@
 
         if (!confirmed) return;
 
-        fetch('/dashboard/analytics/geoip/delete', {
+        fetch('/admin/dashboard/analytics/geoip/delete', {
             method: 'POST',
             headers: {
                 'X-CSRFToken': analyticsCsrfToken
@@ -1171,7 +1171,7 @@
     }
 
     function backfillGeoIpLocations() {
-        fetch('/dashboard/analytics/geoip/backfill', {
+        fetch('/admin/dashboard/analytics/geoip/backfill', {
             method: 'POST',
             headers: {
                 'X-CSRFToken': analyticsCsrfToken

@@ -621,6 +621,8 @@ class Website(db.Model):
     text_color = db.Column(db.String(20), default='#000000')
     background_image_url = db.Column(db.String(500), nullable=True)
     background_image_repeat = db.Column(db.Boolean, default=False)
+    background_image_repeat_x = db.Column(db.Boolean, default=False)
+    background_image_mobile_cover = db.Column(db.Boolean, default=False)
     background_image_zoom = db.Column(db.Integer, default=100)
 
     public_navbar_items = db.Column(db.JSON, default=list)
@@ -4531,6 +4533,8 @@ def edit_website_style(website_id):
 
     website.background_image_url = data.get('background_image_url') or None
     website.background_image_repeat = bool(data.get('background_image_repeat', False))
+    website.background_image_repeat_x = bool(data.get('background_image_repeat_x', False))
+    website.background_image_mobile_cover = bool(data.get('background_image_mobile_cover', False))
 
     try:
         zoom = int(data.get('background_image_zoom') or 100)
@@ -4548,6 +4552,8 @@ def edit_website_style(website_id):
         'text_color': website.text_color,
         'background_image_url': website.background_image_url,
         'background_image_repeat': website.background_image_repeat,
+        'background_image_repeat_x': website.background_image_repeat_x,
+        'background_image_mobile_cover': website.background_image_mobile_cover,
         'background_image_zoom': website.background_image_zoom
     })
 

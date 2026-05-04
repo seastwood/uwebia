@@ -6643,13 +6643,28 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         // Function to reload the iframe and maintain scroll position
         function reloadIframe() {
             const iframe = document.getElementById("publicFrame");
-            const scrollPosition = iframe.contentWindow.scrollY;
 
-            iframe.addEventListener("load", function () {
-                iframe.contentWindow.scrollTo(0, scrollPosition);
-            }, { once: true });
+            // contentWindow may be null or inaccessible if the iframe hasn't loaded yet
+            // (e.g. on mobile where the preview starts hidden). Fall back to a fresh load.
+            let scrollPosition = 0;
+            try {
+                scrollPosition = iframe.contentWindow ? iframe.contentWindow.scrollY : 0;
+            } catch (e) {
+                scrollPosition = 0;
+            }
 
-            iframe.contentWindow.location.reload(true);
+            try {
+                iframe.addEventListener("load", function () {
+                    try {
+                        iframe.contentWindow.scrollTo(0, scrollPosition);
+                    } catch (e) { /* cross-origin or not yet ready */ }
+                }, { once: true });
+
+                iframe.contentWindow.location.reload(true);
+            } catch (e) {
+                // contentWindow not accessible — just re-set src to trigger a fresh load
+                updatePublicView();
+            }
         }
         // Define the sections array in the global scope
         let sections = [];
@@ -9701,7 +9716,15 @@ setTimeout(() => {
 
         previewButton.addEventListener('click', () => {
             rightContainer.classList.toggle('visible');
-            reloadIframe()
+
+            const iframe = document.getElementById('publicFrame');
+            // On mobile the iframe starts hidden so the browser may not have loaded it yet.
+            // If src is still empty, load it now. Otherwise do a normal reload.
+            if (!iframe.src || iframe.src === window.location.href || iframe.src === '') {
+                updatePublicView();
+            } else {
+                reloadIframe();
+            }
         });
 
         resizer.addEventListener('mousedown', (e) => {
