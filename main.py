@@ -118,7 +118,17 @@ DEFAULT_SECURITY_CONFIG = {
     "emergency_login_expiration_minutes": 10
 }
 
+SERVER_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'server.json'
+)
 
+DEFAULT_SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 5772,
+    "debug": False
+}
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -10565,13 +10575,53 @@ def audit_assets_cli():
     print(f"Total missing files: {total_missing}")
     print(f"Total orphan size: {format_bytes(total_orphan_bytes)}")
 
-if __name__ == '__main__':
-    # Run migrations
-    # run_migrations()
+def get_server_config():
+    config = DEFAULT_SERVER_CONFIG.copy()
 
-    # Create all tables
-    with app.app_context():
-        db.create_all()
+    try:
+        with open(SERVER_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+
+        if isinstance(loaded, dict):
+            config.update(loaded)
+
+    except FileNotFoundError:
+        os.makedirs(os.path.dirname(SERVER_CONFIG_PATH), exist_ok=True)
+
+        with open(SERVER_CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4)
+
+    except json.JSONDecodeError as e:
+        print(f"Invalid server config JSON. Using defaults. Error: {e}")
+
+    host = str(config.get("host") or DEFAULT_SERVER_CONFIG["host"]).strip()
+
+    try:
+        port = int(config.get("port", DEFAULT_SERVER_CONFIG["port"]))
+    except (TypeError, ValueError):
+        port = DEFAULT_SERVER_CONFIG["port"]
+
+    if port < 1 or port > 65535:
+        port = DEFAULT_SERVER_CONFIG["port"]
+
+    debug = bool(config.get("debug", DEFAULT_SERVER_CONFIG["debug"]))
+
+    host = os.environ.get("HOST", host)
+
+    try:
+        port = int(os.environ.get("PORT", port))
+    except (TypeError, ValueError):
+        pass
+
+    debug_env = os.environ.get("FLASK_DEBUG")
+    if debug_env is not None:
+        debug = debug_env.lower() in ("1", "true", "yes", "on")
+
+    return {
+        "host": host,
+        "port": port,
+        "debug": debug
+    }
 
         # Check if any PublicPageContent objects exist
         # existing_public_page_content = PublicPageContent.query.first()
@@ -10596,6 +10646,18 @@ if __name__ == '__main__':
         # else:
         #     print("PublicPageContent already exists. No initialization needed.")
 
-    # Get the port from the environment variable or default to 5000
-    port = int(os.environ.get('PORT', 5772))
-    app.run(debug=False, host='0.0.0.0', port=port)
+if __name__ == '__main__':
+    # Run migrations
+    # run_migrations()
+
+    # Create all tables
+    with app.app_context():
+        db.create_all()
+
+server_config = get_server_config()
+
+app.run(
+    debug=server_config["debug"],
+    host=server_config["host"],
+    port=server_config["port"]
+)
