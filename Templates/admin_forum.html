@@ -87,13 +87,83 @@
 
     .admin-forum-table th,
     .admin-forum-table td {
-        padding: 10px;
+        padding: 10px 12px;
         border-bottom: 1px solid rgba(255,255,255,0.08);
         vertical-align: top;
+        white-space: nowrap;
+    }
+
+    .admin-forum-table td.wrap {
+        white-space: normal;
+    }
+
+    .admin-forum-table thead th {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255,255,255,0.45);
+        padding-bottom: 8px;
+    }
+
+    .admin-forum-table tbody tr:last-child td {
+        border-bottom: none;
     }
 
     .muted {
         opacity: 0.65;
+    }
+
+    @media (max-width: 700px) {
+        .admin-forum-table thead {
+            display: none;
+        }
+
+        .admin-forum-table,
+        .admin-forum-table tbody,
+        .admin-forum-table tr,
+        .admin-forum-table td {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .admin-forum-table tbody tr {
+            background: rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            margin-bottom: 10px;
+            padding: 4px 0;
+        }
+
+        .admin-forum-table td {
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 9px 14px;
+            white-space: normal;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .admin-forum-table td:last-child {
+            border-bottom: none;
+        }
+
+        .admin-forum-table td::before {
+            content: attr(data-label);
+            flex-shrink: 0;
+            width: 90px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: rgba(255,255,255,0.38);
+            padding-top: 2px;
+        }
+
+        .admin-forum-table td[colspan]::before {
+            display: none;
+        }
     }
 </style>
 
@@ -169,40 +239,38 @@
         <table class="admin-forum-table">
             <thead>
                 <tr>
-<tr>
-    <th>Thread</th>
-    <th>Status</th>
-    <th>Upvotes</th>
-    <th>Author</th>
-    <th>Created</th>
-    <th>Moderate</th>
-    <th>Stats</th>
-</tr>
+                    <th class="wrap">Thread</th>
+                    <th>Status</th>
+                    <th>Upvotes</th>
+                    <th>Author</th>
+                    <th>Created</th>
+                    <th>Moderate</th>
+                </tr>
             </thead>
 
             <tbody>
                 {% for thread in threads %}
                 <tr>
-                    <td>
+                    <td class="wrap" data-label="Thread">
                         <strong>{{ thread.title }}</strong>
                         <div class="muted">{{ thread.body[:140] }}{% if thread.body|length > 140 %}...{% endif %}</div>
                     </td>
 
-                    <td>
+                    <td data-label="Status">
                         {% if thread.is_hidden %}Hidden{% else %}Visible{% endif %}
                         {% if thread.is_locked %} · Locked{% endif %}
                         {% if thread.is_pinned %} · Pinned{% endif %}
                     </td>
 
-                    <td>
-    {{ thread.vote_count_cached or 0 }} upvotes<br>
-    <span class="muted">{{ thread.reply_count or 0 }} replies</span>
-</td>
+                    <td data-label="Votes">
+                        {{ thread.vote_count_cached or 0 }} upvotes<br>
+                        <span class="muted">{{ thread.reply_count or 0 }} replies</span>
+                    </td>
 
-                    <td>{{ thread.author.username if thread.author else 'Guest' }}</td>
-                    <td>{{ thread.created_at.strftime('%b %d, %Y') }}</td>
+                    <td data-label="Author">{{ thread.author.username if thread.author else 'Guest' }}</td>
+                    <td data-label="Created">{{ thread.created_at.strftime('%b %d, %Y') }}</td>
 
-                    <td>
+                    <td data-label="Moderate">
                         <form method="POST" action="{{ url_for('moderate_forum_thread', thread_id=thread.id) }}">
                             {% if thread.is_hidden %}
                             <button name="action" value="unhide">Unhide</button>
@@ -230,7 +298,7 @@
                 </tr>
                 {% else %}
                 <tr>
-<td colspan="6" class="muted">No forum threads yet.</td>
+                    <td colspan="6" class="muted">No forum threads yet.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -254,9 +322,9 @@
             <tbody>
                 {% for public_user in users %}
                 <tr>
-                    <td>{{ public_user.username }}</td>
-                    <td>{{ public_user.email }}</td>
-                    <td>
+                    <td data-label="User">{{ public_user.username }}</td>
+                    <td class="wrap" data-label="Email">{{ public_user.email }}</td>
+                    <td data-label="Status">
                         {% if public_user.is_banned %}
                             Banned
                         {% elif not public_user.is_active_public %}
@@ -265,8 +333,8 @@
                             Active
                         {% endif %}
                     </td>
-                    <td>{{ public_user.created_at.strftime('%b %d, %Y') }}</td>
-                    <td>
+                    <td data-label="Created">{{ public_user.created_at.strftime('%b %d, %Y') }}</td>
+                    <td data-label="Moderate">
                         <form method="POST" action="{{ url_for('moderate_public_user', public_user_id=public_user.id) }}">
                             {% if public_user.is_banned %}
                             <button name="action" value="unban">Unban</button>

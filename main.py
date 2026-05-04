@@ -7514,7 +7514,7 @@ def analytics_page():
             'asn_organization': visit.asn_organization
         })
 
-        calendar_subscriber_summary = get_calendar_subscriber_summary_for_websites(website_ids)
+    calendar_subscriber_summary = get_calendar_subscriber_summary_for_websites(website_ids)
 
     return render_template(
         'analytics.html',
