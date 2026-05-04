@@ -7905,6 +7905,13 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 <option value="heavy" ${section.content['box_shadow'] === 'heavy' ? 'selected' : ''}>Heavy</option>
             </select>
         </div>
+
+        <div class="text-style-group">
+            <label>Max Width <span style="font-weight:normal; color:#aaa; font-size:11px;">(slide left for none)</span></label>
+            <input type="range" name="text_max_width" min="0" max="1800" step="20"
+                value="${section.content['text_max_width'] || '0'}">
+            <span class="range-value">${section.content['text_max_width'] && section.content['text_max_width'] != '0' ? section.content['text_max_width'] + 'px' : 'None'}</span>
+        </div>
     </div>
 </div>
 
@@ -7930,6 +7937,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             const paddingInput = sectionContent.querySelector('input[name="padding"]');
                             const radiusInput = sectionContent.querySelector('input[name="border_radius"]');
                             const shadowInput = sectionContent.querySelector('select[name="box_shadow"]');
+                            const maxWidthInput = sectionContent.querySelector('input[name="text_max_width"]');
 
 
                             function hexToRgba(hex, opacity) {
@@ -7969,19 +7977,36 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 const padding = paddingInput ? paddingInput.value : '20';
                                 const radius = radiusInput ? radiusInput.value : '10';
                                 const shadow = shadowInput ? shadowInput.value : 'none';
+                                const maxWidth = maxWidthInput ? maxWidthInput.value : '0';
 
                                 editorSurface.style.background = hexToRgba(bgColor, bgOpacity);
                                 editorSurface.style.padding = `${padding}px`;
                                 editorSurface.style.borderRadius = `${radius}px`;
                                 editorSurface.style.boxShadow = getShadowValue(shadow);
+                                editorSurface.style.maxWidth = (maxWidth && maxWidth !== '0') ? `${maxWidth}px` : '';
+                                editorSurface.style.marginLeft = (maxWidth && maxWidth !== '0') ? 'auto' : '';
+                                editorSurface.style.marginRight = (maxWidth && maxWidth !== '0') ? 'auto' : '';
                             }
                             applyEditorSurfaceStyles();
 
-                            [bgColorInput, bgOpacityInput, paddingInput, radiusInput, shadowInput].forEach(input => {
+                            [bgColorInput, bgOpacityInput, paddingInput, radiusInput, shadowInput, maxWidthInput].forEach(input => {
                                 if (!input) return;
                                 input.addEventListener('input', applyEditorSurfaceStyles);
                                 input.addEventListener('change', applyEditorSurfaceStyles);
                             });
+
+                            // Update the max-width range label live
+                            if (maxWidthInput) {
+                                const maxWidthLabel = maxWidthInput.closest('.text-style-group').querySelector('.range-value');
+                                function updateMaxWidthLabel() {
+                                    const v = maxWidthInput.value;
+                                    if (maxWidthLabel) {
+                                        maxWidthLabel.textContent = (v && v !== '0') ? `${v}px` : 'None';
+                                    }
+                                }
+                                maxWidthInput.addEventListener('input', updateMaxWidthLabel);
+                                maxWidthInput.addEventListener('change', updateMaxWidthLabel);
+                            }
 
                             const styleAccordion = sectionContent.querySelector('.text-style-accordion');
                             const styleToggle = sectionContent.querySelector('.text-style-toggle');

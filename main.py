@@ -7822,6 +7822,7 @@ def update_text_section(section, form_data):
     padding = form_data.get('padding', '20')
     border_radius = form_data.get('border_radius', '10')
     box_shadow = form_data.get('box_shadow', 'medium')
+    text_max_width = form_data.get('text_max_width', '0')
 
     soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -7843,7 +7844,8 @@ def update_text_section(section, form_data):
         'background_opacity': background_opacity,
         'padding': padding,
         'border_radius': border_radius,
-        'box_shadow': box_shadow
+        'box_shadow': box_shadow,
+        'text_max_width': text_max_width
     }
 
     return section
