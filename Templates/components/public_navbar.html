@@ -45,7 +45,7 @@
 
     <div class="public-navbar-left">
 
-        {% if navbar_items %}
+        {% if navbar_items or website.forum_enabled or navbar_public_accounts_enabled %}
         <button type="button" class="public-navbar-toggle" onclick="togglePublicNavbarMenu(event)"
             aria-label="Open navigation menu">
             <svg class="hamburger-icon" width="22" height="22" viewBox="0 0 24 24" fill="none"
@@ -68,61 +68,63 @@
         </a>
     </div>
 
-    {% if navbar_items %}
-    <div class="public-navbar-right">
-        {% if website.forum_enabled and website.forum_show_in_navbar %}
-<a href="{{ url_for('public_forum') }}"
-   class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
-    {{ website.forum_title or 'Forum' }}
-</a>
-{% endif %}
-        {% for item in navbar_items %}
+{% if navbar_items or website.forum_enabled or navbar_public_accounts_enabled %}
+<div class="public-navbar-right">
+
+    {% if website.forum_enabled and website.forum_show_in_navbar %}
+        <a href="{{ url_for('public_forum') }}"
+           class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+            {{ website.forum_title or 'Forum' }}
+        </a>
+    {% endif %}
+
+    {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
-        {% set item_has_hash = '#' in item.url %}
-        {% set item_url_no_hash = item.url.split('#')[0] %}
+            {% set item_has_hash = '#' in item.url %}
+            {% set item_url_no_hash = item.url.split('#')[0] %}
 
-        <a href="{{ item.url }}"
-            class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-            {{ item.name }}
-        </a>
+            <a href="{{ item.url }}"
+               class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                {{ item.name }}
+            </a>
 
         {% elif item.type == 'group' %}
-        {% set group_active = namespace(value=false) %}
+            {% set group_active = namespace(value=false) %}
 
-        {% for child in item.children %}
-        {% set child_has_hash = '#' in child.url %}
-        {% set child_url_no_hash = child.url.split('#')[0] %}
+            {% for child in item.children %}
+                {% set child_has_hash = '#' in child.url %}
+                {% set child_url_no_hash = child.url.split('#')[0] %}
 
-        {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
-        {% set group_active.value = true %}
+                {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
+                    {% set group_active.value = true %}
+                {% endif %}
+            {% endfor %}
+
+            <div class="public-navbar-dropdown {% if group_active.value %}active-navbar-dropdown{% endif %}">
+                <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
+                    {{ item.name }} ▾
+                </button>
+
+                <div class="public-navbar-dropdown-menu">
+                    <div class="public-navbar-menu-glass">
+                        {% for child in item.children %}
+                            {% set child_has_hash = '#' in child.url %}
+                            {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                            <a href="{{ child.url }}"
+                               class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                                {{ child.name }}
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
         {% endif %}
-        {% endfor %}
 
+    {% endfor %}
 
-        <div class="public-navbar-dropdown {% if group_active.value %}active-navbar-dropdown{% endif %}">
-            <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
-                {{ item.name }} ▾
-            </button>
-
-<div class="public-navbar-dropdown-menu">
-    <div class="public-navbar-menu-glass">
-        {% for child in item.children %}
-        {% set child_has_hash = '#' in child.url %}
-        {% set child_url_no_hash = child.url.split('#')[0] %}
-
-        <a href="{{ child.url }}"
-            class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-            {{ child.name }}
-        </a>
-        {% endfor %}
-    </div>
-</div>
-        </div>
-        {% endif %}
-
-        {% endfor %}
-            <div class="public-navbar-dropdown public-navbar-overflow-dropdown" data-navbar-overflow>
+    <div class="public-navbar-dropdown public-navbar-overflow-dropdown" data-navbar-overflow>
         <button type="button" class="public-navbar-overflow-button">
             More ▾
         </button>
@@ -131,65 +133,168 @@
             <div class="public-navbar-menu-glass"></div>
         </div>
     </div>
-    </div>
+
+    {% if navbar_public_accounts_enabled %}
+        <div class="public-navbar-dropdown public-account-dropdown" data-navbar-fixed-item="true">
+            <button type="button" class="public-account-button" title="Public account">
+                <i class="fas fa-user-circle"></i>
+
+                {% if navbar_public_user %}
+                    <span class="public-account-name">{{ navbar_public_user.username }}</span>
+                {% else %}
+                    <span class="public-account-name"></span>
+                {% endif %}
+
+                <span class="public-account-chevron">▾</span>
+            </button>
+
+            <div class="public-navbar-dropdown-menu public-account-menu">
+                <div class="public-navbar-menu-glass">
+                    {% if navbar_public_user %}
+                        <div class="public-account-menu-header">
+                            Signed in as <strong>{{ navbar_public_user.username }}</strong>
+                        </div>
+
+                        <a href="{{ url_for('public_account_change_password') }}">
+                            <i class="fas fa-key"></i>
+                            Change Password
+                        </a>
+
+                        <form method="POST"
+                              action="{{ url_for('public_forum_logout') }}"
+                              class="public-account-logout-form">
+                            <input type="hidden" name="next" value="{{ current_page_url or request.path }}">
+
+                            <button type="submit">
+                                <i class="fas fa-sign-out-alt"></i>
+                                Log Out
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{{ url_for('public_forum_login', next=current_page_url or request.path) }}">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Log In
+                        </a>
+
+                        <a href="{{ url_for('public_forum_register', next=current_page_url or request.path) }}">
+                            <i class="fas fa-user-plus"></i>
+                            Create Account
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
 
 <div id="publicNavbarMenu" class="public-navbar-menu">
     <div class="public-navbar-menu-glass">
+
+        {% if navbar_public_accounts_enabled %}
+            <div class="public-navbar-menu-group public-account-menu-group is-open" data-menu-group>
+                <button type="button"
+                        class="public-navbar-menu-group-toggle"
+                        onclick="togglePublicNavbarMenuGroup(event, this)">
+                    <span>
+                        <i class="fas fa-user-circle"></i>
+                        {% if navbar_public_user %}
+                            {{ navbar_public_user.username }}
+                        {% else %}
+                            Account
+                        {% endif %}
+                    </span>
+                    <span class="public-navbar-menu-group-chevron">▾</span>
+                </button>
+
+                <div class="public-navbar-menu-group-links">
+                    {% if navbar_public_user %}
+                        <a href="{{ url_for('public_account_change_password') }}">
+                            <i class="fas fa-key"></i>
+                            Change Password
+                        </a>
+
+                        <form method="POST"
+                              action="{{ url_for('public_forum_logout') }}"
+                              class="public-account-mobile-logout-form">
+                            <input type="hidden" name="next" value="{{ current_page_url or request.path }}">
+
+                            <button type="submit">
+                                <i class="fas fa-sign-out-alt"></i>
+                                Log Out
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{{ url_for('public_forum_login', next=current_page_url or request.path) }}">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Log In
+                        </a>
+
+                        <a href="{{ url_for('public_forum_register', next=current_page_url or request.path) }}">
+                            <i class="fas fa-user-plus"></i>
+                            Create Account
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
         {% if website.forum_enabled and website.forum_show_in_navbar %}
-<a href="{{ url_for('public_forum') }}"
-   class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
-    {{ website.forum_title or 'Forum' }}
-</a>
-{% endif %}
+            <a href="{{ url_for('public_forum') }}"
+               class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+                {{ website.forum_title or 'Forum' }}
+            </a>
+        {% endif %}
+
         {% for item in navbar_items %}
 
-        {% if item.type == 'link' %}
-        {% set item_has_hash = '#' in item.url %}
-        {% set item_url_no_hash = item.url.split('#')[0] %}
+            {% if item.type == 'link' %}
+                {% set item_has_hash = '#' in item.url %}
+                {% set item_url_no_hash = item.url.split('#')[0] %}
 
-        <a href="{{ item.url }}"
-            class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-            {{ item.name }}
-        </a>
-
-        {% elif item.type == 'group' %}
-        {% set group_active = namespace(value=false) %}
-
-        {% for child in item.children %}
-        {% set child_has_hash = '#' in child.url %}
-        {% set child_url_no_hash = child.url.split('#')[0] %}
-
-        {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
-        {% set group_active.value = true %}
-        {% endif %}
-        {% endfor %}
-
-        <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}"
-            data-menu-group>
-            <button type="button" class="public-navbar-menu-group-toggle"
-                onclick="togglePublicNavbarMenuGroup(event, this)">
-                <span>{{ item.name }}</span>
-                <span class="public-navbar-menu-group-chevron">▾</span>
-            </button>
-
-            <div class="public-navbar-menu-group-links">
-                {% for child in item.children %}
-                {% set child_has_hash = '#' in child.url %}
-                {% set child_url_no_hash = child.url.split('#')[0] %}
-
-                <a href="{{ child.url }}"
-                    class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                    {{ child.name }}
+                <a href="{{ item.url }}"
+                   class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                    {{ item.name }}
                 </a>
+
+            {% elif item.type == 'group' %}
+                {% set group_active = namespace(value=false) %}
+
+                {% for child in item.children %}
+                    {% set child_has_hash = '#' in child.url %}
+                    {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                    {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
+                        {% set group_active.value = true %}
+                    {% endif %}
                 {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+
+                <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}"
+                     data-menu-group>
+                    <button type="button"
+                            class="public-navbar-menu-group-toggle"
+                            onclick="togglePublicNavbarMenuGroup(event, this)">
+                        <span>{{ item.name }}</span>
+                        <span class="public-navbar-menu-group-chevron">▾</span>
+                    </button>
+
+                    <div class="public-navbar-menu-group-links">
+                        {% for child in item.children %}
+                            {% set child_has_hash = '#' in child.url %}
+                            {% set child_url_no_hash = child.url.split('#')[0] %}
+
+                            <a href="{{ child.url }}"
+                               class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
+                                {{ child.name }}
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
 
         {% endfor %}
     </div>
 </div>
-    {% endif %}
+{% endif %}
 </nav>
 
 <style>
@@ -396,11 +501,7 @@
         text-transform: uppercase;
     }
 
-    @media (max-width: 800px) {
-        .public-navbar-right {
-            display: none;
-        }
-    }
+
 
     .public-navbar-right a.active-navbar-link,
     .public-navbar-menu a.active-navbar-link,
@@ -971,7 +1072,172 @@
     visibility: hidden !important;
     pointer-events: none !important;
 }
+.public-account-dropdown {
+    flex: 0 0 auto;
+    margin-left: 4px;
+    order: 999;
+}
 
+.public-account-button {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 7px;
+
+    white-space: nowrap;
+}
+
+.public-account-button i {
+    font-size: 1.1rem;
+}
+
+.public-account-name {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.public-account-chevron {
+    opacity: 0.7;
+    font-size: 0.78rem;
+}
+
+.public-account-menu {
+    min-width: 220px !important;
+}
+
+.public-account-menu-header {
+    padding: 9px 11px;
+    margin-bottom: 5px;
+
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.78rem;
+    line-height: 1.25;
+
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.public-account-menu-header strong {
+    color: #ffffff;
+}
+
+.public-account-menu a,
+.public-account-logout-form button,
+.public-account-mobile-logout-form button {
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 10px 12px;
+
+    color: inherit;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+
+    cursor: pointer;
+}
+
+.public-account-menu a:hover,
+.public-account-logout-form button:hover,
+.public-account-mobile-logout-form button:hover {
+    color: var(--navbar-active-text-color, #7ee2cc);
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.public-account-logout-form,
+.public-account-mobile-logout-form {
+    margin: 0;
+}
+
+.public-account-mobile-logout-form button {
+    font-size: 0.92rem;
+}
+
+.public-account-menu-group i {
+    margin-right: 6px;
+}
+/* =========================================================
+   KEEP PUBLIC ACCOUNT ICON VISIBLE ON SMALL SCREENS
+========================================================= */
+
+@media (max-width: 800px) {
+    .public-navbar-right {
+        display: flex !important;
+        align-items: center;
+        justify-content: flex-end;
+
+        position: absolute;
+        top: 50%;
+        right: 8px;
+
+        width: auto !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        flex: 0 0 auto !important;
+
+        transform: translateY(-50%);
+        z-index: 10040;
+    }
+
+    /* Hide normal right-side nav links on mobile, but keep account */
+    .public-navbar-right > *:not(.public-account-dropdown) {
+        display: none !important;
+    }
+
+    .public-navbar-right > .public-account-dropdown {
+        display: block !important;
+        position: relative;
+        margin-left: 0;
+        order: 999;
+    }
+
+    .public-account-button {
+        width: 44px;
+        height: 44px;
+
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+
+        padding: 0 !important;
+        border-radius: 999px;
+    }
+
+    .public-account-button i {
+        font-size: 1.35rem;
+    }
+
+    /* On mobile, show just the icon, not the word Account/username */
+    .public-account-name,
+    .public-account-chevron {
+        display: none !important;
+    }
+
+    .public-account-menu {
+        right: 0 !important;
+        left: auto !important;
+        min-width: 220px !important;
+    }
+
+    /* Make room for the account icon so title does not sit under it */
+    .public-navbar-brand.title-align-left {
+        right: 64px !important;
+    }
+
+    .public-navbar-brand.title-align-center {
+        width: calc(100vw - 165px) !important;
+    }
+
+    .public-navbar-brand.title-align-right {
+        right: 64px !important;
+    }
+}
 </style>
 
 <script>
@@ -1026,8 +1292,10 @@ function initializePublicNavbarOverflow() {
 
     if (!navbar || !navbarRight || !brand || !overflowDropdown || !overflowMenu || !overflowGlass) return;
 
-    const originalItems = Array.from(navbarRight.children)
-        .filter(item => item !== overflowDropdown);
+const originalItems = Array.from(navbarRight.children)
+    .filter(item => {
+        return item !== overflowDropdown && item.dataset.navbarFixedItem !== 'true';
+    });
 
     originalItems.forEach((item, index) => {
         item.dataset.navbarOriginalIndex = String(index);

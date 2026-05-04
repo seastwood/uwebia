@@ -3037,7 +3037,8 @@
     }
 
     .section-content.open {
-        max-height: 1200px;
+        max-height: min(1400px, calc(100vh - 160px));
+        overflow-y: auto;
         opacity: 1;
         padding: 16px;
         pointer-events: auto;
@@ -5571,6 +5572,543 @@
         grid-column: 2 / 3;
     }
 }
+
+.comments-editor-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.comments-editor-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+
+    padding: 12px;
+    margin-bottom: 12px;
+
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 14px;
+}
+
+.comments-editor-header label {
+    margin: 0;
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 850;
+    background: transparent;
+    padding: 0;
+}
+
+.comments-editor-header small {
+    display: block;
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 0.76rem;
+    line-height: 1.3;
+}
+
+.comments-settings-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+
+    padding: 12px;
+    margin: 10px 0 12px;
+
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: 14px;
+}
+
+.comments-toggle-row {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+
+    margin: 0;
+    padding: 9px 10px !important;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.055) !important;
+
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.comments-admin-panel {
+    margin-top: 16px;
+    padding: 12px;
+
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.comments-admin-panel h4 {
+    margin: 0 0 8px;
+}
+
+.comments-admin-panel .muted {
+    opacity: 0.65;
+    margin: 0;
+}
+.comments-admin-panel {
+    margin-top: 16px;
+    padding: 14px;
+
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+
+    max-height: 520px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.comments-admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.comments-admin-header h4 {
+    margin: 0 0 4px;
+    color: #ffffff;
+}
+
+.comments-admin-header .muted {
+    margin: 0;
+    opacity: 0.62;
+    font-size: 0.78rem;
+}
+
+.comments-refresh-btn {
+    white-space: nowrap;
+}
+
+.comments-admin-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.comments-admin-stats span {
+    display: inline-flex;
+    align-items: center;
+
+    padding: 6px 9px;
+    border-radius: 999px;
+
+    background: rgba(126, 226, 204, 0.11);
+    border: 1px solid rgba(126, 226, 204, 0.18);
+
+    color: rgba(255, 255, 255, 0.84);
+    font-size: 0.74rem;
+    font-weight: 850;
+}
+
+.comments-admin-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.comment-filter-btn.active {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126, 226, 204, 0.72);
+}
+
+.comments-admin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.comments-admin-empty {
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.20);
+    border: 1px dashed rgba(255, 255, 255, 0.13);
+    color: rgba(255, 255, 255, 0.62);
+    text-align: center;
+    font-size: 0.84rem;
+    font-weight: 750;
+}
+
+.comments-admin-error {
+    color: #ffd2d2;
+    border-color: rgba(255, 122, 144, 0.34);
+}
+
+.comments-admin-item {
+    padding: 12px;
+    border-radius: 14px;
+
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.comments-admin-item-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.comments-admin-item strong {
+    color: #ffffff;
+    font-size: 0.9rem;
+}
+
+.comments-admin-meta {
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.comments-admin-statuses {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.comment-status {
+    display: inline-flex;
+    align-items: center;
+
+    padding: 5px 8px;
+    border-radius: 999px;
+
+    font-size: 0.68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.comment-status.visible {
+    color: #cffff4;
+    background: rgba(126, 226, 204, 0.14);
+    border: 1px solid rgba(126, 226, 204, 0.26);
+}
+
+.comment-status.pending {
+    color: #fff1c7;
+    background: rgba(255, 206, 115, 0.14);
+    border: 1px solid rgba(255, 206, 115, 0.28);
+}
+
+.comment-status.hidden {
+    color: #ffd2d2;
+    background: rgba(255, 122, 144, 0.14);
+    border: 1px solid rgba(255, 122, 144, 0.28);
+}
+
+.comments-admin-body {
+    white-space: pre-wrap;
+    line-height: 1.45;
+
+    margin: 10px 0;
+    padding: 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.045);
+    border-radius: 12px;
+
+    font-size: 0.84rem;
+}
+
+.comments-admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.comments-admin-actions .danger-action:hover {
+    background: rgba(255, 122, 144, 0.16);
+    border-color: rgba(255, 122, 144, 0.34);
+    color: #ffe7ec;
+}
+
+.comments-admin-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.comme.comments-admin-panel {
+    margin-top: 16px;
+    padding: 14px;
+
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.comments-admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.comments-admin-header h4 {
+    margin: 0 0 4px;
+    color: #ffffff;
+}
+
+.comments-admin-header .muted {
+    margin: 0;
+    opacity: 0.62;
+    font-size: 0.78rem;
+}
+
+.comments-refresh-btn {
+    white-space: nowrap;
+}
+
+.comments-admin-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.comments-admin-stats span {
+    display: inline-flex;
+    align-items: center;
+
+    padding: 6px 9px;
+    border-radius: 999px;
+
+    background: rgba(126, 226, 204, 0.11);
+    border: 1px solid rgba(126, 226, 204, 0.18);
+
+    color: rgba(255, 255, 255, 0.84);
+    font-size: 0.74rem;
+    font-weight: 850;
+}
+
+.comments-admin-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.comment-filter-btn.active {
+    color: #10251f;
+    background: linear-gradient(135deg, #7ee2cc, #b7ffee);
+    border-color: rgba(126, 226, 204, 0.72);
+}
+
+.comments-admin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding-right: 6px;
+    margin-right: -6px;
+
+    min-height: 120px;
+}
+
+.comments-admin-empty {
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.20);
+    border: 1px dashed rgba(255, 255, 255, 0.13);
+    color: rgba(255, 255, 255, 0.62);
+    text-align: center;
+    font-size: 0.84rem;
+    font-weight: 750;
+}
+
+.comments-admin-error {
+    color: #ffd2d2;
+    border-color: rgba(255, 122, 144, 0.34);
+}
+
+.comments-admin-item {
+    padding: 12px;
+    border-radius: 14px;
+
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.comments-admin-item-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.comments-admin-item strong {
+    color: #ffffff;
+    font-size: 0.9rem;
+}
+
+.comments-admin-meta {
+    margin-top: 3px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.comments-admin-statuses {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.comment-status {
+    display: inline-flex;
+    align-items: center;
+
+    padding: 5px 8px;
+    border-radius: 999px;
+
+    font-size: 0.68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.comment-status.visible {
+    color: #cffff4;
+    background: rgba(126, 226, 204, 0.14);
+    border: 1px solid rgba(126, 226, 204, 0.26);
+}
+
+.comment-status.pending {
+    color: #fff1c7;
+    background: rgba(255, 206, 115, 0.14);
+    border: 1px solid rgba(255, 206, 115, 0.28);
+}
+
+.comment-status.hidden {
+    color: #ffd2d2;
+    background: rgba(255, 122, 144, 0.14);
+    border: 1px solid rgba(255, 122, 144, 0.28);
+}
+
+.comments-admin-body {
+    white-space: pre-wrap;
+    line-height: 1.45;
+
+    margin: 10px 0;
+    padding: 10px;
+
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.045);
+    border-radius: 12px;
+
+    font-size: 0.84rem;
+}
+
+.comments-admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.comments-admin-actions .danger-action:hover {
+    background: rgba(255, 122, 144, 0.16);
+    border-color: rgba(255, 122, 144, 0.34);
+    color: #ffe7ec;
+}
+
+.comments-admin-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.comments-admin-pagination span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+
+    padding: 0 10px;
+    border-radius: 999px;
+
+    background: rgba(255, 255, 255, 0.065);
+    color: rgba(255, 255, 255, 0.72);
+
+    font-size: 0.76rem;
+    font-weight: 850;
+}
+nts-admin-pagination span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+
+    padding: 0 10px;
+    border-radius: 999px;
+
+    background: rgba(255, 255, 255, 0.065);
+    color: rgba(255, 255, 255, 0.72);
+
+    font-size: 0.76rem;
+    font-weight: 850;
+}
+
+
+.comments-admin-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.comments-admin-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.22);
+    border-radius: 999px;
+}
+
+.comments-admin-list::-webkit-scrollbar-thumb {
+    background: rgba(126, 226, 204, 0.35);
+    border-radius: 999px;
+    border: 2px solid rgba(0, 0, 0, 0.22);
+}
+
+.comments-admin-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(126, 226, 204, 0.55);
+}
+
+.comments-admin-pagination {
+    flex: 0 0 auto;
+}
+.comment-status.likes {
+    color: #dffcff;
+    background: rgba(126, 226, 204, 0.12);
+    border: 1px solid rgba(126, 226, 204, 0.24);
+}
 </style>
 </head>
 
@@ -5773,6 +6311,7 @@
                         <option value="youtube_video">Youtube Video</option>
                         <option value="video">Video</option>
                         <option value="music">Music</option>
+                        <option value="comments">Comments</option>
 
                     </select><br><br>
 
@@ -6230,6 +6769,14 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 .catch(error => console.error('Error:', error));
         }
 
+        function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
         // Function to populate the sections array with data fetched from the server
         function populateSections() {
@@ -7715,6 +8262,148 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 <input type="checkbox" id="map_enabled" name="map_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
             </form>
         </div>`;
+} else if (section.section_type === 'comments') {
+    const commentsContent = section.content || {};
+
+    sectionContent.innerHTML = `
+        <div class="comments-editor-container section-container">
+            <form class="update-section-form"
+                  data-section-id="${section.id}"
+                  data-section-type="comments"
+                  data-page-id="${section.page_content_id}">
+
+                <input type="hidden" name="section_id" value="${section.id}">
+                <input type="hidden" name="section_type" value="comments">
+
+                <div class="comments-editor-header">
+                    <div>
+                        <label>Comments Section</label>
+                        <small>Allow visitors to leave comments on this public page section.</small>
+                    </div>
+                </div>
+
+                <label>Comments Title</label>
+                <input type="text"
+                       name="comments_title"
+                       value="${escapeHtml(commentsContent.title || 'Comments')}"
+                       placeholder="Comments">
+
+                <label>Description</label>
+                <textarea name="comments_description"
+                          placeholder="Optional intro text...">${escapeHtml(commentsContent.description || '')}</textarea>
+
+                <div class="comments-settings-panel">
+                    <label class="comments-toggle-row">
+                        <input type="checkbox"
+                               name="comments_enabled"
+                               ${commentsContent.enabled !== false ? 'checked' : ''}>
+                        Enable comments
+                    </label>
+
+                    <label class="comments-toggle-row">
+                        <input type="checkbox"
+                               name="comments_allow_anonymous"
+                               ${commentsContent.allow_anonymous !== false ? 'checked' : ''}>
+                        Allow anonymous comments with name field
+                    </label>
+
+                    <label class="comments-toggle-row">
+                        <input type="checkbox"
+                               name="comments_require_login"
+                               ${commentsContent.require_login ? 'checked' : ''}>
+                        Require PublicUser login to comment
+                    </label>
+
+                    <label class="comments-toggle-row">
+                        <input type="checkbox"
+                               name="comments_manual_approval"
+                               ${commentsContent.manual_approval ? 'checked' : ''}>
+                        Require admin approval before showing comments
+                    </label>
+
+                    <label class="comments-toggle-row">
+                        <input type="checkbox"
+                               name="comments_show_count"
+                               ${commentsContent.show_comment_count !== false ? 'checked' : ''}>
+                        Show comment count
+                    </label>
+                </div>
+
+                <label>Comments to show</label>
+                <input type="number"
+                       name="comments_per_page"
+                       min="5"
+                       max="100"
+                       value="${commentsContent.comments_per_page || 25}">
+
+                <button type="submit">Save Comments Section</button>
+            </form>
+
+<div class="comments-admin-panel" data-section-id="${section.id}">
+    <div class="comments-admin-header">
+        <div>
+            <h4>Comment Moderation</h4>
+            <p class="muted">Approve, hide, unhide, or delete comments for this section.</p>
+        </div>
+
+        <button type="button"
+                class="comments-refresh-btn"
+                onclick="loadSectionComments('${section.id}')">
+            <i class="fas fa-sync-alt"></i>
+            Refresh
+        </button>
+    </div>
+
+    <div class="comments-admin-stats" id="commentsStats_${section.id}">
+        <span>Total: 0</span>
+        <span>Visible: 0</span>
+        <span>Pending: 0</span>
+        <span>Hidden: 0</span>
+        
+    </div>
+
+    <div class="comments-admin-filters">
+        <button type="button" class="comment-filter-btn active"
+                data-section-id="${section.id}"
+                data-status="all"
+                onclick="setCommentsFilter('${section.id}', 'all')">
+            All
+        </button>
+
+        <button type="button" class="comment-filter-btn"
+                data-section-id="${section.id}"
+                data-status="pending"
+                onclick="setCommentsFilter('${section.id}', 'pending')">
+            Pending
+        </button>
+
+        <button type="button" class="comment-filter-btn"
+                data-section-id="${section.id}"
+                data-status="visible"
+                onclick="setCommentsFilter('${section.id}', 'visible')">
+            Visible
+        </button>
+
+        <button type="button" class="comment-filter-btn"
+                data-section-id="${section.id}"
+                data-status="hidden"
+                onclick="setCommentsFilter('${section.id}', 'hidden')">
+            Hidden
+        </button>
+    </div>
+
+    <div class="comments-admin-list" id="commentsAdminList_${section.id}">
+        <div class="comments-admin-empty">Loading comments...</div>
+    </div>
+
+    <div class="comments-admin-pagination" id="commentsPagination_${section.id}"></div>
+</div>
+        </div>
+    `;
+setTimeout(() => {
+    loadSectionComments(section.id);
+}, 0);
+
                         } else if (section.section_type === 'contact_form') {
                             sectionContent.innerHTML = `
         <div class="contact-form-container section-container">
@@ -9939,6 +10628,19 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 };
             }
 
+            if (sectionType === 'comments') {
+    content = {
+        title: 'Comments',
+        description: '',
+        enabled: true,
+        require_login: false,
+        allow_anonymous: true,
+        manual_approval: false,
+        show_comment_count: true,
+        comments_per_page: 25
+    };
+}
+
             const data = {
                 section_type: sectionType,
                 order: document.querySelectorAll('.page-section').length,
@@ -11724,6 +12426,245 @@ function refreshVisibleMediaCounts() {
     });
 }
     </script>
+
+    <script>
+const commentsModerationState = {};
+
+function getCommentsState(sectionId) {
+    if (!commentsModerationState[sectionId]) {
+        commentsModerationState[sectionId] = {
+            status: 'all',
+            page: 1
+        };
+    }
+
+    return commentsModerationState[sectionId];
+}
+
+function setCommentsFilter(sectionId, status) {
+    const state = getCommentsState(sectionId);
+    state.status = status;
+    state.page = 1;
+
+    document
+        .querySelectorAll(`.comment-filter-btn[data-section-id="${sectionId}"]`)
+        .forEach(button => {
+            button.classList.toggle(
+                'active',
+                button.dataset.status === status
+            );
+        });
+
+    loadSectionComments(sectionId);
+}
+
+function loadSectionComments(sectionId, page = null) {
+    const state = getCommentsState(sectionId);
+
+    if (page !== null) {
+        state.page = page;
+    }
+
+    const list = document.getElementById(`commentsAdminList_${sectionId}`);
+    const stats = document.getElementById(`commentsStats_${sectionId}`);
+    const pagination = document.getElementById(`commentsPagination_${sectionId}`);
+
+    if (list) {
+        list.innerHTML = `<div class="comments-admin-empty">Loading comments...</div>`;
+    }
+
+    fetch(`/admin/section/${sectionId}/comments?status=${encodeURIComponent(state.status)}&page=${state.page}&per_page=20`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.message || 'Could not load comments.');
+            }
+
+            renderCommentsStats(sectionId, data.counts);
+            renderCommentsList(sectionId, data.comments);
+            renderCommentsPagination(sectionId, data.pagination);
+        })
+        .catch(error => {
+            console.error(error);
+
+            if (list) {
+                list.innerHTML = `
+                    <div class="comments-admin-empty comments-admin-error">
+                        ${escapeHtml(error.message || 'Could not load comments.')}
+                    </div>
+                `;
+            }
+
+            if (stats) {
+                stats.innerHTML = '';
+            }
+
+            if (pagination) {
+                pagination.innerHTML = '';
+            }
+        });
+}
+
+function renderCommentsStats(sectionId, counts) {
+    const stats = document.getElementById(`commentsStats_${sectionId}`);
+
+    if (!stats) return;
+
+    stats.innerHTML = `
+        <span>Total: ${counts.total || 0}</span>
+        <span>Visible: ${counts.visible || 0}</span>
+        <span>Pending: ${counts.pending || 0}</span>
+        <span>Hidden: ${counts.hidden || 0}</span>
+    `;
+}
+
+function renderCommentsList(sectionId, comments) {
+    const list = document.getElementById(`commentsAdminList_${sectionId}`);
+
+    if (!list) return;
+
+    if (!comments || comments.length === 0) {
+        list.innerHTML = `
+            <div class="comments-admin-empty">
+                No comments found for this filter.
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = comments.map(comment => {
+        const statusLabels = [];
+
+        if (!comment.is_approved) {
+            statusLabels.push(`<span class="comment-status pending">Pending</span>`);
+        }
+
+        if (comment.is_hidden) {
+            statusLabels.push(`<span class="comment-status hidden">Hidden</span>`);
+        }
+
+        if (comment.is_approved && !comment.is_hidden) {
+            statusLabels.push(`<span class="comment-status visible">Visible</span>`);
+        }
+
+        statusLabels.push(`
+    <span class="comment-status likes">
+        ${Number(comment.like_count || 0)} likes
+    </span>
+`);
+
+        const authorLabel = comment.author_username
+            ? `PublicUser: ${escapeHtml(comment.author_username)}`
+            : 'Anonymous';
+
+        return `
+            <article class="comments-admin-item" id="commentAdminItem_${comment.id}">
+                <div class="comments-admin-item-top">
+                    <div>
+                        <strong>${escapeHtml(comment.display_name || 'Anonymous')}</strong>
+                        <div class="comments-admin-meta">
+                            ${escapeHtml(authorLabel)}
+                            ${comment.ip_address ? ` · IP: ${escapeHtml(comment.ip_address)}` : ''}
+                            · ${escapeHtml(comment.created_at || '')}
+                        </div>
+                    </div>
+
+                    <div class="comments-admin-statuses">
+                        ${statusLabels.join('')}
+                    </div>
+                </div>
+
+                <div class="comments-admin-body">
+                    ${escapeHtml(comment.body || '')}
+                </div>
+
+                <div class="comments-admin-actions">
+                    ${!comment.is_approved ? `
+                        <button type="button" onclick="moderatePageComment('${sectionId}', '${comment.id}', 'approve')">
+                            Approve
+                        </button>
+                    ` : `
+                        <button type="button" onclick="moderatePageComment('${sectionId}', '${comment.id}', 'unapprove')">
+                            Unapprove
+                        </button>
+                    `}
+
+                    ${comment.is_hidden ? `
+                        <button type="button" onclick="moderatePageComment('${sectionId}', '${comment.id}', 'unhide')">
+                            Unhide
+                        </button>
+                    ` : `
+                        <button type="button" onclick="moderatePageComment('${sectionId}', '${comment.id}', 'hide')">
+                            Hide
+                        </button>
+                    `}
+
+                    <button type="button"
+                            class="danger-action"
+                            onclick="moderatePageComment('${sectionId}', '${comment.id}', 'delete')">
+                        Delete
+                    </button>
+                </div>
+            </article>
+        `;
+    }).join('');
+}
+
+function renderCommentsPagination(sectionId, pagination) {
+    const paginationEl = document.getElementById(`commentsPagination_${sectionId}`);
+
+    if (!paginationEl) return;
+
+    if (!pagination || pagination.pages <= 1) {
+        paginationEl.innerHTML = '';
+        return;
+    }
+
+    const prevButton = pagination.has_prev
+        ? `<button type="button" onclick="loadSectionComments('${sectionId}', ${pagination.prev_num})">← Prev</button>`
+        : '';
+
+    const nextButton = pagination.has_next
+        ? `<button type="button" onclick="loadSectionComments('${sectionId}', ${pagination.next_num})">Next →</button>`
+        : '';
+
+    paginationEl.innerHTML = `
+        ${prevButton}
+        <span>Page ${pagination.page} of ${pagination.pages}</span>
+        ${nextButton}
+    `;
+}
+
+function moderatePageComment(sectionId, commentId, action) {
+    if (action === 'delete') {
+        const confirmed = confirm('Delete this comment permanently?');
+
+        if (!confirmed) {
+            return;
+        }
+    }
+
+    fetch(`/admin/page-comment/${commentId}/moderate-json`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.message || 'Could not update comment.');
+            }
+
+            loadSectionComments(sectionId);
+        })
+        .catch(error => {
+            console.error(error);
+            alert(error.message || 'Could not update comment.');
+        });
+}
+</script>
 
 <div id="editorVideoPreviewModal" class="video-preview-modal" onclick="closeEditorVideoPreview()">
     <div class="video-preview-dialog" onclick="event.stopPropagation();">

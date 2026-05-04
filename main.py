@@ -446,6 +446,111 @@ class ForumReplyVote(db.Model):
         db.Index('ix_forum_reply_vote_website_reply', 'website_id', 'reply_id'),
     )
 
+class PageComment(db.Model):
+    __tablename__ = 'page_comment'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    page_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'), nullable=False, index=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id'), nullable=False, index=True)
+
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=True, index=True)
+
+    display_name = db.Column(db.String(120), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0', index=True)
+    is_approved = db.Column(db.Boolean, nullable=False, default=True, server_default='1', index=True)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    website = db.relationship('Website', backref=db.backref('page_comments', lazy=True, cascade='all, delete-orphan'))
+    page = db.relationship('PublicPageContent', backref=db.backref('page_comments', lazy=True, cascade='all, delete-orphan'))
+    section = db.relationship('PageSection', backref=db.backref('comments', lazy=True, cascade='all, delete-orphan'))
+    author = db.relationship('PublicUser', backref=db.backref('page_comments', lazy=True))
+
+    like_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0', index=True)
+
+    def like_count(self):
+        return self.like_count_cached or 0
+
+    def user_has_liked(self, public_user):
+        if not public_user:
+            return False
+
+        return PageCommentLike.query.filter_by(
+            comment_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
+
+    __table_args__ = (
+        db.Index('ix_page_comment_section_visible_created', 'section_id', 'is_hidden', 'is_approved', 'created_at'),
+        db.Index('ix_page_comment_page_section_created', 'page_id', 'section_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f"<PageComment {self.id} section={self.section_id}>"
+
+class PageCommentLike(db.Model):
+    __tablename__ = 'page_comment_like'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    comment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('page_comment.id'),
+        nullable=False,
+        index=True
+    )
+
+    website_id = db.Column(
+        db.Integer,
+        db.ForeignKey('website.id'),
+        nullable=False,
+        index=True
+    )
+
+    section_id = db.Column(
+        db.Integer,
+        db.ForeignKey('page_section.id'),
+        nullable=False,
+        index=True
+    )
+
+    public_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('public_user.id'),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    comment = db.relationship(
+        'PageComment',
+        backref=db.backref('likes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    public_user = db.relationship(
+        'PublicUser',
+        backref=db.backref('comment_likes', lazy=True, cascade='all, delete-orphan')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'comment_id',
+            'public_user_id',
+            name='uq_page_comment_like_once_per_user'
+        ),
+        db.Index('ix_page_comment_like_comment_user', 'comment_id', 'public_user_id'),
+        db.Index('ix_page_comment_like_section_comment', 'section_id', 'comment_id'),
+    )
+
 class ContactMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
@@ -6930,6 +7035,25 @@ def render_public_page(website, page, is_preview=False):
             for asset, link in video_assets
         ]
 
+    comments_by_section = {}
+
+    for section in sections:
+        if section.section_type != 'comments':
+            continue
+
+        comment_settings = section.content or {}
+        comments_per_page = int(comment_settings.get('comments_per_page') or 25)
+
+        comments = PageComment.query.filter_by(
+            section_id=section.id,
+            is_hidden=False,
+            is_approved=True
+        ).order_by(
+            PageComment.created_at.desc()
+        ).limit(comments_per_page).all()
+
+        comments_by_section[section.id] = comments
+
     section_groups = SectionGroup.query.filter_by(
         page_content_id=page.id
     ).order_by(SectionGroup.group_order).all()
@@ -6964,6 +7088,8 @@ def render_public_page(website, page, is_preview=False):
         'pictures_by_section': pictures_by_section,
         'music_by_section': music_by_section,
         'videos_by_section': videos_by_section,
+        'comments_by_section': comments_by_section,
+        'public_user': get_public_user(),
         'is_preview': is_preview
     }
 
@@ -7498,7 +7624,73 @@ def preview_page(website_id, page_id):
 
     return render_public_page(website, page, is_preview=True)
 
+@app.route('/section/<int:section_id>/comments')
+def get_public_section_comments(section_id):
+    section = PageSection.query.get_or_404(section_id)
 
+    if section.section_type != 'comments':
+        return jsonify({
+            'success': False,
+            'message': 'This section is not a comments section.'
+        }), 400
+
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    if not page.site_active_status:
+        return jsonify({
+            'success': False,
+            'message': 'This page is not published.'
+        }), 404
+
+    settings = section.content or {}
+
+    if not settings.get('enabled', True):
+        return jsonify({
+            'success': False,
+            'message': 'Comments are disabled.'
+        }), 403
+
+    page_number = request.args.get('page', 1, type=int)
+    per_page = int(settings.get('comments_per_page') or 25)
+    per_page = max(5, min(per_page, 100))
+
+    pagination = PageComment.query.filter_by(
+        section_id=section.id,
+        is_hidden=False,
+        is_approved=True
+    ).order_by(
+        PageComment.created_at.desc()
+    ).paginate(
+        page=page_number,
+        per_page=per_page,
+        error_out=False
+    )
+    public_user = get_public_user()
+
+    return jsonify({
+        'success': True,
+        'comments': [
+            {
+                'id': comment.id,
+                'display_name': comment.display_name,
+                'body': comment.body,
+                'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p'),
+                'like_count': comment.like_count_cached or 0,
+                'liked_by_current_user': comment.user_has_liked(public_user)
+            }
+            for comment in pagination.items
+        ],
+        'pagination': {
+            'page': pagination.page,
+            'pages': pagination.pages,
+            'has_prev': pagination.has_prev,
+            'has_next': pagination.has_next,
+            'prev_num': pagination.prev_num,
+            'next_num': pagination.next_num,
+            'total': pagination.total
+        }
+    })
 
 def update_map_section(section, form_data):
     latitude = form_data.get('latitude')
@@ -7877,6 +8069,8 @@ def update_section():
         section = update_link_card_section(section, form_data)
     elif section_type == 'music':
         section = update_music_section(section, form_data)
+    elif section_type == 'comments':
+        section = update_comments_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -8759,12 +8953,13 @@ def public_forum_vote_reply(reply_id):
         'vote_count': reply.vote_count_cached or 0
     })
 
+@app.route('/account/register', methods=['GET', 'POST'])
 @app.route('/forum/register', methods=['GET', 'POST'])
 def public_forum_register():
     website = Website.query.first()
 
-    if not website or not website.forum_enabled:
-        return "Forum is disabled", 404
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
 
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip().lower()
@@ -8816,11 +9011,24 @@ def public_forum_register():
             if website.forum_allow_unverified_login:
                 public_user_login(public_user)
 
-            return redirect(url_for('public_forum_login'))
+            return redirect(
+                url_for(
+                    'public_forum_login',
+                    next=request.args.get('next') or url_for('home_page')
+                )
+            )
 
         public_user_login(public_user)
 
-        return redirect(url_for('public_forum'))
+        next_url = request.args.get('next')
+
+        if not next_url:
+            if website.forum_enabled:
+                next_url = url_for('public_forum')
+            else:
+                next_url = url_for('home_page')
+
+        return redirect(next_url)
 
     content = {
         'current_page_url': url_for('public_forum_register')
@@ -8833,12 +9041,13 @@ def public_forum_register():
         content=content
     )
 
+@app.route('/account/login', methods=['GET', 'POST'])
 @app.route('/forum/login', methods=['GET', 'POST'])
 def public_forum_login():
     website = Website.query.first()
 
-    if not website or not website.forum_enabled:
-        return "Forum is disabled", 404
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
 
     if request.method == 'POST':
         login_value = (request.form.get('login') or '').strip().lower()
@@ -8870,7 +9079,14 @@ def public_forum_login():
 
         public_user_login(public_user)
 
-        next_url = request.args.get('next') or url_for('public_forum')
+        next_url = request.args.get('next')
+
+        if not next_url:
+            if website.forum_enabled:
+                next_url = url_for('public_forum')
+            else:
+                next_url = url_for('home_page')
+
         return redirect(next_url)
 
     content = {
@@ -8884,19 +9100,19 @@ def public_forum_login():
         content=content
     )
 
-
+@app.route('/account/forgot-password', methods=['GET', 'POST'])
 @app.route('/forum/forgot-password', methods=['GET', 'POST'])
 def public_forum_forgot_password():
     website = Website.query.first()
 
-    if not website or not website.forum_enabled:
-        return "Forum is disabled", 404
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
 
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
 
         generic_message = (
-            'If that email matches a forum account and email sending is configured, '
+            'If that email matches an account and email sending is configured, '
             'a password reset link has been sent.'
         )
 
@@ -8925,12 +9141,13 @@ def public_forum_forgot_password():
         content=content
     )
 
+@app.route('/account/reset-password/<token>', methods=['GET', 'POST'])
 @app.route('/forum/reset-password/<token>', methods=['GET', 'POST'])
 def public_forum_reset_password(token):
     website = Website.query.first()
 
-    if not website or not website.forum_enabled:
-        return "Forum is disabled", 404
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
 
     public_user, error = verify_public_user_password_reset_token(token)
 
@@ -8984,12 +9201,13 @@ def public_forum_reset_password(token):
         content=content
     )
 
+@app.route('/account/verify-email/<token>')
 @app.route('/forum/verify-email/<token>')
 def public_forum_verify_email(token):
     website = Website.query.first()
 
-    if not website or not website.forum_enabled:
-        return "Forum is disabled", 404
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
 
     public_user, error = verify_public_user_verification_token(token)
 
@@ -9008,18 +9226,19 @@ def public_forum_verify_email(token):
     flash('Your email has been verified. You can now log in.', 'success')
     return redirect(url_for('public_forum_login'))
 
+@app.route('/account/resend-verification', methods=['GET', 'POST'])
 @app.route('/forum/resend-verification', methods=['GET', 'POST'])
 def public_forum_resend_verification():
     website = Website.query.first()
 
-    if not website or not website.forum_enabled:
-        return "Forum is disabled", 404
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
 
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
 
         generic_message = (
-            'If that email matches an unverified forum account, '
+            'If that email matches an unverified account, '
             'a new verification email has been sent.'
         )
 
@@ -9054,9 +9273,21 @@ def public_forum_resend_verification():
     )
 
 @app.route('/forum/logout', methods=['POST'])
+@app.route('/account/logout', methods=['POST'])
 def public_forum_logout():
+    website = Website.query.first()
+
     public_user_logout()
-    return redirect(url_for('public_forum'))
+
+    next_url = request.form.get('next') or request.referrer
+
+    if next_url:
+        return redirect(next_url)
+
+    if website and website.forum_enabled:
+        return redirect(url_for('public_forum'))
+
+    return redirect(url_for('home_page'))
 
 @app.route('/forum/thread/new', methods=['GET', 'POST'])
 def public_forum_new_thread():
@@ -9308,7 +9539,358 @@ def moderate_forum_reply(reply_id):
     db.session.commit()
     return redirect(url_for('admin_forum'))
 
+def update_comments_section(section, form_data):
+    def clean(value, fallback=''):
+        return (value or fallback).strip()
 
+    def safe_int(value, fallback, min_value=None, max_value=None):
+        try:
+            number = int(value or fallback)
+        except (TypeError, ValueError):
+            number = fallback
+
+        if min_value is not None:
+            number = max(min_value, number)
+
+        if max_value is not None:
+            number = min(max_value, number)
+
+        return number
+
+    section.content = {
+        'title': clean(form_data.get('comments_title'), 'Comments'),
+        'description': clean(form_data.get('comments_description'), ''),
+        'enabled': form_data.get('comments_enabled') == 'on',
+        'require_login': form_data.get('comments_require_login') == 'on',
+        'allow_anonymous': form_data.get('comments_allow_anonymous') == 'on',
+        'manual_approval': form_data.get('comments_manual_approval') == 'on',
+        'show_comment_count': form_data.get('comments_show_count') == 'on',
+        'comments_per_page': safe_int(form_data.get('comments_per_page'), 25, 5, 100),
+    }
+
+    section.section_type = 'comments'
+
+    return section
+
+@app.route('/section/<int:section_id>/comment', methods=['POST'])
+def submit_page_comment(section_id):
+    section = PageSection.query.get_or_404(section_id)
+
+    if section.section_type != 'comments':
+        return jsonify({
+            'success': False,
+            'message': 'This section does not accept comments.'
+        }), 400
+
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    if not page.site_active_status:
+        return jsonify({
+            'success': False,
+            'message': 'This page is not published.'
+        }), 404
+
+    settings = section.content or {}
+
+    if not settings.get('enabled', True):
+        return jsonify({
+            'success': False,
+            'message': 'Comments are disabled for this section.'
+        }), 403
+
+    public_user = get_public_user()
+
+    require_login = settings.get('require_login', False)
+    allow_anonymous = settings.get('allow_anonymous', True)
+
+    if require_login and not public_user:
+        return jsonify({
+            'success': False,
+            'requires_login': True,
+            'message': 'Please log in to comment.'
+        }), 401
+
+    body = (request.form.get('comment_body') or '').strip()
+    anonymous_name = (request.form.get('comment_name') or '').strip()
+
+    if not body:
+        return jsonify({
+            'success': False,
+            'message': 'Please enter a comment.'
+        }), 400
+
+    if len(body) > 3000:
+        return jsonify({
+            'success': False,
+            'message': 'Comment is too long.'
+        }), 400
+
+    if public_user:
+        display_name = public_user.username
+    else:
+        if not allow_anonymous:
+            return jsonify({
+                'success': False,
+                'requires_login': True,
+                'message': 'Please log in to comment.'
+            }), 401
+
+        if not anonymous_name:
+            return jsonify({
+                'success': False,
+                'message': 'Please enter your name.'
+            }), 400
+
+        display_name = anonymous_name[:120]
+
+    comment = PageComment(
+        website_id=website.id,
+        page_id=page.id,
+        section_id=section.id,
+        public_user_id=public_user.id if public_user else None,
+        display_name=display_name,
+        body=body,
+        is_approved=not settings.get('manual_approval', False),
+        ip_address=get_request_ip(),
+        user_agent=request.headers.get('User-Agent')
+    )
+
+    db.session.add(comment)
+    db.session.commit()
+
+    if comment.is_approved:
+        message = 'Comment posted.'
+    else:
+        message = 'Comment submitted and awaiting approval.'
+
+    return jsonify({
+        'success': True,
+        'message': message,
+        'approved': comment.is_approved,
+        'comment': {
+            'id': comment.id,
+            'display_name': comment.display_name,
+            'body': comment.body,
+            'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p')
+        }
+    })
+
+def serialize_page_comment(comment):
+    return {
+        'id': comment.id,
+        'section_id': comment.section_id,
+        'page_id': comment.page_id,
+        'website_id': comment.website_id,
+        'public_user_id': comment.public_user_id,
+        'display_name': comment.display_name,
+        'body': comment.body,
+        'is_hidden': bool(comment.is_hidden),
+        'is_approved': bool(comment.is_approved),
+        'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p') if comment.created_at else '',
+        'author_username': comment.author.username if comment.author else None,
+        'like_count': comment.like_count_cached or 0,
+        'ip_address': comment.ip_address or '',
+    }
+
+@app.route('/admin/section/<int:section_id>/comments', methods=['GET'])
+@login_required
+def get_section_comments(section_id):
+    section = PageSection.query.get_or_404(section_id)
+
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    if website.user_id != current_user.id:
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized.'
+        }), 403
+
+    if section.section_type != 'comments':
+        return jsonify({
+            'success': False,
+            'message': 'This section is not a comments section.'
+        }), 400
+
+    status = request.args.get('status', 'all')
+    page_number = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = max(5, min(per_page, 100))
+
+    query = PageComment.query.filter_by(
+        section_id=section.id
+    )
+
+    if status == 'pending':
+        query = query.filter(PageComment.is_approved == False)
+    elif status == 'approved':
+        query = query.filter(
+            PageComment.is_approved == True,
+            PageComment.is_hidden == False
+        )
+    elif status == 'hidden':
+        query = query.filter(PageComment.is_hidden == True)
+    elif status == 'visible':
+        query = query.filter(
+            PageComment.is_hidden == False,
+            PageComment.is_approved == True
+        )
+
+    pagination = query.order_by(
+        PageComment.created_at.desc()
+    ).paginate(
+        page=page_number,
+        per_page=per_page,
+        error_out=False
+    )
+
+    pending_count = PageComment.query.filter_by(
+        section_id=section.id,
+        is_approved=False
+    ).count()
+
+    hidden_count = PageComment.query.filter_by(
+        section_id=section.id,
+        is_hidden=True
+    ).count()
+
+    total_count = PageComment.query.filter_by(
+        section_id=section.id
+    ).count()
+
+    visible_count = PageComment.query.filter_by(
+        section_id=section.id,
+        is_hidden=False,
+        is_approved=True
+    ).count()
+
+    return jsonify({
+        'success': True,
+        'comments': [
+            serialize_page_comment(comment)
+            for comment in pagination.items
+        ],
+        'pagination': {
+            'page': pagination.page,
+            'pages': pagination.pages,
+            'has_prev': pagination.has_prev,
+            'has_next': pagination.has_next,
+            'prev_num': pagination.prev_num,
+            'next_num': pagination.next_num,
+            'total': pagination.total
+        },
+        'counts': {
+            'total': total_count,
+            'visible': visible_count,
+            'pending': pending_count,
+            'hidden': hidden_count
+        }
+    })
+
+@app.route('/admin/page-comment/<int:comment_id>/moderate-json', methods=['POST'])
+@login_required
+def moderate_page_comment_json(comment_id):
+    comment = PageComment.query.get_or_404(comment_id)
+
+    website = Website.query.filter_by(
+        id=comment.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    data = request.get_json(silent=True) or {}
+    action = data.get('action') or request.form.get('action')
+
+    if action == 'hide':
+        comment.is_hidden = True
+
+    elif action == 'unhide':
+        comment.is_hidden = False
+
+    elif action == 'approve':
+        comment.is_approved = True
+        comment.is_hidden = False
+
+    elif action == 'unapprove':
+        comment.is_approved = False
+
+    elif action == 'delete':
+        section_id = comment.section_id
+        db.session.delete(comment)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'deleted': True,
+            'section_id': section_id,
+            'message': 'Comment deleted.'
+        })
+
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid moderation action.'
+        }), 400
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'deleted': False,
+        'message': 'Comment updated.',
+        'comment': serialize_page_comment(comment)
+    })
+
+@app.route('/admin/page-comment/<int:comment_id>/moderate', methods=['POST'])
+@login_required
+def moderate_page_comment(comment_id):
+    comment = PageComment.query.get_or_404(comment_id)
+
+    website = Website.query.filter_by(
+        id=comment.website_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    action = request.form.get('action')
+
+    if action == 'hide':
+        comment.is_hidden = True
+
+    elif action == 'unhide':
+        comment.is_hidden = False
+
+    elif action == 'approve':
+        comment.is_approved = True
+
+    elif action == 'unapprove':
+        comment.is_approved = False
+
+    elif action == 'delete':
+        db.session.delete(comment)
+        db.session.commit()
+
+        return redirect(request.referrer or url_for('dashboard'))
+
+    db.session.commit()
+
+    return redirect(request.referrer or url_for('dashboard'))
+
+def website_uses_public_accounts(website):
+    if not website:
+        return False
+
+    if website.forum_enabled:
+        return True
+
+    comments_section_exists = PageSection.query.join(
+        PublicPageContent,
+        PageSection.page_content_id == PublicPageContent.id
+    ).filter(
+        PublicPageContent.website_id == website.id,
+        PageSection.section_type == 'comments'
+    ).first() is not None
+
+    return comments_section_exists
 
 def generate_public_user_password_reset_token(public_user):
     serializer = get_recovery_serializer()
@@ -9322,6 +9904,54 @@ def generate_public_user_password_reset_token(public_user):
         salt='uwebia-public-user-password-reset'
     )
 
+@app.route('/account/change-password', methods=['GET', 'POST'])
+def public_account_change_password():
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return redirect(url_for(
+            'public_forum_login',
+            next=url_for('public_account_change_password')
+        ))
+
+    if request.method == 'POST':
+        current_password = request.form.get('current_password') or ''
+        new_password = request.form.get('new_password') or ''
+        confirm_password = request.form.get('confirm_password') or ''
+
+        if not public_user.check_password(current_password):
+            flash('Current password is incorrect.', 'error')
+            return redirect(url_for('public_account_change_password'))
+
+        if len(new_password) < 8:
+            flash('New password must be at least 8 characters.', 'error')
+            return redirect(url_for('public_account_change_password'))
+
+        if new_password != confirm_password:
+            flash('New passwords do not match.', 'error')
+            return redirect(url_for('public_account_change_password'))
+
+        public_user.set_password(new_password)
+        db.session.commit()
+
+        flash('Password updated successfully.', 'success')
+        return redirect(url_for('home_page'))
+
+    content = {
+        'current_page_url': url_for('public_account_change_password')
+    }
+
+    return render_template(
+        'public_account_change_password.html',
+        website=website,
+        public_user=public_user,
+        content=content
+    )
 
 def verify_public_user_password_reset_token(token, max_age_seconds=1800):
     serializer = get_recovery_serializer()
@@ -9400,9 +10030,9 @@ def send_public_user_password_reset_email(public_user):
         _external=True
     )
 
-    subject = f'Reset your {public_user.website.name} forum password'
+    subject = f'Reset your {public_user.website.name} account password'
 
-    body = f"""A password reset was requested for your forum account.
+    body = f"""A password reset was requested for your account.
 
 Reset your password here:
 {reset_url}
@@ -9444,6 +10074,66 @@ If you did not create this account, you can ignore this email.
     public_user.verification_email_sent_at = datetime.utcnow()
     db.session.commit()
 
+@app.route('/comment/<int:comment_id>/like', methods=['POST'])
+def toggle_page_comment_like(comment_id):
+    website = Website.query.first()
+
+    if not website or not website_uses_public_accounts(website):
+        return jsonify({
+            'success': False,
+            'message': 'Public accounts are not enabled.'
+        }), 404
+
+    public_user = get_public_user()
+
+    if not public_user:
+        return jsonify({
+            'success': False,
+            'requires_login': True,
+            'message': 'Please log in to like comments.'
+        }), 401
+
+    comment = PageComment.query.filter_by(
+        id=comment_id,
+        is_hidden=False,
+        is_approved=True
+    ).first_or_404()
+
+    if comment.website_id != website.id:
+        return jsonify({
+            'success': False,
+            'message': 'Comment not found.'
+        }), 404
+
+    existing_like = PageCommentLike.query.filter_by(
+        comment_id=comment.id,
+        public_user_id=public_user.id
+    ).first()
+
+    if existing_like:
+        db.session.delete(existing_like)
+        comment.like_count_cached = max(0, (comment.like_count_cached or 0) - 1)
+        liked = False
+    else:
+        like = PageCommentLike(
+            comment_id=comment.id,
+            website_id=comment.website_id,
+            section_id=comment.section_id,
+            public_user_id=public_user.id
+        )
+
+        db.session.add(like)
+        comment.like_count_cached = (comment.like_count_cached or 0) + 1
+        liked = True
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'liked': liked,
+        'like_count': comment.like_count_cached or 0
+    })
+
 @app.route('/admin/forum/user/<int:public_user_id>/moderate', methods=['POST'])
 @login_required
 def moderate_public_user(public_user_id):
@@ -9482,6 +10172,15 @@ def get_public_user():
         is_active_public=True
     ).first()
 
+@app.context_processor
+def inject_public_account_context():
+    website = Website.query.first()
+    public_user = get_public_user() if website else None
+
+    return {
+        'navbar_public_user': public_user,
+        'navbar_public_accounts_enabled': website_uses_public_accounts(website) if website else False
+    }
 
 def public_user_login(public_user):
     session['public_user_id'] = public_user.id
