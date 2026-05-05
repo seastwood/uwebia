@@ -125,8 +125,12 @@
         min-width: 0;
     }
 
-    /* Same exact size for every square navbar button */
-    .editor-navbar button,
+    /* Same exact size for every square navbar button
+       Note: scoped to direct children of .editor-navbar-left/right/center
+       so it does NOT bleed into Quill toolbar buttons */
+    .editor-navbar-left button,
+    .editor-navbar-right button,
+    .editor-navbar-center button,
     .editor-navbar .public-page-button {
         width: 36px !important;
         height: 36px !important;
@@ -160,8 +164,10 @@
             box-shadow 0.16s ease;
     }
 
-    /* Hover effect for ALL navbar buttons */
-    .editor-navbar button:hover,
+    /* Hover effect for navbar buttons */
+    .editor-navbar-left button:hover,
+    .editor-navbar-right button:hover,
+    .editor-navbar-center button:hover,
     .editor-navbar .public-page-button:hover {
         background: rgba(126, 226, 204, 0.16);
         border-color: rgba(126, 226, 204, 0.42);
@@ -170,21 +176,27 @@
         box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22);
     }
 
-    .editor-navbar button:active,
+    .editor-navbar-left button:active,
+    .editor-navbar-right button:active,
+    .editor-navbar-center button:active,
     .editor-navbar .public-page-button:active {
         transform: translateY(0);
         box-shadow: none;
     }
 
     /* Icon sizing */
-    .editor-navbar button i,
+    .editor-navbar-left button i,
+    .editor-navbar-right button i,
+    .editor-navbar-center button i,
     .editor-navbar .public-page-button i {
         font-size: 15px;
         line-height: 1;
     }
 
     /* Make + visually match the icons */
-    .editor-navbar #add-section-group-btn {
+    .editor-navbar-left #add-section-group-btn,
+    .editor-navbar-right #add-section-group-btn,
+    .editor-navbar-center #add-section-group-btn {
         font-size: 21px;
         font-weight: 600;
     }
@@ -2009,12 +2021,11 @@
         font-weight: 600;
     }
 
+    /* Only blank/preserved lines need a forced height; regular paragraphs should
+       not have min-height or they produce triple spacing when rendered in the
+       public page alongside browser-default paragraph margins. */
     .ql-editor p.preserved-blank-line {
-        min-height: 1.6em;
-    }
-
-    .ql-editor p {
-        min-height: 1.6em;
+        min-height: 1.4em;
     }
 
     .section-group {
@@ -7858,7 +7869,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
     value="{{ website.text_color or '#ffffff' }}"
     title="Solid Text Color"
     oninput="window.lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
-    <button type="button" class="ql-clear-text-color-btn">Solid</button>
+    <button type="button" class="ql-clear-text-color-btn" title="Clear text color">✕ Color</button>
 </div>
 
 <div class="toolbar-group">

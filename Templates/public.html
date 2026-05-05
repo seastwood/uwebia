@@ -195,6 +195,19 @@
         /* margin-top: 20px */
     }
 
+    /* Normalize paragraph spacing inside Quill-rendered text so it matches
+       the editor preview. Browser default p margins + preserved-blank-line
+       min-height stacked to produce triple spacing between paragraphs. */
+    .text-area p {
+        margin-top: 0;
+        margin-bottom: 0;
+        min-height: 1.4em;
+    }
+
+    .text-area p.preserved-blank-line {
+        min-height: 1.4em;
+    }
+
     .single-image-container {
         /* position: relative;e */
         /* width: 100vw; */
