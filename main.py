@@ -17,7 +17,6 @@ import json
 import mimetypes
 import time
 from pathlib import Path
-from calendar import Calendar
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
@@ -31,7 +30,7 @@ from flask_login import current_user, UserMixin
 from flask_mail import Mail, Message
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
-from icalendar import Calendar, Event
+from icalendar import Calendar as ICalendar, Event as ICalEvent
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from sqlalchemy import func, or_
@@ -770,6 +769,52 @@ class SectionGroup(db.Model):
     background_overlay_color = db.Column(db.String(50), default='transparent')
     background_overlay_opacity = db.Column(db.Float, default=0)
 
+
+class SectionGroupTemplate(db.Model):
+    __tablename__ = 'section_group_template'
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    template_data = db.Column(db.JSON, nullable=False)
+    row_count = db.Column(db.Integer, default=0)
+    section_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'row_count': self.row_count or 0,
+            'section_count': self.section_count or 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class PageTemplate(db.Model):
+    __tablename__ = 'page_template'
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    template_data = db.Column(db.JSON, nullable=False)
+    group_count = db.Column(db.Integer, default=0)
+    section_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'group_count': self.group_count or 0,
+            'section_count': self.section_count or 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+
 # class Picture(db.Model):
 #     id = db.Column(db.Integer, primary_key=True)
 #     url = db.Column(db.String(1000))
@@ -817,6 +862,46 @@ class SectionImage(db.Model):
     order = db.Column(db.Integer, default=0)
 
 
+CALENDAR_STYLE_DEFAULTS = {
+    'bg_color':       '#00000045',
+    'text_color':     '#ffffff',
+    'header_bg':      'rgba(0,0,0,0.28)',
+    'btn_bg':         'rgba(255,255,255,0.10)',
+    'btn_text':       '#ffffff',
+    'today_color':    'rgba(126,226,204,0.14)',
+    'border_color':   'rgba(255,255,255,0.16)',
+    'subscribe_bg':   'rgba(255,255,255,0.10)',
+    'subscribe_text': '#ffffff',
+}
+
+class Calendar(db.Model):
+    __tablename__ = 'calendar'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    styles = db.Column(db.JSON, nullable=True)
+    events = db.relationship('CalendarEvent', backref='calendar', lazy=True, cascade='all, delete-orphan')
+    subscribers = db.relationship('CalendarFeedSubscriber', backref='calendar', lazy=True, cascade='all, delete-orphan')
+    subscriptions = db.relationship('CalendarSubscription', backref='calendar', lazy=True, cascade='all, delete-orphan')
+
+    def get_styles(self):
+        merged = dict(CALENDAR_STYLE_DEFAULTS)
+        if self.styles:
+            merged.update(self.styles)
+        return merged
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'website_id': self.website_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'styles': self.get_styles(),
+        }
+
 class CalendarEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String, nullable=False)
@@ -824,7 +909,10 @@ class CalendarEvent(db.Model):
     start = db.Column(db.DateTime, nullable=False)
     end = db.Column(db.DateTime)
     background_color = db.Column(db.String)
-    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_calendar_event_page_content_id'))
+    calendar_id = db.Column(db.Integer, db.ForeignKey('calendar.id'), nullable=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_calendar_event_page_content_id'), nullable=True)
+    source = db.Column(db.String(20), nullable=False, default='local')
+    subscription_id = db.Column(db.Integer, db.ForeignKey('calendar_subscription.id'), nullable=True)
 
     def to_dict(self):
         return {
@@ -834,7 +922,8 @@ class CalendarEvent(db.Model):
             'start': self.start.isoformat(),
             'end': self.end.isoformat() if self.end else None,
             'backgroundColor': self.background_color,
-            'section_id': self.section_id
+            'calendar_id': self.calendar_id,
+            'source': self.source or 'local',
         }
 
 class CalendarFeedSubscriber(db.Model):
@@ -842,10 +931,17 @@ class CalendarFeedSubscriber(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
+    calendar_id = db.Column(
+        db.Integer,
+        db.ForeignKey('calendar.id'),
+        nullable=True,
+        index=True
+    )
+
     section_id = db.Column(
         db.Integer,
         db.ForeignKey('page_section.id'),
-        nullable=False,
+        nullable=True,
         index=True
     )
 
@@ -860,11 +956,32 @@ class CalendarFeedSubscriber(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint(
-            'section_id',
+            'calendar_id',
             'subscriber_hash',
             name='unique_calendar_feed_subscriber'
         ),
     )
+
+class CalendarSubscription(db.Model):
+    __tablename__ = 'calendar_subscription'
+    id = db.Column(db.Integer, primary_key=True)
+    calendar_id = db.Column(db.Integer, db.ForeignKey('calendar.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=True)
+    url = db.Column(db.Text, nullable=False)
+    last_synced_at = db.Column(db.DateTime, nullable=True)
+    last_sync_error = db.Column(db.Text, nullable=True)
+    event_count = db.Column(db.Integer, default=0)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'calendar_id': self.calendar_id,
+            'name': self.name or '',
+            'url': self.url,
+            'last_synced_at': self.last_synced_at.isoformat() if self.last_synced_at else None,
+            'last_sync_error': self.last_sync_error,
+            'event_count': self.event_count or 0,
+        }
 
 class SavedColor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -2348,6 +2465,195 @@ def create_section_group(page_content_id):
         print(f"Error creating section group: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+def _serialize_group(group):
+    """Serialize a SectionGroup and all its rows/columns/sections to a dict."""
+    rows = Row.query.filter_by(section_group_id=group.id).order_by(Row.row_number).all()
+    rows_data = []
+    total_sections = 0
+    for row in rows:
+        cols = Column.query.filter_by(row_id=row.id).order_by(Column.column_number).all()
+        cols_data = []
+        for col in cols:
+            section = col.section
+            col_dict = {
+                'column_number': col.column_number,
+                'width': col.width,
+                'section': {
+                    'section_type': section.section_type,
+                    'content': section.content,
+                } if section else None,
+            }
+            cols_data.append(col_dict)
+            if section:
+                total_sections += 1
+        rows_data.append({'row_number': row.row_number, 'columns': cols_data})
+
+    return {
+        'styles': {
+            'background_color': group.background_color or 'transparent',
+            'background_opacity': group.background_opacity or 1,
+            'padding': group.padding or 0,
+            'border_radius': group.border_radius or 0,
+            'max_width': group.max_width,
+            'background_image_url': group.background_image_url,
+            'background_image_size': group.background_image_size or 'cover',
+            'background_image_position': group.background_image_position or 'center',
+            'background_overlay_color': group.background_overlay_color or 'transparent',
+            'background_overlay_opacity': group.background_overlay_opacity or 0,
+        },
+        'rows': rows_data,
+    }, len(rows), total_sections
+
+
+def _instantiate_group_template(page_content_id, template_data, group_name):
+    """Create a SectionGroup on a page from serialized template data."""
+    group_count = SectionGroup.query.filter_by(page_content_id=page_content_id).count()
+    styles = template_data.get('styles', {})
+
+    new_group = SectionGroup(
+        page_content_id=page_content_id,
+        name=group_name,
+        group_order=group_count + 1,
+        background_color=styles.get('background_color', 'transparent'),
+        background_opacity=styles.get('background_opacity', 1),
+        padding=styles.get('padding', 0),
+        border_radius=styles.get('border_radius', 0),
+        max_width=styles.get('max_width'),
+        background_image_url=styles.get('background_image_url'),
+        background_image_size=styles.get('background_image_size', 'cover'),
+        background_image_position=styles.get('background_image_position', 'center'),
+        background_overlay_color=styles.get('background_overlay_color', 'transparent'),
+        background_overlay_opacity=styles.get('background_overlay_opacity', 0),
+    )
+    db.session.add(new_group)
+    db.session.flush()
+
+    max_row = db.session.query(func.max(Row.row_number)).filter_by(
+        page_content_id=page_content_id
+    ).scalar() or 0
+
+    for row_data in template_data.get('rows', []):
+        max_row += 1
+        new_row = Row(
+            page_content_id=page_content_id,
+            row_number=max_row,
+            section_group_id=new_group.id,
+        )
+        db.session.add(new_row)
+        db.session.flush()
+
+        for col_data in row_data.get('columns', []):
+            section_data = col_data.get('section')
+            new_section = None
+            if section_data:
+                new_section = PageSection(
+                    section_type=section_data['section_type'],
+                    content=section_data.get('content'),
+                    order=col_data['column_number'],
+                    page_content_id=page_content_id,
+                )
+                db.session.add(new_section)
+                db.session.flush()
+
+            new_col = Column(
+                row_id=new_row.id,
+                column_number=col_data['column_number'],
+                width=col_data.get('width', 100),
+                section_id=new_section.id if new_section else None,
+            )
+            db.session.add(new_col)
+
+    db.session.commit()
+    return new_group
+
+
+@app.route('/admin/section_group_templates', methods=['GET'])
+@login_required
+def list_section_group_templates():
+    website = current_user.websites[0] if current_user.websites else None
+    if not website:
+        return jsonify({'templates': []})
+    templates = SectionGroupTemplate.query.filter_by(website_id=website.id).order_by(
+        SectionGroupTemplate.created_at.desc()
+    ).all()
+    return jsonify({'templates': [t.to_dict() for t in templates]})
+
+
+@app.route('/admin/section_group_templates/save/<int:group_id>', methods=['POST'])
+@login_required
+def save_section_group_template(group_id):
+    group = SectionGroup.query.get_or_404(group_id)
+    page = PublicPageContent.query.get_or_404(group.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    name = (data.get('name') or group.name or 'Template').strip()
+
+    template_data, row_count, section_count = _serialize_group(group)
+
+    tmpl = SectionGroupTemplate(
+        website_id=website.id,
+        name=name,
+        description=(data.get('description') or '').strip() or None,
+        template_data=template_data,
+        row_count=row_count,
+        section_count=section_count,
+    )
+    db.session.add(tmpl)
+    db.session.commit()
+    return jsonify({'success': True, 'template': tmpl.to_dict()}), 201
+
+
+@app.route('/admin/section_group_templates/<int:template_id>/delete', methods=['POST'])
+@login_required
+def delete_section_group_template(template_id):
+    tmpl = SectionGroupTemplate.query.get_or_404(template_id)
+    website = Website.query.get_or_404(tmpl.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    db.session.delete(tmpl)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/create_section_group_from_template/<int:page_content_id>/<int:template_id>', methods=['POST'])
+@login_required
+def create_section_group_from_template(page_content_id, template_id):
+    page = PublicPageContent.query.get_or_404(page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    tmpl = SectionGroupTemplate.query.get_or_404(template_id)
+    try:
+        new_group = _instantiate_group_template(page_content_id, tmpl.template_data, tmpl.name)
+        return jsonify({'success': True, 'group_id': new_group.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/duplicate_section_group/<int:group_id>', methods=['POST'])
+@login_required
+def duplicate_section_group(group_id):
+    group = SectionGroup.query.get_or_404(group_id)
+    page = PublicPageContent.query.get_or_404(group.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    try:
+        template_data, _, _ = _serialize_group(group)
+        new_group = _instantiate_group_template(group.page_content_id, template_data, group.name)
+        return jsonify({'success': True, 'group_id': new_group.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/delete_section_group/<int:group_id>', methods=['DELETE'])
 @login_required
 def delete_section_group(group_id):
@@ -2373,7 +2679,10 @@ def delete_section_group(group_id):
 
                 if section:
                     SectionImage.query.filter_by(section_id=section.id).delete()
-                    CalendarEvent.query.filter_by(section_id=section.id).delete()
+                    CalendarEvent.query.filter(
+                        CalendarEvent.section_id == section.id,
+                        CalendarEvent.calendar_id == None
+                    ).delete()
                     db.session.delete(section)
 
                 db.session.delete(column)
@@ -2771,6 +3080,8 @@ def register():
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
+
+        ensure_default_website(new_user)
 
         flash('Admin account created successfully. Please log in.', 'success')
         return redirect(url_for('login'))
@@ -4416,6 +4727,11 @@ def create_website():
 
     return redirect(url_for('dashboard'))
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(app.static_folder, 'orange-uw.svg', mimetype='image/svg+xml')
+
+
 @app.route('/<string:page_slug>')
 def public_page_by_slug(page_slug):
     website = Website.query.first()
@@ -4790,6 +5106,234 @@ def duplicate_page(website_id, page_id):
         }), 500
 
 
+def _serialize_page(page):
+    """Serialize a full page layout to a dict for use as a template."""
+    groups = SectionGroup.query.filter_by(
+        page_content_id=page.id
+    ).order_by(SectionGroup.group_order).all()
+
+    all_rows = Row.query.filter_by(
+        page_content_id=page.id
+    ).order_by(Row.row_number).all()
+
+    def _serialize_rows(row_list):
+        result, count = [], 0
+        for row in row_list:
+            cols = Column.query.filter_by(row_id=row.id).order_by(Column.column_number).all()
+            cols_data = []
+            for col in cols:
+                s = col.section
+                cols_data.append({
+                    'column_number': col.column_number,
+                    'width': col.width,
+                    'section': {'section_type': s.section_type, 'content': s.content} if s else None,
+                })
+                if s:
+                    count += 1
+            result.append({'columns': cols_data})
+        return result, count
+
+    groups_data = []
+    total_sections = 0
+    for group in groups:
+        grp_rows = [r for r in all_rows if r.section_group_id == group.id]
+        rows_data, sc = _serialize_rows(grp_rows)
+        total_sections += sc
+        groups_data.append({
+            'name': group.name,
+            'styles': {
+                'background_color': group.background_color or 'transparent',
+                'background_opacity': group.background_opacity or 1,
+                'padding': group.padding or 0,
+                'border_radius': group.border_radius or 0,
+                'max_width': group.max_width,
+                'background_image_url': group.background_image_url,
+                'background_image_size': group.background_image_size or 'cover',
+                'background_image_position': group.background_image_position or 'center',
+                'background_overlay_color': group.background_overlay_color or 'transparent',
+                'background_overlay_opacity': group.background_overlay_opacity or 0,
+            },
+            'rows': rows_data,
+        })
+
+    ungrouped_rows = [r for r in all_rows if r.section_group_id is None]
+    ungrouped_data, sc2 = _serialize_rows(ungrouped_rows)
+    total_sections += sc2
+
+    return {
+        'page_style': {
+            'background_color': page.background_color or '#ffffff',
+            'text_color': page.text_color or '#000000',
+        },
+        'groups': groups_data,
+        'ungrouped_rows': ungrouped_data,
+    }, len(groups), total_sections
+
+
+def _instantiate_page_template(website_id, template_data, name, description='', tags_str=''):
+    """Create a new page from serialized page template data."""
+    slug = get_unique_slug(website_id, name)
+    page_style = template_data.get('page_style', {})
+
+    new_page = PublicPageContent(
+        name=name,
+        description=description or None,
+        website_id=website_id,
+        slug=slug,
+        site_active_status=False,
+        background_color=page_style.get('background_color', '#ffffff'),
+        text_color=page_style.get('text_color', '#000000'),
+    )
+    db.session.add(new_page)
+    db.session.flush()
+
+    if tags_str:
+        for tag_name in [t.strip() for t in tags_str.split(',') if t.strip()]:
+            tag = Tag.query.filter_by(name=tag_name).first()
+            if not tag:
+                tag = Tag(name=tag_name)
+                db.session.add(tag)
+                db.session.flush()
+            new_page.tags.append(tag)
+
+    max_row = 0
+
+    def _create_rows(rows_data, group_id=None):
+        nonlocal max_row
+        for row_data in rows_data:
+            max_row += 1
+            new_row = Row(
+                page_content_id=new_page.id,
+                row_number=max_row,
+                section_group_id=group_id,
+            )
+            db.session.add(new_row)
+            db.session.flush()
+            for col_data in row_data.get('columns', []):
+                s_data = col_data.get('section')
+                new_section = None
+                if s_data:
+                    new_section = PageSection(
+                        section_type=s_data['section_type'],
+                        content=s_data.get('content'),
+                        order=col_data['column_number'],
+                        page_content_id=new_page.id,
+                    )
+                    db.session.add(new_section)
+                    db.session.flush()
+                db.session.add(Column(
+                    row_id=new_row.id,
+                    column_number=col_data['column_number'],
+                    width=col_data.get('width', 100),
+                    section_id=new_section.id if new_section else None,
+                ))
+
+    for grp_idx, grp_data in enumerate(template_data.get('groups', [])):
+        styles = grp_data.get('styles', {})
+        new_group = SectionGroup(
+            page_content_id=new_page.id,
+            name=grp_data.get('name', 'Section Group'),
+            group_order=grp_idx + 1,
+            background_color=styles.get('background_color', 'transparent'),
+            background_opacity=styles.get('background_opacity', 1),
+            padding=styles.get('padding', 0),
+            border_radius=styles.get('border_radius', 0),
+            max_width=styles.get('max_width'),
+            background_image_url=styles.get('background_image_url'),
+            background_image_size=styles.get('background_image_size', 'cover'),
+            background_image_position=styles.get('background_image_position', 'center'),
+            background_overlay_color=styles.get('background_overlay_color', 'transparent'),
+            background_overlay_opacity=styles.get('background_overlay_opacity', 0),
+        )
+        db.session.add(new_group)
+        db.session.flush()
+        _create_rows(grp_data.get('rows', []), group_id=new_group.id)
+
+    _create_rows(template_data.get('ungrouped_rows', []))
+
+    db.session.commit()
+    return new_page
+
+
+@app.route('/admin/page_templates', methods=['GET'])
+@login_required
+def list_page_templates():
+    website = current_user.websites[0] if current_user.websites else None
+    if not website:
+        return jsonify({'templates': []})
+    templates = PageTemplate.query.filter_by(website_id=website.id).order_by(
+        PageTemplate.created_at.desc()
+    ).all()
+    return jsonify({'templates': [t.to_dict() for t in templates]})
+
+
+@app.route('/admin/page_templates/save/<int:page_id>', methods=['POST'])
+@login_required
+def save_page_template(page_id):
+    page = PublicPageContent.query.get_or_404(page_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    name = (data.get('name') or page.name or 'Template').strip()
+
+    template_data, group_count, section_count = _serialize_page(page)
+    tmpl = PageTemplate(
+        website_id=website.id,
+        name=name,
+        description=(data.get('description') or '').strip() or None,
+        template_data=template_data,
+        group_count=group_count,
+        section_count=section_count,
+    )
+    db.session.add(tmpl)
+    db.session.commit()
+    return jsonify({'success': True, 'template': tmpl.to_dict()}), 201
+
+
+@app.route('/admin/page_templates/<int:template_id>/delete', methods=['POST'])
+@login_required
+def delete_page_template(template_id):
+    tmpl = PageTemplate.query.get_or_404(template_id)
+    if Website.query.get_or_404(tmpl.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    db.session.delete(tmpl)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/create_page_from_template/<int:website_id>/<int:template_id>', methods=['POST'])
+@login_required
+def create_page_from_template(website_id, template_id):
+    website = Website.query.filter_by(id=website_id, user_id=current_user.id).first_or_404()
+    tmpl = PageTemplate.query.get_or_404(template_id)
+    if tmpl.website_id != website.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Page name is required'}), 400
+
+    try:
+        new_page = _instantiate_page_template(
+            website_id=website.id,
+            template_data=tmpl.template_data,
+            name=name,
+            description=data.get('description', ''),
+            tags_str=data.get('tags', ''),
+        )
+        return jsonify({
+            'success': True,
+            'page_id': new_page.id,
+            'editor_url': url_for('page_editor', website_id=website.id, page_id=new_page.id),
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/replace_page/<int:target_page_id>/<int:source_page_id>', methods=['POST'])
 @login_required
 def replace_page(target_page_id, source_page_id):
@@ -4828,7 +5372,10 @@ def replace_page(target_page_id, source_page_id):
         for section in old_target_sections:
             SectionAsset.query.filter_by(section_id=section.id).delete()
             SectionImage.query.filter_by(section_id=section.id).delete()
-            CalendarEvent.query.filter_by(section_id=section.id).delete()
+            CalendarEvent.query.filter(
+                CalendarEvent.section_id == section.id,
+                CalendarEvent.calendar_id == None
+            ).delete()
             db.session.delete(section)
 
         db.session.flush()
@@ -8117,6 +8664,22 @@ def update_video_section(section, form_data):
 
     return section
 
+def update_calendar_section(section, form_data):
+    content = dict(section.content or {})
+    allowed_style_keys = {
+        'bg_color', 'text_color', 'header_bg', 'btn_bg', 'btn_text',
+        'today_color', 'border_color', 'subscribe_bg', 'subscribe_text',
+    }
+    styles = {}
+    for key in allowed_style_keys:
+        val = (form_data.get(f'cal_style_{key}') or '').strip()
+        if val:
+            styles[key] = val
+    content['styles'] = styles if styles else None
+    section.content = content
+    return section
+
+
 @app.route('/update_section', methods=['POST'])
 @login_required
 def update_section():
@@ -8159,6 +8722,8 @@ def update_section():
         section = update_music_section(section, form_data)
     elif section_type == 'comments':
         section = update_comments_section(section, form_data)
+    elif section_type == 'calendar':
+        section = update_calendar_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -8482,15 +9047,15 @@ def get_client_ip():
     return request.remote_addr or ''
 
 
-def track_calendar_feed_subscriber(section_id):
+def track_calendar_feed_subscriber(calendar_id):
     ip_address = get_client_ip()
     user_agent = request.headers.get('User-Agent', '')
 
-    raw_identity = f'{section_id}|{ip_address}|{user_agent}'
+    raw_identity = f'cal:{calendar_id}|{ip_address}|{user_agent}'
     subscriber_hash = hashlib.sha256(raw_identity.encode('utf-8')).hexdigest()
 
     subscriber = CalendarFeedSubscriber.query.filter_by(
-        section_id=section_id,
+        calendar_id=calendar_id,
         subscriber_hash=subscriber_hash
     ).first()
 
@@ -8501,7 +9066,7 @@ def track_calendar_feed_subscriber(section_id):
         subscriber.request_count += 1
     else:
         subscriber = CalendarFeedSubscriber(
-            section_id=section_id,
+            calendar_id=calendar_id,
             subscriber_hash=subscriber_hash,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -8513,29 +9078,30 @@ def track_calendar_feed_subscriber(section_id):
 
     db.session.commit()
 
-def get_calendar_active_subscriber_count(section_id, days=30):
+def get_calendar_active_subscriber_count(calendar_id, days=30):
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     return CalendarFeedSubscriber.query.filter(
-        CalendarFeedSubscriber.section_id == section_id,
+        CalendarFeedSubscriber.calendar_id == calendar_id,
         CalendarFeedSubscriber.last_seen_at >= cutoff
     ).count()
 
-@app.route('/admin/calendar/<int:section_id>/subscriber_count')
+@app.route('/admin/calendar/<int:calendar_id>/subscriber_count')
 @login_required
-def calendar_subscriber_count(section_id):
-    section = PageSection.query.get_or_404(section_id)
+def calendar_subscriber_count(calendar_id):
+    calendar = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(calendar.website_id)
 
-    if not user_owns_section(section):
+    if website.user_id != current_user.id:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
-    active_7_days = get_calendar_active_subscriber_count(section_id, days=7)
-    active_30_days = get_calendar_active_subscriber_count(section_id, days=30)
-    total_seen = CalendarFeedSubscriber.query.filter_by(section_id=section_id).count()
+    active_7_days = get_calendar_active_subscriber_count(calendar_id, days=7)
+    active_30_days = get_calendar_active_subscriber_count(calendar_id, days=30)
+    total_seen = CalendarFeedSubscriber.query.filter_by(calendar_id=calendar_id).count()
 
     return jsonify({
         'success': True,
-        'section_id': section_id,
+        'calendar_id': calendar_id,
         'active_7_days': active_7_days,
         'active_30_days': active_30_days,
         'total_seen': total_seen
@@ -8557,9 +9123,8 @@ def get_calendar_subscriber_summary_for_websites(website_ids):
 
     base_query = (
         db.session.query(CalendarFeedSubscriber)
-        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
-        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
-        .filter(PublicPageContent.website_id.in_(website_ids))
+        .join(Calendar, CalendarFeedSubscriber.calendar_id == Calendar.id)
+        .filter(Calendar.website_id.in_(website_ids))
     )
 
     active_7_days = base_query.filter(
@@ -8574,28 +9139,25 @@ def get_calendar_subscriber_summary_for_websites(website_ids):
 
     total_requests = (
         db.session.query(func.coalesce(func.sum(CalendarFeedSubscriber.request_count), 0))
-        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
-        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
-        .filter(PublicPageContent.website_id.in_(website_ids))
+        .join(Calendar, CalendarFeedSubscriber.calendar_id == Calendar.id)
+        .filter(Calendar.website_id.in_(website_ids))
         .scalar()
         or 0
     )
 
     top_rows = (
         db.session.query(
-            PageSection.id.label('section_id'),
-            PublicPageContent.name.label('page_name'),
-            PublicPageContent.slug.label('page_slug'),
+            Calendar.id.label('calendar_id'),
+            Calendar.name.label('calendar_name'),
             func.count(CalendarFeedSubscriber.id).label('active_30_days'),
             func.coalesce(func.sum(CalendarFeedSubscriber.request_count), 0).label('requests')
         )
-        .join(PageSection, CalendarFeedSubscriber.section_id == PageSection.id)
-        .join(PublicPageContent, PageSection.page_content_id == PublicPageContent.id)
+        .join(Calendar, CalendarFeedSubscriber.calendar_id == Calendar.id)
         .filter(
-            PublicPageContent.website_id.in_(website_ids),
+            Calendar.website_id.in_(website_ids),
             CalendarFeedSubscriber.last_seen_at >= cutoff_30
         )
-        .group_by(PageSection.id, PublicPageContent.name, PublicPageContent.slug)
+        .group_by(Calendar.id, Calendar.name)
         .order_by(func.count(CalendarFeedSubscriber.id).desc())
         .limit(10)
         .all()
@@ -8603,9 +9165,8 @@ def get_calendar_subscriber_summary_for_websites(website_ids):
 
     top_calendars = [
         {
-            'section_id': row.section_id,
-            'page_name': row.page_name,
-            'page_slug': row.page_slug,
+            'calendar_id': row.calendar_id,
+            'calendar_name': row.calendar_name,
             'active_30_days': row.active_30_days,
             'requests': row.requests
         }
@@ -8627,42 +9188,47 @@ def calendar_events_feed(section_id):
     if section.section_type != 'calendar':
         return Response('Not a calendar section', status=404)
 
-    page = PublicPageContent.query.get_or_404(section.page_content_id)
-    website = Website.query.get_or_404(page.website_id)
+    calendar_id = (section.content or {}).get('calendar_id') if section.content else None
+    if not calendar_id:
+        return Response('Calendar not configured', status=404)
 
-    # Only expose calendar feeds from active public pages.
-    if not page.site_active_status:
-        return Response('Calendar is not public', status=404)
+    return _build_calendar_ical_response(calendar_id)
 
-    track_calendar_feed_subscriber(section_id)
+
+@app.route('/calendar/<int:calendar_id>.ics')
+def calendar_feed_by_id(calendar_id):
+    return _build_calendar_ical_response(calendar_id)
+
+
+def _build_calendar_ical_response(calendar_id):
+    cal_record = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(cal_record.website_id)
+
+    track_calendar_feed_subscriber(calendar_id)
 
     events = (
         CalendarEvent.query
-        .filter_by(section_id=section_id)
+        .filter_by(calendar_id=calendar_id)
         .order_by(CalendarEvent.start)
         .all()
     )
 
-    cal = Calendar()
+    cal = ICalendar()
     cal.add('prodid', '-//Uwebia Calendar//uwebia//EN')
     cal.add('version', '2.0')
     cal.add('calscale', 'GREGORIAN')
     cal.add('method', 'PUBLISH')
 
-    calendar_name = f'{website.name} - {page.name}'
-    cal.add('X-WR-CALNAME', calendar_name)
-    cal.add('X-WR-CALDESC', f'Calendar feed for {page.name}')
+    cal.add('X-WR-CALNAME', cal_record.name)
+    cal.add('X-WR-CALDESC', cal_record.description or cal_record.name)
     cal.add('X-WR-TIMEZONE', 'America/Chicago')
-
-    # Some calendar apps may use this as a hint, but they can ignore it.
     cal.add('REFRESH-INTERVAL;VALUE=DURATION', 'PT15M')
     cal.add('X-PUBLISHED-TTL', 'PT15M')
 
     now = datetime.utcnow()
 
     for event in events:
-        event_obj = Event()
-
+        event_obj = ICalEvent()
         event_obj.add('uid', f'uwebia-event-{event.id}@{request.host}')
         event_obj.add('summary', event.title or 'Untitled Event')
 
@@ -8671,152 +9237,375 @@ def calendar_events_feed(section_id):
 
         event_obj.add('dtstamp', now)
         event_obj.add('last-modified', now)
-
         event_obj.add('dtstart', event.start)
 
         if event.end:
             event_obj.add('dtend', event.end)
         else:
-            # Calendar feeds behave better when every event has an end.
             event_obj.add('dtend', event.start + timedelta(hours=1))
-
-        event_obj.add(
-            'url',
-            url_for(
-                'public_page_by_slug',
-                page_slug=page.slug,
-                _external=True
-            )
-        )
 
         cal.add_component(event_obj)
 
     response = make_response(cal.to_ical())
     response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
-    response.headers['Content-Disposition'] = f'inline; filename="uwebia-calendar-{section_id}.ics"'
-
-    # Do not aggressively cache. Calendar apps will still refresh on their own schedule.
+    response.headers['Content-Disposition'] = f'inline; filename="uwebia-calendar-{calendar_id}.ics"'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
 
     return response
 
-@app.route('/page/<int:section_id>/add_event', methods=['POST'])
+
+def _parse_event_datetime(dt_str, timezone):
+    if not dt_str:
+        return None
+    dt = parser.parse(str(dt_str))
+    if dt.tzinfo is None:
+        return timezone.localize(dt)
+    return dt.astimezone(timezone)
+
+
+def _fetch_and_parse_ical(url):
+    url = url.strip().replace('webcal://', 'https://')
+    import requests as req_lib
+    resp = req_lib.get(url, timeout=12, headers={'User-Agent': 'Uwebia/1.0'})
+    resp.raise_for_status()
+    return ICalendar.from_ical(resp.content)
+
+
+def sync_subscription(sub):
+    """Fetch one external iCal subscription and replace its events."""
+    from datetime import date as date_type
+
+    try:
+        cal_data = _fetch_and_parse_ical(sub.url)
+    except Exception as e:
+        sub.last_sync_error = str(e)
+        db.session.commit()
+        return {'synced': 0, 'error': str(e)}
+
+    local_tz = pytz.timezone('America/Chicago')
+
+    try:
+        CalendarEvent.query.filter_by(subscription_id=sub.id).delete()
+
+        count = 0
+        for component in cal_data.walk():
+            if component.name != 'VEVENT':
+                continue
+            dtstart = component.get('dtstart')
+            if not dtstart:
+                continue
+
+            start = dtstart.dt
+            dtend = component.get('dtend')
+            end = dtend.dt if dtend else None
+
+            if isinstance(start, date_type) and not isinstance(start, datetime):
+                start = local_tz.localize(datetime.combine(start, datetime.min.time()))
+            elif start.tzinfo is None:
+                start = local_tz.localize(start)
+            else:
+                start = start.astimezone(local_tz)
+
+            if end is not None:
+                if isinstance(end, date_type) and not isinstance(end, datetime):
+                    end = local_tz.localize(datetime.combine(end, datetime.min.time()))
+                elif end.tzinfo is None:
+                    end = local_tz.localize(end)
+                else:
+                    end = end.astimezone(local_tz)
+
+            db.session.add(CalendarEvent(
+                title=str(component.get('summary', 'Untitled')),
+                description=str(component.get('description', '')) or None,
+                start=start,
+                end=end,
+                calendar_id=sub.calendar_id,
+                source='external',
+                subscription_id=sub.id,
+            ))
+            count += 1
+
+        sub.last_synced_at = datetime.utcnow()
+        sub.last_sync_error = None
+        sub.event_count = count
+        db.session.commit()
+        return {'synced': count, 'error': None}
+
+    except Exception as e:
+        db.session.rollback()
+        return {'synced': 0, 'error': str(e)}
+
+
+def sync_all_stale_subscriptions(calendar):
+    """Sync all subscriptions for a calendar that are stale (>15 min old)."""
+    now = datetime.utcnow()
+    for sub in calendar.subscriptions:
+        stale = (
+            sub.last_synced_at is None or
+            (now - sub.last_synced_at).total_seconds() > 900
+        )
+        if stale:
+            sync_subscription(sub)
+
+
+@app.route('/calendar/<int:calendar_id>/events', methods=['GET'])
+def get_calendar_events_public(calendar_id):
+    cal = Calendar.query.get_or_404(calendar_id)
+    if cal.subscriptions:
+        sync_all_stale_subscriptions(cal)
+    events = CalendarEvent.query.filter_by(calendar_id=calendar_id).all()
+    return jsonify([event.to_dict() for event in events])
+
+
+@app.route('/admin/calendars/<int:calendar_id>/subscriptions', methods=['POST'])
 @login_required
-def add_event(section_id):
+def add_calendar_subscription(calendar_id):
+    cal = Calendar.query.get_or_404(calendar_id)
+    if Website.query.get_or_404(cal.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    url = (data.get('url') or '').strip()
+    if not url:
+        return jsonify({'success': False, 'error': 'URL is required'}), 400
+
+    sub = CalendarSubscription(
+        calendar_id=calendar_id,
+        name=(data.get('name') or '').strip() or None,
+        url=url,
+    )
+    db.session.add(sub)
+    db.session.commit()
+
+    result = sync_subscription(sub)
+    return jsonify({'success': True, 'subscription': sub.to_dict(), 'sync': result}), 201
+
+
+@app.route('/admin/calendars/<int:calendar_id>/subscriptions/<int:sub_id>/sync', methods=['POST'])
+@login_required
+def sync_one_subscription(calendar_id, sub_id):
+    sub = CalendarSubscription.query.filter_by(id=sub_id, calendar_id=calendar_id).first_or_404()
+    if Website.query.get_or_404(sub.calendar.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    result = sync_subscription(sub)
+    if result['error']:
+        return jsonify({'success': False, 'error': result['error'], 'subscription': sub.to_dict()}), 400
+    return jsonify({'success': True, 'synced': result['synced'], 'subscription': sub.to_dict()})
+
+
+@app.route('/admin/calendars/<int:calendar_id>/subscriptions/<int:sub_id>/delete', methods=['POST'])
+@login_required
+def delete_calendar_subscription(calendar_id, sub_id):
+    sub = CalendarSubscription.query.filter_by(id=sub_id, calendar_id=calendar_id).first_or_404()
+    if Website.query.get_or_404(sub.calendar.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    CalendarEvent.query.filter_by(subscription_id=sub_id).delete()
+    db.session.delete(sub)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/calendars/<int:calendar_id>/sync', methods=['POST'])
+@login_required
+def sync_calendar_now(calendar_id):
+    cal = Calendar.query.get_or_404(calendar_id)
+    if Website.query.get_or_404(cal.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    results = []
+    for sub in cal.subscriptions:
+        r = sync_subscription(sub)
+        results.append({'subscription_id': sub.id, 'name': sub.name or sub.url, **r})
+    return jsonify({'success': True, 'results': results})
+
+
+def _parse_calendar_styles(raw):
+    if not raw or not isinstance(raw, dict):
+        return None
+    allowed = set(CALENDAR_STYLE_DEFAULTS.keys())
+    return {k: v for k, v in raw.items() if k in allowed and isinstance(v, str) and v.strip()}
+
+
+@app.route('/admin/calendars/list', methods=['GET'])
+@login_required
+def list_calendars():
+    website = current_user.websites[0] if current_user.websites else None
+    if not website:
+        return jsonify({'calendars': []})
+    calendars = Calendar.query.filter_by(website_id=website.id).order_by(Calendar.created_at.desc()).all()
+    return jsonify({'calendars': [c.to_dict() for c in calendars]})
+
+
+@app.route('/admin/calendars')
+@login_required
+def admin_calendars_page():
+    website = current_user.websites[0] if current_user.websites else None
+    calendars = []
+    if website:
+        calendars = Calendar.query.filter_by(website_id=website.id).order_by(Calendar.created_at.desc()).all()
+
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    page_id = None
+
+    return render_template(
+        'calendars.html',
+        calendars=calendars,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=page_id
+    )
+
+
+@app.route('/admin/calendars/create', methods=['POST'])
+@login_required
+def create_calendar():
+    data = request.get_json()
+    website = current_user.websites[0] if current_user.websites else None
+    if not website:
+        return jsonify({'success': False, 'error': 'No website found'}), 400
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+    calendar = Calendar(
+        name=name,
+        description=(data.get('description') or '').strip(),
+        website_id=website.id,
+        styles=_parse_calendar_styles(data.get('styles')),
+    )
+    db.session.add(calendar)
+    db.session.commit()
+    return jsonify({'success': True, 'calendar': calendar.to_dict()}), 201
+
+
+@app.route('/admin/calendars/<int:calendar_id>/update', methods=['POST'])
+@login_required
+def update_calendar(calendar_id):
+    calendar = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(calendar.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+    calendar.name = name
+    calendar.description = (data.get('description') or '').strip()
+    calendar.styles = _parse_calendar_styles(data.get('styles'))
+    db.session.commit()
+    return jsonify({'success': True, 'calendar': calendar.to_dict()})
+
+
+@app.route('/admin/calendars/<int:calendar_id>/delete', methods=['POST'])
+@login_required
+def delete_calendar_route(calendar_id):
+    calendar = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(calendar.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    db.session.delete(calendar)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/calendars/<int:calendar_id>/add_event', methods=['POST'])
+@login_required
+def add_calendar_event(calendar_id):
+    calendar = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(calendar.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         data = request.get_json()
-
-        title = data.get('title')
-        description = data.get('description')
-        start_str = data.get('start')
-        end_str = data.get('end')
-        background_color = data.get('backgroundColor')
-
         local_timezone = pytz.timezone('America/Chicago')
 
-        start = parser.parse(str(start_str))
-        end = parser.parse(str(end_str)) if end_str else None
+        start = _parse_event_datetime(data.get('start'), local_timezone)
+        end = _parse_event_datetime(data.get('end'), local_timezone)
 
-        if start.tzinfo is None:
-            start = local_timezone.localize(start)
-        else:
-            start = start.astimezone(local_timezone)
-
-        if end:
-            if end.tzinfo is None:
-                end = local_timezone.localize(end)
-            else:
-                end = end.astimezone(local_timezone)
+        if not start:
+            return jsonify({'error': 'Start date is required'}), 400
 
         event = CalendarEvent(
-            title=title,
-            description=description,
+            title=data.get('title'),
+            description=data.get('description'),
             start=start,
             end=end,
-            background_color=background_color,
-            section_id=section_id
+            background_color=data.get('backgroundColor'),
+            calendar_id=calendar_id
         )
-
         db.session.add(event)
         db.session.commit()
-
-        return jsonify({
-            'message': 'Event added successfully',
-            'event': event.to_dict()
-        }), 201
+        return jsonify({'message': 'Event added successfully', 'event': event.to_dict()}), 201
 
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/page/<int:section_id>/events', methods=['GET'])
-def get_events(section_id):
-    events = CalendarEvent.query.filter_by(section_id=section_id).all()
-    return jsonify([event.to_dict() for event in events])
-
-
-@app.route('/page/<int:section_id>/update_event', methods=['POST'])
+@app.route('/admin/calendars/<int:calendar_id>/update_event', methods=['POST'])
 @login_required
-def update_event(section_id):
+def update_calendar_event(calendar_id):
+    calendar = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(calendar.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         data = request.get_json()
         event_id = data.get('id')
-
         if not event_id:
             return jsonify({'message': 'Event id is required'}), 400
 
-        event = CalendarEvent.query.filter_by(id=event_id, section_id=section_id).first()
+        event = CalendarEvent.query.filter_by(id=event_id, calendar_id=calendar_id).first()
         if not event:
             return jsonify({'message': 'Event not found'}), 404
 
         local_timezone = pytz.timezone('America/Chicago')
-
-        start = parser.parse(str(data.get('start'))) if data.get('start') else None
-        end = parser.parse(str(data.get('end'))) if data.get('end') else None
-
-        if start:
-            if start.tzinfo is None:
-                start = local_timezone.localize(start)
-            else:
-                start = start.astimezone(local_timezone)
-
-        if end:
-            if end.tzinfo is None:
-                end = local_timezone.localize(end)
-            else:
-                end = end.astimezone(local_timezone)
+        start = _parse_event_datetime(data.get('start'), local_timezone)
+        end = _parse_event_datetime(data.get('end'), local_timezone)
 
         event.title = data.get('title', event.title)
         event.description = data.get('description', event.description)
-        event.start = start or event.start
+        if start:
+            event.start = start
         event.end = end
         event.background_color = data.get('backgroundColor', event.background_color)
 
         db.session.commit()
-        return jsonify({
-            'message': 'Event updated successfully',
-            'event': event.to_dict()
-        }), 200
+        return jsonify({'message': 'Event updated successfully', 'event': event.to_dict()}), 200
 
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/page/<int:section_id>/delete_event', methods=['POST'])
+@app.route('/admin/calendars/<int:calendar_id>/delete_event', methods=['POST'])
 @login_required
-def delete_event(section_id):
+def delete_calendar_event(calendar_id):
+    calendar = Calendar.query.get_or_404(calendar_id)
+    website = Website.query.get_or_404(calendar.website_id)
+    if website.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         data = request.get_json()
         event_id = data.get('id')
-
         if not event_id:
             return jsonify({'message': 'Event id is required'}), 400
 
-        event = CalendarEvent.query.filter_by(id=event_id, section_id=section_id).first()
+        event = CalendarEvent.query.filter_by(id=event_id, calendar_id=calendar_id).first()
         if event:
             db.session.delete(event)
             db.session.commit()
@@ -10724,9 +11513,37 @@ def get_server_config():
         # else:
         #     print("PublicPageContent already exists. No initialization needed.")
 
+def ensure_default_website(user=None):
+    """Create a default website (and home page) for a user if they don't have one.
+    If no user is provided, operates on the first user in the database."""
+    if user is None:
+        user = User.query.first()
+    if user is None:
+        return
+
+    if user.websites:
+        return
+
+    website = Website(name='My Website', user_id=user.id)
+    db.session.add(website)
+    db.session.flush()
+
+    home_page = PublicPageContent(
+        website_id=website.id,
+        name='Home',
+        slug='home',
+        site_active_status=True,
+        sort_order=0,
+    )
+    db.session.add(home_page)
+    db.session.commit()
+    print(f'Created default website and home page for user "{user.username}".')
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        ensure_default_website()
 
     server_config = get_server_config()
 

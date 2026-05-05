@@ -46,6 +46,16 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    const toolsBtn = document.querySelector('.nav-tools-btn');
+    const toolsDropdown = document.querySelector('.nav-tools-dropdown');
+
+    if (toolsBtn && toolsDropdown) {
+        toolsBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toolsDropdown.classList.toggle('open');
+        });
+    }
+
     document.addEventListener('click', function () {
         if (profileDropdownContent) {
             profileDropdownContent.classList.remove('show');
@@ -53,8 +63,16 @@ document.addEventListener('DOMContentLoaded', function () {
         if (pagesDropdown) {
             pagesDropdown.classList.remove('open');
         }
+        if (toolsDropdown) {
+            toolsDropdown.classList.remove('open');
+        }
     });
 });
+
+function closeNavToolsDropdown() {
+    const toolsDropdown = document.querySelector('.nav-tools-dropdown');
+    if (toolsDropdown) toolsDropdown.classList.remove('open');
+}
 
 
     function updateUnreadMessagesBadge(count) {

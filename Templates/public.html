@@ -3245,25 +3245,50 @@ box-sizing: border-box;
                 </script>
                                 {% endif %}
                                 {% elif section.section_type == 'calendar' %}
-                                <div class="calendar-container section-container" data-section-id="{{ section.id }}">
+                                {% set cal_id = (section.content or {}).get('calendar_id') %}
+                                {% if cal_id %}
+                                {% set cs = (section.content or {}).get('styles') or {} %}
+                                <style>
+                                    #calendar-{{ section.id }} { background-color: {{ cs.get('bg_color','#00000045') }}; }
+                                    #calendar-{{ section.id }} .fc-theme-standard td,
+                                    #calendar-{{ section.id }} .fc-theme-standard th,
+                                    #calendar-{{ section.id }} .fc-theme-standard .fc-scrollgrid { border-color: {{ cs.get('border_color','rgba(255,255,255,0.16)') }} !important; }
+                                    #calendar-{{ section.id }} .fc-col-header,
+                                    #calendar-{{ section.id }} .fc-col-header-cell,
+                                    #calendar-{{ section.id }} .fc-scrollgrid-section-header th,
+                                    #calendar-{{ section.id }} .fc-col-header-cell { background: {{ cs.get('header_bg','rgba(0,0,0,0.28)') }} !important; }
+                                    #calendar-{{ section.id }} .fc-col-header-cell-cushion,
+                                    #calendar-{{ section.id }} .fc-toolbar-title,
+                                    #calendar-{{ section.id }} .fc-daygrid-day-number { color: {{ cs.get('text_color','#ffffff') }} !important; text-decoration: none; }
+                                    #calendar-{{ section.id }} .fc-day-other .fc-daygrid-day-number { color: {{ cs.get('text_color','#ffffff') }}; opacity: 0.4; }
+                                    #calendar-{{ section.id }} .fc-button { background: {{ cs.get('btn_bg','rgba(255,255,255,0.10)') }} !important; color: {{ cs.get('btn_text','#ffffff') }} !important; border-color: {{ cs.get('border_color','rgba(255,255,255,0.16)') }} !important; }
+                                    #calendar-{{ section.id }} .fc-button:hover { filter: brightness(1.15); }
+                                    #calendar-{{ section.id }} .fc-day-today { background: {{ cs.get('today_color','rgba(126,226,204,0.14)') }} !important; }
+                                    .calendar-container[data-calendar-id="{{ cal_id }}"] .calendar-subscribe-button,
+                                    .calendar-container[data-calendar-id="{{ cal_id }}"] .calendar-copy-button { background: {{ cs.get('subscribe_bg','rgba(255,255,255,0.10)') }} !important; color: {{ cs.get('subscribe_text','#ffffff') }} !important; border-color: {{ cs.get('border_color','rgba(255,255,255,0.16)') }} !important; }
+                                </style>
+                                <div class="calendar-container section-container" data-calendar-id="{{ cal_id }}">
                                     <div id="calendar-{{ section.id }}" class="calendar"></div>
-                                    <!-- Add a button to subscribe to this section's calendar -->
                                     <div class="calendar-subscribe-row">
-                                        <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}"
+                                        <a href="{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True) }}"
                                             class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
                                             Subscribe to Calendar
                                         </a>
-                                        <a href="{{ url_for('calendar_events_feed', section_id=section.id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
+                                        <a href="{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
                                             class="calendar-subscribe-button">
                                             Open in Calendar App
                                         </a>
-
                                         <button type="button" class="calendar-copy-button"
-                                            onclick="copyCalendarFeedUrl('{{ url_for('calendar_events_feed', section_id=section.id, _external=True) }}')">
+                                            onclick="copyCalendarFeedUrl('{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True) }}')">
                                             Copy Calendar Link
                                         </button>
                                     </div>
                                 </div>
+                                {% else %}
+                                <div class="calendar-container section-container" style="display:flex;align-items:center;justify-content:center;min-height:120px;color:rgba(255,255,255,0.4);font-size:0.9rem;">
+                                    Calendar not configured
+                                </div>
+                                {% endif %}
 
                                 {% elif section.section_type == 'comments' %}
     {% set comments_content = section.content or {} %}
@@ -3637,27 +3662,17 @@ document.body.style.color = text_color;
 
 
         const pageId = "{{ content.page_id }}";
-        // Function to fetch events from the backend
-        function fetchEvents(sectionId, successCallback, failureCallback) {
-            // Fetch events from the backend using the provided sectionId
-            return fetch(`/page/${sectionId}/events`)
+        function fetchEvents(calendarId, successCallback, failureCallback) {
+            return fetch(`/calendar/${calendarId}/events`)
                 .then(response => response.json())
-                .then(events => {
-                    console.log('Fetched Events:', events); // Log fetched events
-                    // Invoke the success callback with the fetched events
-                    successCallback(events);
-                })
-                .catch(error => {
-                    // Invoke the failure callback if an error occurs
-                    failureCallback(error);
-                });
+                .then(events => { successCallback(events); })
+                .catch(error => { failureCallback(error); });
         }
 
         // Initialize the calendar
-        function initializeCalendar(sectionId, pageId) {
-            console.log('Initializing calendar for section ID:', sectionId);
+        function initializeCalendar(sectionId, calendarId) {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
-            console.log('Calendar element:', calendarEl);
+            if (!calendarEl) return;
 
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
@@ -3669,7 +3684,7 @@ document.body.style.color = text_color;
                 showNonCurrentDates: true,
 
                 events: (info, successCallback, failureCallback) => {
-                    fetchEvents(sectionId, successCallback, failureCallback);
+                    fetchEvents(calendarId, successCallback, failureCallback);
                 },
                 eventClick: function (info) {
                     // Display a modal or popover with event details when clicked
@@ -3700,10 +3715,14 @@ document.body.style.color = text_color;
 
         // Call initializeCalendar for each calendar section
         document.addEventListener('DOMContentLoaded', function () {
-            const calendarSections = document.querySelectorAll('.calendar-container');
-            calendarSections.forEach(function (section) {
-                const sectionId = section.getAttribute('data-section-id');
-                initializeCalendar(sectionId);
+            const calendarSections = document.querySelectorAll('.calendar-container[data-calendar-id]');
+            calendarSections.forEach(function (container) {
+                const calendarId = container.getAttribute('data-calendar-id');
+                const calEl = container.querySelector('.calendar');
+                if (calEl && calendarId) {
+                    const sectionId = calEl.id.replace('calendar-', '');
+                    initializeCalendar(sectionId, calendarId);
+                }
             });
         });
 

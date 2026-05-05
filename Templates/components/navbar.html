@@ -37,10 +37,22 @@
             <i class="fab fa-dropbox"></i>
         </a>
     <!-- </div> -->
-    <!-- <div class="nav-colors"> -->
-        <button type="button" class="nav-link-btn" onclick="toggleGlobalColorPalette()">
-            <i class="fas fa-palette"></i>
-        </button>
+    <!-- <div class="nav-tools"> -->
+        <div class="nav-tools-dropdown">
+            <button type="button" class="nav-link-btn nav-tools-btn">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="nav-tools-dropdown-content" id="navToolsDropdownContent">
+                <a href="#" class="nav-tools-item" onclick="toggleGlobalColorPalette(); closeNavToolsDropdown(); return false;">
+                    <i class="fas fa-palette"></i>
+                    <span>Color Palette</span>
+                </a>
+                <a href="{{ url_for('admin_calendars_page') }}" class="nav-tools-item">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span>Calendars</span>
+                </a>
+            </div>
+        </div>
     </div>
 
     <div class="nav-right">

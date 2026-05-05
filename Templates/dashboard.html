@@ -466,6 +466,96 @@
             /* Darker background on hover */
         }
 
+        /* ── Add Page / Template Modal ── */
+        .add-page-modal-content { max-width: 520px; }
+
+        .add-page-step h5 { margin: 0 0 16px; font-size: 1rem; }
+
+        .add-page-blank-option {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            border: 2px dashed rgba(255,255,255,0.15);
+            border-radius: 12px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .add-page-blank-option:hover { border-color: #7b61ff; background: rgba(123,97,255,0.08); }
+        .add-page-blank-option i { font-size: 1.4rem; opacity: 0.5; }
+        .add-page-opt-label { font-weight: 700; font-size: 0.9rem; }
+        .add-page-opt-sub { font-size: 0.78rem; color: rgba(255,255,255,0.45); }
+
+        .add-page-templates-header {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: rgba(255,255,255,0.4);
+            margin-bottom: 8px;
+        }
+
+        .add-page-template-list { display: flex; flex-direction: column; gap: 7px; max-height: 300px; overflow-y: auto; }
+
+        .add-page-tmpl-loading, .add-page-tmpl-empty {
+            font-size: 0.83rem;
+            color: rgba(255,255,255,0.4);
+            padding: 8px 0;
+        }
+
+        .add-page-tmpl-card {
+            display: flex;
+            align-items: stretch;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .add-page-tmpl-card:hover { border-color: rgba(123,97,255,0.4); }
+
+        .add-page-tmpl-body {
+            flex: 1;
+            padding: 10px 14px;
+            cursor: pointer;
+            min-width: 0;
+        }
+        .add-page-tmpl-name { font-weight: 600; font-size: 0.88rem; margin-bottom: 2px; }
+        .add-page-tmpl-meta { font-size: 0.74rem; color: rgba(255,255,255,0.42); }
+        .add-page-tmpl-desc { font-size: 0.76rem; color: rgba(255,255,255,0.35); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .add-page-tmpl-delete {
+            width: 36px;
+            background: none;
+            border: none;
+            border-left: 1px solid rgba(255,255,255,0.07);
+            color: rgba(255,255,255,0.3);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: background 0.2s, color 0.2s;
+        }
+        .add-page-tmpl-delete:hover { background: rgba(255,80,80,0.12); color: #ff6b6b; }
+
+        .add-page-step2-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .add-page-step2-header h5 { margin: 0; flex: 1; font-size: 1rem; }
+        .add-page-back-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 7px;
+            color: #ccc;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            transition: background 0.2s;
+        }
+        .add-page-back-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+
         /* Form Input */
         .form-control {
             padding: 10px;
@@ -2172,28 +2262,51 @@
                 </form>
                 <!-- Add Page Modal -->
                 <div id="addPageModal_{{ website.id }}" class="modal">
-                    <div class="modal-content">
-                        <span class="close" onclick="closeModal('addPageModal_{{ website.id }}')">&times;</span>
-                        <h5>Add Page</h5>
-                        <form id="addPageForm_{{ website.id }}"
-                            action="{{ url_for('create_page', website_id=website.id) }}" method="POST">
+                    <div class="modal-content add-page-modal-content">
+
+                        <!-- Step 1: Choose blank or template -->
+                        <div id="addPageStep1_{{ website.id }}" class="add-page-step">
+                            <span class="close" onclick="closeModal('addPageModal_{{ website.id }}')">&times;</span>
+                            <h5>Add Page</h5>
+
+                            <div class="add-page-blank-option" onclick="selectPageBlank('{{ website.id }}')">
+                                <i class="fas fa-file"></i>
+                                <div>
+                                    <div class="add-page-opt-label">Blank Page</div>
+                                    <div class="add-page-opt-sub">Start with an empty page</div>
+                                </div>
+                            </div>
+
+                            <div class="add-page-templates-header">Saved Templates</div>
+                            <div id="pageTemplateList_{{ website.id }}" class="add-page-template-list">
+                                <div class="add-page-tmpl-loading">Loading…</div>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Page details form -->
+                        <div id="addPageStep2_{{ website.id }}" class="add-page-step" style="display:none;">
+                            <div class="add-page-step2-header">
+                                <button type="button" class="add-page-back-btn" onclick="backToPageStep1('{{ website.id }}')">
+                                    <i class="fas fa-arrow-left"></i>
+                                </button>
+                                <h5 id="addPageStep2Title_{{ website.id }}">New Page</h5>
+                                <span class="close" onclick="closeModal('addPageModal_{{ website.id }}')">&times;</span>
+                            </div>
+                            <input type="hidden" id="addPageTemplateId_{{ website.id }}" value="">
                             <div class="modal-body">
                                 <p>Page Name</p>
-                                <input type="text" id="addPageName_{{ website.id }}" name="name" class="form-control"
-                                    placeholder="Page Name" required>
+                                <input type="text" id="addPageName_{{ website.id }}" class="form-control" placeholder="Page Name" required>
                                 <p>Page Description</p>
-                                <textarea id="editPageDescription_{{ website.id }}" name="description"
-                                    class="form-control" placeholder="Page Description"></textarea>
+                                <textarea id="addPageDesc_{{ website.id }}" class="form-control" placeholder="Page Description"></textarea>
                                 <p>Tags (comma-separated)</p>
-                                <input type="text" id="addPageTags_{{ website.id }}" name="tags" class="form-control"
-                                    placeholder="Tags (comma-separated)">
+                                <input type="text" id="addPageTags_{{ website.id }}" class="form-control" placeholder="Tags (comma-separated)">
                             </div>
                             <div class="modal-footer">
-                                <button type="button"
-                                    onclick="closeModal('addPageModal_{{ website.id }}')">Close</button>
-                                <button type="submit">Create</button>
+                                <button type="button" onclick="closeModal('addPageModal_{{ website.id }}')">Close</button>
+                                <button type="button" id="addPageSubmitBtn_{{ website.id }}" onclick="submitAddPage('{{ website.id }}')">Create</button>
                             </div>
-                        </form>
+                        </div>
+
                     </div>
                 </div>
                 <div class="dashboard-folder-section">
@@ -2251,6 +2364,11 @@
                                     <button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-copy"></i>
                                         Duplicate Page
+                                    </button>
+
+                                    <button type="button" onclick="openSavePageTemplateModal('{{ page.id }}', '{{ page.name | e }}')">
+                                        <i class="fas fa-bookmark"></i>
+                                        Save as Template
                                     </button>
 
                                     {% if page.slug == 'home' %}
@@ -2505,6 +2623,11 @@
                                                     Duplicate Page
                                                 </button>
 
+                                                <button type="button" onclick="openSavePageTemplateModal('{{ page.id }}', '{{ page.name | e }}')">
+                                                    <i class="fas fa-bookmark"></i>
+                                                    Save as Template
+                                                </button>
+
                                                 {% if page.slug == 'home' %}
                                                 <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
                                                     <i class="fas fa-random"></i>
@@ -2705,6 +2828,29 @@
                 </button>
             </div>
         </div>
+        <!-- Save Page as Template Modal (global, shared across all pages) -->
+        {% if loop.first %}
+        <div id="savePageTemplateModal" class="modal">
+            <div class="modal-content" style="max-width:420px;">
+                <span class="close" onclick="closeSavePageTemplateModal()">&times;</span>
+                <h5>Save Page as Template</h5>
+                <form onsubmit="submitSavePageTemplate(event)">
+                    <input type="hidden" id="savePageTemplatePageId">
+                    <div class="modal-body">
+                        <p>Template Name</p>
+                        <input type="text" id="savePageTemplateName" class="form-control" placeholder="Template name" required>
+                        <p>Description <span style="opacity:0.5;font-weight:normal;">(optional)</span></p>
+                        <textarea id="savePageTemplateDesc" class="form-control" placeholder="Optional description" rows="2"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" onclick="closeSavePageTemplateModal()">Cancel</button>
+                        <button type="submit" id="savePageTemplateSubmitBtn">Save Template</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Edit Website Modal -->
         <div id="editWebsiteModal_{{ website.id }}" class="modal modal-content">
             <span class="close" onclick="closeModal('editWebsiteModal_{{ website.id }}')">&times;</span>
@@ -4915,20 +5061,213 @@
             function openAddPageModal(websiteId) {
                 var modal = document.getElementById('addPageModal_' + websiteId);
                 var overlay = document.querySelector('.modal-overlay');
-                if (modal) {
-                    modal.style.display = "block";
-                }
+                if (modal) modal.style.display = 'block';
                 if (!overlay) {
                     overlay = document.createElement('div');
                     overlay.classList.add('modal-overlay');
-                    document.body.appendChild(overlay); // Append overlay to body if it doesn't exist
+                    document.body.appendChild(overlay);
                 }
-                overlay.style.display = "block"; // Display overlay
+                overlay.style.display = 'block';
+
+                // Reset to step 1
+                showAddPageStep(websiteId, 1);
+
+                // Load templates
+                loadPageTemplates(websiteId);
+            }
+
+            function showAddPageStep(websiteId, step) {
+                document.getElementById('addPageStep1_' + websiteId).style.display = step === 1 ? 'block' : 'none';
+                document.getElementById('addPageStep2_' + websiteId).style.display = step === 2 ? 'block' : 'none';
+            }
+
+            function backToPageStep1(websiteId) {
+                showAddPageStep(websiteId, 1);
+            }
+
+            function selectPageBlank(websiteId) {
+                document.getElementById('addPageTemplateId_' + websiteId).value = '';
+                document.getElementById('addPageStep2Title_' + websiteId).textContent = 'New Blank Page';
+                document.getElementById('addPageName_' + websiteId).value = '';
+                showAddPageStep(websiteId, 2);
+                setTimeout(() => document.getElementById('addPageName_' + websiteId).focus(), 50);
+            }
+
+            function selectPageTemplate(websiteId, templateId, templateName) {
+                document.getElementById('addPageTemplateId_' + websiteId).value = templateId;
+                document.getElementById('addPageStep2Title_' + websiteId).textContent = 'From: ' + templateName;
+                document.getElementById('addPageName_' + websiteId).value = '';
+                showAddPageStep(websiteId, 2);
+                setTimeout(() => document.getElementById('addPageName_' + websiteId).focus(), 50);
+            }
+
+            async function loadPageTemplates(websiteId) {
+                const list = document.getElementById('pageTemplateList_' + websiteId);
+                if (!list) return;
+                list.innerHTML = '<div class="add-page-tmpl-loading">Loading…</div>';
+                try {
+                    const r = await fetch('/admin/page_templates');
+                    const data = await r.json();
+                    renderPageTemplates(websiteId, data.templates || []);
+                } catch(e) {
+                    list.innerHTML = '<div class="add-page-tmpl-loading">Failed to load templates.</div>';
+                }
+            }
+
+            function renderPageTemplates(websiteId, templates) {
+                const list = document.getElementById('pageTemplateList_' + websiteId);
+                if (!list) return;
+                if (!templates.length) {
+                    list.innerHTML = '<div class="add-page-tmpl-empty">No templates yet.<br>Use <strong>Save as Template</strong> on any page to create one.</div>';
+                    return;
+                }
+                list.innerHTML = '';
+                templates.forEach(tmpl => {
+                    const card = document.createElement('div');
+                    card.className = 'add-page-tmpl-card';
+                    const meta = [
+                        tmpl.group_count + ' group' + (tmpl.group_count !== 1 ? 's' : ''),
+                        tmpl.section_count + ' section' + (tmpl.section_count !== 1 ? 's' : '')
+                    ].join(' · ');
+
+                    const body = document.createElement('div');
+                    body.className = 'add-page-tmpl-body';
+                    body.innerHTML = `
+                        <div class="add-page-tmpl-name"></div>
+                        <div class="add-page-tmpl-meta">${meta}</div>
+                        ${tmpl.description ? `<div class="add-page-tmpl-desc"></div>` : ''}
+                    `;
+                    body.querySelector('.add-page-tmpl-name').textContent = tmpl.name;
+                    if (tmpl.description) body.querySelector('.add-page-tmpl-desc').textContent = tmpl.description;
+                    body.addEventListener('click', () => selectPageTemplate(websiteId, tmpl.id, tmpl.name));
+
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'add-page-tmpl-delete';
+                    delBtn.title = 'Delete template';
+                    delBtn.innerHTML = '<i class="fas fa-times"></i>';
+                    delBtn.addEventListener('click', () => deletePageTemplate(tmpl.id, websiteId, delBtn));
+
+                    card.appendChild(body);
+                    card.appendChild(delBtn);
+                    list.appendChild(card);
+                });
+            }
+
+            async function deletePageTemplate(templateId, websiteId, btn) {
+                if (!confirm('Delete this template?')) return;
+                const r = await fetch(`/admin/page_templates/${templateId}/delete`, { method: 'POST' });
+                const data = await r.json();
+                if (data.success) {
+                    btn.closest('.add-page-tmpl-card').remove();
+                    const list = document.getElementById('pageTemplateList_' + websiteId);
+                    if (list && !list.querySelector('.add-page-tmpl-card')) {
+                        list.innerHTML = '<div class="add-page-tmpl-empty">No templates yet.<br>Use <strong>Save as Template</strong> on any page to create one.</div>';
+                    }
+                }
+            }
+
+            async function submitAddPage(websiteId) {
+                const templateId = document.getElementById('addPageTemplateId_' + websiteId).value;
+                const name = (document.getElementById('addPageName_' + websiteId).value || '').trim();
+                const description = (document.getElementById('addPageDesc_' + websiteId).value || '').trim();
+                const tags = (document.getElementById('addPageTags_' + websiteId).value || '').trim();
+
+                if (!name) {
+                    document.getElementById('addPageName_' + websiteId).focus();
+                    return;
+                }
+
+                const btn = document.getElementById('addPageSubmitBtn_' + websiteId);
+                if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+
+                if (templateId) {
+                    try {
+                        const r = await fetch(`/create_page_from_template/${websiteId}/${templateId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, description, tags })
+                        });
+                        const data = await r.json();
+                        if (data.success) {
+                            window.location.href = data.editor_url;
+                        } else {
+                            alert(data.error || 'Failed to create page');
+                            if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+                        }
+                    } catch(e) {
+                        console.error(e);
+                        if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+                    }
+                } else {
+                    // Blank page — submit a real form POST
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = `/create_page/${websiteId}`;
+                    [['name', name], ['description', description], ['tags', tags]].forEach(([k, v]) => {
+                        const inp = document.createElement('input');
+                        inp.type = 'hidden'; inp.name = k; inp.value = v;
+                        form.appendChild(inp);
+                    });
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            }
+
+            /* ── Save Page as Template ── */
+
+            function openSavePageTemplateModal(pageId, pageName) {
+                document.getElementById('savePageTemplatePageId').value = pageId;
+                document.getElementById('savePageTemplateName').value = pageName;
+                document.getElementById('savePageTemplateDesc').value = '';
+                const modal = document.getElementById('savePageTemplateModal');
+                if (modal) modal.style.display = 'block';
+                const overlay = document.querySelector('.modal-overlay') || (() => {
+                    const o = document.createElement('div'); o.className = 'modal-overlay'; document.body.appendChild(o); return o;
+                })();
+                overlay.style.display = 'block';
+                setTimeout(() => document.getElementById('savePageTemplateName').select(), 50);
+            }
+
+            function closeSavePageTemplateModal() {
+                const modal = document.getElementById('savePageTemplateModal');
+                if (modal) modal.style.display = 'none';
+                const overlay = document.querySelector('.modal-overlay');
+                if (overlay) overlay.style.display = 'none';
+            }
+
+            async function submitSavePageTemplate(e) {
+                e.preventDefault();
+                const pageId = document.getElementById('savePageTemplatePageId').value;
+                const name = document.getElementById('savePageTemplateName').value.trim();
+                const description = document.getElementById('savePageTemplateDesc').value.trim();
+                const btn = document.getElementById('savePageTemplateSubmitBtn');
+                btn.disabled = true; btn.textContent = 'Saving…';
+
+                try {
+                    const r = await fetch(`/admin/page_templates/save/${pageId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, description })
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        closeSavePageTemplateModal();
+                        alert(`Template "${name}" saved successfully.`);
+                    } else {
+                        alert(data.error || 'Failed to save template');
+                    }
+                } catch(e) {
+                    console.error(e);
+                } finally {
+                    btn.disabled = false; btn.textContent = 'Save Template';
+                }
             }
 
             function closeModal(modalId) {
                 var modal = document.getElementById(modalId);
-                modal.style.display = 'none';
+                if (modal) modal.style.display = 'none';
+                const overlay = document.querySelector('.modal-overlay');
+                if (overlay) overlay.style.display = 'none';
             }
 
             // Function to handle form submission for editing website
