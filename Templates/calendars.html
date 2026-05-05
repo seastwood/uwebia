@@ -1,0 +1,536 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css' rel='stylesheet' />
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<div class="calendars-page">
+    <div class="calendars-header">
+        <div>
+            <p class="calendars-kicker">Admin</p>
+            <h1 class="calendars-title">Calendars</h1>
+        </div>
+        <button class="btn-create-calendar" onclick="openCreateCalendarModal()">
+            <i class="fas fa-plus"></i> New Calendar
+        </button>
+    </div>
+
+    {% if calendars %}
+    <div class="calendars-list" id="calendarsList">
+        {% for cal in calendars %}
+        <div class="calendar-card" id="calendarCard-{{ cal.id }}" data-calendar-id="{{ cal.id }}">
+            <div class="calendar-card-header">
+                <div class="calendar-card-title-row">
+                    <h2 class="calendar-card-name">{{ cal.name }}</h2>
+                    <div class="calendar-card-actions">
+                        <button class="btn-icon" title="Edit" onclick="openEditCalendarModal({{ cal.id }}, '{{ cal.name | e }}', '{{ (cal.description or '') | e }}')">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="btn-icon btn-danger-icon" title="Delete" onclick="confirmDeleteCalendar({{ cal.id }}, '{{ cal.name | e }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% if cal.description %}
+                <p class="calendar-card-desc">{{ cal.description }}</p>
+                {% endif %}
+
+                <div class="calendar-meta-row">
+                    <div class="calendar-feed-row">
+                        <span class="calendar-meta-label"><i class="fas fa-rss"></i> Your feed:</span>
+                        <code class="calendar-feed-url" id="feedUrl-{{ cal.id }}">{{ request.url_root.rstrip('/') }}/calendar/{{ cal.id }}.ics</code>
+                        <button class="btn-copy" onclick="copyFeedUrl({{ cal.id }})">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+
+                    <div class="calendar-subscriptions-section">
+                        <div class="cal-sub-section-header">
+                            <span><i class="fas fa-link"></i> External Sources</span>
+                            <button class="btn-add-sub" onclick="toggleAddSubForm({{ cal.id }})">
+                                <i class="fas fa-plus"></i> Add
+                            </button>
+                        </div>
+
+                        <div class="cal-add-sub-form" id="addSubForm-{{ cal.id }}" style="display:none;">
+                            <input type="text" class="cal-sub-input" id="subName-{{ cal.id }}" placeholder="Label (optional)">
+                            <input type="url" class="cal-sub-input" id="subUrl-{{ cal.id }}" placeholder="webcal:// or https://… iCal URL" required>
+                            <div class="cal-add-sub-actions">
+                                <button class="btn-secondary" type="button" onclick="toggleAddSubForm({{ cal.id }})">Cancel</button>
+                                <button class="btn-primary" type="button" onclick="addSubscription({{ cal.id }})">Add &amp; Sync</button>
+                            </div>
+                        </div>
+
+                        <div id="subList-{{ cal.id }}">
+                            {% if cal.subscriptions %}
+                            {% for sub in cal.subscriptions %}
+                            <div class="cal-sub-row" id="subRow-{{ sub.id }}">
+                                <div class="cal-sub-info">
+                                    <span class="cal-sub-name">{{ sub.name or sub.url | truncate(40) }}</span>
+                                    {% if sub.last_sync_error %}
+                                    <span class="cal-sub-error" title="{{ sub.last_sync_error }}"><i class="fas fa-exclamation-triangle"></i> Sync error</span>
+                                    {% elif sub.last_synced_at %}
+                                    <span class="cal-sub-status">{{ sub.event_count or 0 }} events · {{ sub.last_synced_at.strftime('%b %d %I:%M %p') }}</span>
+                                    {% else %}
+                                    <span class="cal-sub-status">Never synced</span>
+                                    {% endif %}
+                                </div>
+                                <div class="cal-sub-actions">
+                                    <button class="btn-sync-small" onclick="syncSubscription({{ cal.id }}, {{ sub.id }})" id="syncSubBtn-{{ sub.id }}" title="Sync now">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                    <button class="btn-icon btn-danger-icon" onclick="deleteSubscription({{ cal.id }}, {{ sub.id }})" title="Remove">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                            {% else %}
+                            <p class="cal-sub-empty" id="subEmpty-{{ cal.id }}">No external sources. Add one to sync events from Apple Calendar, Google, etc.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="calendar-stats" id="calendarStats-{{ cal.id }}">
+                        <span class="calendar-stat">
+                            <i class="fas fa-users"></i>
+                            <span id="stat7d-{{ cal.id }}">—</span> active (7d)
+                        </span>
+                        <span class="calendar-stat">
+                            <i class="fas fa-calendar-check"></i>
+                            <span id="stat30d-{{ cal.id }}">—</span> active (30d)
+                        </span>
+                        <span class="calendar-stat">
+                            <i class="fas fa-history"></i>
+                            <span id="statTotal-{{ cal.id }}">—</span> total
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="calendar-card-body">
+                <div class="calendar-add-event-row">
+                    <button class="btn-add-event" onclick="openAddEventModal({{ cal.id }})">
+                        <i class="fas fa-plus"></i> Add Event
+                    </button>
+                </div>
+                <div id="fc-{{ cal.id }}" class="fc-wrapper"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="calendars-empty" id="calendarsEmpty">
+        <i class="fas fa-calendar-alt"></i>
+        <p>No calendars yet.</p>
+        <p class="calendars-empty-sub">Create your first calendar to get started.</p>
+        <button class="btn-create-calendar" onclick="openCreateCalendarModal()">
+            <i class="fas fa-plus"></i> New Calendar
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Create / Edit Calendar Modal -->
+<div class="cal-modal-overlay" id="calModalOverlay" style="display:none;">
+    <div class="cal-modal">
+        <button class="cal-modal-close" onclick="closeCalModal()">&times;</button>
+        <h3 class="cal-modal-title" id="calModalTitle">New Calendar</h3>
+        <form id="calModalForm" onsubmit="submitCalendarForm(event)">
+            <input type="hidden" id="calModalCalendarId" value="">
+            <div class="cal-form-row">
+                <label for="calModalName">Name</label>
+                <input type="text" id="calModalName" placeholder="My Calendar" required>
+            </div>
+            <div class="cal-form-row">
+                <label for="calModalDesc">Description</label>
+                <textarea id="calModalDesc" rows="2" placeholder="Optional description"></textarea>
+            </div>
+            <div class="cal-form-actions">
+                <button type="button" class="btn-secondary" onclick="closeCalModal()">Cancel</button>
+                <button type="submit" class="btn-primary" id="calModalSubmitBtn">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add / Edit Event Modal -->
+<div class="cal-modal-overlay" id="eventModalOverlay" style="display:none;">
+    <div class="cal-modal">
+        <button class="cal-modal-close" onclick="closeEventModal()">&times;</button>
+        <h3 class="cal-modal-title" id="eventModalTitle">Add Event</h3>
+        <form id="eventModalForm" onsubmit="submitEventForm(event)">
+            <input type="hidden" id="eventModalCalendarId" value="">
+            <input type="hidden" id="eventModalEventId" value="">
+            <div class="cal-form-row">
+                <label for="eventTitle">Title</label>
+                <input type="text" id="eventTitle" placeholder="Event title" required>
+            </div>
+            <div class="cal-form-row-2col">
+                <div class="cal-form-row">
+                    <label for="eventStartDate">Start Date</label>
+                    <input type="date" id="eventStartDate" required>
+                </div>
+                <div class="cal-form-row">
+                    <label for="eventStartTime">Start Time</label>
+                    <input type="time" id="eventStartTime" value="00:00">
+                </div>
+            </div>
+            <div class="cal-form-row-2col">
+                <div class="cal-form-row">
+                    <label for="eventEndDate">End Date</label>
+                    <input type="date" id="eventEndDate">
+                </div>
+                <div class="cal-form-row">
+                    <label for="eventEndTime">End Time</label>
+                    <input type="time" id="eventEndTime" value="23:59">
+                </div>
+            </div>
+            <div class="cal-form-row">
+                <label for="eventColor">Color</label>
+                <input type="color" id="eventColor" value="#3b82f6">
+            </div>
+            <div class="cal-form-row">
+                <label for="eventDescription">Description</label>
+                <textarea id="eventDescription" rows="3"></textarea>
+            </div>
+            <div class="cal-form-actions">
+                <button type="button" class="btn-danger" id="eventDeleteBtn" style="display:none;" onclick="deleteCurrentEvent()">Delete</button>
+                <div style="display:flex; gap:10px; margin-left:auto;">
+                    <button type="button" class="btn-secondary" onclick="closeEventModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const fullCalendarInstances = {};
+
+    document.addEventListener('DOMContentLoaded', function () {
+        {% for cal in calendars %}
+        initCalendar({{ cal.id }});
+        loadSubscriberStats({{ cal.id }});
+        {% endfor %}
+    });
+
+    function initCalendar(calendarId) {
+        const el = document.getElementById(`fc-${calendarId}`);
+        if (!el) return;
+
+        const fc = new FullCalendar.Calendar(el, {
+            initialView: 'dayGridMonth',
+            aspectRatio: 1.8,
+            events: (info, success, failure) => {
+                fetch(`/calendar/${calendarId}/events`)
+                    .then(r => r.json())
+                    .then(success)
+                    .catch(failure);
+            },
+            editable: true,
+            selectable: true,
+            dateClick: function (info) {
+                openAddEventModal(calendarId, info.dateStr);
+            },
+            eventClick: function (info) {
+                openEditEventModal(calendarId, info.event);
+            },
+            eventChange: function (info) {
+                const ev = info.event;
+                const payload = {
+                    id: ev.id,
+                    title: ev.title,
+                    start: ev.startStr,
+                    end: ev.endStr || null,
+                    backgroundColor: ev.backgroundColor,
+                    description: ev.extendedProps.description || ''
+                };
+                fetch(`/admin/calendars/${calendarId}/update_event`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }).catch(err => console.error(err));
+            }
+        });
+
+        fc.render();
+        fullCalendarInstances[calendarId] = fc;
+    }
+
+    async function loadSubscriberStats(calendarId) {
+        try {
+            const r = await fetch(`/admin/calendar/${calendarId}/subscriber_count`);
+            const data = await r.json();
+            if (data.success) {
+                document.getElementById(`stat7d-${calendarId}`).textContent = data.active_7_days;
+                document.getElementById(`stat30d-${calendarId}`).textContent = data.active_30_days;
+                document.getElementById(`statTotal-${calendarId}`).textContent = data.total_seen;
+            }
+        } catch (e) {}
+    }
+
+    function copyFeedUrl(calendarId) {
+        const url = document.getElementById(`feedUrl-${calendarId}`).textContent;
+        navigator.clipboard.writeText(url).then(() => {
+            showToast('Feed URL copied!');
+        });
+    }
+
+    /* ── Calendar CRUD ── */
+
+    function openCreateCalendarModal() {
+        document.getElementById('calModalTitle').textContent = 'New Calendar';
+        document.getElementById('calModalCalendarId').value = '';
+        document.getElementById('calModalName').value = '';
+        document.getElementById('calModalDesc').value = '';
+        document.getElementById('calModalSubmitBtn').textContent = 'Create';
+        showModal('calModalOverlay');
+    }
+
+    function openEditCalendarModal(id, name, desc) {
+        document.getElementById('calModalTitle').textContent = 'Edit Calendar';
+        document.getElementById('calModalCalendarId').value = id;
+        document.getElementById('calModalName').value = name;
+        document.getElementById('calModalDesc').value = desc;
+        document.getElementById('calModalSubmitBtn').textContent = 'Save';
+        showModal('calModalOverlay');
+    }
+
+    async function submitCalendarForm(e) {
+        e.preventDefault();
+        const id = document.getElementById('calModalCalendarId').value;
+        const name = document.getElementById('calModalName').value.trim();
+        const description = document.getElementById('calModalDesc').value.trim();
+
+        const url = id ? `/admin/calendars/${id}/update` : '/admin/calendars/create';
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description })
+        });
+        const data = await r.json();
+        if (data.success) { closeCalModal(); location.reload(); }
+        else { alert(data.error || 'Failed to save calendar'); }
+    }
+
+    /* ── External source subscriptions ── */
+
+    function toggleAddSubForm(calendarId) {
+        const form = document.getElementById(`addSubForm-${calendarId}`);
+        if (!form) return;
+        const open = form.style.display !== 'none';
+        form.style.display = open ? 'none' : 'block';
+        if (!open) document.getElementById(`subUrl-${calendarId}`)?.focus();
+    }
+
+    async function addSubscription(calendarId) {
+        const name = (document.getElementById(`subName-${calendarId}`)?.value || '').trim();
+        const url  = (document.getElementById(`subUrl-${calendarId}`)?.value || '').trim();
+        if (!url) { alert('Please enter a URL'); return; }
+
+        const btn = document.querySelector(`#addSubForm-${calendarId} .btn-primary`);
+        if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+        const r = await fetch(`/admin/calendars/${calendarId}/subscriptions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, url })
+        });
+        const data = await r.json();
+
+        if (btn) { btn.disabled = false; btn.textContent = 'Add & Sync'; }
+
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Failed: ' + (data.error || 'Unknown error'));
+        }
+    }
+
+    async function syncSubscription(calendarId, subId) {
+        const btn = document.getElementById(`syncSubBtn-${subId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>'; }
+
+        const r = await fetch(`/admin/calendars/${calendarId}/subscriptions/${subId}/sync`, { method: 'POST' });
+        const data = await r.json();
+
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i>'; }
+
+        if (data.success) {
+            const row = document.getElementById(`subRow-${subId}`);
+            if (row) {
+                const status = row.querySelector('.cal-sub-status, .cal-sub-error');
+                const sub = data.subscription;
+                if (status) {
+                    status.className = 'cal-sub-status';
+                    status.textContent = `${sub.event_count} events · just now`;
+                }
+            }
+            const fc = fullCalendarInstances[calendarId];
+            if (fc) fc.refetchEvents();
+        } else {
+            alert('Sync failed: ' + (data.error || 'Unknown error'));
+        }
+    }
+
+    async function deleteSubscription(calendarId, subId) {
+        if (!confirm('Remove this external source and its events?')) return;
+        const r = await fetch(`/admin/calendars/${calendarId}/subscriptions/${subId}/delete`, { method: 'POST' });
+        const data = await r.json();
+        if (data.success) {
+            const row = document.getElementById(`subRow-${subId}`);
+            if (row) row.remove();
+            const fc = fullCalendarInstances[calendarId];
+            if (fc) fc.refetchEvents();
+        } else {
+            alert(data.error || 'Failed to remove subscription');
+        }
+    }
+
+    async function confirmDeleteCalendar(id, name) {
+        if (!confirm(`Delete calendar "${name}" and all its events? This cannot be undone.`)) return;
+        const r = await fetch(`/admin/calendars/${id}/delete`, { method: 'POST' });
+        const data = await r.json();
+        if (data.success) {
+            const card = document.getElementById(`calendarCard-${id}`);
+            if (card) card.remove();
+            const remaining = document.querySelectorAll('.calendar-card');
+            if (!remaining.length) {
+                document.getElementById('calendarsList').style.display = 'none';
+                const empty = document.getElementById('calendarsEmpty');
+                if (empty) empty.style.display = 'flex';
+            }
+        } else {
+            alert(data.error || 'Failed to delete calendar');
+        }
+    }
+
+    /* ── Event CRUD ── */
+
+    function openAddEventModal(calendarId, defaultDate) {
+        document.getElementById('eventModalTitle').textContent = 'Add Event';
+        document.getElementById('eventModalCalendarId').value = calendarId;
+        document.getElementById('eventModalEventId').value = '';
+        document.getElementById('eventTitle').value = '';
+        document.getElementById('eventStartDate').value = defaultDate || '';
+        document.getElementById('eventStartTime').value = '00:00';
+        document.getElementById('eventEndDate').value = defaultDate || '';
+        document.getElementById('eventEndTime').value = '23:59';
+        document.getElementById('eventColor').value = '#3b82f6';
+        document.getElementById('eventDescription').value = '';
+        document.getElementById('eventDeleteBtn').style.display = 'none';
+        showModal('eventModalOverlay');
+    }
+
+    function openEditEventModal(calendarId, fcEvent) {
+        document.getElementById('eventModalTitle').textContent = 'Edit Event';
+        document.getElementById('eventModalCalendarId').value = calendarId;
+        document.getElementById('eventModalEventId').value = fcEvent.id;
+        document.getElementById('eventTitle').value = fcEvent.title || '';
+        document.getElementById('eventStartDate').value = fcEvent.startStr ? fcEvent.startStr.split('T')[0] : '';
+        document.getElementById('eventStartTime').value = fcEvent.startStr && fcEvent.startStr.includes('T') ? fcEvent.startStr.split('T')[1].slice(0, 5) : '00:00';
+        document.getElementById('eventEndDate').value = fcEvent.endStr ? fcEvent.endStr.split('T')[0] : '';
+        document.getElementById('eventEndTime').value = fcEvent.endStr && fcEvent.endStr.includes('T') ? fcEvent.endStr.split('T')[1].slice(0, 5) : '23:59';
+        document.getElementById('eventColor').value = fcEvent.backgroundColor || '#3b82f6';
+        document.getElementById('eventDescription').value = fcEvent.extendedProps.description || '';
+        document.getElementById('eventDeleteBtn').style.display = 'block';
+        showModal('eventModalOverlay');
+    }
+
+    async function submitEventForm(e) {
+        e.preventDefault();
+        const calendarId = document.getElementById('eventModalCalendarId').value;
+        const eventId = document.getElementById('eventModalEventId').value;
+
+        const startDate = document.getElementById('eventStartDate').value;
+        const startTime = document.getElementById('eventStartTime').value;
+        const endDate = document.getElementById('eventEndDate').value;
+        const endTime = document.getElementById('eventEndTime').value;
+
+        const payload = {
+            id: eventId || undefined,
+            title: document.getElementById('eventTitle').value,
+            description: document.getElementById('eventDescription').value,
+            start: `${startDate}T${startTime}`,
+            end: endDate ? `${endDate}T${endTime}` : null,
+            backgroundColor: document.getElementById('eventColor').value
+        };
+
+        const url = eventId
+            ? `/admin/calendars/${calendarId}/update_event`
+            : `/admin/calendars/${calendarId}/add_event`;
+
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+
+        if (r.ok) {
+            closeEventModal();
+            const fc = fullCalendarInstances[calendarId];
+            if (fc) fc.refetchEvents();
+        } else {
+            alert(data.error || 'Failed to save event');
+        }
+    }
+
+    async function deleteCurrentEvent() {
+        const calendarId = document.getElementById('eventModalCalendarId').value;
+        const eventId = document.getElementById('eventModalEventId').value;
+        const title = document.getElementById('eventTitle').value;
+
+        if (!confirm(`Delete event "${title}"?`)) return;
+
+        const r = await fetch(`/admin/calendars/${calendarId}/delete_event`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: eventId })
+        });
+        const data = await r.json();
+        if (r.ok) {
+            closeEventModal();
+            const fc = fullCalendarInstances[calendarId];
+            if (fc) fc.refetchEvents();
+        } else {
+            alert(data.error || 'Failed to delete event');
+        }
+    }
+
+    /* ── Helpers ── */
+
+    function showModal(id) {
+        document.getElementById(id).style.display = 'flex';
+    }
+
+    function closeCalModal() {
+        document.getElementById('calModalOverlay').style.display = 'none';
+    }
+
+    function closeEventModal() {
+        document.getElementById('eventModalOverlay').style.display = 'none';
+    }
+
+    document.getElementById('calModalOverlay').addEventListener('click', function (e) {
+        if (e.target === this) closeCalModal();
+    });
+
+    document.getElementById('eventModalOverlay').addEventListener('click', function (e) {
+        if (e.target === this) closeEventModal();
+    });
+
+    function showToast(msg) {
+        const t = document.createElement('div');
+        t.className = 'cal-toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(() => t.classList.add('cal-toast-show'), 10);
+        setTimeout(() => { t.classList.remove('cal-toast-show'); setTimeout(() => t.remove(), 300); }, 2200);
+    }
+</script>
+
+{% endblock %}

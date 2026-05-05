@@ -1194,6 +1194,282 @@
         height: 100%;
     }
 
+    .calendar-editor-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: rgba(94, 238, 248, 0.06);
+        border-bottom: 1px solid rgba(94, 238, 248, 0.15);
+        border-radius: 8px 8px 0 0;
+    }
+
+    .calendar-editor-label {
+        font-size: 0.82rem;
+        color: rgba(255, 255, 255, 0.6);
+    }
+
+    .calendar-editor-manage-link {
+        font-size: 0.8rem;
+        color: #5eeef8;
+        text-decoration: none;
+        opacity: 0.8;
+        transition: opacity 0.2s ease;
+    }
+
+    .calendar-editor-manage-link:hover { opacity: 1; }
+
+    .calendar-not-assigned {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 32px 16px;
+        color: rgba(255, 255, 255, 0.4);
+        text-align: center;
+    }
+
+    .calendar-not-assigned i { font-size: 2rem; opacity: 0.4; }
+    .calendar-not-assigned p { margin: 0; font-size: 0.9rem; }
+    .calendar-not-assigned a { color: #5eeef8; font-size: 0.85rem; }
+
+    /* ── Add Group Modal ── */
+    .add-group-modal { align-items: center; justify-content: center; }
+
+    .add-group-modal-content {
+        width: min(640px, calc(100vw - 32px));
+        max-height: 82vh;
+        display: flex;
+        flex-direction: column;
+        border-radius: 18px;
+        overflow: hidden;
+    }
+
+    .add-group-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 22px 14px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .add-group-modal-header h4 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .add-group-modal-header .close {
+        font-size: 1.4rem;
+        cursor: pointer;
+        opacity: 0.6;
+        line-height: 1;
+    }
+
+    .add-group-modal-body {
+        overflow-y: auto;
+        padding: 18px 22px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .add-group-option-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 20px;
+        border: 2px dashed rgba(255,255,255,0.15);
+        border-radius: 14px;
+        cursor: pointer;
+        transition: border-color 0.2s, background 0.2s;
+    }
+
+    .add-group-option-empty:hover {
+        border-color: #5eeef8;
+        background: rgba(94,238,248,0.05);
+    }
+
+    .add-group-option-icon { font-size: 1.6rem; opacity: 0.5; }
+    .add-group-option-label { font-weight: 700; font-size: 0.95rem; }
+    .add-group-option-sub { font-size: 0.8rem; opacity: 0.5; }
+
+    .add-group-templates-section { display: flex; flex-direction: column; gap: 10px; }
+
+    .add-group-templates-header {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: rgba(255,255,255,0.45);
+    }
+
+    .add-group-template-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .add-group-templates-loading,
+    .add-group-templates-empty {
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.4);
+        padding: 10px 0;
+    }
+
+    .add-group-template-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        overflow: hidden;
+        transition: border-color 0.2s;
+    }
+
+    .add-group-template-card:hover { border-color: rgba(94,238,248,0.3); }
+
+    .template-card-body {
+        flex: 1;
+        padding: 12px 14px;
+        cursor: pointer;
+        min-width: 0;
+    }
+
+    .template-card-name {
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 2px;
+    }
+
+    .template-card-meta {
+        font-size: 0.75rem;
+        color: rgba(255,255,255,0.45);
+    }
+
+    .template-card-desc {
+        font-size: 0.78rem;
+        color: rgba(255,255,255,0.4);
+        margin-top: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .template-card-delete {
+        flex-shrink: 0;
+        width: 36px;
+        height: 100%;
+        min-height: 52px;
+        background: none;
+        border: none;
+        border-left: 1px solid rgba(255,255,255,0.07);
+        color: rgba(255,255,255,0.35);
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: background 0.2s, color 0.2s;
+    }
+
+    .template-card-delete:hover {
+        background: rgba(255,80,80,0.12);
+        color: #ff6b6b;
+    }
+
+    /* ── Editor Toast ── */
+    .editor-toast {
+        position: fixed;
+        bottom: 28px;
+        left: 50%;
+        transform: translateX(-50%) translateY(16px);
+        background: rgba(28,30,36,0.96);
+        border: 1px solid rgba(94,238,248,0.25);
+        color: #5eeef8;
+        padding: 9px 20px;
+        border-radius: 10px;
+        font-size: 0.86rem;
+        opacity: 0;
+        transition: opacity 0.25s, transform 0.25s;
+        z-index: 9999999;
+        pointer-events: none;
+        white-space: nowrap;
+    }
+
+    .editor-toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .calendar-style-editor {
+        margin-top: 14px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        padding-top: 12px;
+    }
+
+    .calendar-style-editor-title {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: rgba(255,255,255,0.45);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .cal-style-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 8px 14px;
+    }
+
+    .cal-style-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .cal-style-field label {
+        font-size: 0.75rem;
+        color: rgba(255,255,255,0.5);
+    }
+
+    .cal-style-input-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .cal-style-input-row input[type="color"] {
+        width: 32px;
+        height: 28px;
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 6px;
+        background: rgba(255,255,255,0.06);
+        padding: 2px 3px;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .cal-style-text-input {
+        flex: 1;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 0.76rem;
+        font-family: monospace;
+        padding: 5px 7px;
+        outline: none;
+        min-width: 0;
+        transition: border-color 0.2s ease;
+    }
+
+    .cal-style-text-input:focus {
+        border-color: rgba(94,238,248,0.45);
+    }
+
     .add-event-button {
         position: absolute;
         top: 10px;
@@ -6306,7 +6582,7 @@ nts-admin-pagination span {
                     <input type="hidden" id="row-id-input" name="row_id">
                     <input type="hidden" id="column-id-input" name="column_id">
                     <label for="section-type">Section Type:</label>
-                    <select id="section-type" name="section_type">
+                    <select id="section-type" name="section_type" onchange="handleAddSectionTypeChange(this.value)">
                         <!-- <option value="navbar">Navbar</option> -->
                         <!-- <option value="header">Header</option> -->
                         <option value="button">Button</option>
@@ -6326,9 +6602,68 @@ nts-admin-pagination span {
 
                     </select><br><br>
 
-                    <!-- Additional inputs for section content can be added here -->
+                    <div id="calendar-section-picker" style="display:none; margin-bottom:14px;">
+                        <label for="calendar-select" style="display:block; margin-bottom:6px;">Select Calendar:</label>
+                        <select id="calendar-select" name="calendar_id" style="width:100%; padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:#fff;">
+                            <option value="">Loading…</option>
+                        </select>
+                        <div id="calendar-select-empty" style="display:none; margin-top:8px; font-size:0.82rem; color:rgba(255,255,255,0.5);">
+                            No calendars found.
+                            <a href="/admin/calendars" target="_blank" style="color:#5eeef8;">Create one first →</a>
+                        </div>
+                    </div>
 
                     <button type="submit">Add Section</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Group Modal -->
+        <div id="addGroupModal" class="modal add-group-modal">
+            <div class="modal-content dark add-group-modal-content">
+                <div class="add-group-modal-header">
+                    <h4>Add Group Section</h4>
+                    <span class="close" onclick="closeAddGroupModal()">&times;</span>
+                </div>
+                <div class="add-group-modal-body">
+                    <div class="add-group-option-empty" onclick="createSectionGroup(); closeAddGroupModal();">
+                        <div class="add-group-option-icon"><i class="fas fa-square-dashed"></i></div>
+                        <div class="add-group-option-label">Empty Group</div>
+                        <div class="add-group-option-sub">Start with a blank group</div>
+                    </div>
+                    <div class="add-group-templates-section">
+                        <div class="add-group-templates-header">
+                            <span>Saved Templates</span>
+                        </div>
+                        <div id="addGroupTemplateList" class="add-group-template-list">
+                            <div class="add-group-templates-loading">Loading…</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save as Template Modal -->
+        <div id="saveGroupTemplateModal" class="modal">
+            <div class="modal-content dark" style="max-width:420px;">
+                <span class="close" onclick="closeSaveTemplateModal()">&times;</span>
+                <h4 style="margin:0 0 16px;">Save as Template</h4>
+                <form id="saveGroupTemplateForm" onsubmit="submitSaveTemplate(event)">
+                    <input type="hidden" id="saveTemplateGroupId">
+                    <div style="margin-bottom:12px;">
+                        <label style="display:block;margin-bottom:5px;font-size:0.85rem;opacity:0.7;">Template Name</label>
+                        <input type="text" id="saveTemplateName" required
+                            style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:0.9rem;box-sizing:border-box;">
+                    </div>
+                    <div style="margin-bottom:16px;">
+                        <label style="display:block;margin-bottom:5px;font-size:0.85rem;opacity:0.7;">Description <span style="opacity:0.5;">(optional)</span></label>
+                        <textarea id="saveTemplateDesc" rows="2"
+                            style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:0.9rem;box-sizing:border-box;resize:none;font-family:inherit;"></textarea>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:8px;">
+                        <button type="button" onclick="closeSaveTemplateModal()" style="padding:8px 16px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#eaeaea;cursor:pointer;">Cancel</button>
+                        <button type="submit" style="padding:8px 16px;background:#5eeef8;border:none;border-radius:8px;color:#111;font-weight:600;cursor:pointer;">Save Template</button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -7044,6 +7379,15 @@ document.getElementById("refreshButton").addEventListener("click", function () {
             <button type="button" onclick="addRowToGroup(${group.id})" title="Add Row">
                 <i class="fas fa-plus"></i>
                 <span>Row</span>
+            </button>
+
+            <button type="button" onclick="openSaveTemplateModal(${group.id})" title="Save as Template">
+                <i class="fas fa-bookmark"></i>
+                <span>Save</span>
+            </button>
+
+            <button type="button" onclick="duplicateSectionGroup(${group.id})" title="Duplicate Group">
+                <i class="fas fa-copy"></i>
             </button>
 
             <button type="button" class="danger-action" onclick="deleteSectionGroup(${group.id})" title="Delete Group">
@@ -8475,11 +8819,98 @@ setTimeout(() => {
             </form>
         </div>`;
                         } else if (section.section_type === 'calendar') {
-                            sectionContent.innerHTML = `
-        <div class="calendar-container section-container">
-            <button onclick="addEvent(${section.id})">Add Event</button>
+                            const calendarId = section.content && section.content.calendar_id;
+                            const calStyles = (section.content && section.content.styles) || {};
+                            const sv = (key, fallback) => calStyles[key] || fallback;
+                            if (calendarId) {
+                                sectionContent.innerHTML = `
+        <div class="calendar-container section-container" data-calendar-id="${calendarId}">
+            <div class="calendar-editor-header">
+                <span class="calendar-editor-label"><i class="fas fa-calendar-alt"></i> Calendar #${calendarId}</span>
+                <a href="/admin/calendars" target="_blank" class="calendar-editor-manage-link">Manage Calendars →</a>
+            </div>
             <div id="calendar-${section.id}" class="calendar"></div>
+            <div class="calendar-style-editor" id="calStyleEditor-${section.id}">
+                <div class="calendar-style-editor-title"><i class="fas fa-palette"></i> Appearance</div>
+                <form class="calendar-style-form" id="calStyleForm-${section.id}" data-section-id="${section.id}">
+                    <input type="hidden" name="section_id" value="${section.id}">
+                    <input type="hidden" name="section_type" value="calendar">
+                    <div class="cal-style-grid">
+                        <div class="cal-style-field">
+                            <label>Background</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_bg_color_text_${section.id}" value="${sv('bg_color','#000000')}" oninput="syncCalColorToText(this,'cal_style_bg_color_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_bg_color" id="cal_style_bg_color_text_${section.id}" class="cal-style-text-input" value="${sv('bg_color','')}" placeholder="#00000045" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Text</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_text_color_text_${section.id}" value="${sv('text_color','#ffffff')}" oninput="syncCalColorToText(this,'cal_style_text_color_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_text_color" id="cal_style_text_color_text_${section.id}" class="cal-style-text-input" value="${sv('text_color','')}" placeholder="#ffffff" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Header BG</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_header_bg_text_${section.id}" value="${sv('header_bg','#000000')}" oninput="syncCalColorToText(this,'cal_style_header_bg_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_header_bg" id="cal_style_header_bg_text_${section.id}" class="cal-style-text-input" value="${sv('header_bg','')}" placeholder="rgba(0,0,0,0.28)" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Button BG</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_btn_bg_text_${section.id}" value="${sv('btn_bg','#ffffff')}" oninput="syncCalColorToText(this,'cal_style_btn_bg_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_btn_bg" id="cal_style_btn_bg_text_${section.id}" class="cal-style-text-input" value="${sv('btn_bg','')}" placeholder="rgba(255,255,255,0.10)" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Button Text</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_btn_text_text_${section.id}" value="${sv('btn_text','#ffffff')}" oninput="syncCalColorToText(this,'cal_style_btn_text_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_btn_text" id="cal_style_btn_text_text_${section.id}" class="cal-style-text-input" value="${sv('btn_text','')}" placeholder="#ffffff" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Today</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_today_color_text_${section.id}" value="${sv('today_color','#7ee2cc')}" oninput="syncCalColorToText(this,'cal_style_today_color_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_today_color" id="cal_style_today_color_text_${section.id}" class="cal-style-text-input" value="${sv('today_color','')}" placeholder="rgba(126,226,204,0.14)" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Borders</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_border_color_text_${section.id}" value="${sv('border_color','#ffffff')}" oninput="syncCalColorToText(this,'cal_style_border_color_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_border_color" id="cal_style_border_color_text_${section.id}" class="cal-style-text-input" value="${sv('border_color','')}" placeholder="rgba(255,255,255,0.16)" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Subscribe BG</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_subscribe_bg_text_${section.id}" value="${sv('subscribe_bg','#ffffff')}" oninput="syncCalColorToText(this,'cal_style_subscribe_bg_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_subscribe_bg" id="cal_style_subscribe_bg_text_${section.id}" class="cal-style-text-input" value="${sv('subscribe_bg','')}" placeholder="rgba(255,255,255,0.10)" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                        <div class="cal-style-field">
+                            <label>Subscribe Text</label>
+                            <div class="cal-style-input-row">
+                                <input type="color" class="cal-color-picker" data-text="cal_style_subscribe_text_text_${section.id}" value="${sv('subscribe_text','#ffffff')}" oninput="syncCalColorToText(this,'cal_style_subscribe_text_text_${section.id}'); saveCalendarStyles(${section.id})">
+                                <input type="text" name="cal_style_subscribe_text" id="cal_style_subscribe_text_text_${section.id}" class="cal-style-text-input" value="${sv('subscribe_text','')}" placeholder="#ffffff" oninput="syncCalTextToColor(this, this.previousElementSibling); saveCalendarStyles(${section.id})">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </div>`;
+                            } else {
+                                sectionContent.innerHTML = `
+        <div class="calendar-container section-container calendar-not-assigned">
+            <i class="fas fa-calendar-times"></i>
+            <p>No calendar assigned.</p>
+            <a href="/admin/calendars" target="_blank">Go to Calendars →</a>
+        </div>`;
+                            }
                         }
                     } else {
                         // Handle empty placeholder column
@@ -9048,8 +9479,8 @@ setTimeout(() => {
             // Initialize calendars if any
             sections.forEach(section => {
                 if (section.section_type === 'calendar') {
-                    // console.log('Initializing calendar for section:', section);
-                    initializeCalendar(section.id);
+                    const calId = section.content && section.content.calendar_id;
+                    if (calId) initializeCalendar(section.id, calId);
                 }
                 if (['images', 'image_gallery', 'image'].includes(section.section_type)) {
                     loadUploadedImages(section.id);
@@ -9328,6 +9759,8 @@ setTimeout(() => {
         const calendars = {};
 
         function editEvent(sectionId, calendarEvent) {
+            const calEl = document.querySelector(`#section-content-${sectionId} .calendar-container`);
+            const calendarId = calEl ? calEl.dataset.calendarId : sectionId;
             const calendar = calendars[sectionId];
 
             const formHtml = `
@@ -9399,7 +9832,7 @@ setTimeout(() => {
             deleteButton.addEventListener('click', async () => {
                 if (confirm(`Do you want to delete the event '${calendarEvent.title}'?`)) {
                     try {
-                        await deleteEvent(calendarEvent.id, sectionId);
+                        await deleteEvent(calendarEvent.id, calendarId);
                         calendarEvent.remove();
                         removeForm();
                     } catch (error) {
@@ -9429,7 +9862,7 @@ setTimeout(() => {
                 calendarEvent.setProp('backgroundColor', backgroundColor);
 
                 try {
-                    await updateEvent(calendarEvent, sectionId);
+                    await updateEvent(calendarEvent, calendarId);
                     removeForm();
                 } catch (error) {
                     console.error('Error updating event:', error);
@@ -9437,7 +9870,7 @@ setTimeout(() => {
             });
         }
 
-        function initializeCalendar(sectionId) {
+        function initializeCalendar(sectionId, calendarId) {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
             const sectionContent = document.getElementById(`section-content-${sectionId}`);
 
@@ -9445,20 +9878,18 @@ setTimeout(() => {
                 aspectRatio: 1.5,
                 initialView: 'dayGridMonth',
                 events: (info, successCallback, failureCallback) => {
-                    // Call fetchEvents with the sectionId parameter
-                    fetchEvents(sectionId, successCallback, failureCallback);
+                    fetchEvents(calendarId, successCallback, failureCallback);
                 },
                 editable: true,
                 selectable: true,
                 dateClick: function (info) {
-                    const startDate = info.dateStr; // Get the clicked date
-                    addEvent(sectionId, startDate); // Pass the clicked date to addEvent function
+                    addEvent(calendarId, info.dateStr);
                 },
                 eventClick: function (info) {
                     editEvent(sectionId, info.event);
                 },
                 eventChange: function (info) {
-                    updateEvent(info.event, sectionId);
+                    updateEvent(info.event, calendarId);
                 }
             });
 
@@ -9484,8 +9915,14 @@ setTimeout(() => {
         }
 
 
-        function addEvent(sectionId, startDate) {
-            const calendar = calendars[sectionId];
+        function addEvent(calendarId, startDate) {
+            const sectionId = calendarId;
+            const calendar = Object.values(calendars).find(c => {
+                const el = c.el;
+                if (!el) return false;
+                const container = el.closest('.calendar-container');
+                return container && container.dataset.calendarId == calendarId;
+            }) || calendars[sectionId];
 
             // Create a form for entering event details
             const formHtml = `
@@ -9619,8 +10056,9 @@ setTimeout(() => {
                 };
 
                 try {
-                    const savedEvent = await saveEvent(newEvent, sectionId);
-                    calendar.addEvent(savedEvent);
+                    const savedEvent = await saveEvent(newEvent, calendarId);
+                    if (calendar) calendar.addEvent(savedEvent);
+                    else { const fc = Object.values(calendars).find(c => { const el = c.el; return el && el.closest('.calendar-container') && el.closest('.calendar-container').dataset.calendarId == calendarId; }); if (fc) fc.refetchEvents(); }
                     formContainer.remove();
                 } catch (error) {
                     console.error('Error saving event:', error);
@@ -9633,29 +10071,18 @@ setTimeout(() => {
 
 
 
-        // Function to fetch events from the backend
-        function fetchEvents(sectionId, successCallback, failureCallback) {
-            // Fetch events from the backend using the provided sectionId
-            return fetch(`/page/${sectionId}/events`)
+        function fetchEvents(calendarId, successCallback, failureCallback) {
+            return fetch(`/calendar/${calendarId}/events`)
                 .then(response => response.json())
-                .then(events => {
-                    console.log('Fetched Events:', events);
-                    // Invoke the success callback with the fetched events
-                    successCallback(events);
-                })
-                .catch(error => {
-                    // Invoke the failure callback if an error occurs
-                    failureCallback(error);
-                });
+                .then(events => { successCallback(events); })
+                .catch(error => { failureCallback(error); });
         }
 
 
-        async function saveEvent(event, sectionId) {
-            const response = await fetch(`/page/${sectionId}/add_event`, {
+        async function saveEvent(event, calendarId) {
+            const response = await fetch(`/admin/calendars/${calendarId}/add_event`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(event)
             });
 
@@ -9670,42 +10097,36 @@ setTimeout(() => {
                 title: data.event.title,
                 start: data.event.start,
                 end: data.event.end,
-                description: data.event.description,
+                extendedProps: { description: data.event.description },
                 backgroundColor: data.event.backgroundColor
             };
         }
 
 
-        function updateEvent(event, sectionId) {
-            fetch(`/page/${sectionId}/update_event`, {
+        function updateEvent(event, calendarId) {
+            fetch(`/admin/calendars/${calendarId}/update_event`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: event.id,
                     title: event.title,
-                    description: event.extendedProps.description,
+                    description: event.extendedProps ? event.extendedProps.description : '',
                     start: event.start ? event.start.toISOString() : null,
                     end: event.end ? event.end.toISOString() : null,
                     backgroundColor: event.backgroundColor
                 })
             })
                 .then(response => response.json())
-                .then(data => console.log('Update response:', data))
                 .catch(error => console.error('Error updating event:', error));
         }
 
-        function deleteEvent(eventId, sectionId) {
-            fetch(`/page/${sectionId}/delete_event`, {
+        function deleteEvent(eventId, calendarId) {
+            return fetch(`/admin/calendars/${calendarId}/delete_event`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: eventId })
             })
                 .then(response => response.json())
-                .then(data => console.log('Delete response:', data))
                 .catch(error => console.error('Error deleting event:', error));
         }
         const initialBg = "{{ page_content.background_color or '#2d2d2d' }}";
@@ -10700,6 +11121,16 @@ setTimeout(() => {
     };
 }
 
+            if (sectionType === 'calendar') {
+                const calendarSelect = document.getElementById('calendar-select');
+                const calendarId = calendarSelect ? parseInt(calendarSelect.value) : null;
+                if (!calendarId) {
+                    alert('Please select a calendar. If you have no calendars, create one first in the Calendars admin page.');
+                    return;
+                }
+                content = { calendar_id: calendarId };
+            }
+
             const data = {
                 section_type: sectionType,
                 order: document.querySelectorAll('.page-section').length,
@@ -10736,6 +11167,78 @@ setTimeout(() => {
                 });
         });
 
+        function syncCalColorToText(colorInput, textId) {
+            const textInput = document.getElementById(textId);
+            if (textInput) textInput.value = colorInput.value;
+        }
+
+        function syncCalTextToColor(textInput, colorInput) {
+            if (!colorInput) return;
+            const val = textInput.value.trim();
+            const hex = calCssToHex(val);
+            if (hex) colorInput.value = hex;
+        }
+
+        function calCssToHex(val) {
+            if (!val) return null;
+            val = val.trim();
+            if (/^#[0-9a-fA-F]{6}$/.test(val)) return val;
+            if (/^#[0-9a-fA-F]{3}$/.test(val)) {
+                return '#' + [val[1]+val[1], val[2]+val[2], val[3]+val[3]].join('');
+            }
+            const m = val.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (m) return '#' + [m[1], m[2], m[3]].map(n => parseInt(n).toString(16).padStart(2,'0')).join('');
+            return null;
+        }
+
+        const _calStyleSaveTimers = {};
+        function saveCalendarStyles(sectionId) {
+            clearTimeout(_calStyleSaveTimers[sectionId]);
+            _calStyleSaveTimers[sectionId] = setTimeout(() => {
+                const form = document.getElementById(`calStyleForm-${sectionId}`);
+                if (!form) return;
+                const data = new FormData(form);
+                fetch('/update_section', { method: 'POST', body: data })
+                    .catch(err => console.error('Failed to save calendar styles:', err));
+            }, 600);
+        }
+
+        function handleAddSectionTypeChange(value) {
+            const picker = document.getElementById('calendar-section-picker');
+            if (!picker) return;
+            if (value === 'calendar') {
+                picker.style.display = 'block';
+                loadCalendarOptions();
+            } else {
+                picker.style.display = 'none';
+            }
+        }
+
+        async function loadCalendarOptions() {
+            const select = document.getElementById('calendar-select');
+            const emptyMsg = document.getElementById('calendar-select-empty');
+            if (!select) return;
+            select.innerHTML = '<option value="">Loading…</option>';
+            try {
+                const r = await fetch('/admin/calendars/list');
+                const data = await r.json();
+                select.innerHTML = '';
+                if (!data.calendars || data.calendars.length === 0) {
+                    select.innerHTML = '<option value="">No calendars available</option>';
+                    if (emptyMsg) emptyMsg.style.display = 'block';
+                } else {
+                    if (emptyMsg) emptyMsg.style.display = 'none';
+                    data.calendars.forEach(cal => {
+                        const opt = document.createElement('option');
+                        opt.value = cal.id;
+                        opt.textContent = cal.name;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                select.innerHTML = '<option value="">Error loading calendars</option>';
+            }
+        }
 
         function saveScrollPosition() {
             sessionStorage.setItem('scrollPosition', window.scrollY);
@@ -10905,7 +11408,7 @@ setTimeout(() => {
 
             if (addGroupBtn) {
                 addGroupBtn.addEventListener('click', function () {
-                    createSectionGroup();
+                    openAddGroupModal();
                 });
             }
         });
@@ -10913,19 +11416,182 @@ setTimeout(() => {
         function createSectionGroup() {
             fetch(`/create_section_group/${pageId}`, {
                 method: 'POST',
-                headers: {
-                    'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
-                }
+                headers: { 'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : '' }
             })
-                .then(response => response.json())
+                .then(r => r.json())
                 .then(data => {
-                    if (data.success) {
-                        populateSections();
-                    } else {
-                        alert(data.error || 'Failed to create section group.');
-                    }
+                    if (data.success) populateSections();
+                    else alert(data.error || 'Failed to create section group.');
                 })
-                .catch(error => console.error('Error creating section group:', error));
+                .catch(err => console.error('Error creating section group:', err));
+        }
+
+        /* ── Add Group Modal ── */
+
+        function openAddGroupModal() {
+            document.getElementById('addGroupModal').style.display = 'flex';
+            loadGroupTemplates();
+        }
+
+        function closeAddGroupModal() {
+            document.getElementById('addGroupModal').style.display = 'none';
+        }
+
+        document.getElementById('addGroupModal').addEventListener('click', function(e) {
+            if (e.target === this) closeAddGroupModal();
+        });
+
+        async function loadGroupTemplates() {
+            const list = document.getElementById('addGroupTemplateList');
+            list.innerHTML = '<div class="add-group-templates-loading">Loading…</div>';
+            try {
+                const r = await fetch('/admin/section_group_templates');
+                const data = await r.json();
+                renderGroupTemplates(data.templates || []);
+            } catch(e) {
+                list.innerHTML = '<div class="add-group-templates-loading">Failed to load templates.</div>';
+            }
+        }
+
+        function renderGroupTemplates(templates) {
+            const list = document.getElementById('addGroupTemplateList');
+            if (!templates.length) {
+                list.innerHTML = '<div class="add-group-templates-empty">No templates saved yet.<br>Use <strong>Save</strong> on a group to create one.</div>';
+                return;
+            }
+            list.innerHTML = '';
+            templates.forEach(tmpl => {
+                const card = document.createElement('div');
+                card.className = 'add-group-template-card';
+
+                const body = document.createElement('div');
+                body.className = 'template-card-body';
+                const nameEl = document.createElement('div');
+                nameEl.className = 'template-card-name';
+                nameEl.textContent = tmpl.name;
+                const metaEl = document.createElement('div');
+                metaEl.className = 'template-card-meta';
+                metaEl.textContent = `${tmpl.row_count} row${tmpl.row_count !== 1 ? 's' : ''} · ${tmpl.section_count} section${tmpl.section_count !== 1 ? 's' : ''}`;
+                body.appendChild(nameEl);
+                body.appendChild(metaEl);
+                if (tmpl.description) {
+                    const descEl = document.createElement('div');
+                    descEl.className = 'template-card-desc';
+                    descEl.textContent = tmpl.description;
+                    body.appendChild(descEl);
+                }
+                body.addEventListener('click', () => createGroupFromTemplate(tmpl.id));
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'template-card-delete';
+                delBtn.title = 'Delete template';
+                delBtn.innerHTML = '<i class="fas fa-times"></i>';
+                delBtn.addEventListener('click', () => deleteGroupTemplate(tmpl.id, delBtn));
+
+                card.appendChild(body);
+                card.appendChild(delBtn);
+                list.appendChild(card);
+            });
+        }
+
+        async function createGroupFromTemplate(templateId) {
+            closeAddGroupModal();
+            try {
+                const r = await fetch(`/create_section_group_from_template/${pageId}/${templateId}`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : '' }
+                });
+                const data = await r.json();
+                if (data.success) populateSections();
+                else alert(data.error || 'Failed to create group from template.');
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        async function deleteGroupTemplate(templateId, btn) {
+            if (!confirm('Delete this template?')) return;
+            try {
+                const r = await fetch(`/admin/section_group_templates/${templateId}/delete`, { method: 'POST' });
+                const data = await r.json();
+                if (data.success) {
+                    btn.closest('.add-group-template-card').remove();
+                    const list = document.getElementById('addGroupTemplateList');
+                    if (!list.querySelector('.add-group-template-card')) {
+                        list.innerHTML = '<div class="add-group-templates-empty">No templates saved yet.<br>Use <strong>Save</strong> on a group to create one.</div>';
+                    }
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        async function duplicateSectionGroup(groupId) {
+            try {
+                const r = await fetch(`/duplicate_section_group/${groupId}`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : '' }
+                });
+                const data = await r.json();
+                if (data.success) populateSections();
+                else alert(data.error || 'Failed to duplicate group.');
+            } catch(e) { console.error(e); }
+        }
+
+        /* ── Save as Template Modal ── */
+
+        function openSaveTemplateModal(groupId) {
+            const groupEl = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
+            const label = groupEl?.querySelector('.editable-group-label')?.textContent?.trim() || 'Template';
+            document.getElementById('saveTemplateGroupId').value = groupId;
+            document.getElementById('saveTemplateName').value = label;
+            document.getElementById('saveTemplateDesc').value = '';
+            document.getElementById('saveGroupTemplateModal').style.display = 'flex';
+            setTimeout(() => document.getElementById('saveTemplateName').select(), 50);
+        }
+
+        function closeSaveTemplateModal() {
+            document.getElementById('saveGroupTemplateModal').style.display = 'none';
+        }
+
+        document.getElementById('saveGroupTemplateModal').addEventListener('click', function(e) {
+            if (e.target === this) closeSaveTemplateModal();
+        });
+
+        async function submitSaveTemplate(e) {
+            e.preventDefault();
+            const groupId = document.getElementById('saveTemplateGroupId').value;
+            const name = document.getElementById('saveTemplateName').value.trim();
+            const description = document.getElementById('saveTemplateDesc').value.trim();
+            const submitBtn = e.target.querySelector('[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving…';
+            try {
+                const r = await fetch(`/admin/section_group_templates/save/${groupId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description })
+                });
+                const data = await r.json();
+                if (data.success) {
+                    closeSaveTemplateModal();
+                    showEditorToast(`Template "${name}" saved`);
+                } else {
+                    alert(data.error || 'Failed to save template.');
+                }
+            } catch(e) {
+                console.error(e);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Template';
+            }
+        }
+
+        function showEditorToast(msg) {
+            const t = document.createElement('div');
+            t.className = 'editor-toast';
+            t.textContent = msg;
+            document.body.appendChild(t);
+            requestAnimationFrame(() => t.classList.add('editor-toast-show'));
+            setTimeout(() => { t.classList.remove('editor-toast-show'); setTimeout(() => t.remove(), 300); }, 2400);
         }
 
         function deleteSectionGroup(groupId) {

@@ -660,10 +660,10 @@
                 {% for calendar in calendar_subscriber_summary.top_calendars %}
                 <tr>
                     <td>
-                        {{ calendar.page_name }}
+                        {{ calendar.calendar_name }}
                         <br>
                         <span style="color: rgba(255,255,255,0.42);">
-                            /{{ calendar.page_slug }} · Section {{ calendar.section_id }}
+                            Calendar #{{ calendar.calendar_id }}
                         </span>
                     </td>
                     <td class="analytics-count-col">{{ calendar.active_30_days }}</td>
