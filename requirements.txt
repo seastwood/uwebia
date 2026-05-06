@@ -25,3 +25,4 @@ flask-wtf
 pillow
 geoip2
 gunicorn
+cryptography

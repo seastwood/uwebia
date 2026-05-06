@@ -1,0 +1,369 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai_agents.css') }}">
+
+<div class="ai-page">
+    <div class="ai-page-header">
+        <div>
+            <p class="ai-kicker">Admin</p>
+            <h1 class="ai-title">AI Agents</h1>
+        </div>
+        <button class="btn-ai-primary" onclick="openAgentModal()">
+            <i class="fas fa-plus"></i> Add Agent
+        </button>
+    </div>
+
+    <div class="ai-provider-hint">
+        Connect to any AI: <strong>Claude</strong>, <strong>ChatGPT</strong>, <strong>Ollama</strong>, <strong>LM Studio</strong>, Groq, Mistral, or any OpenAI-compatible local or hosted API.
+    </div>
+
+    {% if agents %}
+    <div class="ai-agent-list" id="agentList">
+        {% for agent in agents %}
+        <div class="ai-agent-card" id="agentCard-{{ agent.id }}" data-agent-id="{{ agent.id }}">
+            <div class="ai-agent-card-header">
+                <div class="ai-agent-info">
+                    <div class="ai-agent-name-row">
+                        <span class="ai-provider-badge ai-provider-{{ agent.provider }}">
+                            {{ {'anthropic': 'Claude', 'openai': 'OpenAI', 'openai_compatible': 'Custom / Local', 'ollama': 'Ollama'}.get(agent.provider, agent.provider) }}
+                        </span>
+                        <h3 class="ai-agent-name">{{ agent.name }}</h3>
+                    </div>
+                    <div class="ai-agent-meta">
+                        {% if agent.model %}<span class="ai-meta-chip"><i class="fas fa-microchip"></i> {{ agent.model }}</span>{% endif %}
+                        {% if agent.api_url %}<span class="ai-meta-chip"><i class="fas fa-link"></i> {{ agent.api_url | truncate(40) }}</span>{% endif %}
+                    </div>
+                </div>
+                <div class="ai-agent-actions">
+                    <button class="btn-ai-test" id="testBtn-{{ agent.id }}" onclick="testAgent({{ agent.id }})" title="Test connection">
+                        <i class="fas fa-plug"></i> Test
+                    </button>
+                    <button class="btn-ai-icon" onclick="openAgentModal({{ agent.id }})" title="Edit">
+                        <i class="fas fa-pen"></i>
+                    </button>
+                    <button class="btn-ai-icon btn-ai-danger" onclick="deleteAgent({{ agent.id }}, '{{ agent.name | e }}')" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    <button class="btn-ai-chat-toggle" onclick="toggleChat({{ agent.id }})" id="chatToggle-{{ agent.id }}" title="Open chat">
+                        <i class="fas fa-comment-alt"></i> Chat
+                    </button>
+                </div>
+            </div>
+
+            <div class="ai-chat-panel" id="chatPanel-{{ agent.id }}" style="display:none;">
+                <div class="ai-chat-messages" id="chatMessages-{{ agent.id }}">
+                    <div class="ai-chat-empty">Send a message to start chatting with <strong>{{ agent.name }}</strong>.</div>
+                </div>
+                <div class="ai-chat-input-row">
+                    <textarea class="ai-chat-input" id="chatInput-{{ agent.id }}"
+                        placeholder="Type a message…" rows="1"
+                        onkeydown="handleChatKey(event, {{ agent.id }})"></textarea>
+                    <button class="btn-ai-send" onclick="sendMessage({{ agent.id }})" id="sendBtn-{{ agent.id }}">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                    <button class="btn-ai-clear" onclick="clearChat({{ agent.id }})" title="Clear conversation">
+                        <i class="fas fa-redo"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="ai-empty" id="agentEmpty">
+        <i class="fas fa-robot"></i>
+        <p>No agents configured yet.</p>
+        <p class="ai-empty-sub">Add your first agent to get started.</p>
+        <button class="btn-ai-primary" onclick="openAgentModal()">
+            <i class="fas fa-plus"></i> Add Agent
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add / Edit Agent Modal -->
+<div class="ai-modal-overlay" id="agentModalOverlay" style="display:none;">
+    <div class="ai-modal">
+        <button class="ai-modal-close" onclick="closeAgentModal()">&times;</button>
+        <h3 class="ai-modal-title" id="agentModalTitle">Add Agent</h3>
+        <form id="agentForm" onsubmit="submitAgentForm(event)">
+            <input type="hidden" id="agentModalId" value="">
+
+            <div class="ai-form-row">
+                <label>Name</label>
+                <input type="text" id="agentName" placeholder="My Assistant" required>
+            </div>
+
+            <div class="ai-form-row">
+                <label>Provider</label>
+                <select id="agentProvider" onchange="updateProviderFields()">
+                    <option value="openai_compatible">Custom / Local (OpenAI-compatible)</option>
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="openai">OpenAI (ChatGPT)</option>
+                </select>
+            </div>
+
+            <div class="ai-form-row" id="fieldApiUrl">
+                <label>API Base URL</label>
+                <input type="url" id="agentApiUrl" placeholder="http://localhost:11434">
+                <small class="ai-field-hint">Ollama: http://localhost:11434 &nbsp;·&nbsp; LM Studio: http://localhost:1234</small>
+            </div>
+
+            <div class="ai-form-row">
+                <label>Model</label>
+                <input type="text" id="agentModel" placeholder="">
+                <small class="ai-field-hint" id="modelHint">e.g. llama3.2, mistral, phi3</small>
+            </div>
+
+            <div class="ai-form-row" id="fieldApiKey">
+                <label>API Key <span class="ai-optional">(optional for local)</span></label>
+                <input type="password" id="agentApiKey" placeholder="sk-…" autocomplete="new-password">
+            </div>
+
+            <div class="ai-form-row">
+                <label>System Prompt <span class="ai-optional">(optional)</span></label>
+                <textarea id="agentSystemPrompt" rows="3" placeholder="You are a helpful assistant."></textarea>
+            </div>
+
+            <div class="ai-form-actions">
+                <button type="button" class="btn-ai-secondary" onclick="closeAgentModal()">Cancel</button>
+                <button type="submit" class="btn-ai-primary" id="agentSubmitBtn">Add Agent</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Per-agent conversation history
+    const _conversations = {};
+
+    /* ── Provider field visibility ── */
+
+    const PROVIDER_DEFAULTS = {
+        anthropic:         { url: false, model: 'claude-sonnet-4-6',   hint: 'e.g. claude-sonnet-4-6, claude-opus-4-7, claude-haiku-4-5-20251001' },
+        openai:            { url: false, model: 'gpt-4o',              hint: 'e.g. gpt-4o, gpt-4o-mini, o1-mini' },
+        openai_compatible: { url: true,  model: '',                    hint: 'e.g. llama3.2, mistral, qwen2.5, phi3' },
+    };
+
+    function updateProviderFields() {
+        const provider = document.getElementById('agentProvider').value;
+        const cfg = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai_compatible;
+        document.getElementById('fieldApiUrl').style.display = cfg.url ? 'flex' : 'none';
+        document.getElementById('modelHint').textContent = cfg.hint;
+        const modelInput = document.getElementById('agentModel');
+        if (!modelInput.value) modelInput.placeholder = cfg.model;
+    }
+
+    /* ── Modal ── */
+
+    function openAgentModal(agentId) {
+        document.getElementById('agentModalId').value = agentId || '';
+        document.getElementById('agentModalTitle').textContent = agentId ? 'Edit Agent' : 'Add Agent';
+        document.getElementById('agentSubmitBtn').textContent = agentId ? 'Save' : 'Add Agent';
+
+        if (agentId) {
+            fetch(`/admin/ai-agents/list`)
+                .then(r => r.json())
+                .then(data => {
+                    const agent = data.agents.find(a => a.id === agentId);
+                    if (!agent) return;
+                    document.getElementById('agentName').value = agent.name;
+                    document.getElementById('agentProvider').value = agent.provider;
+                    document.getElementById('agentApiUrl').value = agent.api_url;
+                    document.getElementById('agentModel').value = agent.model;
+                    document.getElementById('agentApiKey').value = agent.api_key;
+                    document.getElementById('agentSystemPrompt').value = agent.system_prompt;
+                    updateProviderFields();
+                });
+        } else {
+            document.getElementById('agentName').value = '';
+            document.getElementById('agentProvider').value = 'openai_compatible';
+            document.getElementById('agentApiUrl').value = '';
+            document.getElementById('agentModel').value = '';
+            document.getElementById('agentApiKey').value = '';
+            document.getElementById('agentSystemPrompt').value = '';
+            updateProviderFields();
+        }
+
+        document.getElementById('agentModalOverlay').style.display = 'flex';
+        setTimeout(() => document.getElementById('agentName').focus(), 50);
+    }
+
+    function closeAgentModal() {
+        document.getElementById('agentModalOverlay').style.display = 'none';
+    }
+
+    document.getElementById('agentModalOverlay').addEventListener('click', e => {
+        if (e.target === document.getElementById('agentModalOverlay')) closeAgentModal();
+    });
+
+    async function submitAgentForm(e) {
+        e.preventDefault();
+        const id = document.getElementById('agentModalId').value;
+        const btn = document.getElementById('agentSubmitBtn');
+        btn.disabled = true;
+
+        const payload = {
+            name:          document.getElementById('agentName').value.trim(),
+            provider:      document.getElementById('agentProvider').value,
+            api_url:       document.getElementById('agentApiUrl').value.trim(),
+            model:         document.getElementById('agentModel').value.trim(),
+            api_key:       document.getElementById('agentApiKey').value,
+            system_prompt: document.getElementById('agentSystemPrompt').value.trim(),
+        };
+
+        const url = id ? `/admin/ai-agents/${id}/update` : '/admin/ai-agents/create';
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        btn.disabled = false;
+
+        if (data.success) { closeAgentModal(); location.reload(); }
+        else { alert(data.error || 'Failed to save agent'); }
+    }
+
+    /* ── Delete ── */
+
+    async function deleteAgent(agentId, name) {
+        if (!confirm(`Delete agent "${name}"?`)) return;
+        const r = await fetch(`/admin/ai-agents/${agentId}/delete`, { method: 'POST' });
+        const data = await r.json();
+        if (data.success) {
+            document.getElementById(`agentCard-${agentId}`)?.remove();
+        } else {
+            alert(data.error || 'Failed to delete');
+        }
+    }
+
+    /* ── Test ── */
+
+    async function testAgent(agentId) {
+        const btn = document.getElementById(`testBtn-${agentId}`);
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing…';
+
+        const r = await fetch(`/admin/ai-agents/${agentId}/test`, { method: 'POST' });
+        const data = await r.json();
+        btn.disabled = false;
+
+        if (data.success) {
+            btn.innerHTML = '<i class="fas fa-check"></i> Connected';
+            btn.classList.add('btn-ai-test-ok');
+            setTimeout(() => {
+                btn.innerHTML = '<i class="fas fa-plug"></i> Test';
+                btn.classList.remove('btn-ai-test-ok');
+            }, 3000);
+        } else {
+            btn.innerHTML = '<i class="fas fa-times"></i> Failed';
+            btn.classList.add('btn-ai-test-fail');
+            setTimeout(() => {
+                btn.innerHTML = '<i class="fas fa-plug"></i> Test';
+                btn.classList.remove('btn-ai-test-fail');
+            }, 4000);
+            alert('Connection failed:\n' + (data.error || 'Unknown error'));
+        }
+    }
+
+    /* ── Chat ── */
+
+    function toggleChat(agentId) {
+        const panel = document.getElementById(`chatPanel-${agentId}`);
+        const btn = document.getElementById(`chatToggle-${agentId}`);
+        const isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : 'flex';
+        btn.classList.toggle('active', !isOpen);
+        if (!isOpen) {
+            document.getElementById(`chatInput-${agentId}`)?.focus();
+        }
+    }
+
+    function clearChat(agentId) {
+        _conversations[agentId] = [];
+        const box = document.getElementById(`chatMessages-${agentId}`);
+        box.innerHTML = '<div class="ai-chat-empty">Conversation cleared.</div>';
+    }
+
+    function handleChatKey(e, agentId) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage(agentId);
+        }
+    }
+
+    async function sendMessage(agentId) {
+        const input = document.getElementById(`chatInput-${agentId}`);
+        const text = (input.value || '').trim();
+        if (!text) return;
+
+        if (!_conversations[agentId]) _conversations[agentId] = [];
+
+        input.value = '';
+        input.style.height = 'auto';
+
+        const box = document.getElementById(`chatMessages-${agentId}`);
+        box.querySelector('.ai-chat-empty')?.remove();
+
+        appendMessage(box, 'user', text);
+        _conversations[agentId].push({ role: 'user', content: text });
+
+        const sendBtn = document.getElementById(`sendBtn-${agentId}`);
+        sendBtn.disabled = true;
+        const thinking = appendMessage(box, 'assistant', '…', true);
+
+        try {
+            const r = await fetch(`/admin/ai-agents/${agentId}/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: _conversations[agentId] })
+            });
+            const data = await r.json();
+            thinking.remove();
+
+            if (data.success) {
+                appendMessage(box, 'assistant', data.reply);
+                _conversations[agentId].push({ role: 'assistant', content: data.reply });
+            } else {
+                appendMessage(box, 'error', data.error || 'Request failed');
+            }
+        } catch(err) {
+            thinking.remove();
+            appendMessage(box, 'error', 'Network error: ' + err.message);
+        } finally {
+            sendBtn.disabled = false;
+        }
+    }
+
+    function appendMessage(box, role, text, isThinking = false) {
+        const msg = document.createElement('div');
+        msg.className = `ai-msg ai-msg-${role}${isThinking ? ' ai-msg-thinking' : ''}`;
+        const bubble = document.createElement('div');
+        bubble.className = 'ai-bubble';
+        if (isThinking) {
+            bubble.innerHTML = '<span class="ai-dots"><span></span><span></span><span></span></span>';
+        } else {
+            bubble.textContent = text;
+        }
+        msg.appendChild(bubble);
+        box.appendChild(msg);
+        box.scrollTop = box.scrollHeight;
+        return msg;
+    }
+
+    // Auto-grow textarea
+    document.querySelectorAll('.ai-chat-input').forEach(ta => {
+        ta.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+    });
+
+    // Init field visibility
+    updateProviderFields();
+</script>
+
+{% endblock %}
