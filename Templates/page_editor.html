@@ -7735,16 +7735,28 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                     <div class="image-layout-field">
                         <label>Image Fit</label>
                         <select name="image_fit">
-                            <option value="cover" ${(section.content?.image_fit || 'cover') === 'cover' ? 'selected' : ''}>Cover</option>
-                            <option value="contain" ${(section.content?.image_fit || 'cover') === 'contain' ? 'selected' : ''}>Contain</option>
+                            <option value="natural" ${(section.content?.image_fit || 'natural') === 'natural' ? 'selected' : ''}>Natural (no stretch)</option>
+                            <option value="cover" ${(section.content?.image_fit || 'natural') === 'cover' ? 'selected' : ''}>Cover (fill &amp; crop)</option>
+                            <option value="contain" ${(section.content?.image_fit || 'natural') === 'contain' ? 'selected' : ''}>Contain (fit inside)</option>
                         </select>
                     </div>
                     
 
                     <div class="image-layout-field">
                         <label>Corner Radius</label>
-                        <input type="range" name="image_radius" min="0" max="40" step="2" value="${section.content?.image_radius || 10}">
+                        <input type="range" name="image_radius" min="0" max="500" step="2" value="${section.content?.image_radius || 10}">
                         <span class="range-value">${section.content?.image_radius || 10}px</span>
+                    </div>
+
+                    <div class="image-layout-field">
+                        <label>Max Width</label>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="number" name="image_max_width" min="0" step="10"
+                                value="${section.content?.image_max_width || ''}"
+                                placeholder="No limit"
+                                style="width:110px;padding:5px 8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;font-size:0.85rem;">
+                            <span style="font-size:0.8rem;opacity:0.55;">px &nbsp;(leave empty for full width)</span>
+                        </div>
                     </div>
 
                     <label class="image-toggle-row">
@@ -9652,8 +9664,14 @@ setTimeout(() => {
 
             document.querySelectorAll(".image-section-form").forEach(function (form) {
                 const sectionId = form.getAttribute("data-section-id");
-
                 loadUploadedImages(sectionId);
+
+                // Auto-save when any setting changes
+                const _saveImgForm = debounce(() => form.requestSubmit(), 500);
+                form.querySelectorAll('select, input[type="range"], input[type="number"], input[type="checkbox"]')
+                    .forEach(el => el.addEventListener('change', _saveImgForm));
+                form.querySelectorAll('input[type="range"], input[type="number"]')
+                    .forEach(el => el.addEventListener('input', _saveImgForm));
             });
             document.querySelectorAll(".music-section-form").forEach(function (form) {
                 const sectionId = form.getAttribute("data-section-id");
@@ -11238,6 +11256,14 @@ setTimeout(() => {
             } catch (e) {
                 select.innerHTML = '<option value="">Error loading calendars</option>';
             }
+        }
+
+        function debounce(fn, delay) {
+            let timer;
+            return function(...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), delay);
+            };
         }
 
         function saveScrollPosition() {

@@ -749,22 +749,105 @@
 
     .uwebia-images {
         width: 100%;
-        max-width: none;
-        margin: 0;
+        max-width: var(--image-max-width, none);
+        margin: 0 auto;
         box-sizing: border-box;
     }
 
-    .uwebia-images img {
+    /* Wrapper: clipping container for cover/contain modes */
+    .uwebia-img-wrap {
+        display: block;
+        overflow: hidden;
         border-radius: var(--image-radius, 10px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        line-height: 0;
+    }
+
+    /* Image fills wrapper and gets its own radius — primary clip point */
+    .uwebia-img-wrap img,
+    .uwebia-slide img {
+        display: block;
+        width: 100%;
+        height: 100%;
         object-fit: var(--image-fit, cover);
+        border-radius: var(--image-radius, 10px);
+    }
+
+    /*
+     * Natural mode:
+     * - Wrapper is a transparent block passthrough (no clipping, no shadow).
+     * - Border-radius and shadow live on the img itself.
+     * - img uses width:auto so it renders at its natural pixel dimensions,
+     *   capped at the container width via max-width:100%.
+     * - object-fit:scale-down means: natural size if it fits, else scale down.
+     *   Never upscales. Never zooms.
+     * - margin:0 auto centres a block img narrower than its container.
+     */
+    .uwebia-images-natural .uwebia-img-wrap {
+        display: block;
+        overflow: visible !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        height: auto !important;
+    }
+
+    .uwebia-images-natural .uwebia-img-wrap img {
+        display: block !important;
+        width: auto !important;
+        max-width: 100% !important;
+        height: auto !important;
+        object-fit: scale-down !important;
+        margin: 0 auto;
+        border-radius: var(--image-radius, 10px) !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
+    /* Natural mode carousel: items size to image width */
+    .uwebia-images-natural .uwebia-image-carousel .uwebia-img-wrap {
+        flex: 0 0 auto;
+        height: auto !important;
+    }
+
+    /*
+     * Regular slideshow natural mode — slides go static so the container
+     * grows to the active image height. Image is centred at natural/fitted size.
+     */
+    .uwebia-images-natural.uwebia-images-slideshow .uwebia-slideshow {
+        aspect-ratio: unset;
+        min-height: 0;
+    }
+
+    .uwebia-images-natural.uwebia-images-slideshow .uwebia-slide {
+        position: static !important;
+    }
+
+    .uwebia-images-natural.uwebia-images-slideshow .uwebia-slide img {
+        display: block !important;
+        width: auto !important;
+        max-width: 100% !important;
+        height: auto !important;
+        object-fit: scale-down !important;
+        margin: 0 auto;
+        border-radius: var(--image-radius, 10px) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /*
+     * Fade slideshow natural mode — slides stay position:absolute for the
+     * opacity transition. Use contain: full image visible, no distortion.
+     */
+    .uwebia-images-natural.uwebia-images-fade_slideshow .uwebia-slide img {
+        object-fit: contain !important;
+        border-radius: var(--image-radius, 10px) !important;
+    }
+
     /* Single */
-    .uwebia-single-image {
-        width: 100%;
+    .uwebia-img-wrap.uwebia-single-wrap {
         max-height: 720px;
-        display: block;
+    }
+
+    .uwebia-img-wrap.uwebia-single-wrap img {
+        max-height: 720px;
     }
 
     /* Side-by-side grid */
@@ -774,10 +857,8 @@
         gap: 12px;
     }
 
-    .uwebia-image-grid img {
-        width: 100%;
+    .uwebia-image-grid .uwebia-img-wrap {
         height: 260px;
-        display: block;
     }
 
     /* Masonry */
@@ -786,12 +867,14 @@
         column-gap: 12px;
     }
 
-    .uwebia-image-masonry img {
-        width: 100%;
+    .uwebia-image-masonry .uwebia-img-wrap {
         height: auto;
-        display: block;
         margin: 0 0 12px;
         break-inside: avoid;
+    }
+
+    .uwebia-image-masonry .uwebia-img-wrap img {
+        height: auto;
     }
 
     /* Carousel strip */
@@ -803,7 +886,7 @@
         padding-bottom: 10px;
     }
 
-    .uwebia-image-carousel img {
+    .uwebia-image-carousel .uwebia-img-wrap {
         flex: 0 0 min(78vw, 420px);
         height: 300px;
         scroll-snap-align: center;
@@ -817,23 +900,23 @@
         gap: 12px;
     }
 
-    .uwebia-feature-grid img {
+    .uwebia-feature-grid .uwebia-img-wrap {
         width: 100%;
         height: 100%;
-        display: block;
     }
 
-    .uwebia-feature-grid img.featured {
+    .uwebia-feature-grid .uwebia-img-wrap.featured {
         grid-row: span 2;
     }
 
-    /* Slideshow */
+    /* Slideshow — container clips, image fills slide */
     .uwebia-slideshow {
         position: relative;
         width: 100%;
         aspect-ratio: 16 / 9;
         overflow: hidden;
         border-radius: var(--image-radius, 10px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     .uwebia-slide {
@@ -854,12 +937,6 @@
 
     .uwebia-images-fade_slideshow .uwebia-slide.active {
         opacity: 1;
-    }
-
-    .uwebia-slide img {
-        width: 100%;
-        height: 100%;
-        display: block;
     }
 
     .uwebia-slide-arrow {
@@ -897,13 +974,32 @@
         display: flex;
         gap: 8px;
         overflow-x: auto;
-        justify-content: center;
-        padding: 10px 0 0;
+        padding: 10px 0 4px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.25) transparent;
+    }
+
+    .uwebia-image-thumbnails::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .uwebia-image-thumbnails::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .uwebia-image-thumbnails::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.25);
+        border-radius: 999px;
+    }
+
+    .uwebia-image-thumbnails::-webkit-scrollbar-thumb:hover {
+        background: rgba(255,255,255,0.45);
     }
 
     .uwebia-image-thumbnails button {
         width: 72px;
         height: 54px;
+        flex-shrink: 0;
         padding: 0;
         border: 2px solid transparent;
         border-radius: 8px;
@@ -920,6 +1016,7 @@
         width: 100%;
         height: 100%;
         display: block;
+        object-fit: cover;
     }
 
     @media (max-width: 700px) {
@@ -997,41 +1094,22 @@
         outline: revert;
     }
 
-    /* Force image sections to fully use their allotted public row space */
-    .section-container>.uwebia-images {
-        width: 100% !important;
-        max-width: none !important;
-        margin: 0 !important;
+    /* Image section uses its allotted column space */
+    .section-container > .uwebia-images {
+        width: 100%;
         display: block;
     }
 
-    /* Single image should fill the section width */
-    .uwebia-single-image {
-        width: 100% !important;
-        max-width: none !important;
-        height: auto !important;
-        max-height: none !important;
-        display: block !important;
-        object-fit: var(--image-fit, cover);
-    }
-
-    /* Make all image layouts fill the section wrapper */
+    /* Layout containers always fill available width */
     .uwebia-image-grid,
     .uwebia-image-masonry,
     .uwebia-image-carousel,
     .uwebia-feature-grid,
     .uwebia-slideshow {
-        width: 100% !important;
-        max-width: none !important;
+        width: 100%;
     }
 
-    /* Make images inside layout containers use available space */
-    .uwebia-image-grid img,
-    .uwebia-image-carousel img,
-    .uwebia-feature-grid img,
-    .uwebia-slide img {
-        max-width: none !important;
-    }
+
 
     .uwebia-link-card {
         position: relative;
@@ -3078,44 +3156,48 @@ box-sizing: border-box;
                                 {% set image_fit = section.content.get('image_fit', 'cover') %}
                                 
                                 {% set image_radius = section.content.get('image_radius', '10') %}
+                                {% set image_max_width = section.content.get('image_max_width', '') %}
                                 {% set show_thumbnails = section.content.get('show_thumbnails', True) %}
                                 {% set autoplay = section.content.get('autoplay', False) %}
 
-                                <div class="uwebia-images uwebia-images-{{ image_layout }}"
+                                <div class="uwebia-images uwebia-images-{{ image_layout }}{% if image_fit == 'natural' %} uwebia-images-natural{% endif %}"
                                     data-section-id="{{ section.id }}" data-layout="{{ image_layout }}"
                                     data-autoplay="{{ 'true' if autoplay else 'false' }}"
-                                    style="--image-fit: {{ image_fit }}; --image-radius: {{ image_radius }}px;">
+                                    style="--image-fit: {{ image_fit if image_fit != 'natural' else 'cover' }}; --image-radius: {{ image_radius }}px;{{ ('--image-max-width: ' ~ image_max_width ~ 'px;') if image_max_width else '' }}">
 
                                     {% if images %}
                                     {% if image_layout == 'single' %}
-                                    <img class="uwebia-single-image" src="{{ images[0] }}" loading="lazy">
+                                    <div class="uwebia-img-wrap uwebia-single-wrap">
+                                        <img src="{{ images[0] }}" loading="lazy">
+                                    </div>
 
                                     {% elif image_layout == 'grid' %}
                                     <div class="uwebia-image-grid">
                                         {% for imageUrl in images %}
-                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        <div class="uwebia-img-wrap"><img src="{{ imageUrl }}" loading="lazy"></div>
                                         {% endfor %}
                                     </div>
 
                                     {% elif image_layout == 'masonry' %}
                                     <div class="uwebia-image-masonry">
                                         {% for imageUrl in images %}
-                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        <div class="uwebia-img-wrap"><img src="{{ imageUrl }}" loading="lazy"></div>
                                         {% endfor %}
                                     </div>
 
                                     {% elif image_layout == 'carousel' %}
                                     <div class="uwebia-image-carousel">
                                         {% for imageUrl in images %}
-                                        <img src="{{ imageUrl }}" loading="lazy">
+                                        <div class="uwebia-img-wrap"><img src="{{ imageUrl }}" loading="lazy"></div>
                                         {% endfor %}
                                     </div>
 
                                     {% elif image_layout == 'feature_grid' %}
                                     <div class="uwebia-feature-grid">
                                         {% for imageUrl in images %}
-                                        <img src="{{ imageUrl }}" loading="lazy"
-                                            class="{% if loop.first %}featured{% endif %}">
+                                        <div class="uwebia-img-wrap{% if loop.first %} featured{% endif %}">
+                                            <img src="{{ imageUrl }}" loading="lazy">
+                                        </div>
                                         {% endfor %}
                                     </div>
 

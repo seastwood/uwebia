@@ -92,6 +92,35 @@ login_manager.login_view = 'login'
 
 migrate = Migrate(app, db)  # Add this line to initialize Flask-Migrate
 
+# ── API key encryption ────────────────────────────────────────────────────────
+# Keys are encrypted with Fernet (AES-128-CBC + HMAC) before being stored.
+# The encryption key is derived from app.secret_key so it never touches the DB.
+from cryptography.fernet import Fernet, InvalidToken
+import base64, hashlib as _hashlib
+
+def _get_fernet():
+    raw = app.secret_key
+    if isinstance(raw, str):
+        raw = raw.encode()
+    derived = _hashlib.sha256(raw).digest()          # 32 bytes
+    fernet_key = base64.urlsafe_b64encode(derived)   # Fernet needs URL-safe b64
+    return Fernet(fernet_key)
+
+def encrypt_api_key(plaintext: str) -> str:
+    if not plaintext:
+        return ''
+    return _get_fernet().encrypt(plaintext.encode()).decode()
+
+def decrypt_api_key(ciphertext: str) -> str:
+    if not ciphertext:
+        return ''
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except (InvalidToken, Exception):
+        # Graceful fallback: treat as plain-text (keys stored before this change)
+        return ciphertext
+# ─────────────────────────────────────────────────────────────────────────────
+
 MAX_UPLOAD_MB = 10
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
@@ -982,6 +1011,33 @@ class CalendarSubscription(db.Model):
             'last_sync_error': self.last_sync_error,
             'event_count': self.event_count or 0,
         }
+
+class AIAgent(db.Model):
+    __tablename__ = 'ai_agent'
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    provider = db.Column(db.String(50), nullable=False, default='openai_compatible')
+    api_url = db.Column(db.Text, nullable=True)
+    api_key = db.Column(db.Text, nullable=True)
+    model = db.Column(db.String(200), nullable=True)
+    system_prompt = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self, include_key=False):
+        key = self.api_key or ''
+        masked = ('*' * max(0, len(key) - 4) + key[-4:]) if len(key) > 4 else ('*' * len(key))
+        return {
+            'id': self.id,
+            'name': self.name,
+            'provider': self.provider,
+            'api_url': self.api_url or '',
+            'api_key': self.api_key if include_key else masked,
+            'model': self.model or '',
+            'system_prompt': self.system_prompt or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 class SavedColor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -6237,10 +6293,12 @@ def photo_library():
 
 
 def update_images_section(section, form_data):
+    max_width_raw = (form_data.get('image_max_width') or '').strip()
     section.content = {
         'image_layout': form_data.get('image_layout', 'single'),
-        'image_fit': form_data.get('image_fit', 'cover'),
+        'image_fit': form_data.get('image_fit', 'natural'),
         'image_radius': form_data.get('image_radius', '10'),
+        'image_max_width': max_width_raw if max_width_raw.isdigit() else '',
         'show_thumbnails': form_data.get('show_thumbnails') == 'on',
         'autoplay': form_data.get('autoplay') == 'on'
     }
@@ -9438,6 +9496,197 @@ def list_calendars():
         return jsonify({'calendars': []})
     calendars = Calendar.query.filter_by(website_id=website.id).order_by(Calendar.created_at.desc()).all()
     return jsonify({'calendars': [c.to_dict() for c in calendars]})
+
+
+@app.route('/admin/ai-agents')
+@login_required
+def ai_agents_page():
+    website = current_user.websites[0] if current_user.websites else None
+    agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.created_at).all() if website else []
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template('ai_agents.html', agents=agents,
+                           current_website=current_website,
+                           current_website_pages=current_website_pages,
+                           page_id=None)
+
+
+@app.route('/admin/ai-agents/list')
+@login_required
+def list_ai_agents():
+    website = current_user.websites[0] if current_user.websites else None
+    if not website:
+        return jsonify({'agents': []})
+    agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.created_at).all()
+    return jsonify({'agents': [a.to_dict() for a in agents]})
+
+
+@app.route('/admin/ai-agents/create', methods=['POST'])
+@login_required
+def create_ai_agent():
+    website = current_user.websites[0] if current_user.websites else None
+    if not website:
+        return jsonify({'success': False, 'error': 'No website found'}), 400
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+    raw_key = (data.get('api_key') or '').strip()
+    agent = AIAgent(
+        website_id=website.id,
+        name=name,
+        provider=(data.get('provider') or 'openai_compatible').strip(),
+        api_url=(data.get('api_url') or '').strip() or None,
+        api_key=encrypt_api_key(raw_key) if raw_key else None,
+        model=(data.get('model') or '').strip() or None,
+        system_prompt=(data.get('system_prompt') or '').strip() or None,
+    )
+    db.session.add(agent)
+    db.session.commit()
+    return jsonify({'success': True, 'agent': agent.to_dict()}), 201
+
+
+@app.route('/admin/ai-agents/<int:agent_id>/update', methods=['POST'])
+@login_required
+def update_ai_agent(agent_id):
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+    agent.name = name
+    agent.provider = (data.get('provider') or 'openai_compatible').strip()
+    agent.api_url = (data.get('api_url') or '').strip() or None
+    agent.model = (data.get('model') or '').strip() or None
+    agent.system_prompt = (data.get('system_prompt') or '').strip() or None
+    new_key = (data.get('api_key') or '').strip()
+    if new_key and not all(c == '*' for c in new_key):
+        agent.api_key = encrypt_api_key(new_key)
+    db.session.commit()
+    return jsonify({'success': True, 'agent': agent.to_dict()})
+
+
+@app.route('/admin/ai-agents/<int:agent_id>/delete', methods=['POST'])
+@login_required
+def delete_ai_agent(agent_id):
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    db.session.delete(agent)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+def _extract_api_error(response):
+    """Pull the human-readable message out of an API error response body."""
+    try:
+        body = response.json()
+        # Anthropic: {"type":"error","error":{"type":"...","message":"..."}}
+        # OpenAI:    {"error":{"message":"...","type":"..."}}
+        err = body.get('error', body)
+        if isinstance(err, dict):
+            return err.get('message') or err.get('error_description') or str(err)
+        return str(body)
+    except Exception:
+        return response.text[:500] if response.text else 'No response body'
+
+
+def _call_ai_agent(agent, messages):
+    """Proxy a chat messages list to the configured AI provider. Returns (reply_text, error)."""
+    import requests as req
+
+    provider = agent.provider
+    api_key = decrypt_api_key(agent.api_key or '')
+    timeout = 60
+
+    try:
+        if provider == 'anthropic':
+            url = 'https://api.anthropic.com/v1/messages'
+            headers = {
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+            }
+            payload = {
+                'model': agent.model or 'claude-sonnet-4-6',
+                'max_tokens': 2048,
+                'messages': messages,
+            }
+            if agent.system_prompt:
+                payload['system'] = agent.system_prompt
+            r = req.post(url, headers=headers, json=payload, timeout=timeout)
+            if not r.ok:
+                return None, f'Anthropic {r.status_code}: {_extract_api_error(r)}'
+            return r.json()['content'][0]['text'], None
+
+        else:
+            # OpenAI, OpenAI-compatible (Ollama, LM Studio, Groq, etc.)
+            if provider == 'openai':
+                base = 'https://api.openai.com'
+            else:
+                base = (agent.api_url or 'http://localhost:11434').rstrip('/')
+
+            url = f'{base}/v1/chat/completions'
+            headers = {'Content-Type': 'application/json'}
+            if api_key:
+                headers['Authorization'] = f'Bearer {api_key}'
+
+            full_messages = []
+            if agent.system_prompt:
+                full_messages.append({'role': 'system', 'content': agent.system_prompt})
+            full_messages.extend(messages)
+
+            payload = {
+                'model': agent.model or 'gpt-4o',
+                'messages': full_messages,
+                'max_tokens': 2048,
+            }
+            r = req.post(url, headers=headers, json=payload, timeout=timeout)
+            if not r.ok:
+                return None, f'API {r.status_code}: {_extract_api_error(r)}'
+            return r.json()['choices'][0]['message']['content'], None
+
+    except Exception as e:
+        return None, str(e)
+
+
+def _utf8_json(data, status=200):
+    """Return a JSON response explicitly encoded as UTF-8 to handle any Unicode in AI output."""
+    import json as _json
+    body = _json.dumps(data, ensure_ascii=False).encode('utf-8')
+    return Response(body, status=status, mimetype='application/json; charset=utf-8')
+
+
+@app.route('/admin/ai-agents/<int:agent_id>/chat', methods=['POST'])
+@login_required
+def ai_agent_chat(agent_id):
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json()
+    messages = data.get('messages', [])
+    if not messages:
+        return _utf8_json({'success': False, 'error': 'No messages provided'}, 400)
+    reply, error = _call_ai_agent(agent, messages)
+    if error:
+        return _utf8_json({'success': False, 'error': error}, 502)
+    return _utf8_json({'success': True, 'reply': reply})
+
+
+@app.route('/admin/ai-agents/<int:agent_id>/test', methods=['POST'])
+@login_required
+def test_ai_agent(agent_id):
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    reply, error = _call_ai_agent(agent, [{'role': 'user', 'content': 'Reply with exactly: OK'}])
+    if error:
+        return _utf8_json({'success': False, 'error': error})
+    return _utf8_json({'success': True, 'reply': reply})
 
 
 @app.route('/admin/calendars')
