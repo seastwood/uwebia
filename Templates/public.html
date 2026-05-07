@@ -1591,10 +1591,8 @@ min-height: 100dvh;
     z-index: 100010 !important;
 }
 
-html,
-body.public-page-body {
-    background: {{ website.background_color or '#000' }} !important;
-}
+/* Background is rendered by .site-fixed-background — no !important override here
+   so page-level custom code can override body/html backgrounds freely. */
 
 .uwebia-music {
     width: 100%;
@@ -3045,6 +3043,10 @@ body.public-page-body {
 {% set navbar_anchor_offset = 78 + navbar_margin %}
 {% set navbar_page_offset = 58 + navbar_margin %}
 
+<style>
+  :root { --site-bg-color: {{ website.background_color or '#ffffff' }}; }
+  .site-fixed-background { background: var(--site-bg-color); }
+</style>
 <body class="public-page-body" style="
 --navbar-page-offset: {{ 58 + navbar_margin }}px;
 --navbar-anchor-offset: {{ navbar_anchor_offset }}px;
@@ -3052,7 +3054,6 @@ body.public-page-body {
 color: {{ website.text_color or '#000000' }};
 ">
 <div class="site-fixed-background" aria-hidden="true" style="
-    background: {{ website.background_color or '#ffffff' }};
 
     {% if website.background_image_url %}
         background-image: url('{{ website.background_image_url }}');
@@ -4493,6 +4494,11 @@ function togglePageCommentLike(event, commentId) {
         });
 }
 </script>
+
+{% if content.custom_code %}
+<!-- Page custom code -->
+{{ content.custom_code | safe }}
+{% endif %}
 
 </body>
 

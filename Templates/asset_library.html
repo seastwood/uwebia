@@ -157,6 +157,50 @@
         pointer-events: none;
     }
 
+    /* Image lightbox */
+    .img-lightbox {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0,0,0,0.88);
+        backdrop-filter: blur(6px);
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 14px;
+        cursor: zoom-out;
+    }
+    .img-lightbox.is-open { display: flex; }
+    .img-lightbox-img {
+        max-width: min(92vw, 1400px);
+        max-height: 82vh;
+        object-fit: contain;
+        border-radius: 10px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        cursor: default;
+    }
+    .img-lightbox-caption {
+        color: rgba(255,255,255,0.6);
+        font-size: 0.85rem;
+        text-align: center;
+        max-width: 600px;
+    }
+    .img-lightbox-close {
+        position: fixed;
+        top: 18px;
+        right: 22px;
+        background: none;
+        border: none;
+        color: rgba(255,255,255,0.7);
+        font-size: 2rem;
+        cursor: pointer;
+        line-height: 1;
+        z-index: 10000;
+    }
+    .img-lightbox-close:hover { color: #fff; }
+    .asset-preview.is-image { cursor: zoom-in; }
+
     .asset-preview i {
         font-size: 2.4rem;
         color: rgba(255, 255, 255, 0.75);
@@ -634,7 +678,10 @@
         {% for asset in assets %}
         <div class="asset-card asset-card-{{ asset.asset_type }}" draggable="true"
             ondragstart="dragStart(event, '{{ asset.id }}')">
-            <div class="asset-preview">
+            <div class="asset-preview{% if asset.asset_type == 'image' %} is-image{% endif %}"
+                {% if asset.asset_type == 'image' %}
+                onclick="event.stopPropagation(); openImagePreview('{{ asset.url }}', '{{ asset.original_filename | e }}')"
+                {% endif %}>
                 {% if asset.asset_type == 'image' %}
                 <img src="{{ asset.thumbnail_url or asset.url }}" loading="lazy" alt="{{ asset.original_filename }}">
 
@@ -713,6 +760,12 @@
         </div>
         {% endfor %}
     </div>
+</div>
+
+<div id="imgLightbox" class="img-lightbox" onclick="closeImagePreview()">
+    <button class="img-lightbox-close" onclick="closeImagePreview()" title="Close">&times;</button>
+    <img id="imgLightboxImg" class="img-lightbox-img" src="" alt="" onclick="event.stopPropagation()">
+    <div id="imgLightboxCaption" class="img-lightbox-caption"></div>
 </div>
 
 <div id="videoPreviewModal" class="video-preview-modal" onclick="closeVideoPreview()">
@@ -970,6 +1023,27 @@
 
     document.addEventListener('DOMContentLoaded', generateVideoThumbnails);
 
+    /* ── Image lightbox ── */
+    function openImagePreview(url, filename) {
+        const lb  = document.getElementById('imgLightbox');
+        const img = document.getElementById('imgLightboxImg');
+        const cap = document.getElementById('imgLightboxCaption');
+        img.src = url;
+        img.alt = filename;
+        cap.textContent = filename;
+        lb.classList.add('is-open');
+    }
+
+    function closeImagePreview() {
+        const lb = document.getElementById('imgLightbox');
+        lb.classList.remove('is-open');
+        document.getElementById('imgLightboxImg').src = '';
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeImagePreview();
+    });
+
     /* ── AI Image Generation ── */
     async function openAiGenModal() {
         // Load agents
@@ -1024,7 +1098,22 @@
 
         document.body.appendChild(overlay);
         overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-        setTimeout(() => { updateAiGenModelField(); document.getElementById('aiGenPrompt')?.focus(); }, 50);
+        setTimeout(() => {
+            // Restore last-used agent
+            const lastAgent = localStorage.getItem('aiGen_lastAgentId');
+            const agentSel = document.getElementById('aiGenAgent');
+            if (lastAgent && agentSel) {
+                for (const opt of agentSel.options) {
+                    if (opt.value === lastAgent) { opt.selected = true; break; }
+                }
+            }
+            updateAiGenModelField();
+            // Restore last-used model override (only for free-text field)
+            const lastModel = localStorage.getItem('aiGen_lastModel');
+            const modelEl = document.getElementById('aiGenModel');
+            if (lastModel && modelEl && modelEl.tagName === 'INPUT') modelEl.value = lastModel;
+            document.getElementById('aiGenPrompt')?.focus();
+        }, 50);
     }
 
     function updateAiGenModelField() {
@@ -1075,6 +1164,8 @@
             const d = await r.json();
 
             if (d.success) {
+                localStorage.setItem('aiGen_lastAgentId', agentId);
+                if (model) localStorage.setItem('aiGen_lastModel', model);
                 status.style.color = '#7ee2cc';
                 status.textContent = 'Image generated and saved to library!';
                 btn.innerHTML = '<i class="fas fa-check"></i> Done';

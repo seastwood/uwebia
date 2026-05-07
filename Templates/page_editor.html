@@ -417,14 +417,151 @@
 
     .content-sections-container {
         flex: 1;
-        /* height: 100%; */
-        /* max-height: calc(80vh); */
-        /* Limit the height */
-        /* overflow-y: auto; */
         position: relative;
-        /* padding-bottom: 25vw; */
         user-select: none;
-        /* Prevent highlighting */
+    }
+
+    /* Page-level editor tabs */
+    .page-editor-tabs {
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+        padding: 8px 12px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        background: rgba(0,0,0,0.15);
+    }
+    .page-editor-tabs .editor-page-title {
+        margin-left: auto;
+        margin-bottom: 6px;
+        font-size: 0.9rem;
+        padding: 0 6px;
+        text-align: right;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 200px;
+        box-shadow: none;
+    }
+    .page-editor-tab {
+        padding: 7px 18px;
+        border-radius: 8px 8px 0 0;
+        border: 1px solid transparent;
+        border-bottom: none;
+        background: none;
+        color: rgba(255,255,255,0.45);
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+        letter-spacing: 0.04em;
+    }
+    .page-editor-tab:hover { color: rgba(255,255,255,0.8); }
+    .page-editor-tab.active {
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(255,255,255,0.1);
+        color: #fff;
+    }
+
+    /* Page code panel */
+    .page-code-panel {
+        display: none;
+        flex-direction: column;
+        height: 100%;
+        padding: 14px;
+        gap: 12px;
+        box-sizing: border-box;
+        overflow-y: auto;
+    }
+    .page-code-panel.active { display: flex; }
+    .page-code-ai-bar {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 12px;
+    }
+    .page-code-ai-bar-header {
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255,255,255,0.4);
+    }
+    .page-code-ai-controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+    .page-code-ai-controls select {
+        flex: 0 0 auto;
+        padding: 7px 10px;
+        background: #292b34;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 7px;
+        color: #fff;
+        font-size: 0.82rem;
+    }
+    .page-code-ai-controls textarea {
+        flex: 1 1 180px;
+        padding: 7px 10px;
+        background: #292b34;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 7px;
+        color: #fff;
+        font-size: 0.82rem;
+        resize: vertical;
+        min-height: 34px;
+    }
+    .page-code-ai-controls button {
+        flex: 0 0 auto;
+        padding: 7px 14px;
+        border-radius: 7px;
+        border: none;
+        background: linear-gradient(135deg,#7b2ff7,#00c6ff);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .page-code-ai-status {
+        font-size: 0.8rem;
+        min-height: 1em;
+        color: #7ee2cc;
+    }
+    .page-code-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+    .page-code-toolbar-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: rgba(255,255,255,0.4);
+    }
+    .page-code-toolbar-actions { display: flex; gap: 4px; }
+    .page-code-toolbar-actions button {
+        padding: 5px 11px;
+        border-radius: 7px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.06);
+        color: rgba(255,255,255,0.75);
+        font-size: 0.8rem;
+        cursor: pointer;
+    }
+    .page-code-toolbar-actions button:hover { background: rgba(255,255,255,0.12); color:#fff; }
+    .page-code-cm-wrap .CodeMirror {
+        height: calc(100vh - 380px);
+        min-height: 260px;
+        font-size: 13px;
+        font-family: 'Fira Mono','Consolas',monospace;
+        border-radius: 8px;
     }
 
     .web-preview {
@@ -6616,9 +6753,6 @@ nts-admin-pagination span {
     <div class="big-content-container">
 
         <div class="content-container">
-            <div class="editor-page-title">
-                {{ page_content.name if page_content else "Untitled Page" }}
-            </div>
 
             <!-- <div class="page-style-accordion">
                 <button type="button" class="page-style-toggle" aria-expanded="false">
@@ -6694,9 +6828,20 @@ nts-admin-pagination span {
             </script> -->
 
 
-            <div class="content-sections-container">
+            <!-- Page-level editor tab bar -->
+            <div class="page-editor-tabs">
+                <button class="page-editor-tab active" id="tabSections" onclick="switchPageTab('sections')">
+                    <i class="fas fa-th-large"></i> Sections
+                </button>
+                <button class="page-editor-tab" id="tabPageCode" onclick="switchPageTab('pagecode')">
+                    <i class="fas fa-code"></i> Page Code
+                </button>
+                <div class="editor-page-title">
+                    {{ page_content.name if page_content else "Untitled Page" }}
+                </div>
+            </div>
 
-
+            <div class="content-sections-container" id="tabPanelSections">
 
                 <!-- HTML Structure -->
                 <div id="sections-container" class="sections-container">
@@ -6710,7 +6855,37 @@ nts-admin-pagination span {
                     </div>
 
                 </div>
+            </div><!-- /content-sections-container -->
+
+            <!-- Page Code tab panel -->
+            <div class="page-code-panel" id="tabPanelPageCode">
+                <div class="page-code-ai-bar">
+                    <div class="page-code-ai-bar-header"><i class="fas fa-robot"></i> AI Assist — Page Wide</div>
+                    <div class="page-code-ai-controls">
+                        <select id="pageCodeAiAgent">
+                            <option value="">Loading agents…</option>
+                        </select>
+                        <textarea id="pageCodeAiPrompt" rows="2"
+                            placeholder="e.g. Make all section containers have rounded corners and a dark glass effect, use my hero image as the page background…"></textarea>
+                        <button onclick="generatePageCode()"><i class="fas fa-magic"></i> Generate</button>
+                    </div>
+                    <div class="page-code-ai-status" id="pageCodeAiStatus"></div>
+                </div>
+
+                <div class="page-code-toolbar">
+                    <span class="page-code-toolbar-label"><i class="fas fa-code"></i> Page-level HTML / CSS / JS</span>
+                    <div class="page-code-toolbar-actions">
+                        <button title="Undo" onclick="window._pageCM && window._pageCM.undo()"><i class="fas fa-undo"></i></button>
+                        <button title="Redo" onclick="window._pageCM && window._pageCM.redo()"><i class="fas fa-redo"></i></button>
+                        <button onclick="savePageCode(true)"><i class="fas fa-save"></i> Save</button>
+                    </div>
+                </div>
+
+                <div class="page-code-cm-wrap">
+                    <textarea id="pageCodeTextarea"></textarea>
+                </div>
             </div>
+
             <div id="message">
                 <span id="messageContent"></span>
                 <span id="closeButton" onclick="closeMessage()">x</span>
@@ -11525,6 +11700,121 @@ setTimeout(() => {
                 }
             } catch (e) {
                 select.innerHTML = '<option value="">Error loading calendars</option>';
+            }
+        }
+
+        /* ── Page Code tab ── */
+
+        function switchPageTab(tab) {
+            const isSections = tab === 'sections';
+            document.getElementById('tabPanelSections').style.display = isSections ? '' : 'none';
+            document.getElementById('tabPanelPageCode').classList.toggle('active', !isSections);
+            document.getElementById('tabSections').classList.toggle('active', isSections);
+            document.getElementById('tabPageCode').classList.toggle('active', !isSections);
+
+            if (!isSections) initPageCodeTab();
+        }
+
+        function initPageCodeTab() {
+            if (window._pageCM) { window._pageCM.refresh(); return; }
+
+            // Load agents and restore last-used selection
+            fetch('/admin/ai-agents/list').then(r => r.json()).then(d => {
+                const sel = document.getElementById('pageCodeAiAgent');
+                if (!sel) return;
+                const agents = (d.agents || []).filter(a => a.capabilities === 'chat' || a.capabilities === 'both' || !a.capabilities);
+                sel.innerHTML = agents.length
+                    ? '<option value="">— select agent —</option>' + agents.map(a => `<option value="${a.id}">${a.name}</option>`).join('')
+                    : '<option value="">No chat agents available</option>';
+                const lastAgent = localStorage.getItem('pageCode_lastAgentId');
+                if (lastAgent) {
+                    for (const opt of sel.options) {
+                        if (opt.value === lastAgent) { opt.selected = true; break; }
+                    }
+                }
+            }).catch(() => {});
+
+            // Load existing code then init CodeMirror
+            fetch(`/admin/page/${pageId}/custom_code`)
+                .then(r => r.json())
+                .then(d => {
+                    const ta = document.getElementById('pageCodeTextarea');
+                    if (!ta) return;
+                    ta.value = d.code || '';
+                    const cm = CodeMirror.fromTextArea(ta, {
+                        mode: 'htmlmixed',
+                        theme: 'dracula',
+                        lineNumbers: true,
+                        matchBrackets: true,
+                        autoCloseBrackets: true,
+                        lineWrapping: true,
+                        tabSize: 2,
+                        indentWithTabs: false,
+                    });
+                    const _save = debounce(() => savePageCode(false), 800);
+                    cm.on('change', () => { ta.value = cm.getValue(); _save(); });
+                    window._pageCM = cm;
+                    setTimeout(() => cm.refresh(), 50);
+                });
+
+            // Enter key in prompt
+            document.getElementById('pageCodeAiPrompt')?.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generatePageCode(); }
+            });
+        }
+
+        function savePageCode(showToast) {
+            const cm = window._pageCM;
+            const ta = document.getElementById('pageCodeTextarea');
+            const code = cm ? cm.getValue() : (ta ? ta.value : '');
+            return fetch(`/admin/page/${pageId}/save_custom_code`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code })
+            }).then(r => r.json()).then(d => {
+                if (d.success && showToast) showEditorToast('Page code saved');
+                else if (!d.success) console.error('Page code save failed:', d.error);
+            });
+        }
+
+        async function generatePageCode() {
+            const agentId = document.getElementById('pageCodeAiAgent')?.value;
+            const prompt  = document.getElementById('pageCodeAiPrompt')?.value.trim();
+            const status  = document.getElementById('pageCodeAiStatus');
+            const cm      = window._pageCM;
+            const ta      = document.getElementById('pageCodeTextarea');
+
+            const setStatus = (msg, ok) => { if (status) { status.textContent = msg; status.style.color = ok === false ? '#f55' : '#7ee2cc'; } };
+
+            if (!agentId) { setStatus('Select an agent.', false); return; }
+            if (!prompt)  { setStatus('Enter a prompt.', false); return; }
+
+            setStatus('Generating — this may take a moment…');
+            const btn = document.querySelector('.page-code-ai-controls button');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+
+            const currentCode = cm ? cm.getValue() : (ta ? ta.value : '');
+
+            try {
+                const r = await fetch(`/admin/page/${pageId}/ai_assist_page_code`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent_id: parseInt(agentId), prompt, current_code: currentCode })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    localStorage.setItem('pageCode_lastAgentId', agentId);
+                    if (cm) cm.setValue(d.code || '');
+                    else if (ta) ta.value = d.code || '';
+                    savePageCode(false).then(() => setStatus('Generated and saved.'));
+                    document.getElementById('pageCodeAiPrompt').value = '';
+                } else {
+                    setStatus(d.error || 'Generation failed.', false);
+                }
+            } catch(e) {
+                setStatus('Network error: ' + e.message, false);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Generate'; }
             }
         }
 

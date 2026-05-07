@@ -713,6 +713,8 @@ class PublicPageContent(db.Model):
     tags = db.relationship('Tag', secondary='page_tag', backref=db.backref('pages', lazy=True))
     background_color = db.Column(db.String(200), default='#ffffff')  # Default to white
     text_color = db.Column(db.String(20), default='#000000')  # Default to black
+    # Page-wide custom HTML/CSS/JS injected at the end of <body>
+    custom_code = db.Column(db.Text, nullable=True)
 
     messages = db.relationship('ContactMessage', backref='page', lazy=True)
 
@@ -1166,6 +1168,8 @@ class Asset(db.Model):
 
     original_filename = db.Column(db.String(255), nullable=False)
     stored_filename = db.Column(db.String(255), nullable=False)
+    # Original file preserved pre-conversion (e.g. PNG/JPEG before WebP optimisation)
+    original_stored_filename = db.Column(db.String(255), nullable=True)
 
     url = db.Column(db.String(700), nullable=False)
     thumbnail_url = db.Column(db.String(700), nullable=True)
@@ -1506,6 +1510,7 @@ def save_asset_file(file_storage, output_dir):
             'original_filename': original_filename,
             'stored_filename': saved['public_filename'],
             'thumbnail_filename': saved['thumb_filename'],
+            'original_stored_filename': saved['original_filename'],
             'asset_type': 'image',
             'mime_type': 'image/webp',
             'extension': 'webp',
@@ -1792,6 +1797,7 @@ def asset_upload():
                 folder_id=folder_id,
                 original_filename=saved['original_filename'],
                 stored_filename=saved['stored_filename'],
+                original_stored_filename=saved.get('original_stored_filename'),
                 url=asset_url,
                 thumbnail_url=thumbnail_url,
                 asset_type=saved['asset_type'],
@@ -1902,6 +1908,14 @@ def ai_generate_asset():
     user_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
     os.makedirs(user_folder, exist_ok=True)
 
+    # Log raw response details to help diagnose format issues
+    content_type = r.headers.get('Content-Type', 'unknown') if 'url' not in (item if item else {}) else 'downloaded'
+    app.logger.info(
+        f'ai_generate_asset: received {len(img_bytes)} bytes, '
+        f'content-type={content_type}, '
+        f'first-bytes={img_bytes[:16].hex()}'
+    )
+
     class _Buf:
         def __init__(self, b): self.stream = _io.BytesIO(b)
 
@@ -1911,7 +1925,12 @@ def ai_generate_asset():
         return _utf8_json({'success': False, 'error': f'Image processing failed: {e}'}, 500)
 
     safe_slug = secure_filename(prompt[:40].replace(' ', '_')) or 'ai_generated'
-    original_filename = f"ai_{safe_slug}.webp"
+    # Derive display name from what PIL actually detected (saved['original_filename'] carries the ext)
+    if saved.get('original_filename'):
+        orig_ext_detected = saved['original_filename'].rsplit('.', 1)[-1]
+    else:
+        orig_ext_detected = 'webp'
+    display_original = f"ai_{safe_slug}.{orig_ext_detected}"
 
     asset_url   = url_for('static', filename=f'uploads/{current_user.id}/assets/{saved["public_filename"]}')
     thumb_url   = url_for('static', filename=f'uploads/{current_user.id}/assets/{saved["thumb_filename"]}')
@@ -1924,8 +1943,9 @@ def ai_generate_asset():
     asset = Asset(
         user_id=current_user.id,
         folder_id=folder_id,
-        original_filename=original_filename,
+        original_filename=display_original,
         stored_filename=saved['public_filename'],
+        original_stored_filename=saved['original_filename'],
         url=asset_url,
         thumbnail_url=thumb_url,
         asset_type='image',
@@ -1946,13 +1966,16 @@ def download_asset(asset_id):
         user_id=current_user.id
     ).first_or_404()
 
-    asset_path = os.path.join(
-        uploads_folder,
-        str(current_user.id),
-        'assets',
-        asset.stored_filename
-    )
+    user_asset_dir = os.path.join(uploads_folder, str(current_user.id), 'assets')
 
+    # Prefer the preserved original (e.g. PNG/JPEG) over the converted WebP
+    serve_filename = asset.stored_filename
+    if asset.original_stored_filename:
+        orig_path = os.path.join(user_asset_dir, asset.original_stored_filename)
+        if os.path.exists(orig_path):
+            serve_filename = asset.original_stored_filename
+
+    asset_path = os.path.join(user_asset_dir, serve_filename)
     if not os.path.exists(asset_path):
         return "File not found", 404
 
@@ -6297,11 +6320,30 @@ def save_optimized_versions(file_storage, output_dir: str) -> dict:
 
     base_name = uuid.uuid4().hex
 
+    # Read raw bytes first so we can preserve the original file unchanged
+    file_storage.stream.seek(0)
+    raw_bytes = file_storage.stream.read()
+    file_storage.stream.seek(0)
+
+    # Detect format from magic bytes — reliable regardless of PIL stream quirks
+    if raw_bytes[:3] == b'\xff\xd8\xff':
+        orig_ext = 'jpg'
+    elif raw_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        orig_ext = 'png'
+    elif raw_bytes[:4] == b'RIFF' and raw_bytes[8:12] == b'WEBP':
+        orig_ext = 'webp'
+    elif raw_bytes[:6] in (b'GIF87a', b'GIF89a'):
+        orig_ext = 'gif'
+    else:
+        orig_ext = None  # unknown — skip saving original
+    app.logger.info(f'save_optimized_versions: magic-byte format={orig_ext!r}, will {"skip" if orig_ext in (None, "webp") else f"save original as .{orig_ext}"}')
+
     with Image.open(file_storage.stream) as img:
         img = ImageOps.exif_transpose(img)
+
         img = ensure_rgb(img)
 
-        # Public image
+        # Public WebP
         public_img = img.copy()
         if public_img.width > PUBLIC_MAX_WIDTH:
             ratio = PUBLIC_MAX_WIDTH / public_img.width
@@ -6312,7 +6354,7 @@ def save_optimized_versions(file_storage, output_dir: str) -> dict:
         public_path = os.path.join(output_dir, public_filename)
         public_img.save(public_path, "WEBP", quality=PUBLIC_QUALITY, method=6)
 
-        # Thumbnail
+        # Thumbnail WebP
         thumb_img = img.copy()
         thumb_img.thumbnail(THUMB_SIZE, Image.LANCZOS)
 
@@ -6320,9 +6362,18 @@ def save_optimized_versions(file_storage, output_dir: str) -> dict:
         thumb_path = os.path.join(output_dir, thumb_filename)
         thumb_img.save(thumb_path, "WEBP", quality=THUMB_QUALITY, method=6)
 
+    # Save original bytes verbatim — skip if already WebP or format unknown
+    if orig_ext and orig_ext != 'webp':
+        orig_filename = f"{base_name}_original.{orig_ext}"
+        with open(os.path.join(output_dir, orig_filename), 'wb') as f:
+            f.write(raw_bytes)
+    else:
+        orig_filename = None
+
     return {
         "public_filename": public_filename,
         "thumb_filename": thumb_filename,
+        "original_filename": orig_filename,  # None when source was already WebP
     }
 
 @app.route('/get_library_root', methods=['GET'])
@@ -7891,7 +7942,8 @@ def render_public_page(website, page, is_preview=False):
         'videos_by_section': videos_by_section,
         'comments_by_section': comments_by_section,
         'public_user': get_public_user(),
-        'is_preview': is_preview
+        'is_preview': is_preview,
+        'custom_code': page.custom_code or '',
     }
 
     html = render_template(
@@ -9756,6 +9808,44 @@ def save_code_section(section_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _build_asset_inventory(user_id):
+    """Return a folder-aware asset inventory string for AI prompts."""
+    folders = {f.id: f.name for f in AssetFolder.query.filter_by(user_id=user_id).all()}
+    assets  = Asset.query.filter_by(user_id=user_id).order_by(Asset.upload_date.desc()).all()
+
+    # Group by (folder_name, asset_type)
+    from collections import defaultdict
+    grouped = defaultdict(list)
+    for a in assets:
+        folder_name = folders.get(a.folder_id, '(root)') if a.folder_id else '(root)'
+        grouped[(folder_name, a.asset_type or 'misc')].append(a)
+
+    if not assets:
+        return 'No assets uploaded yet.'
+
+    type_labels = {'image': 'Image', 'audio': 'Audio', 'video': 'Video', 'misc': 'File'}
+    lines = []
+    # Sort: root first, then alphabetical folder
+    for folder_name in sorted(grouped_folders := {k[0] for k in grouped}, key=lambda x: (x != '(root)', x)):
+        lines.append(f'\nFolder: {folder_name}')
+        for atype, label in type_labels.items():
+            bucket = grouped.get((folder_name, atype), [])
+            if not bucket:
+                continue
+            lines.append(f'  {label}s:')
+            for a in bucket:
+                name = a.original_filename or a.stored_filename
+                lines.append(f'    - {name}  →  {a.url}')
+        # Any unlabelled types in this folder
+        for (fn, atype), bucket in grouped.items():
+            if fn == folder_name and atype not in type_labels:
+                lines.append(f'  {atype.title()} files:')
+                for a in bucket:
+                    lines.append(f'    - {a.original_filename or a.stored_filename}  →  {a.url}')
+
+    return '\n'.join(lines)
+
+
 @app.route('/admin/code_section/<int:section_id>/ai_assist', methods=['POST'])
 @login_required
 def code_section_ai_assist(section_id):
@@ -9788,38 +9878,7 @@ def code_section_ai_assist(section_id):
     except Exception as e:
         page_html = f'(page could not be rendered: {e})'
 
-    # Build an asset inventory grouped by type so the AI can reference real URLs
-    assets = Asset.query.filter_by(user_id=current_user.id).order_by(Asset.upload_date.desc()).all()
-    asset_sections = {}
-    for a in assets:
-        t = a.asset_type or 'misc'
-        asset_sections.setdefault(t, []).append(a)
-
-    asset_lines = []
-    type_labels = {'image': 'Images', 'audio': 'Audio / Music', 'video': 'Videos', 'misc': 'Other files'}
-    for atype, label in type_labels.items():
-        group = asset_sections.get(atype, [])
-        if not group:
-            continue
-        asset_lines.append(f'\n{label}:')
-        for a in group:
-            name = a.original_filename or a.stored_filename
-            line = f'  - {name}  →  {a.url}'
-            if a.thumbnail_url:
-                line += f'  (thumbnail: {a.thumbnail_url})'
-            asset_lines.append(line)
-    # Include any unlabelled types
-    for atype, group in asset_sections.items():
-        if atype not in type_labels:
-            asset_lines.append(f'\n{atype.title()} files:')
-            for a in group:
-                asset_lines.append(f'  - {a.original_filename or a.stored_filename}  →  {a.url}')
-
-    asset_inventory = (
-        'The following assets are available in the user\'s library. '
-        'You may reference any of these URLs directly in your generated code.\n'
-        + ('\n'.join(asset_lines) if asset_lines else '  (no assets uploaded yet)')
-    )
+    asset_inventory = _build_asset_inventory(current_user.id)
 
     system_override = (
         "You are a web code assistant embedded in Uwebia, a website builder.\n"
@@ -9831,18 +9890,31 @@ def code_section_ai_assist(section_id):
         "- Do NOT include <html>, <head>, or <body> tags.\n"
         "- Use self-contained styles (inline or <style> block) — you cannot reference external files.\n"
         "- The output is injected directly into the live page alongside other sections.\n"
-        "- CRITICAL: If the section already contains code, you MUST preserve and build upon it. "
-        "Only modify the specific parts the user asks about. Do not discard or omit existing code "
-        "unless the user explicitly asks you to remove it. Return the complete updated code.\n"
-        "- When the user's request involves assets (images, music, video), use the actual asset URLs "
-        "provided in the context rather than placeholder URLs."
+        "- OUTPUT RULE: Your response must be the full, complete code — existing code plus your changes. "
+        "Copy every line of the existing code into your output, then integrate your changes. "
+        "Never summarise, abbreviate, comment out, or replace existing code with a placeholder comment. "
+        "A response shorter than the existing code (unless the user explicitly asked to remove something) "
+        "is always wrong. Do not write comments like '/* existing styles remain */' — write the actual code.\n"
+        "- ONLY use assets from the asset list when the user explicitly asks for them. "
+        "Never include images, audio, or video unless the request clearly calls for it. "
+        "When assets are requested, use the exact URLs provided. "
+        "If the user references a folder name (e.g. 'use the images in the AI Generated folder'), "
+        "use only assets listed under that folder."
     )
 
+    if current_code:
+        existing_block = (
+            f"EXISTING CODE — you MUST include every line of this verbatim in your output, "
+            f"with your changes integrated:\n{current_code}"
+        )
+    else:
+        existing_block = "EXISTING CODE: (empty — write new code from scratch)"
+
     user_message = (
-        f"Here is the current full public page HTML for context:\n\n{page_html}\n\n"
-        f"---\n\nAsset library:\n{asset_inventory}\n\n"
-        f"---\n\nCurrent code in this section:\n{current_code if current_code else '(empty)'}\n\n"
-        f"---\n\nRequest: {prompt}"
+        f"Current full public page HTML for context:\n\n{page_html}\n\n"
+        f"---\n\nAvailable assets (only use if the request explicitly asks for them):\n{asset_inventory}\n\n"
+        f"---\n\n{existing_block}\n\n"
+        f"---\n\nMODIFICATION REQUEST: {prompt}"
     )
 
     # Temporarily override system prompt for this call
@@ -9856,6 +9928,119 @@ def code_section_ai_assist(section_id):
     if error:
         return _utf8_json({'success': False, 'error': error}, 502)
 
+    return _utf8_json({'success': True, 'code': _strip_code_fences(reply)})
+
+
+# ── Page-level custom code ────────────────────────────────────────────────────
+
+@app.route('/admin/page/<int:page_id>/custom_code', methods=['GET'])
+@login_required
+def get_page_custom_code(page_id):
+    page = PublicPageContent.query.get_or_404(page_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    return _utf8_json({'success': True, 'code': page.custom_code or ''})
+
+
+@app.route('/admin/page/<int:page_id>/save_custom_code', methods=['POST'])
+@login_required
+def save_page_custom_code(page_id):
+    page = PublicPageContent.query.get_or_404(page_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json(force=True, silent=True) or {}
+    page.custom_code = data.get('code', '') or None
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/page/<int:page_id>/ai_assist_page_code', methods=['POST'])
+@login_required
+def ai_assist_page_code(page_id):
+    page = PublicPageContent.query.get_or_404(page_id)
+    website = Website.query.get_or_404(page.website_id)
+    if website.user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    data = request.get_json() or {}
+    agent_id    = data.get('agent_id')
+    prompt      = (data.get('prompt') or '').strip()
+    current_code = (data.get('current_code') or '').strip()
+
+    if not agent_id:
+        return _utf8_json({'success': False, 'error': 'No agent selected'}, 400)
+    if not prompt:
+        return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
+
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    try:
+        page_html = render_public_page(website, page)
+        if len(page_html) > 50000:
+            page_html = page_html[:50000] + '\n<!-- [truncated] -->'
+    except Exception as e:
+        page_html = f'(could not render: {e})'
+
+    asset_inventory = _build_asset_inventory(current_user.id)
+
+    system_override = (
+        "You are a web code assistant embedded in Uwebia, a website builder.\n"
+        "The user is editing PAGE-LEVEL code — HTML/CSS/JS injected at the end of <body> "
+        "that affects the ENTIRE page.\n\n"
+        "Key page structure facts you MUST know:\n"
+        "- The page background is controlled by the CSS variable --site-bg-color set on :root. "
+        "To change the background color or gradient, override this variable: "
+        ":root { --site-bg-color: green; } "
+        "For a gradient use: :root { --site-bg-color: linear-gradient(...); } "
+        "You can also target .site-fixed-background directly with !important if needed.\n"
+        "- Page content is wrapped in <body class='public-page-body'>. Never set max-width or "
+        "overflow on body — it will break the layout.\n"
+        "- Section groups use the class 'public-section-group'. Individual section cells use "
+        "'public-section-cell'. Target these to restyle content areas.\n\n"
+        "Rules (strict):\n"
+        "- Return ONLY raw HTML/CSS/JS. No explanations, no markdown, no code fences.\n"
+        "- You MAY use <style> blocks to restyle any element on the page.\n"
+        "- You MAY use <script> blocks for page-wide behaviour.\n"
+        "- Do NOT include <html>, <head>, or <body> tags.\n"
+        "- Use real class names and IDs from the page HTML — never invent selectors.\n"
+        "- OUTPUT RULE: Your response must be the full, complete code — existing code plus your changes. "
+        "Copy every line of the existing code into your output, then integrate your changes. "
+        "Never summarise, abbreviate, comment out, or replace existing code with a placeholder comment. "
+        "A response shorter than the existing code (unless the user explicitly asked to remove something) "
+        "is always wrong. Do not write comments like '/* existing styles remain */' — write the actual code.\n"
+        "- ONLY use assets from the asset list when the user explicitly asks for them. "
+        "Never include images, audio, or video unless the request clearly calls for it. "
+        "When assets are requested, use the exact URLs provided. "
+        "If the user references a folder name, use only assets listed under that folder."
+    )
+
+    if current_code:
+        existing_block = (
+            f"EXISTING PAGE CODE — you MUST include every line of this verbatim in your output, "
+            f"with your changes integrated:\n{current_code}"
+        )
+    else:
+        existing_block = "EXISTING PAGE CODE: (empty — write new code from scratch)"
+
+    user_message = (
+        f"Current full public page HTML for context:\n\n{page_html}\n\n"
+        f"---\n\nAvailable assets (only use if the request explicitly asks for them; "
+        f"folder names shown for reference):\n{asset_inventory}\n\n"
+        f"---\n\n{existing_block}\n\n"
+        f"---\n\nMODIFICATION REQUEST: {prompt}"
+    )
+
+    original_system = agent.system_prompt
+    agent.system_prompt = system_override
+    reply, error = _call_ai_agent(agent, [{'role': 'user', 'content': user_message}])
+    agent.system_prompt = original_system
+
+    if error:
+        return _utf8_json({'success': False, 'error': error}, 502)
     return _utf8_json({'success': True, 'code': _strip_code_fences(reply)})
 
 
@@ -12097,14 +12282,17 @@ def ensure_default_website(user=None):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        # Add capabilities column to ai_agent if it was created before this column existed
-        try:
-            db.session.execute(db.text(
-                "ALTER TABLE ai_agent ADD COLUMN capabilities VARCHAR(20) NOT NULL DEFAULT 'chat'"
-            ))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+        # Add new columns to existing tables if they predate these additions
+        for stmt in [
+            "ALTER TABLE ai_agent ADD COLUMN capabilities VARCHAR(20) NOT NULL DEFAULT 'chat'",
+            "ALTER TABLE asset ADD COLUMN original_stored_filename VARCHAR(255)",
+            "ALTER TABLE public_page_content ADD COLUMN custom_code TEXT",
+        ]:
+            try:
+                db.session.execute(db.text(stmt))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
         ensure_default_website()
 
     server_config = get_server_config()
