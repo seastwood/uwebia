@@ -1022,6 +1022,8 @@ class AIAgent(db.Model):
     api_key = db.Column(db.Text, nullable=True)
     model = db.Column(db.String(200), nullable=True)
     system_prompt = db.Column(db.Text, nullable=True)
+    # 'chat', 'image', or 'both'
+    capabilities = db.Column(db.String(20), nullable=False, default='chat', server_default='chat')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self, include_key=False):
@@ -1035,6 +1037,7 @@ class AIAgent(db.Model):
             'api_key': self.api_key if include_key else masked,
             'model': self.model or '',
             'system_prompt': self.system_prompt or '',
+            'capabilities': self.capabilities or 'chat',
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -1827,6 +1830,113 @@ def asset_upload():
             'max_label': format_bytes(max_total_bytes)
         }
     })
+
+@app.route('/admin/assets/ai-generate', methods=['POST'])
+@login_required
+def ai_generate_asset():
+    import io as _io, base64 as _b64, requests as _req
+    data = request.get_json() or {}
+    agent_id  = data.get('agent_id')
+    prompt    = (data.get('prompt') or '').strip()
+    size      = data.get('size', '1024x1024')
+    model_ovr = (data.get('model') or '').strip()
+    folder_id = data.get('folder_id') or None
+
+    if not agent_id:
+        return _utf8_json({'success': False, 'error': 'Select an AI agent'}, 400)
+    if not prompt:
+        return _utf8_json({'success': False, 'error': 'Enter a prompt'}, 400)
+
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    if agent.provider == 'anthropic':
+        return _utf8_json({'success': False,
+            'error': 'Claude does not support image generation. Use an OpenAI agent.'}, 400)
+
+    api_key = decrypt_api_key(agent.api_key or '')
+
+    if agent.provider == 'openai':
+        base_url = 'https://api.openai.com'
+        model = model_ovr or 'dall-e-3'
+    else:
+        base_url = (agent.api_url or '').rstrip('/')
+        if not base_url:
+            return _utf8_json({'success': False, 'error': 'API URL required for custom agents'}, 400)
+        model = model_ovr or agent.model or 'dall-e-3'
+
+    valid_sizes = {'1024x1024', '1792x1024', '1024x1792', '512x512', '256x256'}
+    if size not in valid_sizes:
+        size = '1024x1024'
+
+    headers = {'Content-Type': 'application/json'}
+    if api_key:
+        headers['Authorization'] = f'Bearer {api_key}'
+
+    try:
+        r = _req.post(
+            f'{base_url}/v1/images/generations',
+            json={'model': model, 'prompt': prompt, 'n': 1, 'size': size},
+            headers=headers,
+            timeout=120
+        )
+    except _req.exceptions.RequestException as e:
+        return _utf8_json({'success': False, 'error': f'Request failed: {e}'}, 502)
+
+    if not r.ok:
+        return _utf8_json({'success': False, 'error': _extract_api_error(r)}, 502)
+
+    item = (r.json().get('data') or [{}])[0]
+
+    if 'b64_json' in item:
+        img_bytes = _b64.b64decode(item['b64_json'])
+    elif 'url' in item:
+        try:
+            img_bytes = _req.get(item['url'], timeout=60).content
+        except Exception as e:
+            return _utf8_json({'success': False, 'error': f'Failed to download image: {e}'}, 502)
+    else:
+        return _utf8_json({'success': False, 'error': 'No image data in API response'}, 502)
+
+    user_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
+    os.makedirs(user_folder, exist_ok=True)
+
+    class _Buf:
+        def __init__(self, b): self.stream = _io.BytesIO(b)
+
+    try:
+        saved = save_optimized_versions(_Buf(img_bytes), user_folder)
+    except Exception as e:
+        return _utf8_json({'success': False, 'error': f'Image processing failed: {e}'}, 500)
+
+    safe_slug = secure_filename(prompt[:40].replace(' ', '_')) or 'ai_generated'
+    original_filename = f"ai_{safe_slug}.webp"
+
+    asset_url   = url_for('static', filename=f'uploads/{current_user.id}/assets/{saved["public_filename"]}')
+    thumb_url   = url_for('static', filename=f'uploads/{current_user.id}/assets/{saved["thumb_filename"]}')
+    file_size   = os.path.getsize(os.path.join(user_folder, saved['public_filename']))
+
+    if folder_id:
+        folder = AssetFolder.query.filter_by(id=folder_id, user_id=current_user.id).first()
+        folder_id = folder.id if folder else None
+
+    asset = Asset(
+        user_id=current_user.id,
+        folder_id=folder_id,
+        original_filename=original_filename,
+        stored_filename=saved['public_filename'],
+        url=asset_url,
+        thumbnail_url=thumb_url,
+        asset_type='image',
+        mime_type='image/webp',
+        extension='webp',
+        file_size=file_size
+    )
+    db.session.add(asset)
+    db.session.commit()
+    return _utf8_json({'success': True, 'asset': asset.to_dict()})
+
 
 @app.route('/admin/assets/download/<int:asset_id>')
 @login_required
@@ -5616,6 +5726,8 @@ def page_editor(website_id, page_id):
             section.column_id = section.column.id
             section.column_number = section.column.column_number
 
+    ai_agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.name).all()
+
     return render_template(
         'page_editor.html',
         site_active_status=site_active_status,
@@ -5623,7 +5735,8 @@ def page_editor(website_id, page_id):
         page_id=page_id,
         website=website,
         page_content=content,
-        navbar_pages=navbar_pages
+        navbar_pages=navbar_pages,
+        ai_agents=ai_agents,
     )
 
 
@@ -8722,6 +8835,11 @@ def update_video_section(section, form_data):
 
     return section
 
+def update_code_section(section, form_data):
+    section.content = {'code': form_data.get('code', '')}
+    return section
+
+
 def update_calendar_section(section, form_data):
     content = dict(section.content or {})
     allowed_style_keys = {
@@ -8782,6 +8900,8 @@ def update_section():
         section = update_comments_section(section, form_data)
     elif section_type == 'calendar':
         section = update_calendar_section(section, form_data)
+    elif section_type == 'code':
+        section = update_code_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -9534,6 +9654,9 @@ def create_ai_agent():
     if not name:
         return jsonify({'success': False, 'error': 'Name is required'}), 400
     raw_key = (data.get('api_key') or '').strip()
+    caps = (data.get('capabilities') or 'chat').strip()
+    if caps not in ('chat', 'image', 'both'):
+        caps = 'chat'
     agent = AIAgent(
         website_id=website.id,
         name=name,
@@ -9542,6 +9665,7 @@ def create_ai_agent():
         api_key=encrypt_api_key(raw_key) if raw_key else None,
         model=(data.get('model') or '').strip() or None,
         system_prompt=(data.get('system_prompt') or '').strip() or None,
+        capabilities=caps,
     )
     db.session.add(agent)
     db.session.commit()
@@ -9563,6 +9687,8 @@ def update_ai_agent(agent_id):
     agent.api_url = (data.get('api_url') or '').strip() or None
     agent.model = (data.get('model') or '').strip() or None
     agent.system_prompt = (data.get('system_prompt') or '').strip() or None
+    new_caps = (data.get('capabilities') or 'chat').strip()
+    agent.capabilities = new_caps if new_caps in ('chat', 'image', 'both') else 'chat'
     new_key = (data.get('api_key') or '').strip()
     if new_key and not all(c == '*' for c in new_key):
         agent.api_key = encrypt_api_key(new_key)
@@ -9579,6 +9705,158 @@ def delete_ai_agent(agent_id):
     db.session.delete(agent)
     db.session.commit()
     return jsonify({'success': True})
+
+
+def _strip_code_fences(text):
+    """Extract raw HTML from AI responses that may wrap code in markdown fences or prose."""
+    import re
+    text = text.strip()
+
+    # If the response contains a fenced code block, extract just the block's content.
+    # Handles ``` with or without a language tag, and multiple fences.
+    fenced = re.search(r'```[a-zA-Z]*\n([\s\S]*?)```', text)
+    if fenced:
+        return fenced.group(1).strip()
+
+    # If there's no fence but the model prepended a short prose line before the HTML
+    # (e.g. "Here is the updated code:\n\n<div>..."), strip everything before the
+    # first HTML tag.
+    html_start = re.search(r'<[a-zA-Z]', text)
+    if html_start and html_start.start() > 0:
+        return text[html_start.start():].strip()
+
+    return text
+
+
+@app.route('/section/<int:section_id>/save_code', methods=['POST'])
+@login_required
+def save_code_section(section_id):
+    try:
+        section = PageSection.query.get_or_404(section_id)
+        page = PublicPageContent.query.get_or_404(section.page_content_id)
+        website = Website.query.get_or_404(page.website_id)
+        if website.user_id != current_user.id:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+        data = request.get_json(force=True, silent=True) or {}
+        code = data.get('code', '')
+        agent_id = data.get('agent_id')
+
+        # Full assignment + flag_modified ensures SQLAlchemy detects the JSON change
+        from sqlalchemy.orm.attributes import flag_modified
+        section.content = {'code': code, 'agent_id': agent_id}
+        flag_modified(section, 'content')
+        db.session.commit()
+
+        app.logger.info(f'save_code_section {section_id}: saved {len(code)} chars, agent={agent_id}')
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'save_code_section {section_id} error: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/code_section/<int:section_id>/ai_assist', methods=['POST'])
+@login_required
+def code_section_ai_assist(section_id):
+    section = PageSection.query.get_or_404(section_id)
+    page = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+
+    if website.user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    data = request.get_json()
+    agent_id = data.get('agent_id')
+    prompt = (data.get('prompt') or '').strip()
+    current_code = (data.get('current_code') or '').strip()
+
+    if not agent_id:
+        return _utf8_json({'success': False, 'error': 'No agent selected'}, 400)
+    if not prompt:
+        return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
+
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    # Render the full public page for context
+    try:
+        page_html = render_public_page(website, page)
+        if len(page_html) > 40000:
+            page_html = page_html[:40000] + '\n\n<!-- [page truncated for brevity] -->'
+    except Exception as e:
+        page_html = f'(page could not be rendered: {e})'
+
+    # Build an asset inventory grouped by type so the AI can reference real URLs
+    assets = Asset.query.filter_by(user_id=current_user.id).order_by(Asset.upload_date.desc()).all()
+    asset_sections = {}
+    for a in assets:
+        t = a.asset_type or 'misc'
+        asset_sections.setdefault(t, []).append(a)
+
+    asset_lines = []
+    type_labels = {'image': 'Images', 'audio': 'Audio / Music', 'video': 'Videos', 'misc': 'Other files'}
+    for atype, label in type_labels.items():
+        group = asset_sections.get(atype, [])
+        if not group:
+            continue
+        asset_lines.append(f'\n{label}:')
+        for a in group:
+            name = a.original_filename or a.stored_filename
+            line = f'  - {name}  →  {a.url}'
+            if a.thumbnail_url:
+                line += f'  (thumbnail: {a.thumbnail_url})'
+            asset_lines.append(line)
+    # Include any unlabelled types
+    for atype, group in asset_sections.items():
+        if atype not in type_labels:
+            asset_lines.append(f'\n{atype.title()} files:')
+            for a in group:
+                asset_lines.append(f'  - {a.original_filename or a.stored_filename}  →  {a.url}')
+
+    asset_inventory = (
+        'The following assets are available in the user\'s library. '
+        'You may reference any of these URLs directly in your generated code.\n'
+        + ('\n'.join(asset_lines) if asset_lines else '  (no assets uploaded yet)')
+    )
+
+    system_override = (
+        "You are a web code assistant embedded in Uwebia, a website builder.\n"
+        "The user is editing a standalone 'code' section on their webpage.\n"
+        "The code you write will be injected DIRECTLY into that section as raw HTML.\n\n"
+        "Rules (strict):\n"
+        "- Return ONLY raw HTML/CSS/JS. No explanations, no markdown, no code fences.\n"
+        "- You MAY use <style> blocks for CSS and <script> blocks for JS.\n"
+        "- Do NOT include <html>, <head>, or <body> tags.\n"
+        "- Use self-contained styles (inline or <style> block) — you cannot reference external files.\n"
+        "- The output is injected directly into the live page alongside other sections.\n"
+        "- CRITICAL: If the section already contains code, you MUST preserve and build upon it. "
+        "Only modify the specific parts the user asks about. Do not discard or omit existing code "
+        "unless the user explicitly asks you to remove it. Return the complete updated code.\n"
+        "- When the user's request involves assets (images, music, video), use the actual asset URLs "
+        "provided in the context rather than placeholder URLs."
+    )
+
+    user_message = (
+        f"Here is the current full public page HTML for context:\n\n{page_html}\n\n"
+        f"---\n\nAsset library:\n{asset_inventory}\n\n"
+        f"---\n\nCurrent code in this section:\n{current_code if current_code else '(empty)'}\n\n"
+        f"---\n\nRequest: {prompt}"
+    )
+
+    # Temporarily override system prompt for this call
+    original_system = agent.system_prompt
+    agent.system_prompt = system_override
+
+    reply, error = _call_ai_agent(agent, [{'role': 'user', 'content': user_message}])
+
+    agent.system_prompt = original_system  # restore (not committed)
+
+    if error:
+        return _utf8_json({'success': False, 'error': error}, 502)
+
+    return _utf8_json({'success': True, 'code': _strip_code_fences(reply)})
 
 
 def _extract_api_error(response):
@@ -9680,9 +9958,36 @@ def ai_agent_chat(agent_id):
 @app.route('/admin/ai-agents/<int:agent_id>/test', methods=['POST'])
 @login_required
 def test_ai_agent(agent_id):
+    import requests as _req, base64 as _b64
     agent = AIAgent.query.get_or_404(agent_id)
     if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    caps = agent.capabilities or 'chat'
+
+    if caps == 'image':
+        # Test image generation with a minimal prompt
+        api_key = decrypt_api_key(agent.api_key or '')
+        if agent.provider == 'openai':
+            base_url = 'https://api.openai.com'
+            model = agent.model or 'dall-e-3'
+        else:
+            base_url = (agent.api_url or '').rstrip('/')
+            model = agent.model or 'dall-e-3'
+        headers = {'Content-Type': 'application/json'}
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+        try:
+            r = _req.post(f'{base_url}/v1/images/generations',
+                json={'model': model, 'prompt': 'A small red circle', 'n': 1, 'size': '256x256'},
+                headers=headers, timeout=60)
+            if r.ok:
+                return _utf8_json({'success': True, 'reply': 'Image generation connection OK'})
+            return _utf8_json({'success': False, 'error': _extract_api_error(r)})
+        except Exception as e:
+            return _utf8_json({'success': False, 'error': str(e)})
+
+    # Chat test (capabilities == 'chat' or 'both')
     reply, error = _call_ai_agent(agent, [{'role': 'user', 'content': 'Reply with exactly: OK'}])
     if error:
         return _utf8_json({'success': False, 'error': error})
@@ -11792,6 +12097,14 @@ def ensure_default_website(user=None):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        # Add capabilities column to ai_agent if it was created before this column existed
+        try:
+            db.session.execute(db.text(
+                "ALTER TABLE ai_agent ADD COLUMN capabilities VARCHAR(20) NOT NULL DEFAULT 'chat'"
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
         ensure_default_website()
 
     server_config = get_server_config()

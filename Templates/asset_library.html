@@ -581,6 +581,12 @@
             <i class="fas fa-folder-plus"></i> New Folder
         </button>
 
+        {% if current_type == 'image' %}
+        <button onclick="openAiGenModal()" style="background:linear-gradient(135deg,#7b2ff7,#00c6ff); border-color:transparent;">
+            <i class="fas fa-magic"></i> Generate with AI
+        </button>
+        {% endif %}
+
         <input type="file" id="assetInput" multiple style="display:none" onchange="handleUpload(event)">
     </div>
 
@@ -963,6 +969,129 @@
     }
 
     document.addEventListener('DOMContentLoaded', generateVideoThumbnails);
+
+    /* ── AI Image Generation ── */
+    async function openAiGenModal() {
+        // Load agents
+        let agents = [];
+        try {
+            const r = await fetch('/admin/ai-agents/list');
+            const d = await r.json();
+            agents = (d.agents || []).filter(a => a.capabilities === 'image' || a.capabilities === 'both');
+        } catch(e) {}
+
+        const overlay = document.createElement('div');
+        overlay.id = 'aiGenOverlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;';
+
+        const agentOptions = agents.length
+            ? agents.map(a => `<option value="${a.id}" data-provider="${a.provider}" data-model="${a.model || ''}">${a.name}</option>`).join('')
+            : '<option value="">No image-capable agents — add one in AI Agents and set capabilities to Image</option>';
+
+        overlay.innerHTML = `
+<div style="background:#1e2029;border-radius:16px;padding:28px;width:min(520px,92vw);box-shadow:0 20px 60px rgba(0,0,0,0.6);position:relative;">
+  <button onclick="document.getElementById('aiGenOverlay').remove()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#aaa;font-size:1.3rem;cursor:pointer;">&times;</button>
+  <h3 style="margin:0 0 18px;color:#fff;font-size:1.1rem;"><i class="fas fa-magic" style="color:#9b5de5;"></i> Generate Image with AI</h3>
+
+  <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">AI Agent</label>
+  <select id="aiGenAgent" onchange="updateAiGenModelField()" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;margin-bottom:14px;">
+    ${agentOptions}
+  </select>
+
+  <div id="aiGenModelWrap" style="margin-bottom:14px;">
+    <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">Model</label>
+    <div id="aiGenModelField"></div>
+  </div>
+
+  <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">Size</label>
+  <select id="aiGenSize" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;margin-bottom:14px;">
+    <option value="1024x1024">1024 × 1024 (square)</option>
+    <option value="1792x1024">1792 × 1024 (landscape)</option>
+    <option value="1024x1792">1024 × 1792 (portrait)</option>
+    <option value="512x512">512 × 512</option>
+  </select>
+
+  <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">Prompt</label>
+  <textarea id="aiGenPrompt" rows="4" placeholder="Describe the image you want to generate…" style="width:100%;padding:10px 12px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;resize:vertical;margin-bottom:18px;box-sizing:border-box;"></textarea>
+
+  <div id="aiGenStatus" style="font-size:0.85rem;color:#f0a;min-height:1.2em;margin-bottom:12px;"></div>
+
+  <div style="display:flex;gap:10px;justify-content:flex-end;">
+    <button onclick="document.getElementById('aiGenOverlay').remove()" style="padding:9px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ccc;cursor:pointer;">Cancel</button>
+    <button id="aiGenBtn" onclick="runAiGenerate()" style="padding:9px 22px;border-radius:8px;border:none;background:linear-gradient(135deg,#7b2ff7,#00c6ff);color:#fff;font-weight:600;cursor:pointer;"><i class="fas fa-magic"></i> Generate</button>
+  </div>
+</div>`;
+
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+        setTimeout(() => { updateAiGenModelField(); document.getElementById('aiGenPrompt')?.focus(); }, 50);
+    }
+
+    function updateAiGenModelField() {
+        const sel = document.getElementById('aiGenAgent');
+        const field = document.getElementById('aiGenModelField');
+        if (!sel || !field) return;
+        const chosen = sel.options[sel.selectedIndex];
+        const provider = chosen?.dataset?.provider || '';
+        const agentModel = chosen?.dataset?.model || '';
+        const inp = s => `<input id="aiGenModel" type="text" value="${s}" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;box-sizing:border-box;">`;
+
+        if (provider === 'openai') {
+            field.innerHTML = `<select id="aiGenModel" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;">
+                <option value="dall-e-3">DALL-E 3 (recommended)</option>
+                <option value="dall-e-2">DALL-E 2</option>
+            </select>`;
+        } else if (agentModel) {
+            field.innerHTML = inp(agentModel) + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Using the model configured on this agent. Edit the agent to change it.</small>`;
+        } else {
+            field.innerHTML = inp('') + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Enter the image model name your server supports (e.g. flux, sdxl).</small>`;
+        }
+    }
+
+    async function runAiGenerate() {
+        const agentId = document.getElementById('aiGenAgent')?.value;
+        const prompt  = document.getElementById('aiGenPrompt')?.value.trim();
+        const size    = document.getElementById('aiGenSize')?.value;
+        const model   = document.getElementById('aiGenModel')?.value?.trim();
+        const status  = document.getElementById('aiGenStatus');
+        const btn     = document.getElementById('aiGenBtn');
+
+        if (!agentId) { status.textContent = 'Select an agent.'; return; }
+        if (!prompt)  { status.textContent = 'Enter a prompt.'; return; }
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating…';
+        status.style.color = '#7ee2cc';
+        status.textContent = 'Asking AI — this may take 15–30 seconds…';
+
+        const folderId = "{{ current_folder.id if current_folder else '' }}";
+
+        try {
+            const r = await fetch('/admin/assets/ai-generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_id: parseInt(agentId), prompt, size, model: model || undefined, folder_id: folderId || undefined })
+            });
+            const d = await r.json();
+
+            if (d.success) {
+                status.style.color = '#7ee2cc';
+                status.textContent = 'Image generated and saved to library!';
+                btn.innerHTML = '<i class="fas fa-check"></i> Done';
+                setTimeout(() => { document.getElementById('aiGenOverlay')?.remove(); location.reload(); }, 1200);
+            } else {
+                status.style.color = '#f55';
+                status.textContent = d.error || 'Generation failed.';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-magic"></i> Generate';
+            }
+        } catch(e) {
+            status.style.color = '#f55';
+            status.textContent = 'Network error: ' + e.message;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-magic"></i> Generate';
+        }
+    }
 </script>
 
 {% endblock %}

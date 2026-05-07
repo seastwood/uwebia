@@ -890,6 +890,155 @@
         height: 100%;
     }
 
+    /* ── Code Section Editor ── */
+    .code-section-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        background: rgba(0,0,0,0.25);
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .code-editor-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: rgba(255,255,255,0.04);
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .code-editor-toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .code-editor-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: rgba(255,255,255,0.45);
+    }
+
+    .code-editor-toolbar button {
+        padding: 5px 12px;
+        border-radius: 7px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.06);
+        color: rgba(255,255,255,0.75);
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: background 0.2s, color 0.2s;
+        white-space: nowrap;
+    }
+    .code-editor-toolbar button:hover {
+        background: rgba(255,255,255,0.12);
+        color: #fff;
+    }
+    .code-toolbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .code-toolbar-btn[title="Undo"],
+    .code-toolbar-btn[title="Redo"] {
+        padding: 5px 9px;
+    }
+
+    .code-cm-wrap .CodeMirror {
+        height: 280px;
+        font-size: 13px;
+        font-family: 'Fira Mono', 'Consolas', monospace;
+        border-radius: 0;
+    }
+
+    .code-ai-panel {
+        border-top: 1px solid rgba(255,255,255,0.07);
+        padding: 10px 12px;
+        background: rgba(0,0,0,0.15);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .code-ai-panel-header {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: rgba(255,255,255,0.4);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .code-ai-controls {
+        display: flex;
+        gap: 8px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .code-ai-agent-select {
+        flex-shrink: 0;
+        padding: 6px 10px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 0.82rem;
+        font-family: inherit;
+        outline: none;
+        min-width: 140px;
+    }
+
+    .code-ai-prompt {
+        flex: 1;
+        padding: 7px 10px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 0.85rem;
+        font-family: inherit;
+        outline: none;
+        resize: none;
+        line-height: 1.4;
+        min-width: 180px;
+        transition: border-color 0.2s;
+    }
+    .code-ai-prompt:focus { border-color: rgba(94,238,248,0.45); }
+
+    .code-ai-generate-btn {
+        padding: 7px 14px;
+        background: rgba(94,238,248,0.12);
+        border: 1px solid rgba(94,238,248,0.3);
+        border-radius: 8px;
+        color: #5eeef8;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.2s;
+        flex-shrink: 0;
+    }
+    .code-ai-generate-btn:hover { background: rgba(94,238,248,0.2); }
+    .code-ai-generate-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .code-ai-status {
+        font-size: 0.76rem;
+        color: rgba(255,255,255,0.4);
+        min-height: 16px;
+    }
+    .code-ai-status.error { color: #ff7b7b; }
+    .code-ai-status.ok { color: #7ee8a2; }
+
     .color-picker-container {
         display: inline-block;
         position: relative;
@@ -6591,7 +6740,7 @@ nts-admin-pagination span {
                         <option value="image">Image</option> -->
                         <option value="images">Images</option>
                         <option value="text">Text</option>
-                        <!-- <option value="code">Code</option> -->
+                        <option value="code">Code</option>
                         <option value="map">Map</option>
                         <option value="contact_form">Contact Form</option>
                         <option value="calendar">Calendar</option>
@@ -8830,6 +8979,127 @@ setTimeout(() => {
                 <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
             </form>
         </div>`;
+                        } else if (section.section_type === 'code') {
+                            const existingCode = (section.content && section.content.code) || '';
+                            const savedAgentId = (section.content && section.content.agent_id) || null;
+
+                            sectionContent.innerHTML = `
+        <div class="code-section-editor section-container" id="codeContainer-${section.id}">
+            <div class="code-ai-panel">
+                <div class="code-ai-panel-header"><i class="fas fa-robot"></i> AI Assist</div>
+                <div class="code-ai-controls">
+                    <select class="code-ai-agent-select" id="codeAiAgent-${section.id}">
+                        <option value="">Loading agents...</option>
+                    </select>
+                    <textarea class="code-ai-prompt" id="codeAiPrompt-${section.id}" rows="2"
+                        placeholder="Describe what to build or change — existing code is sent automatically so the AI can make adjustments..."></textarea>
+                    <button class="code-ai-generate-btn" id="codeAiBtn-${section.id}"
+                        onclick="window.generateCode(${section.id})">
+                        <i class="fas fa-magic"></i> Generate
+                    </button>
+                </div>
+                <div class="code-ai-status" id="codeAiStatus-${section.id}"></div>
+            </div>
+            <div class="code-editor-toolbar">
+                <span class="code-editor-label"><i class="fas fa-code"></i> HTML / CSS / JS</span>
+                <div class="code-toolbar-actions">
+                    <button type="button" class="code-toolbar-btn" title="Undo" onclick="(function(){ const c = window._cmInstances && window._cmInstances[${section.id}]; if(c) c.undo(); })()">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                    <button type="button" class="code-toolbar-btn" title="Redo" onclick="(function(){ const c = window._cmInstances && window._cmInstances[${section.id}]; if(c) c.redo(); })()">
+                        <i class="fas fa-redo"></i>
+                    </button>
+                    <button type="button" class="code-toolbar-btn" onclick="window.saveCodeSection(${section.id})">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                </div>
+            </div>
+            <form class="update-section-form" data-section-id="${section.id}" data-section-type="code" data-page-id="${section.page_content_id}">
+                <input type="hidden" name="section_id" value="${section.id}">
+                <input type="hidden" name="section_type" value="code">
+                <div class="code-cm-wrap">
+                    <textarea id="code-textarea-${section.id}" name="code"></textarea>
+                </div>
+            </form>
+        </div>`;
+
+                            // Load agents via API and restore previously selected agent
+                            fetch('/admin/ai-agents/list')
+                                .then(r => r.json())
+                                .then(data => {
+                                    const sel = document.getElementById(`codeAiAgent-${section.id}`);
+                                    if (!sel) return;
+                                    sel.innerHTML = '';
+                                    const chatAgents = (data.agents || []).filter(a => a.capabilities === 'chat' || a.capabilities === 'both' || !a.capabilities);
+                                    if (chatAgents.length === 0) {
+                                        sel.innerHTML = '<option value="">No chat agents — add one first</option>';
+                                    } else {
+                                        const placeholder = document.createElement('option');
+                                        placeholder.value = '';
+                                        placeholder.textContent = '— select agent —';
+                                        sel.appendChild(placeholder);
+                                        chatAgents.forEach(ag => {
+                                            const opt = document.createElement('option');
+                                            opt.value = ag.id;
+                                            opt.textContent = ag.name;
+                                            if (savedAgentId && ag.id == savedAgentId) opt.selected = true;
+                                            sel.appendChild(opt);
+                                        });
+                                    }
+                                })
+                                .catch(() => {
+                                    const sel = document.getElementById(`codeAiAgent-${section.id}`);
+                                    if (sel) sel.innerHTML = '<option value="">Could not load agents</option>';
+                                });
+
+                            // Enter key in prompt
+                            const _promptEl = document.getElementById(`codeAiPrompt-${section.id}`);
+                            if (_promptEl) {
+                                _promptEl.addEventListener('keydown', e => {
+                                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.generateCode(section.id); }
+                                });
+                            }
+
+                            // Lazy-init CodeMirror: defer until the section is first opened so the
+                            // container has real dimensions. On subsequent opens just refresh.
+                            const _initCM = () => {
+                                if (!window._cmInstances) window._cmInstances = {};
+                                if (window._cmInstances[section.id]) {
+                                    window._cmInstances[section.id].refresh();
+                                    return;
+                                }
+                                const ta = document.getElementById(`code-textarea-${section.id}`);
+                                if (!ta) return;
+                                ta.value = existingCode;
+                                const cm = CodeMirror.fromTextArea(ta, {
+                                    mode: 'htmlmixed',
+                                    theme: 'dracula',
+                                    lineNumbers: true,
+                                    matchBrackets: true,
+                                    autoCloseBrackets: true,
+                                    lineWrapping: true,
+                                    tabSize: 2,
+                                    indentWithTabs: false,
+                                });
+                                const _autoSaveCode = debounce(() => window.saveCodeSection(section.id, false), 600);
+                                cm.on('change', () => {
+                                    ta.value = cm.getValue();
+                                    _autoSaveCode();
+                                });
+                                window._cmInstances[section.id] = cm;
+                            };
+
+                            const _cmObserver = new MutationObserver((mutations) => {
+                                for (const mutation of mutations) {
+                                    if (mutation.attributeName === 'class' && sectionContent.classList.contains('open')) {
+                                        // Wait for the CSS transition to finish (0.4s) before measuring
+                                        setTimeout(_initCM, 450);
+                                        break;
+                                    }
+                                }
+                            });
+                            _cmObserver.observe(sectionContent, { attributes: true });
+
                         } else if (section.section_type === 'calendar') {
                             const calendarId = section.content && section.content.calendar_id;
                             const calStyles = (section.content && section.content.styles) || {};
@@ -11257,6 +11527,79 @@ setTimeout(() => {
                 select.innerHTML = '<option value="">Error loading calendars</option>';
             }
         }
+
+        /* ── Code section — exposed on window so onclick attributes always find them ── */
+
+        window.saveCodeSection = function(sectionId, showToast) {
+            const cm  = window._cmInstances && window._cmInstances[sectionId];
+            const ta  = document.getElementById(`code-textarea-${sectionId}`);
+            const sel = document.getElementById(`codeAiAgent-${sectionId}`);
+
+            const code    = cm ? cm.getValue() : (ta ? ta.value : '');
+            const agentId = sel && sel.value ? parseInt(sel.value) : null;
+
+            return fetch(`/section/${sectionId}/save_code`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code, agent_id: agentId })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && showToast !== false) showEditorToast('Code saved');
+                else if (!data.success) console.error('Code save failed:', data.error);
+            })
+            .catch(err => console.error('[saveCodeSection] network error:', err));
+        };
+
+        window.generateCode = async function(sectionId) {
+            const agentSelect = document.getElementById(`codeAiAgent-${sectionId}`);
+            const promptEl   = document.getElementById(`codeAiPrompt-${sectionId}`);
+            const btn        = document.getElementById(`codeAiBtn-${sectionId}`);
+            const status     = document.getElementById(`codeAiStatus-${sectionId}`);
+            const cm         = window._cmInstances && window._cmInstances[sectionId];
+            const ta         = document.getElementById(`code-textarea-${sectionId}`);
+
+            const agentId = agentSelect ? agentSelect.value : '';
+            const prompt  = promptEl ? promptEl.value.trim() : '';
+
+            const setStatus = (msg, cls) => {
+                if (status) { status.textContent = msg; status.className = 'code-ai-status ' + (cls || ''); }
+            };
+
+            if (!agentId) { setStatus('Please select an AI agent.', 'error'); return; }
+            if (!prompt)  { setStatus('Enter a prompt first.', 'error'); return; }
+
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating…'; }
+            setStatus('Asking AI — this may take a moment…', '');
+
+            const currentCode = cm ? cm.getValue() : (ta ? ta.value : '');
+
+            try {
+                const r = await fetch(`/admin/code_section/${sectionId}/ai_assist`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent_id: parseInt(agentId), prompt, current_code: currentCode })
+                });
+                const data = await r.json();
+
+                if (data.success) {
+                    const code = data.code || '';
+                    if (cm) cm.setValue(code);
+                    else if (ta) ta.value = code;
+                    // Immediate explicit save — includes agent selection
+                    window.saveCodeSection(sectionId, false).then(() => {
+                        setStatus('Code generated and saved to page.', 'ok');
+                    });
+                    if (promptEl) promptEl.value = '';
+                } else {
+                    setStatus('Error: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (e) {
+                setStatus('Network error: ' + e.message, 'error');
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Generate'; }
+            }
+        };
 
         function debounce(fn, delay) {
             let timer;

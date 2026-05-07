@@ -1468,8 +1468,14 @@
 .public-section-cell > .youtube-video-container,
 .public-section-cell > .contact-form-container,
 .public-section-cell > [id^="map"],
-.public-section-cell > .calendar-container {
+.public-section-cell > .calendar-container,
+.public-section-cell > .code-section-output {
     width: 100%;
+}
+
+.code-section-output {
+    display: block;
+    box-sizing: border-box;
 }
 
 .public-section-cell > .uwebia-link-card,
@@ -3281,10 +3287,6 @@ box-sizing: border-box;
                                     <div class="uwebia-link-card-footer">{{ footer }}</div>
                                     {% endif %}
                                 </a>
-                                {% elif section.section_type == 'code' %}
-                                <div class="text-area">
-                                    {{ section.content['text'] | safe }}
-                                </div>
                                 {% elif section.section_type == 'text' %}
                                 {% set bg = section.content.get('background_color', '#000000') %}
                                 {% set opacity = section.content.get('background_opacity', '0')|float %}
@@ -3311,6 +3313,11 @@ box-sizing: border-box;
             box-shadow: {{ shadow_css }};
             {% if text_max_width and text_max_width != '0' %}width: auto; max-width: {{ text_max_width }}px; margin-left: auto; margin-right: auto;{% endif %}">
                                     {{ section.content['html'] | safe }}
+                                </div>
+
+                                {% elif section.section_type == 'code' %}
+                                <div class="code-section-output">
+                                    {{ (section.content or {}).get('code', '') | safe }}
                                 </div>
 
                                 {% elif section.section_type == 'button' %}

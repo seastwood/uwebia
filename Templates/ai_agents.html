@@ -123,6 +123,16 @@
             </div>
 
             <div class="ai-form-row">
+                <label>Capabilities</label>
+                <select id="agentCapabilities">
+                    <option value="chat">Chat only (text generation)</option>
+                    <option value="image">Image generation only (e.g. DALL-E)</option>
+                    <option value="both">Both chat and image generation</option>
+                </select>
+                <small class="ai-field-hint">Controls which features this agent appears in and how the Test button works.</small>
+            </div>
+
+            <div class="ai-form-row">
                 <label>System Prompt <span class="ai-optional">(optional)</span></label>
                 <textarea id="agentSystemPrompt" rows="3" placeholder="You are a helpful assistant."></textarea>
             </div>
@@ -175,6 +185,7 @@
                     document.getElementById('agentModel').value = agent.model;
                     document.getElementById('agentApiKey').value = agent.api_key;
                     document.getElementById('agentSystemPrompt').value = agent.system_prompt;
+                    document.getElementById('agentCapabilities').value = agent.capabilities || 'chat';
                     updateProviderFields();
                 });
         } else {
@@ -184,6 +195,7 @@
             document.getElementById('agentModel').value = '';
             document.getElementById('agentApiKey').value = '';
             document.getElementById('agentSystemPrompt').value = '';
+            document.getElementById('agentCapabilities').value = 'chat';
             updateProviderFields();
         }
 
@@ -212,6 +224,7 @@
             model:         document.getElementById('agentModel').value.trim(),
             api_key:       document.getElementById('agentApiKey').value,
             system_prompt: document.getElementById('agentSystemPrompt').value.trim(),
+            capabilities:  document.getElementById('agentCapabilities').value,
         };
 
         const url = id ? `/admin/ai-agents/${id}/update` : '/admin/ai-agents/create';
