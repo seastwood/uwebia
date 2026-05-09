@@ -27,7 +27,7 @@
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
 
     <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+    <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
 
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
@@ -616,6 +616,33 @@
         z-index: 9999; /* same tier as navbars, well above any section content */
         box-sizing: border-box;
     }
+
+    {% if is_draft_website %}
+    /* Draft website — amber tab bar and navbar so it's always obvious you're
+       editing a sandbox and not the live site. */
+    .page-editor-tabs {
+        background: linear-gradient(180deg, #2e2510 0%, #1e1a0c 100%);
+        border-bottom-color: rgba(255, 190, 60, 0.3);
+    }
+    .editor-navbar {
+        background: linear-gradient(180deg, #2e2510 0%, #231c0a 100%) !important;
+        border-bottom: 1px solid rgba(255, 190, 60, 0.25) !important;
+    }
+    {% endif %}
+
+    .draft-editor-badge {
+        display: inline-block;
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(255, 190, 60, 0.18);
+        border: 1px solid rgba(255, 190, 60, 0.4);
+        color: rgb(255, 210, 100);
+        vertical-align: middle;
+        margin-right: 4px;
+    }
     .page-editor-tabs .editor-page-title {
         margin-left: auto;
         margin-bottom: 6px;
@@ -967,6 +994,7 @@
 
     .row {
         position: relative;
+        z-index: 1;
         min-height: 40px;
         display: flex;
         max-width: 95vw;
@@ -1101,12 +1129,16 @@
         font-size: 16px;
     } */
     .editor-background-shell {
-        background: var(--page-editor-background, #2d2d2d);
+        background-color: var(--page-editor-background, #2d2d2d);
+        background-image: var(--page-editor-bg-image, none);
+        background-repeat: var(--page-editor-bg-repeat, no-repeat);
+        background-size: var(--page-editor-bg-size, cover);
+        background-position: var(--page-editor-bg-position, center center);
         border-radius: 16px;
         padding: 14px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
         margin-top: 10px;
-        transition: background 0.25s ease;
+        transition: background-color 0.25s ease;
     }
 
     .editor-surface {
@@ -7020,7 +7052,9 @@ nts-admin-pagination span {
         <button class="page-editor-tab" id="tabPageCode" onclick="switchPageTab('pagecode')">
             <i class="fas fa-code"></i> Page Code
         </button>
-        <div class="editor-page-title">{{ page_content.name if page_content else "Untitled Page" }}</div>
+        <div class="editor-page-title">
+            {% if is_draft_website %}<span class="draft-editor-badge">DRAFT</span> {% endif %}{{ page_content.name if page_content else "Untitled Page" }}
+        </div>
     </div>
     {% else %}
     <div class="page-editor-tabs" id="pageEditorTabs">
@@ -7030,7 +7064,9 @@ nts-admin-pagination span {
         <button class="page-editor-tab perm-locked-btn" id="tabPageCode" disabled title="You don't have permission to edit page code">
             <i class="fas fa-lock"></i> Page Code
         </button>
-        <div class="editor-page-title">{{ page_content.name if page_content else "Untitled Page" }}</div>
+        <div class="editor-page-title">
+            {% if is_draft_website %}<span class="draft-editor-badge">DRAFT</span> {% endif %}{{ page_content.name if page_content else "Untitled Page" }}
+        </div>
     </div>
     {% endif %}
 
@@ -9099,7 +9135,9 @@ document.getElementById("refreshButton").addEventListener("click", function () {
     </div>
 </div>
 
-<div class="editor-background-shell" id="editor-shell-${section.id}" style="--page-editor-background: {{ website.background_color or '#2d2d2d' }};">
+{% set _bg_url = website.background_image_url %}
+{% set _bg_zoom = website.background_image_zoom or 100 %}
+<div class="editor-background-shell" id="editor-shell-${section.id}" style="--page-editor-background: {{ website.background_color or '#2d2d2d' }};{% if _bg_url %} --page-editor-bg-image: url('{{ _bg_url }}');{% if website.background_image_repeat %}{% if website.background_image_repeat_x %} --page-editor-bg-repeat: repeat; --page-editor-bg-size: {{ (_bg_zoom * 2)|round|int }}px auto; --page-editor-bg-position: center top;{% else %} --page-editor-bg-repeat: repeat-y; --page-editor-bg-size: 100% auto; --page-editor-bg-position: center top;{% endif %}{% else %} --page-editor-bg-repeat: no-repeat; --page-editor-bg-size: {{ _bg_zoom }}% auto; --page-editor-bg-position: center center;{% endif %}{% endif %}">
     <div class="editor-surface" id="editor-surface-${section.id}">
         <div id="editor-${section.id}" style="height: 400px;"></div>
     </div>
@@ -10740,6 +10778,20 @@ setTimeout(() => {
 
                 const forms = document.querySelectorAll(".update-section-form");
                 forms.forEach((form) => {
+                    // Code sections have their own dedicated save + auto-save.
+                    // Submitting them here risks overwriting saved code with an
+                    // empty textarea (CodeMirror is lazy-init; textarea is blank
+                    // until the section is opened). Skip them entirely.
+                    if (form.dataset.sectionType === 'code') return;
+
+                    // For any CodeMirror-backed textarea in this form (e.g. tweaks),
+                    // flush the CM value into the textarea before submitting.
+                    form.querySelectorAll('textarea[id]').forEach(ta => {
+                        const sectionId = form.dataset.sectionId;
+                        const cm = window._cmInstances && window._cmInstances[sectionId];
+                        if (cm) ta.value = cm.getValue();
+                    });
+
                     form.requestSubmit();
                 });
 
@@ -11982,24 +12034,8 @@ setTimeout(() => {
         }
 
 
-        document.getElementById("saveChangesButton").addEventListener("click", function () {
-            quillEditors.forEach(editor => {
-                editor.textarea.value = editor.quill.root.innerHTML;
-            });
-
-            const forms = document.querySelectorAll(".update-section-form");
-
-            console.log(`Submitting ${forms.length} section forms`);
-
-            forms.forEach((form) => {
-                console.log("Request submit:", form.dataset.sectionId, form.dataset.sectionType);
-                form.requestSubmit();
-            });
-
-            setTimeout(function () {
-                reloadIframe();
-            }, 300);
-        });
+        // Duplicate saveChangesButton listener removed — the primary one above
+        // (inside the sections render block) handles all non-code sections.
 
 
 

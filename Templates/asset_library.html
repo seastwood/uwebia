@@ -1163,12 +1163,20 @@
                 }
             }
             updateAiGenModelField();
-            // Restore last-used model override (only for free-text field)
-            const lastModel = localStorage.getItem('aiGen_lastModel');
-            const modelEl = document.getElementById('aiGenModel');
-            if (lastModel && modelEl && modelEl.tagName === 'INPUT') modelEl.value = lastModel;
             document.getElementById('aiGenPrompt')?.focus();
         }, 50);
+    }
+
+    /* ── Image gen model history helpers ── */
+    function _aiGenModelHistKey(agentId) { return `aiGenModelHist_${agentId}`; }
+    function _aiGenLoadHist(agentId) {
+        try { return JSON.parse(localStorage.getItem(_aiGenModelHistKey(agentId)) || '[]'); } catch { return []; }
+    }
+    function _aiGenSaveHist(agentId, model) {
+        if (!model) return;
+        let h = _aiGenLoadHist(agentId);
+        h = [model, ...h.filter(m => m !== model)].slice(0, 10);
+        localStorage.setItem(_aiGenModelHistKey(agentId), JSON.stringify(h));
     }
 
     function updateAiGenModelField() {
@@ -1177,21 +1185,30 @@
         const note  = document.getElementById('aiGenRefNote');
         if (!sel || !field) return;
         const chosen = sel.options[sel.selectedIndex];
-        const provider = chosen?.dataset?.provider || '';
+        const provider  = chosen?.dataset?.provider || '';
+        const agentId   = chosen?.value || '';
         const agentModel = chosen?.dataset?.model || '';
-        const inp = s => `<input id="aiGenModel" type="text" value="${s}" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;box-sizing:border-box;">`;
+
+        const hist = agentId ? _aiGenLoadHist(agentId) : [];
+        const lastUsed = hist[0] || '';
+        const dlId = 'aiGenModelList';
+        const dlHtml = `<datalist id="${dlId}">${hist.map(m => `<option value="${m.replace(/"/g,'')}">`).join('')}</datalist>`;
+        const inp = (val) => `<input id="aiGenModel" type="text" list="${dlId}" autocomplete="off" value="${val.replace(/"/g,'')}"
+            style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;box-sizing:border-box;">` + dlHtml;
 
         if (provider === 'openai') {
-            field.innerHTML = `<select id="aiGenModel" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;">
+            field.innerHTML = `<select id="aiGenModel" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;color-scheme:dark;">
                 <option value="dall-e-3">DALL-E 3 (recommended, text-to-image only)</option>
                 <option value="dall-e-2">DALL-E 2 (supports reference images)</option>
             </select>`;
             if (note) { note.style.display = 'block'; note.style.background = 'rgba(255,200,0,0.08)'; note.style.color = '#f5c542'; note.style.border = '1px solid rgba(255,200,0,0.2)'; note.textContent = 'Reference images only work with DALL-E 2. DALL-E 3 ignores them.'; }
         } else if (agentModel) {
-            field.innerHTML = inp(agentModel) + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Using the model configured on this agent. Edit the agent to change it.</small>`;
+            // Agent has a configured model; use it but also allow history override
+            const displayVal = lastUsed || agentModel;
+            field.innerHTML = inp(displayVal) + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Default: <em>${agentModel}</em>. Edit the agent to change the default.</small>`;
             if (note) { note.style.display = 'block'; note.style.background = 'rgba(255,100,100,0.08)'; note.style.color = '#f88'; note.style.border = '1px solid rgba(255,100,100,0.2)'; note.textContent = 'Reference images are sent but may be ignored — support depends on your API endpoint. Pollinations.ai does not support img2img.'; }
         } else {
-            field.innerHTML = inp('') + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Enter the image model name your server supports (e.g. flux, sdxl).</small>`;
+            field.innerHTML = inp(lastUsed) + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Enter the image model name your server supports (e.g. flux, sdxl).</small>`;
             if (note) { note.style.display = 'none'; }
         }
     }
@@ -1312,7 +1329,7 @@
 
             if (d.success) {
                 localStorage.setItem('aiGen_lastAgentId', agentId);
-                if (model) localStorage.setItem('aiGen_lastModel', model);
+                if (model) _aiGenSaveHist(agentId, model);
                 status.style.color = '#7ee2cc';
                 status.textContent = 'Image generated and saved to library!';
                 btn.innerHTML = '<i class="fas fa-check"></i> Done';

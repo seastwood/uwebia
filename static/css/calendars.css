@@ -489,6 +489,24 @@ body {
     cursor: default !important;
 }
 
+/* ── Event tooltip ── */
+.fc-event-tooltip {
+    position: fixed;
+    z-index: 99999;
+    max-width: 280px;
+    padding: 9px 12px;
+    background: #1e2029;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    font-size: 0.82rem;
+    color: #f0f0f0;
+    line-height: 1.45;
+    pointer-events: none;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
 
 /* Small chain icon prepended to the event title in the grid */
 .ext-cal-icon {

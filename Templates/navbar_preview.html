@@ -23,13 +23,25 @@
 
             {% if website.background_image_url %}
                 background-image: url("{{ website.background_image_url }}");
-                background-repeat: {% if website.background_image_repeat %}repeat{% else %}no-repeat{% endif %};
-                background-position: center;
+
+                {% set bg_zoom = website.background_image_zoom or 100 %}
+                {% set repeat_zoom_multiplier = 2.0 %}
+                {% set repeat_x = website.background_image_repeat_x %}
 
                 {% if website.background_image_repeat %}
-                    background-size: {{ website.background_image_zoom or 100 }}px auto;
+                    {% if repeat_x %}
+                        background-repeat: repeat;
+                        background-position: center top;
+                        background-size: {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto;
+                    {% else %}
+                        background-repeat: repeat-y;
+                        background-position: center top;
+                        background-size: 100% auto;
+                    {% endif %}
                 {% else %}
-                    background-size: {{ website.background_image_zoom or 100 }}% auto;
+                    background-repeat: no-repeat;
+                    background-position: center;
+                    background-size: {{ bg_zoom }}% auto;
                 {% endif %}
             {% else %}
                 background-image: none;

@@ -1,0 +1,1481 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.au-page {
+    width: min(1000px, calc(100% - 32px));
+    margin: 28px auto 80px;
+    color: #f0f0f0;
+}
+.au-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+}
+.au-kicker {
+    margin: 0 0 4px;
+    color: rgba(255,255,255,0.45);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.au-title { margin: 0; font-size: 1.75rem; font-weight: 700; }
+
+/* User cards */
+.au-list { display: flex; flex-direction: column; gap: 12px; }
+.au-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 18px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.au-avatar {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg,#7b2ff7,#00c6ff);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+}
+.au-info { flex: 1; min-width: 0; }
+.au-name { font-weight: 600; font-size: 0.95rem; }
+.au-email { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin-top: 2px; }
+.au-badge {
+    font-size: 0.7rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 20px; background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.au-badge.active { background: rgba(94,238,200,0.15); color: #5eeec8; }
+.au-badge.inactive { background: rgba(255,80,80,0.15); color: #f88; }
+#userGroupId {
+    color-scheme: dark;
+    background: #1a1a20;
+    color: #f0f0f0;
+}
+#userGroupId option {
+    background: #1a1a20;
+    color: #f0f0f0;
+}
+.au-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.au-empty {
+    text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.3);
+}
+.au-empty i { font-size: 2.5rem; margin-bottom: 12px; display: block; }
+
+/* Permission group cards */
+.au-section-title {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.09em; color: rgba(255,255,255,0.35);
+    margin: 28px 0 12px;
+}
+.pg-card {
+    background: rgba(123,97,255,0.08);
+    border: 1px solid rgba(123,97,255,0.2);
+    border-radius: 14px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.pg-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: rgba(123,97,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    color: #a07dff; font-size: 1rem; flex-shrink: 0;
+}
+.pg-info { flex: 1; min-width: 0; }
+.pg-name { font-weight: 600; font-size: 0.92rem; }
+.pg-desc { font-size: 0.78rem; color: rgba(255,255,255,0.4); margin-top: 2px; }
+.pg-count {
+    font-size: 0.72rem; padding: 3px 9px; border-radius: 20px;
+    background: rgba(123,97,255,0.15); color: rgba(200,180,255,0.7);
+    white-space: nowrap;
+}
+.au-group-badge {
+    font-size: 0.68rem; font-weight: 700; padding: 2px 7px;
+    border-radius: 20px; background: rgba(123,97,255,0.15);
+    color: #a07dff; white-space: nowrap; margin-left: 6px;
+    vertical-align: middle;
+}
+.au-online-badge {
+    font-size: 0.65rem; font-weight: 700; padding: 2px 7px;
+    border-radius: 20px; background: rgba(94,238,180,0.15);
+    color: #5eeeb4; white-space: nowrap; margin-left: 6px;
+    vertical-align: middle;
+}
+.au-meta {
+    font-size: 0.75rem; color: rgba(255,255,255,0.35);
+    margin-top: 3px; display: flex; gap: 12px; flex-wrap: wrap;
+}
+.au-meta i { margin-right: 3px; }
+
+/* Permissions grid inside modal */
+.perm-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 20px;
+    align-items: start;
+}
+@media (max-width: 600px) { .perm-columns { grid-template-columns: 1fr; } }
+
+.perm-section { margin-bottom: 4px; }
+.perm-section-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.perm-section-label {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: rgba(255,255,255,0.5);
+    flex: 1;
+}
+.perm-select-all {
+    font-size: 0.72rem; color: rgba(94,238,248,0.7); cursor: pointer;
+    background: none; border: none; padding: 0;
+    text-decoration: underline; flex-shrink: 0;
+}
+.perm-select-all:hover { color: #5eeef8; }
+.perm-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s;
+    user-select: none;
+}
+.perm-item:hover { background: rgba(255,255,255,0.06); }
+.perm-item input[type="checkbox"] { accent-color: #5eeef8; width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; }
+.perm-item span { font-size: 0.8rem; color: rgba(255,255,255,0.65); line-height: 1.35; }
+</style>
+
+<div class="au-page">
+    <div class="au-header">
+        <div>
+            <p class="au-kicker">Admin</p>
+            <h1 class="au-title">Admin Users</h1>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            {% if not current_user.is_sub_admin %}
+            <button class="uw-btn uw-btn-secondary" onclick="openGroupModal()">
+                <i class="fas fa-layer-group"></i> New Group
+            </button>
+            {% endif %}
+            <button class="uw-btn uw-btn-primary" onclick="openUserModal()">
+                <i class="fas fa-plus"></i> Add Admin User
+            </button>
+        </div>
+    </div>
+
+    {% if not current_user.is_sub_admin %}
+    {% if permission_groups %}
+    <p class="au-section-title">Permission Groups</p>
+    <div class="au-list" id="pgList">
+        {% for g in permission_groups %}
+        <div class="pg-card" id="pgCard-{{ g.id }}">
+            <div class="pg-icon"><i class="fas fa-layer-group"></i></div>
+            <div class="pg-info">
+                <div class="pg-name">{{ g.name }}</div>
+                {% if g.description %}<div class="pg-desc">{{ g.description }}</div>{% endif %}
+            </div>
+            <span class="pg-count" id="pgCount-{{ g.id }}">{{ g.members | length }} member{{ 's' if g.members | length != 1 }}</span>
+            <div class="au-actions">
+                <button class="uw-btn uw-btn-secondary" onclick="openGroupModal({{ g.id }})" title="Edit group">
+                    <i class="fas fa-pen"></i>
+                </button>
+                <button class="uw-btn uw-btn-danger" onclick="deleteGroup({{ g.id }}, '{{ g.name | e }}')" title="Delete group">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if sub_admins %}
+    {% if not current_user.is_sub_admin %}<p class="au-section-title">Users</p>{% endif %}
+    <div class="au-list">
+        {% for u in sub_admins %}
+        <div class="au-card" id="auCard-{{ u.id }}">
+            <div class="au-avatar">{{ u.username[0].upper() }}</div>
+            <div class="au-info">
+                <div class="au-name">
+                    {{ u.username }}
+                    {% if u.permission_group %}
+                    <span class="au-group-badge" title="Permission group">{{ u.permission_group.name }}</span>
+                    {% endif %}
+                    {% if u.last_seen_at and (now - u.last_seen_at).total_seconds() < 300 %}
+                    <span class="au-online-badge" title="Currently online">● Online</span>
+                    {% endif %}
+                </div>
+                <div class="au-email">{{ u.email }}</div>
+                <div class="au-meta">
+                    {% if u.last_login_at %}
+                    <span title="Last login"><i class="fas fa-sign-in-alt"></i> {{ u.last_login_at | user_datetime }}</span>
+                    {% else %}
+                    <span style="color:rgba(255,255,255,0.2);">Never logged in</span>
+                    {% endif %}
+                </div>
+            </div>
+            <span class="au-badge {{ 'active' if u._is_active else 'inactive' }}">
+                {{ 'Active' if u._is_active else 'Inactive' }}
+            </span>
+            <div class="au-actions">
+                <button class="uw-btn uw-btn-secondary" onclick="openUserModal({{ u.id }})" title="Edit">
+                    <i class="fas fa-pen"></i>
+                </button>
+                <button class="uw-btn uw-btn-danger" onclick="deleteUser({{ u.id }}, '{{ u.username | e }}')" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="au-empty">
+        <i class="fas fa-users"></i>
+        <p>No admin users yet.</p>
+        <p style="font-size:0.85rem;margin-top:6px;">Add a user to grant them access to parts of your admin panel.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add / Edit User Modal -->
+<div class="uw-overlay" id="userModalOverlay">
+    <div class="uw-modal uw-modal--wide" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="userModalTitle">Add Admin User</h3>
+            <button class="uw-modal-close" onclick="closeUserModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <input type="hidden" id="userModalId" value="">
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="uw-field">
+                    <label>Username</label>
+                    <input type="text" id="userUsername" placeholder="jsmith" autocomplete="off">
+                </div>
+                <div class="uw-field">
+                    <label>Email</label>
+                    <input type="email" id="userEmail" placeholder="j@example.com">
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="uw-field">
+                    <label>Password <span id="pwEditHint" style="color:rgba(255,255,255,0.35);font-weight:400;display:none;">(leave blank to keep current)</span></label>
+                    <input type="password" id="userPassword" placeholder="Min. 8 characters" autocomplete="new-password">
+                </div>
+                <div class="uw-field" id="activeField" style="display:none;">
+                    <label>Status</label>
+                    <select id="userActive">
+                        <option value="true">Active</option>
+                        <option value="false">Inactive (cannot log in)</option>
+                    </select>
+                </div>
+            </div>
+
+            <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:18px 0;">
+
+            {% if permission_groups and not current_user.is_sub_admin %}
+            <div class="uw-field" style="margin-bottom:16px;">
+                <label>Permission Group <span style="color:rgba(255,255,255,0.35);font-weight:400;">— assigns the group's permissions to this user</span></label>
+                <select id="userGroupId" onchange="onGroupSelectChange(this.value)">
+                    <option value="">Custom (individual permissions)</option>
+                    {% for g in permission_groups %}
+                    <option value="{{ g.id }}">{{ g.name }}{% if g.description %} — {{ g.description }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div id="permissionsArea">
+            <div style="margin-bottom:12px;">
+                <strong style="font-size:0.9rem;">Permissions</strong>
+                <span id="permAreaNote" style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin-left:10px;">
+                    Controls what this user can access in the admin panel.
+                </span>
+            </div>
+
+            <div id="permToggleRow" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button type="button" class="perm-select-all" style="font-size:0.8rem;" onclick="toggleAll(true)">Grant all permissions</button>
+                <span style="color:rgba(255,255,255,0.2);">·</span>
+                <button type="button" class="perm-select-all" style="font-size:0.8rem;color:rgba(255,100,100,0.7);" onclick="toggleAll(false)">Revoke all</button>
+            </div>
+
+            <details style="margin-bottom:16px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+                    <i class="fas fa-file-alt" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+                    Page, Group & Section Access Restrictions
+                    <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow access to all</span>
+                </summary>
+                <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+                    <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+                        Check pages, groups, or individual sections to restrict access.
+                        Checking a group grants access to all sections within it.
+                        If nothing is checked, the user can access all items permitted by their role.
+                    </p>
+                    {% if not all_pages %}
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No pages found.</div>
+                    {% else %}
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;gap:12px;">
+                        <button type="button" class="perm-select-all" onclick="toggleAllPagesSections(true)">Grant all</button>
+                        <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="toggleAllPagesSections(false)">Revoke all</button>
+                    </div>
+
+                    {# Build lookup maps #}
+                    {% set sections_by_page = {} %}
+                    {% for s in all_sections %}
+                        {% if s.page_id not in sections_by_page %}{% set _ = sections_by_page.update({s.page_id: []}) %}{% endif %}
+                        {% set _ = sections_by_page[s.page_id].append(s) %}
+                    {% endfor %}
+                    {% set groups_by_page = {} %}
+                    {% for g in all_groups %}
+                        {% if g.page_id not in groups_by_page %}{% set _ = groups_by_page.update({g.page_id: []}) %}{% endif %}
+                        {% set _ = groups_by_page[g.page_id].append(g) %}
+                    {% endfor %}
+
+                    {% for page in all_pages %}
+                    {% set page_sections = sections_by_page.get(page.id, []) %}
+                    {% set page_groups   = groups_by_page.get(page.id, []) %}
+                    {% set has_children  = page_sections or page_groups %}
+
+                    {# Collect all section IDs that belong to a group on this page #}
+                    {% set page_grouped_ids = [] %}
+                    {% for g in page_groups %}
+                        {% for sid in g.section_ids %}{% set _ = page_grouped_ids.append(sid) %}{% endfor %}
+                    {% endfor %}
+
+                    <div class="page-perm-block" style="margin-bottom:6px;border:1px solid rgba(255,255,255,0.07);border-radius:9px;overflow:hidden;">
+                        <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,0.04);{% if has_children %}cursor:pointer;{% endif %}"
+                             {% if has_children %}onclick="togglePageBlock({{ page.id }})"{% endif %}>
+                            <input type="checkbox" class="page-access-cb" data-page-id="{{ page.id }}" value="{{ page.id }}"
+                                   onclick="event.stopPropagation(); onPageCheck({{ page.id }}, this.checked)"
+                                   style="accent-color:#5eeef8;width:15px;height:15px;flex-shrink:0;">
+                            <span style="flex:1;font-size:0.85rem;font-weight:600;">{{ page.name }}</span>
+                            <span style="font-size:0.75rem;color:rgba(255,255,255,0.3);">/{{ page.slug }}</span>
+                            {% if page_sections %}
+                            <span style="font-size:0.72rem;color:rgba(255,255,255,0.25);">{{ page_sections|length }} section{{ 's' if page_sections|length != 1 }}</span>
+                            {% endif %}
+                            {% if has_children %}
+                            <i class="fas fa-chevron-down" id="pageChevron-{{ page.id }}" style="font-size:0.7rem;color:rgba(255,255,255,0.3);transition:transform 0.2s;"></i>
+                            {% endif %}
+                        </div>
+
+                        {% if has_children %}
+                        <div id="pageSections-{{ page.id }}" style="display:none;padding:6px 0 8px;background:rgba(0,0,0,0.15);">
+                            <div style="display:flex;gap:10px;margin:0 12px 6px 32px;">
+                                <button type="button" class="perm-select-all" style="font-size:0.72rem;" onclick="togglePageSections({{ page.id }}, true)">all</button>
+                                <button type="button" class="perm-select-all" style="font-size:0.72rem;color:rgba(255,100,100,0.6);" onclick="togglePageSections({{ page.id }}, false)">none</button>
+                            </div>
+
+                            {# Section groups first #}
+                            {% for group in page_groups %}
+                            <div style="margin:0 8px 6px;border:1px solid rgba(123,97,255,0.18);border-radius:7px;overflow:hidden;">
+                                <label style="display:flex;align-items:center;gap:9px;padding:7px 10px;background:rgba(123,97,255,0.07);cursor:pointer;">
+                                    <input type="checkbox" class="group-access-cb"
+                                           data-group-id="{{ group.id }}"
+                                           data-page-id="{{ page.id }}"
+                                           data-section-ids="{{ group.section_ids | tojson | e }}"
+                                           value="{{ group.id }}"
+                                           style="accent-color:#a07dff;width:14px;height:14px;flex-shrink:0;"
+                                           onchange="onGroupCheck(this)">
+                                    <i class="fas fa-object-group" style="color:rgba(123,97,255,0.7);font-size:0.8rem;flex-shrink:0;"></i>
+                                    <span style="font-size:0.82rem;font-weight:600;flex:1;">{{ group.name }}</span>
+                                    <span style="font-size:0.7rem;color:rgba(255,255,255,0.3);">{{ group.section_ids|length }} section{{ 's' if group.section_ids|length != 1 }}</span>
+                                </label>
+                                {% for section in page_sections %}
+                                {% if section.id in group.section_ids %}
+                                <label class="perm-item" style="padding:4px 10px 4px 36px;background:rgba(0,0,0,0.1);">
+                                    <input type="checkbox" class="section-access-cb"
+                                           data-section-id="{{ section.id }}"
+                                           data-page-id="{{ page.id }}"
+                                           data-group-id="{{ group.id }}"
+                                           value="{{ section.id }}"
+                                           style="accent-color:#5eeef8;width:12px;height:12px;flex-shrink:0;margin-top:2px;">
+                                    <span style="font-size:0.76rem;">{{ section.label }}<span style="color:rgba(255,255,255,0.28);font-size:0.7rem;"> · {{ section.type }}</span></span>
+                                </label>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endfor %}
+
+                            {# Ungrouped sections #}
+                            {% set ungrouped = [] %}
+                            {% for s in page_sections %}
+                                {% if s.id not in page_grouped_ids %}{% set _ = ungrouped.append(s) %}{% endif %}
+                            {% endfor %}
+                            {% if ungrouped %}
+                            <div style="margin:0 8px 2px;padding:2px 0;">
+                                {% if page_groups %}
+                                <div style="font-size:0.68rem;color:rgba(255,255,255,0.25);padding:4px 10px 2px;text-transform:uppercase;letter-spacing:0.06em;">Ungrouped</div>
+                                {% endif %}
+                                {% for section in ungrouped %}
+                                <label class="perm-item" style="padding:4px 10px 4px 32px;">
+                                    <input type="checkbox" class="section-access-cb"
+                                           data-section-id="{{ section.id }}"
+                                           data-page-id="{{ page.id }}"
+                                           value="{{ section.id }}"
+                                           style="accent-color:#5eeef8;width:12px;height:12px;flex-shrink:0;margin-top:2px;">
+                                    <span style="font-size:0.76rem;">{{ section.label }}<span style="color:rgba(255,255,255,0.28);font-size:0.7rem;"> · {{ section.type }}</span></span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </details>
+
+            <details style="margin-bottom:16px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+                    <i class="fas fa-folder" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+                    Asset Library Folder Access
+                    <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow access to all folders</span>
+                </summary>
+                <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+                    <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+                        Check specific folders to restrict this user to only those folders.
+                        If nothing is checked, they can access all folders (subject to their asset permissions above).
+                    </p>
+                    {% if not all_folders %}
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No folders found. Create folders in the Asset Library first.</div>
+                    {% else %}
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;gap:12px;">
+                        <button type="button" class="perm-select-all" onclick="toggleAllFolders(true)">Grant all folders</button>
+                        <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="toggleAllFolders(false)">Revoke all</button>
+                    </div>
+                    {% for folder in all_folders %}
+                    <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+                        <input type="checkbox" class="folder-access-cb" data-folder-id="{{ folder.id }}" value="{{ folder.id }}"
+                               style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                        <i class="fas fa-folder" style="color:rgba(255,200,80,0.5);font-size:0.85rem;flex-shrink:0;"></i>
+                        <span style="font-size:0.82rem;font-weight:600;">{{ folder.name }}</span>
+                        {% if folder.asset_type %}
+                        <span style="font-size:0.72rem;color:rgba(255,255,255,0.3);">· {{ folder.asset_type }}</span>
+                        {% endif %}
+                    </label>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </details>
+
+            <details style="margin-bottom:16px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+                    <i class="fas fa-folder-open" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+                    Page Folder Access
+                    <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">grant actions per page folder</span>
+                </summary>
+                <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+                    <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+                        Check a folder to grant access, then choose which actions are allowed within it.
+                        "Full Access" permits all actions. If nothing is checked, the user's page-by-page grants still apply.
+                    </p>
+                    {% if not all_page_folders %}
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No page folders found. Create folders on the dashboard first.</div>
+                    {% else %}
+                    {% for pf in all_page_folders %}
+                    <div class="pf-folder-block" style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;margin-bottom:8px;overflow:hidden;">
+                        <label class="perm-item" style="padding:8px 12px;background:rgba(255,255,255,0.02);cursor:pointer;">
+                            <input type="checkbox" class="pf-folder-cb" data-folder-id="{{ pf.id }}"
+                                   onchange="onPfFolderCheck(this)"
+                                   style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                            <i class="fas fa-folder-open" style="color:rgba(255,200,80,0.5);font-size:0.85rem;flex-shrink:0;"></i>
+                            <span style="font-size:0.82rem;font-weight:600;">{{ pf.name }}</span>
+                        </label>
+                        <div class="pf-actions-block" data-folder-id="{{ pf.id }}" style="display:none;padding:8px 12px 10px 32px;border-top:1px solid rgba(255,255,255,0.05);">
+                            <label class="perm-item" style="padding:4px 0;margin-bottom:6px;">
+                                <input type="checkbox" class="pf-full-cb" data-folder-id="{{ pf.id }}"
+                                       onchange="onPfFullCheck(this)"
+                                       style="accent-color:#a07dff;width:13px;height:13px;flex-shrink:0;">
+                                <span style="font-size:0.8rem;font-weight:700;color:rgba(200,180,255,0.9);">Full Access</span>
+                            </label>
+                            {% for act_key, act_label in [('edit','Edit Pages'), ('create','Add Pages'), ('delete','Delete'), ('details','Edit Details'), ('publish','Publish'), ('duplicate','Duplicate'), ('template','Save as Template')] %}
+                            <label class="perm-item" style="padding:3px 0;">
+                                <input type="checkbox" class="pf-action-cb" data-folder-id="{{ pf.id }}" data-action="{{ act_key }}"
+                                       onchange="onPfActionCheck(this)"
+                                       style="accent-color:#5eeef8;width:12px;height:12px;flex-shrink:0;">
+                                <span style="font-size:0.78rem;">{{ act_label }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </details>
+
+            <div id="permissionsContainer" class="perm-columns">
+                {% for section_key, section in permissions_schema.items() %}
+                <div class="perm-section" data-section="{{ section_key }}">
+                    <div class="perm-section-header">
+                        <span class="perm-section-label">{{ section.label }}</span>
+                        <button type="button" class="perm-select-all" onclick="toggleSection('{{ section_key }}', this)">all</button>
+                    </div>
+                    {% for action_key, action_label in section.actions.items() %}
+                    <label class="perm-item">
+                        <input type="checkbox" name="perm" data-key="{{ section_key }}.{{ action_key }}" id="perm_{{ section_key }}_{{ action_key }}">
+                        <span>{{ action_label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            </div><!-- /permissionsArea -->
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeUserModal()">Cancel</button>
+            <button type="button" class="uw-btn uw-btn-primary" id="userSubmitBtn" onclick="submitUserForm()">Add User</button>
+        </div>
+    </div>
+</div>
+
+<!-- Permission Group Modal -->
+<div class="uw-overlay" id="groupModalOverlay">
+    <div class="uw-modal uw-modal--wide" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="groupModalTitle">New Permission Group</h3>
+            <button class="uw-modal-close" onclick="closeGroupModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <input type="hidden" id="groupModalId" value="">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="uw-field">
+                    <label>Group Name</label>
+                    <input type="text" id="groupName" placeholder="e.g. Content Editors" autocomplete="off">
+                </div>
+                <div class="uw-field">
+                    <label>Description <span style="color:rgba(255,255,255,0.35);font-weight:400;">optional</span></label>
+                    <input type="text" id="groupDescription" placeholder="Brief description">
+                </div>
+            </div>
+
+            <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:18px 0;">
+            <div style="margin-bottom:12px;">
+                <strong style="font-size:0.9rem;">Group Permissions</strong>
+                <span style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin-left:10px;">All users in this group share these permissions.</span>
+            </div>
+            <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button type="button" class="perm-select-all" style="font-size:0.8rem;" onclick="toggleGroupAll(true)">Grant all permissions</button>
+                <span style="color:rgba(255,255,255,0.2);">·</span>
+                <button type="button" class="perm-select-all" style="font-size:0.8rem;color:rgba(255,100,100,0.7);" onclick="toggleGroupAll(false)">Revoke all</button>
+            </div>
+
+            <div id="groupPermissionsContainer" class="perm-columns">
+                {% for section_key, section in permissions_schema.items() %}
+                <div class="perm-section" data-section="{{ section_key }}">
+                    <div class="perm-section-header">
+                        <span class="perm-section-label">{{ section.label }}</span>
+                        <button type="button" class="perm-select-all" onclick="toggleGroupSection('{{ section_key }}', this)">all</button>
+                    </div>
+                    {% for action_key, action_label in section.actions.items() %}
+                    <label class="perm-item">
+                        <input type="checkbox" name="grp-perm" data-key="{{ section_key }}.{{ action_key }}" id="grperm_{{ section_key }}_{{ action_key }}">
+                        <span>{{ action_label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+
+            <details style="margin-bottom:16px;margin-top:16px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+                    <i class="fas fa-file-alt" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+                    Page, Group & Section Access Restrictions
+                    <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow access to all</span>
+                </summary>
+                <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+                    <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+                        Restrict members of this group to specific pages, groups, or sections. If nothing is checked, members can access all items permitted by the group's role.
+                    </p>
+                    {% if not all_pages %}
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No pages found.</div>
+                    {% else %}
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;gap:12px;">
+                        <button type="button" class="perm-select-all" onclick="toggleAllGrpPagesSections(true)">Grant all</button>
+                        <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="toggleAllGrpPagesSections(false)">Revoke all</button>
+                    </div>
+
+                    {# Reuse the same page/section/group data from the Jinja context #}
+                    {% set grp_sections_by_page = {} %}
+                    {% for s in all_sections %}
+                        {% if s.page_id not in grp_sections_by_page %}{% set _ = grp_sections_by_page.update({s.page_id: []}) %}{% endif %}
+                        {% set _ = grp_sections_by_page[s.page_id].append(s) %}
+                    {% endfor %}
+                    {% set grp_groups_by_page = {} %}
+                    {% for g in all_groups %}
+                        {% if g.page_id not in grp_groups_by_page %}{% set _ = grp_groups_by_page.update({g.page_id: []}) %}{% endif %}
+                        {% set _ = grp_groups_by_page[g.page_id].append(g) %}
+                    {% endfor %}
+
+                    {% for page in all_pages %}
+                    {% set page_sections = grp_sections_by_page.get(page.id, []) %}
+                    {% set page_groups   = grp_groups_by_page.get(page.id, []) %}
+                    {% set has_children  = page_sections or page_groups %}
+                    {% set page_grouped_ids = [] %}
+                    {% for g in page_groups %}
+                        {% for sid in g.section_ids %}{% set _ = page_grouped_ids.append(sid) %}{% endfor %}
+                    {% endfor %}
+
+                    <div class="page-perm-block" style="margin-bottom:6px;border:1px solid rgba(255,255,255,0.07);border-radius:9px;overflow:hidden;">
+                        <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,0.04);{% if has_children %}cursor:pointer;{% endif %}"
+                             {% if has_children %}onclick="toggleGrpPageBlock({{ page.id }})"{% endif %}>
+                            <input type="checkbox" class="grp-page-access-cb" data-page-id="{{ page.id }}" value="{{ page.id }}"
+                                   onclick="event.stopPropagation(); onGrpPageCheck({{ page.id }}, this.checked)"
+                                   style="accent-color:#5eeef8;width:15px;height:15px;flex-shrink:0;">
+                            <span style="flex:1;font-size:0.85rem;font-weight:600;">{{ page.name }}</span>
+                            <span style="font-size:0.75rem;color:rgba(255,255,255,0.3);">/{{ page.slug }}</span>
+                            {% if page_sections %}
+                            <span style="font-size:0.72rem;color:rgba(255,255,255,0.25);">{{ page_sections|length }} section{{ 's' if page_sections|length != 1 }}</span>
+                            {% endif %}
+                            {% if has_children %}
+                            <i class="fas fa-chevron-down" id="grpPageChevron-{{ page.id }}" style="font-size:0.7rem;color:rgba(255,255,255,0.3);transition:transform 0.2s;"></i>
+                            {% endif %}
+                        </div>
+
+                        {% if has_children %}
+                        <div id="grpPageSections-{{ page.id }}" style="display:none;padding:6px 0 8px;background:rgba(0,0,0,0.15);">
+                            <div style="display:flex;gap:10px;margin:0 12px 6px 32px;">
+                                <button type="button" class="perm-select-all" style="font-size:0.72rem;" onclick="toggleGrpPageSections({{ page.id }}, true)">all</button>
+                                <button type="button" class="perm-select-all" style="font-size:0.72rem;color:rgba(255,100,100,0.6);" onclick="toggleGrpPageSections({{ page.id }}, false)">none</button>
+                            </div>
+
+                            {% for group in page_groups %}
+                            <div style="margin:0 8px 6px;border:1px solid rgba(123,97,255,0.18);border-radius:7px;overflow:hidden;">
+                                <label style="display:flex;align-items:center;gap:9px;padding:7px 10px;background:rgba(123,97,255,0.07);cursor:pointer;">
+                                    <input type="checkbox" class="grp-group-access-cb"
+                                           data-group-id="{{ group.id }}"
+                                           data-page-id="{{ page.id }}"
+                                           data-section-ids="{{ group.section_ids | tojson | e }}"
+                                           value="{{ group.id }}"
+                                           style="accent-color:#a07dff;width:14px;height:14px;flex-shrink:0;"
+                                           onchange="onGrpGroupCheck(this)">
+                                    <i class="fas fa-object-group" style="color:rgba(123,97,255,0.7);font-size:0.8rem;flex-shrink:0;"></i>
+                                    <span style="font-size:0.82rem;font-weight:600;flex:1;">{{ group.name }}</span>
+                                    <span style="font-size:0.7rem;color:rgba(255,255,255,0.3);">{{ group.section_ids|length }} section{{ 's' if group.section_ids|length != 1 }}</span>
+                                </label>
+                                {% for section in page_sections %}
+                                {% if section.id in group.section_ids %}
+                                <label class="perm-item" style="padding:4px 10px 4px 36px;background:rgba(0,0,0,0.1);">
+                                    <input type="checkbox" class="grp-section-access-cb"
+                                           data-section-id="{{ section.id }}"
+                                           data-page-id="{{ page.id }}"
+                                           data-group-id="{{ group.id }}"
+                                           value="{{ section.id }}"
+                                           style="accent-color:#5eeef8;width:12px;height:12px;flex-shrink:0;margin-top:2px;">
+                                    <span style="font-size:0.76rem;">{{ section.label }}<span style="color:rgba(255,255,255,0.28);font-size:0.7rem;"> · {{ section.type }}</span></span>
+                                </label>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endfor %}
+
+                            {% set grp_ungrouped = [] %}
+                            {% for s in page_sections %}
+                                {% if s.id not in page_grouped_ids %}{% set _ = grp_ungrouped.append(s) %}{% endif %}
+                            {% endfor %}
+                            {% if grp_ungrouped %}
+                            <div style="margin:0 8px 2px;padding:2px 0;">
+                                {% if page_groups %}
+                                <div style="font-size:0.68rem;color:rgba(255,255,255,0.25);padding:4px 10px 2px;text-transform:uppercase;letter-spacing:0.06em;">Ungrouped</div>
+                                {% endif %}
+                                {% for section in grp_ungrouped %}
+                                <label class="perm-item" style="padding:4px 10px 4px 32px;">
+                                    <input type="checkbox" class="grp-section-access-cb"
+                                           data-section-id="{{ section.id }}"
+                                           data-page-id="{{ page.id }}"
+                                           value="{{ section.id }}"
+                                           style="accent-color:#5eeef8;width:12px;height:12px;flex-shrink:0;margin-top:2px;">
+                                    <span style="font-size:0.76rem;">{{ section.label }}<span style="color:rgba(255,255,255,0.28);font-size:0.7rem;"> · {{ section.type }}</span></span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </details>
+
+            <details style="margin-bottom:16px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+                    <i class="fas fa-folder" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+                    Asset Library Folder Access
+                    <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow access to all folders</span>
+                </summary>
+                <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+                    <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+                        Check specific folders to restrict group members to only those folders.
+                        If nothing is checked, they can access all folders (subject to their asset permissions above).
+                    </p>
+                    {% if not all_folders %}
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No folders found. Create folders in the Asset Library first.</div>
+                    {% else %}
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;gap:12px;">
+                        <button type="button" class="perm-select-all" onclick="toggleAllGrpFolders(true)">Grant all folders</button>
+                        <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="toggleAllGrpFolders(false)">Revoke all</button>
+                    </div>
+                    {% for folder in all_folders %}
+                    <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+                        <input type="checkbox" class="grp-folder-access-cb" data-folder-id="{{ folder.id }}" value="{{ folder.id }}"
+                               style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                        <i class="fas fa-folder" style="color:rgba(255,200,80,0.5);font-size:0.85rem;flex-shrink:0;"></i>
+                        <span style="font-size:0.82rem;font-weight:600;">{{ folder.name }}</span>
+                        {% if folder.asset_type %}
+                        <span style="font-size:0.72rem;color:rgba(255,255,255,0.3);">· {{ folder.asset_type }}</span>
+                        {% endif %}
+                    </label>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </details>
+
+            <details style="margin-bottom:16px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+                    <i class="fas fa-folder-open" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+                    Page Folder Access
+                    <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">grant actions per page folder</span>
+                </summary>
+                <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+                    <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+                        Check a folder to grant access, then choose which actions are allowed within it.
+                        "Full Access" permits all actions. If nothing is checked, the group's page-by-page grants still apply.
+                    </p>
+                    {% if not all_page_folders %}
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No page folders found. Create folders on the dashboard first.</div>
+                    {% else %}
+                    {% for pf in all_page_folders %}
+                    <div class="grp-pf-folder-block" style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;margin-bottom:8px;overflow:hidden;">
+                        <label class="perm-item" style="padding:8px 12px;background:rgba(255,255,255,0.02);cursor:pointer;">
+                            <input type="checkbox" class="grp-pf-folder-cb" data-folder-id="{{ pf.id }}"
+                                   onchange="onGrpPfFolderCheck(this)"
+                                   style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                            <i class="fas fa-folder-open" style="color:rgba(255,200,80,0.5);font-size:0.85rem;flex-shrink:0;"></i>
+                            <span style="font-size:0.82rem;font-weight:600;">{{ pf.name }}</span>
+                        </label>
+                        <div class="grp-pf-actions-block" data-folder-id="{{ pf.id }}" style="display:none;padding:8px 12px 10px 32px;border-top:1px solid rgba(255,255,255,0.05);">
+                            <label class="perm-item" style="padding:4px 0;margin-bottom:6px;">
+                                <input type="checkbox" class="grp-pf-full-cb" data-folder-id="{{ pf.id }}"
+                                       onchange="onGrpPfFullCheck(this)"
+                                       style="accent-color:#a07dff;width:13px;height:13px;flex-shrink:0;">
+                                <span style="font-size:0.8rem;font-weight:700;color:rgba(200,180,255,0.9);">Full Access</span>
+                            </label>
+                            {% for act_key, act_label in [('edit','Edit Pages'), ('create','Add Pages'), ('delete','Delete'), ('details','Edit Details'), ('publish','Publish'), ('duplicate','Duplicate'), ('template','Save as Template')] %}
+                            <label class="perm-item" style="padding:3px 0;">
+                                <input type="checkbox" class="grp-pf-action-cb" data-folder-id="{{ pf.id }}" data-action="{{ act_key }}"
+                                       onchange="onGrpPfActionCheck(this)"
+                                       style="accent-color:#5eeef8;width:12px;height:12px;flex-shrink:0;">
+                                <span style="font-size:0.78rem;">{{ act_label }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </details>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeGroupModal()">Cancel</button>
+            <button type="button" class="uw-btn uw-btn-primary" id="groupSubmitBtn" onclick="submitGroupForm()">Create Group</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Pre-load existing user data for the edit case
+const _existingUsers = {
+    {% for u in sub_admins %}
+    {{ u.id }}: {
+        username: {{ u.username | tojson }},
+        email: {{ u.email | tojson }},
+        active: {{ 'true' if u._is_active else 'false' }},
+        permissions: {{ (u.permissions or {}) | tojson }},
+        permission_group_id: {{ u.permission_group_id | tojson }},
+    },
+    {% endfor %}
+};
+
+// Pre-load permission groups
+const _existingGroups = {
+    {% for g in permission_groups %}
+    {{ g.id }}: {
+        name: {{ g.name | tojson }},
+        description: {{ (g.description or '') | tojson }},
+        permissions: {{ (g.permissions or {}) | tojson }},
+        allowed_pages:       {{ ((g.permissions or {}).get('pages.allowed_ids')    or []) | tojson }},
+        allowed_groups:      {{ ((g.permissions or {}).get('groups.allowed_ids')   or []) | tojson }},
+        allowed_sections:    {{ ((g.permissions or {}).get('sections.allowed_ids') or []) | tojson }},
+        allowed_folders:     {{ ((g.permissions or {}).get('assets.allowed_folder_ids') or []) | tojson }},
+        page_folder_perms:   {{ ((g.permissions or {}).get('page_folder_perms') or {}) | tojson }},
+    },
+    {% endfor %}
+};
+
+// ── Page Folder Access helpers (user modal) ───────────────────────────────────
+
+function onPfFolderCheck(cb) {
+    const fid = cb.dataset.folderId;
+    const block = document.querySelector(`.pf-actions-block[data-folder-id="${fid}"]`);
+    if (block) block.style.display = cb.checked ? 'block' : 'none';
+    if (!cb.checked) {
+        document.querySelectorAll(`.pf-full-cb[data-folder-id="${fid}"],.pf-action-cb[data-folder-id="${fid}"]`).forEach(c => { c.checked = false; c.disabled = false; });
+    }
+}
+
+function onPfFullCheck(cb) {
+    const fid = cb.dataset.folderId;
+    const actions = document.querySelectorAll(`.pf-action-cb[data-folder-id="${fid}"]`);
+    actions.forEach(c => { c.disabled = cb.checked; c.checked = cb.checked ? true : c.checked; });
+}
+
+function onPfActionCheck(cb) {
+    const fid = cb.dataset.folderId;
+    const fullCb = document.querySelector(`.pf-full-cb[data-folder-id="${fid}"]`);
+    if (fullCb && fullCb.checked) { cb.checked = true; }
+}
+
+function _restorePageFolderPerms(pfMap) {
+    // Reset all pf checkboxes
+    document.querySelectorAll('.pf-folder-cb').forEach(cb => {
+        cb.checked = false;
+        const fid = cb.dataset.folderId;
+        const block = document.querySelector(`.pf-actions-block[data-folder-id="${fid}"]`);
+        if (block) block.style.display = 'none';
+    });
+    document.querySelectorAll('.pf-full-cb,.pf-action-cb').forEach(cb => { cb.checked = false; cb.disabled = false; });
+    if (!pfMap) return;
+    Object.entries(pfMap).forEach(([fid, val]) => {
+        const folderCb = document.querySelector(`.pf-folder-cb[data-folder-id="${fid}"]`);
+        if (!folderCb) return;
+        folderCb.checked = true;
+        const block = document.querySelector(`.pf-actions-block[data-folder-id="${fid}"]`);
+        if (block) block.style.display = 'block';
+        if (val === 'full') {
+            const fullCb = document.querySelector(`.pf-full-cb[data-folder-id="${fid}"]`);
+            if (fullCb) { fullCb.checked = true; }
+            document.querySelectorAll(`.pf-action-cb[data-folder-id="${fid}"]`).forEach(c => { c.checked = true; c.disabled = true; });
+        } else if (Array.isArray(val)) {
+            val.forEach(act => {
+                const actionCb = document.querySelector(`.pf-action-cb[data-folder-id="${fid}"][data-action="${act}"]`);
+                if (actionCb) actionCb.checked = true;
+            });
+        }
+    });
+}
+
+function _collectPageFolderPerms() {
+    const pfMap = {};
+    document.querySelectorAll('.pf-folder-cb:checked').forEach(cb => {
+        const fid = cb.dataset.folderId;
+        const fullCb = document.querySelector(`.pf-full-cb[data-folder-id="${fid}"]`);
+        if (fullCb && fullCb.checked) {
+            pfMap[fid] = 'full';
+        } else {
+            const actions = Array.from(document.querySelectorAll(`.pf-action-cb[data-folder-id="${fid}"]:checked`)).map(a => a.dataset.action);
+            if (actions.length) pfMap[fid] = actions;
+        }
+    });
+    return Object.keys(pfMap).length ? pfMap : null;
+}
+
+// ── Page Folder Access helpers (group modal) ──────────────────────────────────
+
+function onGrpPfFolderCheck(cb) {
+    const fid = cb.dataset.folderId;
+    const block = document.querySelector(`.grp-pf-actions-block[data-folder-id="${fid}"]`);
+    if (block) block.style.display = cb.checked ? 'block' : 'none';
+    if (!cb.checked) {
+        document.querySelectorAll(`.grp-pf-full-cb[data-folder-id="${fid}"],.grp-pf-action-cb[data-folder-id="${fid}"]`).forEach(c => { c.checked = false; c.disabled = false; });
+    }
+}
+
+function onGrpPfFullCheck(cb) {
+    const fid = cb.dataset.folderId;
+    const actions = document.querySelectorAll(`.grp-pf-action-cb[data-folder-id="${fid}"]`);
+    actions.forEach(c => { c.disabled = cb.checked; c.checked = cb.checked ? true : c.checked; });
+}
+
+function onGrpPfActionCheck(cb) {
+    const fid = cb.dataset.folderId;
+    const fullCb = document.querySelector(`.grp-pf-full-cb[data-folder-id="${fid}"]`);
+    if (fullCb && fullCb.checked) { cb.checked = true; }
+}
+
+function _restoreGrpPageFolderPerms(pfMap) {
+    document.querySelectorAll('.grp-pf-folder-cb').forEach(cb => {
+        cb.checked = false;
+        const fid = cb.dataset.folderId;
+        const block = document.querySelector(`.grp-pf-actions-block[data-folder-id="${fid}"]`);
+        if (block) block.style.display = 'none';
+    });
+    document.querySelectorAll('.grp-pf-full-cb,.grp-pf-action-cb').forEach(cb => { cb.checked = false; cb.disabled = false; });
+    if (!pfMap) return;
+    Object.entries(pfMap).forEach(([fid, val]) => {
+        const folderCb = document.querySelector(`.grp-pf-folder-cb[data-folder-id="${fid}"]`);
+        if (!folderCb) return;
+        folderCb.checked = true;
+        const block = document.querySelector(`.grp-pf-actions-block[data-folder-id="${fid}"]`);
+        if (block) block.style.display = 'block';
+        if (val === 'full') {
+            const fullCb = document.querySelector(`.grp-pf-full-cb[data-folder-id="${fid}"]`);
+            if (fullCb) { fullCb.checked = true; }
+            document.querySelectorAll(`.grp-pf-action-cb[data-folder-id="${fid}"]`).forEach(c => { c.checked = true; c.disabled = true; });
+        } else if (Array.isArray(val)) {
+            val.forEach(act => {
+                const actionCb = document.querySelector(`.grp-pf-action-cb[data-folder-id="${fid}"][data-action="${act}"]`);
+                if (actionCb) actionCb.checked = true;
+            });
+        }
+    });
+}
+
+function _collectGrpPageFolderPerms() {
+    const pfMap = {};
+    document.querySelectorAll('.grp-pf-folder-cb:checked').forEach(cb => {
+        const fid = cb.dataset.folderId;
+        const fullCb = document.querySelector(`.grp-pf-full-cb[data-folder-id="${fid}"]`);
+        if (fullCb && fullCb.checked) {
+            pfMap[fid] = 'full';
+        } else {
+            const actions = Array.from(document.querySelectorAll(`.grp-pf-action-cb[data-folder-id="${fid}"]:checked`)).map(a => a.dataset.action);
+            if (actions.length) pfMap[fid] = actions;
+        }
+    });
+    return Object.keys(pfMap).length ? pfMap : null;
+}
+
+function openUserModal(userId) {
+    const overlay = document.getElementById('userModalOverlay');
+    document.getElementById('userModalId').value = userId || '';
+    document.getElementById('userModalTitle').textContent = userId ? 'Edit Admin User' : 'Add Admin User';
+    document.getElementById('userSubmitBtn').textContent = userId ? 'Save Changes' : 'Add User';
+    document.getElementById('pwEditHint').style.display = userId ? 'inline' : 'none';
+    document.getElementById('activeField').style.display = userId ? '' : 'none';
+
+    // Clear all checkboxes
+    document.querySelectorAll('#permissionsContainer input[type="checkbox"]').forEach(cb => cb.checked = false);
+
+    // Reset page/section/group/folder checkboxes (and unlock)
+    document.querySelectorAll('.page-access-cb,.section-access-cb,.group-access-cb,.folder-access-cb').forEach(cb => {
+        cb.checked = false;
+        cb.disabled = false;
+        const label = cb.closest('label');
+        if (label) { label.style.opacity = ''; label.style.cursor = ''; }
+    });
+    // Reset page folder perms
+    _restorePageFolderPerms(null);
+
+    // Reset group selector
+    const groupSel = document.getElementById('userGroupId');
+    if (groupSel) groupSel.value = '';
+    _setPermAreaReadonly(false);
+
+    if (userId && _existingUsers[userId]) {
+        const u = _existingUsers[userId];
+        document.getElementById('userEmail').value = u.email;
+        document.getElementById('userPassword').value = '';
+        document.getElementById('userActive').value = u.active ? 'true' : 'false';
+        document.getElementById('userUsername').value = u.username;
+        document.getElementById('userUsername').disabled = true;
+
+        // Set group selector
+        if (groupSel && u.permission_group_id) {
+            groupSel.value = u.permission_group_id;
+            _applyGroupPermissions(u.permission_group_id);
+        } else {
+            // Restore individual permissions
+            Object.entries(u.permissions || {}).forEach(([key, val]) => {
+                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms') {
+                    const cb = document.querySelector(`#permissionsContainer input[data-key="${key}"]`);
+                    if (cb) cb.checked = true;
+                }
+            });
+        }
+        // Restore page/section access
+        const allowedPages = u.permissions?.['pages.allowed_ids'] || [];
+        allowedPages.forEach(pid => {
+            const cb = document.querySelector(`.page-access-cb[data-page-id="${pid}"]`);
+            if (cb) cb.checked = true;
+        });
+        const allowedSections = u.permissions?.['sections.allowed_ids'] || [];
+        allowedSections.forEach(sid => {
+            const cb = document.querySelector(`.section-access-cb[data-section-id="${sid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore folder access
+        const allowedFolders = u.permissions?.['assets.allowed_folder_ids'] || [];
+        allowedFolders.forEach(fid => {
+            const cb = document.querySelector(`.folder-access-cb[data-folder-id="${fid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore page folder perms
+        _restorePageFolderPerms(u.permissions?.['page_folder_perms'] || null);
+        // Restore group-section access
+        const allowedGroups = u.permissions?.['groups.allowed_ids'] || [];
+        allowedGroups.forEach(gid => {
+            const cb = document.querySelector(`.group-access-cb[data-group-id="${gid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Apply locks: pages lock their children, groups lock their sections
+        document.querySelectorAll('.page-access-cb:checked').forEach(cb => {
+            _lockPageChildren(cb.dataset.pageId, true);
+        });
+        document.querySelectorAll('.group-access-cb:checked:not([disabled])').forEach(cb => {
+            _lockGroupSections(cb.dataset.groupId, true);
+        });
+        // Auto-open page panels that have any checked items
+        document.querySelectorAll('.page-access-cb:checked,.group-access-cb:checked,.section-access-cb:checked').forEach(cb => {
+            const pid = cb.dataset.pageId;
+            if (!pid) return;
+            const panel = document.getElementById(`pageSections-${pid}`);
+            const chevron = document.getElementById(`pageChevron-${pid}`);
+            if (panel) panel.style.display = 'block';
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+        });
+    } else {
+        document.getElementById('userEmail').value = '';
+        document.getElementById('userPassword').value = '';
+        document.getElementById('userUsername').value = '';
+        document.getElementById('userUsername').disabled = false;
+    }
+
+    overlay.classList.add('open');
+    document.body.classList.add('uw-modal-open');
+    setTimeout(() => document.getElementById('userUsername').focus(), 50);
+}
+
+function closeUserModal() {
+    document.getElementById('userModalOverlay').classList.remove('open');
+    document.body.classList.remove('uw-modal-open');
+}
+
+document.getElementById('userModalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('userModalOverlay')) closeUserModal();
+});
+
+function toggleSection(sectionKey, btn) {
+    const boxes = document.querySelectorAll(`input[data-key^="${sectionKey}."]`);
+    const allChecked = Array.from(boxes).every(b => b.checked);
+    boxes.forEach(b => b.checked = !allChecked);
+    if (btn) btn.textContent = allChecked ? 'all' : 'none';
+}
+
+function toggleAll(state) {
+    document.querySelectorAll('#permissionsContainer input[type="checkbox"]').forEach(cb => cb.checked = state);
+}
+
+// ── Locking helpers ──────────────────────────────────────────────────────────
+
+function _setLocked(cb, locked) {
+    cb.disabled = locked;
+    cb.checked  = locked ? true : cb.checked;
+    const label = cb.closest('label');
+    if (label) {
+        label.style.opacity = locked ? '0.45' : '';
+        label.style.cursor  = locked ? 'not-allowed' : '';
+    }
+}
+
+function _lockGroupSections(groupId, locked) {
+    document.querySelectorAll(`.section-access-cb[data-group-id="${groupId}"]`).forEach(cb => {
+        _setLocked(cb, locked);
+        if (!locked) cb.checked = false;
+    });
+}
+
+function _lockPageChildren(pageId, locked) {
+    document.querySelectorAll(`.group-access-cb[data-page-id="${pageId}"]`).forEach(cb => {
+        _setLocked(cb, locked);
+        if (!locked) cb.checked = false;
+        _lockGroupSections(cb.dataset.groupId, locked);
+    });
+    // Also lock ungrouped sections (no data-group-id)
+    document.querySelectorAll(`.section-access-cb[data-page-id="${pageId}"]:not([data-group-id])`).forEach(cb => {
+        _setLocked(cb, locked);
+        if (!locked) cb.checked = false;
+    });
+}
+
+// ── Event handlers ────────────────────────────────────────────────────────────
+
+function toggleAllPagesSections(state) {
+    // Reset all locks first
+    document.querySelectorAll('.page-access-cb,.group-access-cb,.section-access-cb').forEach(cb => {
+        cb.disabled = false;
+        cb.checked  = false;
+        const label = cb.closest('label');
+        if (label) { label.style.opacity = ''; label.style.cursor = ''; }
+    });
+    if (state) {
+        document.querySelectorAll('.page-access-cb').forEach(cb => {
+            cb.checked = true;
+            _lockPageChildren(cb.dataset.pageId, true);
+        });
+    }
+}
+
+function toggleAllFolders(state) {
+    document.querySelectorAll('.folder-access-cb').forEach(cb => cb.checked = state);
+}
+
+function onGroupCheck(cb) {
+    _lockGroupSections(cb.dataset.groupId, cb.checked);
+}
+
+function togglePageBlock(pageId) {
+    const panel   = document.getElementById(`pageSections-${pageId}`);
+    const chevron = document.getElementById(`pageChevron-${pageId}`);
+    if (!panel) return;
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
+}
+
+function onPageCheck(pageId, checked) {
+    const panel   = document.getElementById(`pageSections-${pageId}`);
+    const chevron = document.getElementById(`pageChevron-${pageId}`);
+    if (checked && panel) {
+        panel.style.display = 'block';
+        if (chevron) chevron.style.transform = 'rotate(180deg)';
+    }
+    _lockPageChildren(pageId, checked);
+}
+
+function togglePageSections(pageId, state) {
+    // No-op if the page itself is checked (children are locked)
+    const pageCb = document.querySelector(`.page-access-cb[data-page-id="${pageId}"]`);
+    if (pageCb && pageCb.checked) return;
+
+    document.querySelectorAll(`.group-access-cb[data-page-id="${pageId}"]`).forEach(cb => {
+        cb.checked = state;
+        _lockGroupSections(cb.dataset.groupId, state);
+    });
+    document.querySelectorAll(`.section-access-cb[data-page-id="${pageId}"]:not([disabled])`).forEach(cb => {
+        cb.checked = state;
+    });
+}
+
+async function submitUserForm() {
+    const userId = document.getElementById('userModalId').value;
+    const btn    = document.getElementById('userSubmitBtn');
+    btn.disabled = true;
+
+    const permissions = {};
+    document.querySelectorAll('#permissionsContainer input[type="checkbox"]').forEach(cb => {
+        permissions[cb.dataset.key] = cb.checked;
+    });
+    // Pages: collect all checked pages
+    const allowedPages = Array.from(document.querySelectorAll('.page-access-cb:checked')).map(cb => parseInt(cb.value));
+    // Groups: only those NOT locked by a page (disabled groups are covered by the page grant)
+    const allowedGroups = Array.from(document.querySelectorAll('.group-access-cb:checked:not([disabled])')).map(cb => parseInt(cb.value));
+    // Sections: only those NOT locked by a group or page (covered by group/page grants)
+    const allowedSections = Array.from(document.querySelectorAll('.section-access-cb:checked:not([disabled])')).map(cb => parseInt(cb.value));
+    const allowedFolders  = Array.from(document.querySelectorAll('.folder-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['pages.allowed_ids']          = allowedPages.length    ? allowedPages    : null;
+    permissions['groups.allowed_ids']         = allowedGroups.length   ? allowedGroups   : null;
+    permissions['sections.allowed_ids']       = allowedSections.length ? allowedSections : null;
+    permissions['assets.allowed_folder_ids']  = allowedFolders.length  ? allowedFolders  : null;
+    permissions['page_folder_perms']          = _collectPageFolderPerms();
+
+    const groupSel = document.getElementById('userGroupId');
+    const groupId  = groupSel ? (groupSel.value || null) : null;
+
+    const payload = {
+        email:       document.getElementById('userEmail').value.trim(),
+        password:    document.getElementById('userPassword').value,
+        permissions,
+        permission_group_id: groupId ? parseInt(groupId) : null,
+    };
+
+    if (!userId) {
+        payload.username = document.getElementById('userUsername').value.trim();
+    } else {
+        payload.active = document.getElementById('userActive').value === 'true';
+    }
+
+    const url = userId ? `/admin/users/${userId}/update` : '/admin/users/create';
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (d.success) { closeUserModal(); location.reload(); }
+        else { alert(d.error || 'Failed'); btn.disabled = false; }
+    } catch(e) {
+        alert('Network error'); btn.disabled = false;
+    }
+}
+
+async function deleteUser(userId, username) {
+    if (!confirm(`Delete admin user "${username}"? They will immediately lose access.`)) return;
+    const r = await fetch(`/admin/users/${userId}/delete`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) document.getElementById(`auCard-${userId}`)?.remove();
+    else alert(d.error || 'Failed');
+}
+
+// ── Group permission area helpers ─────────────────────────────────────────────
+
+function _setPermAreaReadonly(readonly) {
+    const note = document.getElementById('permAreaNote');
+    const toggleRow = document.getElementById('permToggleRow');
+    if (note) note.textContent = readonly
+        ? 'Inherited from permission group — edit the group to change.'
+        : 'Controls what this user can access in the admin panel.';
+    if (toggleRow) toggleRow.style.display = readonly ? 'none' : '';
+    document.querySelectorAll('#permissionsContainer input[type="checkbox"]').forEach(cb => {
+        cb.disabled = readonly;
+        cb.closest('label')?.style.setProperty('opacity', readonly ? '0.5' : '', 'important');
+    });
+    document.querySelectorAll('#permissionsContainer .perm-select-all').forEach(btn => {
+        btn.disabled = readonly;
+    });
+}
+
+function _applyGroupPermissions(groupId) {
+    const grp = _existingGroups[groupId];
+    document.querySelectorAll('#permissionsContainer input[type="checkbox"]').forEach(cb => {
+        cb.checked = grp ? !!(grp.permissions[cb.dataset.key]) : false;
+    });
+    _setPermAreaReadonly(!!groupId);
+}
+
+function onGroupSelectChange(val) {
+    if (val) {
+        _applyGroupPermissions(parseInt(val));
+    } else {
+        document.querySelectorAll('#permissionsContainer input[type="checkbox"]').forEach(cb => cb.checked = false);
+        _setPermAreaReadonly(false);
+    }
+}
+
+// ── Permission Group CRUD ─────────────────────────────────────────────────────
+
+// ── Group modal – page/section locking helpers ─────────────────────────────
+
+function _grpSetLocked(cb, locked) {
+    cb.disabled = locked;
+    if (locked) cb.checked = true;
+    const label = cb.closest('label');
+    if (label) { label.style.opacity = locked ? '0.45' : ''; label.style.cursor = locked ? 'not-allowed' : ''; }
+}
+
+function _grpLockGroupSections(groupId, locked) {
+    document.querySelectorAll(`.grp-section-access-cb[data-group-id="${groupId}"]`).forEach(cb => {
+        _grpSetLocked(cb, locked);
+        if (!locked) cb.checked = false;
+    });
+}
+
+function _grpLockPageChildren(pageId, locked) {
+    document.querySelectorAll(`.grp-group-access-cb[data-page-id="${pageId}"]`).forEach(cb => {
+        _grpSetLocked(cb, locked);
+        if (!locked) cb.checked = false;
+        _grpLockGroupSections(cb.dataset.groupId, locked);
+    });
+    document.querySelectorAll(`.grp-section-access-cb[data-page-id="${pageId}"]:not([data-group-id])`).forEach(cb => {
+        _grpSetLocked(cb, locked);
+        if (!locked) cb.checked = false;
+    });
+}
+
+function onGrpGroupCheck(cb) { _grpLockGroupSections(cb.dataset.groupId, cb.checked); }
+
+function onGrpPageCheck(pageId, checked) {
+    const panel   = document.getElementById(`grpPageSections-${pageId}`);
+    const chevron = document.getElementById(`grpPageChevron-${pageId}`);
+    if (checked && panel) { panel.style.display = 'block'; if (chevron) chevron.style.transform = 'rotate(180deg)'; }
+    _grpLockPageChildren(pageId, checked);
+}
+
+function toggleGrpPageBlock(pageId) {
+    const panel   = document.getElementById(`grpPageSections-${pageId}`);
+    const chevron = document.getElementById(`grpPageChevron-${pageId}`);
+    if (!panel) return;
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
+}
+
+function toggleGrpPageSections(pageId, state) {
+    const pageCb = document.querySelector(`.grp-page-access-cb[data-page-id="${pageId}"]`);
+    if (pageCb && pageCb.checked) return;
+    document.querySelectorAll(`.grp-group-access-cb[data-page-id="${pageId}"]`).forEach(cb => {
+        cb.checked = state; _grpLockGroupSections(cb.dataset.groupId, state);
+    });
+    document.querySelectorAll(`.grp-section-access-cb[data-page-id="${pageId}"]:not([disabled])`).forEach(cb => { cb.checked = state; });
+}
+
+function toggleAllGrpPagesSections(state) {
+    document.querySelectorAll('.grp-page-access-cb,.grp-group-access-cb,.grp-section-access-cb').forEach(cb => {
+        cb.disabled = false; cb.checked = false;
+        const label = cb.closest('label');
+        if (label) { label.style.opacity = ''; label.style.cursor = ''; }
+    });
+    if (state) {
+        document.querySelectorAll('.grp-page-access-cb').forEach(cb => { cb.checked = true; _grpLockPageChildren(cb.dataset.pageId, true); });
+    }
+}
+
+function toggleAllGrpFolders(state) {
+    document.querySelectorAll('.grp-folder-access-cb').forEach(cb => cb.checked = state);
+}
+
+function openGroupModal(groupId) {
+    document.getElementById('groupModalId').value = groupId || '';
+    document.getElementById('groupModalTitle').textContent = groupId ? 'Edit Permission Group' : 'New Permission Group';
+    document.getElementById('groupSubmitBtn').textContent = groupId ? 'Save Changes' : 'Create Group';
+    document.querySelectorAll('#groupPermissionsContainer input[type="checkbox"]').forEach(cb => cb.checked = false);
+
+    // Reset restriction checkboxes
+    document.querySelectorAll('.grp-page-access-cb,.grp-section-access-cb,.grp-group-access-cb,.grp-folder-access-cb').forEach(cb => {
+        cb.checked = false; cb.disabled = false;
+        const label = cb.closest('label');
+        if (label) { label.style.opacity = ''; label.style.cursor = ''; }
+    });
+    // Reset group page folder perms
+    _restoreGrpPageFolderPerms(null);
+
+    if (groupId && _existingGroups[groupId]) {
+        const g = _existingGroups[groupId];
+        document.getElementById('groupName').value = g.name;
+        document.getElementById('groupDescription').value = g.description;
+        Object.entries(g.permissions || {}).forEach(([key, val]) => {
+            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms') {
+                const cb = document.querySelector(`#groupPermissionsContainer input[data-key="${key}"]`);
+                if (cb) cb.checked = true;
+            }
+        });
+        // Restore page/section restrictions
+        (g.allowed_pages || []).forEach(pid => {
+            const cb = document.querySelector(`.grp-page-access-cb[data-page-id="${pid}"]`);
+            if (cb) { cb.checked = true; }
+        });
+        (g.allowed_groups || []).forEach(gid => {
+            const cb = document.querySelector(`.grp-group-access-cb[data-group-id="${gid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (g.allowed_sections || []).forEach(sid => {
+            const cb = document.querySelector(`.grp-section-access-cb[data-section-id="${sid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (g.allowed_folders || []).forEach(fid => {
+            const cb = document.querySelector(`.grp-folder-access-cb[data-folder-id="${fid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore page folder perms
+        _restoreGrpPageFolderPerms(g.page_folder_perms || null);
+        // Apply locks
+        document.querySelectorAll('.grp-page-access-cb:checked').forEach(cb => _grpLockPageChildren(cb.dataset.pageId, true));
+        document.querySelectorAll('.grp-group-access-cb:checked:not([disabled])').forEach(cb => _grpLockGroupSections(cb.dataset.groupId, true));
+        // Open panels that have checked items
+        document.querySelectorAll('.grp-page-access-cb:checked,.grp-group-access-cb:checked,.grp-section-access-cb:checked').forEach(cb => {
+            const pid = cb.dataset.pageId;
+            if (!pid) return;
+            const panel = document.getElementById(`grpPageSections-${pid}`);
+            const chevron = document.getElementById(`grpPageChevron-${pid}`);
+            if (panel) panel.style.display = 'block';
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+        });
+    } else {
+        document.getElementById('groupName').value = '';
+        document.getElementById('groupDescription').value = '';
+    }
+
+    document.getElementById('groupModalOverlay').classList.add('open');
+    document.body.classList.add('uw-modal-open');
+    setTimeout(() => document.getElementById('groupName').focus(), 50);
+}
+
+function closeGroupModal() {
+    document.getElementById('groupModalOverlay').classList.remove('open');
+    document.body.classList.remove('uw-modal-open');
+}
+
+document.getElementById('groupModalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('groupModalOverlay')) closeGroupModal();
+});
+
+function toggleGroupSection(sectionKey, btn) {
+    const boxes = document.querySelectorAll(`#groupPermissionsContainer input[data-key^="${sectionKey}."]`);
+    const allChecked = Array.from(boxes).every(b => b.checked);
+    boxes.forEach(b => b.checked = !allChecked);
+    if (btn) btn.textContent = allChecked ? 'all' : 'none';
+}
+
+function toggleGroupAll(state) {
+    document.querySelectorAll('#groupPermissionsContainer input[type="checkbox"]').forEach(cb => cb.checked = state);
+}
+
+async function submitGroupForm() {
+    const groupId = document.getElementById('groupModalId').value;
+    const btn = document.getElementById('groupSubmitBtn');
+    btn.disabled = true;
+
+    const permissions = {};
+    document.querySelectorAll('#groupPermissionsContainer input[type="checkbox"]').forEach(cb => {
+        permissions[cb.dataset.key] = cb.checked;
+    });
+
+    // Collect page/section/folder restrictions
+    const allowedPages    = Array.from(document.querySelectorAll('.grp-page-access-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedGrps     = Array.from(document.querySelectorAll('.grp-group-access-cb:checked:not([disabled])')).map(cb => parseInt(cb.value));
+    const allowedSections = Array.from(document.querySelectorAll('.grp-section-access-cb:checked:not([disabled])')).map(cb => parseInt(cb.value));
+    const allowedFolders  = Array.from(document.querySelectorAll('.grp-folder-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['pages.allowed_ids']         = allowedPages.length    ? allowedPages    : null;
+    permissions['groups.allowed_ids']        = allowedGrps.length     ? allowedGrps     : null;
+    permissions['sections.allowed_ids']      = allowedSections.length ? allowedSections : null;
+    permissions['assets.allowed_folder_ids'] = allowedFolders.length  ? allowedFolders  : null;
+    permissions['page_folder_perms']         = _collectGrpPageFolderPerms();
+
+    const payload = {
+        name:        document.getElementById('groupName').value.trim(),
+        description: document.getElementById('groupDescription').value.trim(),
+        permissions,
+    };
+
+    if (!payload.name) { alert('Group name is required'); btn.disabled = false; return; }
+
+    const url = groupId ? `/admin/permission-groups/${groupId}/update` : '/admin/permission-groups/create';
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (d.success) { closeGroupModal(); location.reload(); }
+        else { alert(d.error || 'Failed'); btn.disabled = false; }
+    } catch(e) {
+        alert('Network error'); btn.disabled = false;
+    }
+}
+
+async function deleteGroup(groupId, name) {
+    if (!confirm(`Delete permission group "${name}"? Users in this group will keep their current permissions but become unlinked from the group.`)) return;
+    const r = await fetch(`/admin/permission-groups/${groupId}/delete`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { location.reload(); }
+    else alert(d.error || 'Failed');
+}
+</script>
+
+{% endblock %}

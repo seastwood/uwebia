@@ -23,7 +23,7 @@
             <link rel="icon" type="image/png" href="{{ icon_url }}">
         {% endif %}
     {% else %}
-        <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+        <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
     {% endif %}
 
     {% set nav_style = website.public_navbar_style or {} %}
@@ -70,20 +70,38 @@
 
             {% if website.background_image_url %}
                 background-image: url('{{ website.background_image_url }}');
-                background-repeat: {{ 'repeat' if website.background_image_repeat else 'no-repeat' }};
-                background-position: center center;
 
                 {% set bg_zoom = website.background_image_zoom or 100 %}
                 {% set repeat_zoom_multiplier = 2.0 %}
+                {% set repeat_x = website.background_image_repeat_x %}
 
-                background-size:
-                    {% if website.background_image_repeat %}
-                        {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto
+                {% if website.background_image_repeat %}
+                    {% if repeat_x %}
+                        background-repeat: repeat;
+                        background-position: center top;
+                        background-size: {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto;
                     {% else %}
-                        cover
-                    {% endif %};
+                        background-repeat: repeat-y;
+                        background-position: center top;
+                        background-size: 100% auto;
+                    {% endif %}
+                {% else %}
+                    background-repeat: no-repeat;
+                    background-position: center center;
+                    background-size: {{ bg_zoom }}% auto;
+                {% endif %}
             {% endif %}
         }
+
+        {% if website.background_image_url and website.background_image_repeat and website.background_image_mobile_cover %}
+        @media (max-width: 760px) {
+            .site-fixed-background {
+                background-repeat: no-repeat !important;
+                background-position: center center !important;
+                background-size: cover !important;
+            }
+        }
+        {% endif %}
 
         .public-page-shell {
             position: relative;

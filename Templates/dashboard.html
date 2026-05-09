@@ -120,16 +120,190 @@
                 inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
+        /* Draft website card — amber tint to make it clearly distinct from live */
+        .website-dashboard-card--draft {
+            background:
+                linear-gradient(180deg, rgba(255, 190, 60, 0.07), rgba(255, 190, 60, 0.02)),
+                #1e1d20;
+            border-color: rgba(255, 190, 60, 0.28);
+            box-shadow:
+                0 18px 40px rgba(0, 0, 0, 0.32),
+                inset 0 1px 0 rgba(255, 190, 60, 0.08);
+        }
+
+        .draft-website-banner {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: rgba(255, 190, 60, 0.09);
+            border: 1px solid rgba(255, 190, 60, 0.25);
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 14px;
+            font-size: 0.84rem;
+            color: rgba(255, 220, 140, 0.9);
+            line-height: 1.4;
+        }
+
+        .draft-website-banner i {
+            flex-shrink: 0;
+            margin-top: 2px;
+            opacity: 0.85;
+        }
+
+        .website-action-button-draft {
+            background: rgba(255, 190, 60, 0.12) !important;
+            border-color: rgba(255, 190, 60, 0.3) !important;
+            color: rgb(255, 210, 100) !important;
+        }
+        .website-action-button-draft:hover {
+            background: rgba(255, 190, 60, 0.22) !important;
+        }
+
+        .website-action-button-promote {
+            background: rgba(94, 238, 150, 0.12) !important;
+            border-color: rgba(94, 238, 150, 0.3) !important;
+            color: rgb(94, 238, 150) !important;
+        }
+        .website-action-button-promote:hover {
+            background: rgba(94, 238, 150, 0.22) !important;
+        }
+
+        .website-action-button-danger {
+            background: rgba(255, 80, 80, 0.10) !important;
+            border-color: rgba(255, 80, 80, 0.28) !important;
+            color: rgb(255, 110, 110) !important;
+        }
+        .website-action-button-danger:hover {
+            background: rgba(255, 80, 80, 0.20) !important;
+        }
+
         .website-dashboard-header {
+            padding-bottom: 16px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Top row: title on the left, icon widget on the right */
+        .website-header-top {
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
-            gap: 18px;
+            gap: 12px;
+        }
 
-            padding-bottom: 16px;
-            margin-bottom: 14px;
+        /* ── Website icon widget ── */
+        .website-icon-widget {
+            position: relative;
+            flex-shrink: 0;
+            align-self: flex-start;
+        }
 
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        .website-icon-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            cursor: pointer;
+            overflow: hidden;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+
+        .website-icon-btn:hover {
+            border-color: rgba(255,255,255,0.22);
+            background: rgba(255,255,255,0.1);
+        }
+
+        .website-icon-btn img {
+            width: 30px;
+            height: 30px;
+            object-fit: contain;
+        }
+
+        .website-icon-btn .icon-placeholder {
+            font-size: 1.1rem;
+            color: rgba(255,255,255,0.35);
+        }
+
+        .website-icon-popover {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 240px;
+            background: #1e2029;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .website-icon-popover.open { display: block; }
+
+        .website-icon-popover label {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: rgba(255,255,255,0.45);
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            margin: 0 0 5px;
+        }
+
+        .website-icon-popover input[type="text"] {
+            width: 100%;
+            box-sizing: border-box;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 7px;
+            color: #fff;
+            font-size: 0.8rem;
+            padding: 7px 9px;
+            outline: none;
+            margin-bottom: 8px;
+        }
+
+        .website-icon-popover input[type="text"]:focus {
+            border-color: rgba(94,238,248,0.45);
+        }
+
+        .website-icon-popover-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .website-icon-popover-actions button {
+            flex: 1;
+            height: 30px;
+            border-radius: 7px;
+            font-size: 0.76rem;
+            font-weight: 650;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.07);
+            color: rgba(255,255,255,0.82);
+            transition: background 0.14s ease;
+        }
+
+        .website-icon-popover-actions button:hover {
+            background: rgba(255,255,255,0.13);
+        }
+
+        .website-icon-popover-actions .btn-clear {
+            flex: 0 0 auto;
+            background: rgba(255,80,80,0.1);
+            border-color: rgba(255,80,80,0.22);
+            color: #ff7b7b;
+        }
+
+        .website-icon-popover-actions .btn-clear:hover {
+            background: rgba(255,80,80,0.2);
         }
 
         .website-title-block {
@@ -162,90 +336,99 @@
             text-overflow: ellipsis;
         }
 
+        /* ── Website action toolbar ──────────────────────────────────────── */
+
         .website-action-bar {
             display: flex;
             align-items: center;
-            justify-content: flex-end;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 6px;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        a.website-action-button {
+            text-decoration: none;
         }
 
         .website-action-button {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 6px;
 
-            min-height: 36px;
-            padding: 8px 11px;
+            height: 34px;
+            padding: 0 13px;
+            white-space: nowrap;
 
-            color: rgba(255, 255, 255, 0.88);
-            background: rgba(255, 255, 255, 0.065);
+            color: rgba(255, 255, 255, 0.82);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 9px;
 
-            border: 1px solid rgba(255, 255, 255, 0.105);
-            border-radius: 10px;
-
-            font-size: 0.82rem;
-            font-weight: 750;
+            font-size: 0.8rem;
+            font-weight: 650;
             line-height: 1;
 
             cursor: pointer;
 
             transition:
-                background 0.16s ease,
-                border-color 0.16s ease,
-                color 0.16s ease,
-                transform 0.16s ease,
-                box-shadow 0.16s ease;
+                background 0.14s ease,
+                border-color 0.14s ease,
+                color 0.14s ease;
         }
 
         .website-action-button:hover {
             color: #ffffff;
-            background: rgba(126, 226, 204, 0.13);
-            border-color: rgba(126, 226, 204, 0.34);
-            transform: translateY(-1px);
-            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+            background: rgba(255, 255, 255, 0.11);
+            border-color: rgba(255, 255, 255, 0.18);
         }
 
         .website-action-button:active {
-            transform: translateY(0);
-            box-shadow: none;
+            background: rgba(255, 255, 255, 0.07);
         }
 
         .website-action-button i {
-            font-size: 0.9rem;
-            opacity: 0.92;
-        }
-
-        @media (max-width: 800px) {
-            .website-dashboard-header {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .website-action-bar {
-                justify-content: flex-start;
-            }
-
-            .website-action-button {
-                flex: 1 1 auto;
-            }
-
-            .website-dashboard-title {
-                white-space: normal;
-            }
+            font-size: 0.82rem;
+            opacity: 0.85;
+            flex-shrink: 0;
         }
 
         .website-action-button-primary {
-            color: #10251f;
-            background: linear-gradient(135deg, #7ee2cc, #9cf4df);
-            border-color: rgba(126, 226, 204, 0.7);
+            color: #0d2018 !important;
+            background: linear-gradient(135deg, #7ee2cc, #9cf4df) !important;
+            border-color: rgba(126, 226, 204, 0.6) !important;
+            font-weight: 750;
+        }
+        .website-action-button-primary:hover {
+            background: linear-gradient(135deg, #9af3df, #b8ffed) !important;
         }
 
-        .website-action-button-primary:hover {
-            color: #071512;
-            background: linear-gradient(135deg, #8ff5dd, #b4ffec);
-            border-color: rgba(180, 255, 236, 0.95);
+        .website-action-button-draft {
+            background: rgba(255, 190, 60, 0.1) !important;
+            border-color: rgba(255, 190, 60, 0.28) !important;
+            color: rgb(255, 210, 100) !important;
+        }
+        .website-action-button-draft:hover { background: rgba(255, 190, 60, 0.18) !important; }
+
+        .website-action-button-promote {
+            background: rgba(94, 238, 150, 0.1) !important;
+            border-color: rgba(94, 238, 150, 0.28) !important;
+            color: rgb(94, 238, 150) !important;
+        }
+        .website-action-button-promote:hover { background: rgba(94, 238, 150, 0.18) !important; }
+
+        .website-action-button-danger {
+            background: rgba(255, 80, 80, 0.08) !important;
+            border-color: rgba(255, 80, 80, 0.25) !important;
+            color: rgb(255, 110, 110) !important;
+        }
+        .website-action-button-danger:hover { background: rgba(255, 80, 80, 0.16) !important; }
+
+        @media (max-width: 800px) {
+            .website-dashboard-title { white-space: normal; }
+            .website-action-button { height: 36px; font-size: 0.82rem; padding: 0 12px; }
         }
 
         .page-form {
@@ -266,8 +449,7 @@
 
             width: 300px;
             min-width: 260px;
-            height: auto;
-            min-height: 285px;
+            min-height: 220px;
 
             display: flex;
             flex-direction: column;
@@ -1400,12 +1582,11 @@
             position: relative;
 
             width: 100%;
-            height: 150px;
-
-            margin-top: 2px;
+            /* Collapsed by default — togglePagePreview() expands to 150px */
+            height: 0;
+            overflow: hidden;
 
             border-radius: 12px;
-            overflow: hidden;
 
             background:
                 linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
@@ -1413,6 +1594,13 @@
 
             border: 1px solid rgba(255, 255, 255, 0.08);
             box-sizing: border-box;
+
+            transition: height 0.28s ease, margin-top 0.28s ease, border-width 0.28s ease;
+        }
+
+        .page-preview-shell.is-open {
+            height: 150px;
+            margin-top: 2px;
         }
 
         .page-preview-shell iframe {
@@ -1422,6 +1610,49 @@
             display: block;
             background: white;
         }
+
+        /* Toggle button shown below the page title */
+        .page-preview-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: auto;
+            padding: 4px 9px;
+            background: rgba(255,255,255,0.055);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 7px;
+            color: rgba(255,255,255,0.65);
+            font-size: 0.73rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+            align-self: stretch;
+            justify-content: center;
+        }
+
+        .page-preview-toggle:hover {
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.9);
+        }
+
+        .page-preview-toggle i {
+            font-size: 0.7rem;
+            transition: transform 0.28s ease;
+        }
+
+        .page-preview-toggle.preview-open i.fa-chevron-down {
+            transform: rotate(180deg);
+        }
+
+        .page-last-edited {
+            font-size: 0.7rem;
+            color: rgba(255,255,255,0.35);
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .page-last-edited i { font-size: 0.65rem; }
 
         .page-preview-placeholder {
             height: 100%;
@@ -2216,101 +2447,162 @@
 
 
         {% for website, pages in website_pages.items() %}
-        <li class="website-dashboard-card">
+        {% set _icon_url = (website.public_navbar_style or {}).get('icon_url', '') %}
+        <li class="website-dashboard-card{% if website.is_draft %} website-dashboard-card--draft{% endif %}">
+
+            {% if website.is_draft %}
+            <div class="draft-website-banner">
+                <i class="fas fa-pencil-ruler"></i>
+                <span><strong>Draft Website</strong> — Editing sandbox. Changes here won't affect the live site until you promote.</span>
+            </div>
+            {% endif %}
             <div class="website-dashboard-header">
-                <div class="website-title-block">
-                    <p class="website-kicker">Website</p>
-                    <h2 class="website-dashboard-title">{{ website.name }}</h2>
+                <div class="website-header-top">
+                    <div class="website-title-block">
+                        <p class="website-kicker">{% if website.is_draft %}Draft{% else %}Website{% endif %}</p>
+                        <h2 class="website-dashboard-title">{{ website.name }}</h2>
+                    </div>
+
+                    {# ── Navbar icon widget — far right of title row ── #}
+                    {# Always visible; only interactive when user has appearance.navbar #}
+                    {% if _icon_url or user_has_perm_for('appearance.navbar', website) %}
+                    <div class="website-icon-widget" id="iconWidget_{{ website.id }}">
+                        {% if user_has_perm_for('appearance.navbar', website) %}
+                        {# Editable button + popover #}
+                        <button type="button" class="website-icon-btn"
+                            onclick="toggleIconPopover('{{ website.id }}')"
+                            title="{% if _icon_url %}Change site icon{% else %}Set site icon{% endif %}">
+                            {% if _icon_url %}
+                            <img id="iconWidgetImg_{{ website.id }}" src="{{ _icon_url }}" alt="Site icon">
+                            {% else %}
+                            <span class="icon-placeholder" id="iconWidgetImg_{{ website.id }}"><i class="fas fa-image"></i></span>
+                            {% endif %}
+                        </button>
+                        <div class="website-icon-popover" id="iconPopover_{{ website.id }}">
+                            <label>Upload icon (SVG or PNG)</label>
+                            <input type="file" id="iconFileInput_{{ website.id }}" accept=".svg,.png,image/svg+xml,image/png"
+                                style="font-size:0.78rem;color:rgba(255,255,255,0.7);margin-bottom:8px;width:100%;"
+                                onchange="uploadIconFromWidget('{{ website.id }}')">
+                            <label style="margin-top:4px;">Or paste URL</label>
+                            <input type="text" id="iconUrlInput_{{ website.id }}"
+                                placeholder="https://… or /static/…"
+                                value="{{ _icon_url }}">
+                            <div class="website-icon-popover-actions">
+                                <button type="button" onclick="saveIconUrl('{{ website.id }}')">Set URL</button>
+                                <button type="button" class="btn-clear" onclick="clearIcon('{{ website.id }}')">Clear</button>
+                            </div>
+                        </div>
+                        {% elif _icon_url %}
+                        {# Read-only display for users without edit permission #}
+                        <div class="website-icon-btn" style="cursor:default;" title="Site icon">
+                            <img src="{{ _icon_url }}" alt="Site icon">
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div class="website-action-bar">
-                    {% if user_has_perm('pages.create') %}
-                    <button type="button" class="website-action-button website-action-button-primary"
-                        onclick="openAddPageModal('{{ website.id }}')">
-                        <i class="fas fa-plus"></i>
-                        <span>Add Page</span>
+                    {% set _home = pages | selectattr('slug', 'equalto', 'home') | first | default(pages | first | default(none)) %}
+
+                    {% if _home %}
+                    {% if website.is_draft %}
+                    <a class="website-action-button" href="{{ url_for('preview_page', website_id=website.id, page_id=_home.id) }}" target="_blank" rel="noopener">
+                        <i class="fas fa-eye"></i><span>Preview Site</span>
+                    </a>
+                    {% else %}
+                    <a class="website-action-button" href="/{{ _home.slug }}" target="_blank" rel="noopener">
+                        <i class="fas fa-external-link-alt"></i><span>View Website</span>
+                    </a>
+                    {% endif %}
+                    {% endif %}
+
+                    {% if user_has_root_create(website) %}
+                    <button type="button" class="website-action-button website-action-button-primary" onclick="openAddPageModal('{{ website.id }}')">
+                        <i class="fas fa-plus"></i><span>Add Page</span>
                     </button>
                     {% else %}
-                    <button type="button" class="website-action-button website-action-button-primary perm-locked-btn" disabled title="You don't have permission to create pages">
-                        <i class="fas fa-lock"></i>
-                        <span>Add Page</span>
+                    <button type="button" class="website-action-button website-action-button-primary perm-locked-btn" disabled title="You don't have permission to create root-level pages">
+                        <i class="fas fa-lock"></i><span>Add Page</span>
                     </button>
                     {% endif %}
 
-                    {% if user_has_perm('pages.create') %}
+                    {% if user_has_perm_for('pages.create_folder', website) %}
                     <button type="button" class="website-action-button" onclick="createPageFolder('{{ website.id }}')">
-                        <i class="fas fa-folder-plus"></i>
-                        <span>New Folder</span>
+                        <i class="fas fa-folder-plus"></i><span>New Folder</span>
                     </button>
                     {% else %}
                     <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to create page folders">
-                        <i class="fas fa-lock"></i>
-                        <span>New Folder</span>
+                        <i class="fas fa-lock"></i><span>New Folder</span>
                     </button>
                     {% endif %}
 
-                    {% if user_has_perm('website.edit') %}
+                    {% if user_has_perm_for('website.edit', website) %}
                     <button type="button" class="website-action-button" onclick="editWebsite('{{ website.id }}')">
-                        <i class="fas fa-edit"></i>
-                        <span>Edit</span>
+                        <i class="fas fa-edit"></i><span>Edit</span>
                     </button>
                     {% else %}
                     <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit website details">
-                        <i class="fas fa-lock"></i>
-                        <span>Edit</span>
+                        <i class="fas fa-lock"></i><span>Edit</span>
                     </button>
                     {% endif %}
 
-                    {% if user_has_perm('appearance.background') %}
-                    <button type="button" class="website-action-button"
-                        onclick="openWebsiteStyleModal('{{ website.id }}')">
-                        <i class="fas fa-palette"></i>
-                        <span>Website Style</span>
+                    {% if user_has_perm_for('appearance.background', website) %}
+                    <button type="button" class="website-action-button" onclick="openWebsiteStyleModal('{{ website.id }}')">
+                        <i class="fas fa-palette"></i><span>Style</span>
                     </button>
                     {% else %}
                     <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to change website style">
-                        <i class="fas fa-lock"></i>
-                        <span>Website Style</span>
+                        <i class="fas fa-lock"></i><span>Style</span>
                     </button>
                     {% endif %}
 
-                    {% if user_has_perm('appearance.navbar') %}
-                    <button type="button" class="website-action-button"
-                        onclick="openModal('publicNavbarModal_{{ website.id }}')">
-                        <i class="fas fa-bars"></i>
-                        <span>Navbar Routing</span>
+                    {% if user_has_perm_for('appearance.navbar', website) %}
+                    <button type="button" class="website-action-button" onclick="openModal('publicNavbarModal_{{ website.id }}')">
+                        <i class="fas fa-bars"></i><span>Navbar</span>
                     </button>
                     {% else %}
                     <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit navbar">
-                        <i class="fas fa-lock"></i>
-                        <span>Navbar Routing</span>
+                        <i class="fas fa-lock"></i><span>Navbar</span>
                     </button>
                     {% endif %}
 
-                    {% if user_has_perm('appearance.navbar') %}
-                    <button type="button" class="website-action-button"
-                        onclick="openModal('publicNavbarStyleModal_{{ website.id }}')">
-                        <i class="fas fa-paint-brush"></i>
-                        <span>Navbar Style</span>
+                    {% if user_has_perm_for('appearance.navbar', website) %}
+                    <button type="button" class="website-action-button" onclick="openModal('publicNavbarStyleModal_{{ website.id }}')">
+                        <i class="fas fa-paint-brush"></i><span>Navbar Style</span>
                     </button>
                     {% else %}
                     <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit navbar style">
-                        <i class="fas fa-lock"></i>
-                        <span>Navbar Style</span>
+                        <i class="fas fa-lock"></i><span>Navbar Style</span>
                     </button>
                     {% endif %}
 
+                    {% if not website.is_draft %}
                     {% if user_has_perm('forum.view') %}
-                    <button type="button" class="website-action-button"
-                        onclick="window.location.href='{{ url_for('admin_forum') }}'">
-                        <i class="fas fa-comments"></i>
-                        Forum
+                    <button type="button" class="website-action-button" onclick="window.location.href='{{ url_for('admin_forum') }}'">
+                        <i class="fas fa-comments"></i><span>Forum</span>
                     </button>
                     {% else %}
                     <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to access the forum">
-                        <i class="fas fa-lock"></i>
-                        Forum
+                        <i class="fas fa-lock"></i><span>Forum</span>
                     </button>
+                    {% endif %}
+                    {% if user_has_perm('website.draft.create') and not draft_websites %}
+                    <button type="button" class="website-action-button website-action-button-draft" onclick="createDraftWebsite({{ website.id }})">
+                        <i class="fas fa-copy"></i><span>Create Draft</span>
+                    </button>
+                    {% endif %}
+                    {% else %}
+                    {% if user_has_perm('website.draft.promote') %}
+                    <button type="button" class="website-action-button website-action-button-promote" onclick="promoteDraftWebsite({{ website.id }})">
+                        <i class="fas fa-upload"></i><span>Promote to Live</span>
+                    </button>
+                    {% endif %}
+                    {% if user_has_perm('website.draft.create') %}
+                    <button type="button" class="website-action-button website-action-button-danger" onclick="deleteDraftWebsite({{ website.id }})">
+                        <i class="fas fa-trash"></i><span>Delete Draft</span>
+                    </button>
+                    {% endif %}
                     {% endif %}
                 </div>
             </div>
@@ -2392,7 +2684,8 @@
                     </div>
 
                     <div class="page-container root-page-container" id="pageContainer_{{ website.id }}"
-                        data-website-id="{{ website.id }}" data-folder-id="root">
+                        data-website-id="{{ website.id }}" data-folder-id="root"
+                        data-can-reorder="{{ 'true' if user_has_perm_for('pages.reorder', website) else 'false' }}">
 
                         {% for page in pages %}
                         {% if not page.page_folder_id %}
@@ -2409,23 +2702,24 @@
                                 </button>
 
                                 <div id="pageMenu_{{ page.id }}" class="page-menu">
+                                    {% if user_has_page_action(page, 'pages.details', website) %}
                                     <button type="button" onclick="editPage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-pen"></i>
                                         Edit Page Details
                                     </button>
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to edit page details" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        Edit Page Details
+                                    </button>
+                                    {% endif %}
 
-                                    {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
-                                    {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
+                                    {% if user_has_page_action(page, 'pages.edit', website) and user_can_access_page_for(page.id, website) %}
                                     <button type="button"
                                         onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                         <i class="fas fa-edit"></i>
                                         Open Editor
                                     </button>
-                                    {% else %}
-                                    <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
-                                        <i class="fas fa-lock"></i>
-                                    </button>
-                                    {% endif %}
                                     {% else %}
                                     <button type="button" class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page">
                                         <i class="fas fa-lock"></i>
@@ -2433,7 +2727,7 @@
                                     </button>
                                     {% endif %}
 
-                                    {% if user_has_perm('pages.publish') %}
+                                    {% if user_has_page_action(page, 'pages.publish', website) %}
                                     <button type="button"
                                         onclick="document.querySelector('.dashboard-publish-toggle[data-page-id=\'{{ page.id }}\']').click()">
                                         <i class="fas fa-broadcast-tower"></i>
@@ -2446,7 +2740,7 @@
                                     </button>
                                     {% endif %}
 
-                                    {% if user_has_perm('pages.create') %}
+                                    {% if user_has_page_action(page, 'pages.create', website) %}
                                     <button type="button"
                                         onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-folder-open"></i>
@@ -2465,7 +2759,7 @@
                                         Download QR Code
                                     </button>
 
-                                    {% if user_has_perm('pages.create') %}
+                                    {% if user_has_page_action(page, 'pages.create', website) %}
                                     <button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-copy"></i>
                                         Duplicate Page
@@ -2477,7 +2771,7 @@
                                     </button>
                                     {% endif %}
 
-                                    {% if user_has_perm('pages.templates') %}
+                                    {% if user_has_page_action(page, 'pages.templates', website) %}
                                     <button type="button" onclick="openSavePageTemplateModal('{{ page.id }}', '{{ page.name | e }}')">
                                         <i class="fas fa-bookmark"></i>
                                         Save as Template
@@ -2489,7 +2783,7 @@
                                     </button>
                                     {% endif %}
 
-                                    {% if user_has_perm('pages.create') %}
+                                    {% if user_has_page_action(page, 'pages.create', website) %}
                                     {% if page.slug == 'home' %}
                                     <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
                                         <i class="fas fa-random"></i>
@@ -2509,7 +2803,7 @@
                                     {% endif %}
 
                                     {% if page.slug != 'home' %}
-                                    {% if user_has_perm('pages.delete') %}
+                                    {% if user_has_page_action(page, 'pages.delete', website) %}
                                     <button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-trash"></i>
                                         Delete Page
@@ -2530,16 +2824,17 @@
                                 </div>
                             </div>
 
+                            {% if not website.is_draft %}
                             <label
                                 class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
                                 id="pagePublishBadge_{{ page.id }}"
-                                title="{% if user_has_perm('pages.publish') %}Click to toggle publishing{% else %}You don't have permission to publish pages{% endif %}"
-                                {% if not user_has_perm('pages.publish') %}style="pointer-events:none;opacity:0.5;"{% endif %}>
+                                title="{% if user_has_page_action(page, 'pages.publish', website) %}Click to toggle publishing{% else %}You don't have permission to publish pages{% endif %}"
+                                {% if not user_has_page_action(page, 'pages.publish', website) %}style="pointer-events:none;opacity:0.5;"{% endif %}>
 
                                 <input type="checkbox" class="dashboard-publish-toggle"
                                     data-website-id="{{ website.id }}" data-page-id="{{ page.id }}" {% if
                                     page.site_active_status %}checked{% endif %}
-                                    {% if not user_has_perm('pages.publish') %}disabled{% endif %}>
+                                    {% if not user_has_page_action(page, 'pages.publish', website) %}disabled{% endif %}>
 
                                 <span class="publish-badge-dot"></span>
 
@@ -2547,6 +2842,12 @@
                                     {% if page.site_active_status %}Published{% else %}Draft{% endif %}
                                 </span>
                             </label>
+                            {% else %}
+                            <span class="publish-badge-toggle draft" style="pointer-events:none;opacity:0.5;" title="Draft website — pages go live when you promote">
+                                <span class="publish-badge-dot"></span>
+                                <span>Draft</span>
+                            </span>
+                            {% endif %}
                             {% if page.slug == 'home' %}
                             <div class="root-page-badge" title="This page loads at your website root URL">
                                 <i class="fas fa-home"></i>
@@ -2556,38 +2857,47 @@
 
                             <div class="page-title">
                                 {{ page.name }}
-                                {% if not user_has_perm('pages.edit') or not user_can_access_page(page.id) %}
+                                {% if not user_has_page_action(page, 'pages.edit', website) or not user_can_access_page_for(page.id, website) %}
                                 <i class="fas fa-lock" title="You don't have access to this page" style="font-size:0.7rem;color:rgba(255,200,100,0.7);margin-left:5px;"></i>
                                 {% endif %}
                             </div>
 
                             <div class="edit-button-container">
-                                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
-                                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
+                                {% if user_has_page_action(page, 'pages.edit', website) and user_can_access_page_for(page.id, website) %}
                                 <button class="edit-button"
                                     onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                {% else %}
-                                <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
-                                    <i class="fas fa-lock"></i>
-                                </button>
-                                {% endif %}
                                 {% else %}
                                 <button class="edit-button perm-locked-btn" title="You don't have permission to edit this page" tabindex="-1">
                                     <i class="fas fa-lock"></i>
                                 </button>
                                 {% endif %}
                             </div>
+                            {% if page.last_edited_at %}
+                            <div class="page-last-edited">
+                                <i class="fas fa-clock"></i>
+                                Edited {{ page.last_edited_at | user_datetime }}
+                                {% if page.last_edited_by_id and page.last_edited_by_id in page_editor_names %}
+                                · {{ page_editor_names[page.last_edited_by_id] }}
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            <button type="button" class="page-preview-toggle"
+                                id="previewToggle_{{ page.id }}"
+                                onclick="togglePagePreview('{{ page.id }}')">
+                                <i class="fas fa-eye"></i>
+                                <span>View Preview</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </button>
+
                             <div class="page-preview-shell"
+                                id="previewShell_{{ page.id }}"
                                 data-preview-url="{{ url_for('public_page_by_slug', page_slug=page.slug) }}">
-
-
                                 <div class="page-preview-placeholder">
                                     <i class="fas fa-window-maximize"></i>
-                                    <span>Preview disabled</span>
                                     <button type="button" onclick="enablePagePreview(this)">
-                                        Enable Preview
+                                        Load Preview
                                     </button>
                                 </div>
                             </div>
@@ -2701,26 +3011,23 @@
                             </button>
 
                             <div class="page-folder-actions">
-                                {% if user_has_perm('pages.create') %}
+                                {% if user_has_folder_create(folder.id, website) %}
+                                <button type="button" onclick="openAddPageModal('{{ website.id }}', '{{ folder.id }}')">
+                                    <i class="fas fa-plus"></i>
+                                    Add Page
+                                </button>
+                                {% endif %}
+
+                                {% if user_has_perm_for('pages.create_folder', website) %}
                                 <button type="button" onclick="renamePageFolder('{{ folder.id }}')">
                                     <i class="fas fa-pen"></i>
                                     Rename
                                 </button>
-                                {% else %}
-                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to rename folders" style="opacity:0.38;pointer-events:none;">
-                                    <i class="fas fa-lock"></i>
-                                    Rename
-                                </button>
                                 {% endif %}
 
-                                {% if user_has_perm('pages.delete') %}
+                                {% if user_has_perm_for('pages.delete_folder', website) %}
                                 <button type="button" onclick="deletePageFolder('{{ folder.id }}')">
                                     <i class="fas fa-trash"></i>
-                                    Delete Folder
-                                </button>
-                                {% else %}
-                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to delete folders" style="opacity:0.38;pointer-events:none;">
-                                    <i class="fas fa-lock"></i>
                                     Delete Folder
                                 </button>
                                 {% endif %}
@@ -2729,7 +3036,8 @@
                             <div class="page-folder-body" id="pageFolderBody_{{ folder.id }}">
                                 <div class="page-container folder-page-container"
                                     id="folderPageContainer_{{ folder.id }}" data-website-id="{{ website.id }}"
-                                    data-folder-id="{{ folder.id }}">
+                                    data-folder-id="{{ folder.id }}"
+                                    data-can-reorder="{{ 'true' if user_has_perm_for('pages.reorder', website) else 'false' }}">
 
                                     {% for page in pages %}
                                     {% if page.page_folder_id == folder.id %}
@@ -2746,13 +3054,21 @@
                                             </button>
 
                                             <div id="pageMenu_{{ page.id }}" class="page-menu">
+                                                {% if user_has_page_action(page, 'pages.details', website) %}
                                                 <button type="button"
                                                     onclick="editPage('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-pen"></i>
                                                     Edit Page Details
                                                 </button>
 
-                                                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to edit page details" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    Edit Page Details
+                                                </button>
+                                                {% endif %}
+
+                                                {% if user_has_page_action(page, 'pages.edit', website) and user_can_access_page_for(page.id, website) %}
                                                 <button type="button"
                                                     onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                                     <i class="fas fa-edit"></i>
@@ -2761,10 +3077,11 @@
                                                 {% else %}
                                                 <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
                                                     <i class="fas fa-lock"></i>
+                                                    Open Editor
                                                 </button>
                                                 {% endif %}
 
-                                                {% if user_has_perm('pages.publish') %}
+                                                {% if user_has_page_action(page, 'pages.publish', website) %}
                                                 <button type="button"
                                                     onclick="document.querySelector('.dashboard-publish-toggle[data-page-id=\'{{ page.id }}\']').click()">
                                                     <i class="fas fa-broadcast-tower"></i>
@@ -2777,7 +3094,7 @@
                                                 </button>
                                                 {% endif %}
 
-                                                {% if user_has_perm('pages.create') %}
+                                                {% if user_has_page_action(page, 'pages.create', website) %}
                                                 <button type="button"
                                                     onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-folder-open"></i>
@@ -2796,7 +3113,7 @@
                                                     Download QR Code
                                                 </button>
 
-                                                {% if user_has_perm('pages.create') %}
+                                                {% if user_has_page_action(page, 'pages.create', website) %}
                                                 <button type="button"
                                                     onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-copy"></i>
@@ -2809,7 +3126,7 @@
                                                 </button>
                                                 {% endif %}
 
-                                                {% if user_has_perm('pages.templates') %}
+                                                {% if user_has_page_action(page, 'pages.templates', website) %}
                                                 <button type="button" onclick="openSavePageTemplateModal('{{ page.id }}', '{{ page.name | e }}')">
                                                     <i class="fas fa-bookmark"></i>
                                                     Save as Template
@@ -2821,7 +3138,7 @@
                                                 </button>
                                                 {% endif %}
 
-                                                {% if user_has_perm('pages.create') %}
+                                                {% if user_has_page_action(page, 'pages.create', website) %}
                                                 {% if page.slug == 'home' %}
                                                 <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
                                                     <i class="fas fa-random"></i>
@@ -2841,7 +3158,7 @@
                                                 {% endif %}
 
                                                 {% if page.slug != 'home' %}
-                                                {% if user_has_perm('pages.delete') %}
+                                                {% if user_has_page_action(page, 'pages.delete', website) %}
                                                 <button type="button"
                                                     onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-trash"></i>
@@ -2867,13 +3184,13 @@
                                         <label
                                             class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
                                             id="pagePublishBadge_{{ page.id }}"
-                                            title="{% if user_has_perm('pages.publish') %}Click to toggle publishing{% else %}You don't have permission to publish pages{% endif %}"
-                                            {% if not user_has_perm('pages.publish') %}style="pointer-events:none;opacity:0.5;"{% endif %}>
+                                            title="{% if user_has_page_action(page, 'pages.publish', website) %}Click to toggle publishing{% else %}You don't have permission to publish pages{% endif %}"
+                                            {% if not user_has_page_action(page, 'pages.publish', website) %}style="pointer-events:none;opacity:0.5;"{% endif %}>
 
                                             <input type="checkbox" class="dashboard-publish-toggle"
                                                 data-website-id="{{ website.id }}" data-page-id="{{ page.id }}" {% if
                                                 page.site_active_status %}checked{% endif %}
-                                                {% if not user_has_perm('pages.publish') %}disabled{% endif %}>
+                                                {% if not user_has_page_action(page, 'pages.publish', website) %}disabled{% endif %}>
 
                                             <span class="publish-badge-dot"></span>
 
@@ -2895,7 +3212,7 @@
 
                                         <div class="edit-button-container">
                                             <!-- Edit button for page -->
-                                            {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
+                                            {% if user_has_page_action(page, 'pages.edit', website) and user_can_access_page_for(page.id, website) %}
                                             <button class="edit-button"
                                                 onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                                 <i class="fas fa-edit"></i>
@@ -2906,15 +3223,30 @@
                                             </button>
                                             {% endif %}
                                         </div>
+                                        {% if page.last_edited_at %}
+                                        <div class="page-last-edited">
+                                            <i class="fas fa-clock"></i>
+                                            Edited {{ page.last_edited_at | user_datetime }}
+                                            {% if page.last_edited_by_id and page.last_edited_by_id in page_editor_names %}
+                                            · {{ page_editor_names[page.last_edited_by_id] }}
+                                            {% endif %}
+                                        </div>
+                                        {% endif %}
+                                        <button type="button" class="page-preview-toggle"
+                                            id="previewToggle_{{ page.id }}"
+                                            onclick="togglePagePreview('{{ page.id }}')">
+                                            <i class="fas fa-eye"></i>
+                                            View Preview
+                                            <i class="fas fa-chevron-down"></i>
+                                        </button>
+
                                         <div class="page-preview-shell"
+                                            id="previewShell_{{ page.id }}"
                                             data-preview-url="{{ url_for('public_page_by_slug', page_slug=page.slug) }}">
-
-
                                             <div class="page-preview-placeholder">
                                                 <i class="fas fa-window-maximize"></i>
-                                                <span>Preview disabled</span>
                                                 <button type="button" onclick="enablePagePreview(this)">
-                                                    Enable Preview
+                                                    Load Preview
                                                 </button>
                                             </div>
                                         </div>
@@ -3668,14 +4000,39 @@
         <script>
             let currentlyDraggedPageBox = null;
 
+            function togglePagePreview(pageId) {
+                const shell = document.getElementById('previewShell_' + pageId);
+                const btn   = document.getElementById('previewToggle_' + pageId);
+                if (!shell || !btn) return;
+
+                const opening = !shell.classList.contains('is-open');
+                shell.classList.toggle('is-open', opening);
+                btn.classList.toggle('preview-open', opening);
+
+                const label = btn.querySelector('span');
+                if (label) label.textContent = opening ? 'Hide Preview' : 'View Preview';
+
+                // Lazy-load the iframe on first open
+                if (opening && !shell.querySelector('iframe')) {
+                    const placeholder = shell.querySelector('.page-preview-placeholder');
+                    if (placeholder) placeholder.remove();
+                    const iframe = document.createElement('iframe');
+                    iframe.src = shell.dataset.previewUrl;
+                    iframe.title = 'Page preview';
+                    shell.appendChild(iframe);
+                }
+            }
+
             document.addEventListener('DOMContentLoaded', function () {
                 document.querySelectorAll('.page-container[data-website-id]').forEach(container => {
                     const websiteId = container.dataset.websiteId;
 
+                    const canReorder = container.dataset.canReorder !== 'false';
                     Sortable.create(container, {
                         animation: 150,
                         group: `website-pages-${websiteId}`,
                         draggable: '.page-box:not(.add-page-box)',
+                        disabled: !canReorder,
                         ghostClass: 'sortable-ghost',
                         chosenClass: 'sortable-chosen',
                         dragClass: 'sortable-drag',
@@ -5274,7 +5631,7 @@
             }
 
 
-            function openAddPageModal(websiteId) {
+            function openAddPageModal(websiteId, folderId) {
                 var modal = document.getElementById('addPageModal_' + websiteId);
                 var overlay = document.querySelector('.modal-overlay');
                 if (modal) modal.style.display = 'block';
@@ -5284,6 +5641,9 @@
                     document.body.appendChild(overlay);
                 }
                 overlay.style.display = 'block';
+
+                // Store the target folder so submitAddPage can include it
+                if (modal) modal.dataset.targetFolderId = folderId || '';
 
                 // Reset to step 1
                 showAddPageStep(websiteId, 1);
@@ -5387,6 +5747,8 @@
                 const name = (document.getElementById('addPageName_' + websiteId).value || '').trim();
                 const description = (document.getElementById('addPageDesc_' + websiteId).value || '').trim();
                 const tags = (document.getElementById('addPageTags_' + websiteId).value || '').trim();
+                const modal = document.getElementById('addPageModal_' + websiteId);
+                const folderId = modal?.dataset?.targetFolderId || '';
 
                 if (!name) {
                     document.getElementById('addPageName_' + websiteId).focus();
@@ -5401,7 +5763,7 @@
                         const r = await fetch(`/create_page_from_template/${websiteId}/${templateId}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name, description, tags })
+                            body: JSON.stringify({ name, description, tags, folder_id: folderId || null })
                         });
                         const data = await r.json();
                         if (data.success) {
@@ -5419,7 +5781,7 @@
                     const form = document.createElement('form');
                     form.method = 'POST';
                     form.action = `/create_page/${websiteId}`;
-                    [['name', name], ['description', description], ['tags', tags]].forEach(([k, v]) => {
+                    [['name', name], ['description', description], ['tags', tags], ['folder_id', folderId]].forEach(([k, v]) => {
                         const inp = document.createElement('input');
                         inp.type = 'hidden'; inp.name = k; inp.value = v;
                         form.appendChild(inp);
@@ -5612,6 +5974,118 @@
             //     overlay.style.display = "none"; // Hide overlay
             //     modal.style.display = "none"; // Hide modal
             // }
+            /* ── Website icon widget ── */
+            function toggleIconPopover(websiteId) {
+                const popover = document.getElementById(`iconPopover_${websiteId}`);
+                if (!popover) return;
+                const isOpen = popover.classList.contains('open');
+                // Close all other open popovers first
+                document.querySelectorAll('.website-icon-popover.open').forEach(p => p.classList.remove('open'));
+                if (!isOpen) popover.classList.add('open');
+            }
+
+            // Close popovers when clicking outside
+            document.addEventListener('click', function (e) {
+                if (!e.target.closest('.website-icon-widget')) {
+                    document.querySelectorAll('.website-icon-popover.open').forEach(p => p.classList.remove('open'));
+                }
+            });
+
+            function _updateIconWidgetDisplay(websiteId, iconUrl) {
+                const btn = document.querySelector(`#iconWidget_${websiteId} .website-icon-btn`);
+                if (!btn) return;
+                if (iconUrl) {
+                    btn.innerHTML = `<img id="iconWidgetImg_${websiteId}" src="${iconUrl}" alt="Site icon">`;
+                } else {
+                    btn.innerHTML = `<span class="icon-placeholder" id="iconWidgetImg_${websiteId}"><i class="fas fa-image"></i></span>`;
+                }
+            }
+
+            async function uploadIconFromWidget(websiteId) {
+                const fileInput = document.getElementById(`iconFileInput_${websiteId}`);
+                const file = fileInput?.files[0];
+                if (!file) return;
+
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (!['svg', 'png'].includes(ext)) { alert('Only SVG and PNG allowed.'); return; }
+
+                const fd = new FormData();
+                fd.append('icon', file);
+                const r = await fetch(`/upload_public_navbar_icon/${websiteId}`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrfToken },
+                    body: fd
+                });
+                const d = await r.json();
+                if (d.success) {
+                    document.getElementById(`iconUrlInput_${websiteId}`).value = d.icon_url;
+                    _updateIconWidgetDisplay(websiteId, d.icon_url);
+                    // Also sync the navbar style modal input if it's open
+                    const modalInput = document.getElementById(`navbarIconUrl_${websiteId}`);
+                    if (modalInput) modalInput.value = d.icon_url;
+                } else {
+                    alert(d.message || 'Upload failed');
+                }
+            }
+
+            async function saveIconUrl(websiteId) {
+                const url = (document.getElementById(`iconUrlInput_${websiteId}`)?.value || '').trim();
+                const r = await fetch(`/set_navbar_icon_url/${websiteId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ icon_url: url })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    _updateIconWidgetDisplay(websiteId, url);
+                    const modalInput = document.getElementById(`navbarIconUrl_${websiteId}`);
+                    if (modalInput) modalInput.value = url;
+                    document.getElementById(`iconPopover_${websiteId}`)?.classList.remove('open');
+                } else {
+                    alert('Failed to save icon URL');
+                }
+            }
+
+            async function clearIcon(websiteId) {
+                const r = await fetch(`/set_navbar_icon_url/${websiteId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ icon_url: '' })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    document.getElementById(`iconUrlInput_${websiteId}`).value = '';
+                    _updateIconWidgetDisplay(websiteId, '');
+                    const modalInput = document.getElementById(`navbarIconUrl_${websiteId}`);
+                    if (modalInput) modalInput.value = '';
+                    document.getElementById(`iconPopover_${websiteId}`)?.classList.remove('open');
+                }
+            }
+
+            async function createDraftWebsite(websiteId) {
+                if (!confirm('Create a draft copy of this website for safe editing? The live site will not be affected until you promote the draft.')) return;
+                const r = await fetch(`/admin/websites/${websiteId}/create-draft`, { method: 'POST' });
+                const d = await r.json();
+                if (d.success) { location.reload(); }
+                else { alert(d.error || 'Failed to create draft'); }
+            }
+
+            async function promoteDraftWebsite(draftId) {
+                if (!confirm('Promote this draft to live?\n\nThis will REPLACE all live pages and website settings with the draft. This cannot be undone. The draft will be deleted after promotion.')) return;
+                const r = await fetch(`/admin/websites/${draftId}/promote-draft`, { method: 'POST' });
+                const d = await r.json();
+                if (d.success) { location.reload(); }
+                else { alert(d.error || 'Failed to promote draft'); }
+            }
+
+            async function deleteDraftWebsite(draftId) {
+                if (!confirm('Delete this draft? All draft pages and edits will be permanently lost.')) return;
+                const r = await fetch(`/admin/websites/${draftId}/delete-draft`, { method: 'POST' });
+                const d = await r.json();
+                if (d.success) { location.reload(); }
+                else { alert(d.error || 'Failed to delete draft'); }
+            }
+
             function editWebsite(websiteId) {
                 fetch(`/get_website_details/${websiteId}`)
                     .then(response => response.json())

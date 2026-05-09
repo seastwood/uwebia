@@ -35,7 +35,7 @@
     <link rel="icon" type="image/png" href="{{ icon_url }}">
     {% endif %}
     {% else %}
-    <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+    <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
     {% endif %}
 </head>
 <title>Public Page</title>
@@ -1339,6 +1339,24 @@
         border: none;
         border-radius: 8px;
         padding: 2px 4px;
+        cursor: pointer !important;
+    }
+
+    /* Custom tooltip for calendar events */
+    .fc-event-tooltip {
+        position: fixed;
+        z-index: 99999;
+        max-width: 260px;
+        padding: 8px 11px;
+        background: #1e2029;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+        font-size: 0.82rem;
+        color: #f0f0f0;
+        line-height: 1.45;
+        pointer-events: none;
+        word-break: break-word;
     }
 
     .calendar .fc-col-header-cell {
@@ -3761,6 +3779,29 @@ document.body.style.color = text_color;
 
 
         const pageId = "{{ content.page_id }}";
+
+        function _positionFcTooltip(tip, e) {
+            const pad = 12;
+            tip.style.left = '0';
+            tip.style.top  = '0';
+            const tw = tip.offsetWidth, th = tip.offsetHeight;
+            const vw = window.innerWidth,   vh = window.innerHeight;
+            let x = e.clientX + pad;
+            let y = e.clientY + pad;
+            if (x + tw > vw - pad) x = e.clientX - tw - pad;
+            if (y + th > vh - pad) y = e.clientY - th - pad;
+            tip.style.left = x + 'px';
+            tip.style.top  = y + 'px';
+        }
+
+        function _fcFormatTime(event) {
+            if (event.allDay) return 'All day';
+            const opts = { hour: 'numeric', minute: '2-digit' };
+            const start = event.start ? event.start.toLocaleTimeString([], opts) : '';
+            const end   = event.end   ? event.end.toLocaleTimeString([], opts)   : '';
+            return end ? `${start} – ${end}` : start;
+        }
+
         function fetchEvents(calendarId, successCallback, failureCallback) {
             return fetch(`/calendar/${calendarId}/events`)
                 .then(response => response.json())
@@ -3797,6 +3838,28 @@ document.body.style.color = text_color;
                         const m = info.el.querySelector('.fc-event-main');
                         if (m) m.style.color = tc;
                     }
+                    // Tooltip: show full title, time, and description on hover
+                    const title = info.event.title || '';
+                    const desc  = info.event.extendedProps?.description || '';
+                    const time  = _fcFormatTime(info.event);
+                    if (!title && !desc) return;
+
+                    let tip = null;
+                    info.el.addEventListener('mouseenter', function (e) {
+                        tip = document.createElement('div');
+                        tip.className = 'fc-event-tooltip';
+                        tip.innerHTML = (title ? `<strong>${title}</strong>` : '')
+                            + (time ? `<div style="margin-top:3px;opacity:0.6;font-size:0.75rem;">${time}</div>` : '')
+                            + (desc ? `<div style="margin-top:5px;opacity:0.75;font-size:0.77rem;">${desc.replace(/\n/g,'<br>')}</div>` : '');
+                        document.body.appendChild(tip);
+                        _positionFcTooltip(tip, e);
+                    });
+                    info.el.addEventListener('mousemove', function (e) {
+                        if (tip) _positionFcTooltip(tip, e);
+                    });
+                    info.el.addEventListener('mouseleave', function () {
+                        if (tip) { tip.remove(); tip = null; }
+                    });
                 },
                 eventClick: function (info) {
                     // Display a modal or popover with event details when clicked

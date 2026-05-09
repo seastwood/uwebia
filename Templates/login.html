@@ -97,14 +97,22 @@
 
     {% block content %}
     <div class="login-container">
+        <img src="/static/uwebia-icon.svg" alt="Uwebia" style="width:56px;height:56px;display:block;margin:0 auto 14px;">
         <h1>uwebia Login</h1>
-<form method="POST" action="{{ request.path }}">
+<form method="POST" action="{{ request.path }}" id="loginForm">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
             <label for="password">Password:</label>
             <input type="password" id="password" name="password" required>
-            <button type="submit">Login</button>
+            <button type="submit" id="loginBtn">Login</button>
         </form>
+        <script>
+        document.getElementById('loginForm').addEventListener('submit', function () {
+            const btn = document.getElementById('loginBtn');
+            btn.disabled = true;
+            btn.textContent = 'Signing in…';
+        });
+        </script>
         <div class="login-recovery-links">
     <a href="{% if admin_key %}{{ url_for('forgot_password', admin_key=admin_key) }}{% else %}{{ url_for('forgot_password') }}{% endif %}">
         Forgot password?

@@ -28,7 +28,10 @@
     {% if agents %}
     <div class="ai-agent-list" id="agentList">
         {% for agent in agents %}
-        <div class="ai-agent-card" id="agentCard-{{ agent.id }}" data-agent-id="{{ agent.id }}">
+        <div class="ai-agent-card" id="agentCard-{{ agent.id }}" data-agent-id="{{ agent.id }}"
+             data-agent-provider="{{ agent.provider }}"
+             data-agent-api-url="{{ agent.api_url or '' }}"
+             data-agent-model="{{ agent.model or '' }}">
             <div class="ai-agent-card-header">
                 <div class="ai-agent-info">
                     <div class="ai-agent-name-row">
@@ -140,13 +143,14 @@
 
             <div class="uw-field" id="fieldApiUrl">
                 <label>API Base URL</label>
-                <input type="url" id="agentApiUrl" placeholder="http://localhost:11434">
+                <input type="url" id="agentApiUrl" placeholder="http://localhost:11434" onblur="_updateModelDatalist()">
                 <small>Ollama: http://localhost:11434 &nbsp;·&nbsp; LM Studio: http://localhost:1234</small>
             </div>
 
             <div class="uw-field">
                 <label>Model</label>
-                <input type="text" id="agentModel" placeholder="">
+                <input type="text" id="agentModel" placeholder="" list="agentModelList" autocomplete="off">
+                <datalist id="agentModelList"></datalist>
                 <small id="modelHint">e.g. llama3.2, mistral, phi3</small>
             </div>
 
@@ -191,6 +195,29 @@
         openai_compatible: { url: true,  model: '',                    hint: 'e.g. llama3.2, mistral, qwen2.5, phi3' },
     };
 
+    /* ── Model history helpers ── */
+    function _modelHistKey(provider, apiUrl) {
+        return `agentModelHist_${provider}_${btoa(apiUrl || '').replace(/=/g,'')}`;
+    }
+    function _loadModelHist(key) {
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+    }
+    function _saveModelHist(key, model) {
+        if (!model) return;
+        let h = _loadModelHist(key);
+        h = [model, ...h.filter(m => m !== model)].slice(0, 10);
+        localStorage.setItem(key, JSON.stringify(h));
+    }
+    function _updateModelDatalist() {
+        const provider = document.getElementById('agentProvider').value;
+        const apiUrl   = document.getElementById('agentApiUrl').value.trim();
+        const key      = _modelHistKey(provider, apiUrl);
+        const hist     = _loadModelHist(key);
+        const dl       = document.getElementById('agentModelList');
+        if (!dl) return;
+        dl.innerHTML   = hist.map(m => `<option value="${m.replace(/"/g,'')}">`).join('');
+    }
+
     function updateProviderFields() {
         const provider = document.getElementById('agentProvider').value;
         const cfg = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai_compatible;
@@ -198,6 +225,7 @@
         document.getElementById('modelHint').textContent = cfg.hint;
         const modelInput = document.getElementById('agentModel');
         if (!modelInput.value) modelInput.placeholder = cfg.model;
+        _updateModelDatalist();
     }
 
     /* ── Modal ── */
@@ -221,6 +249,7 @@
                     document.getElementById('agentSystemPrompt').value = agent.system_prompt;
                     document.getElementById('agentCapabilities').value = agent.capabilities || 'chat';
                     updateProviderFields();
+                    _updateModelDatalist();
                 });
         } else {
             document.getElementById('agentName').value = '';
@@ -231,6 +260,7 @@
             document.getElementById('agentSystemPrompt').value = '';
             document.getElementById('agentCapabilities').value = 'chat';
             updateProviderFields();
+            _updateModelDatalist();
         }
 
         document.getElementById('agentModalOverlay').classList.add('open');
@@ -303,6 +333,12 @@
         if (data.success) {
             btn.innerHTML = '<i class="fas fa-check"></i> Connected';
             btn.classList.add('btn-ai-test-ok');
+            // Save the agent's model to history on success
+            const agentCard = btn.closest('[data-agent-provider]');
+            const provider  = agentCard?.dataset?.agentProvider || '';
+            const apiUrl    = agentCard?.dataset?.agentApiUrl   || '';
+            const model     = agentCard?.dataset?.agentModel    || '';
+            if (model) _saveModelHist(_modelHistKey(provider, apiUrl), model);
             setTimeout(() => {
                 btn.innerHTML = '<i class="fas fa-plug"></i> Test';
                 btn.classList.remove('btn-ai-test-ok');
