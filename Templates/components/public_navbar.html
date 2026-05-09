@@ -64,7 +64,8 @@
             title="Go to home page">
 
             {% if nav_style.get('icon_url') %}
-            <img src="{{ nav_style.get('icon_url') }}" class="public-navbar-icon" alt="{{ website.name }} home">
+            <img src="{{ nav_style.get('icon_url') }}" class="public-navbar-icon" alt="{{ website.name }} home"
+                 style="width:{{ nav_style.get('icon_size', 32) }}px;">
             {% endif %}
 
             <span class="public-navbar-title">
