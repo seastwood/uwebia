@@ -10948,6 +10948,7 @@ def edit_public_navbar_style(website_id):
         'title_font_size': data.get('title_font_size', 16),
         'title_bold': data.get('title_bold', True),
         'icon_url': data.get('icon_url', ''),
+        'icon_size': max(16, min(80, int(data.get('icon_size') or 32))),
         'background': data.get('background', 'rgba(20,20,20,0.9)'),
         'text_color': data.get('text_color', '#ffffff'),
         'opacity': data.get('opacity', 0.9),

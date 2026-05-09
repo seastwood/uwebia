@@ -3942,6 +3942,12 @@
                             value="{{ (website.public_navbar_style or {}).get('icon_url', '') }}"
                             oninput="updateFullNavbarPreview('{{ website.id }}')">
 
+                        <label>Icon Size <span id="navbarIconSizeVal_{{ website.id }}" style="color:rgba(255,255,255,0.5);font-weight:400;">{{ (website.public_navbar_style or {}).get('icon_size', 32) }}px</span></label>
+                        <input type="range" id="navbarIconSize_{{ website.id }}"
+                            min="16" max="80" step="2"
+                            value="{{ (website.public_navbar_style or {}).get('icon_size', 32) }}"
+                            oninput="document.getElementById('navbarIconSizeVal_{{ website.id }}').textContent=this.value+'px'; updateFullNavbarPreview('{{ website.id }}')">
+
 
                     </div>
 
@@ -4325,7 +4331,8 @@
                 const titleFontFamily = document.getElementById(`navbarTitleFontFamily_${websiteId}`)?.value || 'inherit';
                 const titleFontSize = document.getElementById(`navbarTitleFontSize_${websiteId}`)?.value || 16;
                 const titleBold = document.getElementById(`navbarTitleBold_${websiteId}`)?.checked ?? true;
-                const iconUrl = document.getElementById(`navbarIconUrl_${websiteId}`).value;
+                const iconUrl  = document.getElementById(`navbarIconUrl_${websiteId}`).value;
+                const iconSize = parseInt(document.getElementById(`navbarIconSize_${websiteId}`)?.value || 32);
                 const textColor = document.getElementById(`navbarTextColor_${websiteId}`).value;
                 const background = document.getElementById(`navbarBackground_${websiteId}`).value;
                 const opacity = document.getElementById(`navbarOpacity_${websiteId}`).value;
@@ -4363,7 +4370,8 @@
                         side_panel_use_navbar_background: sidePanelUseNavbarBackground,
                         title_font_family: titleFontFamily,
                         title_font_size: titleFontSize,
-                        title_bold: titleBold
+                        title_bold: titleBold,
+                        icon_size: iconSize,
                     })
                 })
                     .then(response => response.json())
