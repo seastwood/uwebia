@@ -628,4 +628,102 @@
         }
     </script>
 
+    {% if not current_user.is_sub_admin %}
+    <div class="settings-card" style="margin-top:20px;">
+        <h2 class="settings-section-title">Backup &amp; Restore</h2>
+
+        <div class="settings-field">
+            <label>Export Backup</label>
+            <p class="settings-help" style="margin-bottom:10px;">
+                Downloads a ZIP file containing all website content, pages, sections, calendars,
+                AI agents, templates, sub-admin users, and permission groups.
+                Toggle whether to include your uploaded asset files (images, audio, documents).
+                Use this to migrate to a new server or keep an offline copy.
+            </p>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:rgba(255,255,255,0.65);cursor:pointer;user-select:none;">
+                    <input type="checkbox" id="backupIncludeFiles" checked
+                           style="accent-color:#7ee2cc;width:15px;height:15px;">
+                    Include uploaded files (images, audio, documents)
+                </label>
+            </div>
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="downloadBackup()">
+                <i class="fas fa-download"></i> Download Backup
+            </button>
+        </div>
+
+        <div class="settings-field" style="margin-top:20px;">
+            <label>Import Backup</label>
+            <p class="settings-help" style="margin-bottom:10px;">
+                Upload a previously exported backup ZIP.
+                <strong style="color:#f88;">This will permanently replace all existing websites, pages,
+                assets, sub-admins, and permission groups.</strong>
+                Your admin account credentials are not affected.
+            </p>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <label class="uw-btn uw-btn-secondary" style="cursor:pointer;" id="backupFileLabel">
+                    <i class="fas fa-folder-open"></i> Choose File
+                    <input type="file" id="backupFileInput" accept=".zip" style="display:none;"
+                           onchange="document.getElementById('backupFileLabel').querySelector('span').textContent = this.files[0]?.name || ''">
+                    <span style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-left:6px;"></span>
+                </label>
+                <button class="uw-btn uw-btn-primary" id="importBackupBtn" onclick="startImport()">
+                    <i class="fas fa-upload"></i> Import Backup
+                </button>
+            </div>
+            <div id="importStatus" style="margin-top:10px;font-size:0.85rem;display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+    function downloadBackup() {
+        const includeFiles = document.getElementById('backupIncludeFiles')?.checked !== false;
+        const url = '{{ url_for("export_backup") }}' + (includeFiles ? '' : '?include_files=0');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+
+    async function startImport() {
+        const file = document.getElementById('backupFileInput').files[0];
+        if (!file) { alert('Please choose a backup ZIP file first.'); return; }
+        if (!confirm('This will permanently replace all existing website data, assets, sub-admins, and permission groups. Your admin login credentials will not be changed. Continue?')) return;
+
+        const btn = document.getElementById('importBackupBtn');
+        const status = document.getElementById('importStatus');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing…';
+        status.style.display = 'block';
+        status.style.color = 'rgba(255,255,255,0.5)';
+        status.textContent = 'Uploading and processing backup…';
+
+        const form = new FormData();
+        form.append('backup_file', file);
+
+        try {
+            const r = await fetch('/admin/settings/backup/import', { method: 'POST', body: form });
+            const d = await r.json();
+            if (d.success) {
+                status.style.color = '#5eeec8';
+                status.textContent = 'Import successful! Reloading…';
+                setTimeout(() => location.href = '/admin/dashboard', 1500);
+            } else {
+                status.style.color = '#f88';
+                status.textContent = 'Error: ' + (d.error || 'Import failed');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-upload"></i> Import Backup';
+            }
+        } catch(e) {
+            status.style.color = '#f88';
+            status.textContent = 'Network error. Please try again.';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-upload"></i> Import Backup';
+        }
+    }
+    </script>
+    {% endif %}
+
     {% endblock %}

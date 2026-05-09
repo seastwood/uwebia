@@ -128,10 +128,32 @@
     }
 
     .analytics-bar {
+        position: relative;
         width: 100%;
         min-height: 3px;
         border-radius: 999px 999px 0 0;
         background: linear-gradient(180deg, rgba(126, 226, 204, 0.9), rgba(126, 226, 204, 0.25));
+    }
+
+    .analytics-bar-count {
+        font-size: 0.62rem;
+        font-weight: 700;
+        line-height: 1;
+        text-align: center;
+        white-space: nowrap;
+        pointer-events: none;
+    }
+
+    .analytics-bar-count-above {
+        color: rgba(255, 255, 255, 0.65);
+    }
+
+    .analytics-bar-count-inside {
+        position: absolute;
+        top: 5px;
+        left: 0;
+        right: 0;
+        color: rgba(10, 45, 38, 0.85);
     }
 
     .analytics-bar-label {
@@ -140,6 +162,10 @@
         color: rgba(255, 255, 255, 0.42);
         font-size: 0.66rem;
         white-space: nowrap;
+    }
+
+    @media (max-width: 500px) {
+        .analytics-bar-count { display: none; }
     }
 
     .analytics-table {
@@ -233,6 +259,34 @@
         color: rgba(255, 255, 255, 0.62);
         background: rgba(255, 255, 255, 0.07);
         border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .analytics-geoip-details {
+        cursor: default;
+    }
+    .analytics-geoip-details[open] .analytics-geoip-chevron {
+        transform: rotate(90deg);
+    }
+    .analytics-geoip-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+    }
+    .analytics-geoip-summary::-webkit-details-marker { display: none; }
+    .analytics-geoip-summary-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .analytics-geoip-chevron {
+        font-size: 0.75rem;
+        color: rgba(255,255,255,0.4);
+        transition: transform 0.18s ease;
+        flex-shrink: 0;
     }
 
     .analytics-geoip-form {
@@ -485,112 +539,100 @@
             <p class="analytics-card-note">Total calendar feed checks</p>
         </div>
     </div>
-    <div class="analytics-card" style="margin-bottom: 20px;">
-        <div class="analytics-settings-header">
-            <div>
-                <h2 class="analytics-section-title">Approximate Visitor Location</h2>
-                <p class="analytics-settings-copy">
-                    Optional. Upload a local GeoIP <code>.mmdb</code> database. City, Country, and ASN databases are
-                    supported.
-                    No visitor IPs are sent to a third-party service.
-                </p>
-                <p class="analytics-location-note">
-                    City databases can show country, region, city, and approximate coordinates.
-                    Country databases show country only.
-                    ASN databases show network/provider information only.
-                </p>
-
+    <details class="analytics-card analytics-geoip-details" style="margin-bottom:20px;">
+        <summary class="analytics-geoip-summary">
+            <div class="analytics-geoip-summary-left">
+                <i class="fas fa-chevron-right analytics-geoip-chevron"></i>
+                <div>
+                    <h2 class="analytics-section-title" style="margin:0;">Approximate Visitor Location</h2>
+                    <p class="analytics-settings-copy" style="margin:2px 0 0;">GeoIP database configuration (.mmdb)</p>
+                </div>
             </div>
-
-            <span
-                class="analytics-status-pill {% if analytics_settings and analytics_settings.geoip_enabled %}enabled{% else %}disabled{% endif %}">
-                {% if analytics_settings and analytics_settings.geoip_enabled %}
-                Enabled
-                {% else %}
-                Disabled
-                {% endif %}
+            <span class="analytics-status-pill {% if analytics_settings and analytics_settings.geoip_enabled %}enabled{% else %}disabled{% endif %}">
+                {% if analytics_settings and analytics_settings.geoip_enabled %}Enabled{% else %}Disabled{% endif %}
             </span>
-        </div>
+        </summary>
 
-        <div class="analytics-database-list">
-            <div class="analytics-database-item">
-                <span>City</span>
-                {% if analytics_settings and analytics_settings.geoip_city_database_name %}
-                <strong>{{ analytics_settings.geoip_city_database_name }}</strong>
-                <em>{{ analytics_settings.geoip_city_database_type }}</em>
-                {% else %}
-                <strong>Not uploaded</strong>
-                <em>Country, region, city, coordinates</em>
-                {% endif %}
-            </div>
+        <div style="padding-top:16px;">
+            <p class="analytics-settings-copy">
+                Optional. Upload a local GeoIP <code>.mmdb</code> database. City, Country, and ASN databases are supported.
+                No visitor IPs are sent to a third-party service.
+            </p>
+            <p class="analytics-location-note" style="margin-top:6px;">
+                City databases can show country, region, city, and approximate coordinates.
+                Country databases show country only.
+                ASN databases show network/provider information only.
+            </p>
 
-            <div class="analytics-database-item">
-                <span>Country</span>
-                {% if analytics_settings and analytics_settings.geoip_country_database_name %}
-                <strong>{{ analytics_settings.geoip_country_database_name }}</strong>
-                <em>{{ analytics_settings.geoip_country_database_type }}</em>
-                {% else %}
-                <strong>Not uploaded</strong>
-                <em>Country only fallback</em>
-                {% endif %}
-            </div>
-
-            <div class="analytics-database-item">
-                <span>ASN</span>
-                {% if analytics_settings and analytics_settings.geoip_asn_database_name %}
-                <strong>{{ analytics_settings.geoip_asn_database_name }}</strong>
-                <em>{{ analytics_settings.geoip_asn_database_type }}</em>
-                {% else %}
-                <strong>Not uploaded</strong>
-                <em>Network/provider data</em>
-                {% endif %}
-            </div>
-        </div>
-
-        <form id="geoipUploadForm" class="analytics-geoip-form" enctype="multipart/form-data">
-            <div id="geoipUploadProgress" class="analytics-upload-progress" hidden>
-                <div class="analytics-upload-progress-top">
-                    <span id="geoipUploadProgressLabel">Uploading...</span>
-                    <span id="geoipUploadProgressPercent">0%</span>
+            <div class="analytics-database-list" style="margin-top:14px;">
+                <div class="analytics-database-item">
+                    <span>City</span>
+                    {% if analytics_settings and analytics_settings.geoip_city_database_name %}
+                    <strong>{{ analytics_settings.geoip_city_database_name }}</strong>
+                    <em>{{ analytics_settings.geoip_city_database_type }}</em>
+                    {% else %}
+                    <strong>Not uploaded</strong>
+                    <em>Country, region, city, coordinates</em>
+                    {% endif %}
                 </div>
-
-                <div class="analytics-upload-progress-track">
-                    <div id="geoipUploadProgressBar" class="analytics-upload-progress-bar"></div>
+                <div class="analytics-database-item">
+                    <span>Country</span>
+                    {% if analytics_settings and analytics_settings.geoip_country_database_name %}
+                    <strong>{{ analytics_settings.geoip_country_database_name }}</strong>
+                    <em>{{ analytics_settings.geoip_country_database_type }}</em>
+                    {% else %}
+                    <strong>Not uploaded</strong>
+                    <em>Country only fallback</em>
+                    {% endif %}
+                </div>
+                <div class="analytics-database-item">
+                    <span>ASN</span>
+                    {% if analytics_settings and analytics_settings.geoip_asn_database_name %}
+                    <strong>{{ analytics_settings.geoip_asn_database_name }}</strong>
+                    <em>{{ analytics_settings.geoip_asn_database_type }}</em>
+                    {% else %}
+                    <strong>Not uploaded</strong>
+                    <em>Network/provider data</em>
+                    {% endif %}
                 </div>
             </div>
-            <input type="file" name="geoip_database" accept=".mmdb" class="analytics-file-input">
 
-            <button type="submit" class="analytics-action-button">
-                Upload and Enable
-            </button>
-
-            {% if analytics_settings and analytics_settings.geoip_enabled %}
-            <button type="button" class="analytics-action-button secondary" onclick="disableGeoIpDatabase()">
-                Disable
-            </button>
+            {% if not current_user.is_sub_admin or current_user.has_permission('analytics.geoip') %}
+            <form id="geoipUploadForm" class="analytics-geoip-form" enctype="multipart/form-data">
+                <div id="geoipUploadProgress" class="analytics-upload-progress" hidden>
+                    <div class="analytics-upload-progress-top">
+                        <span id="geoipUploadProgressLabel">Uploading...</span>
+                        <span id="geoipUploadProgressPercent">0%</span>
+                    </div>
+                    <div class="analytics-upload-progress-track">
+                        <div id="geoipUploadProgressBar" class="analytics-upload-progress-bar"></div>
+                    </div>
+                </div>
+                <input type="file" name="geoip_database" accept=".mmdb" class="analytics-file-input">
+                <button type="submit" class="analytics-action-button">Upload and Enable</button>
+                {% if analytics_settings and analytics_settings.geoip_enabled %}
+                <button type="button" class="analytics-action-button secondary" onclick="disableGeoIpDatabase()">Disable</button>
+                <button type="button" class="analytics-action-button secondary" onclick="backfillGeoIpLocations()">Backfill Existing Visits</button>
+                {% endif %}
+                {% if analytics_settings and (
+                    analytics_settings.geoip_city_database_name
+                    or analytics_settings.geoip_country_database_name
+                    or analytics_settings.geoip_asn_database_name
+                ) %}
+                <button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">Delete Databases</button>
+                {% endif %}
+            </form>
+            {% else %}
+            <p class="analytics-location-note" style="margin-top:14px;">
+                <i class="fas fa-lock" style="margin-right:5px;"></i>You don't have permission to modify GeoIP database settings.
+            </p>
             {% endif %}
-            {% if analytics_settings and analytics_settings.geoip_enabled %}
-            <button type="button" class="analytics-action-button secondary" onclick="backfillGeoIpLocations()">
-                Backfill Existing Visits
-            </button>
-            {% endif %}
 
-            {% if analytics_settings and (
-            analytics_settings.geoip_city_database_name
-            or analytics_settings.geoip_country_database_name
-            or analytics_settings.geoip_asn_database_name
-            ) %}
-            <button type="button" class="analytics-action-button danger" onclick="deleteGeoIpDatabase()">
-                Delete Databases
-            </button>
-            {% endif %}
-        </form>
-
-        <p class="analytics-location-note">
-            Location is approximate and can be inaccurate for VPNs, mobile networks, private relay, or corporate
-            networks.
-        </p>
-    </div>
+            <p class="analytics-location-note">
+                Location is approximate and can be inaccurate for VPNs, mobile networks, private relay, or corporate networks.
+            </p>
+        </div>
+    </details>
 
     <div class="analytics-card" style="margin-bottom: 20px;">
         <h2 class="analytics-section-title">Visits by Day</h2>
@@ -601,9 +643,17 @@
         <div class="analytics-chart">
             {% for day in visits_by_day %}
             {% set height = ((day.page_views / max_views) * 190) if max_views else 0 %}
+            {% set show_inside = height >= 22 %}
             <div class="analytics-bar-wrap"
                 title="{{ day.date }}: {{ day.page_views }} views, {{ day.unique_visitors }} unique">
-                <div class="analytics-bar" style="height: {{ height }}px;"></div>
+                {% if not show_inside %}
+                <div class="analytics-bar-count analytics-bar-count-above">{{ day.page_views }}</div>
+                {% endif %}
+                <div class="analytics-bar" style="height: {{ height }}px;">
+                    {% if show_inside %}
+                    <div class="analytics-bar-count analytics-bar-count-inside">{{ day.page_views }}</div>
+                    {% endif %}
+                </div>
                 <div class="analytics-bar-label">{{ day.label }}</div>
             </div>
             {% endfor %}

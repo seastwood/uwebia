@@ -5,8 +5,12 @@
     .two-factor-page {
         min-height: 100vh;
         display: grid;
-        place-items: center;
-        padding: 24px;
+        justify-items: center;
+        align-content: start;
+        padding-top: 80px;
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-bottom: 24px;
         background: #1f1f22;
         color: #ffffff;
     }
@@ -66,6 +70,7 @@
 
 <div class="two-factor-page">
     <form class="two-factor-card" method="POST" action="{{ request.path }}">
+        <img src="/static/uwebia-icon.svg" alt="Uwebia" style="width:52px;height:52px;display:block;margin:0 auto 16px;">
         <h1>Two-Factor Authentication</h1>
         <p>Enter the 6-digit code sent to your email address.</p>
 
@@ -88,8 +93,15 @@
             required
         >
 
-        <button type="submit">Verify Code</button>
+        <button type="submit" id="verifyBtn">Verify Code</button>
     </form>
 </div>
+<script>
+document.querySelector('.two-factor-card').addEventListener('submit', function () {
+    const btn = document.getElementById('verifyBtn');
+    btn.disabled = true;
+    btn.textContent = 'Verifying…';
+});
+</script>
 
 {% endblock %}

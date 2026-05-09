@@ -1,3 +1,10 @@
+html {
+    /* Match body background so iOS Safari never reveals an unpainted html layer
+       (e.g. the white/gray gap that appears after the on-screen keyboard dismisses). */
+    background: linear-gradient(to bottom right, #38353c, #1c1a1d);
+    min-height: 100%;
+}
+
 body {
     font-family: 'Roboto', sans-serif;
     display: flex;
@@ -9,4 +16,9 @@ body {
     /* background-color: #363339; */
     background: linear-gradient(to bottom right, #38353c, #1c1a1d);
     color: #ffffff;
+}
+
+/* Offset for the globally fixed navbar (height: 52px with box-sizing:border-box) */
+.content {
+    padding-top: 52px;
 }

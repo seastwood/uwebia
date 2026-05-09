@@ -28,7 +28,7 @@
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
 
     <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="/static/uwebialogo1.svg">
+    <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
 
 
 
@@ -1633,6 +1633,7 @@
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 aspectRatio: 1.5,
                 initialView: 'dayGridMonth',
+                eventDisplay: 'block',
                 events: fetchEvents,
                 editable: true,
                 selectable: true,
@@ -1644,6 +1645,18 @@
                 },
                 eventChange: function (info) {
                     updateEvent(info.event);
+                },
+                eventDidMount: function (info) {
+                    const hex = (info.event.backgroundColor || '').replace('#', '');
+                    if (hex.length >= 6) {
+                        const r = parseInt(hex.slice(0, 2), 16);
+                        const g = parseInt(hex.slice(2, 4), 16);
+                        const b = parseInt(hex.slice(4, 6), 16);
+                        const tc = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff';
+                        info.el.style.color = tc;
+                        const m = info.el.querySelector('.fc-event-main');
+                        if (m) m.style.color = tc;
+                    }
                 }
             });
 

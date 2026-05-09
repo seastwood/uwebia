@@ -1,5 +1,5 @@
 {% set nav_style = website.public_navbar_style or {} %}
-{% set navbar_items = website.public_navbar_items or [] %}
+{% set navbar_items = preview_navbar_items if (preview_navbar_items is defined and preview_navbar_items is not none) else (website.public_navbar_items or []) %}
 {% set navbar_margin = nav_style.get('margin', 0)|int %}
 {% set navbar_anchor_offset = 78 + navbar_margin %}
 {% set navbar_page_offset = 58 + navbar_margin %}
@@ -59,7 +59,8 @@
         </button>
         {% endif %}
 
-        <a href="/" class="public-navbar-brand title-align-{{ nav_style.get('title_alignment', 'left') }}"
+        <a href="{{ preview_home_url if (preview_home_url is defined and preview_home_url) else '/' }}"
+            class="public-navbar-brand title-align-{{ nav_style.get('title_alignment', 'left') }}"
             title="Go to home page">
 
             {% if nav_style.get('icon_url') %}

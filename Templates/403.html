@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+<div style="min-height:70vh;display:flex;align-items:center;justify-content:center;padding:40px 20px;">
+    <div style="text-align:center;max-width:480px;">
+        <div style="font-size:4rem;margin-bottom:16px;">🔒</div>
+        <h1 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0 0 12px;">Access Restricted</h1>
+        <p style="color:rgba(255,255,255,0.55);font-size:0.95rem;margin:0 0 28px;line-height:1.6;">
+            {{ message or "You don't have permission to access this page. Contact your admin to request access." }}
+        </p>
+        <a href="{{ url_for('dashboard') }}"
+           style="display:inline-flex;align-items:center;gap:8px;padding:10px 22px;background:#5eeef8;color:#1a1a1a;border-radius:10px;font-weight:600;text-decoration:none;font-size:0.9rem;">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}

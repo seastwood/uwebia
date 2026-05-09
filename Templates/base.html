@@ -3,20 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <!-- <meta name="viewport" content="width=device-width, initial-scale=1.0"> -->
-     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, interactive-widget=overlays-content">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/navbar.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
         <!-- Favicon -->
-        <link rel="icon" type="image/svg+xml" href="/static/orange-uw.svg">
+        <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
 
     <title>Uwebia</title>
+    <!-- Tell iOS Safari / Chrome to use a dark browser chrome (address bar, toolbar) -->
+    <meta name="theme-color" content="#1c1a1d">
+    <meta name="color-scheme" content="dark">
 </head>
+<style>
+.perm-toast-container { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:999999; display:flex; flex-direction:column; gap:10px; align-items:center; pointer-events:none; }
+.perm-toast { background:#1e2029; border:1px solid rgba(255,100,100,0.35); border-left:4px solid #f55; border-radius:12px; padding:14px 20px; color:#fff; font-size:0.88rem; line-height:1.4; max-width:min(480px,90vw); box-shadow:0 8px 32px rgba(0,0,0,0.5); display:flex; align-items:flex-start; gap:12px; pointer-events:auto; animation:toastIn 0.25s ease; }
+.perm-toast i { color:#f77; font-size:1.1rem; flex-shrink:0; margin-top:1px; }
+.perm-toast-close { margin-left:auto; padding-left:12px; background:none; border:none; color:rgba(255,255,255,0.4); font-size:1.1rem; cursor:pointer; flex-shrink:0; }
+.perm-toast-close:hover { color:#fff; }
+@keyframes toastIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+</style>
 <body>
 {#    {% include 'components/navbar.html' %}#}
     <div class="content">
         {% block content %}{% endblock %}
     </div>
 
+    <!-- Permission-denied flash messages from server redirects -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    {% if category == 'permission_denied' %}
+    <script>document.addEventListener('DOMContentLoaded',()=>showPermToast({{ message | tojson }}));</script>
+    {% endif %}
+    {% endfor %}
+    {% endwith %}
+
+    <div id="permToastContainer" class="perm-toast-container"></div>
+
+    <script>
+    function showPermToast(msg) {
+        const c = document.getElementById('permToastContainer');
+        if (!c) return;
+        const t = document.createElement('div');
+        t.className = 'perm-toast';
+        t.innerHTML = `<i class="fas fa-lock"></i><span>${msg}</span><button class="perm-toast-close" onclick="this.closest('.perm-toast').remove()">×</button>`;
+        c.appendChild(t);
+        setTimeout(() => t.remove(), 7000);
+    }
+
+    // Global fetch interceptor — catches permission_denied on any AJAX call
+    const _origFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const resp = await _origFetch(...args);
+        if (resp.status === 403) {
+            // Clone so the original response body is still readable by the caller
+            resp.clone().json().then(d => {
+                if (d && d.permission_denied) showPermToast(d.error || "You don't have permission to do this.");
+            }).catch(() => {});
+        }
+        return resp;
+    };
+    </script>
 </body>
 </html>

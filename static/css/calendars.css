@@ -470,6 +470,75 @@ body {
     cursor: pointer;
 }
 
+/* Block display: filled pill with white text, no left-side border chrome */
+.fc-wrapper .fc-daygrid-block-event .fc-event-main {
+    padding: 1px 5px;
+    color: #fff;
+}
+
+.fc-wrapper .fc-daygrid-block-event {
+    border: none !important;
+    border-radius: 5px;
+}
+
+/* ── External calendar events ── */
+
+/* Slightly muted to signal read-only origin; link icon in the title is the indicator */
+.fc-wrapper .ext-cal-event {
+    opacity: 0.82;
+    cursor: default !important;
+}
+
+/* ── Event tooltip ── */
+.fc-event-tooltip {
+    position: fixed;
+    z-index: 99999;
+    max-width: 280px;
+    padding: 9px 12px;
+    background: #1e2029;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    font-size: 0.82rem;
+    color: #f0f0f0;
+    line-height: 1.45;
+    pointer-events: none;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+
+/* Small chain icon prepended to the event title in the grid */
+.ext-cal-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 4px;
+    font-size: 0.68rem;
+    opacity: 0.75;
+    vertical-align: middle;
+}
+
+/* Banner inside the event modal for external events */
+.ext-event-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: rgba(255, 200, 80, 0.08);
+    border: 1px solid rgba(255, 200, 80, 0.25);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    font-size: 0.85rem;
+    color: rgba(255, 220, 130, 0.9);
+    line-height: 1.4;
+}
+
+.ext-event-banner i {
+    flex-shrink: 0;
+    margin-top: 2px;
+    opacity: 0.8;
+}
+
 /* ── Empty State ── */
 
 .calendars-empty {
@@ -801,6 +870,74 @@ body {
 }
 
 */
+
+/* ── Mobile layout ── */
+
+@media (max-width: 768px) {
+    .calendars-page {
+        width: calc(100% - 16px);
+        margin: 16px auto 60px;
+    }
+
+    .calendars-header {
+        margin-bottom: 18px;
+        gap: 10px;
+    }
+
+    .calendars-title {
+        font-size: 1.4rem;
+    }
+
+    .calendar-card {
+        border-radius: 14px;
+    }
+
+    .calendar-card-header {
+        padding: 14px 16px 12px;
+    }
+
+    .calendar-card-body {
+        padding: 12px 12px 18px;
+    }
+
+    /* Give the FullCalendar toolbar buttons more breathing room on touch */
+    .fc-wrapper .fc-button {
+        padding: 6px 10px !important;
+        font-size: 0.85rem !important;
+    }
+
+    .fc-wrapper .fc-toolbar-title {
+        font-size: 0.95rem;
+    }
+
+    /* Day numbers and event text slightly larger for tap targets */
+    .fc-wrapper .fc-daygrid-day-number {
+        font-size: 0.88rem;
+        padding: 4px 6px;
+    }
+
+    .fc-wrapper .fc-event {
+        font-size: 0.75rem;
+    }
+
+    .calendar-add-event-row {
+        margin-bottom: 10px;
+    }
+
+    .btn-add-event {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .calendar-meta-row {
+        gap: 10px;
+    }
+
+    .calendar-feed-url {
+        font-size: 0.72rem;
+        word-break: break-all;
+    }
+}
 
 /* ── Toast ── */
 
