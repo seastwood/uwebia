@@ -7750,11 +7750,13 @@ def library_upload():
 
 
 def ensure_rgb(image: Image.Image) -> Image.Image:
-    if image.mode in ("RGBA", "LA"):
-        background = Image.new("RGB", image.size, (255, 255, 255))
-        background.paste(image, mask=image.getchannel("A"))
-        return background
-    if image.mode != "RGB":
+    """Convert to RGB for formats that don't support alpha.
+    RGBA is left as-is — WebP handles transparency natively."""
+    if image.mode == "RGBA":
+        return image  # WebP supports alpha; keep it
+    if image.mode == "LA":
+        return image.convert("RGBA")  # greyscale+alpha → RGBA, WebP handles it
+    if image.mode not in ("RGB", "RGBA"):
         return image.convert("RGB")
     return image
 
