@@ -87,6 +87,17 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{database_path}'
 
 db = SQLAlchemy(app)
 
+from sqlalchemy import event as _sa_event
+
+def _set_sqlite_pragmas(dbapi_conn, _rec):
+    """Applied to every new SQLite connection for concurrency hardening."""
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")   # readers never block writers
+    cur.execute("PRAGMA synchronous=NORMAL") # safe with WAL, much faster
+    cur.execute("PRAGMA foreign_keys=ON")    # enforce FK constraints
+    cur.execute("PRAGMA busy_timeout=5000")  # wait up to 5 s on locked DB
+    cur.close()
+
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
@@ -160,7 +171,7 @@ DEFAULT_SERVER_CONFIG = {
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 class User(UserMixin, db.Model):
@@ -168,6 +179,9 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(150), nullable=False)
+    # Sub-admin support: if set, this user belongs to the parent admin
+    parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    permissions = db.Column(db.JSON, nullable=True)  # dict of 'section.action': bool
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
     two_factor_email = db.Column(db.String(255), nullable=True)
@@ -219,8 +233,177 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+    @property
+    def is_sub_admin(self):
+        return self.parent_user_id is not None
+
+    @property
+    def root_user_id(self):
+        """The owning admin's user ID (self for main admins, parent for sub-admins)."""
+        return self.parent_user_id or self.id
+
+    def has_permission(self, key):
+        """Main admins always have all permissions. Sub-admins check the JSON dict."""
+        if not self.is_sub_admin:
+            return True
+        return bool((self.permissions or {}).get(key, False))
+
     def __repr__(self):
         return f"<User {self.username}>"
+
+def _perm_label(key):
+    """Return a human-readable label for a permission key like 'pages.edit'."""
+    section, _, action = key.partition('.')
+    section_labels = {
+        'pages': 'Pages', 'sections': 'Sections', 'appearance': 'Appearance',
+        'code': 'Code', 'assets': 'Asset Library', 'calendars': 'Calendars',
+        'ai_agents': 'AI Agents', 'forum': 'Forum', 'comments': 'Comments',
+        'messages': 'Messages', 'settings': 'Settings', 'templates': 'Templates',
+        'admin_users': 'Admin Users',
+    }
+    action_labels = {
+        'view': 'view', 'edit': 'edit', 'create': 'create', 'delete': 'delete',
+        'publish': 'publish', 'upload': 'upload', 'folders': 'manage folders',
+        'ai_generate': 'generate with AI', 'groups': 'manage groups',
+        'templates': 'use templates', 'navbar': 'edit navbar',
+        'page_code': 'use page code editor', 'sections': 'edit code sections',
+        'tweaks': 'use code tweaks', 'ai': 'use AI assistance',
+        'events': 'manage events', 'subscriptions': 'manage subscriptions',
+        'chat': 'chat with agents', 'use': 'use agents',
+        'settings': 'edit settings', 'moderate': 'moderate content',
+        'manage_users': 'manage users', 'delete_posts': 'delete posts',
+        'download': 'download files',
+    }
+    s = section_labels.get(section, section.replace('_', ' ').title())
+    a = action_labels.get(action, action.replace('_', ' '))
+    return f'{s} › {a}'
+
+
+def require_perm(key):
+    """Decorator: blocks sub-admins who lack the given permission key.
+    For JSON/AJAX requests returns a 403 JSON response with a clear message.
+    For page navigations (GET) redirects to the dashboard with a flash notice."""
+    def decorator(f):
+        from functools import wraps
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if current_user.is_authenticated and current_user.is_sub_admin:
+                if not current_user.has_permission(key):
+                    label = _perm_label(key)
+                    msg = (f"You don't have permission to do this "
+                           f"({label}). Ask your admin to grant access.")
+                    wants_json = (
+                        request.is_json
+                        or request.method in ('POST', 'PUT', 'PATCH', 'DELETE')
+                        or request.headers.get('Accept', '').startswith('application/json')
+                        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                    )
+                    if wants_json:
+                        return _utf8_json(
+                            {'success': False, 'error': msg, 'permission_denied': True}, 403)
+                    flash(msg, 'permission_denied')
+                    return redirect(url_for('dashboard'))
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+def get_admin_website():
+    """Return the website the current admin user manages.
+    Sub-admins share the root admin's website rather than owning their own."""
+    if current_user.is_sub_admin:
+        root = User.query.get(current_user.root_user_id)
+        return root.websites[0] if root and root.websites else None
+    return current_user.websites[0] if current_user.websites else None
+
+
+def is_owner(website):
+    """True if the current user (or their root admin) owns this website."""
+    if website is None:
+        return False
+    return website.user_id == current_user.root_user_id
+
+
+def can_access_page(page_id):
+    """Sub-admins can access a page editor if they have a direct page grant,
+    a group grant for any group on that page, or a section grant for any
+    section on that page.  All-None means no restriction (allow all pages)."""
+    if not current_user.is_sub_admin:
+        return True
+    perms = current_user.permissions or {}
+    allowed_pages    = perms.get('pages.allowed_ids')
+    allowed_groups   = perms.get('groups.allowed_ids')
+    allowed_sections = perms.get('sections.allowed_ids')
+
+    # No restrictions at all → allow all pages
+    if allowed_pages is None and allowed_groups is None and allowed_sections is None:
+        return True
+
+    # Direct page grant
+    if allowed_pages is not None and page_id in allowed_pages:
+        return True
+
+    # Any granted group lives on this page
+    if allowed_groups:
+        page_group_ids = [g.id for g in SectionGroup.query.filter_by(page_content_id=page_id).all()]
+        if any(gid in allowed_groups for gid in page_group_ids):
+            return True
+
+    # Any granted section lives on this page
+    if allowed_sections:
+        page_section_ids = [s.id for s in PageSection.query.filter_by(page_content_id=page_id).all()]
+        if any(sid in allowed_sections for sid in page_section_ids):
+            return True
+
+    return False
+
+
+def can_access_section(section_id):
+    """Sub-admins may be restricted to specific sections, groups, or pages.
+    Page-level grants cover all current and future sections on that page.
+    Group-level grants cover all current and future sections in that group.
+    """
+    if not current_user.is_sub_admin:
+        return True
+    perms = current_user.permissions or {}
+    allowed_sections = perms.get('sections.allowed_ids')
+    allowed_groups = perms.get('groups.allowed_ids')
+    allowed_pages = perms.get('pages.allowed_ids')
+
+    if allowed_sections is None and allowed_groups is None and allowed_pages is None:
+        return True
+
+    section = PageSection.query.get(section_id)
+    if not section:
+        return False
+
+    # Page-level grant — covers all sections on this page (including new ones)
+    if allowed_pages is not None and section.page_content_id in allowed_pages:
+        return True
+
+    # Group-level grant — covers all sections in this group (including new ones)
+    if allowed_groups is not None and section.column and section.column.row:
+        group_id = section.column.row.section_group_id
+        if group_id is not None and group_id in allowed_groups:
+            return True
+
+    # Direct section grant
+    if allowed_sections is not None and section_id in allowed_sections:
+        return True
+
+    return False
+
+
+def can_access_folder(folder_id):
+    """Sub-admins may be restricted to specific asset library folders."""
+    if not current_user.is_sub_admin:
+        return True
+    perms = current_user.permissions or {}
+    allowed = perms.get('assets.allowed_folder_ids')
+    if allowed is None:
+        return True
+    return folder_id in (allowed or [])
+
 
 class PublicUser(UserMixin, db.Model):
     __tablename__ = 'public_user'
@@ -751,6 +934,12 @@ class PageSection(db.Model):
     order = db.Column(db.Integer)
     content = db.Column(db.JSON)
     page_content_id = db.Column(db.Integer, db.ForeignKey('public_page_content.id'))
+    custom_code = db.Column(db.Text, nullable=True)
+    label = db.Column(db.String(200), nullable=True)
+    # Optimistic locking: increment on every content save; client echoes back
+    # the version it last saw — server rejects if it no longer matches.
+    version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    updated_at = db.Column(db.DateTime, nullable=True)
     messages = db.relationship('ContactMessage', backref='section', lazy=True, cascade='all, delete-orphan')
 
     # Define a one-to-one relationship with Column
@@ -758,18 +947,22 @@ class PageSection(db.Model):
 
     def to_dict(self):
         column = self.column
+        row = column.row if column else None
         return {
             'id': self.id,
             'page_content_id': self.page_content_id,
             'order': self.order,
             'section_type': self.section_type,
             'content': self.content,
+            'custom_code': self.custom_code or '',
+            'label': self.label or '',
             'column_id': column.id if column else None,
             'column_number': column.column_number if column else None,
-            'row_id': column.row.id if column else None,
-            'row_number': column.row.row_number if column else None,
-            'section_group_id': column.row.section_group_id if column and column.row else None,
-            'width': column.width if column else None  # Include width
+            'row_id': row.id if row else None,
+            'row_number': row.row_number if row else None,
+            'section_group_id': row.section_group_id if row else None,
+            'width': column.width if column else None,
+            'version': self.version or 0,
         }
 
     def __repr__(self):
@@ -819,6 +1012,25 @@ class SectionGroupTemplate(db.Model):
             'description': self.description or '',
             'row_count': self.row_count or 0,
             'section_count': self.section_count or 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SectionTemplate(db.Model):
+    __tablename__ = 'section_template'
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    section_type = db.Column(db.String(50), nullable=False)
+    content = db.Column(db.JSON, nullable=True)
+    custom_code = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'section_type': self.section_type,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -946,15 +1158,22 @@ class CalendarEvent(db.Model):
     subscription_id = db.Column(db.Integer, db.ForeignKey('calendar_subscription.id'), nullable=True)
 
     def to_dict(self):
+        is_external = (self.source or 'local') != 'local'
         return {
             'id': self.id,
             'title': self.title,
-            'description': self.description,
             'start': self.start.isoformat(),
             'end': self.end.isoformat() if self.end else None,
             'backgroundColor': self.background_color,
             'calendar_id': self.calendar_id,
-            'source': self.source or 'local',
+            # editable:false tells FullCalendar not to allow drag/resize on external events
+            'editable': not is_external,
+            # classNames lets CSS target external events without JS hooks
+            'classNames': ['ext-cal-event'] if is_external else [],
+            'extendedProps': {
+                'description': self.description,
+                'source': self.source or 'local',
+            },
         }
 
 class CalendarFeedSubscriber(db.Model):
@@ -1408,7 +1627,7 @@ def user_owns_section(section):
         return False
 
     website = Website.query.get(page.website_id)
-    return bool(website and website.user_id == current_user.id)
+    return bool(website and is_owner(website))
 
 def get_asset_library_config():
     try:
@@ -1543,7 +1762,7 @@ def asset_library():
     if asset_type not in valid_types:
         asset_type = 'image'
 
-    folders_query = AssetFolder.query.filter_by(user_id=current_user.id)
+    folders_query = AssetFolder.query.filter_by(user_id=current_user.root_user_id)
 
     if asset_type != 'all':
         folders_query = folders_query.filter(
@@ -1553,18 +1772,42 @@ def asset_library():
             )
         )
 
-    folders = folders_query.order_by(AssetFolder.name).all()
+    all_folders = folders_query.order_by(AssetFolder.name).all()
 
-    assets_query = Asset.query.filter_by(user_id=current_user.id)
+    # For sub-admins, restrict to allowed folders
+    allowed_folder_ids = None
+    if current_user.is_sub_admin:
+        perms = current_user.permissions or {}
+        allowed_folder_ids = perms.get('assets.allowed_folder_ids')
+
+    if allowed_folder_ids is not None:
+        folders = [f for f in all_folders if f.id in allowed_folder_ids]
+    else:
+        folders = all_folders
+
+    assets_query = Asset.query.filter_by(user_id=current_user.root_user_id)
 
     if folder_id in ('', None, 'root'):
+        # If sub-admin has folder restrictions, redirect to their first allowed folder
+        if allowed_folder_ids is not None:
+            if folders:
+                return redirect(url_for('asset_library', type=asset_type, folder_id=folders[0].id))
+            flash("You don't have access to any asset library folders. Ask your admin to grant folder access.", 'permission_denied')
+            return redirect(url_for('dashboard'))
         assets_query = assets_query.filter(Asset.folder_id == None)
         current_folder = None
     else:
         current_folder = AssetFolder.query.filter_by(
             id=folder_id,
-            user_id=current_user.id
+            user_id=current_user.root_user_id
         ).first_or_404()
+
+        # Check sub-admin folder access
+        if allowed_folder_ids is not None and current_folder.id not in allowed_folder_ids:
+            if folders:
+                return redirect(url_for('asset_library', type=asset_type, folder_id=folders[0].id))
+            flash("You don't have access to this folder.", 'permission_denied')
+            return redirect(url_for('dashboard'))
 
         assets_query = assets_query.filter(Asset.folder_id == current_folder.id)
 
@@ -1574,7 +1817,7 @@ def asset_library():
     assets = assets_query.order_by(Asset.upload_date.desc()).all()
 
     config = get_asset_library_config()
-    used_bytes = get_user_asset_storage_bytes(current_user.id)
+    used_bytes = get_user_asset_storage_bytes(current_user.root_user_id)
     max_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
 
     storage = {
@@ -1593,7 +1836,8 @@ def asset_library():
         current_folder=current_folder,
         current_type=asset_type,
         storage=storage,
-        asset_config=config
+        asset_config=config,
+        allowed_folder_ids=allowed_folder_ids,
     )
 
 def get_user_asset_folder(user_id):
@@ -1711,6 +1955,7 @@ def scan_user_asset_folder(user_id):
 
 @app.route('/admin/assets/upload', methods=['POST'])
 @login_required
+@require_perm('assets.upload')
 def asset_upload():
     files = request.files.getlist('asset')
     folder_id = request.form.get('folder_id') or None
@@ -1839,14 +2084,16 @@ def asset_upload():
 
 @app.route('/admin/assets/ai-generate', methods=['POST'])
 @login_required
+@require_perm('assets.ai_generate')
 def ai_generate_asset():
     import io as _io, base64 as _b64, requests as _req
     data = request.get_json() or {}
-    agent_id  = data.get('agent_id')
-    prompt    = (data.get('prompt') or '').strip()
-    size      = data.get('size', '1024x1024')
-    model_ovr = (data.get('model') or '').strip()
-    folder_id = data.get('folder_id') or None
+    agent_id     = data.get('agent_id')
+    prompt       = (data.get('prompt') or '').strip()
+    size         = data.get('size', '1024x1024')
+    model_ovr    = (data.get('model') or '').strip()
+    folder_id    = data.get('folder_id') or None
+    ref_asset_id = data.get('ref_asset_id') or None
 
     if not agent_id:
         return _utf8_json({'success': False, 'error': 'Select an AI agent'}, 400)
@@ -1854,7 +2101,7 @@ def ai_generate_asset():
         return _utf8_json({'success': False, 'error': 'Enter a prompt'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     if agent.provider == 'anthropic':
@@ -1876,17 +2123,79 @@ def ai_generate_asset():
     if size not in valid_sizes:
         size = '1024x1024'
 
-    headers = {'Content-Type': 'application/json'}
+    auth_headers = {}
     if api_key:
-        headers['Authorization'] = f'Bearer {api_key}'
+        auth_headers['Authorization'] = f'Bearer {api_key}'
+
+    # Fetch reference image bytes if provided
+    ref_image_bytes = None
+    ref_image_ext   = 'png'
+    if ref_asset_id:
+        ref_asset = Asset.query.filter_by(id=ref_asset_id, user_id=current_user.id).first()
+        if ref_asset:
+            try:
+                ref_path = os.path.join(uploads_folder, str(current_user.id), 'assets',
+                                        ref_asset.stored_filename)
+                if os.path.exists(ref_path):
+                    with open(ref_path, 'rb') as f:
+                        ref_image_bytes = f.read()
+                    ref_image_ext = (ref_asset.extension or 'webp').lower()
+                else:
+                    # Fall back to downloading from URL
+                    ref_resp = _req.get(
+                        request.host_url.rstrip('/') + ref_asset.url,
+                        timeout=30
+                    )
+                    ref_image_bytes = ref_resp.content
+            except Exception as e:
+                app.logger.warning(f'ai_generate_asset: could not load ref image: {e}')
 
     try:
-        r = _req.post(
-            f'{base_url}/v1/images/generations',
-            json={'model': model, 'prompt': prompt, 'n': 1, 'size': size},
-            headers=headers,
-            timeout=120
-        )
+        # ── OpenAI edits endpoint (img2img) ──────────────────────────────
+        if ref_image_bytes and agent.provider == 'openai':
+            # DALL-E 2 edits require PNG; convert if needed
+            import io as _io2
+            buf = _io2.BytesIO(ref_image_bytes)
+            with Image.open(buf) as im:
+                rgba = im.convert('RGBA')
+                png_buf = _io2.BytesIO()
+                rgba.save(png_buf, 'PNG')
+                png_bytes = png_buf.getvalue()
+
+            r = _req.post(
+                f'{base_url}/v1/images/edits',
+                headers=auth_headers,
+                files={
+                    'image': ('reference.png', png_bytes, 'image/png'),
+                },
+                data={'model': 'dall-e-2', 'prompt': prompt, 'n': '1', 'size': size},
+                timeout=120
+            )
+
+        # ── OpenAI-compatible img2img (base64 init_image) ─────────────────
+        elif ref_image_bytes and agent.provider == 'openai_compatible':
+            ref_b64 = _b64.b64encode(ref_image_bytes).decode()
+            r = _req.post(
+                f'{base_url}/v1/images/generations',
+                json={
+                    'model': model, 'prompt': prompt, 'n': 1, 'size': size,
+                    'init_image': ref_b64,          # common convention (Automatic1111, etc.)
+                    'image': ref_b64,               # alternative field name
+                    'strength': 0.75,
+                },
+                headers={**auth_headers, 'Content-Type': 'application/json'},
+                timeout=120
+            )
+
+        # ── Standard text-to-image ────────────────────────────────────────
+        else:
+            headers = {**auth_headers, 'Content-Type': 'application/json'}
+            r = _req.post(
+                f'{base_url}/v1/images/generations',
+                json={'model': model, 'prompt': prompt, 'n': 1, 'size': size},
+                headers=headers,
+                timeout=120
+            )
     except _req.exceptions.RequestException as e:
         return _utf8_json({'success': False, 'error': f'Request failed: {e}'}, 502)
 
@@ -1987,6 +2296,7 @@ def download_asset(asset_id):
 
 @app.route('/admin/assets/create_folder', methods=['POST'])
 @login_required
+@require_perm('assets.folders')
 def create_asset_folder():
     data = request.get_json() or {}
 
@@ -2044,6 +2354,7 @@ def move_asset():
 
 @app.route('/admin/assets/delete/<int:asset_id>', methods=['POST'])
 @login_required
+@require_perm('assets.delete')
 def delete_asset(asset_id):
     asset = Asset.query.filter_by(
         id=asset_id,
@@ -2172,7 +2483,7 @@ def get_asset_library_folder(folder_id):
 #     page = PublicPageContent.query.get_or_404(section.page_content_id)
 #     website = Website.query.get_or_404(page.website_id)
 #
-#     if website.user_id != current_user.id:
+#     if not is_owner(website):
 #         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 403
 #
 #     for asset_id in asset_ids:
@@ -2207,6 +2518,7 @@ def get_asset_library_folder(folder_id):
 
 @app.route('/update_page_colors/<int:page_id>', methods=['PUT'])
 @login_required
+@require_perm('pages.edit')
 def update_page_colors(page_id):
     data = request.get_json()
 
@@ -2551,6 +2863,7 @@ def get_sections_and_structure(page_content_id):
             page_content_id=page_content_id
         ).order_by(SectionGroup.group_order).all()
 
+        sections = [s for s in sections if s.column and s.column.row]
         sections.sort(
             key=lambda x: (
                 x.column.row.section_group_id or 0,
@@ -2625,6 +2938,7 @@ def get_sections_and_structure(page_content_id):
 
 @app.route('/create_section_group/<int:page_content_id>', methods=['POST'])
 @login_required
+@require_perm('sections.groups')
 def create_section_group(page_content_id):
     try:
         page_content = PublicPageContent.query.get_or_404(page_content_id)
@@ -2760,7 +3074,7 @@ def _instantiate_group_template(page_content_id, template_data, group_name):
 @app.route('/admin/section_group_templates', methods=['GET'])
 @login_required
 def list_section_group_templates():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     if not website:
         return jsonify({'templates': []})
     templates = SectionGroupTemplate.query.filter_by(website_id=website.id).order_by(
@@ -2771,11 +3085,12 @@ def list_section_group_templates():
 
 @app.route('/admin/section_group_templates/save/<int:group_id>', methods=['POST'])
 @login_required
+@require_perm('sections.templates')
 def save_section_group_template(group_id):
     group = SectionGroup.query.get_or_404(group_id)
     page = PublicPageContent.query.get_or_404(group.page_content_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     data = request.get_json()
@@ -2798,10 +3113,11 @@ def save_section_group_template(group_id):
 
 @app.route('/admin/section_group_templates/<int:template_id>/delete', methods=['POST'])
 @login_required
+@require_perm('sections.templates')
 def delete_section_group_template(template_id):
     tmpl = SectionGroupTemplate.query.get_or_404(template_id)
     website = Website.query.get_or_404(tmpl.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
     db.session.delete(tmpl)
     db.session.commit()
@@ -2810,10 +3126,11 @@ def delete_section_group_template(template_id):
 
 @app.route('/create_section_group_from_template/<int:page_content_id>/<int:template_id>', methods=['POST'])
 @login_required
+@require_perm('sections.templates')
 def create_section_group_from_template(page_content_id, template_id):
     page = PublicPageContent.query.get_or_404(page_content_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     tmpl = SectionGroupTemplate.query.get_or_404(template_id)
@@ -2827,11 +3144,12 @@ def create_section_group_from_template(page_content_id, template_id):
 
 @app.route('/duplicate_section_group/<int:group_id>', methods=['POST'])
 @login_required
+@require_perm('sections.groups')
 def duplicate_section_group(group_id):
     group = SectionGroup.query.get_or_404(group_id)
     page = PublicPageContent.query.get_or_404(group.page_content_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     try:
@@ -2845,6 +3163,7 @@ def duplicate_section_group(group_id):
 
 @app.route('/delete_section_group/<int:group_id>', methods=['DELETE'])
 @login_required
+@require_perm('sections.groups')
 def delete_section_group(group_id):
     try:
         group = SectionGroup.query.get_or_404(group_id)
@@ -2852,7 +3171,7 @@ def delete_section_group(group_id):
         page_content = PublicPageContent.query.get_or_404(group.page_content_id)
         website = Website.query.get_or_404(page_content.website_id)
 
-        if website.user_id != current_user.id:
+        if not is_owner(website):
             return jsonify({
                 'success': False,
                 'error': 'Unauthorized.'
@@ -2909,6 +3228,7 @@ def delete_section_group(group_id):
 
 @app.route('/update_section_group/<int:group_id>', methods=['PUT'])
 @login_required
+@require_perm('sections.groups')
 def update_section_group(group_id):
     try:
         group = SectionGroup.query.get_or_404(group_id)
@@ -2994,6 +3314,7 @@ def move_row_to_group(row_id):
 
 @app.route('/update_section_group_order', methods=['POST'])
 @login_required
+@require_perm('sections.groups')
 def update_section_group_order():
     try:
         data = request.get_json()
@@ -3113,9 +3434,13 @@ def update_link_card_section(section, form_data):
 def update_editor_group_and_row_order():
     try:
         data = request.get_json()
-
         group_ids = data.get('group_ids', [])
         rows = data.get('rows', [])
+
+        # Use an IMMEDIATE transaction so SQLite acquires the write lock
+        # upfront — prevents a second concurrent reorder from reading stale
+        # row numbers between our read and write.
+        db.session.execute(db.text("BEGIN IMMEDIATE"))
 
         for index, group_id in enumerate(group_ids, start=1):
             group = SectionGroup.query.get(group_id)
@@ -3125,23 +3450,19 @@ def update_editor_group_and_row_order():
         for row_item in rows:
             row = Row.query.get(row_item.get('row_id'))
             section_group_id = row_item.get('section_group_id')
-
             if row:
                 if not section_group_id:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Rows must belong to a group.'
-                    }), 400
-
+                    db.session.rollback()
+                    return jsonify({'success': False, 'error': 'Rows must belong to a group.'}), 400
                 row.row_number = row_item.get('row_number')
                 row.section_group_id = section_group_id
 
         db.session.commit()
-
         return jsonify({'success': True})
 
     except Exception as e:
-        print(f"Error updating editor order: {e}")
+        db.session.rollback()
+        app.logger.error(f"Error updating editor order: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/add_column', methods=['POST'])
@@ -3179,6 +3500,7 @@ def add_column():
 
 @app.route('/add_row_to_group/<int:page_content_id>/<int:group_id>', methods=['POST'])
 @login_required
+@require_perm('sections.groups')
 def add_row_to_group(page_content_id, group_id):
     try:
         group = SectionGroup.query.get_or_404(group_id)
@@ -3626,7 +3948,7 @@ def two_factor_login(admin_key=None):
     if not user_id:
         return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
 
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
 
     if not user:
         clear_pending_two_factor_code()
@@ -3701,6 +4023,13 @@ def login(admin_key=None):
         user = User.query.filter_by(username=username).first()
 
         if user and user.check_password(password):
+            # Determine whether 2FA is required and which address to use.
+            # Main admins: their own two_factor_enabled flag + their stored email.
+            # Sub-admins: inherit the requirement when their parent has 2FA on;
+            #             code goes to the sub-admin's own account email.
+            needs_2fa = False
+            two_fa_email = None
+
             if user.two_factor_enabled:
                 email_settings = get_email_settings()
                 current_fingerprint = get_email_settings_fingerprint(email_settings)
@@ -3711,12 +4040,20 @@ def login(admin_key=None):
                         reason='email server settings changed',
                         needs_attention=True
                     )
-
                     db.session.commit()
-
                     flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
                     return redirect(request.path)
 
+                needs_2fa = True
+                two_fa_email = user.two_factor_email or user.email
+
+            elif user.is_sub_admin:
+                parent = db.session.get(User, user.parent_user_id)
+                if parent and parent.two_factor_enabled:
+                    needs_2fa = True
+                    two_fa_email = user.email  # always the sub-admin's own email
+
+            if needs_2fa:
                 code = generate_two_factor_code()
                 set_pending_two_factor_code(user.id, code, 'login')
 
@@ -3724,21 +4061,16 @@ def login(admin_key=None):
                 print("========================================")
                 print("UWEBIA 2FA LOGIN CODE")
                 print(f"User: {user.username}")
-                print(f"Email: {user.two_factor_email or user.email}")
+                print(f"Email: {two_fa_email}")
                 print(f"Code: {code}")
                 print("Expires in 10 minutes")
                 print("========================================")
                 print("")
 
                 try:
-                    send_two_factor_email(
-                        user.two_factor_email or user.email,
-                        code,
-                        purpose='login'
-                    )
+                    send_two_factor_email(two_fa_email, code, purpose='login')
                 except Exception as e:
                     clear_pending_two_factor_code()
-
                     flash(f'Could not send 2FA login code: {str(e)}', 'error')
                     return redirect(request.path)
 
@@ -3786,6 +4118,38 @@ from flask_wtf.csrf import generate_csrf
 
 
 @app.context_processor
+def inject_permissions_context():
+    """Make permission helpers available in every template."""
+    def _uperm(key):
+        if not current_user.is_authenticated or not current_user.is_sub_admin:
+            return True
+        return current_user.has_permission(key)
+
+    def _upage(page_id):
+        if not current_user.is_authenticated or not current_user.is_sub_admin:
+            return True
+        return can_access_page(page_id)
+
+    def _usection(section_id):
+        if not current_user.is_authenticated or not current_user.is_sub_admin:
+            return True
+        return can_access_section(section_id)
+
+    def _ufolder(folder_id):
+        if not current_user.is_authenticated or not current_user.is_sub_admin:
+            return True
+        return can_access_folder(folder_id)
+
+    return dict(
+        user_has_perm=_uperm,
+        user_can_access_page=_upage,
+        user_can_access_section=_usection,
+        user_can_access_folder=_ufolder,
+        current_user_is_sub_admin=current_user.is_sub_admin if current_user.is_authenticated else False,
+    )
+
+
+@app.context_processor
 def inject_current_website():
     if not current_user.is_authenticated:
         return {
@@ -3793,7 +4157,7 @@ def inject_current_website():
             'current_website_pages': []
         }
 
-    website = Website.query.filter_by(user_id=current_user.id).first()
+    website = get_admin_website()
 
     if not website:
         return {
@@ -3815,8 +4179,12 @@ def inject_current_website():
 def dashboard():
     user = current_user
 
-    # This currently returns a list because of your model relationship
-    websites = user.websites
+    # Sub-admins share the root admin's website — never show the create-website screen to them
+    if user.is_sub_admin:
+        root = User.query.get(user.root_user_id)
+        websites = root.websites if root else []
+    else:
+        websites = user.websites
 
     # Logic: If they have at least one, has_site is True
     has_site = len(websites) > 0
@@ -4377,6 +4745,7 @@ def save_email_settings():
 
 @app.route('/admin/dashboard/messages')
 @login_required
+@require_perm('messages.view')
 def messages_page():
     status_filter = request.args.get('status', 'all')
     read_filter = request.args.get('read', 'all')
@@ -4481,6 +4850,7 @@ def messages_live():
 
 @app.route('/admin/dashboard/messages/<int:message_id>/delete', methods=['POST'])
 @login_required
+@require_perm('messages.delete')
 def delete_message(message_id):
     msg = ContactMessage.query.get_or_404(message_id)
     db.session.delete(msg)
@@ -4875,7 +5245,7 @@ If you received this, your SMTP settings are working.
 @login_required
 def create_website():
     # Check if a website already exists for this user
-    existing_site = Website.query.filter_by(user_id=current_user.id).first()
+    existing_site = get_admin_website()
 
     if existing_site:
         # You could flash a message or redirect back to their existing site
@@ -4943,6 +5313,7 @@ def public_page_by_slug(page_slug):
 
 @app.route('/create_page/<int:website_id>', methods=['GET', 'POST'])
 @login_required
+@require_perm('pages.create')
 def create_page(website_id):
     website = Website.query.get_or_404(website_id)
     if website.owner.id != current_user.id:
@@ -4978,10 +5349,11 @@ def create_page(website_id):
 
 @app.route('/edit_website/<int:website_id>', methods=['POST'])
 @login_required
+@require_perm('website.edit')
 def edit_website(website_id):
     website = Website.query.get_or_404(website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({
             'status': 'error',
             'message': 'Unauthorized access'
@@ -5025,7 +5397,7 @@ def edit_website(website_id):
 def edit_website_style(website_id):
     website = Website.query.get_or_404(website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({
             'success': False,
             'message': 'Unauthorized access'
@@ -5447,7 +5819,7 @@ def _instantiate_page_template(website_id, template_data, name, description='', 
 @app.route('/admin/page_templates', methods=['GET'])
 @login_required
 def list_page_templates():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     if not website:
         return jsonify({'templates': []})
     templates = PageTemplate.query.filter_by(website_id=website.id).order_by(
@@ -5458,10 +5830,11 @@ def list_page_templates():
 
 @app.route('/admin/page_templates/save/<int:page_id>', methods=['POST'])
 @login_required
+@require_perm('pages.templates')
 def save_page_template(page_id):
     page = PublicPageContent.query.get_or_404(page_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     data = request.get_json()
@@ -5483,9 +5856,10 @@ def save_page_template(page_id):
 
 @app.route('/admin/page_templates/<int:template_id>/delete', methods=['POST'])
 @login_required
+@require_perm('pages.templates')
 def delete_page_template(template_id):
     tmpl = PageTemplate.query.get_or_404(template_id)
-    if Website.query.get_or_404(tmpl.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(tmpl.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
     db.session.delete(tmpl)
     db.session.commit()
@@ -5494,8 +5868,9 @@ def delete_page_template(template_id):
 
 @app.route('/create_page_from_template/<int:website_id>/<int:template_id>', methods=['POST'])
 @login_required
+@require_perm('pages.templates')
 def create_page_from_template(website_id, template_id):
-    website = Website.query.filter_by(id=website_id, user_id=current_user.id).first_or_404()
+    website = Website.query.filter_by(id=website_id, user_id=current_user.root_user_id).first_or_404()
     tmpl = PageTemplate.query.get_or_404(template_id)
     if tmpl.website_id != website.id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
@@ -5533,7 +5908,7 @@ def replace_page(target_page_id, source_page_id):
         target_website = Website.query.get_or_404(target_page.website_id)
         source_website = Website.query.get_or_404(source_page.website_id)
 
-        if target_website.user_id != current_user.id or source_website.user_id != current_user.id:
+        if not is_owner(target_website) or not is_owner(source_website):
             return jsonify({"success": False, "error": "Unauthorized"}), 403
 
         if target_page.id == source_page.id:
@@ -5728,8 +6103,17 @@ def get_pages_for_website(website_id):
 @login_required
 def page_editor(website_id, page_id):
     website = Website.query.get_or_404(website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'status': 'error', 'message': 'Unauthorized access'})
+
+    # Sub-admin page-level access check
+    if current_user.is_sub_admin:
+        if not current_user.has_permission('pages.edit'):
+            flash(_perm_label('pages.edit') + ' — you don\'t have access to the page editor.', 'permission_denied')
+            return redirect(url_for('dashboard'))
+        if not can_access_page(page_id):
+            flash('You don\'t have access to this specific page. Ask your admin to grant access.', 'permission_denied')
+            return redirect(url_for('dashboard'))
 
     content = PublicPageContent.query.get_or_404(page_id)
     if content.website_id != website.id:
@@ -5751,6 +6135,36 @@ def page_editor(website_id, page_id):
 
     ai_agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.name).all()
 
+    # Resolve accessible section and group IDs for sub-admins.
+    # Page-level grant → null (all accessible). Otherwise merge explicit + derived grants.
+    resolved_section_ids = None
+    resolved_group_ids   = None
+    if current_user.is_sub_admin:
+        perms = current_user.permissions or {}
+        allowed_sections = perms.get('sections.allowed_ids')
+        allowed_groups   = perms.get('groups.allowed_ids')
+        allowed_pages    = perms.get('pages.allowed_ids')
+        if allowed_sections is not None or allowed_groups is not None or allowed_pages is not None:
+            # Page-level grant covers everything on this page
+            if allowed_pages is not None and page_id in allowed_pages:
+                resolved_section_ids = None   # null = all sections unlocked
+                resolved_group_ids   = None   # null = all groups unlocked
+            else:
+                # Sections: union of direct grants + group-expanded grants
+                sec_resolved = set(allowed_sections or [])
+                # Groups: union of explicit grants + groups that contain a granted section
+                grp_resolved = set(allowed_groups or [])
+                for s in sections:
+                    if s.column and s.column.row:
+                        g_id = s.column.row.section_group_id
+                        if g_id is not None:
+                            if allowed_groups and g_id in allowed_groups:
+                                sec_resolved.add(s.id)
+                            if allowed_sections and s.id in allowed_sections:
+                                grp_resolved.add(g_id)
+                resolved_section_ids = list(sec_resolved)
+                resolved_group_ids   = list(grp_resolved)
+
     return render_template(
         'page_editor.html',
         site_active_status=site_active_status,
@@ -5760,11 +6174,14 @@ def page_editor(website_id, page_id):
         page_content=content,
         navbar_pages=navbar_pages,
         ai_agents=ai_agents,
+        resolved_section_ids=resolved_section_ids,
+        resolved_group_ids=resolved_group_ids,
     )
 
 
 @app.route('/delete_page/<int:website_id>/<int:page_id>', methods=['POST'])
 @login_required
+@require_perm('pages.delete')
 def delete_page(website_id, page_id):
     page = PublicPageContent.query.filter_by(id=page_id, website_id=website_id).first()
     if page:
@@ -5773,7 +6190,7 @@ def delete_page(website_id, page_id):
                 'error': 'The root page cannot be deleted. Use Replace Page to change its content or edit it directly.'
             }), 400
         # Check if the user owns the website
-        website = Website.query.filter_by(id=website_id, user_id=current_user.id).first()
+        website = Website.query.filter_by(id=website_id, user_id=current_user.root_user_id).first()
         if website:
             try:
                 # Delete all associated rows and columns
@@ -5797,7 +6214,7 @@ def delete_page(website_id, page_id):
 @app.route('/delete_website/<int:website_id>', methods=['POST'])
 @login_required
 def delete_website(website_id):
-    website = Website.query.filter_by(id=website_id, user_id=current_user.id).first()
+    website = Website.query.filter_by(id=website_id, user_id=current_user.root_user_id).first()
     if website:
         try:
             # Delete all pages associated with the website
@@ -5840,6 +6257,7 @@ def swap_section_positions(first_section_id, second_section_id):
 
 @app.route('/update_section_position/<int:section_id>', methods=['PUT'])
 @login_required
+@require_perm('sections.edit')
 def update_section_position(section_id):
     data = request.get_json()
     column_id = data.get('columnId')
@@ -5900,7 +6318,7 @@ def move_or_swap_section(section_id):
         page = PublicPageContent.query.get_or_404(section.page_content_id)
         website = Website.query.get_or_404(page.website_id)
 
-        if website.user_id != current_user.id:
+        if not is_owner(website):
             return jsonify({
                 'success': False,
                 'error': 'Unauthorized.'
@@ -6069,7 +6487,7 @@ def get_sections(page_content_id):
     website = content.website
 
     # Check if the current user is authorized to modify this page
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 403
     # Query PageSection objects filtered by page_content_id and sort them by order number
     sections = PageSection.query.filter_by(page_content_id=page_content_id).order_by(PageSection.order).all()
@@ -6084,13 +6502,14 @@ def get_sections(page_content_id):
 
 @app.route('/page/<int:page_id>/add_section', methods=['POST'])
 @login_required
+@require_perm('sections.create')
 def add_section(page_id):
     # Query the PublicPageContent to ensure it exists and to get the website
     content = PublicPageContent.query.get_or_404(page_id)
     website = content.website
 
     # Check if the current user is authorized to modify this page
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 403
     data = request.json
 
@@ -6165,7 +6584,8 @@ def add_row_above(row_id):
         # Create a new row at the original position of the current row
         new_row = Row(
             page_content_id=current_row.page_content_id,
-            row_number=current_row_number
+            row_number=current_row_number,
+            section_group_id=current_row.section_group_id
         )
         db.session.add(new_row)
         db.session.flush()  # Flush to get the new_row ID
@@ -6190,8 +6610,41 @@ def add_row_above(row_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/add_row_below/<int:row_id>', methods=['POST'])
+@login_required
+def add_row_below(row_id):
+    try:
+        current_row = Row.query.get_or_404(row_id)
+        insert_at = current_row.row_number + 1
+
+        rows_to_increment = Row.query.filter(
+            Row.page_content_id == current_row.page_content_id,
+            Row.row_number >= insert_at
+        ).order_by(Row.row_number.asc()).all()
+
+        for row in rows_to_increment:
+            row.row_number += 1
+
+        new_row = Row(
+            page_content_id=current_row.page_content_id,
+            row_number=insert_at,
+            section_group_id=current_row.section_group_id
+        )
+        db.session.add(new_row)
+        db.session.flush()
+
+        new_column = Column(row_id=new_row.id, column_number=1, width=100)
+        db.session.add(new_column)
+        db.session.commit()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/page/<int:page_id>/remove_section/<int:section_id>', methods=['DELETE'])
 @login_required
+@require_perm('sections.delete')
 def remove_section(page_id, section_id):
     section = PageSection.query.get_or_404(section_id)
     removed_order = section.order
@@ -6227,6 +6680,7 @@ def reorder_sections(page_id):
 # Route to handle updating section order
 @app.route('/update_section_order', methods=['POST'])
 @login_required
+@require_perm('sections.edit')
 def update_section_order():
     section_id = request.args.get('section_id')
     new_order = request.args.get('new_order')
@@ -6603,7 +7057,7 @@ def update_public_images():
 #         page = PublicPageContent.query.get_or_404(section.page_content_id)
 #         website = Website.query.get_or_404(page.website_id)
 #
-#         if website.user_id != current_user.id:
+#         if not is_owner(website):
 #             return jsonify({
 #                 'success': False,
 #                 'error': 'Unauthorized.'
@@ -7168,6 +7622,7 @@ def update_youtube_video():
 
 @app.route('/update_page_header', methods=['POST'])
 @login_required
+@require_perm('pages.edit')
 def update_page_header():
     if not session.get('logged_in'):
         return jsonify({'status': 'error', 'message': 'Unauthorized'})
@@ -7188,6 +7643,7 @@ def update_page_header():
 
 @app.route('/update_page_body', methods=['POST'])
 @login_required
+@require_perm('pages.edit')
 def update_page_body():
     if not session.get('logged_in'):
         return jsonify({'status': 'error', 'message': 'Unauthorized'})
@@ -7661,42 +8117,56 @@ def lookup_ip_location(ip_address):
         return {}
 
 def track_page_visit(website, page, visitor_id):
-    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+    import threading
 
+    # Capture request values now — they won't be accessible from a background thread
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
     if ip_address and ',' in ip_address:
         ip_address = ip_address.split(',')[0].strip()
 
-    location = lookup_ip_location_for_website(website, ip_address)
-    print("Tracking visit IP:", ip_address)
-    print("GeoIP location:", location)
+    path      = request.path
+    referrer  = request.referrer
+    ua        = request.headers.get('User-Agent')
+    website_id = website.id
+    page_id    = page.id
 
-    visit = PageVisit(
-        website_id=website.id,
-        page_id=page.id,
-        visitor_id=visitor_id,
-        path=request.path,
-        referrer=request.referrer,
-        user_agent=request.headers.get('User-Agent'),
-        ip_address=ip_address,
+    def _do_track():
+        with app.app_context():
+            try:
+                # Look up the website again inside the new context
+                _website = Website.query.get(website_id)
+                location = lookup_ip_location_for_website(_website, ip_address) if _website else {}
+                visit = PageVisit(
+                    website_id=website_id,
+                    page_id=page_id,
+                    visitor_id=visitor_id,
+                    path=path,
+                    referrer=referrer,
+                    user_agent=ua,
+                    ip_address=ip_address,
+                    country=location.get('country'),
+                    country_iso=location.get('country_iso'),
+                    region=location.get('region'),
+                    city=location.get('city'),
+                    latitude=location.get('latitude'),
+                    longitude=location.get('longitude'),
+                    location_source=location.get('location_source'),
+                    asn_number=location.get('asn_number'),
+                    asn_organization=location.get('asn_organization'),
+                    geoip_database_type=location.get('geoip_database_type')
+                )
+                db.session.add(visit)
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f'track_page_visit background error: {e}')
 
-        country=location.get('country'),
-        country_iso=location.get('country_iso'),
-        region=location.get('region'),
-        city=location.get('city'),
-        latitude=location.get('latitude'),
-        longitude=location.get('longitude'),
-        location_source=location.get('location_source'),
-
-        asn_number=location.get('asn_number'),
-        asn_organization=location.get('asn_organization'),
-        geoip_database_type=location.get('geoip_database_type')
-    )
-
-    db.session.add(visit)
-    db.session.commit()
+    t = threading.Thread(target=_do_track, daemon=True)
+    t.start()
 
 @app.route('/admin/dashboard/settings', methods=['GET', 'POST'])
 @login_required
+@require_perm('settings.view')
 def settings_page():
     timezone_choices = pytz.common_timezones
 
@@ -7914,7 +8384,11 @@ def render_public_page(website, page, is_preview=False):
         'page_id': page.id,
         'page_slug': page.slug,
         'current_page_url': url_for('public_page_by_slug', page_slug=page.slug),
-        'sections': [section.to_dict() for section in sections],
+        'sections': [
+            {**s.to_dict(),
+             'custom_code': _scope_section_css(s.custom_code, s.id) if s.custom_code else ''}
+            for s in sections if s.column and s.column.row
+        ],
         'groups': [
     {
         'id': group.id,
@@ -8035,7 +8509,7 @@ def track_asset_play(asset_id):
 @app.route('/admin/dashboard/analytics/geoip/backfill', methods=['POST'])
 @login_required
 def backfill_geoip_locations():
-    websites = Website.query.filter_by(user_id=current_user.id).all()
+    websites = Website.query.filter_by(user_id=current_user.root_user_id).all()
     website_ids = [website.id for website in websites]
 
     if not website_ids:
@@ -8088,7 +8562,7 @@ def backfill_geoip_locations():
 @app.route('/admin/dashboard/analytics')
 @login_required
 def analytics_page():
-    websites = Website.query.filter_by(user_id=current_user.id).all()
+    websites = Website.query.filter_by(user_id=current_user.root_user_id).all()
 
     website_ids = [website.id for website in websites]
     csrf_token = generate_csrf()
@@ -8384,7 +8858,7 @@ def public_page(website_id, page_id):
 # def preview_page(website_id, page_id):
 #     # Use db.session.get for SQLAlchemy 2.0 compatibility
 #     website = db.session.get(Website, website_id)
-#     if not website or website.user_id != current_user.id:
+#     if not website or not is_owner(website):
 #         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 #
 #     content = PublicPageContent.query.filter_by(website_id=website_id, id=page_id).first()
@@ -8467,7 +8941,7 @@ def public_page(website_id, page_id):
 def preview_page(website_id, page_id):
     website = db.session.get(Website, website_id)
 
-    if not website or website.user_id != current_user.id:
+    if not website or not is_owner(website):
         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 
     page = PublicPageContent.query.filter_by(
@@ -8580,7 +9054,7 @@ def update_map_section(section, form_data):
 def preview_navbar(website_id):
     website = db.session.get(Website, website_id)
 
-    if not website or website.user_id != current_user.id:
+    if not website or not is_owner(website):
         return jsonify({'status': 'error', 'message': 'Unauthorized access'}), 404
 
     return render_template(
@@ -8684,10 +9158,11 @@ def update_contact_section(section, form_data):
 
 @app.route('/edit_public_navbar/<int:website_id>', methods=['POST'])
 @login_required
+@require_perm('appearance.navbar')
 def edit_public_navbar(website_id):
     website = Website.query.get_or_404(website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({
             'success': False,
             'message': 'Unauthorized access'
@@ -8718,10 +9193,11 @@ def update_navbar_section(section, form_data):
 
 @app.route('/edit_public_navbar_style/<int:website_id>', methods=['POST'])
 @login_required
+@require_perm('appearance.navbar')
 def edit_public_navbar_style(website_id):
     website = Website.query.get_or_404(website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
 
     data = request.get_json() or {}
@@ -8776,10 +9252,11 @@ def edit_public_navbar_style(website_id):
 
 @app.route('/upload_public_navbar_icon/<int:website_id>', methods=['POST'])
 @login_required
+@require_perm('appearance.navbar')
 def upload_public_navbar_icon(website_id):
     website = Website.query.get_or_404(website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
 
     if 'icon' not in request.files:
@@ -8910,6 +9387,7 @@ def update_calendar_section(section, form_data):
 
 @app.route('/update_section', methods=['POST'])
 @login_required
+@require_perm('sections.edit')
 def update_section():
     section_id = request.form.get('section_id')
     section_type = request.form.get('section_type')
@@ -8921,6 +9399,9 @@ def update_section():
     section = PageSection.query.get(section_id)
     if section is None:
         return jsonify({'status': 'error', 'message': 'Failed to update section'})
+
+    # Version is tracked but not enforced here — the save flow has multiple
+    # concurrent callers (bulk save button, auto-save) that would false-positive.
 
     form_data = request.form
 
@@ -8957,8 +9438,11 @@ def update_section():
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
+    section.version = (section.version or 0) + 1
+    section.updated_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({'status': 'success', 'message': f'{section_type} section updated'})
+    return jsonify({'status': 'success', 'message': f'{section_type} section updated',
+                    'version': section.version})
 
 
 @app.route('/toggle_public_page', methods=['POST'])
@@ -8971,7 +9455,7 @@ def toggle_public_page():
     print("Publish WEBSITE ID: ", website_id, " PAGE ID: ", page_id)
 
     # Verify the user owns the website
-    website = Website.query.filter_by(id=website_id, user_id=current_user.id).first()
+    website = Website.query.filter_by(id=website_id, user_id=current_user.root_user_id).first()
 
     if not website:
         return jsonify({'status': 'error', 'message': 'Unauthorized or invalid website ID'})
@@ -9322,7 +9806,7 @@ def calendar_subscriber_count(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
     website = Website.query.get_or_404(calendar.website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     active_7_days = get_calendar_active_subscriber_count(calendar_id, days=7)
@@ -9580,6 +10064,46 @@ def sync_all_stale_subscriptions(calendar):
             sync_subscription(sub)
 
 
+_sync_scheduler_started = False
+
+def _start_subscription_sync_scheduler():
+    """Start a background daemon thread that syncs all stale external calendar
+    subscriptions every 15 minutes, independent of web traffic."""
+    import threading
+    import time
+
+    global _sync_scheduler_started
+    if _sync_scheduler_started:
+        return
+    _sync_scheduler_started = True
+
+    def _loop():
+        # Short initial delay so the server finishes starting before the first sync.
+        time.sleep(60)
+        while True:
+            try:
+                with app.app_context():
+                    cutoff = datetime.utcnow() - timedelta(minutes=15)
+                    stale = CalendarSubscription.query.filter(
+                        or_(
+                            CalendarSubscription.last_synced_at == None,
+                            CalendarSubscription.last_synced_at < cutoff
+                        )
+                    ).all()
+                    for sub in stale:
+                        try:
+                            sync_subscription(sub)
+                        except Exception as sub_err:
+                            print(f"[calendar sync] subscription {sub.id} error: {sub_err}")
+            except Exception as loop_err:
+                print(f"[calendar sync] scheduler error: {loop_err}")
+            time.sleep(900)  # 15 minutes
+
+    t = threading.Thread(target=_loop, daemon=True, name='calendar-sub-sync')
+    t.start()
+    print("[calendar sync] background sync scheduler started (interval: 15 min)")
+
+
 @app.route('/calendar/<int:calendar_id>/events', methods=['GET'])
 def get_calendar_events_public(calendar_id):
     cal = Calendar.query.get_or_404(calendar_id)
@@ -9591,9 +10115,10 @@ def get_calendar_events_public(calendar_id):
 
 @app.route('/admin/calendars/<int:calendar_id>/subscriptions', methods=['POST'])
 @login_required
+@require_perm('calendars.subscriptions')
 def add_calendar_subscription(calendar_id):
     cal = Calendar.query.get_or_404(calendar_id)
-    if Website.query.get_or_404(cal.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(cal.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     data = request.get_json()
@@ -9617,7 +10142,7 @@ def add_calendar_subscription(calendar_id):
 @login_required
 def sync_one_subscription(calendar_id, sub_id):
     sub = CalendarSubscription.query.filter_by(id=sub_id, calendar_id=calendar_id).first_or_404()
-    if Website.query.get_or_404(sub.calendar.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(sub.calendar.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     result = sync_subscription(sub)
@@ -9628,9 +10153,10 @@ def sync_one_subscription(calendar_id, sub_id):
 
 @app.route('/admin/calendars/<int:calendar_id>/subscriptions/<int:sub_id>/delete', methods=['POST'])
 @login_required
+@require_perm('calendars.subscriptions')
 def delete_calendar_subscription(calendar_id, sub_id):
     sub = CalendarSubscription.query.filter_by(id=sub_id, calendar_id=calendar_id).first_or_404()
-    if Website.query.get_or_404(sub.calendar.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(sub.calendar.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     CalendarEvent.query.filter_by(subscription_id=sub_id).delete()
@@ -9643,7 +10169,7 @@ def delete_calendar_subscription(calendar_id, sub_id):
 @login_required
 def sync_calendar_now(calendar_id):
     cal = Calendar.query.get_or_404(calendar_id)
-    if Website.query.get_or_404(cal.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(cal.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     results = []
@@ -9663,7 +10189,7 @@ def _parse_calendar_styles(raw):
 @app.route('/admin/calendars/list', methods=['GET'])
 @login_required
 def list_calendars():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     if not website:
         return jsonify({'calendars': []})
     calendars = Calendar.query.filter_by(website_id=website.id).order_by(Calendar.created_at.desc()).all()
@@ -9673,7 +10199,7 @@ def list_calendars():
 @app.route('/admin/ai-agents')
 @login_required
 def ai_agents_page():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.created_at).all() if website else []
     current_website = website
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
@@ -9685,10 +10211,236 @@ def ai_agents_page():
                            page_id=None)
 
 
+# ── Admin Users ───────────────────────────────────────────────────────────────
+
+ADMIN_PERMISSIONS = {
+    'website': {'label': 'Website', 'actions': {
+        'edit': 'Edit website name, description & tags',
+    }},
+    'pages': {'label': 'Pages', 'actions': {
+        'view':      'View pages list',
+        'edit':      'Open page editor',
+        'create':    'Create new pages',
+        'delete':    'Delete pages',
+        'publish':   'Publish / unpublish pages',
+        'templates': 'Save & apply page templates',
+    }},
+    'sections': {'label': 'Sections & Groups', 'actions': {
+        'edit':      'Edit section content',
+        'create':    'Add new sections',
+        'delete':    'Delete sections',
+        'reorder':   'Drag & reorder sections / rows',
+        'groups':    'Create, style & manage section groups',
+        'templates': 'Save & apply section templates',
+    }},
+    'appearance': {'label': 'Appearance', 'actions': {
+        'background': 'Change background color / image',
+        'navbar':     'Edit navbar links & style',
+        'colors':     'Use saved color palette',
+        'page_code':  'Use page-level code editor',
+    }},
+    'code': {'label': 'Code', 'actions': {
+        'sections': 'Edit code sections (full HTML/CSS/JS)',
+        'tweaks':   'Use per-section code tweaks',
+        'ai':       'Use AI to generate / modify code',
+    }},
+    'assets': {'label': 'Asset Library', 'actions': {
+        'view':        'View assets',
+        'upload':      'Upload files',
+        'delete':      'Delete assets',
+        'folders':     'Create & manage folders',
+        'ai_generate': 'Generate images with AI',
+        'download':    'Download original files',
+    }},
+    'calendars': {'label': 'Calendars', 'actions': {
+        'view':          'View calendars',
+        'create':        'Create calendars',
+        'edit':          'Edit calendars & subscriptions',
+        'delete':        'Delete calendars',
+        'events':        'Create, edit & delete events',
+        'subscriptions': 'Manage external calendar feeds',
+    }},
+    'forum': {'label': 'Forum', 'actions': {
+        'view':          'View forum admin page',
+        'settings':      'Edit forum settings',
+        'moderate':      'Approve & reject threads / replies',
+        'delete_posts':  'Delete threads & replies',
+        'manage_users':  'Moderate forum users (ban, verify, etc.)',
+    }},
+    'comments': {'label': 'Page Comments', 'actions': {
+        'view':     'View page comments',
+        'moderate': 'Approve & reject comments',
+        'delete':   'Delete comments',
+    }},
+    'messages': {'label': 'Contact Messages', 'actions': {
+        'view':   'View contact form messages',
+        'delete': 'Delete messages',
+    }},
+    'ai_agents': {'label': 'AI Agents', 'actions': {
+        'view':   'View agents',
+        'create': 'Create agents',
+        'edit':   'Edit agents & API keys',
+        'delete': 'Delete agents',
+        'chat':   'Chat with agents',
+        'use':    'Use agents for code & image generation',
+    }},
+    'analytics': {'label': 'Analytics', 'actions': {
+        'view':   'View analytics dashboard & visitor stats',
+        'export': 'Export analytics data',
+    }},
+    'settings': {'label': 'Site Settings', 'actions': {
+        'view':    'View site settings',
+        'edit':    'Edit general settings',
+        'email':   'Edit email server settings',
+        '2fa':     'Manage two-factor authentication',
+    }},
+    'templates': {'label': 'Templates', 'actions': {
+        'view':   'View saved templates',
+        'create': 'Save new templates',
+        'delete': 'Delete templates',
+    }},
+    'admin_users': {'label': 'Admin Users', 'actions': {
+        'view':   'View admin users',
+        'create': 'Create admin users',
+        'edit':   'Edit admin users & permissions',
+        'delete': 'Delete admin users',
+    }},
+}
+
+
+@app.route('/admin/users')
+@login_required
+def admin_users_page():
+    if current_user.is_sub_admin:
+        if not current_user.has_permission('admin_users.view'):
+            return jsonify({'error': 'Permission denied'}), 403
+    sub_admins = User.query.filter_by(parent_user_id=current_user.root_user_id).all()
+    website = get_admin_website()
+    # Pass all pages, sections, and folders so the main admin can assign access
+    all_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.name).all() if website else []
+    all_sections = []
+    for page in all_pages:
+        for s in PageSection.query.filter_by(page_content_id=page.id).all():
+            if s.column and s.column.row:
+                all_sections.append({
+                    'id': s.id,
+                    'page_id': page.id,
+                    'page_name': page.name,
+                    'label': s.label or s.section_type,
+                    'type': s.section_type,
+                })
+    root_user_id = current_user.root_user_id
+    all_folders = AssetFolder.query.filter_by(user_id=root_user_id).order_by(AssetFolder.name).all()
+    # Build section groups with their page name and section list
+    all_groups_raw = SectionGroup.query.filter(
+        SectionGroup.page_content_id.in_([p.id for p in all_pages])
+    ).order_by(SectionGroup.group_order).all() if all_pages else []
+    page_name_map = {p.id: p.name for p in all_pages}
+    all_groups = []
+    for g in all_groups_raw:
+        # Collect section IDs that belong to this group via rows
+        group_rows = Row.query.filter_by(section_group_id=g.id).all()
+        section_ids = []
+        for row in group_rows:
+            for col in row.columns:
+                if col.section_id:
+                    section_ids.append(col.section_id)
+        all_groups.append({
+            'id': g.id,
+            'name': g.name or 'Section Group',
+            'page_id': g.page_content_id,
+            'page_name': page_name_map.get(g.page_content_id, ''),
+            'section_ids': section_ids,
+        })
+    return render_template('admin_users.html',
+                           sub_admins=sub_admins,
+                           permissions_schema=ADMIN_PERMISSIONS,
+                           all_pages=[{'id': p.id, 'name': p.name, 'slug': p.slug} for p in all_pages],
+                           all_sections=all_sections,
+                           all_folders=[{'id': f.id, 'name': f.name, 'asset_type': f.asset_type} for f in all_folders],
+                           all_groups=all_groups,
+                           current_website=website,
+                           page_id=None)
+
+
+@app.route('/admin/users/create', methods=['POST'])
+@login_required
+def create_admin_user():
+    if current_user.is_sub_admin and not current_user.has_permission('admin_users.create'):
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    data     = request.get_json() or {}
+    username = (data.get('username') or '').strip().lower()
+    email    = (data.get('email') or '').strip().lower()
+    password = (data.get('password') or '').strip()
+    perms    = data.get('permissions') or {}
+    if not username or not email or not password:
+        return _utf8_json({'success': False, 'error': 'Username, email and password are required'}, 400)
+    if len(password) < 8:
+        return _utf8_json({'success': False, 'error': 'Password must be at least 8 characters'}, 400)
+    if User.query.filter_by(username=username).first():
+        return _utf8_json({'success': False, 'error': 'Username already taken'}, 400)
+    if User.query.filter_by(email=email).first():
+        return _utf8_json({'success': False, 'error': 'Email already in use'}, 400)
+    sub = User(
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password),
+        parent_user_id=current_user.root_user_id,
+        permissions=perms,
+        _is_active=True,
+    )
+    db.session.add(sub)
+    db.session.commit()
+    return _utf8_json({'success': True, 'user': {'id': sub.id, 'username': sub.username, 'email': sub.email}}, 201)
+
+
+@app.route('/admin/users/<int:user_id>/update', methods=['POST'])
+@login_required
+def update_admin_user(user_id):
+    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    sub = User.query.get_or_404(user_id)
+    if sub.parent_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data     = request.get_json() or {}
+    email    = (data.get('email') or '').strip().lower()
+    password = (data.get('password') or '').strip()
+    perms    = data.get('permissions')
+    active   = data.get('active')
+    if email and email != sub.email:
+        if User.query.filter(User.email == email, User.id != sub.id).first():
+            return _utf8_json({'success': False, 'error': 'Email already in use'}, 400)
+        sub.email = email
+    if password:
+        if len(password) < 8:
+            return _utf8_json({'success': False, 'error': 'Password must be at least 8 characters'}, 400)
+        sub.password_hash = generate_password_hash(password)
+    if perms is not None:
+        sub.permissions = perms
+    if active is not None:
+        sub._is_active = bool(active)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def delete_admin_user(user_id):
+    if current_user.is_sub_admin and not current_user.has_permission('admin_users.delete'):
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    sub = User.query.get_or_404(user_id)
+    if sub.parent_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    db.session.delete(sub)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 @app.route('/admin/ai-agents/list')
 @login_required
 def list_ai_agents():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     if not website:
         return jsonify({'agents': []})
     agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.created_at).all()
@@ -9697,8 +10449,9 @@ def list_ai_agents():
 
 @app.route('/admin/ai-agents/create', methods=['POST'])
 @login_required
+@require_perm('ai_agents.create')
 def create_ai_agent():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     if not website:
         return jsonify({'success': False, 'error': 'No website found'}), 400
     data = request.get_json()
@@ -9726,9 +10479,10 @@ def create_ai_agent():
 
 @app.route('/admin/ai-agents/<int:agent_id>/update', methods=['POST'])
 @login_required
+@require_perm('ai_agents.edit')
 def update_ai_agent(agent_id):
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
     data = request.get_json()
     name = (data.get('name') or '').strip()
@@ -9750,13 +10504,95 @@ def update_ai_agent(agent_id):
 
 @app.route('/admin/ai-agents/<int:agent_id>/delete', methods=['POST'])
 @login_required
+@require_perm('ai_agents.delete')
 def delete_ai_agent(agent_id):
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
     db.session.delete(agent)
     db.session.commit()
     return jsonify({'success': True})
+
+
+def _scope_section_css(html: str, section_id: int) -> str:
+    """
+    Find every <style> block in html and prefix all CSS selectors with
+    #section-{section_id} so they only affect that section.
+    At-rules (@keyframes, @font-face, @import) are left untouched.
+    @media/@supports blocks have their inner rules scoped.
+    """
+    import re
+
+    prefix = f'#section-{section_id}'
+
+    def scope_rule(selector_text: str) -> str:
+        """Add prefix to each comma-separated selector, skipping at-rules and :root/html/body."""
+        stripped = selector_text.strip()
+        if not stripped or stripped.startswith('@'):
+            return selector_text
+        parts = []
+        for sel in stripped.split(','):
+            sel = sel.strip()
+            if not sel:
+                continue
+            # Don't double-scope, and don't touch :root / html / body rules
+            if sel.startswith(prefix) or sel.lower() in (':root', 'html', 'body'):
+                parts.append(sel)
+            else:
+                parts.append(f'{prefix} {sel}')
+        return ', '.join(parts)
+
+    def scope_css_block(css: str) -> str:
+        """Scope all rules in a CSS text block."""
+        result = []
+        i = 0
+        while i < len(css):
+            # Find next { or end
+            brace = css.find('{', i)
+            if brace == -1:
+                result.append(css[i:])
+                break
+            selector_part = css[i:brace]
+            stripped = selector_part.strip()
+            # At-rule with nested block (@media, @supports, @keyframes, @layer)
+            if stripped.startswith('@'):
+                close = _find_matching_brace(css, brace)
+                inner = css[brace + 1:close]
+                at_keyword = stripped.split('(')[0].strip().lower()
+                # @keyframes and @font-face: don't scope inner rules
+                if any(at_keyword.startswith(k) for k in ('@keyframes', '@-webkit-keyframes', '@font-face')):
+                    result.append(selector_part + '{' + inner + '}')
+                else:
+                    result.append(selector_part + '{' + scope_css_block(inner) + '}')
+                i = close + 1
+            else:
+                close = css.find('}', brace)
+                if close == -1:
+                    result.append(scope_rule(selector_part) + '{' + css[brace + 1:])
+                    break
+                declarations = css[brace + 1:close]
+                result.append(scope_rule(selector_part) + '{' + declarations + '}')
+                i = close + 1
+        return ''.join(result)
+
+    def _find_matching_brace(s: str, open_pos: int) -> int:
+        depth = 0
+        for idx in range(open_pos, len(s)):
+            if s[idx] == '{':
+                depth += 1
+            elif s[idx] == '}':
+                depth -= 1
+                if depth == 0:
+                    return idx
+        return len(s) - 1
+
+    def replace_style_block(m):
+        attrs = m.group(1) or ''
+        css   = m.group(2)
+        return f'<style{attrs}>{scope_css_block(css)}</style>'
+
+    return re.sub(r'<style([^>]*)>([\s\S]*?)</style>', replace_style_block, html,
+                  flags=re.IGNORECASE)
 
 
 def _strip_code_fences(text):
@@ -9782,29 +10618,274 @@ def _strip_code_fences(text):
 
 @app.route('/section/<int:section_id>/save_code', methods=['POST'])
 @login_required
+@require_perm('code.sections')
 def save_code_section(section_id):
     try:
         section = PageSection.query.get_or_404(section_id)
         page = PublicPageContent.query.get_or_404(section.page_content_id)
         website = Website.query.get_or_404(page.website_id)
-        if website.user_id != current_user.id:
+        if not is_owner(website):
             return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
         data = request.get_json(force=True, silent=True) or {}
         code = data.get('code', '')
         agent_id = data.get('agent_id')
+        client_version = data.get('version')
 
         # Full assignment + flag_modified ensures SQLAlchemy detects the JSON change
         from sqlalchemy.orm.attributes import flag_modified
         section.content = {'code': code, 'agent_id': agent_id}
         flag_modified(section, 'content')
+        section.version = (section.version or 0) + 1
+        section.updated_at = datetime.utcnow()
         db.session.commit()
 
         app.logger.info(f'save_code_section {section_id}: saved {len(code)} chars, agent={agent_id}')
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'version': section.version})
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'save_code_section {section_id} error: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/section_templates/grouped', methods=['GET'])
+@login_required
+def section_templates_grouped():
+    website = get_admin_website()
+    if not website:
+        return jsonify({'grouped': {}})
+    templates = SectionTemplate.query.filter_by(website_id=website.id).order_by(
+        SectionTemplate.section_type, SectionTemplate.name).all()
+    grouped = {}
+    for t in templates:
+        grouped.setdefault(t.section_type, []).append(
+            {'id': t.id, 'name': t.name, 'section_type': t.section_type})
+    return jsonify({'grouped': grouped})
+
+
+@app.route('/admin/section/<int:section_id>/save_as_template', methods=['POST'])
+@login_required
+@require_perm('sections.templates')
+def save_section_as_template(section_id):
+    section = PageSection.query.get_or_404(section_id)
+    page    = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+    if not is_owner(website):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json() or {}
+    name = (data.get('name') or section.label or section.section_type).strip()
+    tmpl = SectionTemplate(
+        website_id=website.id,
+        name=name,
+        section_type=section.section_type,
+        content=section.content,
+        custom_code=section.custom_code,
+    )
+    db.session.add(tmpl)
+    db.session.commit()
+    return jsonify({'success': True, 'template': tmpl.to_dict()}), 201
+
+
+@app.route('/admin/section_templates/<int:template_id>/rename', methods=['POST'])
+@login_required
+@require_perm('sections.templates')
+def rename_section_template(template_id):
+    tmpl = SectionTemplate.query.get_or_404(template_id)
+    if Website.query.get_or_404(tmpl.website_id).user_id != current_user.root_user_id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name cannot be empty'}), 400
+    tmpl.name = name
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/section_templates/<int:template_id>/delete', methods=['POST'])
+@login_required
+@require_perm('sections.templates')
+def delete_section_template(template_id):
+    tmpl = SectionTemplate.query.get_or_404(template_id)
+    if Website.query.get_or_404(tmpl.website_id).user_id != current_user.root_user_id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    db.session.delete(tmpl)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/section_template/<int:template_id>/apply', methods=['POST'])
+@login_required
+@require_perm('sections.templates')
+def apply_section_template(template_id):
+    tmpl    = SectionTemplate.query.get_or_404(template_id)
+    website = Website.query.get_or_404(tmpl.website_id)
+    if not is_owner(website):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data      = request.get_json() or {}
+    page_id   = data.get('page_id')
+    row_id    = data.get('row_id')
+    column_id = data.get('column_id')
+    page = PublicPageContent.query.get_or_404(page_id)
+    if Website.query.get_or_404(page.website_id).user_id != current_user.root_user_id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    column = Column.query.get_or_404(column_id)
+    section = PageSection(
+        section_type=tmpl.section_type,
+        order=1,
+        content=tmpl.content,
+        custom_code=tmpl.custom_code,
+        label=tmpl.name,
+        page_content_id=page.id,
+        column=column,
+    )
+    db.session.add(section)
+    db.session.commit()
+    return jsonify({'success': True, 'section_id': section.id})
+
+
+@app.route('/section/<int:section_id>/save_label', methods=['POST'])
+@login_required
+@require_perm('sections.edit')
+def save_section_label(section_id):
+    section = PageSection.query.get_or_404(section_id)
+    page    = PublicPageContent.query.get_or_404(section.page_content_id)
+    if Website.query.get_or_404(page.website_id).user_id != current_user.root_user_id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    section.label = (data.get('label') or '').strip() or None
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/section/<int:section_id>/rendered_html')
+@login_required
+def section_rendered_html(section_id):
+    from bs4 import BeautifulSoup
+    section = PageSection.query.get_or_404(section_id)
+    page    = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    try:
+        response  = render_public_page(website, page, is_preview=True)
+        full_html = response.get_data(as_text=True)
+        soup      = BeautifulSoup(full_html, 'html.parser')
+        el        = soup.find(id=f'section-{section_id}')
+        snippet   = el.decode_contents().strip() if el else '(section not found in rendered page)'
+    except Exception as e:
+        snippet = f'(render error: {e})'
+    return _utf8_json({'success': True, 'html': snippet})
+
+
+@app.route('/admin/section/<int:section_id>/ai_assist_tweaks', methods=['POST'])
+@login_required
+@require_perm('code.ai')
+def ai_assist_section_tweaks(section_id):
+    from bs4 import BeautifulSoup
+    section = PageSection.query.get_or_404(section_id)
+    page    = PublicPageContent.query.get_or_404(section.page_content_id)
+    website = Website.query.get_or_404(page.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    data         = request.get_json() or {}
+    agent_id     = data.get('agent_id')
+    prompt       = (data.get('prompt') or '').strip()
+    current_code = (data.get('current_code') or '').strip()
+
+    if not agent_id:
+        return _utf8_json({'success': False, 'error': 'No agent selected'}, 400)
+    if not prompt:
+        return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
+
+    agent = AIAgent.query.get_or_404(agent_id)
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    # Get the section's rendered HTML
+    try:
+        response  = render_public_page(website, page, is_preview=True)
+        full_html = response.get_data(as_text=True)
+        soup      = BeautifulSoup(full_html, 'html.parser')
+        el        = soup.find(id=f'section-{section_id}')
+        section_html = el.decode_contents().strip() if el else '(section HTML not found)'
+    except Exception as e:
+        section_html = f'(render error: {e})'
+
+    if current_code:
+        existing_block = (
+            f'EXISTING TWEAKS CODE — include every line verbatim in your output with changes integrated:\n'
+            f'{current_code}'
+        )
+    else:
+        existing_block = 'EXISTING TWEAKS CODE: (empty — write from scratch)'
+
+    section_type = section.section_type
+
+    # Provide section-type-specific class hints so the AI targets the right elements
+    type_hints = {
+        'button':       "The button is an <a> tag with class 'section-button' inside a div.section-button-wrap.",
+        'text':         "Text content is inside a div.text-area.",
+        'images':       "Images use class 'uwebia-images' as the container.",
+        'music':        "Music uses class 'uwebia-music'.",
+        'video':        "Video uses class 'uwebia-video-section'.",
+        'calendar':     "Calendar uses class 'calendar'.",
+        'link_card':    "Link card uses class 'uwebia-link-card'.",
+        'contact_form': "Form uses class 'contact-form-container'.",
+    }
+    type_hint = type_hints.get(section_type, '')
+
+    system_override = (
+        "You are a CSS/JS assistant embedded in Uwebia, a website builder.\n"
+        f"The user is writing targeted tweaks for a '{section_type}' section with DOM id 'section-{section_id}'.\n"
+        + (f"Section structure note: {type_hint}\n" if type_hint else '')
+        + "This code is injected immediately after the section — it must ONLY affect that section.\n\n"
+        "Scoping rules (critical):\n"
+        f"- ALL CSS selectors must be prefixed with '#section-{section_id}'.\n"
+        f"  Example: '#section-{section_id} .section-button {{ background: blue; }}'\n"
+        "- ALL JavaScript must be inside an IIFE: (function(){{ ... }})();\n"
+        "  Use const/let and arrow functions only — no 'function foo()' declarations (they leak to global scope).\n"
+        f"- Target elements with: document.querySelector('#section-{section_id} .class-name')\n"
+        "  Never use getElementById with a hardcoded id — ids must be unique per page.\n\n"
+        "Other rules:\n"
+        "- Return ONLY raw HTML/CSS/JS. No explanations, no markdown, no code fences.\n"
+        "- You MAY use <style> and <script> blocks. Do NOT include <html>, <head>, or <body> tags.\n"
+        "- OUTPUT RULE: Include every line of the existing code verbatim and integrate your changes. "
+        "Never summarise or replace existing code with placeholder comments."
+    )
+
+    user_message = (
+        f"Section inner HTML (the elements you are styling):\n\n{section_html}\n\n"
+        f"---\n\n{existing_block}\n\n"
+        f"---\n\nMODIFICATION REQUEST: {prompt}"
+    )
+
+    original_system = agent.system_prompt
+    agent.system_prompt = system_override
+    reply, error = _call_ai_agent(agent, [{'role': 'user', 'content': user_message}])
+    agent.system_prompt = original_system
+
+    if error:
+        return _utf8_json({'success': False, 'error': error}, 502)
+    return _utf8_json({'success': True, 'code': _strip_code_fences(reply)})
+
+
+@app.route('/section/<int:section_id>/save_tweaks', methods=['POST'])
+@login_required
+@require_perm('sections.edit')
+def save_section_tweaks(section_id):
+    try:
+        section = PageSection.query.get_or_404(section_id)
+        page = PublicPageContent.query.get_or_404(section.page_content_id)
+        if Website.query.get_or_404(page.website_id).user_id != current_user.root_user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        data = request.get_json(force=True, silent=True) or {}
+        section.custom_code = data.get('code') or None
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -9848,12 +10929,13 @@ def _build_asset_inventory(user_id):
 
 @app.route('/admin/code_section/<int:section_id>/ai_assist', methods=['POST'])
 @login_required
+@require_perm('code.ai')
 def code_section_ai_assist(section_id):
     section = PageSection.query.get_or_404(section_id)
     page = PublicPageContent.query.get_or_404(section.page_content_id)
     website = Website.query.get_or_404(page.website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     data = request.get_json()
@@ -9867,7 +10949,7 @@ def code_section_ai_assist(section_id):
         return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     # Render the full public page for context
@@ -9882,24 +10964,25 @@ def code_section_ai_assist(section_id):
 
     system_override = (
         "You are a web code assistant embedded in Uwebia, a website builder.\n"
-        "The user is editing a standalone 'code' section on their webpage.\n"
-        "The code you write will be injected DIRECTLY into that section as raw HTML.\n\n"
-        "Rules (strict):\n"
+        f"The user is editing a CODE SECTION whose wrapper element has the DOM id 'section-{section_id}'.\n"
+        "The HTML/CSS/JS you write is injected as the ENTIRE CONTENT of that section wrapper.\n\n"
+        "Scoping rules (critical — the same section type may appear multiple times on the page):\n"
+        f"- ALL CSS selectors must be prefixed with '#section-{section_id}' so they only affect this section.\n"
+        f"  Example: '#section-{section_id} h1 {{ color: red; }}'\n"
+        "- ALL JavaScript must be wrapped in an IIFE: (function(){{ ... }})();\n"
+        "  Inside the IIFE, declare every function and variable with const/let (arrow functions).\n"
+        "  NEVER use 'function foo()' declarations — they hoist to global scope and collide across sections.\n"
+        f"- To reference DOM elements inside this section from JS, use:\n"
+        f"  document.querySelector('#section-{section_id} .my-class')\n"
+        "  Never use getElementById with a hardcoded id — ids must be unique per page.\n\n"
+        "Other rules:\n"
         "- Return ONLY raw HTML/CSS/JS. No explanations, no markdown, no code fences.\n"
-        "- You MAY use <style> blocks for CSS and <script> blocks for JS.\n"
+        "- You MAY use <style> and <script> blocks.\n"
         "- Do NOT include <html>, <head>, or <body> tags.\n"
-        "- Use self-contained styles (inline or <style> block) — you cannot reference external files.\n"
-        "- The output is injected directly into the live page alongside other sections.\n"
         "- OUTPUT RULE: Your response must be the full, complete code — existing code plus your changes. "
         "Copy every line of the existing code into your output, then integrate your changes. "
-        "Never summarise, abbreviate, comment out, or replace existing code with a placeholder comment. "
-        "A response shorter than the existing code (unless the user explicitly asked to remove something) "
-        "is always wrong. Do not write comments like '/* existing styles remain */' — write the actual code.\n"
-        "- ONLY use assets from the asset list when the user explicitly asks for them. "
-        "Never include images, audio, or video unless the request clearly calls for it. "
-        "When assets are requested, use the exact URLs provided. "
-        "If the user references a folder name (e.g. 'use the images in the AI Generated folder'), "
-        "use only assets listed under that folder."
+        "Never summarise, abbreviate, or replace code with placeholder comments.\n"
+        "- ONLY use assets when the user explicitly asks. When used, reference exact URLs from the asset list."
     )
 
     if current_code:
@@ -9935,20 +11018,23 @@ def code_section_ai_assist(section_id):
 
 @app.route('/admin/page/<int:page_id>/custom_code', methods=['GET'])
 @login_required
+@require_perm('code.sections')
 def get_page_custom_code(page_id):
     page = PublicPageContent.query.get_or_404(page_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     return _utf8_json({'success': True, 'code': page.custom_code or ''})
 
 
 @app.route('/admin/page/<int:page_id>/save_custom_code', methods=['POST'])
 @login_required
+@require_perm('appearance.page_code')
+@require_perm('code.sections')
 def save_page_custom_code(page_id):
     page = PublicPageContent.query.get_or_404(page_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     data = request.get_json(force=True, silent=True) or {}
     page.custom_code = data.get('code', '') or None
@@ -9958,10 +11044,12 @@ def save_page_custom_code(page_id):
 
 @app.route('/admin/page/<int:page_id>/ai_assist_page_code', methods=['POST'])
 @login_required
+@require_perm('appearance.page_code')
+@require_perm('code.sections')
 def ai_assist_page_code(page_id):
     page = PublicPageContent.query.get_or_404(page_id)
     website = Website.query.get_or_404(page.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     data = request.get_json() or {}
@@ -9975,7 +11063,7 @@ def ai_assist_page_code(page_id):
         return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     try:
@@ -9990,22 +11078,22 @@ def ai_assist_page_code(page_id):
     system_override = (
         "You are a web code assistant embedded in Uwebia, a website builder.\n"
         "The user is editing PAGE-LEVEL code — HTML/CSS/JS injected at the end of <body> "
-        "that affects the ENTIRE page.\n\n"
+        "that affects the ENTIRE page. This is the right place for page-wide styles and behaviour; "
+        "do NOT scope styles to individual sections here.\n\n"
         "Key page structure facts you MUST know:\n"
         "- The page background is controlled by the CSS variable --site-bg-color set on :root. "
-        "To change the background color or gradient, override this variable: "
-        ":root { --site-bg-color: green; } "
-        "For a gradient use: :root { --site-bg-color: linear-gradient(...); } "
-        "You can also target .site-fixed-background directly with !important if needed.\n"
+        "To change it: :root { --site-bg-color: green; } or linear-gradient(...). "
+        "You can also target .site-fixed-background directly with !important.\n"
         "- Page content is wrapped in <body class='public-page-body'>. Never set max-width or "
         "overflow on body — it will break the layout.\n"
-        "- Section groups use the class 'public-section-group'. Individual section cells use "
-        "'public-section-cell'. Target these to restyle content areas.\n\n"
+        "- Each section has a unique DOM id 'section-{id}' (e.g. #section-42). "
+        "Section groups use '.public-section-group'. Individual cells use '.public-section-cell'.\n\n"
+        "JavaScript rules:\n"
+        "- Wrap all JS in an IIFE: (function(){{ ... }})();\n"
+        "- Use const/let and arrow functions only — no 'function foo()' declarations at top level.\n\n"
         "Rules (strict):\n"
         "- Return ONLY raw HTML/CSS/JS. No explanations, no markdown, no code fences.\n"
-        "- You MAY use <style> blocks to restyle any element on the page.\n"
-        "- You MAY use <script> blocks for page-wide behaviour.\n"
-        "- Do NOT include <html>, <head>, or <body> tags.\n"
+        "- You MAY use <style> and <script> blocks. Do NOT include <html>, <head>, or <body> tags.\n"
         "- Use real class names and IDs from the page HTML — never invent selectors.\n"
         "- OUTPUT RULE: Your response must be the full, complete code — existing code plus your changes. "
         "Copy every line of the existing code into your output, then integrate your changes. "
@@ -10126,9 +11214,10 @@ def _utf8_json(data, status=200):
 
 @app.route('/admin/ai-agents/<int:agent_id>/chat', methods=['POST'])
 @login_required
+@require_perm('ai_agents.chat')
 def ai_agent_chat(agent_id):
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     data = request.get_json()
     messages = data.get('messages', [])
@@ -10142,10 +11231,11 @@ def ai_agent_chat(agent_id):
 
 @app.route('/admin/ai-agents/<int:agent_id>/test', methods=['POST'])
 @login_required
+@require_perm('ai_agents.use')
 def test_ai_agent(agent_id):
     import requests as _req, base64 as _b64
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.id:
+    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     caps = agent.capabilities or 'chat'
@@ -10182,7 +11272,7 @@ def test_ai_agent(agent_id):
 @app.route('/admin/calendars')
 @login_required
 def admin_calendars_page():
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     calendars = []
     if website:
         calendars = Calendar.query.filter_by(website_id=website.id).order_by(Calendar.created_at.desc()).all()
@@ -10204,9 +11294,10 @@ def admin_calendars_page():
 
 @app.route('/admin/calendars/create', methods=['POST'])
 @login_required
+@require_perm('calendars.create')
 def create_calendar():
     data = request.get_json()
-    website = current_user.websites[0] if current_user.websites else None
+    website = get_admin_website()
     if not website:
         return jsonify({'success': False, 'error': 'No website found'}), 400
 
@@ -10227,10 +11318,11 @@ def create_calendar():
 
 @app.route('/admin/calendars/<int:calendar_id>/update', methods=['POST'])
 @login_required
+@require_perm('calendars.edit')
 def update_calendar(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
     website = Website.query.get_or_404(calendar.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     data = request.get_json()
@@ -10250,7 +11342,7 @@ def update_calendar(calendar_id):
 def delete_calendar_route(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
     website = Website.query.get_or_404(calendar.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     db.session.delete(calendar)
@@ -10260,10 +11352,11 @@ def delete_calendar_route(calendar_id):
 
 @app.route('/admin/calendars/<int:calendar_id>/add_event', methods=['POST'])
 @login_required
+@require_perm('calendars.events')
 def add_calendar_event(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
     website = Website.query.get_or_404(calendar.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
@@ -10295,10 +11388,11 @@ def add_calendar_event(calendar_id):
 
 @app.route('/admin/calendars/<int:calendar_id>/update_event', methods=['POST'])
 @login_required
+@require_perm('calendars.events')
 def update_calendar_event(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
     website = Website.query.get_or_404(calendar.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
@@ -10332,10 +11426,11 @@ def update_calendar_event(calendar_id):
 
 @app.route('/admin/calendars/<int:calendar_id>/delete_event', methods=['POST'])
 @login_required
+@require_perm('calendars.events')
 def delete_calendar_event(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
     website = Website.query.get_or_404(calendar.website_id)
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
@@ -11034,7 +12129,7 @@ def public_forum_thread(thread_id):
 @app.route('/admin/forum')
 @login_required
 def admin_forum():
-    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+    website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
     threads = ForumThread.query.filter_by(
         website_id=website.id
@@ -11057,7 +12152,7 @@ def admin_forum():
 @app.route('/admin/forum/settings', methods=['POST'])
 @login_required
 def update_forum_settings():
-    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+    website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
     website.forum_enabled = request.form.get('forum_enabled') == 'on'
     website.forum_show_in_navbar = request.form.get('forum_show_in_navbar') == 'on'
@@ -11080,8 +12175,9 @@ def update_forum_settings():
 
 @app.route('/admin/forum/thread/<int:thread_id>/moderate', methods=['POST'])
 @login_required
+@require_perm('forum.moderate')
 def moderate_forum_thread(thread_id):
-    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+    website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
     thread = ForumThread.query.filter_by(
         id=thread_id,
@@ -11112,8 +12208,9 @@ def moderate_forum_thread(thread_id):
 
 @app.route('/admin/forum/reply/<int:reply_id>/moderate', methods=['POST'])
 @login_required
+@require_perm('forum.moderate')
 def moderate_forum_reply(reply_id):
-    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+    website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
     reply = ForumReply.query.filter_by(
         id=reply_id,
@@ -11317,7 +12414,7 @@ def get_section_comments(section_id):
     page = PublicPageContent.query.get_or_404(section.page_content_id)
     website = Website.query.get_or_404(page.website_id)
 
-    if website.user_id != current_user.id:
+    if not is_owner(website):
         return jsonify({
             'success': False,
             'message': 'Unauthorized.'
@@ -11406,6 +12503,7 @@ def get_section_comments(section_id):
 
 @app.route('/admin/page-comment/<int:comment_id>/moderate-json', methods=['POST'])
 @login_required
+@require_perm('comments.moderate')
 def moderate_page_comment_json(comment_id):
     comment = PageComment.query.get_or_404(comment_id)
 
@@ -11459,6 +12557,7 @@ def moderate_page_comment_json(comment_id):
 
 @app.route('/admin/page-comment/<int:comment_id>/moderate', methods=['POST'])
 @login_required
+@require_perm('comments.moderate')
 def moderate_page_comment(comment_id):
     comment = PageComment.query.get_or_404(comment_id)
 
@@ -11753,7 +12852,7 @@ def toggle_page_comment_like(comment_id):
 @app.route('/admin/forum/user/<int:public_user_id>/moderate', methods=['POST'])
 @login_required
 def moderate_public_user(public_user_id):
-    website = Website.query.filter_by(user_id=current_user.id).first_or_404()
+    website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
     public_user = PublicUser.query.filter_by(
         id=public_user_id,
@@ -12259,7 +13358,9 @@ def ensure_default_website(user=None):
         user = User.query.first()
     if user is None:
         return
-
+    # Sub-admins never get their own website — they share the parent's
+    if user.parent_user_id:
+        return
     if user.websites:
         return
 
@@ -12279,21 +13380,161 @@ def ensure_default_website(user=None):
     print(f'Created default website and home page for user "{user.username}".')
 
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        # Add new columns to existing tables if they predate these additions
-        for stmt in [
-            "ALTER TABLE ai_agent ADD COLUMN capabilities VARCHAR(20) NOT NULL DEFAULT 'chat'",
-            "ALTER TABLE asset ADD COLUMN original_stored_filename VARCHAR(255)",
-            "ALTER TABLE public_page_content ADD COLUMN custom_code TEXT",
-        ]:
+def _run_startup_migrations():
+    """Seamlessly upgrade an existing (or brand-new) database to match the
+    current ORM models — no data loss, fully automatic.
+
+    Strategy
+    --------
+    1. ``db.create_all()`` – creates every missing table from scratch.
+    2. Auto-detect missing columns on pre-existing tables and add them with a
+       safe DEFAULT so existing rows are not violated.
+    3. Auto-detect missing indexes and create them.
+    4. Never drop or rename columns/tables (those are destructive; handle
+       manually if ever needed).
+
+    All steps are idempotent: safe to run on every startup with multiple
+    gunicorn workers.
+    """
+    from sqlalchemy import inspect as _inspect
+
+    # ── Step 1: record which tables already exist, then create any missing ones
+    inspector = _inspect(db.engine)
+    pre_existing = set(inspector.get_table_names())
+    db.create_all()
+    # Re-inspect so newly created tables are in the picture
+    inspector = _inspect(db.engine)
+
+    # ── Step 2: add any columns that exist in the model but not in the DB ───
+    for table in db.metadata.tables.values():
+        tname = table.name
+
+        # Tables that were just created by db.create_all() already have every
+        # column; skip them to avoid noisy "already exists" attempts.
+        if tname not in pre_existing:
+            continue
+
+        existing_col_names = {c['name'] for c in inspector.get_columns(tname)}
+
+        for col in table.columns:
+            if col.name in existing_col_names:
+                continue
+
+            # Compile the type string for this dialect (e.g. "VARCHAR(200)")
+            try:
+                col_type_str = col.type.compile(dialect=db.engine.dialect)
+            except Exception:
+                col_type_str = 'TEXT'
+
+            # SQLite requires a DEFAULT when adding a NOT NULL column to an
+            # existing table (otherwise the existing rows would violate it).
+            default_clause = ''
+            if col.server_default is not None:
+                # e.g. server_default='0' or server_default=text("'chat'")
+                raw = getattr(col.server_default, 'arg', str(col.server_default))
+                default_clause = f' DEFAULT {raw}'
+            elif col.default is not None and hasattr(col.default, 'arg'):
+                arg = col.default.arg
+                if not callable(arg):           # skip Python-side callables
+                    default_clause = f' DEFAULT {arg!r}'
+            elif not col.nullable:
+                # Infer a zero-value default from the type so existing rows
+                # satisfy the NOT NULL constraint without storing wrong data.
+                t = col_type_str.upper()
+                if any(k in t for k in ('INT', 'BOOL')):
+                    default_clause = ' DEFAULT 0'
+                elif any(k in t for k in ('REAL', 'FLOAT', 'NUMERIC', 'DECIMAL')):
+                    default_clause = ' DEFAULT 0'
+                elif 'JSON' in t:
+                    default_clause = " DEFAULT '{}'"
+                else:
+                    default_clause = " DEFAULT ''"
+
+            stmt = (f'ALTER TABLE "{tname}" '
+                    f'ADD COLUMN "{col.name}" {col_type_str}{default_clause}')
             try:
                 db.session.execute(db.text(stmt))
                 db.session.commit()
-            except Exception:
+                print(f'[migrate] + {tname}.{col.name} ({col_type_str})')
+            except Exception as exc:
                 db.session.rollback()
+                msg = str(exc).lower()
+                if 'duplicate column' not in msg and 'already exists' not in msg:
+                    print(f'[migrate] warning: {tname}.{col.name}: {exc}')
+
+    # ── Step 3: create any missing indexes ──────────────────────────────────
+    for table in db.metadata.tables.values():
+        if table.name not in pre_existing:
+            continue
+        try:
+            existing_idx = {i['name'] for i in inspector.get_indexes(table.name)
+                            if i.get('name')}
+            for idx in table.indexes:
+                if idx.name and idx.name not in existing_idx:
+                    try:
+                        idx.create(db.engine)
+                        print(f'[migrate] + index {idx.name}')
+                    except Exception as exc:
+                        print(f'[migrate] warning: index {idx.name}: {exc}')
+        except Exception:
+            pass
+
+
+# ── Startup initialisation ────────────────────────────────────────────────────
+# Runs in every process that imports this module (each gunicorn worker as well
+# as the master when --preload is used).  All operations must be idempotent.
+with app.app_context():
+    try:
+        # Register the SQLite pragmas BEFORE the first connection so that even
+        # db.create_all() benefits from busy_timeout and WAL mode.
+        # Accessing db.engine inside the context is safe here.
+        _sa_event.listens_for(db.engine, "connect")(_set_sqlite_pragmas)
+
+        # Apply the pragmas immediately to any connection that may already be open
+        # (unlikely at startup, but guards against edge cases).
+        with db.engine.connect() as _conn:
+            _conn.execute(db.text("PRAGMA journal_mode=WAL"))
+            _conn.execute(db.text("PRAGMA synchronous=NORMAL"))
+            _conn.execute(db.text("PRAGMA foreign_keys=ON"))
+            _conn.execute(db.text("PRAGMA busy_timeout=5000"))
+
+        # Create all tables from the ORM models (no-op if they already exist).
+        # This is the call that generates site.db on a fresh install.
+        _run_startup_migrations()
+
         ensure_default_website()
+
+        # Start the background thread that periodically syncs external calendar
+        # subscriptions. The daemon flag means it dies automatically when the
+        # process exits. The module-level guard prevents double-start if the
+        # Werkzeug reloader imports this module twice.
+        import os as _os
+        _reloader_parent = (
+            _os.environ.get('WERKZEUG_RUN_MAIN') is None
+            and _os.environ.get('FLASK_RUN_FROM_CLI') == 'true'
+        )
+        if not _reloader_parent:
+            _start_subscription_sync_scheduler()
+
+    except Exception as _startup_err:
+        import traceback
+        print("=" * 60)
+        print("STARTUP ERROR — database initialisation failed:")
+        traceback.print_exc()
+        print("=" * 60)
+        raise  # re-raise so gunicorn surfaces the failure rather than serving broken requests
+
+
+@app.errorhandler(403)
+def forbidden(e):
+    msg = str(e.description) if hasattr(e, 'description') and e.description else \
+          "You don't have permission to access this. Contact your admin."
+    if request.is_json or request.headers.get('Accept', '').startswith('application/json'):
+        return _utf8_json({'success': False, 'error': msg, 'permission_denied': True}, 403)
+    return render_template('403.html', message=msg), 403
+
+
+if __name__ == '__main__':
 
     server_config = get_server_config()
 

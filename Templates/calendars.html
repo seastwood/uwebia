@@ -134,81 +134,102 @@
 </div>
 
 <!-- Create / Edit Calendar Modal -->
-<div class="cal-modal-overlay" id="calModalOverlay" style="display:none;">
-    <div class="cal-modal">
-        <button class="cal-modal-close" onclick="closeCalModal()">&times;</button>
-        <h3 class="cal-modal-title" id="calModalTitle">New Calendar</h3>
+<div class="uw-overlay" id="calModalOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="calModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="calModalTitle">New Calendar</h3>
+            <button class="uw-modal-close" onclick="closeCalModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
         <form id="calModalForm" onsubmit="submitCalendarForm(event)">
             <input type="hidden" id="calModalCalendarId" value="">
-            <div class="cal-form-row">
+            <div class="uw-field">
                 <label for="calModalName">Name</label>
                 <input type="text" id="calModalName" placeholder="My Calendar" required>
             </div>
-            <div class="cal-form-row">
+            <div class="uw-field">
                 <label for="calModalDesc">Description</label>
                 <textarea id="calModalDesc" rows="2" placeholder="Optional description"></textarea>
             </div>
-            <div class="cal-form-actions">
-                <button type="button" class="btn-secondary" onclick="closeCalModal()">Cancel</button>
-                <button type="submit" class="btn-primary" id="calModalSubmitBtn">Create</button>
-            </div>
         </form>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeCalModal()">Cancel</button>
+            <button type="submit" form="calModalForm" class="uw-btn uw-btn-primary" id="calModalSubmitBtn">Create</button>
+        </div>
     </div>
 </div>
 
 <!-- Add / Edit Event Modal -->
-<div class="cal-modal-overlay" id="eventModalOverlay" style="display:none;">
-    <div class="cal-modal">
-        <button class="cal-modal-close" onclick="closeEventModal()">&times;</button>
-        <h3 class="cal-modal-title" id="eventModalTitle">Add Event</h3>
+<div class="uw-overlay" id="eventModalOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="eventModalTitle">Add Event</h3>
+            <button class="uw-modal-close" onclick="closeEventModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+        <!-- shown only for external-calendar events -->
+        <div id="eventExternalBanner" style="display:none;" class="ext-event-banner">
+            <i class="fas fa-link"></i>
+            <span>This event is from an external calendar. Changes made here won't sync back to the source.</span>
+        </div>
         <form id="eventModalForm" onsubmit="submitEventForm(event)">
             <input type="hidden" id="eventModalCalendarId" value="">
             <input type="hidden" id="eventModalEventId" value="">
-            <div class="cal-form-row">
+            <div class="uw-field">
                 <label for="eventTitle">Title</label>
                 <input type="text" id="eventTitle" placeholder="Event title" required>
             </div>
-            <div class="cal-form-row-2col">
-                <div class="cal-form-row">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="uw-field">
                     <label for="eventStartDate">Start Date</label>
                     <input type="date" id="eventStartDate" required>
                 </div>
-                <div class="cal-form-row">
+                <div class="uw-field">
                     <label for="eventStartTime">Start Time</label>
                     <input type="time" id="eventStartTime" value="00:00">
                 </div>
-            </div>
-            <div class="cal-form-row-2col">
-                <div class="cal-form-row">
+                <div class="uw-field">
                     <label for="eventEndDate">End Date</label>
                     <input type="date" id="eventEndDate">
                 </div>
-                <div class="cal-form-row">
+                <div class="uw-field">
                     <label for="eventEndTime">End Time</label>
                     <input type="time" id="eventEndTime" value="23:59">
                 </div>
             </div>
-            <div class="cal-form-row">
+            <div class="uw-field">
                 <label for="eventColor">Color</label>
-                <input type="color" id="eventColor" value="#3b82f6">
+                <input type="color" id="eventColor" value="#3b82f6" style="height:38px;padding:2px 6px;cursor:pointer;">
             </div>
-            <div class="cal-form-row">
+            <div class="uw-field">
                 <label for="eventDescription">Description</label>
                 <textarea id="eventDescription" rows="3"></textarea>
             </div>
-            <div class="cal-form-actions">
-                <button type="button" class="btn-danger" id="eventDeleteBtn" style="display:none;" onclick="deleteCurrentEvent()">Delete</button>
-                <div style="display:flex; gap:10px; margin-left:auto;">
-                    <button type="button" class="btn-secondary" onclick="closeEventModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">Save</button>
-                </div>
-            </div>
         </form>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-danger" id="eventDeleteBtn" style="display:none;margin-right:auto;" onclick="deleteCurrentEvent()">Delete</button>
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeEventModal()">Close</button>
+            <button type="submit" form="eventModalForm" class="uw-btn uw-btn-primary" id="eventSaveBtn">Save</button>
+        </div>
     </div>
 </div>
 
 <script>
     const fullCalendarInstances = {};
+
+    // Returns '#ffffff' or '#1a1a1a' depending on the perceived luminance of
+    // the given hex color, ensuring readable text on any event bubble color.
+    function getContrastColor(hex) {
+        if (!hex) return '#ffffff';
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff';
+    }
 
     document.addEventListener('DOMContentLoaded', function () {
         {% for cal in calendars %}
@@ -221,9 +242,15 @@
         const el = document.getElementById(`fc-${calendarId}`);
         if (!el) return;
 
+        const isMobile = window.innerWidth <= 768;
+
         const fc = new FullCalendar.Calendar(el, {
             initialView: 'dayGridMonth',
-            aspectRatio: 1.8,
+            eventDisplay: 'block',
+            // On mobile use a tall fixed height so the grid fills the screen;
+            // on desktop keep the original aspect ratio.
+            height: isMobile ? Math.max(460, Math.round(window.innerHeight * 0.6)) : undefined,
+            aspectRatio: isMobile ? undefined : 1.8,
             events: (info, success, failure) => {
                 fetch(`/calendar/${calendarId}/events`)
                     .then(r => r.json())
@@ -239,6 +266,12 @@
                 openEditEventModal(calendarId, info.event);
             },
             eventChange: function (info) {
+                // editable:false on external events prevents drag/resize, but
+                // guard here too in case something slips through.
+                if ((info.event.extendedProps.source || 'local') !== 'local') {
+                    info.revert();
+                    return;
+                }
                 const ev = info.event;
                 const payload = {
                     id: ev.id,
@@ -253,6 +286,24 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 }).catch(err => console.error(err));
+            },
+            eventDidMount: function (info) {
+                // Contrast-aware text color — must target .fc-event-main because
+                // FullCalendar sets its own inline color there, overriding info.el.
+                const textColor = getContrastColor(info.event.backgroundColor);
+                info.el.style.color = textColor;
+                const mainEl = info.el.querySelector('.fc-event-main');
+                if (mainEl) mainEl.style.color = textColor;
+
+                // Add a chain icon to external events.
+                if ((info.event.extendedProps.source || 'local') !== 'local') {
+                    const icon = document.createElement('span');
+                    icon.className = 'ext-cal-icon';
+                    icon.innerHTML = '<i class="fas fa-link"></i>';
+                    const titleEl = info.el.querySelector('.fc-event-title');
+                    if (titleEl) titleEl.prepend(icon);
+                    info.el.title = 'External calendar event — view only';
+                }
             }
         });
 
@@ -426,7 +477,9 @@
     }
 
     function openEditEventModal(calendarId, fcEvent) {
-        document.getElementById('eventModalTitle').textContent = 'Edit Event';
+        const isExternal = (fcEvent.extendedProps.source || 'local') !== 'local';
+
+        document.getElementById('eventModalTitle').textContent = isExternal ? 'External Event' : 'Edit Event';
         document.getElementById('eventModalCalendarId').value = calendarId;
         document.getElementById('eventModalEventId').value = fcEvent.id;
         document.getElementById('eventTitle').value = fcEvent.title || '';
@@ -436,7 +489,21 @@
         document.getElementById('eventEndTime').value = fcEvent.endStr && fcEvent.endStr.includes('T') ? fcEvent.endStr.split('T')[1].slice(0, 5) : '23:59';
         document.getElementById('eventColor').value = fcEvent.backgroundColor || '#3b82f6';
         document.getElementById('eventDescription').value = fcEvent.extendedProps.description || '';
-        document.getElementById('eventDeleteBtn').style.display = 'block';
+
+        // Show/hide controls depending on whether this is an external event
+        document.getElementById('eventExternalBanner').style.display = isExternal ? 'flex' : 'none';
+        document.getElementById('eventDeleteBtn').style.display = isExternal ? 'none' : 'block';
+        document.getElementById('eventSaveBtn').style.display = isExternal ? 'none' : '';
+
+        // Make fields read-only for external events
+        const fields = document.querySelectorAll('#eventModalForm input, #eventModalForm textarea');
+        fields.forEach(f => {
+            if (isExternal) f.setAttribute('readonly', true);
+            else f.removeAttribute('readonly');
+        });
+        const colorInput = document.getElementById('eventColor');
+        colorInput.disabled = isExternal;
+
         showModal('eventModalOverlay');
     }
 
@@ -504,15 +571,23 @@
     /* ── Helpers ── */
 
     function showModal(id) {
-        document.getElementById(id).style.display = 'flex';
+        document.getElementById(id).classList.add('open');
+        document.body.classList.add('uw-modal-open');
     }
 
     function closeCalModal() {
-        document.getElementById('calModalOverlay').style.display = 'none';
+        document.getElementById('calModalOverlay').classList.remove('open');
+        document.body.classList.remove('uw-modal-open');
     }
 
     function closeEventModal() {
-        document.getElementById('eventModalOverlay').style.display = 'none';
+        document.getElementById('eventModalOverlay').classList.remove('open');
+        document.body.classList.remove('uw-modal-open');
+        // Reset any read-only state set for external events
+        document.getElementById('eventExternalBanner').style.display = 'none';
+        document.getElementById('eventSaveBtn').style.display = '';
+        document.querySelectorAll('#eventModalForm input, #eventModalForm textarea').forEach(f => f.removeAttribute('readonly'));
+        document.getElementById('eventColor').disabled = false;
     }
 
     document.getElementById('calModalOverlay').addEventListener('click', function (e) {

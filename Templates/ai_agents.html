@@ -10,9 +10,15 @@
             <p class="ai-kicker">Admin</p>
             <h1 class="ai-title">AI Agents</h1>
         </div>
+        {% if user_has_perm('ai_agents.create') %}
         <button class="btn-ai-primary" onclick="openAgentModal()">
             <i class="fas fa-plus"></i> Add Agent
         </button>
+        {% else %}
+        <button class="btn-ai-primary" disabled style="opacity:0.38;cursor:not-allowed;pointer-events:none;" title="You don't have permission to create agents">
+            <i class="fas fa-lock"></i> Add Agent
+        </button>
+        {% endif %}
     </div>
 
     <div class="ai-provider-hint">
@@ -40,15 +46,33 @@
                     <button class="btn-ai-test" id="testBtn-{{ agent.id }}" onclick="testAgent({{ agent.id }})" title="Test connection">
                         <i class="fas fa-plug"></i> Test
                     </button>
+                    {% if user_has_perm('ai_agents.edit') %}
                     <button class="btn-ai-icon" onclick="openAgentModal({{ agent.id }})" title="Edit">
                         <i class="fas fa-pen"></i>
                     </button>
+                    {% else %}
+                    <button class="btn-ai-icon" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="You don't have permission to edit agents">
+                        <i class="fas fa-lock"></i>
+                    </button>
+                    {% endif %}
+                    {% if user_has_perm('ai_agents.delete') %}
                     <button class="btn-ai-icon btn-ai-danger" onclick="deleteAgent({{ agent.id }}, '{{ agent.name | e }}')" title="Delete">
                         <i class="fas fa-trash"></i>
                     </button>
+                    {% else %}
+                    <button class="btn-ai-icon btn-ai-danger" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="You don't have permission to delete agents">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    {% endif %}
+                    {% if user_has_perm('ai_agents.chat') %}
                     <button class="btn-ai-chat-toggle" onclick="toggleChat({{ agent.id }})" id="chatToggle-{{ agent.id }}" title="Open chat">
                         <i class="fas fa-comment-alt"></i> Chat
                     </button>
+                    {% else %}
+                    <button class="btn-ai-chat-toggle" id="chatToggle-{{ agent.id }}" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="You don't have permission to chat with agents">
+                        <i class="fas fa-lock"></i> Chat
+                    </button>
+                    {% endif %}
                 </div>
             </div>
 
@@ -76,27 +100,36 @@
         <i class="fas fa-robot"></i>
         <p>No agents configured yet.</p>
         <p class="ai-empty-sub">Add your first agent to get started.</p>
+        {% if user_has_perm('ai_agents.create') %}
         <button class="btn-ai-primary" onclick="openAgentModal()">
             <i class="fas fa-plus"></i> Add Agent
         </button>
+        {% else %}
+        <button class="btn-ai-primary" disabled style="opacity:0.38;cursor:not-allowed;pointer-events:none;" title="You don't have permission to create agents">
+            <i class="fas fa-lock"></i> Add Agent
+        </button>
+        {% endif %}
     </div>
     {% endif %}
 </div>
 
 <!-- Add / Edit Agent Modal -->
-<div class="ai-modal-overlay" id="agentModalOverlay" style="display:none;">
-    <div class="ai-modal">
-        <button class="ai-modal-close" onclick="closeAgentModal()">&times;</button>
-        <h3 class="ai-modal-title" id="agentModalTitle">Add Agent</h3>
+<div class="uw-overlay" id="agentModalOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="agentModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="agentModalTitle">Add Agent</h3>
+            <button class="uw-modal-close" onclick="closeAgentModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
         <form id="agentForm" onsubmit="submitAgentForm(event)">
             <input type="hidden" id="agentModalId" value="">
 
-            <div class="ai-form-row">
+            <div class="uw-field">
                 <label>Name</label>
                 <input type="text" id="agentName" placeholder="My Assistant" required>
             </div>
 
-            <div class="ai-form-row">
+            <div class="uw-field">
                 <label>Provider</label>
                 <select id="agentProvider" onchange="updateProviderFields()">
                     <option value="openai_compatible">Custom / Local (OpenAI-compatible)</option>
@@ -105,43 +138,44 @@
                 </select>
             </div>
 
-            <div class="ai-form-row" id="fieldApiUrl">
+            <div class="uw-field" id="fieldApiUrl">
                 <label>API Base URL</label>
                 <input type="url" id="agentApiUrl" placeholder="http://localhost:11434">
-                <small class="ai-field-hint">Ollama: http://localhost:11434 &nbsp;·&nbsp; LM Studio: http://localhost:1234</small>
+                <small>Ollama: http://localhost:11434 &nbsp;·&nbsp; LM Studio: http://localhost:1234</small>
             </div>
 
-            <div class="ai-form-row">
+            <div class="uw-field">
                 <label>Model</label>
                 <input type="text" id="agentModel" placeholder="">
-                <small class="ai-field-hint" id="modelHint">e.g. llama3.2, mistral, phi3</small>
+                <small id="modelHint">e.g. llama3.2, mistral, phi3</small>
             </div>
 
-            <div class="ai-form-row" id="fieldApiKey">
-                <label>API Key <span class="ai-optional">(optional for local)</span></label>
+            <div class="uw-field" id="fieldApiKey">
+                <label>API Key <span style="color:rgba(255,255,255,0.35);font-weight:400;">(optional for local)</span></label>
                 <input type="password" id="agentApiKey" placeholder="sk-…" autocomplete="new-password">
             </div>
 
-            <div class="ai-form-row">
+            <div class="uw-field">
                 <label>Capabilities</label>
                 <select id="agentCapabilities">
                     <option value="chat">Chat only (text generation)</option>
                     <option value="image">Image generation only (e.g. DALL-E)</option>
                     <option value="both">Both chat and image generation</option>
                 </select>
-                <small class="ai-field-hint">Controls which features this agent appears in and how the Test button works.</small>
+                <small>Controls which features this agent appears in and how the Test button works.</small>
             </div>
 
-            <div class="ai-form-row">
-                <label>System Prompt <span class="ai-optional">(optional)</span></label>
+            <div class="uw-field">
+                <label>System Prompt <span style="color:rgba(255,255,255,0.35);font-weight:400;">(optional)</span></label>
                 <textarea id="agentSystemPrompt" rows="3" placeholder="You are a helpful assistant."></textarea>
             </div>
 
-            <div class="ai-form-actions">
-                <button type="button" class="btn-ai-secondary" onclick="closeAgentModal()">Cancel</button>
-                <button type="submit" class="btn-ai-primary" id="agentSubmitBtn">Add Agent</button>
-            </div>
         </form>
+        </div><!-- /.uw-modal-body -->
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeAgentModal()">Cancel</button>
+            <button type="submit" form="agentForm" class="uw-btn uw-btn-primary" id="agentSubmitBtn">Add Agent</button>
+        </div>
     </div>
 </div>
 
@@ -199,12 +233,14 @@
             updateProviderFields();
         }
 
-        document.getElementById('agentModalOverlay').style.display = 'flex';
+        document.getElementById('agentModalOverlay').classList.add('open');
+        document.body.classList.add('uw-modal-open');
         setTimeout(() => document.getElementById('agentName').focus(), 50);
     }
 
     function closeAgentModal() {
-        document.getElementById('agentModalOverlay').style.display = 'none';
+        document.getElementById('agentModalOverlay').classList.remove('open');
+        document.body.classList.remove('uw-modal-open');
     }
 
     document.getElementById('agentModalOverlay').addEventListener('click', e => {

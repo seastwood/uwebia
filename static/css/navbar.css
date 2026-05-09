@@ -1,17 +1,17 @@
 .navbar {
     display: grid;
-    /* grid-template-columns: 1fr auto auto auto 1fr; */
-
     grid-template-columns: auto 1fr auto;
     align-items: center;
     padding: 10px 24px;
-    /* background: rgba(25, 25, 25, 0.9); */
     backdrop-filter: blur(8px);
     color: white;
     height: 52px;
+    box-sizing: border-box; /* total rendered height = exactly 52px */
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 100000;
     background: linear-gradient(to bottom right, #362a22, #222222);
 }
@@ -309,3 +309,23 @@
     background: rgba(255,255,255,0.07);
     border-color: rgba(255,255,255,0.1);
 }
+.perm-locked-nav {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    color: rgba(255,255,255,0.45);
+    font-size: 0.88rem;
+}
+.perm-locked-nav::after {
+    content: "\f023";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 0.65rem;
+    margin-left: 4px;
+    color: rgba(255,200,100,0.6);
+}
+

@@ -20,10 +20,14 @@
             <div class="pages-dropdown-content" id="pagesDropdownContent">
                 {% if current_website_pages %}
                 {% for page in current_website_pages %}
+                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
                 <a href="{{ url_for('page_editor', website_id=current_website.id, page_id=page.id) }}"
                     class="{% if page.id == page_id %}active-page{% endif %}">
                     {{ page.name }}
                 </a>
+                {% else %}
+                <span class="perm-locked-nav" title="You don't have access to this page">{{ page.name }}</span>
+                {% endif %}
                 {% endfor %}
                 {% else %}
                 <div class="pages-empty">No pages found</div>
@@ -74,16 +78,49 @@
                 <i class="fas fa-user-circle"></i>
             </button>
             <div class="dropdown-content" id="profileDropdownContent">
+                {% if user_has_perm('settings.view') %}
                 <a href="{{ url_for('settings_page') }}" class="profile-menu-link">
-    <i class="fas fa-cog"></i>
-    <span>Settings</span>
-</a>
-<a href="{{ url_for('analytics_page') }}" class="profile-menu-link">
-    <i class="fas fa-chart-line"></i>
-    <span>Analytics</span>
-</a>
-                <a href="{{ url_for('email_server_settings') }}">Email Server</a>
-                <a href="{{ url_for('logout') }}">Logout</a>
+                    <i class="fas fa-cog"></i><span>Settings</span>
+                </a>
+                {% else %}
+                <span class="profile-menu-link perm-locked-nav" title="You don't have access to Settings">
+                    <i class="fas fa-cog"></i><span>Settings</span>
+                </span>
+                {% endif %}
+
+                {% if user_has_perm('analytics.view') %}
+                <a href="{{ url_for('analytics_page') }}" class="profile-menu-link">
+                    <i class="fas fa-chart-line"></i><span>Analytics</span>
+                </a>
+                {% else %}
+                <span class="profile-menu-link perm-locked-nav" title="You don't have access to Analytics">
+                    <i class="fas fa-chart-line"></i><span>Analytics</span>
+                </span>
+                {% endif %}
+
+                {% if not current_user_is_sub_admin %}
+                <a href="{{ url_for('admin_users_page') }}" class="profile-menu-link">
+                    <i class="fas fa-users-cog"></i><span>Admin Users</span>
+                </a>
+                {% elif user_has_perm('admin_users.view') %}
+                <a href="{{ url_for('admin_users_page') }}" class="profile-menu-link">
+                    <i class="fas fa-users-cog"></i><span>Admin Users</span>
+                </a>
+                {% endif %}
+
+                {% if user_has_perm('settings.email') %}
+                <a href="{{ url_for('email_server_settings') }}" class="profile-menu-link">
+                    <i class="fas fa-envelope"></i><span>Email Server</span>
+                </a>
+                {% else %}
+                <span class="profile-menu-link perm-locked-nav" title="You don't have access to Email Server">
+                    <i class="fas fa-envelope"></i><span>Email Server</span>
+                </span>
+                {% endif %}
+
+                <a href="{{ url_for('logout') }}" class="profile-menu-link">
+                    <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+                </a>
             </div>
         </div>
     </div>

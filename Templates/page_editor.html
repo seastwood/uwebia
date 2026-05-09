@@ -60,15 +60,50 @@
         margin: 0;
         padding: 0;
         width: 100%;
-        min-height: 100%;
-        overflow-x: hidden;
+        background: linear-gradient(to bottom right, #38353c, #1c1a1d);
     }
 
-    body {
-        min-height: 100dvh;
+    /* .content is position:fixed so window.scrollY never moves it.
+       100dvh with interactive-widget=overlays-content is safe: the keyboard
+       uses the overlay mode so dvh never changes when the keyboard opens.
+       dvh DOES update when the browser address bar shows/hides, keeping
+       .content exactly the visible viewport height at all times. */
+    .content {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 100dvh;
+        /* border-box: padding-top (set by JS to mainNav+editorNav combined height)
+           is included in the 100dvh budget. Without this, padding adds to the
+           content-box and all flex children start at y=paddingTop but end at
+           y=100dvh+paddingTop — the scrollbar track extends that far below the
+           visible viewport. */
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
     }
+
+    /* Both navbars are position:fixed so iOS document scroll cannot displace
+       either of them. JS measures their combined height and sets padding-top
+       on .content so the section list starts exactly below both navbars. */
+    .navbar {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0;
+        right: 0;
+        z-index: 100001;
+        box-sizing: border-box !important;
+    }
+    .editor-navbar {
+        position: fixed !important;
+        top: 52px !important; /* flush below main navbar (height: 52px border-box) */
+        left: 0;
+        right: 0;
+        z-index: 100000;
+    }
+
 
     :root {
         --page-editor-background: {
@@ -372,14 +407,10 @@
     .big-content-container {
         display: flex;
         flex-direction: column;
-        flex: 1 1 auto;
-
-        height: calc(100dvh - var(--main-navbar-height, 56px) - 52px);
+        flex: 1 1 0;
         min-height: 0;
-
         max-width: 100vw;
         overflow: hidden;
-
         user-select: none;
     }
 
@@ -422,13 +453,168 @@
     }
 
     /* Page-level editor tabs */
+    /* Section code tweaks */
+    .section-tweaks-wrap {
+        margin-top: 14px;
+        border-top: 1px solid rgba(255,255,255,0.07);
+    }
+    .section-tweaks-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 4px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255,255,255,0.4);
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.15s;
+    }
+    .section-tweaks-toggle:hover { color: rgba(255,255,255,0.7); }
+    .section-tweaks-badge {
+        font-size: 0.68rem;
+        font-weight: 600;
+        padding: 2px 7px;
+        border-radius: 20px;
+        background: rgba(123,47,247,0.25);
+        color: rgba(180,140,255,0.9);
+        letter-spacing: 0.03em;
+        text-transform: none;
+    }
+    .section-tweaks-chevron { margin-left: auto; font-size: 0.7rem; }
+    .section-tweaks-panel { padding: 8px 0 4px; }
+    .section-tweaks-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 7px;
+    }
+    .section-tweaks-hint {
+        font-size: 0.75rem;
+        color: rgba(255,255,255,0.35);
+    }
+    .section-tweaks-hint code {
+        background: rgba(255,255,255,0.08);
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 0.78rem;
+    }
+    .section-tweaks-ai-bar {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 9px;
+        padding: 9px 10px;
+        margin-bottom: 10px;
+    }
+    .section-tweaks-ai-header {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255,255,255,0.35);
+        margin-bottom: 7px;
+    }
+    .section-tweaks-ai-controls {
+        display: flex;
+        gap: 6px;
+        align-items: flex-start;
+    }
+    .section-tweaks-ai-select {
+        flex: 0 0 auto;
+        max-width: 130px;
+        padding: 5px 7px;
+        background: #292b34;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 0.78rem;
+    }
+    .section-tweaks-ai-prompt {
+        flex: 1 1 0;
+        padding: 5px 8px;
+        background: #292b34;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 0.78rem;
+        resize: none;
+        min-height: 28px;
+    }
+    .section-tweaks-ai-btn {
+        flex: 0 0 auto;
+        padding: 5px 10px;
+        border-radius: 6px;
+        border: none;
+        background: linear-gradient(135deg,#7b2ff7,#00c6ff);
+        color: #fff;
+        cursor: pointer;
+        font-size: 0.82rem;
+    }
+    .section-tweaks-ai-status {
+        font-size: 0.75rem;
+        min-height: 1em;
+        margin-top: 5px;
+        color: #7ee2cc;
+    }
+    .section-tweaks-html-btn {
+        flex-shrink: 0;
+        padding: 3px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.55);
+        font-size: 0.75rem;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .section-tweaks-html-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .section-tweaks-html-ref {
+        margin-bottom: 10px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.07);
+    }
+    .section-tweaks-html-label {
+        padding: 5px 10px;
+        font-size: 0.72rem;
+        color: rgba(255,255,255,0.35);
+        background: rgba(0,0,0,0.2);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .section-tweaks-html-ref .CodeMirror {
+        height: 140px;
+        font-size: 11px;
+        font-family: 'Fira Mono','Consolas',monospace;
+        opacity: 0.75;
+    }
+    .section-tweaks-panel .CodeMirror {
+        height: 320px;
+        font-size: 13px;
+        font-family: 'Fira Mono','Consolas',monospace;
+        border-radius: 7px;
+    }
+
     .page-editor-tabs {
         display: flex;
         align-items: flex-end;
         gap: 4px;
         padding: 8px 12px 0;
         border-bottom: 1px solid rgba(255,255,255,0.08);
-        background: rgba(0,0,0,0.15);
+        /* Solid background — same tone as the editor navbar so it blends
+           seamlessly and is never see-through when content scrolls behind it. */
+        background: linear-gradient(180deg, #25272d 0%, #1d1f24 100%);
+        /* Fixed so iOS document scroll (which bypasses overflow:hidden at the
+           UIKit layer) cannot push this bar behind the editor navbar. */
+        position: fixed;
+        top: 108px; /* safe fallback; JS sets the exact value after measuring */
+        left: 0;
+        right: 0;
+        z-index: 9999; /* same tier as navbars, well above any section content */
+        box-sizing: border-box;
     }
     .page-editor-tabs .editor-page-title {
         margin-left: auto;
@@ -872,12 +1058,15 @@
     }
 
     .section-content.open {
-        max-height: 1000px;
+        max-height: 4000px;
+        overflow-y: auto;
+        overflow-x: hidden;
         opacity: 1;
         padding: 12px;
         pointer-events: auto;
         margin-top: -2px;
         border-top-left-radius: 10px;
+        z-index: 20;
     }
 
 
@@ -3610,11 +3799,13 @@
     }
 
     .section-content.open {
-        max-height: min(1400px, calc(100vh - 160px));
+        max-height: min(4000px, calc(100vh - 160px));
         overflow-y: auto;
+        overflow-x: hidden;
         opacity: 1;
         padding: 16px;
         pointer-events: auto;
+        z-index: 20;
     }
 
     /* Contents inside expanded section */
@@ -4004,6 +4195,43 @@
     .section-label {
         flex: 1;
         min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        overflow: hidden;
+    }
+    .section-name-display {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .section-type-tag {
+        flex-shrink: 0;
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.08);
+        color: rgba(255,255,255,0.4);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    /* Add-section modal tabs */
+    .add-section-tab {
+        padding: 7px 18px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: rgba(255,255,255,0.45);
+        font-size: 0.85rem;
+        cursor: pointer;
+        margin-bottom: -1px;
+    }
+    .add-section-tab.active {
+        color: #fff;
+        border-bottom-color: #7b2ff7;
     }
 
     .section-card {
@@ -5581,8 +5809,7 @@
         }
 
         .big-content-container {
-            height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
-            max-height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
+            flex: 1 1 0;
             min-height: 0;
             overflow: hidden;
         }
@@ -5640,30 +5867,54 @@
     }
 
     .big-content-container {
-        height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
-        max-height: calc(100dvh - var(--main-navbar-height, 56px) - var(--editor-navbar-height));
-
+        flex: 1 1 0;
         min-height: 0;
         overflow: hidden;
         box-sizing: border-box;
-    }
-
-    .content-container,
-    .web-preview {
-        height: 100%;
-        min-height: 0;
-        overflow: hidden;
+        /* Prevent content/scrollbar from extending into the iPhone home-bar
+           safe area. padding-bottom is safe here because box-sizing:border-box
+           means the padding shrinks usable space rather than growing the element. */
+        padding-bottom: env(safe-area-inset-bottom);
     }
 
     .content-container {
+        min-height: 0;
         overflow-y: auto;
         overscroll-behavior: contain;
+        /* Push the container's top edge below the fixed tab bar on all screen
+           sizes. margin-top (not padding-top) so the scrollbar track starts
+           flush with the visible content area, not behind the tab bar. */
+        margin-top: var(--tab-bar-height, 48px);
     }
 
+    /* .web-preview fills its flex cell via align-items:stretch (default).
+       position:relative turns it into a containing block for the iframe.
+       margin-top matches .content-container so the preview top aligns with
+       the bottom of the fixed tab bar (not hidden behind it). */
+    .web-preview {
+        position: relative;
+        min-height: 0;
+        overflow: hidden;
+        /* Subtract tab-bar-height from 100% so margin-top + height = 100%,
+           keeping the preview bottom flush with the parent bottom.
+           Without this, height:100% (set earlier) + margin-top overflows the
+           parent by margin-top pixels, hiding that slice of the iframe. */
+        height: calc(100% - var(--tab-bar-height, 48px));
+        margin-top: var(--tab-bar-height, 48px);
+    }
+
+    /* absolute inset is more reliable than height:100% for iframes inside
+       flex containers — eliminates the bottom-clipped-content issue. */
     #publicFrame {
-        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
         width: 100%;
         height: 100%;
+        border: none;
+        display: block;
     }
 
     .selected-music {
@@ -6720,9 +6971,15 @@ nts-admin-pagination span {
                 <i class="fas fa-sync"></i>
             </button>
 
+            {% if user_has_perm('sections.groups') %}
             <button type="button" id="add-section-group-btn" class="add-section-group-btn" title="Add section group">
                 +
             </button>
+            {% else %}
+            <button type="button" id="add-section-group-btn" class="add-section-group-btn perm-locked-btn" title="You don't have permission to add section groups" disabled>
+                +
+            </button>
+            {% endif %}
         </div>
 
         <!-- <div class="editor-navbar-center">
@@ -6739,10 +6996,11 @@ nts-admin-pagination span {
             </a>
 
             <div class="publish_page">
-                <label class="switch-label">
+                <label class="switch-label" {% if not user_has_perm('pages.publish') %}style="opacity:0.4;cursor:not-allowed;" title="You don't have permission to publish pages"{% endif %}>
                     Publish
                     <input type="checkbox" class="toggle" data-website-id="{{ website.id }}"
-                        data-page-id="{{ page_id }}" {% if site_active_status %}checked{% endif %}>
+                        data-page-id="{{ page_id }}" {% if site_active_status %}checked{% endif %}
+                        {% if not user_has_perm('pages.publish') %}disabled{% endif %}>
                     <span class="slider"></span>
                 </label>
             </div>
@@ -6750,8 +7008,33 @@ nts-admin-pagination span {
         </div>
     </div>
 
-    <div class="big-content-container">
+    <!-- Tab bar must be a sibling of .big-content-container, not a child.
+         .big-content-container gets transform:translateY for iOS scroll compensation;
+         position:fixed descendants of a transformed element lose viewport-fixed
+         behaviour, so the tab bar lives here where .content has no transform. -->
+    {% if user_has_perm('appearance.page_code') and user_has_perm('code.sections') %}
+    <div class="page-editor-tabs" id="pageEditorTabs">
+        <button class="page-editor-tab active" id="tabSections" onclick="switchPageTab('sections')">
+            <i class="fas fa-th-large"></i> Sections
+        </button>
+        <button class="page-editor-tab" id="tabPageCode" onclick="switchPageTab('pagecode')">
+            <i class="fas fa-code"></i> Page Code
+        </button>
+        <div class="editor-page-title">{{ page_content.name if page_content else "Untitled Page" }}</div>
+    </div>
+    {% else %}
+    <div class="page-editor-tabs" id="pageEditorTabs">
+        <button class="page-editor-tab active" id="tabSections" onclick="switchPageTab('sections')">
+            <i class="fas fa-th-large"></i> Sections
+        </button>
+        <button class="page-editor-tab perm-locked-btn" id="tabPageCode" disabled title="You don't have permission to edit page code">
+            <i class="fas fa-lock"></i> Page Code
+        </button>
+        <div class="editor-page-title">{{ page_content.name if page_content else "Untitled Page" }}</div>
+    </div>
+    {% endif %}
 
+    <div class="big-content-container">
         <div class="content-container">
 
             <!-- <div class="page-style-accordion">
@@ -6828,19 +7111,6 @@ nts-admin-pagination span {
             </script> -->
 
 
-            <!-- Page-level editor tab bar -->
-            <div class="page-editor-tabs">
-                <button class="page-editor-tab active" id="tabSections" onclick="switchPageTab('sections')">
-                    <i class="fas fa-th-large"></i> Sections
-                </button>
-                <button class="page-editor-tab" id="tabPageCode" onclick="switchPageTab('pagecode')">
-                    <i class="fas fa-code"></i> Page Code
-                </button>
-                <div class="editor-page-title">
-                    {{ page_content.name if page_content else "Untitled Page" }}
-                </div>
-            </div>
-
             <div class="content-sections-container" id="tabPanelSections">
 
                 <!-- HTML Structure -->
@@ -6902,43 +7172,57 @@ nts-admin-pagination span {
         <div id="add-section-modal" class="modal">
             <div class="modal-content dark">
                 <span class="close" id="closeModal">&times;</span>
-                <form id="add-section-form">
-                    <input type="hidden" id="row-id-input" name="row_id">
-                    <input type="hidden" id="column-id-input" name="column_id">
-                    <label for="section-type">Section Type:</label>
-                    <select id="section-type" name="section_type" onchange="handleAddSectionTypeChange(this.value)">
-                        <!-- <option value="navbar">Navbar</option> -->
-                        <!-- <option value="header">Header</option> -->
-                        <option value="button">Button</option>
-                        <option value="link_card">Link Card</option>
-                        <!-- <option value="image_gallery">Image Gallery</option>
-                        <option value="image">Image</option> -->
-                        <option value="images">Images</option>
-                        <option value="text">Text</option>
-                        <option value="code">Code</option>
-                        <option value="map">Map</option>
-                        <option value="contact_form">Contact Form</option>
-                        <option value="calendar">Calendar</option>
-                        <option value="youtube_video">Youtube Video</option>
-                        <option value="video">Video</option>
-                        <option value="music">Music</option>
-                        <option value="comments">Comments</option>
+                <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                    <button type="button" id="addSectionTabNew" class="add-section-tab active" onclick="switchAddSectionTab('new')">New Section</button>
+                    {% if user_has_perm('sections.templates') %}
+                    <button type="button" id="addSectionTabTemplate" class="add-section-tab" onclick="switchAddSectionTab('template')">From Template</button>
+                    {% else %}
+                    <button type="button" id="addSectionTabTemplate" class="add-section-tab perm-locked-btn" disabled title="You don't have permission to use section templates" style="opacity:0.4;cursor:not-allowed;pointer-events:none;"><i class="fas fa-lock" style="font-size:0.75em;margin-right:4px;"></i>From Template</button>
+                    {% endif %}
+                </div>
 
-                    </select><br><br>
+                <div id="addSectionPanelNew">
+                    <form id="add-section-form">
+                        <input type="hidden" id="row-id-input" name="row_id">
+                        <input type="hidden" id="column-id-input" name="column_id">
+                        <label for="section-type">Section Type:</label>
+                        <select id="section-type" name="section_type" onchange="handleAddSectionTypeChange(this.value)">
+                            <option value="button">Button</option>
+                            <option value="link_card">Link Card</option>
+                            <option value="images">Images</option>
+                            <option value="text">Text</option>
+                            <option value="code">Code</option>
+                            <option value="map">Map</option>
+                            <option value="contact_form">Contact Form</option>
+                            <option value="calendar">Calendar</option>
+                            <option value="youtube_video">Youtube Video</option>
+                            <option value="video">Video</option>
+                            <option value="music">Music</option>
+                            <option value="comments">Comments</option>
+                        </select><br><br>
 
-                    <div id="calendar-section-picker" style="display:none; margin-bottom:14px;">
-                        <label for="calendar-select" style="display:block; margin-bottom:6px;">Select Calendar:</label>
-                        <select id="calendar-select" name="calendar_id" style="width:100%; padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:#fff;">
-                            <option value="">Loading…</option>
-                        </select>
-                        <div id="calendar-select-empty" style="display:none; margin-top:8px; font-size:0.82rem; color:rgba(255,255,255,0.5);">
-                            No calendars found.
-                            <a href="/admin/calendars" target="_blank" style="color:#5eeef8;">Create one first →</a>
+                        <div id="calendar-section-picker" style="display:none; margin-bottom:14px;">
+                            <label for="calendar-select" style="display:block; margin-bottom:6px;">Select Calendar:</label>
+                            <select id="calendar-select" name="calendar_id" style="width:100%; padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:#fff;">
+                                <option value="">Loading…</option>
+                            </select>
+                            <div id="calendar-select-empty" style="display:none; margin-top:8px; font-size:0.82rem; color:rgba(255,255,255,0.5);">
+                                No calendars found.
+                                <a href="/admin/calendars" target="_blank" style="color:#5eeef8;">Create one first →</a>
+                            </div>
                         </div>
-                    </div>
 
-                    <button type="submit">Add Section</button>
-                </form>
+                        <button type="submit">Add Section</button>
+                    </form>
+                </div>
+
+                <div id="addSectionPanelTemplate" style="display:none;">
+                    <input type="hidden" id="section-template-row-id">
+                    <input type="hidden" id="section-template-col-id">
+                    <div id="sectionTemplateList" style="max-height:340px;overflow-y:auto;">
+                        <div style="color:rgba(255,255,255,0.4);font-size:0.85rem;">Loading templates…</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -7126,6 +7410,88 @@ nts-admin-pagination span {
         const websiteId = "{{ website.id }}";
         let sortableInstances = [];
 
+        // All three bars (main navbar, editor navbar, tab bar) are position:fixed.
+        // 1st rAF: measure navbars → set content.paddingTop + tab bar top.
+        // 2nd rAF: measure tab bar after it's positioned → set contentContainer
+        //          paddingTop so the section list starts below all three bars.
+        requestAnimationFrame(function () {
+            var mainNav          = document.querySelector('.navbar');
+            var editorNav        = document.querySelector('.editor-navbar');
+            var tabBar           = document.querySelector('.page-editor-tabs');
+            var content          = document.querySelector('.content');
+            var contentContainer = document.querySelector('.content-container');
+            if (!mainNav || !editorNav || !tabBar || !content) return;
+
+            var navTotal = mainNav.getBoundingClientRect().height
+                         + editorNav.getBoundingClientRect().height;
+
+            content.style.paddingTop = navTotal + 'px';
+            tabBar.style.top         = navTotal + 'px';
+
+            requestAnimationFrame(function () {
+                var tabH = tabBar.getBoundingClientRect().height;
+                // Expose as a CSS variable so the content-container can use it
+                // reliably in CSS rather than depending on a second inline style.
+                document.documentElement.style.setProperty('--tab-bar-height', tabH + 'px');
+                if (contentContainer) {
+                    contentContainer.style.scrollPaddingTop = tabH + 'px';
+                }
+            });
+        });
+
+        // ── Post-keyboard scrollY cleanup ─────────────────────────────────────
+        // .content is position:fixed so window.scrollY changes are visually
+        // harmless — the content never moves. We still reset scrollY to 0 after
+        // the keyboard finishes closing so that event.pageY (used by drag libs)
+        // stays accurate for section reordering. No visual jump since the fixed
+        // content covers everything.
+        (function () {
+            if (!window.visualViewport) return;
+            var prevH = window.visualViewport.height;
+            window.visualViewport.addEventListener('resize', function () {
+                var h = window.visualViewport.height;
+                if (h > prevH) {
+                    // Keyboard closed — reset after animation settles
+                    setTimeout(function () { window.scrollTo(0, 0); }, 50);
+                }
+                prevH = h;
+            });
+        })();
+
+        // ── Permission flags (Jinja2 → JS) ──────────────────────────────────
+        const PERM = {
+            pagesEdit:      {{ 'true' if user_has_perm('pages.edit') else 'false' }},
+            pagesCreate:    {{ 'true' if user_has_perm('pages.create') else 'false' }},
+            pagesDelete:    {{ 'true' if user_has_perm('pages.delete') else 'false' }},
+            pagesPublish:   {{ 'true' if user_has_perm('pages.publish') else 'false' }},
+            sectionsEdit:   {{ 'true' if user_has_perm('sections.edit') else 'false' }},
+            sectionsCreate: {{ 'true' if user_has_perm('sections.create') else 'false' }},
+            sectionsDelete: {{ 'true' if user_has_perm('sections.delete') else 'false' }},
+            sectionsReorder:{{ 'true' if user_has_perm('sections.reorder') else 'false' }},
+            sectionsGroups: {{ 'true' if user_has_perm('sections.groups') else 'false' }},
+            sectionsTmpl:   {{ 'true' if user_has_perm('sections.templates') else 'false' }},
+            codeEdit:       {{ 'true' if user_has_perm('code.sections') else 'false' }},
+            codeTweaks:     {{ 'true' if user_has_perm('code.tweaks') else 'false' }},
+            codeAI:         {{ 'true' if user_has_perm('code.ai') else 'false' }},
+            appearance:     {{ 'true' if user_has_perm('appearance.background') else 'false' }},
+            pageCode:       {{ 'true' if (user_has_perm('appearance.page_code') and user_has_perm('code.sections')) else 'false' }},
+            allowedPageIds:    {{ (current_user.permissions or {}).get('pages.allowed_ids') | tojson if current_user.is_sub_admin else 'null' }},
+            allowedSectionIds: {{ resolved_section_ids | tojson if current_user.is_sub_admin else 'null' }},
+            allowedGroupIds:   {{ resolved_group_ids   | tojson if current_user.is_sub_admin else 'null' }},
+        };
+        // Helper: can the current user access a specific page/section/group?
+        PERM.canAccessPage    = pid => PERM.allowedPageIds    === null || PERM.allowedPageIds.includes(Number(pid));
+        PERM.canAccessSection = sid => PERM.allowedSectionIds === null || PERM.allowedSectionIds.includes(Number(sid));
+        PERM.canAccessGroup   = gid => PERM.allowedGroupIds   === null || PERM.allowedGroupIds.includes(Number(gid));
+        // Helper: apply locked style to an element
+        function lockEl(el, reason) {
+            el.disabled = true;
+            el.style.opacity = '0.3';
+            el.style.cursor = 'not-allowed';
+            el.style.pointerEvents = 'none';
+            el.title = reason || 'You don\'t have permission to do this';
+        }
+
         function toggleSectionContent(button) {
             const sectionContent = button.nextElementSibling;
             const column = button.closest('.column');
@@ -7139,13 +7505,18 @@ nts-admin-pagination span {
                     if (otherTitle && otherTitle.classList.contains('section-title')) {
                         otherTitle.classList.remove('clicked');
                     }
-
+                    if (content._layoutObserver) {
+                        content._layoutObserver.disconnect();
+                        content._layoutObserver = null;
+                    }
                     content.classList.remove('open');
 
                     content.addEventListener('transitionend', function handler(e) {
                         if (e.propertyName === 'max-height') {
                             content.style.left = '0px';
                             content.style.width = '100%';
+                            const otherRow = content.closest('.row');
+                            if (otherRow) otherRow.style.paddingBottom = '5px';
                             content.removeEventListener('transitionend', handler);
                         }
                     });
@@ -7154,13 +7525,18 @@ nts-admin-pagination span {
 
             if (isOpen) {
                 button.classList.remove("clicked");
+                // Disconnect ResizeObserver before closing
+                if (sectionContent._layoutObserver) {
+                    sectionContent._layoutObserver.disconnect();
+                    sectionContent._layoutObserver = null;
+                }
                 sectionContent.classList.remove("open");
 
                 sectionContent.addEventListener('transitionend', function handler(e) {
                     if (e.propertyName === 'max-height') {
                         sectionContent.style.left = '0px';
                         sectionContent.style.width = '100%';
-                        row.style.paddingBottom = "5px";
+                        row.style.paddingBottom = '5px';
                         sectionContent.removeEventListener('transitionend', handler);
                     }
                 });
@@ -7172,18 +7548,21 @@ nts-admin-pagination span {
             button.classList.add("clicked");
             sectionContent.classList.add("open");
 
-            const rowRect = row.getBoundingClientRect();
+            const rowRect    = row.getBoundingClientRect();
             const columnRect = column.getBoundingClientRect();
 
-            const leftOffset = rowRect.left - columnRect.left + 5;
-            const panelWidth = row.clientWidth - 10;
+            sectionContent.style.left  = `${rowRect.left - columnRect.left + 5}px`;
+            sectionContent.style.width = `${row.clientWidth - 10}px`;
 
-            sectionContent.style.left = `${leftOffset}px`;
-            sectionContent.style.width = `${panelWidth}px`;
-
-            requestAnimationFrame(() => {
-                row.style.paddingBottom = `${sectionContent.scrollHeight + 20}px`;
-            });
+            // Use ResizeObserver so paddingBottom tracks the panel height on every animation frame
+            const _syncLayout = () => {
+                const panelH = sectionContent.getBoundingClientRect().height;
+                row.style.paddingBottom = `${panelH + 20}px`;
+            };
+            const _ro = new ResizeObserver(_syncLayout);
+            _ro.observe(sectionContent);
+            // Store observer on the element so we can disconnect it on close
+            sectionContent._layoutObserver = _ro;
         }
 
 
@@ -7191,18 +7570,17 @@ nts-admin-pagination span {
             if (!sectionContent || !sectionContent.classList.contains('open')) return;
 
             const column = sectionContent.closest('.column');
-            const row = sectionContent.closest('.row');
+            const row    = sectionContent.closest('.row');
             if (!column || !row) return;
 
-            const rowRect = row.getBoundingClientRect();
+            const rowRect    = row.getBoundingClientRect();
             const columnRect = column.getBoundingClientRect();
 
-            const leftOffset = rowRect.left - columnRect.left + 5;
-            const panelWidth = row.clientWidth - 10;
+            sectionContent.style.left  = `${rowRect.left - columnRect.left + 5}px`;
+            sectionContent.style.width = `${row.clientWidth - 10}px`;
 
-            sectionContent.style.left = `${leftOffset}px`;
-            sectionContent.style.width = `${panelWidth}px`;
-            row.style.paddingBottom = `${sectionContent.scrollHeight + 20}px`;
+            const panelH = sectionContent.getBoundingClientRect().height;
+            row.style.paddingBottom = `${panelH + 20}px`;
         }
 
     </script>
@@ -7649,9 +8027,23 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         function reloadSections(sections, rows, columns, website, groups = []) {
             setCurrentGroups(groups);
             quillEditors = [];
+
+            // Destroy all existing CodeMirror instances so stale references don't
+            // prevent re-initialisation after sections are rebuilt.
+            if (window._cmInstances) {
+                Object.values(window._cmInstances).forEach(cm => {
+                    try { cm.toTextArea(); } catch(e) {}
+                });
+                window._cmInstances = {};
+            }
+            if (window._tweakCM) {
+                Object.values(window._tweakCM).forEach(cm => {
+                    try { cm.toTextArea(); } catch(e) {}
+                });
+                window._tweakCM = {};
+            }
+
             const sectionsContainer = document.getElementById('sections-container');
-
-
             sectionsContainer.innerHTML = ''; // Clear the container
 
             const groupContainersById = {};
@@ -7677,16 +8069,19 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 <i class="fas fa-chevron-down"></i>
             </button>
 
-            <span class="group-drag-handle" title="Drag group">☰</span>
+            ${PERM.canAccessGroup(group.id)
+                ? `<span class="group-drag-handle" title="Drag group">☰</span>`
+                : `<span class="group-drag-handle" style="opacity:0.35;cursor:not-allowed;" title="You don't have access to this group">🔒</span>`}
 
             <div class="section-group-title-stack">
-                <span 
+                <span
                     class="editable-group-label"
-                    contenteditable="true"
+                    ${(PERM.sectionsGroups && PERM.canAccessGroup(group.id)) ? 'contenteditable="true"' : 'contenteditable="false"'}
                     data-group-id="${group.id}"
                     spellcheck="false"
-                    title="Click to edit group label"
-                >${group.name || 'Section Group'}</span>
+                    title="${(PERM.sectionsGroups && PERM.canAccessGroup(group.id)) ? 'Click to edit group label' : 'You don\'t have access to this group'}"
+                    style="${(PERM.sectionsGroups && PERM.canAccessGroup(group.id)) ? '' : 'cursor:not-allowed;opacity:0.6;'}"
+                >${group.name || 'Section Group'}${PERM.canAccessGroup(group.id) ? '' : ' <i class="fas fa-lock" style="font-size:0.6rem;color:rgba(255,200,100,0.6);"></i>'}</span>
 
                 <span class="section-group-meta">
                     <span class="group-row-count" data-group-id="${group.id}">0 rows</span>
@@ -7695,28 +8090,25 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         </div>
 
         <div class="section-group-actions">
-            <button type="button" onclick="openGroupStyleModal(${group.id})" title="Group Style">
-                <i class="fas fa-palette"></i>
-                <span>Style</span>
-            </button>
+            ${(PERM.sectionsGroups && PERM.canAccessGroup(group.id))
+                ? `<button type="button" onclick="openGroupStyleModal(${group.id})" title="Group Style"><i class="fas fa-palette"></i><span>Style</span></button>`
+                : `<button type="button" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="${PERM.canAccessGroup(group.id) ? 'No permission to manage groups' : 'No access to this group'}"><i class="fas fa-palette"></i><span>Style</span></button>`}
 
-            <button type="button" onclick="addRowToGroup(${group.id})" title="Add Row">
-                <i class="fas fa-plus"></i>
-                <span>Row</span>
-            </button>
+            ${(PERM.sectionsGroups && PERM.canAccessGroup(group.id))
+                ? `<button type="button" onclick="addRowToGroup(${group.id})" title="Add Row"><i class="fas fa-plus"></i><span>Row</span></button>`
+                : `<button type="button" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="${PERM.canAccessGroup(group.id) ? 'No permission to manage groups' : 'No access to this group'}"><i class="fas fa-plus"></i><span>Row</span></button>`}
 
-            <button type="button" onclick="openSaveTemplateModal(${group.id})" title="Save as Template">
-                <i class="fas fa-bookmark"></i>
-                <span>Save</span>
-            </button>
+            ${(PERM.sectionsTmpl && PERM.canAccessGroup(group.id))
+                ? `<button type="button" onclick="openSaveTemplateModal(${group.id})" title="Save as Template"><i class="fas fa-bookmark"></i><span>Save</span></button>`
+                : `<button type="button" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="${PERM.canAccessGroup(group.id) ? 'No permission to use templates' : 'No access to this group'}"><i class="fas fa-bookmark"></i><span>Save</span></button>`}
 
-            <button type="button" onclick="duplicateSectionGroup(${group.id})" title="Duplicate Group">
-                <i class="fas fa-copy"></i>
-            </button>
+            ${(PERM.sectionsGroups && PERM.canAccessGroup(group.id))
+                ? `<button type="button" onclick="duplicateSectionGroup(${group.id})" title="Duplicate Group"><i class="fas fa-copy"></i></button>`
+                : `<button type="button" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="${PERM.canAccessGroup(group.id) ? 'No permission to manage groups' : 'No access to this group'}"><i class="fas fa-copy"></i></button>`}
 
-            <button type="button" class="danger-action" onclick="deleteSectionGroup(${group.id})" title="Delete Group">
-                <i class="fas fa-trash"></i>
-            </button>
+            ${(PERM.sectionsGroups && PERM.canAccessGroup(group.id))
+                ? `<button type="button" class="danger-action" onclick="deleteSectionGroup(${group.id})" title="Delete Group"><i class="fas fa-trash"></i></button>`
+                : `<button type="button" class="danger-action" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="${PERM.canAccessGroup(group.id) ? 'No permission to manage groups' : 'No access to this group'}"><i class="fas fa-trash"></i></button>`}
         </div>
     </div>
 
@@ -7805,94 +8197,104 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 rowElement.setAttribute('row-order-number-', row.row_number); // Set row ID
 
                 // Dropdown container for options
+                const _canAccessThisGroup = !row.section_group_id || PERM.canAccessGroup(row.section_group_id);
+                const _noGroupAccessTitle  = 'You don\'t have access to this group';
+
                 const optionsDropdown = document.createElement('div');
                 optionsDropdown.classList.add('options-dropdown');
 
-                // Button for options dropdown (styled as an icon)
                 const optionsButton = document.createElement('div');
-                optionsButton.classList.add('options-icon'); // Add custom class for styling
+                optionsButton.classList.add('options-icon');
 
-                // Create the gear icon
                 const gearIcon = document.createElement('i');
-                gearIcon.classList.add('fas', 'fa-cog'); // Assuming you're using Font Awesome icons
-                gearIcon.style.color = 'white'; // Set color to white
-
-                // Append the gear icon to the button
+                gearIcon.classList.add('fas', 'fa-cog');
+                gearIcon.style.color = 'white';
                 optionsButton.appendChild(gearIcon);
 
-                optionsButton.onclick = function () {
-                    toggleDropdown(dropdownContent); // Function to toggle dropdown visibility
-                };
+                if (_canAccessThisGroup) {
+                    optionsButton.onclick = function () {
+                        toggleDropdown(dropdownContent);
+                    };
+                } else {
+                    optionsButton.style.opacity = '0.3';
+                    optionsButton.style.cursor = 'not-allowed';
+                    optionsButton.style.pointerEvents = 'none';
+                    optionsButton.title = _noGroupAccessTitle;
+                }
                 optionsDropdown.appendChild(optionsButton);
-
 
                 // Dropdown content
                 const dropdownContent = document.createElement('div');
                 dropdownContent.classList.add('dropdown-content');
 
-                const addRowOption = document.createElement('a');
-                addRowOption.textContent = 'Add Row';
-                addRowOption.onclick = function () {
-                    addRowAbove(rowId);
-                };
-                dropdownContent.appendChild(addRowOption);
+                const addRowAboveOption = document.createElement('a');
+                addRowAboveOption.textContent = 'Add Row Above';
+                if (_canAccessThisGroup && PERM.sectionsGroups) {
+                    addRowAboveOption.onclick = function () { addRowAbove(rowId); };
+                } else {
+                    addRowAboveOption.style.opacity = '0.4';
+                    addRowAboveOption.style.pointerEvents = 'none';
+                    addRowAboveOption.title = _canAccessThisGroup ? 'No permission to manage groups' : _noGroupAccessTitle;
+                }
+                dropdownContent.appendChild(addRowAboveOption);
 
+                const addRowBelowOption = document.createElement('a');
+                addRowBelowOption.textContent = 'Add Row Below';
+                if (_canAccessThisGroup && PERM.sectionsGroups) {
+                    addRowBelowOption.onclick = function () { addRowBelow(rowId); };
+                } else {
+                    addRowBelowOption.style.opacity = '0.4';
+                    addRowBelowOption.style.pointerEvents = 'none';
+                    addRowBelowOption.title = _canAccessThisGroup ? 'No permission to manage groups' : _noGroupAccessTitle;
+                }
+                dropdownContent.appendChild(addRowBelowOption);
 
                 // Add Column option
                 const addColumnOption = document.createElement('a');
                 addColumnOption.textContent = 'Add Cell';
-                addColumnOption.onclick = function () {
-                    addColumnToRow(rowId);
-                };
+                if (_canAccessThisGroup && PERM.sectionsGroups) {
+                    addColumnOption.onclick = function () { addColumnToRow(rowId); };
+                } else {
+                    addColumnOption.style.opacity = '0.4';
+                    addColumnOption.style.pointerEvents = 'none';
+                    addColumnOption.title = _canAccessThisGroup ? 'No permission to manage groups' : _noGroupAccessTitle;
+                }
                 dropdownContent.appendChild(addColumnOption);
 
                 // Delete Row option
                 const deleteRowOption = document.createElement('a');
                 deleteRowOption.textContent = 'Delete Row';
-                deleteRowOption.onclick = function (e) {
-                    e.stopPropagation();
-
-                    const rowEl = document.querySelector(`.row[data-row-id="${rowId}"]`);
-                    const sectionCount = rowEl
-                        ? rowEl.querySelectorAll(':scope .section-card').length
-                        : 0;
-
-                    const message =
-                        sectionCount > 0
+                if (_canAccessThisGroup && PERM.sectionsGroups) {
+                    deleteRowOption.onclick = function (e) {
+                        e.stopPropagation();
+                        const rowEl = document.querySelector(`.row[data-row-id="${rowId}"]`);
+                        const sectionCount = rowEl ? rowEl.querySelectorAll(':scope .section-card').length : 0;
+                        const message = sectionCount > 0
                             ? `Delete this row?\n\nThis will also permanently delete ${sectionCount} section${sectionCount === 1 ? '' : 's'} inside this row.\n\nThis cannot be undone.`
                             : `Delete this empty row?\n\nThis cannot be undone.`;
-
-                    const confirmed = confirm(message);
-
-                    if (!confirmed) return;
-
-                    deleteRow(rowId);
-                };
+                        if (!confirm(message)) return;
+                        deleteRow(rowId);
+                    };
+                } else {
+                    deleteRowOption.style.opacity = '0.4';
+                    deleteRowOption.style.pointerEvents = 'none';
+                    deleteRowOption.title = _canAccessThisGroup ? 'No permission to manage groups' : _noGroupAccessTitle;
+                }
                 dropdownContent.appendChild(deleteRowOption);
 
-                // Append dropdown content to dropdown container
                 optionsDropdown.appendChild(dropdownContent);
-
-
-                // const rowDropZone = document.createElement('div');
-                // rowDropZone.classList.add('row-drop-zone');
-                // rowDropZone.setAttribute('data-row-id', rowId);
-                // rowDropZone.innerHTML = '<span>Drop section here</span>';
-
-                // rowDropZone.addEventListener('dragover', handleRowDragOver);
-                // rowDropZone.addEventListener('drop', handleRowDrop);
-                // rowDropZone.addEventListener('dragleave', handleRowDragLeave);
-
-                // // sectionsContainer.appendChild(rowDropZone);
-                // parentContainer.appendChild(rowDropZone);
-
-
-                // Append dropdown container to row
                 rowElement.appendChild(optionsDropdown);
 
                 const rowDragHandle = document.createElement('div');
                 rowDragHandle.classList.add('row-drag-handle');
-                rowDragHandle.innerHTML = '☰';
+                if (_canAccessThisGroup && PERM.sectionsReorder) {
+                    rowDragHandle.innerHTML = '☰';
+                } else {
+                    rowDragHandle.innerHTML = '🔒';
+                    rowDragHandle.style.opacity = '0.35';
+                    rowDragHandle.style.cursor = 'not-allowed';
+                    rowDragHandle.title = _canAccessThisGroup ? 'No permission to reorder rows' : _noGroupAccessTitle;
+                }
                 rowElement.insertBefore(rowDragHandle, rowElement.firstChild);
 
                 // console.log('Grid row:', grid[rowId]);
@@ -7929,6 +8331,9 @@ document.getElementById("refreshButton").addEventListener("click", function () {
 
 
                     if (section && section.isSection) {
+                        const _canEditSection = PERM.sectionsEdit && PERM.canAccessSection(section.id) && PERM.canAccessPage(pageId);
+                        const _canDeleteSection = PERM.sectionsDelete && PERM.canAccessSection(section.id) && PERM.canAccessPage(pageId);
+
                         const sectionCard = document.createElement('div');
                         sectionCard.classList.add('section-card');
                         sectionCard.classList.add(`section-type-${section.section_type}`);
@@ -7936,6 +8341,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                         sectionCard.dataset.columnId = section.column_id;
                         sectionCard.dataset.rowId = rowId;
                         sectionCard.dataset.sectionType = getPrettySectionType(section.section_type);
+                        sectionCard.dataset.sectionVersion = section.version ?? 0;
 
                         const sectionElement = document.createElement('div');
                         sectionElement.classList.add('section-title');
@@ -7944,13 +8350,15 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                         sectionElement.onclick = function (event) {
                             if (document.body.classList.contains('is-sorting')) return;
                             if (event.target.closest('.dropdown, .dropbtn, .dropdown-content')) return;
-
+                            if (!_canEditSection) return;
                             toggleSectionContent(this);
                         };
                         const sectionDragHandle = document.createElement('span');
                         sectionDragHandle.classList.add('section-drag-handle');
-                        sectionDragHandle.innerHTML = '☰';
-                        sectionDragHandle.title = 'Drag section to another cell';
+                        const _canDragSection = PERM.sectionsReorder && _canEditSection;
+                        sectionDragHandle.innerHTML = _canDragSection ? '☰' : '🔒';
+                        sectionDragHandle.title = _canDragSection ? 'Drag section to another cell' : (!_canEditSection ? 'You don\'t have access to this section' : 'You don\'t have permission to reorder sections');
+                        if (!_canDragSection) sectionDragHandle.style.opacity = '0.35';
                         sectionElement.appendChild(sectionDragHandle);
 
                         const dropdown = document.createElement('div');
@@ -7987,6 +8395,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             deleteSection(sectionId);
                         };
 
+                        if (!_canDeleteSection) lockEl(deleteSectionLink, 'You don\'t have permission to delete sections');
                         dropdownContent.appendChild(deleteSectionLink);
                         const isImageSection = ['images', 'image_gallery', 'image'].includes(section.section_type);
 
@@ -8006,11 +8415,80 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                         dropdown.appendChild(dropbtn);
                         dropdown.appendChild(dropdownContent);
 
+                        // Section label: custom name (if set) + type badge
                         const sectionLabel = document.createElement('span');
                         sectionLabel.classList.add('section-label');
-                        sectionLabel.textContent = getPrettySectionType(section.section_type);
+                        sectionLabel.id = `section-label-${section.id}`;
+
+                        const nameEl = document.createElement('span');
+                        nameEl.className = 'section-name-display';
+                        nameEl.textContent = section.label || getPrettySectionType(section.section_type);
+
+                        const typeTag = document.createElement('span');
+                        typeTag.className = 'section-type-tag';
+                        typeTag.textContent = getPrettySectionType(section.section_type);
+                        // Only show type badge when a custom name is set
+                        typeTag.style.display = section.label ? '' : 'none';
+
+                        sectionLabel.appendChild(nameEl);
+                        sectionLabel.appendChild(typeTag);
                         sectionElement.appendChild(sectionLabel);
+
+                        // Rename option in dropdown
+                        const renameSectionLink = document.createElement('a');
+                        renameSectionLink.href = '#';
+                        renameSectionLink.textContent = 'Rename Section';
+                        if (_canEditSection) {
+                            renameSectionLink.addEventListener('click', e => {
+                                e.preventDefault(); e.stopPropagation();
+                                const current = section.label || '';
+                                const newName = prompt('Section name:', current);
+                                if (newName === null) return;
+                                const trimmed = newName.trim();
+                                section.label = trimmed || null;
+                                nameEl.textContent = trimmed || getPrettySectionType(section.section_type);
+                                typeTag.style.display = trimmed ? '' : 'none';
+                                fetch(`/section/${section.id}/save_label`, {
+                                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({label: trimmed})
+                                });
+                            });
+                        } else {
+                            lockEl(renameSectionLink, 'You don\'t have permission to edit sections');
+                        }
+                        dropdownContent.appendChild(renameSectionLink);
+
+                        // Save as Template option in dropdown
+                        const saveTemplateLink = document.createElement('a');
+                        saveTemplateLink.href = '#';
+                        saveTemplateLink.textContent = 'Save as Template';
+                        if (PERM.sectionsTmpl) {
+                            saveTemplateLink.addEventListener('click', e => {
+                                e.preventDefault(); e.stopPropagation();
+                                const tname = prompt('Template name:', section.label || getPrettySectionType(section.section_type));
+                                if (!tname) return;
+                                fetch(`/admin/section/${section.id}/save_as_template`, {
+                                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({name: tname.trim()})
+                                }).then(r => r.json()).then(d => {
+                                    if (d.success) showEditorToast('Saved as template');
+                                    else alert(d.error || 'Failed');
+                                });
+                            });
+                        } else {
+                            lockEl(saveTemplateLink, 'You don\'t have permission to use templates');
+                        }
+                        dropdownContent.appendChild(saveTemplateLink);
+
                         sectionElement.appendChild(dropdown);
+
+                        // Show lock badge on section title if this section is inaccessible
+                        if (!_canEditSection) {
+                            const lockBadge = document.createElement('span');
+                            lockBadge.title = 'You don\'t have permission to edit this section';
+                            lockBadge.innerHTML = ' <i class="fas fa-lock" style="font-size:0.65rem;color:rgba(255,200,100,0.7);"></i>';
+                            sectionLabel.appendChild(lockBadge);
+                        }
 
                         const sectionContent = document.createElement('div');
                         sectionContent.classList.add('section-content');
@@ -9160,7 +9638,7 @@ setTimeout(() => {
 
                             sectionContent.innerHTML = `
         <div class="code-section-editor section-container" id="codeContainer-${section.id}">
-            <div class="code-ai-panel">
+            ${PERM.codeAI ? `<div class="code-ai-panel">
                 <div class="code-ai-panel-header"><i class="fas fa-robot"></i> AI Assist</div>
                 <div class="code-ai-controls">
                     <select class="code-ai-agent-select" id="codeAiAgent-${section.id}">
@@ -9174,7 +9652,7 @@ setTimeout(() => {
                     </button>
                 </div>
                 <div class="code-ai-status" id="codeAiStatus-${section.id}"></div>
-            </div>
+            </div>` : ''}
             <div class="code-editor-toolbar">
                 <span class="code-editor-label"><i class="fas fa-code"></i> HTML / CSS / JS</span>
                 <div class="code-toolbar-actions">
@@ -9184,9 +9662,9 @@ setTimeout(() => {
                     <button type="button" class="code-toolbar-btn" title="Redo" onclick="(function(){ const c = window._cmInstances && window._cmInstances[${section.id}]; if(c) c.redo(); })()">
                         <i class="fas fa-redo"></i>
                     </button>
-                    <button type="button" class="code-toolbar-btn" onclick="window.saveCodeSection(${section.id})">
-                        <i class="fas fa-save"></i> Save
-                    </button>
+                    ${PERM.codeEdit
+                        ? `<button type="button" class="code-toolbar-btn" onclick="window.saveCodeSection(${section.id})"><i class="fas fa-save"></i> Save</button>`
+                        : `<button type="button" class="code-toolbar-btn" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="You don't have permission to save code"><i class="fas fa-save"></i> Save</button>`}
                 </div>
             </div>
             <form class="update-section-form" data-section-id="${section.id}" data-section-type="code" data-page-id="${section.page_content_id}">
@@ -9256,12 +9734,16 @@ setTimeout(() => {
                                     tabSize: 2,
                                     indentWithTabs: false,
                                 });
-                                const _autoSaveCode = debounce(() => window.saveCodeSection(section.id, false), 600);
-                                cm.on('change', () => {
-                                    ta.value = cm.getValue();
-                                    _autoSaveCode();
-                                });
                                 window._cmInstances[section.id] = cm;
+                                // Attach auto-save after the next frame so the initial
+                                // fromTextArea change event doesn't trigger a spurious save.
+                                const _autoSaveCode = debounce(() => window.saveCodeSection(section.id, false), 600);
+                                requestAnimationFrame(() => {
+                                    cm.on('change', () => {
+                                        ta.value = cm.getValue();
+                                        _autoSaveCode();
+                                    });
+                                });
                             };
 
                             const _cmObserver = new MutationObserver((mutations) => {
@@ -9394,9 +9876,18 @@ setTimeout(() => {
                         // Add button for adding a section
                         const addSectionButton = document.createElement('button');
                         addSectionButton.textContent = 'Add Section';
-                        addSectionButton.onclick = function () {
-                            openAddSectionModal(rowId, section.column_id); // Function to open the modal for adding a section
-                        };
+                        const _rowGroupId = row.section_group_id;
+                        const _canAddHere = PERM.sectionsCreate && PERM.canAccessPage(pageId)
+                            && (_rowGroupId == null || PERM.canAccessGroup(_rowGroupId));
+                        if (_canAddHere) {
+                            addSectionButton.onclick = function () {
+                                openAddSectionModal(rowId, section.column_id);
+                            };
+                        } else {
+                            lockEl(addSectionButton, _rowGroupId && !PERM.canAccessGroup(_rowGroupId)
+                                ? 'You don\'t have access to this group'
+                                : 'You don\'t have permission to add sections');
+                        }
                         columnElement.appendChild(addSectionButton);
                     }
                     rowElement.appendChild(columnElement);
@@ -9406,21 +9897,21 @@ setTimeout(() => {
                     const resizeHandle = document.createElement('div');
                     // Check if this is not the last column in the row
                     const numColumns = Object.keys(grid[rowId]).length;
-                    // console.log('NUMBER OF COLUMNS: ', numColumns)
                     if (columnCounter !== numColumns) {
                         resizeHandle.classList.add('column-resize-handle');
 
+                        if (!_canAccessThisGroup || !PERM.sectionsGroups) {
+                            resizeHandle.style.opacity = '0.2';
+                            resizeHandle.style.cursor = 'not-allowed';
+                            resizeHandle.style.pointerEvents = 'none';
+                            resizeHandle.title = _canAccessThisGroup ? 'No permission to resize columns' : _noGroupAccessTitle;
+                        } else {
 
-
-                        // Ensure the event handlers are set up correctly for each resize handle
                         resizeHandle.addEventListener('mousedown', function (event) {
                             const col1 = resizeHandle.previousElementSibling;
                             const col2 = resizeHandle.nextElementSibling;
-                            // console.log('Resize Handle Start', { col1, col2 });
                             if (col1 && col2) {
                                 handleResizeMouseDown(event, col1, col2, resizeHandle);
-                            } else {
-                                // console.log('Missing columns for resize:', { col1, col2 });
                             }
                         });
 
@@ -9436,6 +9927,10 @@ setTimeout(() => {
                         });
 
                         // Append the resize handle to the row element
+                        rowElement.appendChild(resizeHandle);
+                        } // end else (_canAccessThisGroup)
+                    }
+                    if (!_canAccessThisGroup || !PERM.sectionsGroups) {
                         rowElement.appendChild(resizeHandle);
                     }
 
@@ -9636,24 +10131,17 @@ setTimeout(() => {
             });
 
             function addRowAbove(currentRowId) {
-                // console.log("ADD ROW ABOVE: ", currentRowId)
-                fetch(`/add_row_above/${currentRowId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            populateSections();
-                        } else {
-                            console.error('Failed to add row:', data.error);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                    });
+                fetch(`/add_row_above/${currentRowId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+                    .then(r => r.json())
+                    .then(data => { if (data.success) populateSections(); else console.error('Failed to add row:', data.error); })
+                    .catch(e => console.error('Error:', e));
+            }
+
+            function addRowBelow(currentRowId) {
+                fetch(`/add_row_below/${currentRowId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+                    .then(r => r.json())
+                    .then(data => { if (data.success) populateSections(); else console.error('Failed to add row:', data.error); })
+                    .catch(e => console.error('Error:', e));
             }
 
 
@@ -9932,6 +10420,53 @@ setTimeout(() => {
 
 
             // let quillEditors = []; // Array to store Quill instances
+
+            // Append Code Tweaks accordion to every section panel (except code sections, which have their own editor)
+            sections.forEach(section => {
+                if (section.section_type === 'code') return;
+                if (!PERM.codeTweaks) return;
+                const sc = document.getElementById(`section-content-${section.id}`);
+                if (!sc) return;
+                const tweakWrap = document.createElement('div');
+                tweakWrap.className = 'section-tweaks-wrap';
+                tweakWrap.id = `tweaksWrap-${section.id}`;
+                // Store saved code on the element so toggleSectionTweaks can read it
+                tweakWrap.dataset.savedCode = section.custom_code || '';
+                tweakWrap.innerHTML = `
+<div class="section-tweaks-toggle" onclick="toggleSectionTweaks(${section.id})">
+  <i class="fas fa-code"></i> Code Tweaks
+  <span class="section-tweaks-badge">scoped to this section</span>
+  <i class="fas fa-chevron-down section-tweaks-chevron" id="tweaksChevron-${section.id}"></i>
+</div>
+<div class="section-tweaks-panel" id="tweaks-${section.id}" style="display:none;">
+  ${PERM.codeAI ? `<div class="section-tweaks-ai-bar">
+    <div class="section-tweaks-ai-header"><i class="fas fa-robot"></i> AI Assist</div>
+    <div class="section-tweaks-ai-controls">
+      <select id="tweaksAgent-${section.id}" class="section-tweaks-ai-select">
+        <option value="">Loading agents…</option>
+      </select>
+      <textarea id="tweaksPrompt-${section.id}" class="section-tweaks-ai-prompt" rows="1"
+        placeholder="e.g. Make the button rounded with a purple gradient…"></textarea>
+      <button class="section-tweaks-ai-btn" onclick="generateSectionTweaks(${section.id})">
+        <i class="fas fa-magic"></i>
+      </button>
+    </div>
+    <div class="section-tweaks-ai-status" id="tweaksStatus-${section.id}"></div>
+  </div>` : ''}
+  <div class="section-tweaks-toolbar">
+    <span class="section-tweaks-hint">CSS &amp; JS scoped to <code>#section-${section.id}</code></span>
+    <button class="section-tweaks-html-btn" onclick="toggleSectionHtmlRef(${section.id})" title="Show rendered HTML for reference">
+      <i class="fas fa-eye"></i> View HTML
+    </button>
+  </div>
+  <div class="section-tweaks-html-ref" id="tweaksHtmlRef-${section.id}" style="display:none;">
+    <div class="section-tweaks-html-label">Rendered HTML (read-only reference)</div>
+    <textarea id="tweaksHtmlRefTextarea-${section.id}" readonly></textarea>
+  </div>
+  <textarea id="tweaksTextarea-${section.id}"></textarea>
+</div>`;
+                sc.appendChild(tweakWrap);
+            });
 
             // Initialize calendars if any
             sections.forEach(section => {
@@ -10340,6 +10875,7 @@ setTimeout(() => {
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 aspectRatio: 1.5,
                 initialView: 'dayGridMonth',
+                eventDisplay: 'block',
                 events: (info, successCallback, failureCallback) => {
                     fetchEvents(calendarId, successCallback, failureCallback);
                 },
@@ -10353,6 +10889,18 @@ setTimeout(() => {
                 },
                 eventChange: function (info) {
                     updateEvent(info.event, calendarId);
+                },
+                eventDidMount: function (info) {
+                    const hex = (info.event.backgroundColor || '').replace('#', '');
+                    if (hex.length >= 6) {
+                        const r = parseInt(hex.slice(0, 2), 16);
+                        const g = parseInt(hex.slice(2, 4), 16);
+                        const b = parseInt(hex.slice(4, 6), 16);
+                        const tc = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff';
+                        info.el.style.color = tc;
+                        const m = info.el.querySelector('.fc-event-main');
+                        if (m) m.style.color = tc;
+                    }
                 }
             });
 
@@ -10611,6 +11159,14 @@ setTimeout(() => {
 
         previewButton.addEventListener('click', () => {
             rightContainer.classList.toggle('visible');
+            const previewVisible = rightContainer.classList.contains('visible');
+
+            // On mobile both panels sit in a column flex. Even a zero-height
+            // content-container keeps its margin-top, pushing the preview 48px
+            // too low. Hide it entirely while the preview is open.
+            if (window.innerWidth <= 768) {
+                leftSide.style.display = previewVisible ? 'none' : '';
+            }
 
             const iframe = document.getElementById('publicFrame');
             // On mobile the iframe starts hidden so the browser may not have loaded it yet.
@@ -11393,11 +11949,9 @@ setTimeout(() => {
                 formData.set("section_id", form.dataset.sectionId);
                 formData.set("section_type", form.dataset.sectionType);
 
-                console.log("Saving section:", {
-                    sectionId: form.dataset.sectionId,
-                    sectionType: form.dataset.sectionType,
-                    endpoint
-                });
+                // Optimistic locking: include the version we last saw
+                const card = document.querySelector(`.section-card[data-section-id="${form.dataset.sectionId}"]`);
+                if (card) formData.set("_version", card.dataset.sectionVersion ?? '');
 
                 fetch(endpoint, {
                     method: "POST",
@@ -11405,16 +11959,17 @@ setTimeout(() => {
                 })
                     .then(async response => {
                         const data = await response.json();
-
                         if (!response.ok) {
                             throw new Error(data.message || data.error || 'Failed to save section.');
                         }
-
                         return data;
                     })
                     .then(data => {
-                        console.log("Section save response:", data);
-
+                        if (!data) return;
+                        // Keep the card version in sync for future conflict detection
+                        if (data.version !== undefined && card) {
+                            card.dataset.sectionVersion = data.version;
+                        }
                         if (data.status !== 'success') {
                             showMessage(data.message || 'Section did not save.');
                         }
@@ -11700,6 +12255,221 @@ setTimeout(() => {
                 }
             } catch (e) {
                 select.innerHTML = '<option value="">Error loading calendars</option>';
+            }
+        }
+
+        /* ── Section Code Tweaks ── */
+
+        function buildTweaksTemplate(sectionId, innerHtml) {
+            const id = `#section-${sectionId}`;
+            const parser = new DOMParser();
+            const doc    = parser.parseFromString(`<div id="root">${innerHtml}</div>`, 'text/html');
+            const root   = doc.getElementById('root');
+
+            // Collect unique meaningful selectors
+            const seen = new Set();
+            const selectors = [];
+            root.querySelectorAll('*').forEach(el => {
+                const tag = el.tagName.toLowerCase();
+                // Classes worth exposing (skip tiny utility names)
+                el.classList.forEach(cls => {
+                    if (cls.length >= 3 && !seen.has('.' + cls)) {
+                        seen.add('.' + cls);
+                        selectors.push(`${id} .${cls}`);
+                    }
+                });
+                // Meaningful tags
+                const interestingTags = ['a','button','img','h1','h2','h3','h4','p','ul','ol','li','input','textarea','video','audio','canvas','svg','iframe'];
+                if (interestingTags.includes(tag) && !seen.has(tag)) {
+                    seen.add(tag);
+                    selectors.push(`${id} ${tag}`);
+                }
+            });
+
+            let css = `<style>\n  /* ── #section-${sectionId} tweaks ── */\n\n`;
+            css += `  ${id} {\n    \n  }\n`;
+            selectors.forEach(sel => { css += `\n  ${sel} {\n    \n  }\n`; });
+            css += `</style>`;
+            return css;
+        }
+
+        async function generateSectionTweaks(sectionId) {
+            const agentEl  = document.getElementById(`tweaksAgent-${sectionId}`);
+            const promptEl = document.getElementById(`tweaksPrompt-${sectionId}`);
+            const statusEl = document.getElementById(`tweaksStatus-${sectionId}`);
+            const cm       = window._tweakCM?.[sectionId];
+
+            const agentId = agentEl?.value;
+            const prompt  = promptEl?.value.trim();
+            const setStatus = (msg, ok) => {
+                if (!statusEl) return;
+                statusEl.textContent = msg;
+                statusEl.style.color = ok === false ? '#f55' : '#7ee2cc';
+            };
+
+            if (!agentId) { setStatus('Select an agent.', false); return; }
+            if (!prompt)  { setStatus('Enter a prompt.', false); return; }
+
+            const btn = document.querySelector(`#tweaksWrap-${sectionId} .section-tweaks-ai-btn`);
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+            setStatus('Generating…');
+
+            const currentCode = cm ? cm.getValue() : '';
+
+            try {
+                const r = await fetch(`/admin/section/${sectionId}/ai_assist_tweaks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent_id: parseInt(agentId), prompt, current_code: currentCode })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    localStorage.setItem('tweaks_lastAgentId', agentId);
+                    if (cm) cm.setValue(d.code || '');
+                    promptEl.value = '';
+                    setStatus('Done — saved automatically.');
+                    const sc = document.getElementById(`section-content-${sectionId}`);
+                    setTimeout(() => updateOpenSectionLayout(sc), 200);
+                } else {
+                    setStatus(d.error || 'Generation failed.', false);
+                }
+            } catch(e) {
+                setStatus('Network error: ' + e.message, false);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i>'; }
+            }
+        }
+
+        async function toggleSectionTweaks(sectionId) {
+            const panel   = document.getElementById(`tweaks-${sectionId}`);
+            const chevron = document.getElementById(`tweaksChevron-${sectionId}`);
+            const sc      = document.getElementById(`section-content-${sectionId}`);
+            if (!panel) return;
+
+            const opening = panel.style.display === 'none';
+            panel.style.display = opening ? 'block' : 'none';
+            chevron?.classList.toggle('fa-chevron-down', !opening);
+            chevron?.classList.toggle('fa-chevron-up', opening);
+            requestAnimationFrame(() => updateOpenSectionLayout(sc));
+
+            if (!opening) return; // closing — nothing else to do
+
+            // Already initialised: just refresh and resize
+            if (window._tweakCM?.[sectionId]) {
+                window._tweakCM[sectionId].setSize(null, 320);
+                window._tweakCM[sectionId].refresh();
+                setTimeout(() => updateOpenSectionLayout(sc), 100);
+                return;
+            }
+
+            // ── First open: initialise everything ──
+            if (!window._tweakCM) window._tweakCM = {};
+
+            // Load agents
+            fetch('/admin/ai-agents/list').then(r => r.json()).then(d => {
+                const sel = document.getElementById(`tweaksAgent-${sectionId}`);
+                if (!sel) return;
+                const agents = (d.agents || []).filter(a =>
+                    a.capabilities === 'chat' || a.capabilities === 'both' || !a.capabilities);
+                sel.innerHTML = agents.length
+                    ? '<option value="">— agent —</option>' +
+                      agents.map(a => `<option value="${a.id}">${a.name}</option>`).join('')
+                    : '<option value="">No agents</option>';
+                const last = localStorage.getItem('tweaks_lastAgentId');
+                if (last) for (const o of sel.options) if (o.value === last) { o.selected = true; break; }
+            }).catch(() => {});
+
+            // Enter key in prompt
+            document.getElementById(`tweaksPrompt-${sectionId}`)
+                ?.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        generateSectionTweaks(sectionId);
+                    }
+                });
+
+            const ta         = document.getElementById(`tweaksTextarea-${sectionId}`);
+            const wrap       = document.getElementById(`tweaksWrap-${sectionId}`);
+            const savedCode  = wrap?.dataset.savedCode || '';
+            if (!ta) return;
+
+            // Determine initial content
+            if (savedCode) {
+                ta.value = savedCode;
+            } else {
+                // Fetch rendered HTML to build a scoped starter template
+                ta.value = `<style>\n  #section-${sectionId} {\n    \n  }\n</style>`;
+                try {
+                    const r    = await fetch(`/admin/section/${sectionId}/rendered_html`);
+                    const data = await r.json();
+                    if (data.html) ta.value = buildTweaksTemplate(sectionId, data.html);
+                } catch (_) { /* keep fallback */ }
+            }
+
+            // Init CodeMirror now that panel is visible and content is set
+            const cm = CodeMirror.fromTextArea(ta, {
+                mode: 'htmlmixed', theme: 'dracula', lineNumbers: true,
+                lineWrapping: true, tabSize: 2, indentWithTabs: false,
+            });
+
+            const _applyCMSize = () => {
+                cm.getWrapperElement().style.height = '320px';
+                cm.getScrollerElement().style.minHeight = '320px';
+                cm.refresh();
+            };
+            _applyCMSize();
+
+            const save = debounce(() => {
+                fetch(`/section/${sectionId}/save_tweaks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: cm.getValue() })
+                });
+            }, 800);
+            cm.on('change', () => { ta.value = cm.getValue(); save(); });
+            window._tweakCM[sectionId] = cm;
+
+            // Re-apply after browser has painted the panel
+            requestAnimationFrame(() => {
+                _applyCMSize();
+                updateOpenSectionLayout(sc);
+            });
+            setTimeout(() => {
+                _applyCMSize();
+                updateOpenSectionLayout(sc);
+            }, 300);
+        }
+
+        async function toggleSectionHtmlRef(sectionId) {
+            const wrap = document.getElementById(`tweaksHtmlRef-${sectionId}`);
+            const ta   = document.getElementById(`tweaksHtmlRefTextarea-${sectionId}`);
+            if (!wrap || !ta) return;
+            const isOpen = wrap.style.display !== 'none';
+            const sc = document.getElementById(`section-content-${sectionId}`);
+            if (isOpen) {
+                wrap.style.display = 'none';
+                requestAnimationFrame(() => updateOpenSectionLayout(sc));
+                return;
+            }
+
+            ta.value = 'Loading…';
+            wrap.style.display = 'block';
+            requestAnimationFrame(() => updateOpenSectionLayout(sc));
+
+            if (!window._tweakHtmlCM) window._tweakHtmlCM = {};
+            if (!window._tweakHtmlCM[sectionId]) {
+                const r    = await fetch(`/admin/section/${sectionId}/rendered_html`);
+                const data = await r.json();
+                ta.value   = data.html || '(empty)';
+                const cm   = CodeMirror.fromTextArea(ta, {
+                    mode: 'htmlmixed', theme: 'dracula', lineNumbers: true,
+                    lineWrapping: true, readOnly: true,
+                });
+                window._tweakHtmlCM[sectionId] = cm;
+                setTimeout(() => { cm.refresh(); updateOpenSectionLayout(sc); }, 100);
+            } else {
+                window._tweakHtmlCM[sectionId].refresh();
+                setTimeout(() => updateOpenSectionLayout(sc), 50);
             }
         }
 
@@ -12195,6 +12965,84 @@ setTimeout(() => {
             } catch(e) { console.error(e); }
         }
 
+        /* ── Section templates ── */
+
+        function switchAddSectionTab(tab) {
+            const isNew = tab === 'new';
+            document.getElementById('addSectionPanelNew').style.display = isNew ? '' : 'none';
+            document.getElementById('addSectionPanelTemplate').style.display = isNew ? 'none' : '';
+            document.getElementById('addSectionTabNew').classList.toggle('active', isNew);
+            document.getElementById('addSectionTabTemplate').classList.toggle('active', !isNew);
+            if (!isNew) loadSectionTemplateList();
+        }
+
+        async function loadSectionTemplateList() {
+            const list = document.getElementById('sectionTemplateList');
+            list.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.85rem;">Loading…</div>';
+            const d = await fetch('/admin/section_templates/grouped').then(r => r.json());
+            const grouped = d.grouped || {};
+            list.innerHTML = '';
+            if (!Object.keys(grouped).length) {
+                list.innerHTML = '<div style="color:rgba(255,255,255,0.35);font-size:0.85rem;padding:12px 0;">No section templates saved yet.<br>Save a section as a template from its ⋮ menu.</div>';
+                return;
+            }
+            for (const [stype, templates] of Object.entries(grouped)) {
+                const grpLabel = document.createElement('div');
+                grpLabel.style.cssText = 'font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.35);padding:8px 0 4px;';
+                grpLabel.textContent = getPrettySectionType(stype);
+                list.appendChild(grpLabel);
+                templates.forEach(t => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,0.04);margin-bottom:4px;';
+                    row.addEventListener('mouseenter', () => row.style.background = 'rgba(255,255,255,0.09)');
+                    row.addEventListener('mouseleave', () => row.style.background = 'rgba(255,255,255,0.04)');
+                    row.innerHTML = `<span style="flex:1;font-size:0.88rem;color:#fff;">${t.name}</span>
+                        <span style="font-size:0.75rem;color:rgba(255,255,255,0.35);">${getPrettySectionType(t.section_type)}</span>
+                        <button title="Rename" style="padding:2px 8px;border-radius:5px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#ccc;font-size:0.75rem;cursor:pointer;" onclick="event.stopPropagation();renameSectionTemplate(${t.id},'${t.name.replace(/'/g,"\\'")}')">✎</button>
+                        <button title="Delete" style="padding:2px 8px;border-radius:5px;border:1px solid rgba(255,80,80,0.3);background:rgba(255,80,80,0.08);color:#f88;font-size:0.75rem;cursor:pointer;" onclick="event.stopPropagation();deleteSectionTemplate(${t.id})">✕</button>`;
+                    row.addEventListener('click', () => applySectionTemplate(t.id));
+                    list.appendChild(row);
+                });
+            }
+        }
+
+        async function applySectionTemplate(templateId) {
+            const rowId = document.getElementById('row-id-input').value;
+            const colId = document.getElementById('column-id-input').value;
+            if (!rowId || !colId) { alert('Open a column\'s Add Section menu first, then switch to From Template.'); return; }
+            const resp = await fetch(`/admin/section_template/${templateId}/apply`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({row_id: parseInt(rowId), column_id: parseInt(colId), page_id: parseInt(pageId)})
+            });
+            const rd = await resp.json();
+            if (rd.success) {
+                document.getElementById('add-section-modal').style.display = 'none';
+                populateSections();
+            } else {
+                alert(rd.error || 'Failed to apply template');
+            }
+        }
+
+        async function renameSectionTemplate(templateId, currentName) {
+            const newName = prompt('Rename template:', currentName);
+            if (!newName || newName.trim() === currentName) return;
+            const d = await fetch(`/admin/section_templates/${templateId}/rename`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: newName.trim()})
+            }).then(r => r.json());
+            if (d.success) loadSectionTemplateList();
+            else alert(d.error || 'Failed');
+        }
+
+        async function deleteSectionTemplate(templateId) {
+            if (!confirm('Delete this section template?')) return;
+            const d = await fetch(`/admin/section_templates/${templateId}/delete`, {method:'POST'}).then(r=>r.json());
+            if (d.success) loadSectionTemplateList();
+            else alert(d.error || 'Failed');
+        }
+
         /* ── Save as Template Modal ── */
 
         function openSaveTemplateModal(groupId) {
@@ -12351,8 +13199,14 @@ setTimeout(() => {
                     draggable: '.row',
                     group: {
                         name: 'page-rows',
-                        pull: true,
-                        put: true
+                        pull: function (to, from) {
+                            // Only allow pulling from accessible groups
+                            return PERM.canAccessGroup(from.el.dataset.groupId);
+                        },
+                        put: function (to) {
+                            // Only allow dropping into accessible groups
+                            return PERM.canAccessGroup(to.el.dataset.groupId);
+                        }
                     },
                     ghostClass: 'sortable-ghost',
                     chosenClass: 'sortable-chosen',
@@ -13018,8 +13872,19 @@ setTimeout(() => {
             card.classList.add('section-card-dragging');
         }
 
+        function _columnGroupAccessible(column) {
+            const row = column.closest('.row');
+            if (!row) return true;
+            const groupRows = row.closest('.group-rows');
+            if (!groupRows) return true;
+            return PERM.canAccessGroup(groupRows.dataset.groupId);
+        }
+
         function handleSectionDragOver(event) {
             if (!draggedSectionData) return;
+
+            const col = event.currentTarget.closest('.column');
+            if (col && !_columnGroupAccessible(col)) return; // silently block
 
             event.preventDefault();
             event.dataTransfer.dropEffect = 'move';
@@ -13057,6 +13922,12 @@ setTimeout(() => {
 
             const targetColumn = event.currentTarget.closest('.column');
             if (!targetColumn) {
+                cleanupSectionDrag();
+                return;
+            }
+
+            // Block drop into a group the user cannot access
+            if (!_columnGroupAccessible(targetColumn)) {
                 cleanupSectionDrag();
                 return;
             }

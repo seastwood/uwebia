@@ -134,7 +134,7 @@
     }
 
     /* CSS for the button */
-    .virtual-tour-button {
+    .section-button {
         display: inline-block;
         background-color: #4CAF50;
         /* Green button color */
@@ -158,7 +158,7 @@
     }
 
     /* Hover effect for the button */
-    .virtual-tour-button:hover {
+    .section-button:hover {
         background-color: #45a049;
         /* Darker green color on hover */
     }
@@ -1479,8 +1479,12 @@
 }
 
 .public-section-cell > .uwebia-link-card,
-.public-section-cell > .virtual-tour-button {
+.public-section-cell > .section-button-wrap {
     flex: 0 1 auto;
+}
+.section-button-wrap {
+    display: flex;
+    justify-content: center;
 }
 
 /* When map/form/calendar/text are inside a flex cell, the cell is already
@@ -3152,8 +3156,8 @@ box-sizing: border-box;
                             {% set sorted_sections = sections_in_row|sort(attribute='column_number') %}
                             {% for section in sorted_sections %}
 
-                            <!-- paste your full section-container block here -->
                             <div class="section-container public-section-cell"
+                                id="section-{{ section.id }}"
                                 style="--section-width: {{ section.width }}%;">
 
                                 {% if section.section_type in ['images', 'image_gallery', 'image'] %}
@@ -3323,9 +3327,11 @@ box-sizing: border-box;
 
                                 {% elif section.section_type == 'button' %}
                                 {% if section.content['enabled'] %}
-                                <a href="{{ section.content['link'] }}" class="virtual-tour-button">{{
-                                    section.content['text']
+                                <div class="section-button-wrap">
+                                    <a href="{{ section.content['link'] }}" class="section-button">{{
+                                        section.content['text']
                                     }}</a>
+                                </div>
                                 {% endif %}
                                 {% elif section.section_type == 'map' %}
                                 {% if section.content['enabled'] %}
@@ -3663,8 +3669,11 @@ box-sizing: border-box;
 
 
 
-                            </div>
+                            </div><!-- /section-{{ section.id }} -->
 
+                            {% if section.get('custom_code') %}
+                            {{ section['custom_code'] | safe }}
+                            {% endif %}
 
                             {% endfor %}
                         </div>
@@ -3766,6 +3775,7 @@ document.body.style.color = text_color;
 
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
+                eventDisplay: 'block',
                 height: 'auto',
                 contentHeight: 'auto',
                 expandRows: false,
@@ -3775,6 +3785,18 @@ document.body.style.color = text_color;
 
                 events: (info, successCallback, failureCallback) => {
                     fetchEvents(calendarId, successCallback, failureCallback);
+                },
+                eventDidMount: function (info) {
+                    const hex = (info.event.backgroundColor || '').replace('#', '');
+                    if (hex.length >= 6) {
+                        const r = parseInt(hex.slice(0, 2), 16);
+                        const g = parseInt(hex.slice(2, 4), 16);
+                        const b = parseInt(hex.slice(4, 6), 16);
+                        const tc = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? '#1a1a1a' : '#ffffff';
+                        info.el.style.color = tc;
+                        const m = info.el.querySelector('.fc-event-main');
+                        if (m) m.style.color = tc;
+                    }
                 },
                 eventClick: function (info) {
                     // Display a modal or popover with event details when clicked
@@ -3895,9 +3917,26 @@ document.body.style.color = text_color;
 
                 if (mapEnabled) {
                     var map = L.map(mapId).setView([latitude, longitude], 16);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    }).addTo(map);
+
+                    var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                        maxZoom: 19
+                    });
+
+                    var satelliteLayer = L.tileLayer(
+                        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                        maxZoom: 19
+                    });
+
+                    streetLayer.addTo(map);
+
+                    L.control.layers(
+                        { 'Street': streetLayer, 'Satellite': satelliteLayer },
+                        null,
+                        { position: 'topright' }
+                    ).addTo(map);
+
                     L.marker([latitude, longitude]).addTo(map)
                         .bindPopup(mapMarkerLabel)
                         .openPopup();

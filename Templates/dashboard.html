@@ -2111,6 +2111,29 @@
                 width: 100%;
             }
         }
+
+    /* ── Permission-locked states ── */
+    .perm-locked-overlay {
+        position: absolute; inset: 0; z-index: 10;
+        background: rgba(15,15,20,0.6);
+        backdrop-filter: blur(2px);
+        border-radius: inherit;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 8px; cursor: default;
+        pointer-events: all;
+    }
+    .perm-locked-overlay i { font-size: 1.4rem; color: rgba(255,255,255,0.5); }
+    .perm-locked-overlay span { font-size: 0.75rem; color: rgba(255,255,255,0.45); text-align: center; padding: 0 12px; line-height: 1.4; }
+    .perm-locked-btn {
+        opacity: 0.38; cursor: not-allowed !important; pointer-events: none;
+        filter: grayscale(0.4);
+    }
+    .perm-locked-nav { opacity: 0.35; pointer-events: none; position: relative; }
+    .perm-locked-nav::after {
+        content: '\f023'; font-family: 'Font Awesome 6 Free'; font-weight: 900;
+        font-size: 0.6rem; margin-left: 5px; vertical-align: middle; color: rgba(255,255,255,0.5);
+    }
     </style>
 
 </head>
@@ -2201,41 +2224,94 @@
                 </div>
 
                 <div class="website-action-bar">
+                    {% if user_has_perm('pages.create') %}
                     <button type="button" class="website-action-button website-action-button-primary"
                         onclick="openAddPageModal('{{ website.id }}')">
                         <i class="fas fa-plus"></i>
                         <span>Add Page</span>
                     </button>
+                    {% else %}
+                    <button type="button" class="website-action-button website-action-button-primary perm-locked-btn" disabled title="You don't have permission to create pages">
+                        <i class="fas fa-lock"></i>
+                        <span>Add Page</span>
+                    </button>
+                    {% endif %}
+
+                    {% if user_has_perm('pages.create') %}
                     <button type="button" class="website-action-button" onclick="createPageFolder('{{ website.id }}')">
                         <i class="fas fa-folder-plus"></i>
                         <span>New Folder</span>
                     </button>
+                    {% else %}
+                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to create page folders">
+                        <i class="fas fa-lock"></i>
+                        <span>New Folder</span>
+                    </button>
+                    {% endif %}
+
+                    {% if user_has_perm('website.edit') %}
                     <button type="button" class="website-action-button" onclick="editWebsite('{{ website.id }}')">
                         <i class="fas fa-edit"></i>
                         <span>Edit</span>
                     </button>
+                    {% else %}
+                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit website details">
+                        <i class="fas fa-lock"></i>
+                        <span>Edit</span>
+                    </button>
+                    {% endif %}
+
+                    {% if user_has_perm('appearance.background') %}
                     <button type="button" class="website-action-button"
                         onclick="openWebsiteStyleModal('{{ website.id }}')">
                         <i class="fas fa-palette"></i>
                         <span>Website Style</span>
                     </button>
+                    {% else %}
+                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to change website style">
+                        <i class="fas fa-lock"></i>
+                        <span>Website Style</span>
+                    </button>
+                    {% endif %}
+
+                    {% if user_has_perm('appearance.navbar') %}
                     <button type="button" class="website-action-button"
                         onclick="openModal('publicNavbarModal_{{ website.id }}')">
                         <i class="fas fa-bars"></i>
                         <span>Navbar Routing</span>
                     </button>
+                    {% else %}
+                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit navbar">
+                        <i class="fas fa-lock"></i>
+                        <span>Navbar Routing</span>
+                    </button>
+                    {% endif %}
 
+                    {% if user_has_perm('appearance.navbar') %}
                     <button type="button" class="website-action-button"
                         onclick="openModal('publicNavbarStyleModal_{{ website.id }}')">
                         <i class="fas fa-paint-brush"></i>
                         <span>Navbar Style</span>
                     </button>
+                    {% else %}
+                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit navbar style">
+                        <i class="fas fa-lock"></i>
+                        <span>Navbar Style</span>
+                    </button>
+                    {% endif %}
+
+                    {% if user_has_perm('forum.view') %}
                     <button type="button" class="website-action-button"
                         onclick="window.location.href='{{ url_for('admin_forum') }}'">
                         <i class="fas fa-comments"></i>
                         Forum
                     </button>
-
+                    {% else %}
+                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to access the forum">
+                        <i class="fas fa-lock"></i>
+                        Forum
+                    </button>
+                    {% endif %}
                 </div>
             </div>
             <!-- <div class="tag-container">
@@ -2338,39 +2414,82 @@
                                         Edit Page Details
                                     </button>
 
+                                    {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
+                                    {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
                                     <button type="button"
                                         onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                         <i class="fas fa-edit"></i>
                                         Open Editor
                                     </button>
+                                    {% else %}
+                                    <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
+                                        <i class="fas fa-lock"></i>
+                                    </button>
+                                    {% endif %}
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page">
+                                        <i class="fas fa-lock"></i>
+                                        Open Editor
+                                    </button>
+                                    {% endif %}
 
+                                    {% if user_has_perm('pages.publish') %}
                                     <button type="button"
                                         onclick="document.querySelector('.dashboard-publish-toggle[data-page-id=\'{{ page.id }}\']').click()">
                                         <i class="fas fa-broadcast-tower"></i>
                                         {% if page.site_active_status %}Unpublish Page{% else %}Publish Page{% endif %}
                                     </button>
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to publish pages" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        {% if page.site_active_status %}Unpublish Page{% else %}Publish Page{% endif %}
+                                    </button>
+                                    {% endif %}
 
+                                    {% if user_has_perm('pages.create') %}
                                     <button type="button"
                                         onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-folder-open"></i>
                                         Move to Folder
                                     </button>
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to move pages" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        Move to Folder
+                                    </button>
+                                    {% endif %}
+
                                     <button type="button"
                                         onclick="generateQRCode('{{ url_for('public_page_by_slug', page_slug=page.slug) }}', '{{ page.id }}')">
                                         <i class="fas fa-qrcode"></i>
                                         Download QR Code
                                     </button>
 
+                                    {% if user_has_perm('pages.create') %}
                                     <button type="button" onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-copy"></i>
                                         Duplicate Page
                                     </button>
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to duplicate pages" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        Duplicate Page
+                                    </button>
+                                    {% endif %}
 
+                                    {% if user_has_perm('pages.templates') %}
                                     <button type="button" onclick="openSavePageTemplateModal('{{ page.id }}', '{{ page.name | e }}')">
                                         <i class="fas fa-bookmark"></i>
                                         Save as Template
                                     </button>
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to save page templates" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        Save as Template
+                                    </button>
+                                    {% endif %}
 
+                                    {% if user_has_perm('pages.create') %}
                                     {% if page.slug == 'home' %}
                                     <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
                                         <i class="fas fa-random"></i>
@@ -2382,12 +2501,25 @@
                                         Replace Page
                                     </button>
                                     {% endif %}
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to replace page content" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        Replace Page
+                                    </button>
+                                    {% endif %}
 
                                     {% if page.slug != 'home' %}
+                                    {% if user_has_perm('pages.delete') %}
                                     <button type="button" onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
                                         <i class="fas fa-trash"></i>
                                         Delete Page
                                     </button>
+                                    {% else %}
+                                    <button type="button" class="perm-locked-btn" disabled title="You don't have permission to delete pages" style="opacity:0.38;pointer-events:none;">
+                                        <i class="fas fa-lock"></i>
+                                        Delete Page
+                                    </button>
+                                    {% endif %}
                                     {% else %}
                                     <button type="button" class="page-menu-disabled"
                                         title="The root page cannot be deleted. Use Replace Page instead." disabled>
@@ -2400,11 +2532,14 @@
 
                             <label
                                 class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
-                                id="pagePublishBadge_{{ page.id }}" title="Click to toggle publishing">
+                                id="pagePublishBadge_{{ page.id }}"
+                                title="{% if user_has_perm('pages.publish') %}Click to toggle publishing{% else %}You don't have permission to publish pages{% endif %}"
+                                {% if not user_has_perm('pages.publish') %}style="pointer-events:none;opacity:0.5;"{% endif %}>
 
                                 <input type="checkbox" class="dashboard-publish-toggle"
                                     data-website-id="{{ website.id }}" data-page-id="{{ page.id }}" {% if
-                                    page.site_active_status %}checked{% endif %}>
+                                    page.site_active_status %}checked{% endif %}
+                                    {% if not user_has_perm('pages.publish') %}disabled{% endif %}>
 
                                 <span class="publish-badge-dot"></span>
 
@@ -2421,15 +2556,28 @@
 
                             <div class="page-title">
                                 {{ page.name }}
+                                {% if not user_has_perm('pages.edit') or not user_can_access_page(page.id) %}
+                                <i class="fas fa-lock" title="You don't have access to this page" style="font-size:0.7rem;color:rgba(255,200,100,0.7);margin-left:5px;"></i>
+                                {% endif %}
                             </div>
 
-
                             <div class="edit-button-container">
-                                <!-- Edit button for page -->
+                                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
+                                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
                                 <button class="edit-button"
                                     onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                     <i class="fas fa-edit"></i>
                                 </button>
+                                {% else %}
+                                <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
+                                    <i class="fas fa-lock"></i>
+                                </button>
+                                {% endif %}
+                                {% else %}
+                                <button class="edit-button perm-locked-btn" title="You don't have permission to edit this page" tabindex="-1">
+                                    <i class="fas fa-lock"></i>
+                                </button>
+                                {% endif %}
                             </div>
                             <div class="page-preview-shell"
                                 data-preview-url="{{ url_for('public_page_by_slug', page_slug=page.slug) }}">
@@ -2553,15 +2701,29 @@
                             </button>
 
                             <div class="page-folder-actions">
+                                {% if user_has_perm('pages.create') %}
                                 <button type="button" onclick="renamePageFolder('{{ folder.id }}')">
                                     <i class="fas fa-pen"></i>
                                     Rename
                                 </button>
+                                {% else %}
+                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to rename folders" style="opacity:0.38;pointer-events:none;">
+                                    <i class="fas fa-lock"></i>
+                                    Rename
+                                </button>
+                                {% endif %}
 
+                                {% if user_has_perm('pages.delete') %}
                                 <button type="button" onclick="deletePageFolder('{{ folder.id }}')">
                                     <i class="fas fa-trash"></i>
                                     Delete Folder
                                 </button>
+                                {% else %}
+                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to delete folders" style="opacity:0.38;pointer-events:none;">
+                                    <i class="fas fa-lock"></i>
+                                    Delete Folder
+                                </button>
+                                {% endif %}
                             </div>
 
                             <div class="page-folder-body" id="pageFolderBody_{{ folder.id }}">
@@ -2590,24 +2752,43 @@
                                                     Edit Page Details
                                                 </button>
 
+                                                {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
                                                 <button type="button"
                                                     onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                                     <i class="fas fa-edit"></i>
                                                     Open Editor
                                                 </button>
+                                                {% else %}
+                                                <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
+                                                    <i class="fas fa-lock"></i>
+                                                </button>
+                                                {% endif %}
 
+                                                {% if user_has_perm('pages.publish') %}
                                                 <button type="button"
                                                     onclick="document.querySelector('.dashboard-publish-toggle[data-page-id=\'{{ page.id }}\']').click()">
                                                     <i class="fas fa-broadcast-tower"></i>
-                                                    {% if page.site_active_status %}Unpublish Page{% else %}Publish
-                                                    Page{% endif %}
+                                                    {% if page.site_active_status %}Unpublish Page{% else %}Publish Page{% endif %}
                                                 </button>
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to publish pages" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    {% if page.site_active_status %}Unpublish Page{% else %}Publish Page{% endif %}
+                                                </button>
+                                                {% endif %}
 
+                                                {% if user_has_perm('pages.create') %}
                                                 <button type="button"
                                                     onclick="openMovePageFolderModal('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-folder-open"></i>
                                                     Move to Folder
                                                 </button>
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to move pages" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    Move to Folder
+                                                </button>
+                                                {% endif %}
 
                                                 <button type="button"
                                                     onclick="generateQRCode('{{ url_for('public_page_by_slug', page_slug=page.slug) }}', '{{ page.id }}')">
@@ -2615,19 +2796,32 @@
                                                     Download QR Code
                                                 </button>
 
-
-
+                                                {% if user_has_perm('pages.create') %}
                                                 <button type="button"
                                                     onclick="duplicatePage('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-copy"></i>
                                                     Duplicate Page
                                                 </button>
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to duplicate pages" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    Duplicate Page
+                                                </button>
+                                                {% endif %}
 
+                                                {% if user_has_perm('pages.templates') %}
                                                 <button type="button" onclick="openSavePageTemplateModal('{{ page.id }}', '{{ page.name | e }}')">
                                                     <i class="fas fa-bookmark"></i>
                                                     Save as Template
                                                 </button>
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to save page templates" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    Save as Template
+                                                </button>
+                                                {% endif %}
 
+                                                {% if user_has_perm('pages.create') %}
                                                 {% if page.slug == 'home' %}
                                                 <button type="button" onclick="openReplacePageModal('{{ page.id }}')">
                                                     <i class="fas fa-random"></i>
@@ -2639,13 +2833,26 @@
                                                     Replace Page
                                                 </button>
                                                 {% endif %}
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to replace page content" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    Replace Page
+                                                </button>
+                                                {% endif %}
 
                                                 {% if page.slug != 'home' %}
+                                                {% if user_has_perm('pages.delete') %}
                                                 <button type="button"
                                                     onclick="deletePage('{{ website.id }}', '{{ page.id }}')">
                                                     <i class="fas fa-trash"></i>
                                                     Delete Page
                                                 </button>
+                                                {% else %}
+                                                <button type="button" class="perm-locked-btn" disabled title="You don't have permission to delete pages" style="opacity:0.38;pointer-events:none;">
+                                                    <i class="fas fa-lock"></i>
+                                                    Delete Page
+                                                </button>
+                                                {% endif %}
                                                 {% else %}
                                                 <button type="button" class="page-menu-disabled"
                                                     title="The root page cannot be deleted. Use Replace Page instead."
@@ -2659,11 +2866,14 @@
 
                                         <label
                                             class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
-                                            id="pagePublishBadge_{{ page.id }}" title="Click to toggle publishing">
+                                            id="pagePublishBadge_{{ page.id }}"
+                                            title="{% if user_has_perm('pages.publish') %}Click to toggle publishing{% else %}You don't have permission to publish pages{% endif %}"
+                                            {% if not user_has_perm('pages.publish') %}style="pointer-events:none;opacity:0.5;"{% endif %}>
 
                                             <input type="checkbox" class="dashboard-publish-toggle"
                                                 data-website-id="{{ website.id }}" data-page-id="{{ page.id }}" {% if
-                                                page.site_active_status %}checked{% endif %}>
+                                                page.site_active_status %}checked{% endif %}
+                                                {% if not user_has_perm('pages.publish') %}disabled{% endif %}>
 
                                             <span class="publish-badge-dot"></span>
 
@@ -2685,10 +2895,16 @@
 
                                         <div class="edit-button-container">
                                             <!-- Edit button for page -->
+                                            {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
                                             <button class="edit-button"
                                                 onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
                                                 <i class="fas fa-edit"></i>
                                             </button>
+                                            {% else %}
+                                            <button class="perm-locked-btn" tabindex="-1" title="You don't have permission to edit this page" style="pointer-events:none;opacity:0.38;">
+                                                <i class="fas fa-lock"></i>
+                                            </button>
+                                            {% endif %}
                                         </div>
                                         <div class="page-preview-shell"
                                             data-preview-url="{{ url_for('public_page_by_slug', page_slug=page.slug) }}">

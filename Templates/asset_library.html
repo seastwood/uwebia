@@ -617,18 +617,36 @@
     </div>
 
     <div class="library-controls">
+        {% if user_has_perm('assets.upload') %}
         <button onclick="document.getElementById('assetInput').click()">
             <i class="fas fa-upload"></i> Upload
         </button>
+        {% else %}
+        <button disabled style="opacity:0.38;cursor:not-allowed;pointer-events:none;" title="You don't have permission to upload files">
+            <i class="fas fa-lock"></i> Upload
+        </button>
+        {% endif %}
 
+        {% if user_has_perm('assets.folders') %}
         <button onclick="createFolder()">
             <i class="fas fa-folder-plus"></i> New Folder
         </button>
+        {% else %}
+        <button disabled style="opacity:0.38;cursor:not-allowed;pointer-events:none;" title="You don't have permission to create folders">
+            <i class="fas fa-lock"></i> New Folder
+        </button>
+        {% endif %}
 
         {% if current_type == 'image' %}
+        {% if user_has_perm('assets.ai_generate') %}
         <button onclick="openAiGenModal()" style="background:linear-gradient(135deg,#7b2ff7,#00c6ff); border-color:transparent;">
             <i class="fas fa-magic"></i> Generate with AI
         </button>
+        {% else %}
+        <button disabled style="opacity:0.38;cursor:not-allowed;pointer-events:none;" title="You don't have permission to generate images with AI">
+            <i class="fas fa-lock"></i> Generate with AI
+        </button>
+        {% endif %}
         {% endif %}
 
         <input type="file" id="assetInput" multiple style="display:none" onchange="handleUpload(event)">
@@ -656,12 +674,18 @@
         </div>
 
         {% for folder in folders %}
-        <div class="folder-item {% if current_folder and current_folder.id == folder.id %}active-folder{% endif %}"
+        {% set folder_accessible = user_can_access_folder(folder.id) %}
+        <div class="folder-item {% if current_folder and current_folder.id == folder.id %}active-folder{% endif %} {% if not folder_accessible %}perm-locked-btn{% endif %}"
+            {% if folder_accessible %}
             onclick="window.location.href='{{ url_for('asset_library', type=current_type, folder_id=folder.id) }}'"
             ondrop="dropToFolder(event, '{{ folder.id }}')" ondragover="allowDrop(event)"
-            ondragleave="clearDrag(event)">
-            <i class="fas fa-folder fa-3x"></i>
-            <p>{{ folder.name }}</p>
+            ondragleave="clearDrag(event)"
+            {% else %}
+            style="opacity:0.4;cursor:not-allowed;pointer-events:none;"
+            title="You don't have access to this folder"
+            {% endif %}>
+            <i class="fas fa-folder fa-3x" {% if not folder_accessible %}style="color:rgba(255,100,100,0.4);"{% endif %}></i>
+            <p>{{ folder.name }}{% if not folder_accessible %} <i class="fas fa-lock" style="font-size:0.65rem;"></i>{% endif %}</p>
         </div>
         {% endfor %}
     </div>
@@ -747,40 +771,52 @@
             </div>
 
             <div class="asset-card-actions">
+                {% if user_has_perm('assets.download') %}
                 <a class="download-btn" href="{{ url_for('download_asset', asset_id=asset.id) }}"
                     onclick="event.stopPropagation();" title="Download asset">
                     <i class="fas fa-download"></i>
                 </a>
+                {% else %}
+                <span class="download-btn" style="opacity:0.3;cursor:not-allowed;" title="You don't have permission to download files">
+                    <i class="fas fa-download"></i>
+                </span>
+                {% endif %}
 
+                {% if user_has_perm('assets.delete') %}
                 <button class="delete-btn" onclick="event.stopPropagation(); deleteAsset('{{ asset.id }}')"
                     title="Delete asset">
                     <i class="fas fa-trash"></i>
                 </button>
+                {% else %}
+                <button class="delete-btn" disabled style="opacity:0.3;cursor:not-allowed;pointer-events:none;" title="You don't have permission to delete assets">
+                    <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
     </div>
 </div>
 
-<div id="imgLightbox" class="img-lightbox" onclick="closeImagePreview()">
-    <button class="img-lightbox-close" onclick="closeImagePreview()" title="Close">&times;</button>
-    <img id="imgLightboxImg" class="img-lightbox-img" src="" alt="" onclick="event.stopPropagation()">
-    <div id="imgLightboxCaption" class="img-lightbox-caption"></div>
+<div id="imgLightbox" class="uw-overlay" onclick="closeImagePreview()" style="align-items:center;justify-content:center;flex-direction:column;gap:14px;cursor:zoom-out;">
+    <button class="uw-modal-close" onclick="closeImagePreview()" title="Close" style="position:fixed;top:18px;right:22px;width:40px;height:40px;font-size:1.4rem;">&times;</button>
+    <img id="imgLightboxImg" style="max-width:min(92vw,1400px);max-height:82vh;object-fit:contain;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.7);cursor:default;" src="" alt="" onclick="event.stopPropagation()">
+    <div id="imgLightboxCaption" style="color:rgba(255,255,255,0.6);font-size:0.85rem;text-align:center;max-width:600px;"></div>
 </div>
 
-<div id="videoPreviewModal" class="video-preview-modal" onclick="closeVideoPreview()">
-    <div class="video-preview-dialog" onclick="event.stopPropagation();">
-        <div class="video-preview-header">
-            <div id="videoPreviewTitle" class="video-preview-title">Video Preview</div>
-
-            <button type="button" class="video-preview-close" onclick="closeVideoPreview()">
+<div id="videoPreviewModal" class="uw-overlay" onclick="closeVideoPreview()">
+    <div class="uw-modal uw-modal--wide uw-modal--media" onclick="event.stopPropagation();">
+        <div class="uw-modal-header">
+            <div id="videoPreviewTitle" class="uw-modal-title">Video Preview</div>
+            <button type="button" class="uw-modal-close" onclick="closeVideoPreview()">
                 <i class="fas fa-times"></i>
             </button>
         </div>
-
-        <video id="videoPreviewPlayer" class="video-preview-player" controls preload="metadata">
+        <div class="uw-modal-body">
+        <video id="videoPreviewPlayer" style="width:100%;max-height:70vh;display:block;" controls preload="metadata">
             Your browser does not support the video element.
         </video>
+        </div>
         <!-- <a id="videoPreviewOpenDirect"
    href="#"
    target="_blank"
@@ -952,23 +988,16 @@
             titleEl.textContent = title || 'Video Preview';
         }
 
-        modal.classList.add('is-open');
+        modal.classList.add('open');
+        document.body.classList.add('uw-modal-open');
     }
 
     function closeVideoPreview() {
         const modal = document.getElementById('videoPreviewModal');
         const player = document.getElementById('videoPreviewPlayer');
-
-        if (player) {
-            player.pause();
-            player.removeAttribute('src');
-            player.innerHTML = '';
-            player.load();
-        }
-
-        if (modal) {
-            modal.classList.remove('is-open');
-        }
+        if (player) { player.pause(); player.removeAttribute('src'); player.innerHTML = ''; player.load(); }
+        if (modal) { modal.classList.remove('open'); }
+        document.body.classList.remove('uw-modal-open');
     }
     function generateVideoThumbnails() {
         document.querySelectorAll('.video-preview-button[data-video-url]').forEach(button => {
@@ -1026,18 +1055,17 @@
     /* ── Image lightbox ── */
     function openImagePreview(url, filename) {
         const lb  = document.getElementById('imgLightbox');
-        const img = document.getElementById('imgLightboxImg');
-        const cap = document.getElementById('imgLightboxCaption');
-        img.src = url;
-        img.alt = filename;
-        cap.textContent = filename;
-        lb.classList.add('is-open');
+        document.getElementById('imgLightboxImg').src = url;
+        document.getElementById('imgLightboxImg').alt = filename;
+        document.getElementById('imgLightboxCaption').textContent = filename;
+        lb.classList.add('open');
+        document.body.classList.add('uw-modal-open');
     }
 
     function closeImagePreview() {
-        const lb = document.getElementById('imgLightbox');
-        lb.classList.remove('is-open');
+        document.getElementById('imgLightbox').classList.remove('open');
         document.getElementById('imgLightboxImg').src = '';
+        document.body.classList.remove('uw-modal-open');
     }
 
     document.addEventListener('keydown', e => {
@@ -1054,50 +1082,77 @@
             agents = (d.agents || []).filter(a => a.capabilities === 'image' || a.capabilities === 'both');
         } catch(e) {}
 
+        const _closeAiGen = () => {
+            document.getElementById('aiGenOverlay')?.remove();
+            document.body.classList.remove('uw-modal-open');
+        };
+
         const overlay = document.createElement('div');
         overlay.id = 'aiGenOverlay';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;';
+        overlay.className = 'uw-overlay open';
 
         const agentOptions = agents.length
             ? agents.map(a => `<option value="${a.id}" data-provider="${a.provider}" data-model="${a.model || ''}">${a.name}</option>`).join('')
             : '<option value="">No image-capable agents — add one in AI Agents and set capabilities to Image</option>';
 
         overlay.innerHTML = `
-<div style="background:#1e2029;border-radius:16px;padding:28px;width:min(520px,92vw);box-shadow:0 20px 60px rgba(0,0,0,0.6);position:relative;">
-  <button onclick="document.getElementById('aiGenOverlay').remove()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#aaa;font-size:1.3rem;cursor:pointer;">&times;</button>
-  <h3 style="margin:0 0 18px;color:#fff;font-size:1.1rem;"><i class="fas fa-magic" style="color:#9b5de5;"></i> Generate Image with AI</h3>
-
-  <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">AI Agent</label>
-  <select id="aiGenAgent" onchange="updateAiGenModelField()" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;margin-bottom:14px;">
-    ${agentOptions}
-  </select>
-
-  <div id="aiGenModelWrap" style="margin-bottom:14px;">
-    <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">Model</label>
-    <div id="aiGenModelField"></div>
+<div class="uw-modal" role="dialog" aria-modal="true">
+  <div class="uw-modal-header">
+    <h3 class="uw-modal-title"><i class="fas fa-magic" style="color:#9b5de5;margin-right:8px;"></i> Generate Image with AI</h3>
+    <button class="uw-modal-close" onclick="(()=>{document.getElementById('aiGenOverlay')?.remove();document.body.classList.remove('uw-modal-open');})()" aria-label="Close">&times;</button>
   </div>
-
-  <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">Size</label>
-  <select id="aiGenSize" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;margin-bottom:14px;">
-    <option value="1024x1024">1024 × 1024 (square)</option>
-    <option value="1792x1024">1792 × 1024 (landscape)</option>
-    <option value="1024x1792">1024 × 1792 (portrait)</option>
-    <option value="512x512">512 × 512</option>
-  </select>
-
-  <label style="display:block;color:#cfcfcf;font-size:0.82rem;margin-bottom:5px;">Prompt</label>
-  <textarea id="aiGenPrompt" rows="4" placeholder="Describe the image you want to generate…" style="width:100%;padding:10px 12px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;resize:vertical;margin-bottom:18px;box-sizing:border-box;"></textarea>
-
-  <div id="aiGenStatus" style="font-size:0.85rem;color:#f0a;min-height:1.2em;margin-bottom:12px;"></div>
-
-  <div style="display:flex;gap:10px;justify-content:flex-end;">
-    <button onclick="document.getElementById('aiGenOverlay').remove()" style="padding:9px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ccc;cursor:pointer;">Cancel</button>
-    <button id="aiGenBtn" onclick="runAiGenerate()" style="padding:9px 22px;border-radius:8px;border:none;background:linear-gradient(135deg,#7b2ff7,#00c6ff);color:#fff;font-weight:600;cursor:pointer;"><i class="fas fa-magic"></i> Generate</button>
+  <div class="uw-modal-body">
+    <div class="uw-field">
+      <label>AI Agent</label>
+      <select id="aiGenAgent" onchange="updateAiGenModelField()">${agentOptions}</select>
+    </div>
+    <div class="uw-field" id="aiGenModelWrap">
+      <label>Model</label>
+      <div id="aiGenModelField"></div>
+    </div>
+    <div class="uw-field">
+      <label>Size</label>
+      <select id="aiGenSize">
+        <option value="1024x1024">1024 × 1024 (square)</option>
+        <option value="1792x1024">1792 × 1024 (landscape)</option>
+        <option value="1024x1792">1024 × 1792 (portrait)</option>
+        <option value="512x512">512 × 512</option>
+      </select>
+    </div>
+    <div class="uw-field">
+      <label>Prompt</label>
+      <textarea id="aiGenPrompt" rows="4" placeholder="Describe the image you want to generate…" style="resize:vertical;"></textarea>
+    </div>
+    <div class="uw-field">
+      <label>Reference Image <span style="color:rgba(255,255,255,0.35);font-weight:400;">(optional — img2img)</span></label>
+      <div id="aiGenRefNote" style="font-size:0.78rem;padding:6px 10px;border-radius:6px;margin-bottom:8px;display:none;"></div>
+      <div id="aiGenRefWrap" style="display:flex;align-items:center;gap:10px;">
+        <div id="aiGenRefThumb" style="width:52px;height:52px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;">
+          <i class="fas fa-image" style="color:rgba(255,255,255,0.2);font-size:1.2rem;"></i>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <button type="button" onclick="pickAiGenRefImage()" class="uw-btn uw-btn-secondary" style="width:100%;">
+            <i class="fas fa-folder-open"></i> Pick from Library
+          </button>
+          <div id="aiGenRefName" style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+        </div>
+        <button type="button" id="aiGenRefClear" onclick="clearAiGenRefImage()" class="uw-btn uw-btn-danger" style="display:none;padding:6px 10px;">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <input type="hidden" id="aiGenRefAssetId" value="">
+    </div>
+    <div id="aiGenStatus" style="font-size:0.85rem;min-height:1.2em;color:#f0a;"></div>
+  </div>
+  <div class="uw-modal-footer">
+    <button onclick="(()=>{document.getElementById('aiGenOverlay')?.remove();document.body.classList.remove('uw-modal-open');})()" class="uw-btn uw-btn-secondary">Cancel</button>
+    <button id="aiGenBtn" onclick="runAiGenerate()" class="uw-btn uw-btn-gradient"><i class="fas fa-magic"></i> Generate</button>
   </div>
 </div>`;
 
         document.body.appendChild(overlay);
-        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+        document.body.classList.add('uw-modal-open');
+        overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); document.body.classList.remove('uw-modal-open'); } });
         setTimeout(() => {
             // Restore last-used agent
             const lastAgent = localStorage.getItem('aiGen_lastAgentId');
@@ -1119,6 +1174,7 @@
     function updateAiGenModelField() {
         const sel = document.getElementById('aiGenAgent');
         const field = document.getElementById('aiGenModelField');
+        const note  = document.getElementById('aiGenRefNote');
         if (!sel || !field) return;
         const chosen = sel.options[sel.selectedIndex];
         const provider = chosen?.dataset?.provider || '';
@@ -1127,23 +1183,109 @@
 
         if (provider === 'openai') {
             field.innerHTML = `<select id="aiGenModel" style="width:100%;padding:9px 11px;background:#292b34;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:0.9rem;">
-                <option value="dall-e-3">DALL-E 3 (recommended)</option>
-                <option value="dall-e-2">DALL-E 2</option>
+                <option value="dall-e-3">DALL-E 3 (recommended, text-to-image only)</option>
+                <option value="dall-e-2">DALL-E 2 (supports reference images)</option>
             </select>`;
+            if (note) { note.style.display = 'block'; note.style.background = 'rgba(255,200,0,0.08)'; note.style.color = '#f5c542'; note.style.border = '1px solid rgba(255,200,0,0.2)'; note.textContent = 'Reference images only work with DALL-E 2. DALL-E 3 ignores them.'; }
         } else if (agentModel) {
             field.innerHTML = inp(agentModel) + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Using the model configured on this agent. Edit the agent to change it.</small>`;
+            if (note) { note.style.display = 'block'; note.style.background = 'rgba(255,100,100,0.08)'; note.style.color = '#f88'; note.style.border = '1px solid rgba(255,100,100,0.2)'; note.textContent = 'Reference images are sent but may be ignored — support depends on your API endpoint. Pollinations.ai does not support img2img.'; }
         } else {
             field.innerHTML = inp('') + `<small style="color:#777;font-size:0.78rem;margin-top:4px;display:block;">Enter the image model name your server supports (e.g. flux, sdxl).</small>`;
+            if (note) { note.style.display = 'none'; }
         }
     }
 
+    async function pickAiGenRefImage() {
+        // Build an inline picker panel below the button
+        const wrap = document.getElementById('aiGenRefWrap');
+        let picker = document.getElementById('aiGenRefPicker');
+        if (picker) { picker.remove(); return; } // toggle off
+
+        picker = document.createElement('div');
+        picker.id = 'aiGenRefPicker';
+        picker.style.cssText = 'position:absolute;left:0;right:0;z-index:10;background:#1a1c24;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:10px;margin-top:6px;max-height:260px;overflow-y:auto;';
+        wrap.style.position = 'relative';
+        picker.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.8rem;padding:6px;">Loading…</div>';
+        wrap.appendChild(picker);
+
+        // Fetch all image assets including from folders
+        try {
+            const [rootResp, ...folderResps] = await Promise.all([
+                fetch('/admin/assets/root?type=image').then(r => r.json()),
+            ]);
+
+            let allAssets = rootResp.assets || [];
+
+            // Also fetch assets from each folder
+            const folders = rootResp.folders || [];
+            const folderFetches = folders.map(f =>
+                fetch(`/admin/assets/folder/${f.id}?type=image`).then(r => r.json())
+                    .then(d => ({ folder: f, assets: d.assets || [] }))
+                    .catch(() => ({ folder: f, assets: [] }))
+            );
+            const folderData = await Promise.all(folderFetches);
+
+            picker.innerHTML = '';
+
+            if (allAssets.length === 0 && folderData.every(fd => fd.assets.length === 0)) {
+                picker.innerHTML = '<div style="color:rgba(255,255,255,0.35);font-size:0.8rem;padding:8px;">No images in library.</div>';
+                return;
+            }
+
+            const renderGroup = (label, assets) => {
+                if (!assets.length) return;
+                if (label) {
+                    const lbl = document.createElement('div');
+                    lbl.style.cssText = 'font-size:0.72rem;color:rgba(255,255,255,0.35);padding:4px 2px 6px;text-transform:uppercase;letter-spacing:0.05em;';
+                    lbl.textContent = label;
+                    picker.appendChild(lbl);
+                }
+                const grid = document.createElement('div');
+                grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:5px;margin-bottom:8px;';
+                assets.forEach(a => {
+                    const img = document.createElement('img');
+                    img.src = a.thumbnail_url || a.url;
+                    img.title = a.original_filename;
+                    img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;border:2px solid transparent;';
+                    img.addEventListener('click', () => {
+                        document.getElementById('aiGenRefAssetId').value = a.id;
+                        document.getElementById('aiGenRefName').textContent = a.original_filename;
+                        const thumb = document.getElementById('aiGenRefThumb');
+                        thumb.innerHTML = `<img src="${a.thumbnail_url || a.url}" style="width:100%;height:100%;object-fit:cover;">`;
+                        document.getElementById('aiGenRefClear').style.display = '';
+                        picker.remove();
+                    });
+                    img.addEventListener('mouseenter', () => img.style.borderColor = '#7b2ff7');
+                    img.addEventListener('mouseleave', () => img.style.borderColor = 'transparent');
+                    grid.appendChild(img);
+                });
+                picker.appendChild(grid);
+            };
+
+            renderGroup('', allAssets);
+            folderData.forEach(fd => renderGroup(fd.folder.name, fd.assets));
+
+        } catch(e) {
+            picker.innerHTML = `<div style="color:#f55;font-size:0.8rem;padding:8px;">Error loading images: ${e.message}</div>`;
+        }
+    }
+
+    function clearAiGenRefImage() {
+        document.getElementById('aiGenRefAssetId').value = '';
+        document.getElementById('aiGenRefName').textContent = '';
+        document.getElementById('aiGenRefThumb').innerHTML = '<i class="fas fa-image" style="color:rgba(255,255,255,0.2);font-size:1.2rem;"></i>';
+        document.getElementById('aiGenRefClear').style.display = 'none';
+    }
+
     async function runAiGenerate() {
-        const agentId = document.getElementById('aiGenAgent')?.value;
-        const prompt  = document.getElementById('aiGenPrompt')?.value.trim();
-        const size    = document.getElementById('aiGenSize')?.value;
-        const model   = document.getElementById('aiGenModel')?.value?.trim();
-        const status  = document.getElementById('aiGenStatus');
-        const btn     = document.getElementById('aiGenBtn');
+        const agentId   = document.getElementById('aiGenAgent')?.value;
+        const prompt    = document.getElementById('aiGenPrompt')?.value.trim();
+        const size      = document.getElementById('aiGenSize')?.value;
+        const model     = document.getElementById('aiGenModel')?.value?.trim();
+        const refAssetId = document.getElementById('aiGenRefAssetId')?.value || null;
+        const status    = document.getElementById('aiGenStatus');
+        const btn       = document.getElementById('aiGenBtn');
 
         if (!agentId) { status.textContent = 'Select an agent.'; return; }
         if (!prompt)  { status.textContent = 'Enter a prompt.'; return; }
@@ -1159,7 +1301,12 @@
             const r = await fetch('/admin/assets/ai-generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ agent_id: parseInt(agentId), prompt, size, model: model || undefined, folder_id: folderId || undefined })
+                body: JSON.stringify({
+                    agent_id: parseInt(agentId), prompt, size,
+                    model: model || undefined,
+                    folder_id: folderId || undefined,
+                    ref_asset_id: refAssetId ? parseInt(refAssetId) : undefined,
+                })
             });
             const d = await r.json();
 
@@ -1169,7 +1316,7 @@
                 status.style.color = '#7ee2cc';
                 status.textContent = 'Image generated and saved to library!';
                 btn.innerHTML = '<i class="fas fa-check"></i> Done';
-                setTimeout(() => { document.getElementById('aiGenOverlay')?.remove(); location.reload(); }, 1200);
+                setTimeout(() => { document.getElementById('aiGenOverlay')?.remove(); document.body.style.overflow = ''; location.reload(); }, 1200);
             } else {
                 status.style.color = '#f55';
                 status.textContent = d.error || 'Generation failed.';
