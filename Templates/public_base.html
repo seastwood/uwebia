@@ -21,6 +21,12 @@
             <link rel="icon" type="image/svg+xml" href="{{ icon_url }}">
         {% elif icon_url.endswith('.png') %}
             <link rel="icon" type="image/png" href="{{ icon_url }}">
+        {% elif icon_url.endswith('.webp') %}
+            <link rel="icon" type="image/webp" href="{{ icon_url }}">
+        {% elif icon_url.endswith('.ico') %}
+            <link rel="icon" type="image/x-icon" href="{{ icon_url }}">
+        {% else %}
+            <link rel="icon" href="{{ icon_url }}">
         {% endif %}
     {% else %}
         <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
