@@ -339,7 +339,8 @@ _DRAFT_EDIT_COVERS = frozenset({
 # Permissions covered by website.draft.pages (creating / deleting pages in a draft).
 # Kept separate so admins can give someone edit access without page management.
 _DRAFT_PAGES_COVERS = frozenset({
-    'pages.create', 'pages.delete', 'pages.templates',
+    'pages.create', 'pages.create_root', 'pages.delete', 'pages.templates',
+    'pages.create_folder', 'pages.delete_folder',
 })
 
 
@@ -5107,6 +5108,7 @@ def disable_two_factor_authentication():
 
 @app.route('/admin/email_server_settings')
 @login_required
+@require_perm('settings.email')
 def email_server_settings():
     user = current_user
     csrf_token = generate_csrf()
@@ -5127,6 +5129,7 @@ def get_email_settings():
 
 @app.route('/save_email_settings', methods=['POST'])
 @login_required
+@require_perm('settings.email')
 def save_email_settings():
     settings = EmailServerSettings.query.first()
     old_fingerprint = get_email_settings_fingerprint(settings) if settings else None
@@ -7158,6 +7161,48 @@ def promote_draft_website(draft_id):
         db.session.rollback()
         app.logger.error('promote_draft_website error:\n' + _tb.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/websites/<int:draft_id>/request-promote', methods=['POST'])
+@login_required
+@require_perm('website.draft.edit')
+def request_promote_draft(draft_id):
+    """Sub-admins without promote permission can send the main admin an email requesting promotion."""
+    if current_user.has_permission('website.draft.promote'):
+        return _utf8_json({'success': False, 'error': 'You can promote the draft yourself.'}, 400)
+
+    draft = Website.query.filter_by(
+        id=draft_id, user_id=current_user.root_user_id, is_draft=True).first_or_404()
+
+    root_user = User.query.get(current_user.root_user_id)
+    if not root_user:
+        return _utf8_json({'success': False, 'error': 'Admin user not found.'}, 404)
+
+    note = (request.get_json() or {}).get('note', '').strip()
+    dashboard_url = url_for('dashboard', _external=True)
+
+    body = (
+        f"Hi,\n\n"
+        f"{current_user.username} is requesting that the draft website "
+        f"'{draft.name}' be promoted to live.\n"
+    )
+    if note:
+        body += f"\nMessage from {current_user.username}:\n{note}\n"
+    body += (
+        f"\nYou can review and promote the draft from the dashboard:\n{dashboard_url}\n\n"
+        f"— Uwebia"
+    )
+
+    try:
+        send_account_recovery_email(
+            to_email=root_user.email,
+            subject=f"[Uwebia] {current_user.username} is requesting draft promotion",
+            body=body,
+        )
+        return _utf8_json({'success': True})
+    except Exception as e:
+        app.logger.warning(f'request_promote_draft email error: {e}')
+        return _utf8_json({'success': False, 'error': 'Could not send email. Check email server settings.'}, 502)
 
 
 @app.route('/admin/websites/<int:draft_id>/delete-draft', methods=['POST'])
@@ -10218,6 +10263,7 @@ def backfill_geoip_locations():
 
 @app.route('/admin/dashboard/analytics')
 @login_required
+@require_perm('analytics.view')
 def analytics_page():
     websites = Website.query.filter_by(user_id=current_user.root_user_id).all()
 
@@ -11923,6 +11969,7 @@ def list_calendars():
 
 @app.route('/admin/ai-agents')
 @login_required
+@require_perm('ai_agents.view')
 def ai_agents_page():
     website = get_admin_website()
     agents = AIAgent.query.filter_by(website_id=website.id).order_by(AIAgent.created_at).all() if website else []
@@ -13098,6 +13145,7 @@ def test_ai_agent(agent_id):
 
 @app.route('/admin/calendars')
 @login_required
+@require_perm('calendars.view')
 def admin_calendars_page():
     website = get_admin_website()
     calendars = []
@@ -13970,6 +14018,7 @@ def public_forum_thread(thread_id):
 
 @app.route('/admin/forum')
 @login_required
+@require_perm('forum.view')
 def admin_forum():
     website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
@@ -13994,6 +14043,7 @@ def admin_forum():
 
 @app.route('/admin/forum/settings', methods=['POST'])
 @login_required
+@require_perm('forum.settings')
 def update_forum_settings():
     website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 
@@ -14257,6 +14307,7 @@ def serialize_page_comment(comment):
 
 @app.route('/admin/section/<int:section_id>/comments', methods=['GET'])
 @login_required
+@require_perm('comments.view')
 def get_section_comments(section_id):
     section = PageSection.query.get_or_404(section_id)
 
@@ -14709,6 +14760,7 @@ def toggle_page_comment_like(comment_id):
 
 @app.route('/admin/forum/user/<int:public_user_id>/moderate', methods=['POST'])
 @login_required
+@require_perm('forum.manage_users')
 def moderate_public_user(public_user_id):
     website = Website.query.filter_by(user_id=current_user.root_user_id).first_or_404()
 

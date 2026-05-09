@@ -234,7 +234,7 @@
             position: absolute;
             top: calc(100% + 8px);
             right: 0;
-            width: 240px;
+            width: 260px;
             background: #1e2029;
             border: 1px solid rgba(255,255,255,0.12);
             border-radius: 12px;
@@ -304,6 +304,34 @@
 
         .website-icon-popover-actions .btn-clear:hover {
             background: rgba(255,80,80,0.2);
+        }
+
+        .icon-lib-picker {
+            margin-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            padding-top: 10px;
+        }
+        .icon-lib-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 5px;
+            max-height: 160px;
+            overflow-y: auto;
+            margin-top: 6px;
+        }
+        .icon-lib-thumb {
+            aspect-ratio: 1;
+            border-radius: 6px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            overflow: hidden;
+            background: rgba(255,255,255,0.05);
+            display: flex; align-items: center; justify-content: center;
+            transition: border-color 0.12s;
+        }
+        .icon-lib-thumb:hover { border-color: rgba(94,238,248,0.6); }
+        .icon-lib-thumb img { width: 100%; height: 100%; object-fit: contain; }
+        .icon-lib-folder { flex-direction: column; gap: 3px; padding: 4px; }
         }
 
         .website-title-block {
@@ -2491,6 +2519,18 @@
                                 <button type="button" onclick="saveIconUrl('{{ website.id }}')">Set URL</button>
                                 <button type="button" class="btn-clear" onclick="clearIcon('{{ website.id }}')">Clear</button>
                             </div>
+                            <div class="icon-lib-picker">
+                                <label style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span>Pick from library</span>
+                                    <button type="button" onclick="loadIconLibrary('{{ website.id }}')"
+                                        style="background:none;border:none;color:rgba(94,238,248,0.8);font-size:0.72rem;cursor:pointer;padding:0;text-decoration:underline;">Load</button>
+                                </label>
+                                <div class="icon-lib-grid" id="iconLibGrid_{{ website.id }}">
+                                    <div style="grid-column:1/-1;color:rgba(255,255,255,0.25);font-size:0.75rem;text-align:center;padding:8px 0;">
+                                        Click Load to browse your image library.
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         {% elif _icon_url %}
                         {# Read-only display for users without edit permission #}
@@ -2596,6 +2636,10 @@
                     {% if user_has_perm('website.draft.promote') %}
                     <button type="button" class="website-action-button website-action-button-promote" onclick="promoteDraftWebsite({{ website.id }})">
                         <i class="fas fa-upload"></i><span>Promote to Live</span>
+                    </button>
+                    {% elif user_has_perm('website.draft.edit') %}
+                    <button type="button" class="website-action-button website-action-button-promote" onclick="requestPromoteDraft({{ website.id }})">
+                        <i class="fas fa-paper-plane"></i><span>Request Promotion</span>
                     </button>
                     {% endif %}
                     {% if user_has_perm('website.draft.create') %}
@@ -6062,6 +6106,97 @@
                 }
             }
 
+            // Safely encode a value for use in an onclick attribute string
+            function _iconEnc(s) { return encodeURIComponent(s || ''); }
+
+            function _iconThumb(websiteId, asset) {
+                const enc = _iconEnc(asset.url);
+                const title = (asset.original_filename || '').replace(/"/g, '&quot;');
+                const src   = asset.thumbnail_url || asset.url;
+                return `<div class="icon-lib-thumb" onclick="event.stopPropagation();pickIconFromLibrary('${websiteId}', decodeURIComponent('${enc}'))" title="${title}">
+                    <img src="${src}" alt="" loading="lazy">
+                </div>`;
+            }
+
+            function _iconFolder(websiteId, folder) {
+                const encId   = folder.id;
+                const encName = _iconEnc(folder.name || '');
+                const label   = (folder.name || '').replace(/</g, '&lt;');
+                return `<div class="icon-lib-thumb icon-lib-folder" onclick="event.stopPropagation();_renderIconLibFolder('${websiteId}', ${encId}, decodeURIComponent('${encName}'))" title="${label}">
+                    <i class="fas fa-folder" style="color:rgba(255,200,80,0.7);font-size:1.2rem;"></i>
+                    <span style="font-size:0.6rem;color:rgba(255,255,255,0.5);text-align:center;padding:0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;">${label}</span>
+                </div>`;
+            }
+
+            async function loadIconLibrary(websiteId) {
+                _renderIconLibRoot(websiteId);
+            }
+
+            async function _renderIconLibRoot(websiteId) {
+                const grid = document.getElementById(`iconLibGrid_${websiteId}`);
+                if (!grid) return;
+                grid.innerHTML = '<div style="grid-column:1/-1;color:rgba(255,255,255,0.4);font-size:0.75rem;text-align:center;padding:8px;">Loading…</div>';
+                try {
+                    const root    = await fetch('/admin/assets/root?type=image').then(r => r.json());
+                    const folders = root.folders || [];
+                    const images  = root.assets  || [];
+
+                    if (!folders.length && !images.length) {
+                        grid.innerHTML = '<div style="grid-column:1/-1;color:rgba(255,255,255,0.25);font-size:0.75rem;text-align:center;padding:8px;">No images in library.</div>';
+                        return;
+                    }
+                    grid.innerHTML = folders.map(f => _iconFolder(websiteId, f)).join('')
+                                   + images.map(a  => _iconThumb(websiteId, a)).join('');
+                } catch(e) {
+                    grid.innerHTML = '<div style="grid-column:1/-1;color:#f88;font-size:0.75rem;text-align:center;padding:8px;">Failed to load library.</div>';
+                }
+            }
+
+            async function _renderIconLibFolder(websiteId, folderId, folderName) {
+                const grid = document.getElementById(`iconLibGrid_${websiteId}`);
+                if (!grid) return;
+                grid.innerHTML = '<div style="grid-column:1/-1;color:rgba(255,255,255,0.4);font-size:0.75rem;text-align:center;padding:8px;">Loading…</div>';
+                try {
+                    const data   = await fetch(`/admin/assets/folder/${folderId}?type=image`).then(r => r.json());
+                    const images = data.assets || [];
+                    const label  = (folderName || '').replace(/</g, '&lt;');
+
+                    let html = `<div style="grid-column:1/-1;display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                        <button type="button" onclick="event.stopPropagation();_renderIconLibRoot('${websiteId}')"
+                            style="background:none;border:none;color:rgba(94,238,248,0.8);font-size:0.72rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </button>
+                        <span style="font-size:0.72rem;color:rgba(255,255,255,0.4);">${label}</span>
+                    </div>`;
+
+                    html += images.length
+                        ? images.map(a => _iconThumb(websiteId, a)).join('')
+                        : '<div style="grid-column:1/-1;color:rgba(255,255,255,0.25);font-size:0.75rem;text-align:center;padding:8px;">No images in this folder.</div>';
+
+                    grid.innerHTML = html;
+                } catch(e) {
+                    grid.innerHTML = '<div style="grid-column:1/-1;color:#f88;font-size:0.75rem;text-align:center;padding:8px;">Failed to load folder.</div>';
+                }
+            }
+
+            async function pickIconFromLibrary(websiteId, url) {
+                const r = await fetch(`/set_navbar_icon_url/${websiteId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ icon_url: url })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    document.getElementById(`iconUrlInput_${websiteId}`).value = url;
+                    _updateIconWidgetDisplay(websiteId, url);
+                    const modalInput = document.getElementById(`navbarIconUrl_${websiteId}`);
+                    if (modalInput) modalInput.value = url;
+                    document.getElementById(`iconPopover_${websiteId}`)?.classList.remove('open');
+                } else {
+                    alert('Failed to set icon');
+                }
+            }
+
             async function createDraftWebsite(websiteId) {
                 if (!confirm('Create a draft copy of this website for safe editing? The live site will not be affected until you promote the draft.')) return;
                 const r = await fetch(`/admin/websites/${websiteId}/create-draft`, { method: 'POST' });
@@ -6076,6 +6211,22 @@
                 const d = await r.json();
                 if (d.success) { location.reload(); }
                 else { alert(d.error || 'Failed to promote draft'); }
+            }
+
+            async function requestPromoteDraft(draftId) {
+                const note = prompt('Optional: add a note for the admin (leave blank to send without one).');
+                if (note === null) return; // cancelled
+                const r = await fetch(`/admin/websites/${draftId}/request-promote`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ note }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    alert('Request sent! The admin has been notified by email.');
+                } else {
+                    alert(d.error || 'Failed to send request.');
+                }
             }
 
             async function deleteDraftWebsite(draftId) {
