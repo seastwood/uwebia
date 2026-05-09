@@ -3640,6 +3640,12 @@ box-sizing: border-box;
                                     <h2>{{ section.content['title'] }}</h2>
                                     <form id="contactForm-{{ section.id }}" class="contact-form">
                                         <input type="hidden" name="section_id" value="{{ section.id }}">
+                                        <!-- Time-based token (fetched on page load) -->
+                                        <input type="hidden" name="_form_token" id="formToken-{{ section.id }}">
+                                        <!-- Honeypot: hidden from humans, filled by bots -->
+                                        <div style="display:none;" aria-hidden="true">
+                                            <input type="text" name="_hp_name" tabindex="-1" autocomplete="off">
+                                        </div>
 
                                         <div class="form-group">
                                             <label for="senders_email_{{ section.id }}">Your Email:</label><br>
@@ -3668,6 +3674,17 @@ box-sizing: border-box;
                                         <h2>Message Sent!</h2>
                                     </div>
                                 </div>
+                                <script>
+                                (function() {
+                                    fetch('/contact_form_token/{{ section.id }}')
+                                        .then(r => r.json())
+                                        .then(d => {
+                                            const el = document.getElementById('formToken-{{ section.id }}');
+                                            if (el) el.value = d.token;
+                                        })
+                                        .catch(() => {});
+                                })();
+                                </script>
                                 {% endif %}
                                 {% elif section.section_type == 'youtube_video' %}
                                 <div class="youtube-video-container">
