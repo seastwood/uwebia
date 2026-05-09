@@ -5308,12 +5308,53 @@ def inject_unread_message_count():
     return dict(unread_message_count=unread_message_count)
 
 
+_CONTACT_RATE_LIMIT_HOURS = 8  # one submission per IP per section per N hours
+
+
+def _contact_form_token(section_id):
+    """Return a signed timestamp token to embed in the contact form."""
+    ts = str(int(time.time()))
+    sig = hashlib.sha256(f"{app.secret_key}{section_id}{ts}".encode()).hexdigest()[:16]
+    return f"{ts}.{sig}"
+
+
+def _contact_form_token_valid(token, section_id, min_seconds=3):
+    """Verify the form token and enforce minimum elapsed time."""
+    try:
+        ts_str, sig = token.rsplit('.', 1)
+        expected = hashlib.sha256(f"{app.secret_key}{section_id}{ts_str}".encode()).hexdigest()[:16]
+        if sig != expected:
+            return False, 'Invalid form token.'
+        elapsed = time.time() - int(ts_str)
+        if elapsed < min_seconds:
+            return False, 'Form submitted too quickly.'
+        return True, None
+    except Exception:
+        return False, 'Invalid form token.'
+
+
+@app.route('/contact_form_token/<int:section_id>')
+def contact_form_token(section_id):
+    """Issue a fresh time-stamped token for a contact form section."""
+    return jsonify({'token': _contact_form_token(section_id)})
+
+
 @app.route('/send_email', methods=['POST'])
 def send_email():
     sender_email = request.form.get('senders_email', '').strip()
     subject = request.form.get('message_subject', '').strip()
     body = request.form.get('message_body', '').strip()
     section_id = request.form.get('section_id')
+
+    # ── Honeypot: bots fill this hidden field; humans don't ──────────────────
+    if request.form.get('_hp_name', ''):
+        return jsonify({'status': 'ok', 'message': 'Message sent.'}), 200  # silent
+
+    # ── Time-based token: form must be open ≥ 3 seconds ─────────────────────
+    token = request.form.get('_form_token', '')
+    ok, err = _contact_form_token_valid(token, section_id)
+    if not ok:
+        return jsonify({'status': 'error', 'message': err}), 429
 
     if not sender_email or not subject or not body or not section_id:
         return jsonify({
@@ -5352,6 +5393,20 @@ def send_email():
     ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
     if ip_address and ',' in ip_address:
         ip_address = ip_address.split(',')[0].strip()
+
+    # ── IP rate limit: one submission per IP per section per 8 hours ─────────
+    if ip_address:
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=_CONTACT_RATE_LIMIT_HOURS)
+        recent = ContactMessage.query.filter(
+            ContactMessage.section_id == int(section_id),
+            ContactMessage.ip_address == ip_address,
+            ContactMessage.created_at >= cutoff,
+        ).first()
+        if recent:
+            return jsonify({
+                'status': 'error',
+                'message': f'You can only send one message every {_CONTACT_RATE_LIMIT_HOURS} hours. Please try again later.'
+            }), 429
 
     user_agent = request.headers.get('User-Agent')
     referrer = request.referrer
