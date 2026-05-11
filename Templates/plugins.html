@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<div class="plugins-page">
+    <div class="plugins-header">
+        <div>
+            <p class="plugins-kicker">Admin</p>
+            <h1 class="plugins-title">Plugins</h1>
+        </div>
+    </div>
+
+    <div class="plugins-empty-state">
+        <i class="fas fa-puzzle-piece"></i>
+        <p>No plugins installed yet.</p>
+    </div>
+</div>
+
+<style>
+.plugins-page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+.plugins-kicker {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.35);
+    margin-bottom: 4px;
+}
+.plugins-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+}
+.plugins-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+}
+.plugins-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 80px 24px;
+    color: rgba(255,255,255,0.25);
+}
+.plugins-empty-state i {
+    font-size: 2.5rem;
+}
+.plugins-empty-state p {
+    font-size: 0.95rem;
+}
+</style>
+
+{% endblock %}

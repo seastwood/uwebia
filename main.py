@@ -79,14 +79,60 @@ os.makedirs(uploads_folder, exist_ok=True)
 
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
 app.secret_key = 'your_secret_key'  # Secret key for session management
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 
-# Set the SQLAlchemy database URI to use the database in the database folder
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{database_path}'
+# ── Database configuration ────────────────────────────────────────────────────
+# Priority: db_config.json (set via admin UI) > DATABASE_URL env var > SQLite default
+_DB_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'db_config.json')
+
+
+def _load_db_config() -> dict:
+    try:
+        if os.path.exists(_DB_CONFIG_PATH):
+            with open(_DB_CONFIG_PATH) as _f:
+                return json.load(_f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_db_config(cfg: dict) -> None:
+    with open(_DB_CONFIG_PATH, 'w') as _f:
+        json.dump(cfg, _f, indent=2)
+    try:
+        os.chmod(_DB_CONFIG_PATH, 0o600)  # owner read/write only — protect the password
+    except OSError:
+        pass
+
+
+_db_config = _load_db_config()
+_DATABASE_URL = (
+    _db_config.get('database_url')
+    or os.environ.get('DATABASE_URL')
+    or f'sqlite:///{database_path}'
+)
+app.config['SQLALCHEMY_DATABASE_URI'] = _DATABASE_URL
+
+# PostgreSQL engine options — UTF-8, connection health checks, and pool tuning
+if _DATABASE_URL.startswith('postgresql'):
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'connect_args': {
+            'client_encoding': 'utf8',
+            'connect_timeout': 10,        # don't hang forever on a dead server
+        },
+        'pool_pre_ping': True,            # test connection before use; auto-reconnect after restart
+        'pool_recycle': 300,              # discard connections older than 5 min to prevent staleness
+        'pool_size': 5,                   # base pool size per worker
+        'max_overflow': 10,               # extra connections allowed under load
+        'pool_timeout': 30,               # wait up to 30s for a connection before raising
+    }
 
 db = SQLAlchemy(app)
 
-from sqlalchemy import event as _sa_event
+from sqlalchemy import event as _sa_event, false as _sa_false, true as _sa_true
+
+
+def _is_sqlite():
+    return db.engine.url.drivername.startswith('sqlite')
 
 
 def _set_sqlite_pragmas(dbapi_conn, _rec):
@@ -176,8 +222,32 @@ DEFAULT_SERVER_CONFIG = {
 }
 
 
+class _MaintenanceUser:
+    """Minimal Flask-Login compatible user returned when the DB is unreachable.
+    Lets a previously-authenticated admin session pass @login_required so they
+    can reach the database settings page to fix the connection."""
+    is_authenticated = True
+    is_active = True
+    is_anonymous = False
+    is_sub_admin = False
+
+    def __init__(self, uid=0):
+        self.id = uid
+
+    def get_id(self):
+        return str(self.id)
+
+    def has_permission(self, _key):
+        return True
+
+
 @login_manager.user_loader
 def load_user(user_id):
+    if _DB_MAINTENANCE_MODE:
+        try:
+            return _MaintenanceUser(int(user_id))
+        except (TypeError, ValueError):
+            return None
     return db.session.get(User, int(user_id))
 
 
@@ -214,7 +284,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
-    password_hash = db.Column(db.String(150), nullable=False)
+    password_hash = db.Column(db.Text, nullable=False)
     # Sub-admin support: if set, this user belongs to the parent admin
     parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     permission_group_id = db.Column(db.Integer, db.ForeignKey('permission_group.id'), nullable=True)
@@ -233,7 +303,7 @@ class User(UserMixin, db.Model):
         db.Boolean,
         nullable=False,
         default=False,
-        server_default='0'
+        server_default=_sa_false()
     )
     admin_url_key = db.Column(db.String(120), nullable=True)
     admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
@@ -617,14 +687,14 @@ class PublicUser(UserMixin, db.Model):
     email = db.Column(db.String(255), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
 
-    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     email_verified_at = db.Column(db.DateTime, nullable=True)
     verification_email_sent_at = db.Column(db.DateTime, nullable=True)
     password_reset_requested_at = db.Column(db.DateTime, nullable=True)
     last_verification_email_sent_at = db.Column(db.DateTime, nullable=True)
 
-    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     last_login_at = db.Column(db.DateTime, nullable=True)
@@ -665,9 +735,9 @@ class ForumThread(db.Model):
     title = db.Column(db.String(180), nullable=False)
     body = db.Column(db.Text, nullable=False)
 
-    is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    is_pinned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    is_pinned = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -741,7 +811,7 @@ class ForumReply(db.Model):
 
     body = db.Column(db.Text, nullable=False)
 
-    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
 
     vote_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0', index=True)
 
@@ -888,8 +958,8 @@ class PageComment(db.Model):
     display_name = db.Column(db.String(120), nullable=False)
     body = db.Column(db.Text, nullable=False)
 
-    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0', index=True)
-    is_approved = db.Column(db.Boolean, nullable=False, default=True, server_default='1', index=True)
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false(), index=True)
+    is_approved = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true(), index=True)
 
     ip_address = db.Column(db.String(64), nullable=True)
     user_agent = db.Column(db.Text, nullable=True)
@@ -1037,7 +1107,7 @@ class Website(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     # Draft websites are editing sandboxes — never served publicly.
     # Only one draft per admin user is allowed at a time.
-    is_draft = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_draft = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     public_page_contents = db.relationship('PublicPageContent', backref='website', lazy=True,
                                            cascade="all, delete-orphan")
     tags = db.relationship('Tag', secondary='website_tag', backref=db.backref('websites', lazy=True))
@@ -1053,10 +1123,10 @@ class Website(db.Model):
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
 
-    forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
-    forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     forum_title = db.Column(db.String(120), nullable=False, default='Forum')
     forum_description = db.Column(db.String(500), nullable=True)
 
@@ -1064,14 +1134,14 @@ class Website(db.Model):
         db.Boolean,
         nullable=False,
         default=False,
-        server_default='0'
+        server_default=_sa_false()
     )
 
     forum_allow_unverified_login = db.Column(
         db.Boolean,
         nullable=False,
         default=False,
-        server_default='0'
+        server_default=_sa_false()
     )
 
     def __repr__(self):
@@ -3908,9 +3978,185 @@ ADMIN_PROTECTED_PREFIXES = (
 )
 
 
+_MAINTENANCE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database Unreachable</title>
+<link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+     background:#1a1a1f;color:#f0f0f0;
+     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px}
+.card{max-width:520px;width:100%;background:#22222a;border:1px solid rgba(255,100,100,.2);
+      border-radius:18px;padding:36px 32px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.icon{font-size:2.4rem;margin-bottom:16px;text-align:center}
+h1{font-size:1.35rem;font-weight:700;margin-bottom:8px;color:#fff;text-align:center}
+.sub{font-size:.88rem;color:rgba(255,255,255,.5);line-height:1.6;margin-bottom:4px;text-align:center}
+hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:22px 0 18px}
+.section-label{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);
+               text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.field label{font-size:.78rem;font-weight:600;color:rgba(255,255,255,.5)}
+.field input{padding:9px 12px;background:rgba(255,255,255,.05);
+             border:1px solid rgba(255,255,255,.12);border-radius:8px;
+             color:#f0f0f0;font-size:.88rem;outline:none;transition:border-color .15s}
+.field input:focus{border-color:rgba(255,255,255,.3)}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{padding:9px 18px;border-radius:8px;font-size:.82rem;font-weight:600;
+     cursor:pointer;border:1px solid rgba(255,255,255,.15);transition:background .15s;
+     display:inline-flex;align-items:center;gap:6px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-test{background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
+.btn-test:hover:not(:disabled){background:rgba(255,255,255,.11)}
+.btn-save{background:rgba(80,160,255,.18);color:rgba(150,210,255,.95)}
+.btn-save:hover:not(:disabled){background:rgba(80,160,255,.28)}
+.btn-revert{background:rgba(255,255,255,.04);color:rgba(255,255,255,.45);
+            margin-left:auto;font-size:.78rem;padding:9px 14px}
+.btn-revert:hover:not(:disabled){background:rgba(255,255,255,.09)}
+#st{margin-top:12px;font-size:.83rem;min-height:1.2em;display:none}
+.ok{color:#5eeec8}.err{color:#f88}.info{color:rgba(255,255,255,.55)}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">&#x26A0;&#xFE0F;</div>
+  <h1>Database Unreachable</h1>
+  <p class="sub">The server is running in maintenance mode because the configured<br>database could not be reached. Update the connection details below.</p>
+
+  <hr>
+  <p class="section-label">PostgreSQL Connection</p>
+
+  <div class="grid2">
+    <div class="field">
+      <label>Host</label>
+      <input type="text" id="pgHost" value="localhost" placeholder="localhost">
+    </div>
+    <div class="field">
+      <label>Port</label>
+      <input type="number" id="pgPort" value="5432" placeholder="5432">
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="field">
+      <label>Database Name</label>
+      <input type="text" id="pgDatabase" placeholder="uwebia">
+    </div>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="pgUser" placeholder="uwebia_user">
+    </div>
+  </div>
+  <div class="field">
+    <label>Password</label>
+    <input type="password" id="pgPassword" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="new-password">
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-test" id="btnTest" onclick="doTest()">Test Connection</button>
+    <button class="btn btn-save" id="btnSave" onclick="doConnect()">Save &amp; Restart</button>
+    <button class="btn btn-revert" id="btnRevert" onclick="doRevert()">Revert to SQLite</button>
+  </div>
+  <div id="st"></div>
+</div>
+<script>
+function buildUrl(){
+  var host=document.getElementById('pgHost').value.trim()||'localhost';
+  var port=document.getElementById('pgPort').value.trim()||'5432';
+  var db=document.getElementById('pgDatabase').value.trim();
+  var user=document.getElementById('pgUser').value.trim();
+  var pass=document.getElementById('pgPassword').value;
+  if(!db||!user)return null;
+  var auth=pass?encodeURIComponent(user)+':'+encodeURIComponent(pass):encodeURIComponent(user);
+  return 'postgresql://'+auth+'@'+host+':'+port+'/'+db;
+}
+function setStatus(msg,cls){
+  var el=document.getElementById('st');
+  el.style.display='block';
+  el.className=cls||'info';
+  el.textContent=msg;
+}
+function setBtns(disabled){
+  ['btnTest','btnSave','btnRevert'].forEach(function(id){
+    document.getElementById(id).disabled=disabled;
+  });
+}
+async function doTest(){
+  var url=buildUrl();
+  if(!url){setStatus('Enter database name and username first.','err');return;}
+  setBtns(true);
+  var btn=document.getElementById('btnTest');
+  var orig=btn.textContent;
+  btn.textContent='Testing…';
+  setStatus('Connecting…','info');
+  try{
+    var r=await fetch('/admin/settings/database/test',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({database_url:url})});
+    var d=await r.json();
+    if(d.success)setStatus('✓ Connection successful!','ok');
+    else setStatus('✗ '+(d.error||'Connection failed'),'err');
+  }catch(e){setStatus('Network error','err');}
+  btn.textContent=orig;
+  setBtns(false);
+}
+async function doConnect(){
+  var url=buildUrl();
+  if(!url){setStatus('Enter database name and username first.','err');return;}
+  setBtns(true);
+  var btn=document.getElementById('btnSave');
+  btn.textContent='Saving…';
+  setStatus('Testing connection…','info');
+  try{
+    var r=await fetch('/admin/settings/database/connect',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({database_url:url})});
+    var d=await r.json();
+    if(d.success){setStatus('✓ '+(d.message||'Saved. Restart the server to reconnect.'),'ok');btn.textContent='Saved';}
+    else{setStatus('✗ '+(d.error||'Failed'),'err');btn.textContent='Save & Restart';setBtns(false);}
+  }catch(e){setStatus('Network error','err');btn.textContent='Save & Restart';setBtns(false);}
+}
+async function doRevert(){
+  if(!confirm('Switch back to SQLite on next restart?'))return;
+  setBtns(true);
+  setStatus('Reverting…','info');
+  try{
+    var r=await fetch('/admin/settings/database/revert',{method:'POST'});
+    var d=await r.json();
+    if(d.success)setStatus('✓ '+(d.message||'Reverted to SQLite. Restart the server to apply.'),'ok');
+    else{setStatus('✗ '+(d.error||'Failed'),'err');setBtns(false);}
+  }catch(e){setStatus('Network error','err');setBtns(false);}
+}
+</script>
+</body>
+</html>"""
+
+
+@app.before_request
+def enforce_maintenance_mode():
+    """When the database was unreachable at startup, block all routes except
+    static files and the database settings API so the admin can fix the
+    connection string without needing to log in."""
+    if not _DB_MAINTENANCE_MODE:
+        return
+
+    allowed_prefixes = (
+        '/static/',
+        '/admin/settings/database',
+    )
+    if any(request.path.startswith(p) for p in allowed_prefixes):
+        return
+
+    from flask import Response as _Response
+    return _Response(_MAINTENANCE_HTML, status=503, mimetype='text/html')
+
+
 @app.before_request
 def update_last_seen():
     """Update last_seen_at for authenticated admin users, throttled to once per minute."""
+    if _DB_MAINTENANCE_MODE:
+        return
     if (current_user.is_authenticated
             and not getattr(current_user, 'is_anonymous', True)
             and request.endpoint not in ('static', None)):
@@ -3923,6 +4169,8 @@ def update_last_seen():
 
 @app.before_request
 def require_admin_url_key_for_admin_routes():
+    if _DB_MAINTENANCE_MODE:
+        return
     if request.endpoint in ('static',):
         return None
 
@@ -4429,7 +4677,8 @@ _FOLDER_ACTION_MAP = {
 
 @app.context_processor
 def inject_permissions_context():
-    """Make permission helpers available in every template."""
+    if _DB_MAINTENANCE_MODE:
+        return {}
 
     def _uperm(key):
         if not current_user.is_authenticated or not current_user.is_sub_admin:
@@ -4533,6 +4782,8 @@ def inject_permissions_context():
 
 @app.context_processor
 def inject_current_website():
+    if _DB_MAINTENANCE_MODE:
+        return {'current_website': None, 'current_website_pages': [], 'current_website_folders': []}
     if not current_user.is_authenticated:
         return {
             'current_website': None,
@@ -5303,6 +5554,8 @@ def delete_message(message_id):
 
 @app.context_processor
 def inject_unread_message_count():
+    if _DB_MAINTENANCE_MODE:
+        return {'unread_message_count': 0}
     if current_user.is_authenticated:
         unread_message_count = ContactMessage.query.filter_by(is_read=False).count()
     else:
@@ -6826,7 +7079,8 @@ def _delete_website_pages_by_ids(page_ids):
     if not page_ids:
         return
 
-    db.session.execute(db.text("PRAGMA defer_foreign_keys=ON"))
+    if _is_sqlite():
+        db.session.execute(db.text("PRAGMA defer_foreign_keys=ON"))
 
     section_ids = [s.id for s in
                    PageSection.query.filter(
@@ -9280,6 +9534,24 @@ def settings_page():
             flash('Settings saved. Custom admin login URL is disabled.', 'success')
         return redirect(url_for('settings_page'))
 
+    # Build a sanitized database info dict — never expose the raw URL or password
+    _raw_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if _raw_db_url.startswith('postgresql'):
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _p = _urlparse(_raw_db_url)
+            _db_info = {
+                'type': 'postgresql',
+                'host': _p.hostname or '',
+                'port': _p.port or 5432,
+                'database': (_p.path or '').lstrip('/'),
+                'username': _p.username or '',
+            }
+        except Exception:
+            _db_info = {'type': 'postgresql', 'host': '', 'port': 5432, 'database': '', 'username': ''}
+    else:
+        _db_info = {'type': 'sqlite'}
+
     return render_template(
         'settings.html',
         timezone_choices=timezone_choices,
@@ -9292,6 +9564,7 @@ def settings_page():
         email_settings=get_email_settings(),
         account_username=current_user.username,
         account_email=current_user.email,
+        db_info=_db_info,
     )
 
 
@@ -9928,6 +10201,316 @@ def import_backup():
         return _utf8_json({'success': False, 'error': str(e)}, 500)
 
     return _utf8_json({'success': True})
+
+
+# ── Database migration (SQLite ↔ PostgreSQL) ──────────────────────────────────
+
+def _pg_friendly_error(raw_err: str, pg_url: str = '') -> str:
+    """Convert raw psycopg2/SQLAlchemy error strings into actionable messages."""
+    import re as _re
+    msg = raw_err.lower()
+
+    if 'insufficientprivilege' in msg or 'permission denied' in msg:
+        # Extract db name from URL if possible
+        try:
+            db = pg_url.rstrip('/').split('/')[-1]
+            user = _re.search(r'://([^:@]+)', pg_url)
+            user = user.group(1) if user else 'uwebia_user'
+        except Exception:
+            db, user = 'uwebia', 'uwebia_user'
+        return (
+            f'Permission denied. Run these on the PostgreSQL server:\n'
+            f'  sudo -u postgres psql -c "ALTER DATABASE {db} OWNER TO {user};"\n'
+            f'  sudo -u postgres psql -c "ALTER SCHEMA public OWNER TO {user};"\n'
+            f'  sudo -u postgres psql -c "GRANT ALL ON SCHEMA public TO {user};"'
+        )
+
+    if 'connection refused' in msg or 'no route to host' in msg or 'could not connect' in msg:
+        return (
+            'Cannot reach the PostgreSQL server. Check that:\n'
+            '  • PostgreSQL is running (systemctl start postgresql)\n'
+            '  • listen_addresses = \'*\' in postgresql.conf\n'
+            '  • A matching rule exists in pg_hba.conf\n'
+            '  • The firewall allows port 5432'
+        )
+
+    if 'password authentication failed' in msg or 'authentication failed' in msg:
+        return 'Authentication failed — check the username and password.'
+
+    if 'does not exist' in msg and 'database' in msg:
+        return (
+            'Database not found. Create it with:\n'
+            '  sudo -u postgres psql -c "CREATE DATABASE uwebia;"'
+        )
+
+    if 'stringdatarighttruncation' in msg or 'value too long' in msg:
+        return 'A value is too long for a PostgreSQL column. Check for unusually long field values.'
+
+    if 'unicodedecodeerror' in msg or 'codec' in msg:
+        return 'Character encoding error. Ensure the PostgreSQL database uses UTF-8 encoding.'
+
+    return f'Migration failed: {raw_err}'
+
+
+def _test_pg_connection(pg_url: str) -> tuple[bool, str]:
+    """Return (ok, error_message). Tries to connect and run a trivial query."""
+    try:
+        from sqlalchemy import create_engine, text as _text
+        _eng = create_engine(pg_url, connect_args={'connect_timeout': 5, 'client_encoding': 'utf8'})
+        with _eng.connect() as _c:
+            _c.execute(_text('SELECT 1'))
+        _eng.dispose()
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
+
+def _migrate_data(src_url: str, dst_url: str) -> tuple[bool, str]:
+    """Copy every table from *src* to *dst*, then fix PostgreSQL sequences.
+    Both databases must already have the schema created (via create_all).
+    Returns (success, error_message)."""
+    try:
+        from sqlalchemy import create_engine, text as _text, inspect as _inspect
+
+        src_eng = create_engine(src_url)
+        dst_eng = create_engine(
+            dst_url,
+            connect_args={'client_encoding': 'utf8'} if dst_url.startswith('postgresql') else {}
+        )
+        dst_is_pg = dst_url.startswith('postgresql')
+
+        # Verify connectivity
+        with dst_eng.connect():
+            pass
+
+        # Drop all existing tables in destination so the schema is always
+        # rebuilt fresh from the current models (handles column type changes).
+        if dst_is_pg:
+            with dst_eng.begin() as _drop_conn:
+                # CASCADE handles FK dependency order automatically
+                for _tbl in reversed(db.metadata.sorted_tables):
+                    _drop_conn.execute(_text(
+                        f'DROP TABLE IF EXISTS "{_tbl.name}" CASCADE'
+                    ))
+                # Also drop the alembic version table if present
+                _drop_conn.execute(_text(
+                    'DROP TABLE IF EXISTS alembic_version CASCADE'
+                ))
+
+        db.metadata.create_all(dst_eng)
+
+        src_insp = _inspect(src_eng)
+        all_tables = [t.name for t in db.metadata.sorted_tables]
+
+        # Tables present in the source DB
+        src_tables = set(src_insp.get_table_names())
+
+        from sqlalchemy.schema import AddConstraint as _AddConstraint
+
+        # Drop all FK constraints on the destination before inserting so that
+        # circular references (e.g. user ↔ permission_group) don't block inserts.
+        # Query the actual constraint names from the DB (not metadata) to be sure.
+        if dst_is_pg:
+            with dst_eng.begin() as _pre_conn:
+                _fk_rows = _pre_conn.execute(_text("""
+                    SELECT tc.constraint_name, tc.table_name
+                    FROM information_schema.table_constraints tc
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                    AND tc.table_schema = 'public'
+                """)).fetchall()
+                for _cname, _tname in _fk_rows:
+                    try:
+                        _pre_conn.execute(_text(
+                            f'ALTER TABLE "{_tname}" DROP CONSTRAINT IF EXISTS "{_cname}"'
+                        ))
+                    except Exception:
+                        pass
+
+        with src_eng.connect() as src_conn:
+            with dst_eng.begin() as dst_conn:
+                if not dst_is_pg:
+                    dst_conn.execute(_text('PRAGMA defer_foreign_keys=ON'))
+
+                for tname in all_tables:
+                    if tname not in src_tables:
+                        continue
+
+                    # Fetch all rows from source
+                    rows = src_conn.execute(
+                        _text(f'SELECT * FROM "{tname}"')
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    col_names = [c['name'] for c in src_insp.get_columns(tname)]
+                    col_str = ', '.join(f'"{c}"' for c in col_names)
+
+                    if dst_is_pg:
+                        dst_conn.execute(_text(f'TRUNCATE TABLE "{tname}" CASCADE'))
+                    else:
+                        dst_conn.execute(_text(f'DELETE FROM "{tname}"'))
+
+                    # SQLAlchemy text() always uses :param style for all backends
+                    placeholders = ', '.join(f':{c}' for c in col_names)
+                    stmt = _text(
+                        f'INSERT INTO "{tname}" ({col_str}) VALUES ({placeholders})'
+                    )
+
+                    from sqlalchemy import Boolean as _Boolean, String as _String
+                    meta_table = db.metadata.tables.get(tname)
+                    bool_cols = set()
+                    str_limits = {}  # col_name → max length (None = unlimited)
+                    if dst_is_pg and meta_table is not None:
+                        for mc in meta_table.columns:
+                            if isinstance(mc.type, _Boolean):
+                                bool_cols.add(mc.name)
+                            elif isinstance(mc.type, _String) and mc.type.length:
+                                str_limits[mc.name] = mc.type.length
+
+                    batch = []
+                    for row in rows:
+                        row_dict = dict(zip(col_names, row))
+                        for bc in bool_cols:
+                            if bc in row_dict and row_dict[bc] is not None:
+                                row_dict[bc] = bool(row_dict[bc])
+                        # Truncate strings that exceed declared VARCHAR length
+                        for sc, max_len in str_limits.items():
+                            if sc in row_dict and isinstance(row_dict[sc], str):
+                                if len(row_dict[sc]) > max_len:
+                                    app.logger.warning(
+                                        f'[db-migrate] {tname}.{sc}: truncating '
+                                        f'{len(row_dict[sc])} → {max_len} chars'
+                                    )
+                                    row_dict[sc] = row_dict[sc][:max_len]
+                        batch.append(row_dict)
+
+                    dst_conn.execute(stmt, batch)
+                    app.logger.info(f'[db-migrate] {tname}: {len(batch)} rows')
+
+        # Recreate all FK constraints now that all data is present
+        if dst_is_pg:
+            with dst_eng.begin() as _post_conn:
+                for _tbl in db.metadata.sorted_tables:
+                    for _fkc in list(_tbl.foreign_key_constraints):
+                        try:
+                            _post_conn.execute(_AddConstraint(_fkc))
+                        except Exception as _fke:
+                            app.logger.warning(f'[db-migrate] FK recreate {_fkc.name}: {_fke}')
+
+        # Fix PostgreSQL auto-increment sequences so new inserts get correct IDs
+        if dst_is_pg:
+            with dst_eng.begin() as dst_conn:
+                for tname in all_tables:
+                    if tname not in src_tables:
+                        continue
+                    try:
+                        dst_conn.execute(_text(
+                            f"SELECT setval("
+                            f"pg_get_serial_sequence('\"{tname}\"', 'id'), "
+                            f"COALESCE((SELECT MAX(id) FROM \"{tname}\"), 1))"
+                        ))
+                    except Exception:
+                        pass  # table may not have an 'id' sequence
+
+        src_eng.dispose()
+        dst_eng.dispose()
+        return True, ''
+    except Exception as e:
+        app.logger.exception('_migrate_data error')
+        return False, str(e)
+
+
+@app.route('/admin/settings/database/connect', methods=['POST'])
+def connect_to_postgres():
+    """Switch to a PostgreSQL database without migrating any data.
+    Use this when the data is already in PostgreSQL (e.g. after moving servers)."""
+    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    data = request.get_json() or {}
+    pg_url = (data.get('database_url') or '').strip()
+    if not pg_url:
+        return _utf8_json({'success': False, 'error': 'No connection string provided'}, 400)
+    ok, err = _test_pg_connection(pg_url)
+    if not ok:
+        return _utf8_json({'success': False, 'error': f'Cannot connect: {err}'}, 400)
+    _save_db_config({'database_url': pg_url})
+    return _utf8_json({'success': True, 'message': 'Connection saved. Restart the server to apply.'})
+
+
+@app.route('/admin/settings/database/health')
+@login_required
+def database_health():
+    """Quick liveness check for the active database connection."""
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        dialect = db.engine.url.drivername
+        return _utf8_json({'ok': True, 'dialect': dialect})
+    except Exception as e:
+        return _utf8_json({'ok': False, 'error': str(e)}, 503)
+
+
+@app.route('/admin/settings/database/test', methods=['POST'])
+def test_db_connection():
+    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    data = request.get_json() or {}
+    pg_url = (data.get('database_url') or '').strip()
+    if not pg_url:
+        return _utf8_json({'success': False, 'error': 'No connection string provided'}, 400)
+    ok, err = _test_pg_connection(pg_url)
+    return _utf8_json({'success': ok, 'error': err})
+
+
+@app.route('/admin/settings/database/migrate', methods=['POST'])
+@login_required
+def migrate_to_postgres():
+    """Migrate all data from the current SQLite database to PostgreSQL,
+    save the new DATABASE_URL to db_config.json, and signal a restart."""
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+
+    data = request.get_json() or {}
+    pg_url = (data.get('database_url') or '').strip()
+    if not pg_url:
+        return _utf8_json({'success': False, 'error': 'No connection string provided'}, 400)
+
+    current_url = app.config['SQLALCHEMY_DATABASE_URI']
+    if not current_url.startswith('sqlite'):
+        return _utf8_json({'success': False, 'error': 'Current database is not SQLite'}, 400)
+
+    # Test connectivity first
+    ok, err = _test_pg_connection(pg_url)
+    if not ok:
+        return _utf8_json({'success': False, 'error': f'Cannot connect to PostgreSQL: {err}'}, 400)
+
+    # Migrate data
+    ok, err = _migrate_data(current_url, pg_url)
+    if not ok:
+        user_error = _pg_friendly_error(err, pg_url)
+        return _utf8_json({'success': False, 'error': user_error}, 500)
+
+    # Persist the new URL so the app uses it after restart
+    _save_db_config({'database_url': pg_url})
+    return _utf8_json({'success': True, 'message': 'Migration complete. Restart the server to switch to PostgreSQL.'})
+
+
+@app.route('/admin/settings/database/revert', methods=['POST'])
+def revert_to_sqlite():
+    """Switch back to SQLite (data is not migrated back — SQLite file is unchanged)."""
+    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    cfg = _load_db_config()
+    cfg.pop('database_url', None)
+    _save_db_config(cfg)
+    return _utf8_json({'success': True, 'message': 'Reverted to SQLite. Restart the server to apply.'})
 
 
 def render_public_page(website, page, is_preview=False):
@@ -14804,6 +15387,8 @@ def get_public_user():
 
 @app.context_processor
 def inject_public_account_context():
+    if _DB_MAINTENANCE_MODE:
+        return {'navbar_public_user': None, 'navbar_public_accounts_enabled': False}
     website = get_live_website()
     public_user = get_public_user() if website else None
 
@@ -15323,6 +15908,24 @@ def _run_startup_migrations():
     """
     from sqlalchemy import inspect as _inspect
 
+    # On PostgreSQL, use an advisory lock so only one worker runs migrations
+    # at a time.  The lock is released automatically when the connection closes.
+    _MIGRATION_LOCK_ID = 78234561  # arbitrary unique integer for this app
+    if not _is_sqlite():
+        with db.engine.connect() as _lock_conn:
+            _lock_conn.execute(db.text(f'SELECT pg_advisory_lock({_MIGRATION_LOCK_ID})'))
+            try:
+                _run_startup_migrations_inner()
+            finally:
+                _lock_conn.execute(db.text(f'SELECT pg_advisory_unlock({_MIGRATION_LOCK_ID})'))
+        return
+
+    _run_startup_migrations_inner()
+
+
+def _run_startup_migrations_inner():
+    from sqlalchemy import inspect as _inspect
+
     # ── Step 1: record which tables already exist, then create any missing ones
     inspector = _inspect(db.engine)
     pre_existing = set(inspector.get_table_names())
@@ -15345,30 +15948,40 @@ def _run_startup_migrations():
             if col.name in existing_col_names:
                 continue
 
-            # Compile the type string for this dialect (e.g. "VARCHAR(200)")
+            # Compile the type string for this dialect (e.g. "VARCHAR(200)", "BOOLEAN")
             try:
                 col_type_str = col.type.compile(dialect=db.engine.dialect)
             except Exception:
                 col_type_str = 'TEXT'
 
-            # SQLite requires a DEFAULT when adding a NOT NULL column to an
-            # existing table (otherwise the existing rows would violate it).
+            is_pg = not _is_sqlite()
+
+            # Build the DEFAULT clause, compiled for the current dialect so that
+            # boolean false()/true() emit 'false'/'true' on PostgreSQL and '0'/'1'
+            # on SQLite, and literal string server_defaults pass through unchanged.
             default_clause = ''
             if col.server_default is not None:
-                # e.g. server_default='0' or server_default=text("'chat'")
-                raw = getattr(col.server_default, 'arg', str(col.server_default))
-                default_clause = f' DEFAULT {raw}'
+                raw = col.server_default.arg
+                if hasattr(raw, 'compile'):
+                    # Dialect-aware clause element (e.g. false(), true())
+                    compiled_default = str(raw.compile(
+                        dialect=db.engine.dialect,
+                        compile_kwargs={'literal_binds': True}
+                    ))
+                    default_clause = f' DEFAULT {compiled_default}'
+                else:
+                    # Literal string — pass as-is
+                    default_clause = f' DEFAULT {raw}'
             elif col.default is not None and hasattr(col.default, 'arg'):
                 arg = col.default.arg
-                if not callable(arg):  # skip Python-side callables
+                if not callable(arg):
                     default_clause = f' DEFAULT {arg!r}'
             elif not col.nullable:
-                # Infer a zero-value default from the type so existing rows
-                # satisfy the NOT NULL constraint without storing wrong data.
+                # Infer a safe zero-value default so existing rows satisfy NOT NULL.
                 t = col_type_str.upper()
-                if any(k in t for k in ('INT', 'BOOL')):
-                    default_clause = ' DEFAULT 0'
-                elif any(k in t for k in ('REAL', 'FLOAT', 'NUMERIC', 'DECIMAL')):
+                if 'BOOL' in t:
+                    default_clause = ' DEFAULT false' if is_pg else ' DEFAULT 0'
+                elif any(k in t for k in ('INT', 'REAL', 'FLOAT', 'NUMERIC', 'DECIMAL')):
                     default_clause = ' DEFAULT 0'
                 elif 'JSON' in t:
                     default_clause = " DEFAULT '{}'"
@@ -15405,23 +16018,26 @@ def _run_startup_migrations():
             pass
 
 
+# Flag set to True when the configured database is unreachable at startup.
+# The before_request hook below uses it to gate all routes in maintenance mode.
+_DB_MAINTENANCE_MODE = False
+
 # ── Startup initialisation ────────────────────────────────────────────────────
 # Runs in every process that imports this module (each gunicorn worker as well
 # as the master when --preload is used).  All operations must be idempotent.
 with app.app_context():
     try:
-        # Register the SQLite pragmas BEFORE the first connection so that even
-        # db.create_all() benefits from busy_timeout and WAL mode.
-        # Accessing db.engine inside the context is safe here.
-        _sa_event.listens_for(db.engine, "connect")(_set_sqlite_pragmas)
+        if _is_sqlite():
+            # Register the SQLite pragmas BEFORE the first connection so that even
+            # db.create_all() benefits from busy_timeout and WAL mode.
+            _sa_event.listens_for(db.engine, "connect")(_set_sqlite_pragmas)
 
-        # Apply the pragmas immediately to any connection that may already be open
-        # (unlikely at startup, but guards against edge cases).
-        with db.engine.connect() as _conn:
-            _conn.execute(db.text("PRAGMA journal_mode=WAL"))
-            _conn.execute(db.text("PRAGMA synchronous=NORMAL"))
-            _conn.execute(db.text("PRAGMA foreign_keys=ON"))
-            _conn.execute(db.text("PRAGMA busy_timeout=5000"))
+            # Apply the pragmas immediately to any connection that may already be open.
+            with db.engine.connect() as _conn:
+                _conn.execute(db.text("PRAGMA journal_mode=WAL"))
+                _conn.execute(db.text("PRAGMA synchronous=NORMAL"))
+                _conn.execute(db.text("PRAGMA foreign_keys=ON"))
+                _conn.execute(db.text("PRAGMA busy_timeout=5000"))
 
         # Create all tables from the ORM models (no-op if they already exist).
         # This is the call that generates site.db on a fresh install.
@@ -15442,14 +16058,46 @@ with app.app_context():
         if not _reloader_parent:
             _start_subscription_sync_scheduler()
 
-    except Exception as _startup_err:
-        import traceback
+        _DB_MAINTENANCE_MODE = False
 
-        print("=" * 60)
-        print("STARTUP ERROR — database initialisation failed:")
-        traceback.print_exc()
-        print("=" * 60)
-        raise  # re-raise so gunicorn surfaces the failure rather than serving broken requests
+    except Exception as _startup_err:
+        import traceback, sqlalchemy.exc as _sa_exc
+
+        if isinstance(_startup_err, (_sa_exc.OperationalError, _sa_exc.DatabaseError)):
+            # PostgreSQL is unreachable — start in maintenance mode so the admin
+            # can reach the settings page to fix the connection, then restart.
+            _DB_MAINTENANCE_MODE = True
+            print("=" * 60)
+            print("WARNING: database unreachable at startup — running in MAINTENANCE MODE.")
+            print("Only the admin settings page is accessible until the database is restored.")
+            print(f"Error: {_startup_err}")
+            print("=" * 60)
+        else:
+            print("=" * 60)
+            print("STARTUP ERROR — database initialisation failed:")
+            traceback.print_exc()
+            print("=" * 60)
+            raise  # non-DB errors are genuine bugs — surface them
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Catch database connection failures and show a clear, actionable message
+    instead of a generic 500 page.  All other 500s fall through normally."""
+    import sqlalchemy.exc as _sa_exc
+    cause = getattr(e, 'original_exception', e)
+    is_db_error = isinstance(cause, (_sa_exc.OperationalError, _sa_exc.DatabaseError))
+    if is_db_error:
+        db.session.remove()  # clear the broken session so the next request starts clean
+        app.logger.error(f'Database connection error: {cause}')
+        if request.is_json or request.headers.get('Accept', '').startswith('application/json'):
+            return _utf8_json({'success': False, 'error': 'Database unavailable. Please try again shortly.'}, 503)
+        from flask import Response as _Response
+        if _DB_MAINTENANCE_MODE:
+            return _Response(_MAINTENANCE_HTML, status=503, mimetype='text/html')
+        return render_template('db_unavailable.html'), 503
+    # Not a DB error — re-raise so Flask's default 500 handler takes over
+    raise e
 
 
 @app.errorhandler(403)
@@ -15459,6 +16107,12 @@ def forbidden(e):
     if request.is_json or request.headers.get('Accept', '').startswith('application/json'):
         return _utf8_json({'success': False, 'error': msg, 'permission_denied': True}, 403)
     return render_template('403.html', message=msg), 403
+
+
+@app.route('/admin/plugins')
+@login_required
+def plugins_page():
+    return render_template('plugins.html')
 
 
 if __name__ == '__main__':
