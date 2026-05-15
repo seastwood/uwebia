@@ -3841,13 +3841,13 @@ box-sizing: border-box;
                                 <div class="calendar-container section-container" data-calendar-id="{{ cal_id }}">
                                     <div id="calendar-{{ section.id }}" class="calendar"></div>
                                     <div class="calendar-subscribe-row">
-                                        <a href="{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True) }}"
-                                            class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
-                                            Subscribe to Calendar
-                                        </a>
                                         <a href="{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True).replace('http://', 'webcal://').replace('https://', 'webcal://') }}"
                                             class="calendar-subscribe-button">
-                                            Open in Calendar App
+                                            Subscribe to Calendar
+                                        </a>
+                                        <a href="{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True) }}"
+                                            class="calendar-subscribe-button" target="_blank" rel="noopener noreferrer">
+                                            Download Events
                                         </a>
                                         <button type="button" class="calendar-copy-button"
                                             onclick="copyCalendarFeedUrl('{{ url_for('calendar_feed_by_id', calendar_id=cal_id, _external=True) }}')">
