@@ -1145,6 +1145,9 @@ class Website(db.Model):
     background_image_repeat_x = db.Column(db.Boolean, default=False)
     background_image_mobile_cover = db.Column(db.Boolean, default=False)
     background_image_zoom = db.Column(db.Integer, default=100)
+    background_image_blur = db.Column(db.Integer, nullable=True, default=0)
+    background_image_overlay_color = db.Column(db.String(20), nullable=True)
+    background_image_overlay_opacity = db.Column(db.Integer, nullable=True, default=0)
 
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
@@ -6656,6 +6659,18 @@ def edit_website_style(website_id):
         zoom = 100
 
     website.background_image_zoom = max(25, min(1000, zoom))
+
+    try:
+        website.background_image_blur = max(0, min(40, int(data.get('background_image_blur') or 0)))
+    except (ValueError, TypeError):
+        website.background_image_blur = 0
+
+    website.background_image_overlay_color = data.get('background_image_overlay_color') or None
+
+    try:
+        website.background_image_overlay_opacity = max(0, min(100, int(data.get('background_image_overlay_opacity') or 0)))
+    except (ValueError, TypeError):
+        website.background_image_overlay_opacity = 0
 
     db.session.commit()
 

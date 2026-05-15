@@ -3635,6 +3635,7 @@ min-height: 100dvh;
 --public-page-max-width: 1180px;
 color: {{ website.text_color or '#000000' }};
 ">
+{% set bg_blur = website.background_image_blur or 0 %}
 <div class="site-fixed-background" aria-hidden="true" style="
 
     {% if website.background_image_url %}
@@ -3659,8 +3660,23 @@ color: {{ website.text_color or '#000000' }};
             background-position: center center;
             background-size: {{ bg_zoom }}% auto;
         {% endif %}
+
+        {% if bg_blur > 0 %}
+            filter: blur({{ bg_blur }}px);
+            transform: translateZ(0) scale(1.08);
+        {% endif %}
     {% endif %}
 "></div>
+
+{% set overlay_color = website.background_image_overlay_color %}
+{% set overlay_opacity = (website.background_image_overlay_opacity or 0) | int %}
+{% if overlay_color and overlay_opacity > 0 %}
+<div aria-hidden="true" style="
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background: {{ overlay_color }};
+    opacity: {{ overlay_opacity / 100 }};
+"></div>
+{% endif %}
 {% if website.background_image_url and website.background_image_repeat and website.background_image_mobile_cover %}
 <style>
 @media (max-width: 760px) {
