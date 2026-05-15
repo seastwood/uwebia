@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/plugins.css') }}">
+
+<div class="plugins-page">
+    <div class="plugins-header">
+        <div>
+            <p class="plugins-kicker">Admin</p>
+            <h1 class="plugins-title">Plugins</h1>
+        </div>
+    </div>
+
+    {% if plugins %}
+    <div class="plugins-grid">
+        {% for plugin in plugins %}
+        <div class="plugin-card {% if plugin.enabled %}plugin-card--enabled{% endif %}" id="card-{{ plugin.slug }}">
+            <div class="plugin-card-top">
+                <div class="plugin-icon">
+                    <i class="{{ plugin.icon }}"></i>
+                </div>
+                <label class="plugin-toggle" title="{{ 'Disable' if plugin.enabled else 'Enable' }} {{ plugin.name }}">
+                    <input type="checkbox"
+                           {% if plugin.enabled %}checked{% endif %}
+                           onchange="togglePlugin('{{ plugin.slug }}', this)">
+                    <span class="plugin-toggle-track"></span>
+                </label>
+            </div>
+
+            <div class="plugin-card-body">
+                <div class="plugin-meta">
+                    <h2 class="plugin-name">{{ plugin.name }}</h2>
+                    <span class="plugin-version">v{{ plugin.version }}</span>
+                </div>
+                <p class="plugin-description">{{ plugin.description }}</p>
+            </div>
+
+            <div class="plugin-card-footer">
+                <span class="plugin-status {% if plugin.enabled %}plugin-status--on{% else %}plugin-status--off{% endif %}"
+                      id="status-{{ plugin.slug }}">
+                    {{ 'Enabled' if plugin.enabled else 'Disabled' }}
+                </span>
+                {% if plugin.enabled %}
+                <a href="{{ url_for('plugin_config', slug=plugin.slug) }}"
+                   class="plugin-configure-btn" id="configure-{{ plugin.slug }}">
+                    Configure <i class="fas fa-arrow-right"></i>
+                </a>
+                {% else %}
+                <a class="plugin-configure-btn plugin-configure-btn--hidden"
+                   id="configure-{{ plugin.slug }}">
+                    Configure <i class="fas fa-arrow-right"></i>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="plugins-empty">
+        <i class="fas fa-puzzle-piece"></i>
+        <p>No plugins are registered.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+async function togglePlugin(slug, checkbox) {
+    const card       = document.getElementById('card-' + slug);
+    const statusEl   = document.getElementById('status-' + slug);
+    const configBtn  = document.getElementById('configure-' + slug);
+    checkbox.disabled = true;
+
+    try {
+        const r = await fetch('/admin/plugins/' + slug + '/toggle', { method: 'POST' });
+        const d = await r.json();
+        if (typeof d.enabled === 'undefined') throw new Error(d.error || 'Failed');
+
+        checkbox.checked = d.enabled;
+        card.classList.toggle('plugin-card--enabled', d.enabled);
+        statusEl.textContent = d.enabled ? 'Enabled' : 'Disabled';
+        statusEl.className = 'plugin-status ' + (d.enabled ? 'plugin-status--on' : 'plugin-status--off');
+
+        if (d.enabled) {
+            configBtn.href = '/admin/plugins/' + slug + '/config';
+            configBtn.classList.remove('plugin-configure-btn--hidden');
+        } else {
+            configBtn.removeAttribute('href');
+            configBtn.classList.add('plugin-configure-btn--hidden');
+        }
+    } catch(e) {
+        checkbox.checked = !checkbox.checked;
+        alert('Could not toggle plugin: ' + e.message);
+    }
+    checkbox.disabled = false;
+}
+</script>
+
+{% endblock %}

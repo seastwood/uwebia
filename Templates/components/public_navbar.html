@@ -49,7 +49,7 @@
 
     <div class="public-navbar-left">
 
-        {% if navbar_items or website.forum_enabled or navbar_public_accounts_enabled %}
+        {% if navbar_items or navbar_public_accounts_enabled %}
         <button type="button" class="public-navbar-toggle" onclick="togglePublicNavbarMenu(event)"
             aria-label="Open navigation menu">
             <svg class="hamburger-icon" width="22" height="22" viewBox="0 0 24 24" fill="none"
@@ -74,34 +74,36 @@
         </a>
     </div>
 
-{% if navbar_items or website.forum_enabled or navbar_public_accounts_enabled %}
+{% if navbar_items or navbar_public_accounts_enabled %}
 <div class="public-navbar-right">
-
-    {% if website.forum_enabled and website.forum_show_in_navbar %}
-        <a href="{{ url_for('public_forum') }}"
-           class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
-            {{ website.forum_title or 'Forum' }}
-        </a>
-    {% endif %}
 
     {% for item in navbar_items %}
 
         {% if item.type == 'link' %}
             {% set item_has_hash = '#' in item.url %}
             {% set item_url_no_hash = item.url.split('#')[0] %}
-
             <a href="{{ item.url }}"
                class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
                 {{ item.name }}
             </a>
 
+        {% elif item.type == 'system' %}
+            {% if item.key == 'shop' and website.store_enabled %}
+            <a href="/shop" class="{% if current_url_no_hash == '/shop' %}active-navbar-link{% endif %}">
+                {{ item.name or website.store_title or 'Shop' }}
+            </a>
+            {% elif item.key == 'forum' and website.forum_enabled %}
+            <a href="{{ url_for('public_forum') }}"
+               class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+                {{ item.name or website.forum_title or 'Forum' }}
+            </a>
+            {% endif %}
+
         {% elif item.type == 'group' %}
             {% set group_active = namespace(value=false) %}
-
             {% for child in item.children %}
                 {% set child_has_hash = '#' in child.url %}
                 {% set child_url_no_hash = child.url.split('#')[0] %}
-
                 {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
                     {% set group_active.value = true %}
                 {% endif %}
@@ -111,13 +113,11 @@
                 <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
                     {{ item.name }} ▾
                 </button>
-
                 <div class="public-navbar-dropdown-menu">
                     <div class="public-navbar-menu-glass">
                         {% for child in item.children %}
                             {% set child_has_hash = '#' in child.url %}
                             {% set child_url_no_hash = child.url.split('#')[0] %}
-
                             <a href="{{ child.url }}"
                                class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
                                 {{ child.name }}
@@ -140,6 +140,13 @@
         </div>
     </div>
 
+    {% if website.store_enabled and not website.store_in_store_only %}
+    <a href="/store/cart" class="public-cart-btn" title="Cart" data-navbar-fixed-item="true">
+        <i class="fas fa-shopping-cart"></i>
+        <span class="public-cart-badge" id="public-cart-badge" style="display:none">0</span>
+    </a>
+    {% endif %}
+
     {% if navbar_public_accounts_enabled %}
         <div class="public-navbar-dropdown public-account-dropdown" data-navbar-fixed-item="true">
             <button type="button" class="public-account-button" title="Public account">
@@ -161,13 +168,20 @@
                             Signed in as <strong>{{ navbar_public_user.username }}</strong>
                         </div>
 
-                        <a href="{{ url_for('public_account_change_password') }}">
-                            <i class="fas fa-key"></i>
-                            Change Password
+                        {% if website.store_enabled %}
+                        <a href="{{ url_for('public_account_orders') }}">
+                            <i class="fas fa-box"></i>
+                            My Orders
+                        </a>
+                        {% endif %}
+
+                        <a href="{{ url_for('public_account_settings') }}">
+                            <i class="fas fa-cog"></i>
+                            Settings
                         </a>
 
-                        <form method="POST"
-                              action="{{ url_for('public_forum_logout') }}"
+<form method="POST"
+                              action="{{ url_for('public_logout') }}"
                               class="public-account-logout-form">
                             <input type="hidden" name="next" value="{{ current_page_url or request.path }}">
 
@@ -177,12 +191,12 @@
                             </button>
                         </form>
                     {% else %}
-                        <a href="{{ url_for('public_forum_login', next=current_page_url or request.path) }}">
+                        <a href="{{ url_for('public_login', next=current_page_url or request.path) }}">
                             <i class="fas fa-sign-in-alt"></i>
                             Log In
                         </a>
 
-                        <a href="{{ url_for('public_forum_register', next=current_page_url or request.path) }}">
+                        <a href="{{ url_for('public_register', next=current_page_url or request.path) }}">
                             <i class="fas fa-user-plus"></i>
                             Create Account
                         </a>
@@ -214,13 +228,20 @@
 
                 <div class="public-navbar-menu-group-links">
                     {% if navbar_public_user %}
-                        <a href="{{ url_for('public_account_change_password') }}">
-                            <i class="fas fa-key"></i>
-                            Change Password
+                        {% if website.store_enabled %}
+                        <a href="{{ url_for('public_account_orders') }}">
+                            <i class="fas fa-box"></i>
+                            My Orders
+                        </a>
+                        {% endif %}
+
+                        <a href="{{ url_for('public_account_settings') }}">
+                            <i class="fas fa-cog"></i>
+                            Settings
                         </a>
 
-                        <form method="POST"
-                              action="{{ url_for('public_forum_logout') }}"
+<form method="POST"
+                              action="{{ url_for('public_logout') }}"
                               class="public-account-mobile-logout-form">
                             <input type="hidden" name="next" value="{{ current_page_url or request.path }}">
 
@@ -230,12 +251,12 @@
                             </button>
                         </form>
                     {% else %}
-                        <a href="{{ url_for('public_forum_login', next=current_page_url or request.path) }}">
+                        <a href="{{ url_for('public_login', next=current_page_url or request.path) }}">
                             <i class="fas fa-sign-in-alt"></i>
                             Log In
                         </a>
 
-                        <a href="{{ url_for('public_forum_register', next=current_page_url or request.path) }}">
+                        <a href="{{ url_for('public_register', next=current_page_url or request.path) }}">
                             <i class="fas fa-user-plus"></i>
                             Create Account
                         </a>
@@ -244,31 +265,33 @@
             </div>
         {% endif %}
 
-        {% if website.forum_enabled and website.forum_show_in_navbar %}
-            <a href="{{ url_for('public_forum') }}"
-               class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
-                {{ website.forum_title or 'Forum' }}
-            </a>
-        {% endif %}
-
         {% for item in navbar_items %}
 
             {% if item.type == 'link' %}
                 {% set item_has_hash = '#' in item.url %}
                 {% set item_url_no_hash = item.url.split('#')[0] %}
-
                 <a href="{{ item.url }}"
                    class="{% if not item_has_hash and item_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
                     {{ item.name }}
                 </a>
 
+            {% elif item.type == 'system' %}
+                {% if item.key == 'shop' and website.store_enabled %}
+                <a href="/shop" class="{% if current_url_no_hash == '/shop' %}active-navbar-link{% endif %}">
+                    {{ item.name or website.store_title or 'Shop' }}
+                </a>
+                {% elif item.key == 'forum' and website.forum_enabled %}
+                <a href="{{ url_for('public_forum') }}"
+                   class="{% if current_url_no_hash == url_for('public_forum') %}active-navbar-link{% endif %}">
+                    {{ item.name or website.forum_title or 'Forum' }}
+                </a>
+                {% endif %}
+
             {% elif item.type == 'group' %}
                 {% set group_active = namespace(value=false) %}
-
                 {% for child in item.children %}
                     {% set child_has_hash = '#' in child.url %}
                     {% set child_url_no_hash = child.url.split('#')[0] %}
-
                     {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
                         {% set group_active.value = true %}
                     {% endif %}
@@ -282,12 +305,10 @@
                         <span>{{ item.name }}</span>
                         <span class="public-navbar-menu-group-chevron">▾</span>
                     </button>
-
                     <div class="public-navbar-menu-group-links">
                         {% for child in item.children %}
                             {% set child_has_hash = '#' in child.url %}
                             {% set child_url_no_hash = child.url.split('#')[0] %}
-
                             <a href="{{ child.url }}"
                                class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
                                 {{ child.name }}
@@ -646,8 +667,6 @@
     .public-navbar.dropdown-mode-side_panel .public-navbar-toggle {
         position: relative;
         z-index: 10007;
-
-        background: rgba(20, 20, 20, 0.18);
     }
 
 
@@ -1198,8 +1217,8 @@
         z-index: 10040;
     }
 
-    /* Hide normal right-side nav links on mobile, but keep account */
-    .public-navbar-right > *:not(.public-account-dropdown) {
+    /* Hide normal right-side nav links on mobile, but keep account and cart */
+    .public-navbar-right > *:not(.public-account-dropdown):not(.public-cart-btn) {
         display: none !important;
     }
 
@@ -1208,6 +1227,11 @@
         position: relative;
         margin-left: 0;
         order: 999;
+    }
+
+    .public-navbar-right > .public-cart-btn {
+        display: inline-flex !important;
+        order: 998;
     }
 
     .public-account-button {
@@ -1238,17 +1262,17 @@
         min-width: 220px !important;
     }
 
-    /* Make room for the account icon so title does not sit under it */
+    /* Make room for cart + account icons so title does not sit under them */
     .public-navbar-brand.title-align-left {
-        right: 64px !important;
+        right: 104px !important;
     }
 
     .public-navbar-brand.title-align-center {
-        width: calc(100vw - 165px) !important;
+        width: calc(100vw - 205px) !important;
     }
 
     .public-navbar-brand.title-align-right {
-        right: 64px !important;
+        right: 104px !important;
     }
 }
 @media (max-width: 800px) {

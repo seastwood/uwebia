@@ -1,0 +1,114 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Verification Code{% endblock %}
+
+{% block head %}
+<style>
+    body {
+        margin: 0;
+        font-family: Roboto, Arial, sans-serif;
+        background: {{ website.background_color or '#111' }};
+        color: {{ website.text_color or '#fff' }};
+    }
+
+    .auth-card {
+        width: min(420px, calc(100% - 28px));
+        margin: 110px auto;
+        padding: 28px 24px;
+        background: rgba(0,0,0,0.34);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .auth-card h1 {
+        font-size: 1.4rem;
+        font-weight: 800;
+        margin: 0 0 6px;
+    }
+
+    .auth-card p.subtitle {
+        font-size: 0.88rem;
+        color: rgba(255,255,255,0.55);
+        margin: 0 0 22px;
+        line-height: 1.5;
+    }
+
+    .auth-card input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 13px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.08);
+        color: inherit;
+        font: inherit;
+        font-size: 1.5rem;
+        letter-spacing: 0.25em;
+        text-align: center;
+        margin-bottom: 14px;
+    }
+
+    .auth-card input[type="text"]:focus {
+        outline: none;
+        border-color: rgba(94,238,200,0.5);
+    }
+
+    .auth-submit {
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(135deg, #5eeef8, #5eeec8);
+        color: #111;
+        font-weight: 800;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+    .auth-submit:hover { opacity: 0.88; }
+
+    .auth-back {
+        display: block;
+        text-align: center;
+        margin-top: 16px;
+        font-size: 0.84rem;
+        color: rgba(255,255,255,0.45);
+        text-decoration: none;
+    }
+    .auth-back:hover { color: rgba(255,255,255,0.75); }
+
+    .flash-msg {
+        padding: 10px 14px;
+        border-radius: 10px;
+        margin-bottom: 14px;
+        font-size: 0.85rem;
+    }
+    .flash-error { background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.3); color: #ff8888; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% include 'components/public_navbar.html' %}
+
+<div class="auth-card">
+    <h1>Check your email</h1>
+    <p class="subtitle">We sent a 6-digit code to your email address. Enter it below to continue.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('public_2fa') }}">
+        <input type="text" name="code" placeholder="000000"
+               maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+               autofocus required>
+        <button type="submit" class="auth-submit">Verify</button>
+    </form>
+
+    <a class="auth-back" href="{{ url_for('public_login') }}">← Back to login</a>
+</div>
+{% endblock %}

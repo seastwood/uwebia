@@ -1,0 +1,359 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Account Settings{% endblock %}
+
+{% block head %}
+<style>
+    body {
+        margin: 0;
+        font-family: Roboto, Arial, sans-serif;
+        background: {{ website.background_color or '#111' }};
+        color: {{ website.text_color or '#fff' }};
+    }
+
+    .settings-wrap {
+        width: min(520px, calc(100% - 28px));
+        margin: 52px auto 80px;
+    }
+
+    .settings-title {
+        font-size: 1.7rem;
+        font-weight: 800;
+        margin: 0 0 28px;
+    }
+
+    .settings-card {
+        background: rgba(0,0,0,0.28);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 18px;
+        padding: 22px 24px;
+        margin-bottom: 20px;
+    }
+
+    .settings-card h2 {
+        font-size: 1rem;
+        font-weight: 700;
+        margin: 0 0 16px;
+        color: rgba(255,255,255,0.8);
+    }
+
+    .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 0;
+    }
+
+    .settings-row-text p { margin: 0; }
+    .settings-row-label { font-size: 0.92rem; font-weight: 600; }
+    .settings-row-help  { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin-top: 2px !important; }
+
+    /* Toggle */
+    .tog-track {
+        flex-shrink: 0;
+        width: 38px; height: 20px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.08);
+        position: relative;
+        cursor: pointer;
+        transition: background 0.18s, border-color 0.18s;
+    }
+    .tog-track::after {
+        content: '';
+        position: absolute;
+        top: 3px; left: 3px;
+        width: 12px; height: 12px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.4);
+        transition: transform 0.18s, background 0.18s;
+    }
+    .tog-track.on { background: rgba(94,238,200,0.2); border-color: rgba(94,238,200,0.5); }
+    .tog-track.on::after { transform: translateX(18px); background: #5eeec8; }
+
+    /* Code entry (shown when setup pending) */
+    .setup-code-block {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .setup-code-block p {
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.55);
+        margin: 0 0 10px;
+    }
+    .setup-code-row {
+        display: flex;
+        gap: 8px;
+    }
+    .setup-code-row input {
+        flex: 1;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.08);
+        color: inherit;
+        font: inherit;
+        font-size: 1.1rem;
+        letter-spacing: 0.18em;
+        text-align: center;
+    }
+    .setup-code-row input:focus { outline: none; border-color: rgba(94,238,200,0.5); }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 16px;
+        border-radius: 10px;
+        border: none;
+        font: inherit;
+        font-weight: 700;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.82; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-primary  { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+    .btn-danger   { background: rgba(255,80,80,0.14); color: #ff7070; border: 1px solid rgba(255,80,80,0.3); }
+    .btn-ghost    { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.15); }
+
+    .flash-msg {
+        padding: 10px 14px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+        font-size: 0.85rem;
+    }
+    .flash-success { background: rgba(94,238,200,0.12); border: 1px solid rgba(94,238,200,0.3); color: #5eeec8; }
+    .flash-error   { background: rgba(255,80,80,0.12); border: 1px solid rgba(255,80,80,0.3); color: #ff8888; }
+
+    /* Password fields */
+    .pw-field {
+        position: relative;
+        margin-bottom: 10px;
+    }
+    .pw-field input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 11px 42px 11px 13px;
+        border-radius: 11px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(255,255,255,0.07);
+        color: inherit;
+        font: inherit;
+        font-size: 0.9rem;
+    }
+    .pw-field input:focus { outline: none; border-color: rgba(94,238,200,0.45); }
+    .pw-eye {
+        position: absolute;
+        right: 10px; top: 50%;
+        transform: translateY(-50%);
+        background: none; border: none;
+        color: rgba(255,255,255,0.4);
+        cursor: pointer; padding: 4px;
+    }
+    .pw-eye:hover { color: rgba(255,255,255,0.75); }
+
+    /* Delete modal */
+    .modal-overlay {
+        display: none;
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+        background: #1e1c22;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 18px;
+        padding: 28px 24px;
+        width: min(400px, calc(100% - 32px));
+    }
+    .modal h3 { margin: 0 0 10px; font-size: 1.1rem; }
+    .modal p  { margin: 0 0 22px; font-size: 0.88rem; color: rgba(255,255,255,0.55); line-height: 1.5; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% include 'components/public_navbar.html' %}
+
+<div class="settings-wrap">
+    <h1 class="settings-title">Account Settings</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    {% if two_factor_available %}
+    <div class="settings-card" id="twoFactorCard">
+        <h2>Two-Factor Authentication</h2>
+        <div class="settings-row">
+            <div class="settings-row-text">
+                <p class="settings-row-label">Email verification code on login</p>
+                <p class="settings-row-help">A code will be sent to your email each time you sign in</p>
+            </div>
+            <div class="tog-track{% if public_user.two_factor_enabled %} on{% endif %}"
+                 id="twoFaTog" onclick="toggleTwoFa()"></div>
+        </div>
+
+        {% if setup_pending and not public_user.two_factor_enabled %}
+        <div class="setup-code-block" id="setupCodeBlock">
+            <p>A verification code was sent to <strong>{{ public_user.email }}</strong>. Enter it below to enable 2FA.</p>
+            <div class="setup-code-row">
+                <input type="text" id="setupCode" placeholder="000000"
+                       maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                <button class="btn btn-primary" onclick="confirmSetup()">Confirm</button>
+            </div>
+            <p id="setupErr" style="color:#ff8888;margin-top:8px;font-size:0.82rem;display:none;"></p>
+        </div>
+        {% else %}
+        <div class="setup-code-block" id="setupCodeBlock" style="display:none;">
+            <p>A verification code was sent to <strong>{{ public_user.email }}</strong>. Enter it below to enable 2FA.</p>
+            <div class="setup-code-row">
+                <input type="text" id="setupCode" placeholder="000000"
+                       maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                <button class="btn btn-primary" onclick="confirmSetup()">Confirm</button>
+            </div>
+            <p id="setupErr" style="color:#ff8888;margin-top:8px;font-size:0.82rem;display:none;"></p>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="settings-card">
+        <h2>Change Password</h2>
+        <form method="POST" action="{{ url_for('public_account_change_password') }}">
+            <div class="pw-field">
+                <input type="password" name="current_password" placeholder="Current password" required autocomplete="current-password">
+                <button type="button" class="pw-eye" onclick="pwToggle(this)" tabindex="-1"><i class="fas fa-eye"></i></button>
+            </div>
+            <div class="pw-field">
+                <input type="password" name="new_password" placeholder="New password" required autocomplete="new-password">
+                <button type="button" class="pw-eye" onclick="pwToggle(this)" tabindex="-1"><i class="fas fa-eye"></i></button>
+            </div>
+            <div class="pw-field" style="margin-bottom:14px;">
+                <input type="password" name="confirm_password" placeholder="Confirm new password" required autocomplete="new-password">
+                <button type="button" class="pw-eye" onclick="pwToggle(this)" tabindex="-1"><i class="fas fa-eye"></i></button>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Password</button>
+        </form>
+    </div>
+
+    <div class="settings-card">
+        <h2>Account</h2>
+        <div class="settings-row">
+            <div class="settings-row-text">
+                <p class="settings-row-label">Delete Account</p>
+                <p class="settings-row-help">Permanently delete your account and all associated data. This cannot be undone.</p>
+            </div>
+            <button class="btn btn-danger" onclick="openDeleteModal()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal-overlay" id="deleteModal" onclick="if(event.target===this)closeDeleteModal()">
+    <div class="modal">
+        <h3>Delete your account?</h3>
+        <p>This will permanently delete your account and all your data. This action cannot be undone.</p>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
+            <button class="btn btn-danger" onclick="executeDelete()">Delete Account</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function pwToggle(btn) {
+    var input = btn.closest('.pw-field').querySelector('input');
+    var showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.querySelector('i').className = showing ? 'fas fa-eye' : 'fas fa-eye-slash';
+}
+
+var _2faEnabled = {{ 'true' if public_user.two_factor_enabled else 'false' }};
+
+function toggleTwoFa() {
+    if (_2faEnabled) {
+        disableTwoFa();
+    } else {
+        sendSetupCode();
+    }
+}
+
+function sendSetupCode() {
+    fetch('/account/2fa/send', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            document.getElementById('setupCodeBlock').style.display = 'block';
+        } else {
+            alert(d.error || 'Failed to send code.');
+        }
+    })
+    .catch(function() { alert('Request failed.'); });
+}
+
+function confirmSetup() {
+    var code = (document.getElementById('setupCode').value || '').trim();
+    var errEl = document.getElementById('setupErr');
+    errEl.style.display = 'none';
+
+    var body = new FormData();
+    body.append('code', code);
+
+    fetch('/account/2fa/enable', {method: 'POST', body: body})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            _2faEnabled = true;
+            document.getElementById('twoFaTog').classList.add('on');
+            document.getElementById('setupCodeBlock').style.display = 'none';
+        } else {
+            errEl.textContent = d.error || 'Invalid code.';
+            errEl.style.display = 'block';
+        }
+    })
+    .catch(function() { alert('Request failed.'); });
+}
+
+function disableTwoFa() {
+    fetch('/account/2fa/disable', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            _2faEnabled = false;
+            document.getElementById('twoFaTog').classList.remove('on');
+            document.getElementById('setupCodeBlock').style.display = 'none';
+        } else {
+            alert(d.error || 'Failed to disable 2FA.');
+        }
+    })
+    .catch(function() { alert('Request failed.'); });
+}
+
+function openDeleteModal()  { document.getElementById('deleteModal').classList.add('open'); }
+function closeDeleteModal() { document.getElementById('deleteModal').classList.remove('open'); }
+
+function executeDelete() {
+    fetch('/account/delete', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            window.location.href = '/';
+        } else {
+            alert(d.error || 'Failed to delete account.');
+        }
+    })
+    .catch(function() { alert('Request failed.'); });
+}
+</script>
+{% endblock %}

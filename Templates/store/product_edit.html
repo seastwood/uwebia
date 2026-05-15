@@ -1,0 +1,301 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+{% include 'components/photo_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store.css') }}">
+
+<div class="store-page">
+
+    <div class="store-subnav">
+        <div class="store-subnav-left">
+            <a href="{{ url_for('store_products') }}" class="store-back-link">
+                <i class="fas fa-arrow-left"></i> Products
+            </a>
+            <h1 class="store-title">{{ product.name if product else 'New Product' }}</h1>
+        </div>
+        <div class="store-subnav-actions">
+            <button class="store-btn-ghost" onclick="saveProduct(false)">Save Draft</button>
+            <button class="store-btn-primary" onclick="saveProduct(true)">
+                {{ 'Update' if product else 'Publish' }}
+            </button>
+        </div>
+    </div>
+
+    <div class="store-edit-layout">
+
+        <!-- ── Main column ── -->
+        <div class="store-edit-main">
+
+            <!-- Basic info -->
+            <div class="store-card">
+                <div class="store-field">
+                    <label>Product Name</label>
+                    <input type="text" id="pName" class="store-input-lg"
+                           value="{{ product.name if product else '' }}"
+                           placeholder="e.g. Classic Cotton T-Shirt"
+                           oninput="autoSlug()">
+                </div>
+                <div class="store-field">
+                    <label>Slug <span class="store-optional">(URL path)</span></label>
+                    <div class="store-slug-wrap">
+                        <span class="store-slug-prefix">/products/</span>
+                        <input type="text" id="pSlug"
+                               value="{{ product.slug if product else '' }}"
+                               placeholder="classic-cotton-t-shirt">
+                    </div>
+                </div>
+                <div class="store-field">
+                    <label>Description</label>
+                    <textarea id="pDesc" rows="6"
+                              placeholder="Describe your product…">{{ product.description if product else '' }}</textarea>
+                </div>
+            </div>
+
+            <!-- Images -->
+            <div class="store-card">
+                <div class="store-card-header">
+                    <span class="store-card-title">Images</span>
+                    <button class="store-btn-ghost store-btn-sm" onclick="openImagePicker()">
+                        <i class="fas fa-plus"></i> Add Images
+                    </button>
+                </div>
+                <div class="store-images-grid" id="imageGrid">
+                    {% if product %}
+                    {% for img in product.images %}
+                    {% if img.asset %}
+                    <div class="store-image-item" data-id="{{ img.asset_id }}">
+                        <img src="{{ img.asset.thumbnail_url or img.asset.url }}" alt="">
+                        <button class="store-image-remove" onclick="removeImage({{ img.asset_id }}, this.parentElement)">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% endif %}
+                    <div class="store-images-empty" id="imagesEmpty"
+                         style="{{ 'display:none' if product and product.images else '' }}">
+                        <i class="fas fa-image"></i>
+                        <span>No images — click Add Images</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ── Sidebar ── -->
+        <div class="store-edit-sidebar">
+
+            <!-- Status -->
+            <div class="store-card">
+                <div class="store-card-title">Status</div>
+                <label class="store-toggle-row">
+                    <span>Active (visible to customers)</span>
+                    <label class="plugin-toggle">
+                        <input type="checkbox" id="pActive"
+                               {{ 'checked' if product and product.is_active else '' }}>
+                        <span class="plugin-toggle-track"></span>
+                    </label>
+                </label>
+            </div>
+
+            <!-- Pricing -->
+            <div class="store-card">
+                <div class="store-card-title">Pricing</div>
+                <div class="store-field">
+                    <label>Price</label>
+                    <div class="store-price-wrap">
+                        <span class="store-currency">$</span>
+                        <input type="number" id="pPrice" min="0" step="0.01"
+                               value="{{ '%.2f'|format(product.price) if product else '0.00' }}"
+                               placeholder="0.00">
+                    </div>
+                </div>
+                <div class="store-field">
+                    <label>Compare-at Price <span class="store-optional">(original/crossed-out)</span></label>
+                    <div class="store-price-wrap">
+                        <span class="store-currency">$</span>
+                        <input type="number" id="pCompare" min="0" step="0.01"
+                               value="{{ '%.2f'|format(product.compare_at_price) if product and product.compare_at_price else '' }}"
+                               placeholder="—">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inventory -->
+            <div class="store-card">
+                <div class="store-card-title">Inventory</div>
+                <div class="store-field">
+                    <label>SKU <span class="store-optional">(optional)</span></label>
+                    <input type="text" id="pSku"
+                           value="{{ product.sku if product and product.sku else '' }}"
+                           placeholder="e.g. SHIRT-BLK-M">
+                </div>
+                <label class="store-toggle-row">
+                    <span>Track inventory</span>
+                    <label class="plugin-toggle">
+                        <input type="checkbox" id="pTrack"
+                               {{ 'checked' if not product or product.track_inventory else '' }}
+                               onchange="toggleInventoryFields()">
+                        <span class="plugin-toggle-track"></span>
+                    </label>
+                </label>
+                <div id="inventoryFields">
+                    <div class="store-field" style="margin-top:12px">
+                        <label>Quantity in stock</label>
+                        <input type="number" id="pQty" min="0" step="1"
+                               value="{{ product.inventory_qty if product else 0 }}"
+                               placeholder="0">
+                    </div>
+                    <label class="store-toggle-row">
+                        <span>Allow purchase when out of stock</span>
+                        <label class="plugin-toggle">
+                            <input type="checkbox" id="pOversell"
+                                   {{ 'checked' if product and product.allow_oversell else '' }}>
+                            <span class="plugin-toggle-track"></span>
+                        </label>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Category -->
+            <div class="store-card">
+                <div class="store-card-title">Category</div>
+                <div class="store-field">
+                    <select id="pCategory">
+                        <option value="">— None —</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}"
+                            {{ 'selected' if product and product.category_id == cat.id else '' }}>
+                            {{ cat.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Save status -->
+            <p class="store-save-status" id="saveStatus"></p>
+
+        </div>
+    </div>
+</div>
+
+<script>
+const PRODUCT_ID = {{ product.id if product else 'null' }};
+let _slugEdited = {{ 'true' if product else 'false' }};
+
+function autoSlug() {
+    if (_slugEdited && PRODUCT_ID) return;
+    const name = document.getElementById('pName').value;
+    document.getElementById('pSlug').value = slugify(name);
+}
+
+document.getElementById('pSlug').addEventListener('input', () => { _slugEdited = true; });
+
+function slugify(text) {
+    return text.toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_-]+/g, '-')
+        .replace(/^-+|-+$/, '');
+}
+
+function toggleInventoryFields() {
+    const on = document.getElementById('pTrack').checked;
+    document.getElementById('inventoryFields').style.display = on ? '' : 'none';
+}
+toggleInventoryFields();
+
+// ── Images ────────────────────────────────────────────────────────────────────
+
+function openImagePicker() {
+    PhotoLibraryModal.open({
+        mode: 'multiple',
+        title: 'Select Product Images',
+        subtitle: 'Choose images to add to this product.',
+        onConfirm(result) {
+            result.assets.forEach(asset => addImageToGrid(asset));
+            updateEmptyState();
+        }
+    });
+}
+
+function addImageToGrid(asset) {
+    const grid = document.getElementById('imageGrid');
+    // Prevent duplicates
+    if (grid.querySelector(`[data-id="${asset.id}"]`)) return;
+    const div = document.createElement('div');
+    div.className = 'store-image-item';
+    div.dataset.id = asset.id;
+    div.innerHTML = `<img src="${asset.thumbnail_url || asset.url}" alt="">
+        <button class="store-image-remove" onclick="removeImage(${asset.id}, this.parentElement)">
+            <i class="fas fa-times"></i></button>`;
+    grid.insertBefore(div, document.getElementById('imagesEmpty'));
+}
+
+function removeImage(id, el) {
+    el.remove();
+    updateEmptyState();
+}
+
+function updateEmptyState() {
+    const grid = document.getElementById('imageGrid');
+    const items = grid.querySelectorAll('.store-image-item');
+    document.getElementById('imagesEmpty').style.display = items.length ? 'none' : '';
+}
+
+function getImageIds() {
+    return Array.from(document.querySelectorAll('#imageGrid .store-image-item'))
+        .map(el => parseInt(el.dataset.id));
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+
+async function saveProduct(activate) {
+    const st = document.getElementById('saveStatus');
+    st.textContent = 'Saving…'; st.style.color = 'rgba(255,255,255,0.5)';
+
+    const name = document.getElementById('pName').value.trim();
+    if (!name) { st.textContent = 'Product name is required.'; st.style.color = '#f88'; return; }
+
+    const payload = {
+        name,
+        slug:             document.getElementById('pSlug').value.trim() || slugify(name),
+        description:      document.getElementById('pDesc').value,
+        price:            parseFloat(document.getElementById('pPrice').value) || 0,
+        compare_at_price: parseFloat(document.getElementById('pCompare').value) || null,
+        sku:              document.getElementById('pSku').value.trim(),
+        category_id:      parseInt(document.getElementById('pCategory').value) || null,
+        track_inventory:  document.getElementById('pTrack').checked,
+        inventory_qty:    parseInt(document.getElementById('pQty').value) || 0,
+        allow_oversell:   document.getElementById('pOversell').checked,
+        is_active:        activate !== undefined ? activate : document.getElementById('pActive').checked,
+        image_ids:        getImageIds(),
+    };
+
+    const url = PRODUCT_ID
+        ? `/admin/store/products/${PRODUCT_ID}`
+        : '/admin/store/products/new';
+
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (d.success) {
+            st.textContent = '✓ Saved'; st.style.color = '#5eeec8';
+            if (d.redirect) location.href = d.redirect;
+            else document.getElementById('pActive').checked = payload.is_active;
+        } else {
+            st.textContent = '✗ ' + (d.error || 'Save failed'); st.style.color = '#f88';
+        }
+    } catch(e) {
+        st.textContent = '✗ Network error'; st.style.color = '#f88';
+    }
+}
+</script>
+
+{% endblock %}

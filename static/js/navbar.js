@@ -66,12 +66,20 @@ document.addEventListener('DOMContentLoaded', function () {
         if (toolsDropdown) {
             toolsDropdown.classList.remove('open');
         }
+        const usersSubDropdown = document.getElementById('usersSubDropdown');
+        if (usersSubDropdown) usersSubDropdown.classList.remove('open');
     });
 });
 
 function closeNavToolsDropdown() {
     const toolsDropdown = document.querySelector('.nav-tools-dropdown');
     if (toolsDropdown) toolsDropdown.classList.remove('open');
+}
+
+function toggleUsersSubdropdown(e) {
+    if (e) e.stopPropagation();
+    const el = document.getElementById('usersSubDropdown');
+    if (el) el.classList.toggle('open');
 }
 
 

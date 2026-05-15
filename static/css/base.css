@@ -22,3 +22,27 @@ body {
 .content {
     padding-top: 52px;
 }
+/* ── Password visibility toggle ─────────────────────────────────────────────── */
+.pw-wrap { display: flex; align-items: center; gap: 0.5em; margin-bottom: 1rem; }
+.pw-wrap > input { flex: 1 1 auto; min-width: 0; width: auto !important; margin: 0 !important; }
+/* Inside field containers that manage their own spacing, don't double up */
+.settings-field .pw-wrap,
+.sco-field .pw-wrap,
+.uw-field .pw-wrap,
+.store-field .pw-wrap,
+.sp-review-field .pw-wrap { margin-bottom: 0; }
+button.pw-toggle {
+    all: unset;
+    flex-shrink: 0;
+    align-self: center;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.3;
+    font-size: 0.85em;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    transition: opacity 0.15s;
+}
+button.pw-toggle:hover,
+button.pw-toggle:focus-visible { opacity: 0.7; }

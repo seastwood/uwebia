@@ -337,35 +337,44 @@
 
     <div class="settings-field">
         <label for="current_password">Current Password</label>
-        <input
-            id="current_password"
-            name="current_password"
-            type="password"
-            autocomplete="current-password"
-            placeholder="Required only if changing password"
-        >
+        <div class="pw-wrap">
+            <input
+                id="current_password"
+                name="current_password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="Required only if changing password"
+            >
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
     </div>
 
     <div class="settings-field">
         <label for="new_password">New Password</label>
-        <input
-            id="new_password"
-            name="new_password"
-            type="password"
-            autocomplete="new-password"
-            placeholder="Leave blank to keep current password"
-        >
+        <div class="pw-wrap">
+            <input
+                id="new_password"
+                name="new_password"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Leave blank to keep current password"
+            >
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
     </div>
 
     <div class="settings-field">
         <label for="confirm_new_password">Confirm New Password</label>
-        <input
-            id="confirm_new_password"
-            name="confirm_new_password"
-            type="password"
-            autocomplete="new-password"
-            placeholder="Leave blank to keep current password"
-        >
+        <div class="pw-wrap">
+            <input
+                id="confirm_new_password"
+                name="confirm_new_password"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Leave blank to keep current password"
+            >
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
     </div>
 </div>
 
@@ -628,6 +637,135 @@
         }
     </script>
 
+    <!-- Profanity Filter -->
+    <style>
+    .pf-toggle-track {
+        width: 34px; height: 18px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.08);
+        position: relative; flex-shrink: 0;
+        transition: background 0.18s, border-color 0.18s;
+    }
+    .pf-toggle-track::after {
+        content: '';
+        position: absolute;
+        top: 2px; left: 2px;
+        width: 12px; height: 12px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.4);
+        transition: transform 0.18s, background 0.18s;
+    }
+    .pf-toggle-track.on {
+        background: rgba(94,238,200,0.2) !important;
+        border-color: rgba(94,238,200,0.5) !important;
+    }
+    .pf-toggle-track.on::after {
+        transform: translateX(16px) !important;
+        background: #5eeec8 !important;
+    }
+    </style>
+    <div class="settings-card" style="margin-top:20px;">
+        <h2 class="settings-section-title">Content Moderation</h2>
+
+        <div class="settings-field">
+            <label>Profanity Filter</label>
+            <p class="settings-help">When enabled, applies to all public comments, forum posts, and replies — both new submissions and when displaying existing content.</p>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+                    <input type="checkbox" id="profanityFilterEnabled"
+                           {% if website and website.profanity_filter_enabled %}checked{% endif %}
+                           style="position:absolute;opacity:0;pointer-events:none;">
+                    <span class="pf-toggle-track{% if website and website.profanity_filter_enabled %} on{% endif %}" id="profanityFilterTrack"></span>
+                    <span id="profanityFilterLabel">{% if website and website.profanity_filter_enabled %}Enabled{% else %}Disabled{% endif %}</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="settings-field">
+            <label>When profanity is found in a new submission</label>
+            <select id="profanityAction" style="max-width:260px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#f0f0f0;font-family:inherit;">
+                <option value="block"   {% if not website or not website.post_profanity_action or website.post_profanity_action == 'block' %}selected{% endif %}>Block the submission</option>
+                <option value="replace" {% if website and website.post_profanity_action == 'replace' %}selected{% endif %}>Replace with ***</option>
+            </select>
+        </div>
+
+        <div class="settings-field">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <label style="margin:0;">Banned Words</label>
+                <button type="button" onclick="toggleProfanityWords(this)"
+                        style="all:unset;cursor:pointer;font-size:0.78rem;opacity:0.45;display:flex;align-items:center;gap:5px;color:inherit;">
+                    <i class="fas fa-eye-slash"></i> Show
+                </button>
+            </div>
+            <div style="position:relative;">
+                <textarea id="profanityWords" rows="5"
+                          style="width:100%;box-sizing:border-box;padding:9px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#f0f0f0;font-size:0.85rem;font-family:inherit;resize:vertical;filter:blur(4px);user-select:none;pointer-events:none;">{{ website.post_profanity_words or '' }}</textarea>
+                <div id="profanityWordsOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:8px;"
+                     onclick="toggleProfanityWords(document.querySelector('button[onclick*=toggleProfanityWords]'))">
+                    <span style="font-size:0.8rem;opacity:0.5;pointer-events:none;">Click to reveal</span>
+                </div>
+            </div>
+            <p class="settings-help">One banned word or phrase per line. Case-insensitive. Existing content is also filtered when displayed.</p>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
+            <button class="settings-button" onclick="saveProfanitySettings()">Save</button>
+            <span id="profanitySettingsStatus" style="font-size:0.82rem;min-height:1em;"></span>
+        </div>
+    </div>
+
+    <script>
+    function toggleProfanityWords(btn) {
+        const ta      = document.getElementById('profanityWords');
+        const overlay = document.getElementById('profanityWordsOverlay');
+        const hidden  = ta.style.filter === 'blur(4px)';
+        if (hidden) {
+            ta.style.filter = ''; ta.style.userSelect = ''; ta.style.pointerEvents = '';
+            overlay.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide';
+        } else {
+            ta.style.filter = 'blur(4px)'; ta.style.userSelect = 'none'; ta.style.pointerEvents = 'none';
+            overlay.style.display = '';
+            btn.innerHTML = '<i class="fas fa-eye-slash"></i> Show';
+        }
+    }
+
+    async function saveProfanitySettings() {
+        const status = document.getElementById('profanitySettingsStatus');
+        status.style.color = 'rgba(255,255,255,0.4)'; status.textContent = 'Saving…';
+        try {
+            const r = await fetch('/admin/settings/profanity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: document.getElementById('profanityFilterEnabled').checked,
+                    action:  document.getElementById('profanityAction').value,
+                    words:   document.getElementById('profanityWords').value.trim(),
+                })
+            });
+            const d = await r.json();
+            if (d.success) {
+                status.style.color = '#5eeec8'; status.textContent = 'Saved';
+                setTimeout(() => status.textContent = '', 2500);
+            } else {
+                status.style.color = '#f88'; status.textContent = d.error || 'Error';
+            }
+        } catch(e) {
+            status.style.color = '#f88'; status.textContent = 'Request failed';
+        }
+    }
+
+    // Wire the enabled toggle
+    document.getElementById('profanityFilterEnabled')?.addEventListener('change', function() {
+        const track = document.getElementById('profanityFilterTrack');
+        const label = document.getElementById('profanityFilterLabel');
+        const on = this.checked;
+        track.classList.toggle('on', on);
+        label.textContent = on ? 'Enabled' : 'Disabled';
+    });
+    </script>
+
     {% if not current_user.is_sub_admin %}
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Backup &amp; Restore</h2>
@@ -722,6 +860,211 @@
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-upload"></i> Import Backup';
         }
+    }
+    </script>
+
+    <!-- Database Settings -->
+    <div class="settings-card" style="margin-top:20px;">
+        <h2 class="settings-section-title">Database</h2>
+
+        <div class="settings-field">
+            <label>Current Database</label>
+            {% if db_info.type == 'postgresql' %}
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:rgba(94,238,200,0.12);color:#5eeec8;font-size:0.82rem;font-weight:700;">
+                    <i class="fas fa-database"></i> PostgreSQL
+                </span>
+                <span style="font-size:0.8rem;color:rgba(255,255,255,0.35);">
+                    {{ db_info.username }}@{{ db_info.host }}:{{ db_info.port }}/{{ db_info.database }}
+                </span>
+                <span id="dbHealthBadge" style="font-size:0.75rem;color:rgba(255,255,255,0.3);">
+                    <i class="fas fa-circle-notch fa-spin"></i> checking…
+                </span>
+            </div>
+            <script>
+            fetch('/admin/settings/database/health')
+                .then(r => r.json())
+                .then(d => {
+                    const el = document.getElementById('dbHealthBadge');
+                    if (d.ok) el.innerHTML = '<span style="color:#5eeec8;"><i class="fas fa-check-circle"></i> Connected</span>';
+                    else el.innerHTML = `<span style="color:#f88;"><i class="fas fa-exclamation-circle"></i> ${d.error || 'Unreachable'}</span>`;
+                })
+                .catch(() => {
+                    const el = document.getElementById('dbHealthBadge');
+                    if (el) el.innerHTML = '<span style="color:#f88;"><i class="fas fa-exclamation-circle"></i> Health check failed</span>';
+                });
+            </script>
+            <p class="settings-help" style="margin-bottom:10px;">
+                Running on PostgreSQL. To switch back to SQLite, the existing SQLite file is unchanged —
+                no data will be migrated back.
+            </p>
+            <button class="uw-btn uw-btn-secondary" onclick="revertToSQLite()">
+                <i class="fas fa-undo"></i> Revert to SQLite
+            </button>
+            {% else %}
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:rgba(255,200,80,0.12);color:#f5c542;font-size:0.82rem;font-weight:700;">
+                    <i class="fas fa-database"></i> SQLite
+                </span>
+            </div>
+            <p class="settings-help" style="margin-bottom:14px;">
+                Switch to PostgreSQL to migrate all existing data seamlessly.
+                Enter your PostgreSQL connection details below.
+            </p>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div class="uw-field">
+                    <label>Host</label>
+                    <input type="text" id="pgHost" value="localhost" placeholder="localhost">
+                </div>
+                <div class="uw-field">
+                    <label>Port</label>
+                    <input type="number" id="pgPort" value="5432" placeholder="5432">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div class="uw-field">
+                    <label>Database Name</label>
+                    <input type="text" id="pgDatabase" placeholder="uwebia">
+                </div>
+                <div class="uw-field">
+                    <label>Username</label>
+                    <input type="text" id="pgUser" placeholder="uwebia_user">
+                </div>
+            </div>
+            <div class="uw-field" style="margin-bottom:14px;">
+                <label>Password</label>
+                <div class="pw-wrap">
+                    <input type="password" id="pgPassword" placeholder="••••••••" autocomplete="new-password">
+                    <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <button class="uw-btn uw-btn-secondary" id="pgTestBtn" onclick="testPgConnection()">
+                    <i class="fas fa-plug"></i> Test Connection
+                </button>
+                <button class="uw-btn uw-btn-secondary" id="pgConnectBtn" onclick="connectToPostgres()">
+                    <i class="fas fa-link"></i> Connect Only
+                </button>
+                <button class="uw-btn uw-btn-primary" id="pgMigrateBtn" onclick="migrateToPostgres()">
+                    <i class="fas fa-database"></i> Migrate &amp; Switch
+                </button>
+            </div>
+            <p class="settings-help" style="margin-top:8px;">
+                <strong>Connect Only</strong> — point the app at an existing PostgreSQL database without moving data (use when the database is already populated).<br>
+                <strong>Migrate &amp; Switch</strong> — copy all data from SQLite to PostgreSQL, then switch.
+            </p>
+            <div id="pgStatus" style="margin-top:10px;font-size:0.85rem;display:none;"></div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+    function _buildPgUrl() {
+        const host = document.getElementById('pgHost')?.value.trim() || 'localhost';
+        const port = document.getElementById('pgPort')?.value.trim() || '5432';
+        const db   = document.getElementById('pgDatabase')?.value.trim();
+        const user = document.getElementById('pgUser')?.value.trim();
+        const pass = document.getElementById('pgPassword')?.value;
+        if (!db || !user) return null;
+        const auth = pass ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}` : encodeURIComponent(user);
+        return `postgresql://${auth}@${host}:${port}/${db}`;
+    }
+
+    function _pgStatus(msg, color) {
+        const el = document.getElementById('pgStatus');
+        if (!el) return;
+        el.style.display = 'block';
+        el.style.color = color || 'rgba(255,255,255,0.6)';
+        el.textContent = msg;
+    }
+
+    async function testPgConnection() {
+        const url = _buildPgUrl();
+        if (!url) { _pgStatus('Enter database name and username first.', '#f88'); return; }
+        const btn = document.getElementById('pgTestBtn');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing…';
+        _pgStatus('Connecting…', 'rgba(255,255,255,0.5)');
+        try {
+            const r = await fetch('/admin/settings/database/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ database_url: url })
+            });
+            const d = await r.json();
+            if (d.success) _pgStatus('✓ Connection successful!', '#5eeec8');
+            else _pgStatus('✗ ' + (d.error || 'Connection failed'), '#f88');
+        } catch(e) { _pgStatus('Network error', '#f88'); }
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug"></i> Test Connection';
+    }
+
+    async function connectToPostgres() {
+        const url = _buildPgUrl();
+        if (!url) { _pgStatus('Enter database name and username first.', '#f88'); return; }
+        if (!confirm('Connect to this PostgreSQL database without migrating data? The app will use it on next restart.')) return;
+        const btn = document.getElementById('pgConnectBtn');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+        _pgStatus('Testing connection…', 'rgba(255,255,255,0.5)');
+        try {
+            const r = await fetch('/admin/settings/database/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ database_url: url })
+            });
+            const d = await r.json();
+            if (d.success) {
+                _pgStatus('✓ ' + d.message, '#5eeec8');
+                btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+            } else {
+                _pgStatus('✗ ' + (d.error || 'Failed'), '#f88');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-link"></i> Connect Only';
+            }
+        } catch(e) {
+            _pgStatus('Network error', '#f88');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-link"></i> Connect Only';
+        }
+    }
+
+    async function migrateToPostgres() {
+        const url = _buildPgUrl();
+        if (!url) { _pgStatus('Enter database name and username first.', '#f88'); return; }
+        if (!confirm('This will copy ALL data from SQLite to PostgreSQL, then switch the app to PostgreSQL on next restart. Your SQLite file will not be deleted. Continue?')) return;
+
+        const btn = document.getElementById('pgMigrateBtn');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Migrating…';
+        _pgStatus('Copying data to PostgreSQL — this may take a moment…', 'rgba(255,255,255,0.5)');
+
+        try {
+            const r = await fetch('/admin/settings/database/migrate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ database_url: url })
+            });
+            const d = await r.json();
+            if (d.success) {
+                _pgStatus('✓ Migration complete! Restart the server to switch to PostgreSQL.', '#5eeec8');
+                btn.innerHTML = '<i class="fas fa-check"></i> Migration Complete';
+            } else {
+                _pgStatus('✗ ' + (d.error || 'Migration failed'), '#f88');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-database"></i> Migrate & Switch to PostgreSQL';
+            }
+        } catch(e) {
+            _pgStatus('Network error', '#f88');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-database"></i> Migrate & Switch to PostgreSQL';
+        }
+    }
+
+    async function revertToSQLite() {
+        if (!confirm('Switch back to SQLite on next restart? No data will be migrated back from PostgreSQL.')) return;
+        const r = await fetch('/admin/settings/database/revert', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) alert('Reverted to SQLite. Restart the server to apply.');
+        else alert(d.error || 'Failed');
     }
     </script>
     {% endif %}

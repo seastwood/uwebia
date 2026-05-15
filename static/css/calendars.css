@@ -489,6 +489,9 @@ body {
     cursor: default !important;
 }
 
+/* Hide the time portion for events marked hide_time */
+.fc-wrapper .fc-hide-time .fc-event-time { display: none !important; }
+
 /* ── Event tooltip ── */
 .fc-event-tooltip {
     position: fixed;

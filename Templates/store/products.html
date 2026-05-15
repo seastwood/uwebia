@@ -1,0 +1,531 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store.css') }}">
+
+<div class="store-page">
+
+    <!-- Store sub-nav -->
+    <div class="store-subnav">
+        <div class="store-subnav-left">
+            <p class="store-kicker">Store</p>
+            <h1 class="store-title">Products</h1>
+        </div>
+        {% if user_has_perm('store.products') %}
+        <a href="{{ url_for('store_product_new') }}" class="store-btn-primary">
+            <i class="fas fa-plus"></i> New Product
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Shop status banner -->
+    <div class="store-shop-banner" id="storeStatusBanner">
+        <div class="store-banner-info">
+            <i class="fas fa-store"></i>
+            {% if website and website.store_enabled %}
+            {{ website.store_title or 'Shop' }} enabled —
+            <a href="/shop" target="_blank">/shop</a>
+            <span class="store-shop-banner-divider">·</span>
+            <a href="/store/cart" target="_blank">Cart</a>
+            {% else %}
+            {{ website.store_title or 'Shop' }} <strong>disabled</strong>
+            {% endif %}
+        </div>
+        <div class="store-banner-controls">
+            <label class="store-enable-toggle" title="Enable or disable product reviews" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="reviewsEnabledCheckbox"
+                       {% if website and website.reviews_enabled %}checked{% endif %}
+                       onchange="toggleReviewsEnabled(this)"
+                       style="position:absolute;opacity:0;pointer-events:none">
+                <span class="store-enable-track" id="reviewsEnableTrack"></span>
+                <span id="reviewsEnabledLabel">Reviews {% if website and website.reviews_enabled %}on{% else %}off{% endif %}</span>
+            </label>
+            <span class="store-shop-banner-divider">·</span>
+            <label class="store-enable-toggle" title="Enable or disable the public shop" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="storeEnabledCheckbox"
+                       {% if website and website.store_enabled %}checked{% endif %}
+                       onchange="toggleStoreEnabled(this)"
+                       style="position:absolute;opacity:0;pointer-events:none">
+                <span class="store-enable-track" id="storeEnableTrack"></span>
+                <span id="storeEnabledLabel">{% if website and website.store_enabled %}Enabled{% else %}Disabled{% endif %}</span>
+            </label>
+            <span class="store-shop-banner-divider">·</span>
+            <label class="store-enable-toggle" title="Browse-only mode: visitors can view products but cannot purchase online" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="inStoreOnlyCheckbox"
+                       {% if website and website.store_in_store_only %}checked{% endif %}
+                       onchange="toggleInStoreOnly(this)"
+                       style="position:absolute;opacity:0;pointer-events:none">
+                <span class="store-enable-track" id="inStoreOnlyTrack" {% if website and website.store_in_store_only %}style="background:rgba(255,200,80,0.2);border-color:rgba(255,200,80,0.5);"{% endif %}></span>
+                <span id="inStoreOnlyLabel">{% if website and website.store_in_store_only %}In-Store Only{% else %}Online Purchasing{% endif %}</span>
+            </label>
+        </div>
+    </div>
+
+<style>
+.store-enable-track {
+    width: 34px; height: 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.18s, border-color 0.18s;
+}
+.store-enable-track::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    transition: transform 0.18s, background 0.18s;
+}
+.store-enable-track--on {
+    background: rgba(94,238,200,0.2) !important;
+    border-color: rgba(94,238,200,0.5) !important;
+}
+.store-enable-track--on::after {
+    transform: translateX(16px) !important;
+    background: #5eeec8 !important;
+}
+.store-settings-card {
+    background: #22222a;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    display: none;
+}
+.store-settings-card.open { display: block; }
+.store-settings-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+@media (max-width: 600px) { .store-settings-row { grid-template-columns: 1fr; } }
+.store-settings-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.45);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    margin-bottom: 16px;
+}
+.store-settings-toggle:hover { color: rgba(255,255,255,0.75); }
+.store-settings-toggle i { font-size: 0.7rem; transition: transform 0.15s; }
+.store-settings-toggle.open i { transform: rotate(90deg); }
+</style>
+
+    <!-- Store settings -->
+    <button class="store-settings-toggle" id="storeSettingsToggle" onclick="toggleStoreSettings()">
+        <i class="fas fa-chevron-right"></i> Store Settings
+    </button>
+    <div class="store-settings-card" id="storeSettingsCard">
+        <div class="store-settings-row">
+            <div class="store-field">
+                <label>Store Title</label>
+                <input type="text" id="storeTitle" value="{{ website.store_title or 'Shop' }}"
+                       placeholder="Shop" maxlength="120">
+            </div>
+            <div class="store-field">
+                <label>Subtitle <span class="store-optional">(optional)</span></label>
+                <input type="text" id="storeDescription" value="{{ website.store_description or '' }}"
+                       placeholder="Browse our products" maxlength="500">
+            </div>
+        </div>
+        <div class="store-settings-row">
+            <div class="store-field">
+                <label>In-Store Only Label <span class="store-optional">(optional)</span></label>
+                <input type="text" id="inStoreOnlyLabelInput"
+                       value="{{ website.store_in_store_only_label or '' }}"
+                       placeholder="Available in store only"
+                       maxlength="120">
+                <p class="store-field-hint">Shown on product pages when In-Store Only mode is on.</p>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <button class="store-btn-primary store-btn-sm" onclick="saveStoreSettings()">Save</button>
+            <p class="store-save-status" id="storeSettingsStatus"></p>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="store-tabs">
+        <button class="store-tab store-tab--active" onclick="showTab('products')">
+            Products <span class="store-tab-count">{{ products|length }}</span>
+        </button>
+        <button class="store-tab" onclick="showTab('categories')">
+            Categories <span class="store-tab-count">{{ categories|length }}</span>
+        </button>
+        <button class="store-tab" onclick="showTab('reviews')">
+            Reviews <span class="store-tab-count">{{ reviews|length }}</span>
+        </button>
+    </div>
+
+    <!-- Products tab -->
+    <div id="tab-products" class="store-tab-panel">
+        {% if products %}
+        <div class="store-toolbar">
+            <input class="store-search" id="productSearch" type="text"
+                   placeholder="Search products…" oninput="filterProducts()">
+            <select class="store-filter" id="statusFilter" onchange="filterProducts()">
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="draft">Draft</option>
+            </select>
+        </div>
+        <div class="store-table-wrap">
+            <table class="store-table" id="productsTable">
+                <thead>
+                    <tr>
+                        <th style="width:56px"></th>
+                        <th>Product</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Inventory</th>
+                        <th>Status</th>
+                        <th style="width:44px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for p in products %}
+                <tr class="store-row" data-name="{{ p.name|lower }}"
+                    data-status="{{ 'active' if p.is_active else 'draft' }}"
+                    {% if user_has_perm('store.products') %}onclick="location.href='{{ url_for('store_product_edit', product_id=p.id) }}'"{% endif %}
+                    style="{% if not user_has_perm('store.products') %}cursor:default{% endif %}">
+                    <td>
+                        {% if p.cover_image_url() %}
+                        <img src="{{ p.cover_image_url() }}" class="store-thumb" alt="">
+                        {% else %}
+                        <div class="store-thumb store-thumb--empty"><i class="fas fa-image"></i></div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="store-product-name">{{ p.name }}</div>
+                        {% if p.sku %}<div class="store-product-sku">SKU: {{ p.sku }}</div>{% endif %}
+                    </td>
+                    <td class="store-cell-muted">{{ p.category.name if p.category else '—' }}</td>
+                    <td>
+                        ${{ '%.2f'|format(p.price) }}
+                        {% if p.compare_at_price %}
+                        <span class="store-compare-price">${{ '%.2f'|format(p.compare_at_price) }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="store-cell-muted">
+                        {% if p.track_inventory %}
+                            <span class="{{ 'store-low-stock' if p.inventory_qty <= 5 else '' }}">
+                                {{ p.inventory_qty }}
+                            </span>
+                        {% else %}∞{% endif %}
+                    </td>
+                    <td>
+                        <span class="store-status-badge {{ 'store-status-badge--active' if p.is_active else 'store-status-badge--draft' }}">
+                            {{ 'Active' if p.is_active else 'Draft' }}
+                        </span>
+                    </td>
+                    <td onclick="event.stopPropagation()">
+                        {% if user_has_perm('store.delete') %}
+                        <button class="store-icon-btn store-delete-btn"
+                                onclick="deleteProduct({{ p.id }}, '{{ p.name|e }}')"
+                                title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="store-empty">
+            <i class="fas fa-box-open"></i>
+            <p>No products yet.</p>
+            {% if user_has_perm('store.products') %}<a href="{{ url_for('store_product_new') }}" class="store-btn-primary">Add your first product</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Categories tab -->
+    <div id="tab-categories" class="store-tab-panel" style="display:none">
+        <div class="store-categories-layout">
+            <div class="store-categories-list" id="catList">
+                {% if categories %}
+                {% for cat in categories %}
+                <div class="store-cat-row" id="cat-row-{{ cat.id }}">
+                    <div class="store-cat-info">
+                        <span class="store-cat-name">{{ cat.name }}</span>
+                        <span class="store-cat-count">{{ cat.products.count() }} product{{ 's' if cat.products.count() != 1 else '' }}</span>
+                    </div>
+                    {% if user_has_perm('store.categories') %}
+                    <div class="store-cat-actions">
+                        <button class="store-icon-btn" onclick="editCat({{ cat.id }}, '{{ cat.name|e }}', `{{ cat.description|e }}`)">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="store-icon-btn store-delete-btn" onclick="deleteCat({{ cat.id }}, '{{ cat.name|e }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="store-cat-empty" id="catEmptyMsg">No categories yet.</p>
+                {% endif %}
+            </div>
+
+            <div class="store-cat-form-card">
+                <h3 id="catFormTitle">New Category</h3>
+                <input type="hidden" id="editCatId" value="">
+                <div class="store-field">
+                    <label>Name</label>
+                    <input type="text" id="catName" placeholder="e.g. Apparel">
+                </div>
+                <div class="store-field">
+                    <label>Description <span class="store-optional">(optional)</span></label>
+                    <textarea id="catDesc" rows="3" placeholder="Short description…"></textarea>
+                </div>
+                <div class="store-cat-form-actions">
+                    <button class="store-btn-primary" onclick="saveCat()">Save</button>
+                    <button class="store-btn-ghost" onclick="resetCatForm()">Cancel</button>
+                </div>
+                <p class="store-form-status" id="catStatus"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reviews tab -->
+    <div id="tab-reviews" class="store-tab-panel" style="display:none;">
+        {% if reviews %}
+        <div class="store-card">
+            {% for review in reviews %}
+            <div class="store-review-row" id="review-row-{{ review.id }}">
+                <div class="store-review-meta">
+                    <p class="store-review-product">{{ review.product.name }}</p>
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                        {% for i in range(1,6) %}
+                        <i class="fas fa-star" style="font-size:0.72rem;color:{% if i <= review.rating %}#f5b731{% else %}rgba(255,255,255,0.15){% endif %};"></i>
+                        {% endfor %}
+                        <span style="font-size:0.75rem;opacity:0.4;margin-left:4px;">{{ review.created_at.strftime('%b %-d, %Y') }}</span>
+                    </div>
+                    <p class="store-review-author">by {{ review.public_user.username }}</p>
+                    {% if review.title %}<p class="store-review-body" style="font-weight:600;">{{ review.title }}</p>{% endif %}
+                    {% if review.body %}<p class="store-review-body">{{ review.body }}</p>{% endif %}
+                </div>
+                {% if user_has_perm('store.reviews') %}
+                <button class="store-icon-btn store-delete-btn" title="Delete review"
+                        onclick="deleteReview({{ review.id }})">
+                    <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="store-empty">
+            <i class="fas fa-star"></i>
+            <p>No reviews yet.</p>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
+<script>
+function showTab(name) {
+    document.querySelectorAll('.store-tab-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('.store-tab').forEach(t => t.classList.remove('store-tab--active'));
+    document.getElementById('tab-' + name).style.display = '';
+    event.currentTarget.classList.add('store-tab--active');
+}
+
+function filterProducts() {
+    const q = document.getElementById('productSearch').value.toLowerCase();
+    const status = document.getElementById('statusFilter').value;
+    document.querySelectorAll('#productsTable tbody .store-row').forEach(row => {
+        const nameMatch = !q || row.dataset.name.includes(q);
+        const statusMatch = !status || row.dataset.status === status;
+        row.style.display = nameMatch && statusMatch ? '' : 'none';
+    });
+}
+
+async function deleteProduct(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const r = await fetch(`/admin/store/products/${id}/delete`, { method: 'POST' });
+    if ((await r.json()).success) location.reload();
+    else alert('Delete failed.');
+}
+
+// ── Categories ────────────────────────────────────────────────────────────────
+
+function resetCatForm() {
+    document.getElementById('editCatId').value = '';
+    document.getElementById('catName').value = '';
+    document.getElementById('catDesc').value = '';
+    document.getElementById('catFormTitle').textContent = 'New Category';
+    document.getElementById('catStatus').textContent = '';
+}
+
+function editCat(id, name, desc) {
+    showTab('categories');
+    document.getElementById('editCatId').value = id;
+    document.getElementById('catName').value = name;
+    document.getElementById('catDesc').value = desc || '';
+    document.getElementById('catFormTitle').textContent = 'Edit Category';
+    document.querySelectorAll('.store-tab')[1].classList.add('store-tab--active');
+    document.querySelectorAll('.store-tab')[0].classList.remove('store-tab--active');
+}
+
+async function saveCat() {
+    const id = document.getElementById('editCatId').value;
+    const name = document.getElementById('catName').value.trim();
+    const desc = document.getElementById('catDesc').value.trim();
+    const st = document.getElementById('catStatus');
+    if (!name) { st.textContent = 'Name is required.'; st.style.color = '#f88'; return; }
+
+    const url = id ? `/admin/store/categories/${id}` : '/admin/store/categories';
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description: desc })
+    });
+    const d = await r.json();
+    if (d.success) { location.reload(); }
+    else { st.textContent = d.error || 'Failed.'; st.style.color = '#f88'; }
+}
+
+function toggleStoreSettings() {
+    const card = document.getElementById('storeSettingsCard');
+    const btn  = document.getElementById('storeSettingsToggle');
+    const open = card.classList.toggle('open');
+    btn.classList.toggle('open', open);
+}
+
+async function saveStoreSettings() {
+    const status = document.getElementById('storeSettingsStatus');
+    status.style.color = 'rgba(255,255,255,0.45)';
+    status.textContent = 'Saving…';
+    try {
+        const r = await fetch('/admin/store/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                store_title:              document.getElementById('storeTitle').value.trim(),
+                store_description:        document.getElementById('storeDescription').value.trim(),
+                store_in_store_only_label: document.getElementById('inStoreOnlyLabelInput').value.trim(),
+            })
+        });
+        const d = await r.json();
+        if (d.success) {
+            status.style.color = '#5eeec8';
+            status.textContent = 'Saved';
+            setTimeout(() => status.textContent = '', 2000);
+        } else {
+            status.style.color = '#f88';
+            status.textContent = d.error || 'Error';
+        }
+    } catch(e) {
+        status.style.color = '#f88';
+        status.textContent = 'Network error';
+    }
+}
+
+async function deleteCat(id, name) {
+    if (!confirm(`Delete category "${name}"? Products in this category will be uncategorized.`)) return;
+    const r = await fetch(`/admin/store/categories/${id}/delete`, { method: 'POST' });
+    if ((await r.json()).success) location.reload();
+    else alert('Delete failed.');
+}
+
+async function toggleStoreEnabled(checkbox) {
+    const track   = document.getElementById('storeEnableTrack');
+    const label   = document.getElementById('storeEnabledLabel');
+    const banner  = document.getElementById('storeStatusBanner');
+    try {
+        const r = await fetch('/admin/store/toggle-enabled', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' } });
+        const d = await r.json();
+        if (typeof d.store_enabled !== 'undefined') {
+            const on = d.store_enabled;
+            checkbox.checked = on;
+            track.classList.toggle('store-enable-track--on', on);
+            label.textContent = on ? 'Enabled' : 'Disabled';
+            banner.style.color = on ? '' : 'rgba(255,140,140,0.85)';
+        } else {
+            checkbox.checked = !checkbox.checked;
+        }
+    } catch(e) {
+        checkbox.checked = !checkbox.checked;
+    }
+}
+
+async function toggleInStoreOnly(checkbox) {
+    const track = document.getElementById('inStoreOnlyTrack');
+    const label = document.getElementById('inStoreOnlyLabel');
+    try {
+        const r = await fetch('/admin/store/toggle-in-store-only', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' } });
+        const d = await r.json();
+        if (typeof d.store_in_store_only !== 'undefined') {
+            const on = d.store_in_store_only;
+            checkbox.checked = on;
+            track.classList.toggle('store-enable-track--on', on);
+            track.style.background    = on ? 'rgba(255,200,80,0.2)' : '';
+            track.style.borderColor   = on ? 'rgba(255,200,80,0.5)' : '';
+            label.textContent = on ? 'In-Store Only' : 'Online Purchasing';
+        } else {
+            checkbox.checked = !checkbox.checked;
+        }
+    } catch(e) {
+        checkbox.checked = !checkbox.checked;
+    }
+}
+
+async function deleteReview(id) {
+    if (!confirm('Delete this review?')) return;
+    const r = await fetch(`/admin/store/reviews/${id}/delete`, { method: 'POST' });
+    if ((await r.json()).success) {
+        const row = document.getElementById('review-row-' + id);
+        if (row) row.remove();
+    }
+}
+
+async function toggleReviewsEnabled(checkbox) {
+    const track = document.getElementById('reviewsEnableTrack');
+    const label = document.getElementById('reviewsEnabledLabel');
+    try {
+        const r = await fetch('/admin/store/toggle-reviews', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' } });
+        const d = await r.json();
+        if (typeof d.reviews_enabled !== 'undefined') {
+            const on = d.reviews_enabled;
+            checkbox.checked = on;
+            track.classList.toggle('store-enable-track--on', on);
+            label.textContent = 'Reviews ' + (on ? 'on' : 'off');
+        } else {
+            checkbox.checked = !checkbox.checked;
+        }
+    } catch(e) {
+        checkbox.checked = !checkbox.checked;
+    }
+}
+
+// Set initial track state from checkbox
+document.addEventListener('DOMContentLoaded', () => {
+    const cb = document.getElementById('storeEnabledCheckbox');
+    const track = document.getElementById('storeEnableTrack');
+    if (cb && track) track.classList.toggle('store-enable-track--on', cb.checked);
+
+    const cbR = document.getElementById('reviewsEnabledCheckbox');
+    const trackR = document.getElementById('reviewsEnableTrack');
+    if (cbR && trackR) trackR.classList.toggle('store-enable-track--on', cbR.checked);
+});
+</script>
+
+{% endblock %}

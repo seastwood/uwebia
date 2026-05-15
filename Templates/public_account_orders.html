@@ -1,0 +1,125 @@
+{% extends 'public_base.html' %}
+{% block title %}My Orders — {{ website.name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
+<style>
+.acct-orders-page {
+    width: min(680px, calc(100% - 28px));
+    margin: 52px auto 100px;
+}
+.acct-orders-header {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 28px;
+}
+.acct-orders-header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+.acct-orders-header a {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 999px;
+    background: rgba(14, 12, 22, 0.45);
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.13);
+    font-size: 0.78rem; font-weight: 600;
+    color: #e8e8e8; text-decoration: none;
+    margin-left: auto; flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+.acct-orders-header a:hover { background: rgba(14,12,22,0.65); border-color: rgba(255,255,255,0.22); color: #fff; }
+
+.acct-order-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    margin-bottom: 10px;
+    background: rgba(14, 12, 22, 0.62);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-top-color: rgba(255,255,255,0.18);
+    border-radius: 14px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.07);
+    text-decoration: none;
+    color: #f0f0f0;
+    transition: transform 0.18s, box-shadow 0.18s;
+}
+.acct-order-row:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.09);
+}
+.acct-order-num { font-weight: 700; font-size: 0.92rem; }
+.acct-order-date { font-size: 0.8rem; opacity: 0.4; margin-top: 2px; }
+.acct-order-items { font-size: 0.8rem; opacity: 0.5; margin-top: 2px; }
+.acct-order-total {
+    margin-left: auto;
+    font-weight: 700;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+.acct-order-status {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+.acct-order-status--pending  { background: rgba(255,200,80,0.12); color: #ffd060; border: 1px solid rgba(255,200,80,0.3); }
+.acct-order-status--paid     { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.acct-order-status--shipped  { background: rgba(80,160,255,0.12); color: #7cb8ff; border: 1px solid rgba(80,160,255,0.3); }
+.acct-order-status--complete { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.acct-order-status--default  { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+
+.acct-orders-empty {
+    text-align: center;
+    padding: 80px 0;
+    opacity: 0.35;
+}
+.acct-orders-empty i { font-size: 2.5rem; display: block; margin-bottom: 14px; }
+.acct-orders-empty p { font-size: 0.95rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="acct-orders-page">
+    <div class="acct-orders-header">
+        <h1>My Orders</h1>
+        <a href="/shop">← Continue shopping</a>
+    </div>
+
+    {% if orders %}
+        {% for order in orders %}
+        {% set status_class = {
+            'pending_payment': 'pending',
+            'paid': 'paid',
+            'shipped': 'shipped',
+            'complete': 'complete',
+            'completed': 'complete'
+        }.get(order.status, 'default') %}
+        <a class="acct-order-row" href="{{ url_for('public_account_order_detail', order_number=order.order_number) }}">
+            <div>
+                <div class="acct-order-num">{{ order.order_number }}</div>
+                <div class="acct-order-date">{{ order.created_at.strftime('%b %-d, %Y') }}</div>
+                <div class="acct-order-items">
+                    {{ order.items | length }} item{{ 's' if order.items | length != 1 else '' }}
+                </div>
+            </div>
+            <span class="acct-order-status acct-order-status--{{ status_class }}">
+                {{ order.status.replace('_', ' ').title() }}
+            </span>
+            <div class="acct-order-total">${{ '%.2f' | format(order.total) }}</div>
+            <i class="fas fa-chevron-right" style="opacity:0.25;font-size:0.78rem;flex-shrink:0;"></i>
+        </a>
+        {% endfor %}
+    {% else %}
+        <div class="acct-orders-empty">
+            <i class="fas fa-box-open"></i>
+            <p>No orders yet.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

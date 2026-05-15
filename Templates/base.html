@@ -42,6 +42,14 @@
     <div id="permToastContainer" class="perm-toast-container"></div>
 
     <script>
+    function pwToggle(btn) {
+        const inp = btn.closest('.pw-wrap').querySelector('input');
+        const showing = inp.type === 'text';
+        inp.type = showing ? 'password' : 'text';
+        btn.querySelector('i').className = showing ? 'fas fa-eye' : 'fas fa-eye-slash';
+        btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+    }
+
     function showPermToast(msg) {
         const c = document.getElementById('permToastContainer');
         if (!c) return;

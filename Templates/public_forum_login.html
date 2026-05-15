@@ -149,14 +149,17 @@ Forum Login
         <h1>Log In</h1>
 
         <input name="login" placeholder="Username or email" required>
-        <input name="password" type="password" placeholder="Password" required>
+        <div class="pw-wrap">
+            <input name="password" type="password" placeholder="Password" required>
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
 
 <div class="forum-auth-actions">
     <button type="submit">
         Log In
     </button>
 
-    <a class="forum-auth-secondary-button" href="{{ url_for('public_forum_register') }}">
+    <a class="forum-auth-secondary-button" href="{{ url_for('public_register') }}">
         Create Account
     </a>
 </div>
@@ -165,13 +168,13 @@ Forum Login
         <div class="forum-auth-links">
 
 
-    <a href="{{ url_for('public_forum_forgot_password') }}">
+    <a href="{{ url_for('public_forgot_password') }}">
         <i class="fas fa-key"></i>
         Forgot password?
     </a>
 
     {% if website.forum_account_verification_enabled %}
-        <a href="{{ url_for('public_forum_resend_verification') }}">
+        <a href="{{ url_for('public_resend_verification') }}">
             <i class="fas fa-envelope-open-text"></i>
             Resend verification email
         </a>

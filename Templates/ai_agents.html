@@ -156,7 +156,10 @@
 
             <div class="uw-field" id="fieldApiKey">
                 <label>API Key <span style="color:rgba(255,255,255,0.35);font-weight:400;">(optional for local)</span></label>
-                <input type="password" id="agentApiKey" placeholder="sk-…" autocomplete="new-password">
+                <div class="pw-wrap">
+                    <input type="password" id="agentApiKey" placeholder="sk-…" autocomplete="new-password">
+                    <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+                </div>
             </div>
 
             <div class="uw-field">

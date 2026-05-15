@@ -1,0 +1,136 @@
+{% extends 'public_base.html' %}
+{% block title %}Cart — {{ website.name }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
+
+<div class="sp-page">
+    <div class="sp-container sp-container--narrow">
+
+        <div class="sp-page-header">
+            <h1>Your Cart</h1>
+            {% if items %}
+            <span class="sp-item-count">{{ items | length }} item{{ 's' if items | length != 1 else '' }}</span>
+            {% endif %}
+        </div>
+
+        {% if items %}
+        <div class="sc-layout">
+            <div class="sc-items">
+                {% for item in items %}
+                {% if item.product %}
+                <div class="sc-item" id="sc-item-{{ item.id }}">
+                    <a href="/products/{{ item.product.slug }}" class="sc-item-img">
+                        {% if item.product.cover_image_url() %}
+                        <img src="{{ item.product.cover_image_url() }}" alt="{{ item.product.name }}">
+                        {% else %}
+                        <div class="sc-item-img-empty"><i class="fas fa-image"></i></div>
+                        {% endif %}
+                    </a>
+                    <div class="sc-item-body">
+                        <a href="/products/{{ item.product.slug }}" class="sc-item-name">
+                            {{ item.product.name }}
+                        </a>
+                        {% if item.product.sku %}
+                        <p class="sc-item-sku">SKU: {{ item.product.sku }}</p>
+                        {% endif %}
+                        <p class="sc-item-price">${{ '%.2f' | format(item.product.price) }}</p>
+                    </div>
+                    <div class="sc-item-right">
+                        <div class="sp-qty-wrap sc-qty">
+                            <button onclick="scUpdateQty({{ item.id }}, -1)">−</button>
+                            <input type="number" id="sc-qty-{{ item.id }}"
+                                   value="{{ item.quantity }}" min="1" max="999"
+                                   onchange="scSetQty({{ item.id }}, this.value)">
+                            <button onclick="scUpdateQty({{ item.id }}, 1)">+</button>
+                        </div>
+                        <p class="sc-item-total" id="sc-total-{{ item.id }}">
+                            ${{ '%.2f' | format(item.product.price * item.quantity) }}
+                        </p>
+                        <button class="sc-remove-btn" onclick="scRemove({{ item.id }})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
+            <div class="sc-summary">
+                <div class="sc-summary-card">
+                    <h3>Order Summary</h3>
+                    <div class="sc-summary-row">
+                        <span>Subtotal</span>
+                        <span id="sc-subtotal">${{ '%.2f' | format(subtotal) }}</span>
+                    </div>
+                    <div class="sc-summary-row sc-summary-row--muted">
+                        <span>Shipping</span>
+                        <span>Calculated at checkout</span>
+                    </div>
+                    <div class="sc-summary-divider"></div>
+                    <div class="sc-summary-row sc-summary-row--total">
+                        <span>Total</span>
+                        <span id="sc-total-sum">${{ '%.2f' | format(subtotal) }}</span>
+                    </div>
+                    <a href="/store/checkout" class="sc-checkout-btn">
+                        Checkout <i class="fas fa-arrow-right"></i>
+                    </a>
+                    <div style="text-align:center;">
+                        <a href="/shop" class="sc-continue-link">← Continue shopping</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% else %}
+        <div class="sc-empty">
+            <i class="fas fa-shopping-cart"></i>
+            <p>Your cart is empty.</p>
+            <a href="/shop" class="sp-add-btn">Start shopping</a>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+<script>
+async function scUpdateQty(itemId, delta) {
+    const inp = document.getElementById('sc-qty-' + itemId);
+    const newQty = Math.max(1, parseInt(inp.value || 1) + delta);
+    inp.value = newQty;
+    await scSetQty(itemId, newQty);
+}
+
+async function scSetQty(itemId, qty) {
+    qty = Math.max(1, parseInt(qty) || 1);
+    document.getElementById('sc-qty-' + itemId).value = qty;
+    const r = await fetch('/store/cart/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId, qty })
+    });
+    const d = await r.json();
+    if (d.success) {
+        document.getElementById('sc-subtotal').textContent = '$' + d.subtotal;
+        document.getElementById('sc-total-sum').textContent = '$' + d.subtotal;
+        const lineEl = document.getElementById('sc-total-' + itemId);
+        if (lineEl) lineEl.textContent = '$' + d.line_total;
+    }
+}
+
+async function scRemove(itemId) {
+    const r = await fetch('/store/cart/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId })
+    });
+    const d = await r.json();
+    if (d.success) {
+        const row = document.getElementById('sc-item-' + itemId);
+        if (row) row.remove();
+        document.getElementById('sc-subtotal').textContent = '$' + d.subtotal;
+        document.getElementById('sc-total-sum').textContent = '$' + d.subtotal;
+        if (d.cart_count === 0) location.reload();
+    }
+}
+</script>
+{% endblock %}

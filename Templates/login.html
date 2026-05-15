@@ -103,7 +103,10 @@
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
             <label for="password">Password:</label>
-            <input type="password" id="password" name="password" required>
+            <div class="pw-wrap">
+                <input type="password" id="password" name="password" required>
+                <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+            </div>
             <button type="submit" id="loginBtn">Login</button>
         </form>
         <script>

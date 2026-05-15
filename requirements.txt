@@ -26,3 +26,4 @@ pillow
 geoip2
 gunicorn
 cryptography
+psycopg2-binary

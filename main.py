@@ -79,14 +79,60 @@ os.makedirs(uploads_folder, exist_ok=True)
 
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
 app.secret_key = 'your_secret_key'  # Secret key for session management
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 
-# Set the SQLAlchemy database URI to use the database in the database folder
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{database_path}'
+# ── Database configuration ────────────────────────────────────────────────────
+# Priority: db_config.json (set via admin UI) > DATABASE_URL env var > SQLite default
+_DB_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'db_config.json')
+
+
+def _load_db_config() -> dict:
+    try:
+        if os.path.exists(_DB_CONFIG_PATH):
+            with open(_DB_CONFIG_PATH) as _f:
+                return json.load(_f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_db_config(cfg: dict) -> None:
+    with open(_DB_CONFIG_PATH, 'w') as _f:
+        json.dump(cfg, _f, indent=2)
+    try:
+        os.chmod(_DB_CONFIG_PATH, 0o600)  # owner read/write only — protect the password
+    except OSError:
+        pass
+
+
+_db_config = _load_db_config()
+_DATABASE_URL = (
+    _db_config.get('database_url')
+    or os.environ.get('DATABASE_URL')
+    or f'sqlite:///{database_path}'
+)
+app.config['SQLALCHEMY_DATABASE_URI'] = _DATABASE_URL
+
+# PostgreSQL engine options — UTF-8, connection health checks, and pool tuning
+if _DATABASE_URL.startswith('postgresql'):
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'connect_args': {
+            'client_encoding': 'utf8',
+            'connect_timeout': 10,        # don't hang forever on a dead server
+        },
+        'pool_pre_ping': True,            # test connection before use; auto-reconnect after restart
+        'pool_recycle': 300,              # discard connections older than 5 min to prevent staleness
+        'pool_size': 5,                   # base pool size per worker
+        'max_overflow': 10,               # extra connections allowed under load
+        'pool_timeout': 30,               # wait up to 30s for a connection before raising
+    }
 
 db = SQLAlchemy(app)
 
-from sqlalchemy import event as _sa_event
+from sqlalchemy import event as _sa_event, false as _sa_false, true as _sa_true
+
+
+def _is_sqlite():
+    return db.engine.url.drivername.startswith('sqlite')
 
 
 def _set_sqlite_pragmas(dbapi_conn, _rec):
@@ -176,8 +222,32 @@ DEFAULT_SERVER_CONFIG = {
 }
 
 
+class _MaintenanceUser:
+    """Minimal Flask-Login compatible user returned when the DB is unreachable.
+    Lets a previously-authenticated admin session pass @login_required so they
+    can reach the database settings page to fix the connection."""
+    is_authenticated = True
+    is_active = True
+    is_anonymous = False
+    is_sub_admin = False
+
+    def __init__(self, uid=0):
+        self.id = uid
+
+    def get_id(self):
+        return str(self.id)
+
+    def has_permission(self, _key):
+        return True
+
+
 @login_manager.user_loader
 def load_user(user_id):
+    if _DB_MAINTENANCE_MODE:
+        try:
+            return _MaintenanceUser(int(user_id))
+        except (TypeError, ValueError):
+            return None
     return db.session.get(User, int(user_id))
 
 
@@ -214,7 +284,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
-    password_hash = db.Column(db.String(150), nullable=False)
+    password_hash = db.Column(db.Text, nullable=False)
     # Sub-admin support: if set, this user belongs to the parent admin
     parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     permission_group_id = db.Column(db.Integer, db.ForeignKey('permission_group.id'), nullable=True)
@@ -233,7 +303,7 @@ class User(UserMixin, db.Model):
         db.Boolean,
         nullable=False,
         default=False,
-        server_default='0'
+        server_default=_sa_false()
     )
     admin_url_key = db.Column(db.String(120), nullable=True)
     admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
@@ -300,6 +370,7 @@ def _perm_label(key):
     section_labels = {
         'pages': 'Pages', 'sections': 'Sections', 'appearance': 'Appearance',
         'code': 'Code', 'assets': 'Asset Library', 'calendars': 'Calendars',
+        'posts': 'Posts', 'store': 'Store',
         'ai_agents': 'AI Agents', 'forum': 'Forum', 'comments': 'Comments',
         'messages': 'Messages', 'settings': 'Settings', 'templates': 'Templates',
         'admin_users': 'Admin Users',
@@ -471,12 +542,31 @@ def require_perm(key):
 
 
 def get_admin_website():
-    """Return the website the current admin user manages.
-    Sub-admins share the root admin's website rather than owning their own."""
+    """Return the live (non-draft) website the current admin manages.
+    Prefers non-draft; falls back to whatever exists.
+    Sub-admins share the root admin's websites."""
     if current_user.is_sub_admin:
         root = User.query.get(current_user.root_user_id)
-        return root.websites[0] if root and root.websites else None
-    return current_user.websites[0] if current_user.websites else None
+        websites = root.websites if root else []
+    else:
+        websites = current_user.websites
+    for w in websites:
+        if not w.is_draft:
+            return w
+    return websites[0] if websites else None
+
+
+def get_admin_draft_website():
+    """Return the draft website for the current admin, or None."""
+    if current_user.is_sub_admin:
+        root = User.query.get(current_user.root_user_id)
+        websites = root.websites if root else []
+    else:
+        websites = current_user.websites
+    for w in websites:
+        if w.is_draft:
+            return w
+    return None
 
 
 def is_owner(website):
@@ -617,17 +707,20 @@ class PublicUser(UserMixin, db.Model):
     email = db.Column(db.String(255), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
 
-    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    email_verified = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     email_verified_at = db.Column(db.DateTime, nullable=True)
     verification_email_sent_at = db.Column(db.DateTime, nullable=True)
     password_reset_requested_at = db.Column(db.DateTime, nullable=True)
     last_verification_email_sent_at = db.Column(db.DateTime, nullable=True)
 
-    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     last_login_at = db.Column(db.DateTime, nullable=True)
+
+    two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    two_factor_last_sent_at = db.Column(db.DateTime, nullable=True)
 
     website = db.relationship('Website', backref=db.backref('public_users', lazy=True, cascade='all, delete-orphan'))
 
@@ -665,9 +758,9 @@ class ForumThread(db.Model):
     title = db.Column(db.String(180), nullable=False)
     body = db.Column(db.Text, nullable=False)
 
-    is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    is_pinned = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    is_pinned = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -741,7 +834,7 @@ class ForumReply(db.Model):
 
     body = db.Column(db.Text, nullable=False)
 
-    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
 
     vote_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0', index=True)
 
@@ -888,8 +981,8 @@ class PageComment(db.Model):
     display_name = db.Column(db.String(120), nullable=False)
     body = db.Column(db.Text, nullable=False)
 
-    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default='0', index=True)
-    is_approved = db.Column(db.Boolean, nullable=False, default=True, server_default='1', index=True)
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false(), index=True)
+    is_approved = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true(), index=True)
 
     ip_address = db.Column(db.String(64), nullable=True)
     user_agent = db.Column(db.Text, nullable=True)
@@ -1037,7 +1130,10 @@ class Website(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     # Draft websites are editing sandboxes — never served publicly.
     # Only one draft per admin user is allowed at a time.
-    is_draft = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    is_draft = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # Master kill-switch. When False all public pages return 503 without touching
+    # individual page publish states, so re-enabling restores everything as-was.
+    is_live = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     public_page_contents = db.relationship('PublicPageContent', backref='website', lazy=True,
                                            cascade="all, delete-orphan")
     tags = db.relationship('Tag', secondary='website_tag', backref=db.backref('websites', lazy=True))
@@ -1053,10 +1149,19 @@ class Website(db.Model):
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
 
-    forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
-    forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
-    forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    store_enabled       = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    store_in_store_only       = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    store_in_store_only_label = db.Column(db.String(120), nullable=True)
+    store_title         = db.Column(db.String(120), nullable=False, default='Shop', server_default="'Shop'")
+    store_description   = db.Column(db.String(500), nullable=True)
+    post_profanity_words  = db.Column(db.Text, nullable=True)   # newline-separated banned words
+    post_profanity_action = db.Column(db.String(10), nullable=False, default='block', server_default="'block'")  # 'block' or 'replace'
+    profanity_filter_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    reviews_enabled   = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     forum_title = db.Column(db.String(120), nullable=False, default='Forum')
     forum_description = db.Column(db.String(500), nullable=True)
 
@@ -1064,14 +1169,51 @@ class Website(db.Model):
         db.Boolean,
         nullable=False,
         default=False,
-        server_default='0'
+        server_default=_sa_false()
     )
 
     forum_allow_unverified_login = db.Column(
         db.Boolean,
         nullable=False,
         default=False,
-        server_default='0'
+        server_default=_sa_false()
+    )
+
+    require_login_to_view = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
+    )
+    public_approval_required = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
+    )
+    public_email_verification_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
+    )
+    public_email_verification_required = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
+    )
+    public_users_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=True,
+        server_default=_sa_true()
+    )
+    public_2fa_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
     )
 
     def __repr__(self):
@@ -1163,12 +1305,20 @@ class PageSection(db.Model):
     def to_dict(self):
         column = self.column
         row = column.row if column else None
+        # Defensive: PostgreSQL migration may store JSON columns as raw strings
+        # if psycopg2 inserted the SQLite TEXT value without parsing it first.
+        content = self.content
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (ValueError, TypeError):
+                content = {}
         return {
             'id': self.id,
             'page_content_id': self.page_content_id,
             'order': self.order,
             'section_type': self.section_type,
-            'content': self.content,
+            'content': content,
             'custom_code': self.custom_code or '',
             'label': self.label or '',
             'column_id': column.id if column else None,
@@ -1369,6 +1519,8 @@ class CalendarEvent(db.Model):
     start = db.Column(db.DateTime, nullable=False)
     end = db.Column(db.DateTime)
     background_color = db.Column(db.String)
+    all_day = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    hide_time = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     calendar_id = db.Column(db.Integer, db.ForeignKey('calendar.id'), nullable=True)
     section_id = db.Column(db.Integer, db.ForeignKey('page_section.id', name='fk_calendar_event_page_content_id'),
                            nullable=True)
@@ -1377,20 +1529,35 @@ class CalendarEvent(db.Model):
 
     def to_dict(self):
         is_external = (self.source or 'local') != 'local'
+        all_day = bool(self.all_day)
+        hide_time = bool(self.hide_time)
+        # For all-day events send date-only strings so FullCalendar treats them correctly
+        if all_day:
+            start_str = self.start.strftime('%Y-%m-%d')
+            end_str   = self.end.strftime('%Y-%m-%d') if self.end else None
+        else:
+            start_str = self.start.isoformat()
+            end_str   = self.end.isoformat() if self.end else None
+        class_names = []
+        if is_external:
+            class_names.append('ext-cal-event')
+        if hide_time and not all_day:
+            class_names.append('fc-hide-time')
         return {
             'id': self.id,
             'title': self.title,
-            'start': self.start.isoformat(),
-            'end': self.end.isoformat() if self.end else None,
+            'start': start_str,
+            'end': end_str,
+            'allDay': all_day,
             'backgroundColor': self.background_color,
             'calendar_id': self.calendar_id,
-            # editable:false tells FullCalendar not to allow drag/resize on external events
             'editable': not is_external,
-            # classNames lets CSS target external events without JS hooks
-            'classNames': ['ext-cal-event'] if is_external else [],
+            'classNames': class_names,
             'extendedProps': {
                 'description': self.description,
                 'source': self.source or 'local',
+                'allDay': all_day,
+                'hideTime': hide_time,
             },
         }
 
@@ -1452,6 +1619,80 @@ class CalendarSubscription(db.Model):
             'last_sync_error': self.last_sync_error,
             'event_count': self.event_count or 0,
         }
+
+
+class PostCollection(db.Model):
+    __tablename__ = 'post_collection'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'), nullable=False, index=True)
+    name        = db.Column(db.String(150), nullable=False)
+    slug        = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    posts       = db.relationship('Post', backref='collection', lazy='dynamic', cascade='all, delete-orphan', order_by='Post.published_at.desc()')
+    __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_post_collection_site_slug'),)
+
+
+class Post(db.Model):
+    __tablename__ = 'post'
+    id              = db.Column(db.Integer, primary_key=True)
+    collection_id   = db.Column(db.Integer, db.ForeignKey('post_collection.id', ondelete='CASCADE'), nullable=False, index=True)
+    website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'), nullable=False, index=True)
+    title           = db.Column(db.String(300), nullable=False)
+    slug            = db.Column(db.String(300), nullable=False)
+    excerpt         = db.Column(db.Text, nullable=True)
+    content         = db.Column(db.Text, nullable=True)
+    cover_image_url = db.Column(db.String(500), nullable=True)
+    status          = db.Column(db.String(20), nullable=False, default='draft', server_default="'draft'")
+    published_at    = db.Column(db.DateTime, nullable=True)
+    created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at       = db.Column(db.DateTime, nullable=True)
+    comments_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    comments_require_login = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    comments_moderation    = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    __table_args__   = (db.UniqueConstraint('collection_id', 'slug', name='uq_post_collection_post_slug'),)
+
+
+class PostComment(db.Model):
+    __tablename__ = 'post_comment'
+    id               = db.Column(db.Integer, primary_key=True)
+    post_id          = db.Column(db.Integer, db.ForeignKey('post.id', ondelete='CASCADE'), nullable=False, index=True)
+    website_id       = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'), nullable=False)
+    public_user_id   = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='SET NULL'), nullable=True)
+    author_name      = db.Column(db.String(120), nullable=False)
+    author_email     = db.Column(db.String(200), nullable=True)
+    body             = db.Column(db.Text, nullable=False)
+    is_approved      = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    like_count_cached = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at       = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    post             = db.relationship('Post', backref=db.backref('comments', lazy='dynamic', cascade='all, delete-orphan'))
+
+    def user_has_liked(self, public_user):
+        if not public_user:
+            return False
+        return PostCommentLike.query.filter_by(
+            comment_id=self.id,
+            public_user_id=public_user.id
+        ).first() is not None
+
+
+class PostCommentLike(db.Model):
+    __tablename__ = 'post_comment_like'
+
+    id             = db.Column(db.Integer, primary_key=True)
+    comment_id     = db.Column(db.Integer, db.ForeignKey('post_comment.id'), nullable=False, index=True)
+    post_id        = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False, index=True)
+    website_id     = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id'), nullable=False, index=True)
+    created_at     = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    comment    = db.relationship('PostComment', backref=db.backref('likes', lazy=True, cascade='all, delete-orphan'))
+    public_user = db.relationship('PublicUser', backref=db.backref('post_comment_likes', lazy=True, cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('comment_id', 'public_user_id', name='uq_post_comment_like_once_per_user'),
+        db.Index('ix_post_comment_like_comment_user', 'comment_id', 'public_user_id'),
+    )
 
 
 class AIAgent(db.Model):
@@ -1675,6 +1916,220 @@ class AssetPlay(db.Model):
     )
 
 
+class Plugin(db.Model):
+    __tablename__ = 'plugin'
+    id          = db.Column(db.Integer, primary_key=True)
+    slug        = db.Column(db.String(50), unique=True, nullable=False)
+    name        = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    version     = db.Column(db.String(20))
+    icon        = db.Column(db.String(60))
+    enabled     = db.Column(db.Boolean, nullable=False, server_default=_sa_false())
+    config      = db.Column(db.JSON)
+    installed_at = db.Column(db.DateTime,
+                             default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+# ── Store plugin models ────────────────────────────────────────────────────────
+
+class StoreCategory(db.Model):
+    __tablename__ = 'store_category'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(120), nullable=False)
+    slug        = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'slug', name='uq_store_category_site_slug'),
+    )
+
+
+class StoreProduct(db.Model):
+    __tablename__ = 'store_product'
+    id               = db.Column(db.Integer, primary_key=True)
+    website_id       = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                 nullable=False, index=True)
+    category_id      = db.Column(db.Integer, db.ForeignKey('store_category.id', ondelete='SET NULL'),
+                                 nullable=True)
+    name             = db.Column(db.String(200), nullable=False)
+    slug             = db.Column(db.String(200), nullable=False)
+    description      = db.Column(db.Text)
+    price            = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    compare_at_price = db.Column(db.Numeric(10, 2), nullable=True)
+    sku              = db.Column(db.String(100), nullable=True)
+    inventory_qty    = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    track_inventory  = db.Column(db.Boolean, nullable=False, server_default=_sa_true())
+    allow_oversell   = db.Column(db.Boolean, nullable=False, server_default=_sa_false())
+    is_active        = db.Column(db.Boolean, nullable=False, server_default=_sa_false())
+    created_at       = db.Column(db.DateTime,
+                                 default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at       = db.Column(db.DateTime,
+                                 default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    category = db.relationship('StoreCategory', backref=db.backref('products', lazy='dynamic'))
+    images   = db.relationship('StoreProductImage', backref='product',
+                               cascade='all, delete-orphan',
+                               order_by='StoreProductImage.sort_order')
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'slug', name='uq_store_product_site_slug'),
+    )
+
+    def cover_image_url(self):
+        for img in self.images:
+            if img.asset:
+                return img.asset.thumbnail_url or img.asset.url
+        return None
+
+
+class StoreCart(db.Model):
+    __tablename__ = 'store_cart'
+    id             = db.Column(db.Integer, primary_key=True)
+    website_id     = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    token          = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='SET NULL'),
+                               nullable=True, index=True)
+    created_at     = db.Column(db.DateTime,
+                               default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at     = db.Column(db.DateTime,
+                               default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    items = db.relationship('StoreCartItem', backref='cart', cascade='all, delete-orphan',
+                            order_by='StoreCartItem.added_at')
+
+
+class StoreCartItem(db.Model):
+    __tablename__ = 'store_cart_item'
+    id         = db.Column(db.Integer, primary_key=True)
+    cart_id    = db.Column(db.Integer, db.ForeignKey('store_cart.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='CASCADE'),
+                           nullable=False)
+    quantity   = db.Column(db.Integer, nullable=False, default=1)
+    added_at   = db.Column(db.DateTime,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    product    = db.relationship('StoreProduct')
+
+
+class StoreOrder(db.Model):
+    __tablename__ = 'store_order'
+    id                       = db.Column(db.Integer, primary_key=True)
+    website_id               = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                         nullable=False, index=True)
+    public_user_id           = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='SET NULL'),
+                                         nullable=True)
+    order_number             = db.Column(db.String(20), unique=True, nullable=False)
+    status                   = db.Column(db.String(30), nullable=False, server_default='pending_payment')
+    contact_name             = db.Column(db.String(200), nullable=False)
+    contact_email            = db.Column(db.String(200), nullable=False)
+    contact_phone            = db.Column(db.String(50), nullable=True)
+    subtotal                 = db.Column(db.Numeric(10, 2), nullable=False)
+    shipping_cost            = db.Column(db.Numeric(10, 2), nullable=False, server_default='0')
+    total                    = db.Column(db.Numeric(10, 2), nullable=False)
+    notes                    = db.Column(db.Text, nullable=True)
+    stripe_payment_intent_id = db.Column(db.String(200), nullable=True)
+    created_at               = db.Column(db.DateTime,
+                                         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at               = db.Column(db.DateTime,
+                                         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    items   = db.relationship('StoreOrderItem', backref='order', cascade='all, delete-orphan')
+    address = db.relationship('StoreOrderAddress', backref='order', uselist=False,
+                              cascade='all, delete-orphan')
+
+
+class StoreOrderItem(db.Model):
+    __tablename__ = 'store_order_item'
+    id           = db.Column(db.Integer, primary_key=True)
+    order_id     = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    product_id   = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='SET NULL'),
+                             nullable=True)
+    product_name = db.Column(db.String(200), nullable=False)
+    product_sku  = db.Column(db.String(100), nullable=True)
+    quantity     = db.Column(db.Integer, nullable=False)
+    unit_price   = db.Column(db.Numeric(10, 2), nullable=False)
+    line_total   = db.Column(db.Numeric(10, 2), nullable=False)
+
+
+class StoreOrderAddress(db.Model):
+    __tablename__ = 'store_order_address'
+    id          = db.Column(db.Integer, primary_key=True)
+    order_id    = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='CASCADE'),
+                            nullable=False, unique=True)
+    name        = db.Column(db.String(200), nullable=False)
+    line1       = db.Column(db.String(200), nullable=False)
+    line2       = db.Column(db.String(200), nullable=True)
+    city        = db.Column(db.String(100), nullable=False)
+    state       = db.Column(db.String(100), nullable=False)
+    postal_code = db.Column(db.String(20), nullable=False)
+    country     = db.Column(db.String(100), nullable=False)
+
+
+class StoreProductImage(db.Model):
+    __tablename__ = 'store_product_image'
+    id         = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    asset_id   = db.Column(db.Integer, db.ForeignKey('asset.id', ondelete='CASCADE'),
+                           nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    alt_text   = db.Column(db.String(200), nullable=True)
+    asset      = db.relationship('Asset')
+
+
+class ProductReview(db.Model):
+    __tablename__ = 'product_review'
+    id             = db.Column(db.Integer, primary_key=True)
+    website_id     = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    product_id     = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                               nullable=False)
+    rating         = db.Column(db.Integer, nullable=False)
+    title          = db.Column(db.String(200), nullable=True)
+    body           = db.Column(db.Text, nullable=True)
+    created_at     = db.Column(db.DateTime,
+                               default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    product     = db.relationship('StoreProduct', backref=db.backref('reviews', lazy='dynamic'))
+    public_user = db.relationship('PublicUser', backref=db.backref('product_reviews', lazy='dynamic'))
+    __table_args__ = (
+        db.UniqueConstraint('product_id', 'public_user_id', name='uq_product_review_user'),
+    )
+
+
+# ── Plugin registry ───────────────────────────────────────────────────────────
+# Each entry defines a plugin that exists in the codebase. On every startup,
+# _sync_plugins() ensures a matching DB row exists so it appears in the UI.
+# Adding a new plugin = add an entry here + write its routes/models.
+
+_REGISTERED_PLUGINS = [
+    # Store is now a built-in admin feature — managed via the Products page,
+    # not the Plugins page. Add future third-party plugins here.
+]
+
+
+def _sync_plugins():
+    """Insert a Plugin row for every registered plugin that doesn't have one yet.
+    Updates name/description/version/icon when the code definition changes."""
+    for meta in _REGISTERED_PLUGINS:
+        row = Plugin.query.filter_by(slug=meta['slug']).first()
+        if row is None:
+            row = Plugin(slug=meta['slug'], enabled=False)
+            db.session.add(row)
+        row.name        = meta['name']
+        row.description = meta['description']
+        row.version     = meta['version']
+        row.icon        = meta['icon']
+    db.session.commit()
+
+
+def is_plugin_enabled(slug: str) -> bool:
+    """Return True if the named plugin is installed and enabled."""
+    row = Plugin.query.filter_by(slug=slug).first()
+    return bool(row and row.enabled)
+
+
 # Hardcoded admin credentials
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
@@ -1699,12 +2154,24 @@ def slugify(value):
     return value.strip('-') or 'page'
 
 
+# Slugs reserved for hardcoded system routes — pages must never use these.
+_SYSTEM_RESERVED_SLUGS = frozenset({
+    'shop', 'products', 'store', 'forum', 'account',
+})
+
+
 def get_unique_slug(website_id, name, current_page_id=None):
     base_slug = slugify(name)
     slug = base_slug
     counter = 2
 
     while True:
+        # Never generate a slug that clashes with a system route
+        if slug in _SYSTEM_RESERVED_SLUGS:
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+            continue
+
         query = PublicPageContent.query.filter_by(
             website_id=website_id,
             slug=slug
@@ -1713,9 +2180,7 @@ def get_unique_slug(website_id, name, current_page_id=None):
         if current_page_id:
             query = query.filter(PublicPageContent.id != current_page_id)
 
-        existing = query.first()
-
-        if not existing:
+        if not query.first():
             return slug
 
         slug = f"{base_slug}-{counter}"
@@ -3908,9 +4373,185 @@ ADMIN_PROTECTED_PREFIXES = (
 )
 
 
+_MAINTENANCE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database Unreachable</title>
+<link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+     background:#1a1a1f;color:#f0f0f0;
+     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px}
+.card{max-width:520px;width:100%;background:#22222a;border:1px solid rgba(255,100,100,.2);
+      border-radius:18px;padding:36px 32px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.icon{font-size:2.4rem;margin-bottom:16px;text-align:center}
+h1{font-size:1.35rem;font-weight:700;margin-bottom:8px;color:#fff;text-align:center}
+.sub{font-size:.88rem;color:rgba(255,255,255,.5);line-height:1.6;margin-bottom:4px;text-align:center}
+hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:22px 0 18px}
+.section-label{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);
+               text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.field label{font-size:.78rem;font-weight:600;color:rgba(255,255,255,.5)}
+.field input{padding:9px 12px;background:rgba(255,255,255,.05);
+             border:1px solid rgba(255,255,255,.12);border-radius:8px;
+             color:#f0f0f0;font-size:.88rem;outline:none;transition:border-color .15s}
+.field input:focus{border-color:rgba(255,255,255,.3)}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{padding:9px 18px;border-radius:8px;font-size:.82rem;font-weight:600;
+     cursor:pointer;border:1px solid rgba(255,255,255,.15);transition:background .15s;
+     display:inline-flex;align-items:center;gap:6px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-test{background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
+.btn-test:hover:not(:disabled){background:rgba(255,255,255,.11)}
+.btn-save{background:rgba(80,160,255,.18);color:rgba(150,210,255,.95)}
+.btn-save:hover:not(:disabled){background:rgba(80,160,255,.28)}
+.btn-revert{background:rgba(255,255,255,.04);color:rgba(255,255,255,.45);
+            margin-left:auto;font-size:.78rem;padding:9px 14px}
+.btn-revert:hover:not(:disabled){background:rgba(255,255,255,.09)}
+#st{margin-top:12px;font-size:.83rem;min-height:1.2em;display:none}
+.ok{color:#5eeec8}.err{color:#f88}.info{color:rgba(255,255,255,.55)}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">&#x26A0;&#xFE0F;</div>
+  <h1>Database Unreachable</h1>
+  <p class="sub">The server is running in maintenance mode because the configured<br>database could not be reached. Update the connection details below.</p>
+
+  <hr>
+  <p class="section-label">PostgreSQL Connection</p>
+
+  <div class="grid2">
+    <div class="field">
+      <label>Host</label>
+      <input type="text" id="pgHost" value="localhost" placeholder="localhost">
+    </div>
+    <div class="field">
+      <label>Port</label>
+      <input type="number" id="pgPort" value="5432" placeholder="5432">
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="field">
+      <label>Database Name</label>
+      <input type="text" id="pgDatabase" placeholder="uwebia">
+    </div>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="pgUser" placeholder="uwebia_user">
+    </div>
+  </div>
+  <div class="field">
+    <label>Password</label>
+    <input type="password" id="pgPassword" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="new-password">
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-test" id="btnTest" onclick="doTest()">Test Connection</button>
+    <button class="btn btn-save" id="btnSave" onclick="doConnect()">Save &amp; Restart</button>
+    <button class="btn btn-revert" id="btnRevert" onclick="doRevert()">Revert to SQLite</button>
+  </div>
+  <div id="st"></div>
+</div>
+<script>
+function buildUrl(){
+  var host=document.getElementById('pgHost').value.trim()||'localhost';
+  var port=document.getElementById('pgPort').value.trim()||'5432';
+  var db=document.getElementById('pgDatabase').value.trim();
+  var user=document.getElementById('pgUser').value.trim();
+  var pass=document.getElementById('pgPassword').value;
+  if(!db||!user)return null;
+  var auth=pass?encodeURIComponent(user)+':'+encodeURIComponent(pass):encodeURIComponent(user);
+  return 'postgresql://'+auth+'@'+host+':'+port+'/'+db;
+}
+function setStatus(msg,cls){
+  var el=document.getElementById('st');
+  el.style.display='block';
+  el.className=cls||'info';
+  el.textContent=msg;
+}
+function setBtns(disabled){
+  ['btnTest','btnSave','btnRevert'].forEach(function(id){
+    document.getElementById(id).disabled=disabled;
+  });
+}
+async function doTest(){
+  var url=buildUrl();
+  if(!url){setStatus('Enter database name and username first.','err');return;}
+  setBtns(true);
+  var btn=document.getElementById('btnTest');
+  var orig=btn.textContent;
+  btn.textContent='Testing…';
+  setStatus('Connecting…','info');
+  try{
+    var r=await fetch('/admin/settings/database/test',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({database_url:url})});
+    var d=await r.json();
+    if(d.success)setStatus('✓ Connection successful!','ok');
+    else setStatus('✗ '+(d.error||'Connection failed'),'err');
+  }catch(e){setStatus('Network error','err');}
+  btn.textContent=orig;
+  setBtns(false);
+}
+async function doConnect(){
+  var url=buildUrl();
+  if(!url){setStatus('Enter database name and username first.','err');return;}
+  setBtns(true);
+  var btn=document.getElementById('btnSave');
+  btn.textContent='Saving…';
+  setStatus('Testing connection…','info');
+  try{
+    var r=await fetch('/admin/settings/database/connect',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({database_url:url})});
+    var d=await r.json();
+    if(d.success){setStatus('✓ '+(d.message||'Saved. Restart the server to reconnect.'),'ok');btn.textContent='Saved';}
+    else{setStatus('✗ '+(d.error||'Failed'),'err');btn.textContent='Save & Restart';setBtns(false);}
+  }catch(e){setStatus('Network error','err');btn.textContent='Save & Restart';setBtns(false);}
+}
+async function doRevert(){
+  if(!confirm('Switch back to SQLite on next restart?'))return;
+  setBtns(true);
+  setStatus('Reverting…','info');
+  try{
+    var r=await fetch('/admin/settings/database/revert',{method:'POST'});
+    var d=await r.json();
+    if(d.success)setStatus('✓ '+(d.message||'Reverted to SQLite. Restart the server to apply.'),'ok');
+    else{setStatus('✗ '+(d.error||'Failed'),'err');setBtns(false);}
+  }catch(e){setStatus('Network error','err');setBtns(false);}
+}
+</script>
+</body>
+</html>"""
+
+
+@app.before_request
+def enforce_maintenance_mode():
+    """When the database was unreachable at startup, block all routes except
+    static files and the database settings API so the admin can fix the
+    connection string without needing to log in."""
+    if not _DB_MAINTENANCE_MODE:
+        return
+
+    allowed_prefixes = (
+        '/static/',
+        '/admin/settings/database',
+    )
+    if any(request.path.startswith(p) for p in allowed_prefixes):
+        return
+
+    from flask import Response as _Response
+    return _Response(_MAINTENANCE_HTML, status=503, mimetype='text/html')
+
+
 @app.before_request
 def update_last_seen():
     """Update last_seen_at for authenticated admin users, throttled to once per minute."""
+    if _DB_MAINTENANCE_MODE:
+        return
     if (current_user.is_authenticated
             and not getattr(current_user, 'is_anonymous', True)
             and request.endpoint not in ('static', None)):
@@ -3923,6 +4564,8 @@ def update_last_seen():
 
 @app.before_request
 def require_admin_url_key_for_admin_routes():
+    if _DB_MAINTENANCE_MODE:
+        return
     if request.endpoint in ('static',):
         return None
 
@@ -4429,7 +5072,8 @@ _FOLDER_ACTION_MAP = {
 
 @app.context_processor
 def inject_permissions_context():
-    """Make permission helpers available in every template."""
+    if _DB_MAINTENANCE_MODE:
+        return {}
 
     def _uperm(key):
         if not current_user.is_authenticated or not current_user.is_sub_admin:
@@ -4533,6 +5177,8 @@ def inject_permissions_context():
 
 @app.context_processor
 def inject_current_website():
+    if _DB_MAINTENANCE_MODE:
+        return {'current_website': None, 'current_website_pages': [], 'current_website_folders': []}
     if not current_user.is_authenticated:
         return {
             'current_website': None,
@@ -4547,18 +5193,33 @@ def inject_current_website():
             'current_website': None,
             'current_website_pages': [],
             'current_website_folders': [],
+            'current_draft_website': None,
+            'current_draft_website_pages': [],
+            'current_draft_website_folders': [],
         }
 
     pages = PublicPageContent.query.filter_by(website_id=website.id) \
-        .order_by(PublicPageContent.id).all()
+        .order_by(PublicPageContent.sort_order, PublicPageContent.id).all()
 
     folders = PageFolder.query.filter_by(website_id=website.id) \
         .order_by(PageFolder.sort_order, PageFolder.id).all()
+
+    draft_website = get_admin_draft_website()
+    draft_pages   = []
+    draft_folders = []
+    if draft_website:
+        draft_pages = PublicPageContent.query.filter_by(website_id=draft_website.id) \
+            .order_by(PublicPageContent.sort_order, PublicPageContent.id).all()
+        draft_folders = PageFolder.query.filter_by(website_id=draft_website.id) \
+            .order_by(PageFolder.sort_order, PageFolder.id).all()
 
     return {
         'current_website': website,
         'current_website_pages': pages,
         'current_website_folders': folders,
+        'current_draft_website': draft_website,
+        'current_draft_website_pages': draft_pages,
+        'current_draft_website_folders': draft_folders,
     }
 
 
@@ -4573,6 +5234,9 @@ def dashboard():
         websites = root.websites if root else []
     else:
         websites = user.websites
+
+    # Always show live website before draft
+    websites = sorted(websites, key=lambda w: w.is_draft)
 
     live_websites = [w for w in websites if not w.is_draft]
     draft_websites = [w for w in websites if w.is_draft]
@@ -5303,6 +5967,8 @@ def delete_message(message_id):
 
 @app.context_processor
 def inject_unread_message_count():
+    if _DB_MAINTENANCE_MODE:
+        return {'unread_message_count': 0}
     if current_user.is_authenticated:
         unread_message_count = ContactMessage.query.filter_by(is_read=False).count()
     else:
@@ -5800,12 +6466,21 @@ def get_live_website():
     return Website.query.filter_by(is_draft=False).first()
 
 
+def _get_store_website():
+    """Return the live website only when the store is enabled, else None."""
+    w = get_live_website()
+    return w if (w and w.store_enabled) else None
+
+
 @app.route('/<string:page_slug>')
 def public_page_by_slug(page_slug):
     website = get_live_website()
 
     if not website:
         return render_template('no_site_found.html'), 404
+
+    if not website.is_live:
+        return render_template('site_offline.html', website=website), 503
 
     page = PublicPageContent.query.filter_by(
         website_id=website.id,
@@ -5817,6 +6492,10 @@ def public_page_by_slug(page_slug):
 
     if not page.site_active_status:
         return "Site Inactive", 404
+
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
 
     return render_public_page(website, page)
 
@@ -5835,15 +6514,19 @@ def create_page(website_id):
         except (ValueError, TypeError):
             _perm_folder_id = None
 
+        _draft_pages = website.is_draft and current_user.has_permission('website.draft.pages')
+
         if _perm_folder_id is not None:
-            # Creating inside a folder — requires global pages.create or folder-level create perm
+            # Creating inside a folder — requires global pages.create, folder-level create, or draft.pages
             if not (current_user.has_permission('pages.create')
-                    or _folder_perm(_perm_folder_id, 'create')):
+                    or _folder_perm(_perm_folder_id, 'create')
+                    or _draft_pages):
                 return jsonify({'status': 'error', 'message': 'Permission denied'}), 403
         else:
-            # Creating at root level — requires pages.create_root (or the legacy pages.create)
+            # Creating at root level — requires pages.create_root, pages.create, or draft.pages
             if not (current_user.has_permission('pages.create_root')
-                    or current_user.has_permission('pages.create')):
+                    or current_user.has_permission('pages.create')
+                    or _draft_pages):
                 return jsonify({'status': 'error', 'message': 'Permission denied'}), 403
 
     if request.method == 'POST':
@@ -5881,6 +6564,21 @@ def create_page(website_id):
 
     # Render template for GET request
     return render_template('create_page.html', website=website)
+
+
+@app.route('/admin/website/<int:website_id>/toggle-live', methods=['POST'])
+@login_required
+def website_toggle_live(website_id):
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    website = Website.query.filter_by(
+        id=website_id,
+        user_id=current_user.root_user_id,
+        is_draft=False
+    ).first_or_404()
+    website.is_live = not website.is_live
+    db.session.commit()
+    return _utf8_json({'is_live': website.is_live})
 
 
 @app.route('/edit_website/<int:website_id>', methods=['POST'])
@@ -6098,8 +6796,10 @@ def duplicate_page(website_id, page_id):
         ).first_or_404()
 
         if current_user.is_sub_admin:
+            _draft_pages = website.is_draft and current_user.has_permission('website.draft.pages')
             if not (current_user.has_permission('pages.create')
-                    or _folder_perm(original_page.page_folder_id, 'duplicate')):
+                    or _folder_perm(original_page.page_folder_id, 'duplicate')
+                    or _draft_pages):
                 return jsonify({'error': 'Permission denied'}), 403
 
         copy_name = get_copy_name(original_page.website_id, original_page.name)
@@ -6826,7 +7526,8 @@ def _delete_website_pages_by_ids(page_ids):
     if not page_ids:
         return
 
-    db.session.execute(db.text("PRAGMA defer_foreign_keys=ON"))
+    if _is_sqlite():
+        db.session.execute(db.text("PRAGMA defer_foreign_keys=ON"))
 
     section_ids = [s.id for s in
                    PageSection.query.filter(
@@ -6844,6 +7545,9 @@ def _delete_website_pages_by_ids(page_ids):
             synchronize_session=False)
         PageComment.query.filter(
             PageComment.section_id.in_(section_ids)).delete(
+            synchronize_session=False)
+        ContactMessage.query.filter(
+            ContactMessage.section_id.in_(section_ids)).delete(
             synchronize_session=False)
         CalendarFeedSubscriber.query.filter(
             CalendarFeedSubscriber.section_id.in_(section_ids)).delete(
@@ -9280,6 +9984,24 @@ def settings_page():
             flash('Settings saved. Custom admin login URL is disabled.', 'success')
         return redirect(url_for('settings_page'))
 
+    # Build a sanitized database info dict — never expose the raw URL or password
+    _raw_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if _raw_db_url.startswith('postgresql'):
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _p = _urlparse(_raw_db_url)
+            _db_info = {
+                'type': 'postgresql',
+                'host': _p.hostname or '',
+                'port': _p.port or 5432,
+                'database': (_p.path or '').lstrip('/'),
+                'username': _p.username or '',
+            }
+        except Exception:
+            _db_info = {'type': 'postgresql', 'host': '', 'port': 5432, 'database': '', 'username': ''}
+    else:
+        _db_info = {'type': 'sqlite'}
+
     return render_template(
         'settings.html',
         timezone_choices=timezone_choices,
@@ -9292,6 +10014,8 @@ def settings_page():
         email_settings=get_email_settings(),
         account_username=current_user.username,
         account_email=current_user.email,
+        db_info=_db_info,
+        website=get_admin_website(),
     )
 
 
@@ -9345,6 +10069,91 @@ def _serialize_backup(uid):
     perm_groups = PermissionGroup.query.filter_by(owner_user_id=uid).all()
     sub_admins = User.query.filter_by(parent_user_id=uid).all()
 
+    # ── New tables ────────────────────────────────────────────────────────────
+    public_users = PublicUser.query.filter(
+        PublicUser.website_id.in_(website_ids)).all() if website_ids else []
+
+    post_collections = PostCollection.query.filter(
+        PostCollection.website_id.in_(website_ids)).all() if website_ids else []
+    post_col_ids = [pc.id for pc in post_collections]
+
+    posts = Post.query.filter(
+        Post.website_id.in_(website_ids)).all() if website_ids else []
+    post_ids = [po.id for po in posts]
+
+    post_comments = PostComment.query.filter(
+        PostComment.website_id.in_(website_ids)).all() if website_ids else []
+    post_comment_ids = [c.id for c in post_comments]
+
+    post_comment_likes = PostCommentLike.query.filter(
+        PostCommentLike.website_id.in_(website_ids)).all() if website_ids else []
+
+    page_comments = PageComment.query.filter(
+        PageComment.website_id.in_(website_ids)).all() if website_ids else []
+    page_comment_ids = [c.id for c in page_comments]
+
+    page_comment_likes = PageCommentLike.query.filter(
+        PageCommentLike.website_id.in_(website_ids)).all() if website_ids else []
+
+    contact_messages = ContactMessage.query.filter(
+        ContactMessage.website_id.in_(website_ids)).all() if website_ids else []
+
+    forum_threads = ForumThread.query.filter(
+        ForumThread.website_id.in_(website_ids)).all() if website_ids else []
+    forum_thread_ids = [t.id for t in forum_threads]
+
+    forum_replies = ForumReply.query.filter(
+        ForumReply.website_id.in_(website_ids)).all() if website_ids else []
+    forum_reply_ids = [r.id for r in forum_replies]
+
+    forum_thread_votes = ForumThreadVote.query.filter(
+        ForumThreadVote.website_id.in_(website_ids)).all() if website_ids else []
+
+    forum_reply_votes = ForumReplyVote.query.filter(
+        ForumReplyVote.website_id.in_(website_ids)).all() if website_ids else []
+
+    store_categories = StoreCategory.query.filter(
+        StoreCategory.website_id.in_(website_ids)).all() if website_ids else []
+    store_cat_ids = [c.id for c in store_categories]
+
+    store_products = StoreProduct.query.filter(
+        StoreProduct.website_id.in_(website_ids)).all() if website_ids else []
+    store_prod_ids = [p.id for p in store_products]
+
+    store_product_images = StoreProductImage.query.filter(
+        StoreProductImage.product_id.in_(store_prod_ids)).all() if store_prod_ids else []
+
+    store_orders = StoreOrder.query.filter(
+        StoreOrder.website_id.in_(website_ids)).all() if website_ids else []
+    store_order_ids = [o.id for o in store_orders]
+
+    store_order_items = StoreOrderItem.query.filter(
+        StoreOrderItem.order_id.in_(store_order_ids)).all() if store_order_ids else []
+
+    store_order_addresses = StoreOrderAddress.query.filter(
+        StoreOrderAddress.order_id.in_(store_order_ids)).all() if store_order_ids else []
+
+    product_reviews = ProductReview.query.filter(
+        ProductReview.website_id.in_(website_ids)).all() if website_ids else []
+
+    cal_feed_subscribers = CalendarFeedSubscriber.query.filter(
+        CalendarFeedSubscriber.calendar_id.in_(cal_ids)).all() if cal_ids else []
+
+    saved_colors = SavedColor.query.filter_by(user_id=uid).all()
+
+    email_server_settings = EmailServerSettings.query.all()
+
+    analytics_settings = AnalyticsSettings.query.filter_by(user_id=uid).all()
+
+    plugins = Plugin.query.all()
+
+    page_visits = PageVisit.query.filter(
+        PageVisit.website_id.in_(website_ids)).all() if website_ids else []
+
+    asset_ids = [a.id for a in assets]
+    asset_plays = AssetPlay.query.filter(
+        AssetPlay.asset_id.in_(asset_ids)).all() if asset_ids else []
+
     return {
         'meta': {
             'version': BACKUP_VERSION,
@@ -9362,6 +10171,14 @@ def _serialize_backup(uid):
                       'background_image_zoom': w.background_image_zoom,
                       'public_navbar_items': w.public_navbar_items,
                       'public_navbar_style': w.public_navbar_style,
+                      'store_enabled': w.store_enabled,
+                      'store_in_store_only': w.store_in_store_only,
+                      'store_in_store_only_label': w.store_in_store_only_label,
+                      'store_title': w.store_title,
+                      'store_description': w.store_description,
+                      'profanity_filter_enabled': w.profanity_filter_enabled,
+                      'post_profanity_words': w.post_profanity_words,
+                      'post_profanity_action': w.post_profanity_action,
                       'forum_enabled': w.forum_enabled,
                       'forum_show_in_navbar': w.forum_show_in_navbar,
                       'forum_require_login_to_view': w.forum_require_login_to_view,
@@ -9370,6 +10187,10 @@ def _serialize_backup(uid):
                       'forum_description': w.forum_description,
                       'forum_account_verification_enabled': w.forum_account_verification_enabled,
                       'forum_allow_unverified_login': w.forum_allow_unverified_login,
+                      'require_login_to_view': w.require_login_to_view,
+                      'public_approval_required': w.public_approval_required,
+                      'public_email_verification_enabled': w.public_email_verification_enabled,
+                      'public_email_verification_required': w.public_email_verification_required,
                       } for w in websites],
         'page_folders': [{'id': f.id, 'website_id': f.website_id, 'name': f.name,
                           'sort_order': f.sort_order} for f in page_folders],
@@ -9442,6 +10263,189 @@ def _serialize_backup(uid):
                         'password_hash': u.password_hash,
                         'permission_group_id': u.permission_group_id,
                         'permissions': u.permissions, '_is_active': u._is_active} for u in sub_admins],
+        'public_users': [{'id': u.id, 'website_id': u.website_id, 'username': u.username,
+                          'email': u.email, 'password_hash': u.password_hash,
+                          'email_verified': u.email_verified,
+                          'email_verified_at': u.email_verified_at.isoformat() if u.email_verified_at else None,
+                          'verification_email_sent_at': u.verification_email_sent_at.isoformat() if u.verification_email_sent_at else None,
+                          'password_reset_requested_at': u.password_reset_requested_at.isoformat() if u.password_reset_requested_at else None,
+                          'last_verification_email_sent_at': u.last_verification_email_sent_at.isoformat() if u.last_verification_email_sent_at else None,
+                          'is_banned': u.is_banned, 'is_active_public': u.is_active_public,
+                          'created_at': u.created_at.isoformat() if u.created_at else None,
+                          'last_login_at': u.last_login_at.isoformat() if u.last_login_at else None,
+                          } for u in public_users],
+        'post_collections': [{'id': pc.id, 'website_id': pc.website_id, 'name': pc.name,
+                               'slug': pc.slug, 'description': pc.description,
+                               'created_at': pc.created_at.isoformat() if pc.created_at else None,
+                               } for pc in post_collections],
+        'posts': [{'id': po.id, 'collection_id': po.collection_id, 'website_id': po.website_id,
+                   'title': po.title, 'slug': po.slug, 'excerpt': po.excerpt,
+                   'content': po.content, 'cover_image_url': po.cover_image_url,
+                   'status': po.status,
+                   'published_at': po.published_at.isoformat() if po.published_at else None,
+                   'created_at': po.created_at.isoformat() if po.created_at else None,
+                   'updated_at': po.updated_at.isoformat() if po.updated_at else None,
+                   'comments_enabled': po.comments_enabled,
+                   'comments_require_login': po.comments_require_login,
+                   'comments_moderation': po.comments_moderation,
+                   } for po in posts],
+        'post_comments': [{'id': c.id, 'post_id': c.post_id, 'website_id': c.website_id,
+                           'public_user_id': c.public_user_id, 'author_name': c.author_name,
+                           'author_email': c.author_email, 'body': c.body,
+                           'is_approved': c.is_approved, 'like_count_cached': c.like_count_cached,
+                           'created_at': c.created_at.isoformat() if c.created_at else None,
+                           } for c in post_comments],
+        'post_comment_likes': [{'id': l.id, 'comment_id': l.comment_id, 'post_id': l.post_id,
+                                'website_id': l.website_id, 'public_user_id': l.public_user_id,
+                                'created_at': l.created_at.isoformat() if l.created_at else None,
+                                } for l in post_comment_likes],
+        'page_comments': [{'id': c.id, 'website_id': c.website_id, 'page_id': c.page_id,
+                           'section_id': c.section_id, 'public_user_id': c.public_user_id,
+                           'display_name': c.display_name, 'body': c.body,
+                           'is_hidden': c.is_hidden, 'is_approved': c.is_approved,
+                           'ip_address': c.ip_address, 'user_agent': c.user_agent,
+                           'created_at': c.created_at.isoformat() if c.created_at else None,
+                           'updated_at': c.updated_at.isoformat() if c.updated_at else None,
+                           'like_count_cached': c.like_count_cached,
+                           } for c in page_comments],
+        'page_comment_likes': [{'id': l.id, 'comment_id': l.comment_id, 'website_id': l.website_id,
+                                'section_id': l.section_id, 'public_user_id': l.public_user_id,
+                                'created_at': l.created_at.isoformat() if l.created_at else None,
+                                } for l in page_comment_likes],
+        'contact_messages': [{'id': m.id, 'website_id': m.website_id, 'page_id': m.page_id,
+                              'section_id': m.section_id, 'sender_email': m.sender_email,
+                              'recipient_email': m.recipient_email, 'subject': m.subject,
+                              'body': m.body, 'contact_form_title': m.contact_form_title,
+                              'ip_address': m.ip_address, 'user_agent': m.user_agent,
+                              'referrer': m.referrer, 'status': m.status,
+                              'error_message': m.error_message, 'is_read': m.is_read,
+                              'read_at': m.read_at.isoformat() if m.read_at else None,
+                              'created_at': m.created_at.isoformat() if m.created_at else None,
+                              'sent_at': m.sent_at.isoformat() if m.sent_at else None,
+                              } for m in contact_messages],
+        'forum_threads': [{'id': t.id, 'website_id': t.website_id,
+                           'public_user_id': t.public_user_id, 'title': t.title,
+                           'body': t.body, 'is_locked': t.is_locked,
+                           'is_hidden': t.is_hidden, 'is_pinned': t.is_pinned,
+                           'created_at': t.created_at.isoformat() if t.created_at else None,
+                           'updated_at': t.updated_at.isoformat() if t.updated_at else None,
+                           'ip_address': t.ip_address, 'user_agent': t.user_agent,
+                           'reply_count': t.reply_count,
+                           'vote_count_cached': t.vote_count_cached,
+                           } for t in forum_threads],
+        'forum_replies': [{'id': r.id, 'thread_id': r.thread_id, 'website_id': r.website_id,
+                           'public_user_id': r.public_user_id, 'body': r.body,
+                           'is_hidden': r.is_hidden, 'vote_count_cached': r.vote_count_cached,
+                           'created_at': r.created_at.isoformat() if r.created_at else None,
+                           'updated_at': r.updated_at.isoformat() if r.updated_at else None,
+                           'ip_address': r.ip_address, 'user_agent': r.user_agent,
+                           } for r in forum_replies],
+        'forum_thread_votes': [{'id': v.id, 'thread_id': v.thread_id, 'website_id': v.website_id,
+                                'public_user_id': v.public_user_id,
+                                'created_at': v.created_at.isoformat() if v.created_at else None,
+                                } for v in forum_thread_votes],
+        'forum_reply_votes': [{'id': v.id, 'reply_id': v.reply_id, 'website_id': v.website_id,
+                               'public_user_id': v.public_user_id,
+                               'created_at': v.created_at.isoformat() if v.created_at else None,
+                               } for v in forum_reply_votes],
+        'store_categories': [{'id': c.id, 'website_id': c.website_id, 'name': c.name,
+                              'slug': c.slug, 'description': c.description,
+                              'sort_order': c.sort_order,
+                              } for c in store_categories],
+        'store_products': [{'id': p.id, 'website_id': p.website_id,
+                            'category_id': p.category_id, 'name': p.name,
+                            'slug': p.slug, 'description': p.description,
+                            'price': str(p.price) if p.price is not None else None,
+                            'compare_at_price': str(p.compare_at_price) if p.compare_at_price is not None else None,
+                            'sku': p.sku, 'inventory_qty': p.inventory_qty,
+                            'track_inventory': p.track_inventory,
+                            'allow_oversell': p.allow_oversell, 'is_active': p.is_active,
+                            'created_at': p.created_at.isoformat() if p.created_at else None,
+                            'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+                            } for p in store_products],
+        'store_product_images': [{'id': i.id, 'product_id': i.product_id,
+                                  'asset_id': i.asset_id, 'sort_order': i.sort_order,
+                                  'alt_text': i.alt_text,
+                                  } for i in store_product_images],
+        'store_orders': [{'id': o.id, 'website_id': o.website_id,
+                          'public_user_id': o.public_user_id,
+                          'order_number': o.order_number, 'status': o.status,
+                          'contact_name': o.contact_name, 'contact_email': o.contact_email,
+                          'contact_phone': o.contact_phone,
+                          'subtotal': str(o.subtotal) if o.subtotal is not None else None,
+                          'shipping_cost': str(o.shipping_cost) if o.shipping_cost is not None else None,
+                          'total': str(o.total) if o.total is not None else None,
+                          'notes': o.notes,
+                          'stripe_payment_intent_id': o.stripe_payment_intent_id,
+                          'created_at': o.created_at.isoformat() if o.created_at else None,
+                          'updated_at': o.updated_at.isoformat() if o.updated_at else None,
+                          } for o in store_orders],
+        'store_order_items': [{'id': i.id, 'order_id': i.order_id, 'product_id': i.product_id,
+                               'product_name': i.product_name, 'product_sku': i.product_sku,
+                               'quantity': i.quantity,
+                               'unit_price': str(i.unit_price) if i.unit_price is not None else None,
+                               'line_total': str(i.line_total) if i.line_total is not None else None,
+                               } for i in store_order_items],
+        'store_order_addresses': [{'id': a.id, 'order_id': a.order_id, 'name': a.name,
+                                   'line1': a.line1, 'line2': a.line2, 'city': a.city,
+                                   'state': a.state, 'postal_code': a.postal_code,
+                                   'country': a.country,
+                                   } for a in store_order_addresses],
+        'product_reviews': [{'id': r.id, 'website_id': r.website_id,
+                             'product_id': r.product_id, 'public_user_id': r.public_user_id,
+                             'rating': r.rating, 'title': r.title, 'body': r.body,
+                             'created_at': r.created_at.isoformat() if r.created_at else None,
+                             } for r in product_reviews],
+        'calendar_feed_subscribers': [{'id': s.id, 'calendar_id': s.calendar_id,
+                                       'section_id': s.section_id,
+                                       'subscriber_hash': s.subscriber_hash,
+                                       'user_agent': s.user_agent, 'ip_address': s.ip_address,
+                                       'first_seen_at': s.first_seen_at.isoformat() if s.first_seen_at else None,
+                                       'last_seen_at': s.last_seen_at.isoformat() if s.last_seen_at else None,
+                                       'request_count': s.request_count,
+                                       } for s in cal_feed_subscribers],
+        'saved_colors': [{'id': c.id, 'user_id': c.user_id, 'color': c.color,
+                          'created_at': c.created_at.isoformat() if c.created_at else None,
+                          } for c in saved_colors],
+        'email_server_settings': [{'id': e.id, 'smtp_host': e.smtp_host,
+                                   'smtp_port': e.smtp_port, 'smtp_username': e.smtp_username,
+                                   'smtp_password': e.smtp_password, 'use_tls': e.use_tls,
+                                   'use_ssl': e.use_ssl, 'from_email': e.from_email,
+                                   'from_name': e.from_name, 'is_active': e.is_active,
+                                   } for e in email_server_settings],
+        'analytics_settings': [{'id': s.id, 'user_id': s.user_id,
+                                 'geoip_enabled': s.geoip_enabled,
+                                 'geoip_city_database_path': s.geoip_city_database_path,
+                                 'geoip_city_database_name': s.geoip_city_database_name,
+                                 'geoip_city_database_type': s.geoip_city_database_type,
+                                 'geoip_country_database_path': s.geoip_country_database_path,
+                                 'geoip_country_database_name': s.geoip_country_database_name,
+                                 'geoip_country_database_type': s.geoip_country_database_type,
+                                 'geoip_asn_database_path': s.geoip_asn_database_path,
+                                 'geoip_asn_database_name': s.geoip_asn_database_name,
+                                 'geoip_asn_database_type': s.geoip_asn_database_type,
+                                 'created_at': s.created_at.isoformat() if s.created_at else None,
+                                 'updated_at': s.updated_at.isoformat() if s.updated_at else None,
+                                 } for s in analytics_settings],
+        'plugins': [{'slug': pl.slug, 'enabled': pl.enabled, 'config': pl.config,
+                     } for pl in plugins],
+        'page_visits': [{'id': v.id, 'website_id': v.website_id, 'page_id': v.page_id,
+                         'visitor_id': v.visitor_id, 'path': v.path, 'referrer': v.referrer,
+                         'user_agent': v.user_agent, 'ip_address': v.ip_address,
+                         'country': v.country, 'country_iso': v.country_iso,
+                         'region': v.region, 'city': v.city,
+                         'latitude': v.latitude, 'longitude': v.longitude,
+                         'location_source': v.location_source,
+                         'asn_number': v.asn_number, 'asn_organization': v.asn_organization,
+                         'geoip_database_type': v.geoip_database_type,
+                         'visited_at': v.visited_at.isoformat() if v.visited_at else None,
+                         } for v in page_visits],
+        'asset_plays': [{'id': p.id, 'asset_id': p.asset_id,
+                         'visitor_id_hash': p.visitor_id_hash,
+                         'first_played_at': p.first_played_at.isoformat() if p.first_played_at else None,
+                         'last_played_at': p.last_played_at.isoformat() if p.last_played_at else None,
+                         'play_count': p.play_count,
+                         } for p in asset_plays],
     }
 
 
@@ -9516,6 +10520,10 @@ def import_backup():
                 SectionImage.query.filter(SectionImage.picture_id.in_(old_pic_ids)).delete(synchronize_session=False)
                 Picture.query.filter_by(user_id=uid).delete(synchronize_session=False)
             Folder.query.filter_by(user_id=uid).delete(synchronize_session=False)
+            # User-scoped global tables
+            SavedColor.query.filter_by(user_id=uid).delete(synchronize_session=False)
+            EmailServerSettings.query.delete(synchronize_session=False)
+            AnalyticsSettings.query.filter_by(user_id=uid).delete(synchronize_session=False)
             db.session.flush()
 
             # ── ID maps ───────────────────────────────────────────────────────
@@ -9538,6 +10546,16 @@ def import_backup():
             sa_map = {};
             pic_folder_map = {};
             pic_map = {}
+            pub_user_map = {};
+            post_col_map = {};
+            post_map = {}
+            post_comment_map = {};
+            page_comment_map = {};
+            forum_thread_map = {}
+            forum_reply_map = {};
+            store_cat_map = {};
+            store_prod_map = {}
+            store_order_map = {}
 
             # ── Websites ──────────────────────────────────────────────────────
             for wd in data.get('websites', []):
@@ -9552,6 +10570,14 @@ def import_backup():
                             background_image_zoom=wd.get('background_image_zoom', 100),
                             public_navbar_items=wd.get('public_navbar_items') or [],
                             public_navbar_style=wd.get('public_navbar_style') or {},
+                            store_enabled=wd.get('store_enabled', True),
+                            store_in_store_only=wd.get('store_in_store_only', False),
+                            store_in_store_only_label=wd.get('store_in_store_only_label'),
+                            store_title=wd.get('store_title', 'Shop'),
+                            store_description=wd.get('store_description'),
+                            profanity_filter_enabled=wd.get('profanity_filter_enabled', False),
+                            post_profanity_words=wd.get('post_profanity_words'),
+                            post_profanity_action=wd.get('post_profanity_action', 'block'),
                             forum_enabled=wd.get('forum_enabled', False),
                             forum_show_in_navbar=wd.get('forum_show_in_navbar', True),
                             forum_require_login_to_view=wd.get('forum_require_login_to_view', False),
@@ -9559,7 +10585,11 @@ def import_backup():
                             forum_title=wd.get('forum_title', 'Forum'),
                             forum_description=wd.get('forum_description'),
                             forum_account_verification_enabled=wd.get('forum_account_verification_enabled', False),
-                            forum_allow_unverified_login=wd.get('forum_allow_unverified_login', False))
+                            forum_allow_unverified_login=wd.get('forum_allow_unverified_login', False),
+                            require_login_to_view=wd.get('require_login_to_view', False),
+                            public_approval_required=wd.get('public_approval_required', False),
+                            public_email_verification_enabled=wd.get('public_email_verification_enabled', False),
+                            public_email_verification_required=wd.get('public_email_verification_required', False))
                 db.session.add(w);
                 db.session.flush()
                 website_map[wd['id']] = w.id
@@ -9903,6 +10933,397 @@ def import_backup():
                     if cc != p.custom_code:
                         p.custom_code = cc
 
+            # ── PublicUser ────────────────────────────────────────────────────
+            for ud in data.get('public_users', []):
+                new_wid = website_map.get(ud['website_id'])
+                if not new_wid:
+                    continue
+                pu = PublicUser(
+                    website_id=new_wid, username=ud['username'], email=ud['email'],
+                    password_hash=ud.get('password_hash'),
+                    email_verified=ud.get('email_verified', False),
+                    email_verified_at=datetime.fromisoformat(ud['email_verified_at']) if ud.get('email_verified_at') else None,
+                    verification_email_sent_at=datetime.fromisoformat(ud['verification_email_sent_at']) if ud.get('verification_email_sent_at') else None,
+                    password_reset_requested_at=datetime.fromisoformat(ud['password_reset_requested_at']) if ud.get('password_reset_requested_at') else None,
+                    last_verification_email_sent_at=datetime.fromisoformat(ud['last_verification_email_sent_at']) if ud.get('last_verification_email_sent_at') else None,
+                    is_banned=ud.get('is_banned', False),
+                    is_active_public=ud.get('is_active_public', True),
+                    created_at=datetime.fromisoformat(ud['created_at']) if ud.get('created_at') else None,
+                    last_login_at=datetime.fromisoformat(ud['last_login_at']) if ud.get('last_login_at') else None)
+                db.session.add(pu)
+                db.session.flush()
+                pub_user_map[ud['id']] = pu.id
+
+            # ── PostCollection ────────────────────────────────────────────────
+            for pcd in data.get('post_collections', []):
+                new_wid = website_map.get(pcd['website_id'])
+                if not new_wid:
+                    continue
+                pc = PostCollection(
+                    website_id=new_wid, name=pcd['name'], slug=pcd.get('slug'),
+                    description=pcd.get('description'),
+                    created_at=datetime.fromisoformat(pcd['created_at']) if pcd.get('created_at') else None)
+                db.session.add(pc)
+                db.session.flush()
+                post_col_map[pcd['id']] = pc.id
+
+            # ── Post ──────────────────────────────────────────────────────────
+            for pod in data.get('posts', []):
+                new_wid = website_map.get(pod['website_id'])
+                if not new_wid:
+                    continue
+                po = Post(
+                    website_id=new_wid,
+                    collection_id=post_col_map.get(pod['collection_id']) if pod.get('collection_id') else None,
+                    title=pod['title'], slug=pod.get('slug'), excerpt=pod.get('excerpt'),
+                    content=pod.get('content'), cover_image_url=pod.get('cover_image_url'),
+                    status=pod.get('status', 'draft'),
+                    published_at=datetime.fromisoformat(pod['published_at']) if pod.get('published_at') else None,
+                    created_at=datetime.fromisoformat(pod['created_at']) if pod.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(pod['updated_at']) if pod.get('updated_at') else None,
+                    comments_enabled=pod.get('comments_enabled', True),
+                    comments_require_login=pod.get('comments_require_login', False),
+                    comments_moderation=pod.get('comments_moderation', 'none'))
+                db.session.add(po)
+                db.session.flush()
+                post_map[pod['id']] = po.id
+
+            # ── PostComment ───────────────────────────────────────────────────
+            for cd in data.get('post_comments', []):
+                new_wid = website_map.get(cd['website_id'])
+                new_pid = post_map.get(cd['post_id'])
+                if not new_wid or not new_pid:
+                    continue
+                pc = PostComment(
+                    website_id=new_wid, post_id=new_pid,
+                    public_user_id=pub_user_map.get(cd['public_user_id']) if cd.get('public_user_id') else None,
+                    author_name=cd.get('author_name'), author_email=cd.get('author_email'),
+                    body=cd.get('body'), is_approved=cd.get('is_approved', True),
+                    like_count_cached=cd.get('like_count_cached', 0),
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None)
+                db.session.add(pc)
+                db.session.flush()
+                post_comment_map[cd['id']] = pc.id
+
+            # ── PostCommentLike ───────────────────────────────────────────────
+            for ld in data.get('post_comment_likes', []):
+                new_wid = website_map.get(ld['website_id'])
+                new_cid = post_comment_map.get(ld['comment_id'])
+                new_pid = post_map.get(ld['post_id'])
+                if not new_wid or not new_cid or not new_pid:
+                    continue
+                db.session.add(PostCommentLike(
+                    website_id=new_wid, comment_id=new_cid, post_id=new_pid,
+                    public_user_id=pub_user_map.get(ld['public_user_id']) if ld.get('public_user_id') else None,
+                    created_at=datetime.fromisoformat(ld['created_at']) if ld.get('created_at') else None))
+
+            # ── PageComment ───────────────────────────────────────────────────
+            for cd in data.get('page_comments', []):
+                new_wid = website_map.get(cd['website_id'])
+                new_pg_id = page_map.get(cd['page_id']) if cd.get('page_id') else None
+                new_sec_id = sec_map.get(cd['section_id']) if cd.get('section_id') else None
+                if not new_wid:
+                    continue
+                pgc = PageComment(
+                    website_id=new_wid, page_id=new_pg_id, section_id=new_sec_id,
+                    public_user_id=pub_user_map.get(cd['public_user_id']) if cd.get('public_user_id') else None,
+                    display_name=cd.get('display_name'), body=cd.get('body'),
+                    is_hidden=cd.get('is_hidden', False), is_approved=cd.get('is_approved', True),
+                    ip_address=cd.get('ip_address'), user_agent=cd.get('user_agent'),
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(cd['updated_at']) if cd.get('updated_at') else None,
+                    like_count_cached=cd.get('like_count_cached', 0))
+                db.session.add(pgc)
+                db.session.flush()
+                page_comment_map[cd['id']] = pgc.id
+
+            # ── PageCommentLike ───────────────────────────────────────────────
+            for ld in data.get('page_comment_likes', []):
+                new_wid = website_map.get(ld['website_id'])
+                new_cid = page_comment_map.get(ld['comment_id'])
+                if not new_wid or not new_cid:
+                    continue
+                db.session.add(PageCommentLike(
+                    website_id=new_wid, comment_id=new_cid,
+                    section_id=sec_map.get(ld['section_id']) if ld.get('section_id') else None,
+                    public_user_id=pub_user_map.get(ld['public_user_id']) if ld.get('public_user_id') else None,
+                    created_at=datetime.fromisoformat(ld['created_at']) if ld.get('created_at') else None))
+
+            # ── ContactMessage ────────────────────────────────────────────────
+            for md in data.get('contact_messages', []):
+                new_wid = website_map.get(md['website_id'])
+                if not new_wid:
+                    continue
+                new_sec_id = sec_map.get(md['section_id']) if md.get('section_id') else None
+                if md.get('section_id') and not new_sec_id:
+                    continue  # section FK required but not found; skip
+                db.session.add(ContactMessage(
+                    website_id=new_wid,
+                    page_id=page_map.get(md['page_id']) if md.get('page_id') else None,
+                    section_id=new_sec_id,
+                    sender_email=md.get('sender_email'), recipient_email=md.get('recipient_email'),
+                    subject=md.get('subject'), body=md.get('body'),
+                    contact_form_title=md.get('contact_form_title'),
+                    ip_address=md.get('ip_address'), user_agent=md.get('user_agent'),
+                    referrer=md.get('referrer'), status=md.get('status', 'sent'),
+                    error_message=md.get('error_message'), is_read=md.get('is_read', False),
+                    read_at=datetime.fromisoformat(md['read_at']) if md.get('read_at') else None,
+                    created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None,
+                    sent_at=datetime.fromisoformat(md['sent_at']) if md.get('sent_at') else None))
+
+            # ── ForumThread ───────────────────────────────────────────────────
+            for td in data.get('forum_threads', []):
+                new_wid = website_map.get(td['website_id'])
+                if not new_wid:
+                    continue
+                ft = ForumThread(
+                    website_id=new_wid,
+                    public_user_id=pub_user_map.get(td['public_user_id']) if td.get('public_user_id') else None,
+                    title=td['title'], body=td.get('body'),
+                    is_locked=td.get('is_locked', False), is_hidden=td.get('is_hidden', False),
+                    is_pinned=td.get('is_pinned', False),
+                    created_at=datetime.fromisoformat(td['created_at']) if td.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(td['updated_at']) if td.get('updated_at') else None,
+                    ip_address=td.get('ip_address'), user_agent=td.get('user_agent'),
+                    reply_count=td.get('reply_count', 0),
+                    vote_count_cached=td.get('vote_count_cached', 0))
+                db.session.add(ft)
+                db.session.flush()
+                forum_thread_map[td['id']] = ft.id
+
+            # ── ForumReply ────────────────────────────────────────────────────
+            for rd in data.get('forum_replies', []):
+                new_wid = website_map.get(rd['website_id'])
+                new_tid = forum_thread_map.get(rd['thread_id'])
+                if not new_wid or not new_tid:
+                    continue
+                fr = ForumReply(
+                    website_id=new_wid, thread_id=new_tid,
+                    public_user_id=pub_user_map.get(rd['public_user_id']) if rd.get('public_user_id') else None,
+                    body=rd.get('body'), is_hidden=rd.get('is_hidden', False),
+                    vote_count_cached=rd.get('vote_count_cached', 0),
+                    created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(rd['updated_at']) if rd.get('updated_at') else None,
+                    ip_address=rd.get('ip_address'), user_agent=rd.get('user_agent'))
+                db.session.add(fr)
+                db.session.flush()
+                forum_reply_map[rd['id']] = fr.id
+
+            # ── ForumThreadVote ───────────────────────────────────────────────
+            for vd in data.get('forum_thread_votes', []):
+                new_wid = website_map.get(vd['website_id'])
+                new_tid = forum_thread_map.get(vd['thread_id'])
+                if not new_wid or not new_tid:
+                    continue
+                db.session.add(ForumThreadVote(
+                    website_id=new_wid, thread_id=new_tid,
+                    public_user_id=pub_user_map.get(vd['public_user_id']) if vd.get('public_user_id') else None,
+                    created_at=datetime.fromisoformat(vd['created_at']) if vd.get('created_at') else None))
+
+            # ── ForumReplyVote ────────────────────────────────────────────────
+            for vd in data.get('forum_reply_votes', []):
+                new_wid = website_map.get(vd['website_id'])
+                new_rid = forum_reply_map.get(vd['reply_id'])
+                if not new_wid or not new_rid:
+                    continue
+                db.session.add(ForumReplyVote(
+                    website_id=new_wid, reply_id=new_rid,
+                    public_user_id=pub_user_map.get(vd['public_user_id']) if vd.get('public_user_id') else None,
+                    created_at=datetime.fromisoformat(vd['created_at']) if vd.get('created_at') else None))
+
+            # ── StoreCategory ─────────────────────────────────────────────────
+            for cd in data.get('store_categories', []):
+                new_wid = website_map.get(cd['website_id'])
+                if not new_wid:
+                    continue
+                sc = StoreCategory(
+                    website_id=new_wid, name=cd['name'], slug=cd.get('slug'),
+                    description=cd.get('description'), sort_order=cd.get('sort_order', 0))
+                db.session.add(sc)
+                db.session.flush()
+                store_cat_map[cd['id']] = sc.id
+
+            # ── StoreProduct ──────────────────────────────────────────────────
+            for pd in data.get('store_products', []):
+                new_wid = website_map.get(pd['website_id'])
+                if not new_wid:
+                    continue
+                from decimal import Decimal as _Decimal
+                sp = StoreProduct(
+                    website_id=new_wid,
+                    category_id=store_cat_map.get(pd['category_id']) if pd.get('category_id') else None,
+                    name=pd['name'], slug=pd.get('slug'), description=pd.get('description'),
+                    price=_Decimal(str(pd['price'])) if pd.get('price') is not None else None,
+                    compare_at_price=_Decimal(str(pd['compare_at_price'])) if pd.get('compare_at_price') is not None else None,
+                    sku=pd.get('sku'), inventory_qty=pd.get('inventory_qty', 0),
+                    track_inventory=pd.get('track_inventory', False),
+                    allow_oversell=pd.get('allow_oversell', False),
+                    is_active=pd.get('is_active', True),
+                    created_at=datetime.fromisoformat(pd['created_at']) if pd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(pd['updated_at']) if pd.get('updated_at') else None)
+                db.session.add(sp)
+                db.session.flush()
+                store_prod_map[pd['id']] = sp.id
+
+            # ── StoreProductImage ─────────────────────────────────────────────
+            for id_ in data.get('store_product_images', []):
+                new_pid = store_prod_map.get(id_['product_id'])
+                if not new_pid:
+                    continue
+                db.session.add(StoreProductImage(
+                    product_id=new_pid,
+                    asset_id=asset_map.get(id_['asset_id']) if id_.get('asset_id') else None,
+                    sort_order=id_.get('sort_order', 0),
+                    alt_text=id_.get('alt_text')))
+
+            # ── StoreOrder ────────────────────────────────────────────────────
+            for od in data.get('store_orders', []):
+                new_wid = website_map.get(od['website_id'])
+                if not new_wid:
+                    continue
+                from decimal import Decimal as _Decimal
+                so = StoreOrder(
+                    website_id=new_wid,
+                    public_user_id=pub_user_map.get(od['public_user_id']) if od.get('public_user_id') else None,
+                    order_number=od.get('order_number'), status=od.get('status', 'pending'),
+                    contact_name=od.get('contact_name'), contact_email=od.get('contact_email'),
+                    contact_phone=od.get('contact_phone'),
+                    subtotal=_Decimal(str(od['subtotal'])) if od.get('subtotal') is not None else None,
+                    shipping_cost=_Decimal(str(od['shipping_cost'])) if od.get('shipping_cost') is not None else None,
+                    total=_Decimal(str(od['total'])) if od.get('total') is not None else None,
+                    notes=od.get('notes'),
+                    stripe_payment_intent_id=od.get('stripe_payment_intent_id'),
+                    created_at=datetime.fromisoformat(od['created_at']) if od.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(od['updated_at']) if od.get('updated_at') else None)
+                db.session.add(so)
+                db.session.flush()
+                store_order_map[od['id']] = so.id
+
+            # ── StoreOrderItem ────────────────────────────────────────────────
+            for id_ in data.get('store_order_items', []):
+                new_oid = store_order_map.get(id_['order_id'])
+                if not new_oid:
+                    continue
+                from decimal import Decimal as _Decimal
+                db.session.add(StoreOrderItem(
+                    order_id=new_oid,
+                    product_id=store_prod_map.get(id_['product_id']) if id_.get('product_id') else None,
+                    product_name=id_.get('product_name'), product_sku=id_.get('product_sku'),
+                    quantity=id_.get('quantity', 1),
+                    unit_price=_Decimal(str(id_['unit_price'])) if id_.get('unit_price') is not None else None,
+                    line_total=_Decimal(str(id_['line_total'])) if id_.get('line_total') is not None else None))
+
+            # ── StoreOrderAddress ─────────────────────────────────────────────
+            for ad in data.get('store_order_addresses', []):
+                new_oid = store_order_map.get(ad['order_id'])
+                if not new_oid:
+                    continue
+                db.session.add(StoreOrderAddress(
+                    order_id=new_oid, name=ad.get('name'), line1=ad.get('line1'),
+                    line2=ad.get('line2'), city=ad.get('city'), state=ad.get('state'),
+                    postal_code=ad.get('postal_code'), country=ad.get('country')))
+
+            # ── ProductReview ─────────────────────────────────────────────────
+            for rd in data.get('product_reviews', []):
+                new_wid = website_map.get(rd['website_id'])
+                new_pid = store_prod_map.get(rd['product_id'])
+                if not new_wid or not new_pid:
+                    continue
+                db.session.add(ProductReview(
+                    website_id=new_wid, product_id=new_pid,
+                    public_user_id=pub_user_map.get(rd['public_user_id']) if rd.get('public_user_id') else None,
+                    rating=rd.get('rating'), title=rd.get('title'), body=rd.get('body'),
+                    created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None))
+
+            # ── CalendarFeedSubscriber ────────────────────────────────────────
+            for sd in data.get('calendar_feed_subscribers', []):
+                new_cid = cal_map.get(sd['calendar_id'])
+                if not new_cid:
+                    continue
+                db.session.add(CalendarFeedSubscriber(
+                    calendar_id=new_cid,
+                    section_id=sec_map.get(sd['section_id']) if sd.get('section_id') else None,
+                    subscriber_hash=sd.get('subscriber_hash'),
+                    user_agent=sd.get('user_agent'), ip_address=sd.get('ip_address'),
+                    first_seen_at=datetime.fromisoformat(sd['first_seen_at']) if sd.get('first_seen_at') else None,
+                    last_seen_at=datetime.fromisoformat(sd['last_seen_at']) if sd.get('last_seen_at') else None,
+                    request_count=sd.get('request_count', 0)))
+
+            # ── SavedColor ────────────────────────────────────────────────────
+            for cd in data.get('saved_colors', []):
+                db.session.add(SavedColor(
+                    user_id=uid, color=cd['color'],
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None))
+
+            # ── EmailServerSettings ───────────────────────────────────────────
+            for ed in data.get('email_server_settings', []):
+                db.session.add(EmailServerSettings(
+                    smtp_host=ed.get('smtp_host'), smtp_port=ed.get('smtp_port'),
+                    smtp_username=ed.get('smtp_username'), smtp_password=ed.get('smtp_password'),
+                    use_tls=ed.get('use_tls', True), use_ssl=ed.get('use_ssl', False),
+                    from_email=ed.get('from_email'), from_name=ed.get('from_name'),
+                    is_active=ed.get('is_active', True)))
+
+            # ── AnalyticsSettings ─────────────────────────────────────────────
+            for sd in data.get('analytics_settings', []):
+                db.session.add(AnalyticsSettings(
+                    user_id=uid,
+                    geoip_enabled=sd.get('geoip_enabled', False),
+                    geoip_city_database_path=sd.get('geoip_city_database_path'),
+                    geoip_city_database_name=sd.get('geoip_city_database_name'),
+                    geoip_city_database_type=sd.get('geoip_city_database_type'),
+                    geoip_country_database_path=sd.get('geoip_country_database_path'),
+                    geoip_country_database_name=sd.get('geoip_country_database_name'),
+                    geoip_country_database_type=sd.get('geoip_country_database_type'),
+                    geoip_asn_database_path=sd.get('geoip_asn_database_path'),
+                    geoip_asn_database_name=sd.get('geoip_asn_database_name'),
+                    geoip_asn_database_type=sd.get('geoip_asn_database_type'),
+                    created_at=datetime.fromisoformat(sd['created_at']) if sd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(sd['updated_at']) if sd.get('updated_at') else None))
+
+            # ── Plugin (upsert by slug) ───────────────────────────────────────
+            for pld in data.get('plugins', []):
+                existing = Plugin.query.filter_by(slug=pld['slug']).first()
+                if existing:
+                    existing.enabled = pld.get('enabled', existing.enabled)
+                    existing.config = pld.get('config', existing.config)
+                else:
+                    db.session.add(Plugin(
+                        slug=pld['slug'], enabled=pld.get('enabled', False),
+                        config=pld.get('config')))
+
+            # ── PageVisit ─────────────────────────────────────────────────────
+            for vd in data.get('page_visits', []):
+                new_wid = website_map.get(vd['website_id'])
+                if not new_wid:
+                    continue
+                db.session.add(PageVisit(
+                    website_id=new_wid,
+                    page_id=page_map.get(vd['page_id']) if vd.get('page_id') else None,
+                    visitor_id=vd.get('visitor_id'), path=vd.get('path'),
+                    referrer=vd.get('referrer'), user_agent=vd.get('user_agent'),
+                    ip_address=vd.get('ip_address'), country=vd.get('country'),
+                    country_iso=vd.get('country_iso'), region=vd.get('region'),
+                    city=vd.get('city'), latitude=vd.get('latitude'),
+                    longitude=vd.get('longitude'),
+                    location_source=vd.get('location_source'),
+                    asn_number=vd.get('asn_number'),
+                    asn_organization=vd.get('asn_organization'),
+                    geoip_database_type=vd.get('geoip_database_type'),
+                    visited_at=datetime.fromisoformat(vd['visited_at']) if vd.get('visited_at') else None))
+
+            # ── AssetPlay ─────────────────────────────────────────────────────
+            for pd in data.get('asset_plays', []):
+                new_aid = asset_map.get(pd['asset_id'])
+                if not new_aid:
+                    continue
+                db.session.add(AssetPlay(
+                    asset_id=new_aid,
+                    visitor_id_hash=pd.get('visitor_id_hash'),
+                    first_played_at=datetime.fromisoformat(pd['first_played_at']) if pd.get('first_played_at') else None,
+                    last_played_at=datetime.fromisoformat(pd['last_played_at']) if pd.get('last_played_at') else None,
+                    play_count=pd.get('play_count', 0)))
+
             db.session.commit()
 
             # ── Extract asset files ────────────────────────────────────────────
@@ -9928,6 +11349,329 @@ def import_backup():
         return _utf8_json({'success': False, 'error': str(e)}, 500)
 
     return _utf8_json({'success': True})
+
+
+# ── Database migration (SQLite ↔ PostgreSQL) ──────────────────────────────────
+
+def _pg_friendly_error(raw_err: str, pg_url: str = '') -> str:
+    """Convert raw psycopg2/SQLAlchemy error strings into actionable messages."""
+    import re as _re
+    msg = raw_err.lower()
+
+    if 'insufficientprivilege' in msg or 'permission denied' in msg:
+        # Extract db name from URL if possible
+        try:
+            db = pg_url.rstrip('/').split('/')[-1]
+            user = _re.search(r'://([^:@]+)', pg_url)
+            user = user.group(1) if user else 'uwebia_user'
+        except Exception:
+            db, user = 'uwebia', 'uwebia_user'
+        return (
+            f'Permission denied. Run these on the PostgreSQL server:\n'
+            f'  sudo -u postgres psql -c "ALTER DATABASE {db} OWNER TO {user};"\n'
+            f'  sudo -u postgres psql -c "ALTER SCHEMA public OWNER TO {user};"\n'
+            f'  sudo -u postgres psql -c "GRANT ALL ON SCHEMA public TO {user};"'
+        )
+
+    if 'connection refused' in msg or 'no route to host' in msg or 'could not connect' in msg:
+        return (
+            'Cannot reach the PostgreSQL server. Check that:\n'
+            '  • PostgreSQL is running (systemctl start postgresql)\n'
+            '  • listen_addresses = \'*\' in postgresql.conf\n'
+            '  • A matching rule exists in pg_hba.conf\n'
+            '  • The firewall allows port 5432'
+        )
+
+    if 'password authentication failed' in msg or 'authentication failed' in msg:
+        return 'Authentication failed — check the username and password.'
+
+    if 'does not exist' in msg and 'database' in msg:
+        return (
+            'Database not found. Create it with:\n'
+            '  sudo -u postgres psql -c "CREATE DATABASE uwebia;"'
+        )
+
+    if 'stringdatarighttruncation' in msg or 'value too long' in msg:
+        return 'A value is too long for a PostgreSQL column. Check for unusually long field values.'
+
+    if 'unicodedecodeerror' in msg or 'codec' in msg:
+        return 'Character encoding error. Ensure the PostgreSQL database uses UTF-8 encoding.'
+
+    return f'Migration failed: {raw_err}'
+
+
+def _test_pg_connection(pg_url: str) -> tuple[bool, str]:
+    """Return (ok, error_message). Tries to connect and run a trivial query."""
+    try:
+        from sqlalchemy import create_engine, text as _text
+        _eng = create_engine(pg_url, connect_args={'connect_timeout': 5, 'client_encoding': 'utf8'})
+        with _eng.connect() as _c:
+            _c.execute(_text('SELECT 1'))
+        _eng.dispose()
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
+
+def _migrate_data(src_url: str, dst_url: str) -> tuple[bool, str]:
+    """Copy every table from *src* to *dst*, then fix PostgreSQL sequences.
+    Both databases must already have the schema created (via create_all).
+    Returns (success, error_message)."""
+    try:
+        from sqlalchemy import create_engine, text as _text, inspect as _inspect
+
+        src_eng = create_engine(src_url)
+        dst_eng = create_engine(
+            dst_url,
+            connect_args={'client_encoding': 'utf8'} if dst_url.startswith('postgresql') else {}
+        )
+        dst_is_pg = dst_url.startswith('postgresql')
+
+        # Verify connectivity
+        with dst_eng.connect():
+            pass
+
+        # Drop all existing tables in destination so the schema is always
+        # rebuilt fresh from the current models (handles column type changes).
+        if dst_is_pg:
+            with dst_eng.begin() as _drop_conn:
+                # CASCADE handles FK dependency order automatically
+                for _tbl in reversed(db.metadata.sorted_tables):
+                    _drop_conn.execute(_text(
+                        f'DROP TABLE IF EXISTS "{_tbl.name}" CASCADE'
+                    ))
+                # Also drop the alembic version table if present
+                _drop_conn.execute(_text(
+                    'DROP TABLE IF EXISTS alembic_version CASCADE'
+                ))
+
+        db.metadata.create_all(dst_eng)
+
+        src_insp = _inspect(src_eng)
+        all_tables = [t.name for t in db.metadata.sorted_tables]
+
+        # Tables present in the source DB
+        src_tables = set(src_insp.get_table_names())
+
+        from sqlalchemy.schema import AddConstraint as _AddConstraint
+
+        # Drop all FK constraints on the destination before inserting so that
+        # circular references (e.g. user ↔ permission_group) don't block inserts.
+        # Query the actual constraint names from the DB (not metadata) to be sure.
+        if dst_is_pg:
+            with dst_eng.begin() as _pre_conn:
+                _fk_rows = _pre_conn.execute(_text("""
+                    SELECT tc.constraint_name, tc.table_name
+                    FROM information_schema.table_constraints tc
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                    AND tc.table_schema = 'public'
+                """)).fetchall()
+                for _cname, _tname in _fk_rows:
+                    try:
+                        _pre_conn.execute(_text(
+                            f'ALTER TABLE "{_tname}" DROP CONSTRAINT IF EXISTS "{_cname}"'
+                        ))
+                    except Exception:
+                        pass
+
+        with src_eng.connect() as src_conn:
+            with dst_eng.begin() as dst_conn:
+                if not dst_is_pg:
+                    dst_conn.execute(_text('PRAGMA defer_foreign_keys=ON'))
+
+                for tname in all_tables:
+                    if tname not in src_tables:
+                        continue
+
+                    # Fetch all rows from source
+                    rows = src_conn.execute(
+                        _text(f'SELECT * FROM "{tname}"')
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    col_names = [c['name'] for c in src_insp.get_columns(tname)]
+                    col_str = ', '.join(f'"{c}"' for c in col_names)
+
+                    if dst_is_pg:
+                        dst_conn.execute(_text(f'TRUNCATE TABLE "{tname}" CASCADE'))
+                    else:
+                        dst_conn.execute(_text(f'DELETE FROM "{tname}"'))
+
+                    # SQLAlchemy text() always uses :param style for all backends
+                    placeholders = ', '.join(f':{c}' for c in col_names)
+                    stmt = _text(
+                        f'INSERT INTO "{tname}" ({col_str}) VALUES ({placeholders})'
+                    )
+
+                    from sqlalchemy import Boolean as _Boolean, String as _String, JSON as _JSON
+                    meta_table = db.metadata.tables.get(tname)
+                    bool_cols = set()
+                    json_cols = set()
+                    str_limits = {}  # col_name → max length (None = unlimited)
+                    if dst_is_pg and meta_table is not None:
+                        for mc in meta_table.columns:
+                            if isinstance(mc.type, _Boolean):
+                                bool_cols.add(mc.name)
+                            elif isinstance(mc.type, _JSON):
+                                json_cols.add(mc.name)
+                            elif isinstance(mc.type, _String) and mc.type.length:
+                                str_limits[mc.name] = mc.type.length
+
+                    import json as _json_mod
+                    batch = []
+                    for row in rows:
+                        row_dict = dict(zip(col_names, row))
+                        for bc in bool_cols:
+                            if bc in row_dict and row_dict[bc] is not None:
+                                row_dict[bc] = bool(row_dict[bc])
+                        # JSON columns: SQLite stores them as TEXT strings.
+                        # Parse them so psycopg2 sends a proper JSON value to PostgreSQL.
+                        for jc in json_cols:
+                            val = row_dict.get(jc)
+                            if isinstance(val, str):
+                                try:
+                                    row_dict[jc] = _json_mod.loads(val)
+                                except (ValueError, TypeError):
+                                    row_dict[jc] = None
+                        # Truncate strings that exceed declared VARCHAR length
+                        for sc, max_len in str_limits.items():
+                            if sc in row_dict and isinstance(row_dict[sc], str):
+                                if len(row_dict[sc]) > max_len:
+                                    app.logger.warning(
+                                        f'[db-migrate] {tname}.{sc}: truncating '
+                                        f'{len(row_dict[sc])} → {max_len} chars'
+                                    )
+                                    row_dict[sc] = row_dict[sc][:max_len]
+                        batch.append(row_dict)
+
+                    dst_conn.execute(stmt, batch)
+                    app.logger.info(f'[db-migrate] {tname}: {len(batch)} rows')
+
+        # Recreate all FK constraints now that all data is present
+        if dst_is_pg:
+            with dst_eng.begin() as _post_conn:
+                for _tbl in db.metadata.sorted_tables:
+                    for _fkc in list(_tbl.foreign_key_constraints):
+                        try:
+                            _post_conn.execute(_AddConstraint(_fkc))
+                        except Exception as _fke:
+                            app.logger.warning(f'[db-migrate] FK recreate {_fkc.name}: {_fke}')
+
+        # Fix PostgreSQL auto-increment sequences so new inserts get correct IDs
+        if dst_is_pg:
+            with dst_eng.begin() as dst_conn:
+                for tname in all_tables:
+                    if tname not in src_tables:
+                        continue
+                    try:
+                        dst_conn.execute(_text(
+                            f"SELECT setval("
+                            f"pg_get_serial_sequence('\"{tname}\"', 'id'), "
+                            f"COALESCE((SELECT MAX(id) FROM \"{tname}\"), 1))"
+                        ))
+                    except Exception:
+                        pass  # table may not have an 'id' sequence
+
+        src_eng.dispose()
+        dst_eng.dispose()
+        return True, ''
+    except Exception as e:
+        app.logger.exception('_migrate_data error')
+        return False, str(e)
+
+
+@app.route('/admin/settings/database/connect', methods=['POST'])
+def connect_to_postgres():
+    """Switch to a PostgreSQL database without migrating any data.
+    Use this when the data is already in PostgreSQL (e.g. after moving servers)."""
+    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    data = request.get_json() or {}
+    pg_url = (data.get('database_url') or '').strip()
+    if not pg_url:
+        return _utf8_json({'success': False, 'error': 'No connection string provided'}, 400)
+    ok, err = _test_pg_connection(pg_url)
+    if not ok:
+        return _utf8_json({'success': False, 'error': f'Cannot connect: {err}'}, 400)
+    _save_db_config({'database_url': pg_url})
+    return _utf8_json({'success': True, 'message': 'Connection saved. Restart the server to apply.'})
+
+
+@app.route('/admin/settings/database/health')
+@login_required
+def database_health():
+    """Quick liveness check for the active database connection."""
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        dialect = db.engine.url.drivername
+        return _utf8_json({'ok': True, 'dialect': dialect})
+    except Exception as e:
+        return _utf8_json({'ok': False, 'error': str(e)}, 503)
+
+
+@app.route('/admin/settings/database/test', methods=['POST'])
+def test_db_connection():
+    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    data = request.get_json() or {}
+    pg_url = (data.get('database_url') or '').strip()
+    if not pg_url:
+        return _utf8_json({'success': False, 'error': 'No connection string provided'}, 400)
+    ok, err = _test_pg_connection(pg_url)
+    return _utf8_json({'success': ok, 'error': err})
+
+
+@app.route('/admin/settings/database/migrate', methods=['POST'])
+@login_required
+def migrate_to_postgres():
+    """Migrate all data from the current SQLite database to PostgreSQL,
+    save the new DATABASE_URL to db_config.json, and signal a restart."""
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+
+    data = request.get_json() or {}
+    pg_url = (data.get('database_url') or '').strip()
+    if not pg_url:
+        return _utf8_json({'success': False, 'error': 'No connection string provided'}, 400)
+
+    current_url = app.config['SQLALCHEMY_DATABASE_URI']
+    if not current_url.startswith('sqlite'):
+        return _utf8_json({'success': False, 'error': 'Current database is not SQLite'}, 400)
+
+    # Test connectivity first
+    ok, err = _test_pg_connection(pg_url)
+    if not ok:
+        return _utf8_json({'success': False, 'error': f'Cannot connect to PostgreSQL: {err}'}, 400)
+
+    # Migrate data
+    ok, err = _migrate_data(current_url, pg_url)
+    if not ok:
+        user_error = _pg_friendly_error(err, pg_url)
+        return _utf8_json({'success': False, 'error': user_error}, 500)
+
+    # Persist the new URL so the app uses it after restart
+    _save_db_config({'database_url': pg_url})
+    return _utf8_json({'success': True, 'message': 'Migration complete. Restart the server to switch to PostgreSQL.'})
+
+
+@app.route('/admin/settings/database/revert', methods=['POST'])
+def revert_to_sqlite():
+    """Switch back to SQLite (data is not migrated back — SQLite file is unchanged)."""
+    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    cfg = _load_db_config()
+    cfg.pop('database_url', None)
+    _save_db_config(cfg)
+    return _utf8_json({'success': True, 'message': 'Reverted to SQLite. Restart the server to apply.'})
 
 
 def render_public_page(website, page, is_preview=False):
@@ -10027,6 +11771,75 @@ def render_public_page(website, page, is_preview=False):
 
         comments_by_section[section.id] = comments
 
+    # ── Product grid sections ──────────────────────────────────────────────────
+    products_by_section = {}
+    _store_on = getattr(website, 'store_enabled', True)
+    if _store_on:
+        for section in sections:
+            if section.section_type != 'product_grid':
+                continue
+            cfg = section.content or {}
+            source = cfg.get('source', 'all')
+            is_compact_pg = cfg.get('layout') in ('compact', 'compact-list', 'compact-cards')
+            per_page_pg   = max(1, min(int(cfg.get('limit') or 12), 50))
+            limit         = 100 if is_compact_pg else per_page_pg
+            q = StoreProduct.query.filter_by(website_id=website.id, is_active=True)
+            if source == 'category' and cfg.get('category_id'):
+                q = q.filter_by(category_id=int(cfg['category_id']))
+            elif source == 'manual' and cfg.get('product_ids'):
+                q = q.filter(StoreProduct.id.in_(cfg['product_ids']))
+            prods = q.order_by(StoreProduct.created_at.desc()).limit(limit).all()
+            products_by_section[section.id] = [
+                {
+                    'id':               p.id,
+                    'name':             p.name,
+                    'slug':             p.slug,
+                    'price':            float(p.price),
+                    'compare_at_price': float(p.compare_at_price) if p.compare_at_price else None,
+                    'cover_url':        p.cover_image_url(),
+                    'in_stock':         (not p.track_inventory or p.inventory_qty > 0 or p.allow_oversell),
+                    'description':      (p.description or '').strip() or None,
+                }
+                for p in prods
+            ]
+
+    # ── Article feed sections ──────────────────────────────────────────────────
+    posts_by_section = {}
+    for section in sections:
+        if section.section_type != 'article_feed':
+            continue
+        cfg = section.content or {}
+        cid = cfg.get('collection_id')
+        is_compact = cfg.get('layout') in ('compact', 'compact-cards')
+        per_page   = max(1, min(int(cfg.get('limit') or 6), 50))
+        db_limit   = 100 if is_compact else per_page
+        if cid:
+            _af_posts = (Post.query
+                         .filter_by(collection_id=int(cid), status='published', website_id=website.id)
+                         .order_by(Post.published_at.desc())
+                         .limit(db_limit).all())
+            posts_by_section[section.id] = _af_posts
+
+    # ── Calendar badge sections ────────────────────────────────────────────────
+    badges_by_section = {}
+    _now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for section in sections:
+        if section.section_type != 'calendar_badges':
+            continue
+        cfg = section.content or {}
+        cal_id = cfg.get('calendar_id')
+        limit  = max(1, min(int(cfg.get('limit') or 5), 20))
+        if cal_id:
+            _events = (CalendarEvent.query
+                       .filter(CalendarEvent.calendar_id == int(cal_id),
+                               db.or_(
+                                   CalendarEvent.end >= _now,
+                                   db.and_(CalendarEvent.end == None, CalendarEvent.start >= _now)
+                               ))
+                       .order_by(CalendarEvent.start.asc())
+                       .limit(limit).all())
+            badges_by_section[section.id] = _events
+
     section_groups = SectionGroup.query.filter_by(
         page_content_id=page.id
     ).order_by(SectionGroup.group_order).all()
@@ -10116,6 +11929,11 @@ def render_public_page(website, page, is_preview=False):
         'public_user': get_public_user(),
         'is_preview': is_preview,
         'custom_code': page.custom_code or '',
+        'store_enabled': _store_on,
+        'store_in_store_only': _store_on and getattr(website, 'store_in_store_only', False),
+        'products_by_section': products_by_section,
+        'posts_by_section': posts_by_section,
+        'badges_by_section': badges_by_section,
     }
 
     html = render_template(
@@ -10497,6 +12315,9 @@ def home_page():
     if not website:
         return render_template('no_site_found.html'), 404
 
+    if not website.is_live:
+        return render_template('site_offline.html', website=website), 503
+
     page = PublicPageContent.query.filter_by(
         website_id=website.id,
         slug='home'
@@ -10507,6 +12328,10 @@ def home_page():
 
     if not page.site_active_status:
         return "Root page is not published.", 404
+
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
 
     return render_public_page(website, page)
 
@@ -10554,6 +12379,11 @@ def home_page():
 
 @app.route('/page/<int:website_id>/<int:page_id>')
 def public_page(website_id, page_id):
+    website = get_live_website()
+    public_user = get_public_user()
+    if website and getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
+
     page = PublicPageContent.query.filter_by(
         website_id=website_id,
         id=page_id
@@ -10711,7 +12541,7 @@ def get_public_section_comments(section_id):
             {
                 'id': comment.id,
                 'display_name': comment.display_name,
-                'body': comment.body,
+                'body': _profanity_filter_text(comment.body, website)[0] if getattr(website, 'profanity_filter_enabled', False) else comment.body,
                 'created_at': comment.created_at.strftime('%b %d, %Y %I:%M %p'),
                 'like_count': comment.like_count_cached or 0,
                 'liked_by_current_user': comment.user_has_liked(public_user)
@@ -10868,6 +12698,54 @@ def update_contact_section(section, form_data):
         'title': contact_form_title,
         'email': contact_email,
         'enabled': contact_form_enabled
+    }
+    return section
+
+
+def update_product_grid_section(section, form_data):
+    import json as _json
+    source = form_data.get('pg_source') or 'all'
+    raw_ids = form_data.get('pg_product_ids') or '[]'
+    try:
+        product_ids = _json.loads(raw_ids)
+    except Exception:
+        product_ids = []
+    section.content = {
+        'source':      source,
+        'category_id': int(form_data.get('pg_category_id') or 0) or None,
+        'product_ids': product_ids if source == 'manual' else [],
+        'title':            (form_data.get('pg_title') or '').strip()[:120] or None,
+        'layout':           form_data.get('pg_layout') or 'grid',
+        'columns':          int(form_data.get('pg_columns') or 3),
+        'limit':            int(form_data.get('pg_limit') or 12),
+        'show_price':       form_data.get('pg_show_price') != 'off',
+        'show_description': form_data.get('pg_show_description') == 'on',
+        'show_add_to_cart': form_data.get('pg_show_cart') != 'off',
+    }
+    return section
+
+
+def update_article_feed_section(section, form_data):
+    collection_id = form_data.get('af_collection_id')
+    section.content = {
+        'title':         (form_data.get('af_title') or '').strip()[:120] or None,
+        'collection_id': int(collection_id) if collection_id else None,
+        'limit':         int(form_data.get('af_limit') or 6),
+        'layout':        form_data.get('af_layout') or 'grid',
+        'show_excerpt':  form_data.get('af_show_excerpt') == 'on',
+        'show_cover':    form_data.get('af_show_cover') == 'on',
+        'show_date':     form_data.get('af_show_date') == 'on',
+    }
+    return section
+
+
+def update_calendar_badges_section(section, form_data):
+    calendar_id = form_data.get('cb_calendar_id')
+    section.content = {
+        'calendar_id': int(calendar_id) if calendar_id else None,
+        'limit':       int(form_data.get('cb_limit') or 5),
+        'show_time':        form_data.get('cb_show_time') == 'on',
+        'show_description': form_data.get('cb_show_description') == 'on',
     }
     return section
 
@@ -11198,6 +13076,12 @@ def update_section():
         section = update_calendar_section(section, form_data)
     elif section_type == 'code':
         section = update_code_section(section, form_data)
+    elif section_type == 'product_grid':
+        section = update_product_grid_section(section, form_data)
+    elif section_type == 'article_feed':
+        section = update_article_feed_section(section, form_data)
+    elif section_type == 'calendar_badges':
+        section = update_calendar_badges_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -12044,6 +13928,23 @@ ADMIN_PERMISSIONS = {
         'events': 'Create, edit & delete events',
         'subscriptions': 'Manage external calendar feeds',
     }},
+    'posts': {'label': 'Posts', 'actions': {
+        'view': 'View posts & collections list',
+        'collections': 'Create, edit & delete collections',
+        'edit': 'Create & edit posts',
+        'delete': 'Delete posts',
+        'publish': 'Publish & unpublish posts',
+        'moderate': 'Approve & delete post comments',
+        'settings': 'Edit profanity filter settings for posts',
+    }},
+    'store': {'label': 'Store', 'actions': {
+        'view': 'View products & categories',
+        'products': 'Create & edit products',
+        'delete': 'Delete products',
+        'categories': 'Create, edit & delete categories',
+        'settings': 'Edit store settings (enable/disable, in-store-only, etc.)',
+        'reviews': 'Delete product reviews',
+    }},
     'forum': {'label': 'Forum', 'actions': {
         'view': 'View forum admin page',
         'settings': 'Edit forum settings',
@@ -12154,6 +14055,83 @@ def admin_users_page():
                            current_website=website,
                            now=datetime.now(timezone.utc).replace(tzinfo=None),
                            page_id=None)
+
+
+@app.route('/admin/users/public')
+@login_required
+def admin_public_users_page():
+    if current_user.is_sub_admin:
+        if not current_user.has_permission('admin_users.view'):
+            flash("You don't have permission to view admin users.", 'permission_denied')
+            return redirect(url_for('dashboard'))
+    website = get_admin_website()
+    public_users = []
+    current_website_pages = []
+    if website:
+        public_users = PublicUser.query.filter_by(website_id=website.id).order_by(PublicUser.created_at.desc()).all()
+        current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+            PublicPageContent.sort_order, PublicPageContent.id
+        ).all()
+    return render_template('admin_public_users.html',
+                           website=website,
+                           public_users=public_users,
+                           current_website=website,
+                           current_website_pages=current_website_pages)
+
+
+@app.route('/admin/users/public/settings', methods=['POST'])
+@login_required
+def admin_public_users_settings():
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'error': 'No website'}, 400)
+    data = request.get_json() or {}
+    website.public_users_enabled               = bool(data.get('public_users_enabled', True))
+    website.public_2fa_enabled                 = bool(data.get('public_2fa_enabled', False))
+    website.require_login_to_view              = bool(data.get('require_login_to_view', False))
+    website.public_approval_required           = bool(data.get('public_approval_required', False))
+    website.public_email_verification_enabled  = bool(data.get('public_email_verification_enabled', False))
+    website.public_email_verification_required = bool(data.get('public_email_verification_required', False))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/users/public/<int:user_id>/toggle-active', methods=['POST'])
+@login_required
+def admin_public_user_toggle_active(user_id):
+    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    website = get_admin_website()
+    u = PublicUser.query.filter_by(id=user_id, website_id=website.id).first_or_404()
+    u.is_active_public = not u.is_active_public
+    db.session.commit()
+    return _utf8_json({'success': True, 'is_active': u.is_active_public})
+
+
+@app.route('/admin/users/public/<int:user_id>/toggle-ban', methods=['POST'])
+@login_required
+def admin_public_user_toggle_ban(user_id):
+    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    website = get_admin_website()
+    u = PublicUser.query.filter_by(id=user_id, website_id=website.id).first_or_404()
+    u.is_banned = not u.is_banned
+    db.session.commit()
+    return _utf8_json({'success': True, 'is_banned': u.is_banned})
+
+
+@app.route('/admin/users/public/<int:user_id>/delete', methods=['POST'])
+@login_required
+def admin_public_user_delete(user_id):
+    if current_user.is_sub_admin and not current_user.has_permission('admin_users.delete'):
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    website = get_admin_website()
+    u = PublicUser.query.filter_by(id=user_id, website_id=website.id).first_or_404()
+    db.session.delete(u)
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 @app.route('/admin/users/create', methods=['POST'])
@@ -13253,6 +15231,8 @@ def add_calendar_event(calendar_id):
             start=start,
             end=end,
             background_color=data.get('backgroundColor'),
+            all_day=bool(data.get('allDay', False)),
+            hide_time=bool(data.get('hideTime', False)),
             calendar_id=calendar_id
         )
         db.session.add(event)
@@ -13293,6 +15273,8 @@ def update_calendar_event(calendar_id):
             event.start = start
         event.end = end
         event.background_color = data.get('backgroundColor', event.background_color)
+        event.all_day  = bool(data.get('allDay',   event.all_day))
+        event.hide_time = bool(data.get('hideTime', event.hide_time))
 
         db.session.commit()
         return jsonify({'message': 'Event updated successfully', 'event': event.to_dict()}), 200
@@ -13378,8 +15360,8 @@ def public_forum():
 
     public_user = get_public_user()
 
-    if website.forum_require_login_to_view and not public_user:
-        return redirect(url_for('public_forum_login', next=url_for('public_forum')))
+    if (getattr(website, 'require_login_to_view', False) or website.forum_require_login_to_view) and not public_user:
+        return redirect(url_for('public_login', next=url_for('public_forum')))
 
     sort = request.args.get('sort', 'relevant')
 
@@ -13550,7 +15532,8 @@ def public_forum_vote_reply(reply_id):
 
 @app.route('/account/register', methods=['GET', 'POST'])
 @app.route('/forum/register', methods=['GET', 'POST'])
-def public_forum_register():
+@app.route('/register', methods=['GET', 'POST'])
+def public_register():
     website = get_live_website()
 
     if not website or not website_uses_public_accounts(website):
@@ -13563,11 +15546,11 @@ def public_forum_register():
 
         if not username or not email or not password:
             flash('Please fill out all fields.', 'error')
-            return redirect(url_for('public_forum_register'))
+            return redirect(url_for('public_register'))
 
         if len(password) < 8:
             flash('Password must be at least 8 characters.', 'error')
-            return redirect(url_for('public_forum_register'))
+            return redirect(url_for('public_register'))
 
         existing = PublicUser.query.filter(
             PublicUser.website_id == website.id,
@@ -13579,20 +15562,24 @@ def public_forum_register():
 
         if existing:
             flash('That username or email is already in use.', 'error')
-            return redirect(url_for('public_forum_register'))
+            return redirect(url_for('public_register'))
 
+        email_verified = not getattr(website, 'public_email_verification_enabled', False)
         public_user = PublicUser(
             website_id=website.id,
             username=username,
             email=email,
-            email_verified=not website.forum_account_verification_enabled
+            email_verified=email_verified
         )
         public_user.set_password(password)
+
+        if getattr(website, 'public_approval_required', False):
+            public_user.is_active_public = False
 
         db.session.add(public_user)
         db.session.commit()
 
-        if website.forum_account_verification_enabled:
+        if getattr(website, 'public_email_verification_enabled', False):
             try:
                 send_public_user_verification_email(public_user)
                 flash('Account created. Please check your email to verify your account.', 'success')
@@ -13603,15 +15590,16 @@ def public_forum_register():
                     'error'
                 )
 
-            if website.forum_allow_unverified_login:
-                public_user_login(public_user)
-
             return redirect(
                 url_for(
-                    'public_forum_login',
+                    'public_login',
                     next=request.args.get('next') or url_for('home_page')
                 )
             )
+
+        if getattr(website, 'public_approval_required', False) and not public_user.is_active_public:
+            flash('Your account has been created and is pending admin approval.', 'success')
+            return redirect(url_for('public_login'))
 
         public_user_login(public_user)
 
@@ -13626,7 +15614,7 @@ def public_forum_register():
         return redirect(next_url)
 
     content = {
-        'current_page_url': url_for('public_forum_register')
+        'current_page_url': url_for('public_register')
     }
 
     return render_template(
@@ -13639,7 +15627,8 @@ def public_forum_register():
 
 @app.route('/account/login', methods=['GET', 'POST'])
 @app.route('/forum/login', methods=['GET', 'POST'])
-def public_forum_login():
+@app.route('/login', methods=['GET', 'POST'])
+def public_login():
     website = get_live_website()
 
     if not website or not website_uses_public_accounts(website):
@@ -13659,34 +15648,43 @@ def public_forum_login():
 
         if not public_user or not public_user.check_password(password):
             flash('Invalid username/email or password.', 'error')
-            return redirect(url_for('public_forum_login'))
+            return redirect(url_for('public_login'))
 
-        if public_user.is_banned or not public_user.is_active_public:
-            flash('This account cannot access the forum.', 'error')
-            return redirect(url_for('public_forum_login'))
+        if public_user.is_banned:
+            flash('This account has been suspended.', 'error')
+            return redirect(url_for('public_login'))
+        if not public_user.is_active_public:
+            if getattr(website, 'public_approval_required', False):
+                flash('Your account is pending admin approval.', 'error')
+            else:
+                flash('This account has been disabled.', 'error')
+            return redirect(url_for('public_login'))
 
-        if (
-                website.forum_account_verification_enabled
-                and not website.forum_allow_unverified_login
-                and not public_user.email_verified
-        ):
-            flash('Please verify your email before logging in.', 'error')
-            return redirect(url_for('public_forum_resend_verification'))
+        verification_required = (
+            getattr(website, 'public_email_verification_enabled', False) and
+            getattr(website, 'public_email_verification_required', False)
+        )
+        if verification_required and not public_user.email_verified:
+            flash('Please verify your email address before logging in.', 'error')
+            return redirect(url_for('public_resend_verification'))
+
+        next_url = request.args.get('next') or (url_for('public_forum') if website.forum_enabled else url_for('home_page'))
+
+        if getattr(public_user, 'two_factor_enabled', False):
+            code = generate_two_factor_code()
+            _pub_2fa_set_pending(public_user.id, code, 'login', next_url)
+            try:
+                send_public_user_2fa_email(public_user, code, purpose='login')
+            except Exception:
+                flash('Failed to send verification code. Please try again.', 'error')
+                return redirect(url_for('public_login'))
+            return redirect(url_for('public_2fa'))
 
         public_user_login(public_user)
-
-        next_url = request.args.get('next')
-
-        if not next_url:
-            if website.forum_enabled:
-                next_url = url_for('public_forum')
-            else:
-                next_url = url_for('home_page')
-
         return redirect(next_url)
 
     content = {
-        'current_page_url': url_for('public_forum_login')
+        'current_page_url': url_for('public_login')
     }
 
     return render_template(
@@ -13699,7 +15697,8 @@ def public_forum_login():
 
 @app.route('/account/forgot-password', methods=['GET', 'POST'])
 @app.route('/forum/forgot-password', methods=['GET', 'POST'])
-def public_forum_forgot_password():
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def public_forgot_password():
     website = get_live_website()
 
     if not website or not website_uses_public_accounts(website):
@@ -13725,10 +15724,10 @@ def public_forum_forgot_password():
                 print(f'Public forum password reset email failed: {e}')
 
         flash(generic_message, 'success')
-        return redirect(url_for('public_forum_login'))
+        return redirect(url_for('public_login'))
 
     content = {
-        'current_page_url': url_for('public_forum_forgot_password')
+        'current_page_url': url_for('public_forgot_password')
     }
 
     return render_template(
@@ -13741,7 +15740,8 @@ def public_forum_forgot_password():
 
 @app.route('/account/reset-password/<token>', methods=['GET', 'POST'])
 @app.route('/forum/reset-password/<token>', methods=['GET', 'POST'])
-def public_forum_reset_password(token):
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def public_reset_password(token):
     website = get_live_website()
 
     if not website or not website_uses_public_accounts(website):
@@ -13751,7 +15751,7 @@ def public_forum_reset_password(token):
 
     if error:
         flash(error, 'error')
-        return redirect(url_for('public_forum_login'))
+        return redirect(url_for('public_login'))
 
     if public_user.website_id != website.id:
         return "Not Found", 404
@@ -13774,9 +15774,8 @@ def public_forum_reset_password(token):
 
         public_user.set_password(password)
 
-        # If verification is enabled, a password-reset-confirmed user
-        # can reasonably be treated as email verified.
-        if website.forum_account_verification_enabled:
+        # Completing a password reset confirms email ownership.
+        if getattr(website, 'public_email_verification_enabled', False):
             public_user.email_verified = True
             public_user.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -13785,10 +15784,10 @@ def public_forum_reset_password(token):
         public_user_logout()
 
         flash('Password updated successfully. Please log in.', 'success')
-        return redirect(url_for('public_forum_login'))
+        return redirect(url_for('public_login'))
 
     content = {
-        'current_page_url': url_for('public_forum_reset_password', token=token)
+        'current_page_url': url_for('public_reset_password', token=token)
     }
 
     return render_template(
@@ -13802,7 +15801,8 @@ def public_forum_reset_password(token):
 
 @app.route('/account/verify-email/<token>')
 @app.route('/forum/verify-email/<token>')
-def public_forum_verify_email(token):
+@app.route('/verify-email/<token>')
+def public_verify_email(token):
     website = get_live_website()
 
     if not website or not website_uses_public_accounts(website):
@@ -13812,7 +15812,7 @@ def public_forum_verify_email(token):
 
     if error:
         flash(error, 'error')
-        return redirect(url_for('public_forum_login'))
+        return redirect(url_for('public_login'))
 
     if public_user.website_id != website.id:
         return "Not Found", 404
@@ -13823,12 +15823,13 @@ def public_forum_verify_email(token):
     db.session.commit()
 
     flash('Your email has been verified. You can now log in.', 'success')
-    return redirect(url_for('public_forum_login'))
+    return redirect(url_for('public_login'))
 
 
 @app.route('/account/resend-verification', methods=['GET', 'POST'])
 @app.route('/forum/resend-verification', methods=['GET', 'POST'])
-def public_forum_resend_verification():
+@app.route('/resend-verification', methods=['GET', 'POST'])
+def public_resend_verification():
     website = get_live_website()
 
     if not website or not website_uses_public_accounts(website):
@@ -13859,10 +15860,10 @@ def public_forum_resend_verification():
                 print(f'Public forum verification resend failed: {e}')
 
         flash(generic_message, 'success')
-        return redirect(url_for('public_forum_login'))
+        return redirect(url_for('public_login'))
 
     content = {
-        'current_page_url': url_for('public_forum_resend_verification')
+        'current_page_url': url_for('public_resend_verification')
     }
 
     return render_template(
@@ -13875,7 +15876,8 @@ def public_forum_resend_verification():
 
 @app.route('/forum/logout', methods=['POST'])
 @app.route('/account/logout', methods=['POST'])
-def public_forum_logout():
+@app.route('/logout', methods=['POST'])
+def public_logout():
     website = get_live_website()
 
     public_user_logout()
@@ -13900,8 +15902,11 @@ def public_forum_new_thread():
 
     public_user = get_public_user()
 
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=url_for('public_forum_new_thread')))
+
     if website.forum_require_login_to_post and not public_user:
-        return redirect(url_for('public_forum_login', next=url_for('public_forum_new_thread')))
+        return redirect(url_for('public_login', next=url_for('public_forum_new_thread')))
 
     if request.method == 'POST':
         title = (request.form.get('title') or '').strip()
@@ -13909,6 +15914,13 @@ def public_forum_new_thread():
 
         if not title or not body:
             flash('Please enter a title and message.', 'error')
+            return redirect(url_for('public_forum_new_thread'))
+
+        # System-wide profanity filter
+        title, title_blocked = _profanity_filter_text(title, website)
+        body, body_blocked = _profanity_filter_text(body, website)
+        if title_blocked or body_blocked:
+            flash('Your post contains prohibited language.', 'error')
             return redirect(url_for('public_forum_new_thread'))
 
         thread = ForumThread(
@@ -13954,8 +15966,8 @@ def public_forum_thread(thread_id):
     if thread.is_hidden:
         return "Thread not found", 404
 
-    if website.forum_require_login_to_view and not public_user:
-        return redirect(url_for('public_forum_login', next=url_for('public_forum_thread', thread_id=thread.id)))
+    if (getattr(website, 'require_login_to_view', False) or website.forum_require_login_to_view) and not public_user:
+        return redirect(url_for('public_login', next=url_for('public_forum_thread', thread_id=thread.id)))
 
     if request.method == 'POST':
         if thread.is_locked:
@@ -13963,12 +15975,18 @@ def public_forum_thread(thread_id):
             return redirect(url_for('public_forum_thread', thread_id=thread.id))
 
         if website.forum_require_login_to_post and not public_user:
-            return redirect(url_for('public_forum_login', next=url_for('public_forum_thread', thread_id=thread.id)))
+            return redirect(url_for('public_login', next=url_for('public_forum_thread', thread_id=thread.id)))
 
         body = (request.form.get('body') or '').strip()
 
         if not body:
             flash('Please enter a reply.', 'error')
+            return redirect(url_for('public_forum_thread', thread_id=thread.id))
+
+        # System-wide profanity filter
+        body, blocked = _profanity_filter_text(body, website)
+        if blocked:
+            flash('Your reply contains prohibited language.', 'error')
             return redirect(url_for('public_forum_thread', thread_id=thread.id))
 
         reply = ForumReply(
@@ -14056,14 +16074,6 @@ def update_forum_settings():
     website.forum_require_login_to_post = request.form.get('forum_require_login_to_post') == 'on'
     website.forum_title = (request.form.get('forum_title') or 'Forum').strip()[:120]
     website.forum_description = (request.form.get('forum_description') or '').strip()
-    website.forum_account_verification_enabled = (
-            request.form.get('forum_account_verification_enabled') == 'on'
-    )
-
-    website.forum_allow_unverified_login = (
-            request.form.get('forum_allow_unverified_login') == 'on'
-    )
-
     db.session.commit()
 
     flash('Forum settings saved.', 'success')
@@ -14238,6 +16248,11 @@ def submit_page_comment(section_id):
             'success': False,
             'message': 'Comment is too long.'
         }), 400
+
+    # System-wide profanity filter
+    body, blocked = _profanity_filter_text(body, website)
+    if blocked:
+        return jsonify({'success': False, 'message': 'Your comment contains prohibited language.'}), 400
 
     if public_user:
         display_name = public_user.username
@@ -14500,7 +16515,13 @@ def website_uses_public_accounts(website):
     if not website:
         return False
 
+    if not getattr(website, 'public_users_enabled', True):
+        return False
+
     if website.forum_enabled:
+        return True
+
+    if getattr(website, 'require_login_to_view', False):
         return True
 
     comments_section_exists = PageSection.query.join(
@@ -14527,6 +16548,43 @@ def generate_public_user_password_reset_token(public_user):
     )
 
 
+@app.route('/account/orders')
+def public_account_orders():
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+    if not website.store_enabled:
+        return redirect(url_for('home_page'))
+    public_user = get_public_user()
+    if not public_user:
+        return redirect(url_for('public_login', next='/account/orders'))
+    orders = StoreOrder.query.filter_by(
+        website_id=website.id,
+        public_user_id=public_user.id
+    ).order_by(StoreOrder.created_at.desc()).all()
+    return render_template('public_account_orders.html',
+                           website=website, public_user=public_user, orders=orders)
+
+
+@app.route('/account/orders/<order_number>')
+def public_account_order_detail(order_number):
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+    if not website.store_enabled:
+        return redirect(url_for('home_page'))
+    public_user = get_public_user()
+    if not public_user:
+        return redirect(url_for('public_login', next=f'/account/orders/{order_number}'))
+    order = StoreOrder.query.filter_by(
+        website_id=website.id,
+        public_user_id=public_user.id,
+        order_number=order_number
+    ).first_or_404()
+    return render_template('public_account_order_detail.html',
+                           website=website, public_user=public_user, order=order)
+
+
 @app.route('/account/change-password', methods=['GET', 'POST'])
 def public_account_change_password():
     website = get_live_website()
@@ -14537,44 +16595,141 @@ def public_account_change_password():
     public_user = get_public_user()
 
     if not public_user:
-        return redirect(url_for(
-            'public_forum_login',
-            next=url_for('public_account_change_password')
-        ))
+        return redirect(url_for('public_login', next=url_for('public_account_settings')))
 
-    if request.method == 'POST':
-        current_password = request.form.get('current_password') or ''
-        new_password = request.form.get('new_password') or ''
-        confirm_password = request.form.get('confirm_password') or ''
+    if request.method == 'GET':
+        return redirect(url_for('public_account_settings'))
 
-        if not public_user.check_password(current_password):
-            flash('Current password is incorrect.', 'error')
-            return redirect(url_for('public_account_change_password'))
+    current_password = request.form.get('current_password') or ''
+    new_password = request.form.get('new_password') or ''
+    confirm_password = request.form.get('confirm_password') or ''
 
-        if len(new_password) < 8:
-            flash('New password must be at least 8 characters.', 'error')
-            return redirect(url_for('public_account_change_password'))
+    if not public_user.check_password(current_password):
+        flash('Current password is incorrect.', 'error')
+        return redirect(url_for('public_account_settings'))
 
-        if new_password != confirm_password:
-            flash('New passwords do not match.', 'error')
-            return redirect(url_for('public_account_change_password'))
+    if len(new_password) < 8:
+        flash('New password must be at least 8 characters.', 'error')
+        return redirect(url_for('public_account_settings'))
 
-        public_user.set_password(new_password)
-        db.session.commit()
+    if new_password != confirm_password:
+        flash('New passwords do not match.', 'error')
+        return redirect(url_for('public_account_settings'))
 
-        flash('Password updated successfully.', 'success')
-        return redirect(url_for('home_page'))
+    public_user.set_password(new_password)
+    db.session.commit()
 
-    content = {
-        'current_page_url': url_for('public_account_change_password')
-    }
+    flash('Password updated successfully.', 'success')
+    return redirect(url_for('public_account_settings'))
 
+
+@app.route('/account/settings')
+def public_account_settings():
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+    public_user = get_public_user()
+    if not public_user:
+        return redirect(url_for('public_login', next=url_for('public_account_settings')))
+    setup_pending = session.get('pub_2fa_user_id') == public_user.id and session.get('pub_2fa_purpose') == 'setup'
     return render_template(
-        'public_account_change_password.html',
+        'public_account_settings.html',
         website=website,
         public_user=public_user,
-        content=content
+        setup_pending=setup_pending,
+        two_factor_available=getattr(website, 'public_2fa_enabled', False) and public_user.email_verified,
     )
+
+
+@app.route('/account/2fa/send', methods=['POST'])
+def public_2fa_send_setup():
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Not logged in'}, 401)
+    if not getattr(website, 'public_2fa_enabled', False):
+        return _utf8_json({'error': '2FA is not enabled for this site'}, 400)
+    if not public_user.email_verified:
+        return _utf8_json({'error': 'Email must be verified to enable 2FA'}, 400)
+    code = generate_two_factor_code()
+    _pub_2fa_set_pending(public_user.id, code, 'setup')
+    try:
+        send_public_user_2fa_email(public_user, code, purpose='setup')
+    except Exception:
+        return _utf8_json({'error': 'Failed to send code. Check email settings.'}, 500)
+    return _utf8_json({'success': True})
+
+
+@app.route('/account/2fa/enable', methods=['POST'])
+def public_2fa_enable():
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Not logged in'}, 401)
+    code = (request.form.get('code') or '').strip()
+    error = _pub_2fa_validate(public_user.id, code, 'setup')
+    if error:
+        return _utf8_json({'error': error}, 400)
+    _pub_2fa_clear()
+    public_user.two_factor_enabled = True
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/account/2fa/disable', methods=['POST'])
+def public_2fa_disable():
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Not logged in'}, 401)
+    public_user.two_factor_enabled = False
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/account/delete', methods=['POST'])
+def public_account_delete():
+    website = get_live_website()
+    if not website or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Not logged in'}, 401)
+    public_user_logout()
+    db.session.delete(public_user)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/2fa', methods=['GET', 'POST'])
+def public_2fa():
+    website = get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    pending_user_id = session.get('pub_2fa_user_id')
+    if not pending_user_id or session.get('pub_2fa_purpose') != 'login':
+        return redirect(url_for('public_login'))
+    if request.method == 'POST':
+        code = (request.form.get('code') or '').strip()
+        error = _pub_2fa_validate(pending_user_id, code, 'login')
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('public_2fa'))
+        next_url = session.get('pub_2fa_next_url') or url_for('home_page')
+        _pub_2fa_clear()
+        public_user = PublicUser.query.filter_by(id=pending_user_id, website_id=website.id).first()
+        if not public_user or public_user.is_banned or not public_user.is_active_public:
+            flash('Account is no longer accessible.', 'error')
+            return redirect(url_for('public_login'))
+        public_user_login(public_user)
+        return redirect(next_url)
+    return render_template('public_2fa.html', website=website, public_user=None)
 
 
 def verify_public_user_password_reset_token(token, max_age_seconds=1800):
@@ -14650,7 +16805,7 @@ def send_public_user_password_reset_email(public_user):
     token = generate_public_user_password_reset_token(public_user)
 
     reset_url = url_for(
-        'public_forum_reset_password',
+        'public_reset_password',
         token=token,
         _external=True
     )
@@ -14677,7 +16832,7 @@ def send_public_user_verification_email(public_user):
     token = generate_public_user_verification_token(public_user)
 
     verification_url = url_for(
-        'public_forum_verify_email',
+        'public_verify_email',
         token=token,
         _external=True
     )
@@ -14698,6 +16853,64 @@ If you did not create this account, you can ignore this email.
 
     public_user.verification_email_sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
+
+
+def send_public_user_2fa_email(public_user, code, purpose='login'):
+    site_name = public_user.website.name if public_user.website else 'the site'
+    if purpose == 'setup':
+        subject = f'Enable two-factor authentication on {site_name}'
+        intro = f'Use this code to enable two-factor authentication on your {site_name} account.'
+    else:
+        subject = f'Your {site_name} sign-in code'
+        intro = f'Use this code to finish signing in to your {site_name} account.'
+    body = f"""{intro}
+
+Verification code: {code}
+
+This code expires in 10 minutes.
+
+If you did not request this, you can ignore this email.
+"""
+    send_account_recovery_email(public_user.email, subject, body)
+    public_user.two_factor_last_sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+
+
+def _pub_2fa_set_pending(user_id, code, purpose, next_url=None):
+    session['pub_2fa_user_id'] = user_id
+    session['pub_2fa_code_hash'] = generate_password_hash(code)
+    session['pub_2fa_expires_at'] = (
+        datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
+    ).isoformat()
+    session['pub_2fa_purpose'] = purpose
+    if next_url is not None:
+        session['pub_2fa_next_url'] = next_url
+
+
+def _pub_2fa_validate(user_id, code, purpose):
+    if session.get('pub_2fa_user_id') != user_id:
+        return 'No matching verification code is pending.'
+    if session.get('pub_2fa_purpose') != purpose:
+        return 'This code is not valid for this action.'
+    expires_raw = session.get('pub_2fa_expires_at')
+    if not expires_raw:
+        return 'This verification code has expired.'
+    try:
+        expires_at = datetime.fromisoformat(expires_raw)
+    except ValueError:
+        return 'This verification code has expired.'
+    if datetime.now(timezone.utc).replace(tzinfo=None) > expires_at:
+        return 'This verification code has expired.'
+    code_hash = session.get('pub_2fa_code_hash')
+    if not code_hash or not check_password_hash(code_hash, code):
+        return 'Incorrect code. Please try again.'
+    return None
+
+
+def _pub_2fa_clear():
+    for key in ('pub_2fa_user_id', 'pub_2fa_code_hash', 'pub_2fa_expires_at',
+                'pub_2fa_purpose', 'pub_2fa_next_url'):
+        session.pop(key, None)
 
 
 @app.route('/comment/<int:comment_id>/like', methods=['POST'])
@@ -14761,6 +16974,33 @@ def toggle_page_comment_like(comment_id):
     })
 
 
+@app.route('/posts/<string:collection_slug>/<string:post_slug>/comment/<int:comment_id>/like', methods=['POST'])
+def toggle_post_comment_like(collection_slug, post_slug, comment_id):
+    website = get_live_website()
+    if not website:
+        return jsonify({'success': False, 'message': 'Not found'}), 404
+    public_user = get_public_user()
+    if not public_user:
+        return jsonify({'success': False, 'requires_login': True, 'message': 'Please log in to like comments.'}), 401
+    comment = PostComment.query.filter_by(id=comment_id, website_id=website.id, is_approved=True).first_or_404()
+    existing = PostCommentLike.query.filter_by(comment_id=comment.id, public_user_id=public_user.id).first()
+    if existing:
+        db.session.delete(existing)
+        comment.like_count_cached = max(0, (comment.like_count_cached or 0) - 1)
+        liked = False
+    else:
+        db.session.add(PostCommentLike(
+            comment_id=comment.id,
+            post_id=comment.post_id,
+            website_id=website.id,
+            public_user_id=public_user.id,
+        ))
+        comment.like_count_cached = (comment.like_count_cached or 0) + 1
+        liked = True
+    db.session.commit()
+    return jsonify({'success': True, 'liked': liked, 'like_count': comment.like_count_cached or 0})
+
+
 @app.route('/admin/forum/user/<int:public_user_id>/moderate', methods=['POST'])
 @login_required
 @require_perm('forum.manage_users')
@@ -14804,6 +17044,8 @@ def get_public_user():
 
 @app.context_processor
 def inject_public_account_context():
+    if _DB_MAINTENANCE_MODE:
+        return {'navbar_public_user': None, 'navbar_public_accounts_enabled': False}
     website = get_live_website()
     public_user = get_public_user() if website else None
 
@@ -14818,6 +17060,7 @@ def public_user_login(public_user):
     session['public_user_website_id'] = public_user.website_id
     public_user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
+    _store_merge_guest_cart(public_user)
 
 
 def public_user_logout():
@@ -14863,6 +17106,65 @@ def format_user_datetime(value, user=None, fmt=None):
     return local_value.strftime(fmt)
 
 app.jinja_env.filters['user_datetime'] = format_user_datetime
+app.jinja_env.globals['is_plugin_enabled'] = is_plugin_enabled
+
+
+def _profanity_filter_text(text, website):
+    """Apply profanity word replacement to text. Returns (filtered_text, was_blocked).
+    was_blocked=True means the text contains banned words AND action is 'block'."""
+    if not text:
+        return text, False
+    if not getattr(website, 'profanity_filter_enabled', False):
+        return text, False
+    words_raw = getattr(website, 'post_profanity_words', None) or ''
+    banned = [w.strip().lower() for w in words_raw.replace(',', '\n').split('\n') if w.strip()]
+    if not banned:
+        return text, False
+    import re as _re
+    text_lower = text.lower()
+    found = any(w in text_lower for w in banned)
+    if not found:
+        return text, False
+    action = getattr(website, 'post_profanity_action', 'block') or 'block'
+    if action == 'block':
+        return text, True   # caller should reject
+    # replace
+    result = text
+    for w in banned:
+        result = _re.sub(r'(?i)' + _re.escape(w), '*' * len(w), result)
+    return result, False
+
+
+@app.template_filter('profanity_clean')
+def profanity_clean_filter(text, website):
+    """Jinja filter: mask banned words for display. Never blocks — always returns cleaned text."""
+    if not text:
+        return text
+    if not getattr(website, 'profanity_filter_enabled', False):
+        return text
+    words_raw = getattr(website, 'post_profanity_words', None) or ''
+    banned = [w.strip().lower() for w in words_raw.replace(',', '\n').split('\n') if w.strip()]
+    if not banned:
+        return text
+    import re as _re
+    result = text
+    for w in banned:
+        result = _re.sub(r'(?i)' + _re.escape(w), '*' * len(w), result)
+    return result
+
+
+@app.template_filter('badge_text_color')
+def badge_text_color_filter(hex_color):
+    """Return '#fff' or '#000' using the same YIQ formula FullCalendar uses."""
+    try:
+        h = hex_color.lstrip('#')
+        if len(h) == 3:
+            h = ''.join(c*2 for c in h)
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        yiq = (r * 299 + g * 587 + b * 114) / 1000
+        return '#000' if yiq >= 128 else '#fff'
+    except Exception:
+        return '#fff'
 
 
 def get_utc_start_for_user_local_days(days, user=None):
@@ -15323,6 +17625,24 @@ def _run_startup_migrations():
     """
     from sqlalchemy import inspect as _inspect
 
+    # On PostgreSQL, use an advisory lock so only one worker runs migrations
+    # at a time.  The lock is released automatically when the connection closes.
+    _MIGRATION_LOCK_ID = 78234561  # arbitrary unique integer for this app
+    if not _is_sqlite():
+        with db.engine.connect() as _lock_conn:
+            _lock_conn.execute(db.text(f'SELECT pg_advisory_lock({_MIGRATION_LOCK_ID})'))
+            try:
+                _run_startup_migrations_inner()
+            finally:
+                _lock_conn.execute(db.text(f'SELECT pg_advisory_unlock({_MIGRATION_LOCK_ID})'))
+        return
+
+    _run_startup_migrations_inner()
+
+
+def _run_startup_migrations_inner():
+    from sqlalchemy import inspect as _inspect
+
     # ── Step 1: record which tables already exist, then create any missing ones
     inspector = _inspect(db.engine)
     pre_existing = set(inspector.get_table_names())
@@ -15345,30 +17665,40 @@ def _run_startup_migrations():
             if col.name in existing_col_names:
                 continue
 
-            # Compile the type string for this dialect (e.g. "VARCHAR(200)")
+            # Compile the type string for this dialect (e.g. "VARCHAR(200)", "BOOLEAN")
             try:
                 col_type_str = col.type.compile(dialect=db.engine.dialect)
             except Exception:
                 col_type_str = 'TEXT'
 
-            # SQLite requires a DEFAULT when adding a NOT NULL column to an
-            # existing table (otherwise the existing rows would violate it).
+            is_pg = not _is_sqlite()
+
+            # Build the DEFAULT clause, compiled for the current dialect so that
+            # boolean false()/true() emit 'false'/'true' on PostgreSQL and '0'/'1'
+            # on SQLite, and literal string server_defaults pass through unchanged.
             default_clause = ''
             if col.server_default is not None:
-                # e.g. server_default='0' or server_default=text("'chat'")
-                raw = getattr(col.server_default, 'arg', str(col.server_default))
-                default_clause = f' DEFAULT {raw}'
+                raw = col.server_default.arg
+                if hasattr(raw, 'compile'):
+                    # Dialect-aware clause element (e.g. false(), true())
+                    compiled_default = str(raw.compile(
+                        dialect=db.engine.dialect,
+                        compile_kwargs={'literal_binds': True}
+                    ))
+                    default_clause = f' DEFAULT {compiled_default}'
+                else:
+                    # Literal string — pass as-is
+                    default_clause = f' DEFAULT {raw}'
             elif col.default is not None and hasattr(col.default, 'arg'):
                 arg = col.default.arg
-                if not callable(arg):  # skip Python-side callables
+                if not callable(arg):
                     default_clause = f' DEFAULT {arg!r}'
             elif not col.nullable:
-                # Infer a zero-value default from the type so existing rows
-                # satisfy the NOT NULL constraint without storing wrong data.
+                # Infer a safe zero-value default so existing rows satisfy NOT NULL.
                 t = col_type_str.upper()
-                if any(k in t for k in ('INT', 'BOOL')):
-                    default_clause = ' DEFAULT 0'
-                elif any(k in t for k in ('REAL', 'FLOAT', 'NUMERIC', 'DECIMAL')):
+                if 'BOOL' in t:
+                    default_clause = ' DEFAULT false' if is_pg else ' DEFAULT 0'
+                elif any(k in t for k in ('INT', 'REAL', 'FLOAT', 'NUMERIC', 'DECIMAL')):
                     default_clause = ' DEFAULT 0'
                 elif 'JSON' in t:
                     default_clause = " DEFAULT '{}'"
@@ -15405,29 +17735,34 @@ def _run_startup_migrations():
             pass
 
 
+# Flag set to True when the configured database is unreachable at startup.
+# The before_request hook below uses it to gate all routes in maintenance mode.
+_DB_MAINTENANCE_MODE = False
+
 # ── Startup initialisation ────────────────────────────────────────────────────
 # Runs in every process that imports this module (each gunicorn worker as well
 # as the master when --preload is used).  All operations must be idempotent.
 with app.app_context():
     try:
-        # Register the SQLite pragmas BEFORE the first connection so that even
-        # db.create_all() benefits from busy_timeout and WAL mode.
-        # Accessing db.engine inside the context is safe here.
-        _sa_event.listens_for(db.engine, "connect")(_set_sqlite_pragmas)
+        if _is_sqlite():
+            # Register the SQLite pragmas BEFORE the first connection so that even
+            # db.create_all() benefits from busy_timeout and WAL mode.
+            _sa_event.listens_for(db.engine, "connect")(_set_sqlite_pragmas)
 
-        # Apply the pragmas immediately to any connection that may already be open
-        # (unlikely at startup, but guards against edge cases).
-        with db.engine.connect() as _conn:
-            _conn.execute(db.text("PRAGMA journal_mode=WAL"))
-            _conn.execute(db.text("PRAGMA synchronous=NORMAL"))
-            _conn.execute(db.text("PRAGMA foreign_keys=ON"))
-            _conn.execute(db.text("PRAGMA busy_timeout=5000"))
+            # Apply the pragmas immediately to any connection that may already be open.
+            with db.engine.connect() as _conn:
+                _conn.execute(db.text("PRAGMA journal_mode=WAL"))
+                _conn.execute(db.text("PRAGMA synchronous=NORMAL"))
+                _conn.execute(db.text("PRAGMA foreign_keys=ON"))
+                _conn.execute(db.text("PRAGMA busy_timeout=5000"))
 
         # Create all tables from the ORM models (no-op if they already exist).
         # This is the call that generates site.db on a fresh install.
         _run_startup_migrations()
 
         ensure_default_website()
+
+        _sync_plugins()
 
         # Start the background thread that periodically syncs external calendar
         # subscriptions. The daemon flag means it dies automatically when the
@@ -15442,14 +17777,46 @@ with app.app_context():
         if not _reloader_parent:
             _start_subscription_sync_scheduler()
 
-    except Exception as _startup_err:
-        import traceback
+        _DB_MAINTENANCE_MODE = False
 
-        print("=" * 60)
-        print("STARTUP ERROR — database initialisation failed:")
-        traceback.print_exc()
-        print("=" * 60)
-        raise  # re-raise so gunicorn surfaces the failure rather than serving broken requests
+    except Exception as _startup_err:
+        import traceback, sqlalchemy.exc as _sa_exc
+
+        if isinstance(_startup_err, (_sa_exc.OperationalError, _sa_exc.DatabaseError)):
+            # PostgreSQL is unreachable — start in maintenance mode so the admin
+            # can reach the settings page to fix the connection, then restart.
+            _DB_MAINTENANCE_MODE = True
+            print("=" * 60)
+            print("WARNING: database unreachable at startup — running in MAINTENANCE MODE.")
+            print("Only the admin settings page is accessible until the database is restored.")
+            print(f"Error: {_startup_err}")
+            print("=" * 60)
+        else:
+            print("=" * 60)
+            print("STARTUP ERROR — database initialisation failed:")
+            traceback.print_exc()
+            print("=" * 60)
+            raise  # non-DB errors are genuine bugs — surface them
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Catch database connection failures and show a clear, actionable message
+    instead of a generic 500 page.  All other 500s fall through normally."""
+    import sqlalchemy.exc as _sa_exc
+    cause = getattr(e, 'original_exception', e)
+    is_db_error = isinstance(cause, (_sa_exc.OperationalError, _sa_exc.DatabaseError))
+    if is_db_error:
+        db.session.remove()  # clear the broken session so the next request starts clean
+        app.logger.error(f'Database connection error: {cause}')
+        if request.is_json or request.headers.get('Accept', '').startswith('application/json'):
+            return _utf8_json({'success': False, 'error': 'Database unavailable. Please try again shortly.'}, 503)
+        from flask import Response as _Response
+        if _DB_MAINTENANCE_MODE:
+            return _Response(_MAINTENANCE_HTML, status=503, mimetype='text/html')
+        return render_template('db_unavailable.html'), 503
+    # Not a DB error — re-raise so Flask's default 500 handler takes over
+    raise e
 
 
 @app.errorhandler(403)
@@ -15459,6 +17826,1436 @@ def forbidden(e):
     if request.is_json or request.headers.get('Accept', '').startswith('application/json'):
         return _utf8_json({'success': False, 'error': msg, 'permission_denied': True}, 403)
     return render_template('403.html', message=msg), 403
+
+
+def _store_website():
+    """Return the canonical website for store data.
+    Always uses the live (non-draft) website so admin and public shop share
+    the same product set. Falls back to any website on a fresh install."""
+    return Website.query.filter_by(is_draft=False).first() or Website.query.first()
+
+
+# ── Store cart helpers ─────────────────────────────────────────────────────────
+
+_CART_COOKIE = 'store_cart'
+_CART_COOKIE_AGE = 60 * 60 * 24 * 90  # 90 days
+
+
+def _store_get_cart(website_id):
+    """Return the current visitor's cart, or None. Also returns the token."""
+    token = request.cookies.get(_CART_COOKIE)
+    public_user = get_public_user()
+
+    if public_user:
+        cart = StoreCart.query.filter_by(
+            website_id=website_id, public_user_id=public_user.id).first()
+        if cart:
+            return cart, token or cart.token
+
+    if token:
+        cart = StoreCart.query.filter_by(
+            website_id=website_id, token=token).first()
+        if cart:
+            if public_user and not cart.public_user_id:
+                cart.public_user_id = public_user.id
+                db.session.commit()
+            return cart, token
+
+    return None, token
+
+
+def _store_get_or_create_cart(website_id):
+    """Return (cart, token, is_new_token). Creates cart + token if needed."""
+    cart, token = _store_get_cart(website_id)
+    is_new = False
+    if not token:
+        token = secrets.token_hex(32)
+        is_new = True
+    if not cart:
+        public_user = get_public_user()
+        cart = StoreCart(
+            website_id=website_id,
+            token=token,
+            public_user_id=public_user.id if public_user else None,
+        )
+        db.session.add(cart)
+        db.session.flush()
+    return cart, token, is_new
+
+
+def _store_cart_count(website_id):
+    cart, _ = _store_get_cart(website_id)
+    if not cart:
+        return 0
+    return int(db.session.query(
+        func.sum(StoreCartItem.quantity)).filter_by(cart_id=cart.id).scalar() or 0)
+
+
+def _store_merge_guest_cart(public_user):
+    """On login, merge any cookie-based guest cart into the user's cart.
+    If the user has no cart yet, the guest cart is simply claimed in-place.
+    If they already have a cart, guest items are folded in (quantities summed
+    for duplicates) and the guest cart is deleted."""
+    website = get_live_website()
+    if not website:
+        return
+    token = request.cookies.get(_CART_COOKIE)
+    if not token:
+        return
+    guest_cart = StoreCart.query.filter_by(
+        website_id=website.id, token=token, public_user_id=None).first()
+    if not guest_cart or not guest_cart.items:
+        return
+    user_cart = StoreCart.query.filter_by(
+        website_id=website.id, public_user_id=public_user.id).first()
+    if not user_cart:
+        guest_cart.public_user_id = public_user.id
+        db.session.commit()
+        return
+    for guest_item in list(guest_cart.items):
+        existing = StoreCartItem.query.filter_by(
+            cart_id=user_cart.id, product_id=guest_item.product_id).first()
+        if existing:
+            existing.quantity += guest_item.quantity
+        else:
+            db.session.add(StoreCartItem(
+                cart_id=user_cart.id,
+                product_id=guest_item.product_id,
+                quantity=guest_item.quantity,
+            ))
+    user_cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.delete(guest_cart)
+    db.session.commit()
+
+
+def _gen_order_number():
+    return 'ORD-' + ''.join([str(secrets.randbelow(10)) for _ in range(8)])
+
+
+def _store_cart_json(resp, token, is_new_token, cart_count):
+    """Attach cart cookie to a Response if needed and return it."""
+    if is_new_token:
+        resp.set_cookie(_CART_COOKIE, token, max_age=_CART_COOKIE_AGE,
+                        samesite='Lax', httponly=True)
+    return resp
+
+
+# ── Store public routes (product detail, cart, checkout) ──────────────────────
+
+@app.route('/products/<string:product_slug>')
+def store_product_detail(product_slug):
+    website = _get_store_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    product = StoreProduct.query.filter_by(
+        website_id=website.id, slug=product_slug, is_active=True).first_or_404()
+    cart_count   = _store_cart_count(website.id)
+    public_user  = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
+
+    reviews = (ProductReview.query
+               .filter_by(product_id=product.id)
+               .order_by(ProductReview.created_at.desc())
+               .all()) if website.reviews_enabled else []
+
+    avg_rating   = (sum(r.rating for r in reviews) / len(reviews)) if reviews else None
+    user_review  = None
+    can_review   = False
+
+    if website.reviews_enabled and public_user:
+        user_review = ProductReview.query.filter_by(
+            product_id=product.id, public_user_id=public_user.id).first()
+        if not user_review:
+            can_review = db.session.query(
+                db.exists()
+                .where(StoreOrderItem.product_id == product.id)
+                .where(StoreOrder.id == StoreOrderItem.order_id)
+                .where(StoreOrder.public_user_id == public_user.id)
+                .where(StoreOrder.website_id == website.id)
+            ).scalar()
+
+    return render_template('store/product_detail.html',
+                           website=website, product=product,
+                           cart_count=cart_count, public_user=public_user,
+                           reviews=reviews, avg_rating=avg_rating,
+                           user_review=user_review, can_review=can_review)
+
+
+@app.route('/store/cart')
+def store_cart_view():
+    website = _get_store_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    if getattr(website, 'store_in_store_only', False):
+        return redirect(url_for('store_shop'))
+    cart, _ = _store_get_cart(website.id)
+    items = cart.items if cart else []
+    subtotal = sum(float(i.product.price) * i.quantity
+                   for i in items if i.product) if items else 0
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
+    return render_template('store/cart.html',
+                           website=website, cart=cart, items=items,
+                           subtotal=subtotal, public_user=public_user)
+
+
+@app.route('/store/cart/add', methods=['POST'])
+def store_cart_add():
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'error': 'Store unavailable'}, 404)
+    if getattr(website, 'store_in_store_only', False):
+        return _utf8_json({'error': 'Online purchasing is not available.'}, 403)
+    data = request.get_json() or {}
+    product_id = int(data.get('product_id') or 0)
+    qty = max(1, int(data.get('qty') or 1))
+
+    product = StoreProduct.query.filter_by(
+        id=product_id, website_id=website.id, is_active=True).first()
+    if not product:
+        return _utf8_json({'error': 'Product not found'}, 404)
+    if product.track_inventory and not product.allow_oversell and product.inventory_qty < qty:
+        return _utf8_json({'error': 'Not enough stock'}, 400)
+
+    cart, token, is_new = _store_get_or_create_cart(website.id)
+
+    existing = StoreCartItem.query.filter_by(
+        cart_id=cart.id, product_id=product_id).first()
+    if existing:
+        existing.quantity += qty
+    else:
+        db.session.add(StoreCartItem(
+            cart_id=cart.id, product_id=product_id, quantity=qty))
+
+    cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+
+    count = _store_cart_count(website.id)
+    resp = _utf8_json({'success': True, 'cart_count': count})
+    return _store_cart_json(resp, token, is_new, count)
+
+
+@app.route('/store/cart/update', methods=['POST'])
+def store_cart_update():
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'error': 'Store unavailable'}, 404)
+    if getattr(website, 'store_in_store_only', False):
+        return _utf8_json({'error': 'Online purchasing is not available.'}, 403)
+    data = request.get_json() or {}
+    item_id = int(data.get('item_id') or 0)
+    qty = max(0, int(data.get('qty') or 0))
+
+    cart, _ = _store_get_cart(website.id)
+    if not cart:
+        return _utf8_json({'error': 'No cart'}, 404)
+
+    item = StoreCartItem.query.filter_by(id=item_id, cart_id=cart.id).first()
+    if not item:
+        return _utf8_json({'error': 'Item not found'}, 404)
+
+    if qty == 0:
+        db.session.delete(item)
+    else:
+        item.quantity = qty
+
+    cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+
+    subtotal = sum(float(i.product.price) * i.quantity
+                   for i in cart.items if i.product)
+    count = _store_cart_count(website.id)
+    return _utf8_json({'success': True, 'cart_count': count,
+                       'subtotal': f'{subtotal:.2f}',
+                       'line_total': f'{float(item.product.price if qty > 0 and item.product else 0) * qty:.2f}'})
+
+
+@app.route('/store/cart/remove', methods=['POST'])
+def store_cart_remove():
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'error': 'Store unavailable'}, 404)
+    if getattr(website, 'store_in_store_only', False):
+        return _utf8_json({'error': 'Online purchasing is not available.'}, 403)
+    data = request.get_json() or {}
+    item_id = int(data.get('item_id') or 0)
+    cart, _ = _store_get_cart(website.id)
+    if not cart:
+        return _utf8_json({'error': 'No cart'}, 404)
+    item = StoreCartItem.query.filter_by(id=item_id, cart_id=cart.id).first()
+    if item:
+        db.session.delete(item)
+        cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+    count = _store_cart_count(website.id)
+    subtotal = sum(float(i.product.price) * i.quantity
+                   for i in cart.items if i.product)
+    return _utf8_json({'success': True, 'cart_count': count,
+                       'subtotal': f'{subtotal:.2f}'})
+
+
+@app.route('/store/checkout', methods=['GET'])
+def store_checkout():
+    website = _get_store_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    if getattr(website, 'store_in_store_only', False):
+        return redirect(url_for('store_shop'))
+    cart, _ = _store_get_cart(website.id)
+    items = cart.items if cart else []
+    if not items:
+        return redirect(url_for('store_cart_view'))
+    subtotal = sum(float(i.product.price) * i.quantity
+                   for i in items if i.product)
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
+    return render_template('store/checkout.html',
+                           website=website, cart=cart, items=items,
+                           subtotal=subtotal, public_user=public_user)
+
+
+@app.route('/store/checkout', methods=['POST'])
+def store_checkout_submit():
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'error': 'Store unavailable'}, 404)
+    if getattr(website, 'store_in_store_only', False):
+        return _utf8_json({'error': 'Online purchasing is not available.'}, 403)
+
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return _utf8_json({'error': 'Login required', 'require_login': True}, 401)
+
+    cart, _ = _store_get_cart(website.id)
+    if not cart or not cart.items:
+        return _utf8_json({'error': 'Cart is empty'}, 400)
+
+    data = request.get_json() or {}
+
+    # Validate required fields
+    required = ['contact_name', 'contact_email',
+                'addr_line1', 'addr_city', 'addr_state', 'addr_postal', 'addr_country']
+    for f in required:
+        if not (data.get(f) or '').strip():
+            return _utf8_json({'error': f'Field required: {f}'}, 400)
+
+    # Check stock and compute totals
+    items = [i for i in cart.items if i.product and i.product.is_active]
+    if not items:
+        return _utf8_json({'error': 'Cart has no available products'}, 400)
+
+    for item in items:
+        p = item.product
+        if p.track_inventory and not p.allow_oversell and p.inventory_qty < item.quantity:
+            return _utf8_json(
+                {'error': f'"{p.name}" only has {p.inventory_qty} in stock'}, 400)
+
+    subtotal = sum(float(i.product.price) * i.quantity for i in items)
+    shipping = 0.0
+    total = subtotal + shipping
+
+    # Generate unique order number
+    order_number = _gen_order_number()
+    while StoreOrder.query.filter_by(order_number=order_number).first():
+        order_number = _gen_order_number()
+
+    public_user = get_public_user()
+    order = StoreOrder(
+        website_id=website.id,
+        public_user_id=public_user.id if public_user else None,
+        order_number=order_number,
+        status='pending_payment',
+        contact_name=data['contact_name'].strip(),
+        contact_email=data['contact_email'].strip().lower(),
+        contact_phone=(data.get('contact_phone') or '').strip() or None,
+        subtotal=subtotal,
+        shipping_cost=shipping,
+        total=total,
+        notes=(data.get('notes') or '').strip() or None,
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    for item in items:
+        db.session.add(StoreOrderItem(
+            order_id=order.id,
+            product_id=item.product.id,
+            product_name=item.product.name,
+            product_sku=item.product.sku,
+            quantity=item.quantity,
+            unit_price=float(item.product.price),
+            line_total=float(item.product.price) * item.quantity,
+        ))
+        if item.product.track_inventory:
+            item.product.inventory_qty = max(0, item.product.inventory_qty - item.quantity)
+
+    db.session.add(StoreOrderAddress(
+        order_id=order.id,
+        name=data['contact_name'].strip(),
+        line1=data['addr_line1'].strip(),
+        line2=(data.get('addr_line2') or '').strip() or None,
+        city=data['addr_city'].strip(),
+        state=data['addr_state'].strip(),
+        postal_code=data['addr_postal'].strip(),
+        country=data['addr_country'].strip(),
+    ))
+
+    # Clear cart
+    for item in list(cart.items):
+        db.session.delete(item)
+
+    db.session.commit()
+
+    return _utf8_json({'success': True, 'order_id': order.id,
+                       'redirect': url_for('store_order_confirmation', order_id=order.id)})
+
+
+@app.route('/shop')
+def store_shop():
+    website = _get_store_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    q       = request.args.get('q', '').strip()
+    cat_id  = request.args.get('category', type=int)
+    sort    = request.args.get('sort', 'newest')
+    page    = max(1, request.args.get('page', 1, type=int))
+    per_page = 12
+
+    query = StoreProduct.query.filter_by(website_id=website.id, is_active=True)
+    if q:
+        query = query.filter(StoreProduct.name.ilike(f'%{q}%') |
+                             StoreProduct.description.ilike(f'%{q}%'))
+    if cat_id:
+        query = query.filter_by(category_id=cat_id)
+
+    sort_map = {
+        'price_asc':  StoreProduct.price.asc(),
+        'price_desc': StoreProduct.price.desc(),
+        'name_az':    StoreProduct.name.asc(),
+    }
+    query = query.order_by(sort_map.get(sort, StoreProduct.created_at.desc()))
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    categories = (StoreCategory.query
+                  .filter_by(website_id=website.id)
+                  .order_by(StoreCategory.name).all())
+    cart_count  = _store_cart_count(website.id)
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
+
+    return render_template('store/shop.html',
+                           website=website,
+                           products=pagination.items,
+                           pagination=pagination,
+                           categories=categories,
+                           q=q, cat_id=cat_id, sort=sort,
+                           cart_count=cart_count,
+                           public_user=public_user)
+
+
+@app.route('/store/cart/count')
+def store_cart_count_api():
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'count': 0})
+    return _utf8_json({'count': _store_cart_count(website.id)})
+
+
+@app.route('/store/order/<int:order_id>/confirmation')
+def store_order_confirmation(order_id):
+    website = _get_store_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    order = StoreOrder.query.filter_by(
+        id=order_id, website_id=website.id).first_or_404()
+    public_user = get_public_user()
+    return render_template('store/order_confirmation.html',
+                           website=website, order=order, public_user=public_user)
+
+
+# ── Store plugin routes ────────────────────────────────────────────────────────
+
+def _slugify(text: str) -> str:
+    text = re.sub(r'[^\w\s-]', '', text.lower().strip())
+    return re.sub(r'[\s_-]+', '-', text).strip('-')
+
+
+def _store_guard():
+    """Deprecated: permission checking now handled by @require_perm decorators."""
+    return None
+
+
+@app.route('/admin/store')
+@login_required
+@require_perm('store.view')
+def store_admin():
+    guard = _store_guard()
+    if guard:
+        return guard
+    return redirect(url_for('store_products'))
+
+
+@app.route('/admin/store/products')
+@login_required
+@require_perm('store.view')
+def store_products():
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    products = (StoreProduct.query
+                .filter_by(website_id=website.id)
+                .order_by(StoreProduct.created_at.desc())
+                .all()) if website else []
+    categories = (StoreCategory.query
+                  .filter_by(website_id=website.id)
+                  .order_by(StoreCategory.sort_order, StoreCategory.name)
+                  .all()) if website else []
+    reviews = (ProductReview.query
+               .filter_by(website_id=website.id)
+               .order_by(ProductReview.created_at.desc())
+               .all()) if website else []
+    return render_template('store/products.html',
+                           products=products,
+                           categories=categories,
+                           website=website,
+                           reviews=reviews)
+
+
+@app.route('/admin/store/products/new', methods=['GET'])
+@login_required
+@require_perm('store.products')
+def store_product_new():
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    categories = (StoreCategory.query
+                  .filter_by(website_id=website.id)
+                  .order_by(StoreCategory.name)
+                  .all()) if website else []
+    return render_template('store/product_edit.html',
+                           product=None,
+                           categories=categories,
+                           website=website)
+
+
+@app.route('/admin/store/products/new', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def store_product_create():
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website found'}, 400)
+
+    data = request.get_json() or {}
+    slug = _slugify(data.get('slug') or data.get('name', ''))
+    if not slug:
+        return _utf8_json({'error': 'Name is required'}, 400)
+
+    # Ensure slug uniqueness
+    base_slug, n = slug, 1
+    while StoreProduct.query.filter_by(website_id=website.id, slug=slug).first():
+        slug = f'{base_slug}-{n}'; n += 1
+
+    try:
+        price = float(data.get('price') or 0)
+        compare = float(data['compare_at_price']) if data.get('compare_at_price') else None
+    except (ValueError, TypeError):
+        return _utf8_json({'error': 'Invalid price'}, 400)
+
+    product = StoreProduct(
+        website_id       = website.id,
+        category_id      = data.get('category_id') or None,
+        name             = data['name'].strip(),
+        slug             = slug,
+        description      = data.get('description', ''),
+        price            = price,
+        compare_at_price = compare,
+        sku              = (data.get('sku') or '').strip() or None,
+        inventory_qty    = int(data.get('inventory_qty') or 0),
+        track_inventory  = bool(data.get('track_inventory', True)),
+        allow_oversell   = bool(data.get('allow_oversell', False)),
+        is_active        = bool(data.get('is_active', False)),
+    )
+    db.session.add(product)
+    db.session.flush()
+
+    for i, asset_id in enumerate(data.get('image_ids', [])):
+        db.session.add(StoreProductImage(
+            product_id=product.id, asset_id=asset_id, sort_order=i))
+
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': product.id,
+                       'redirect': url_for('store_product_edit', product_id=product.id)})
+
+
+@app.route('/admin/store/products/<int:product_id>', methods=['GET'])
+@login_required
+@require_perm('store.products')
+def store_product_edit(product_id):
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    product = StoreProduct.query.filter_by(
+        id=product_id, website_id=website.id).first_or_404()
+    categories = (StoreCategory.query
+                  .filter_by(website_id=website.id)
+                  .order_by(StoreCategory.name)
+                  .all())
+    return render_template('store/product_edit.html',
+                           product=product,
+                           categories=categories,
+                           website=website)
+
+
+@app.route('/admin/store/products/<int:product_id>', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def store_product_update(product_id):
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    product = StoreProduct.query.filter_by(
+        id=product_id, website_id=website.id).first_or_404()
+
+    data = request.get_json() or {}
+
+    new_slug = _slugify(data.get('slug') or data.get('name', ''))
+    if new_slug != product.slug:
+        base_slug, n = new_slug, 1
+        while StoreProduct.query.filter(
+                StoreProduct.website_id == website.id,
+                StoreProduct.slug == new_slug,
+                StoreProduct.id != product.id).first():
+            new_slug = f'{base_slug}-{n}'; n += 1
+
+    try:
+        price = float(data.get('price') or 0)
+        compare = float(data['compare_at_price']) if data.get('compare_at_price') else None
+    except (ValueError, TypeError):
+        return _utf8_json({'error': 'Invalid price'}, 400)
+
+    product.name             = data.get('name', product.name).strip()
+    product.slug             = new_slug
+    product.description      = data.get('description', product.description)
+    product.price            = price
+    product.compare_at_price = compare
+    product.sku              = (data.get('sku') or '').strip() or None
+    product.category_id      = data.get('category_id') or None
+    product.inventory_qty    = int(data.get('inventory_qty') or 0)
+    product.track_inventory  = bool(data.get('track_inventory', True))
+    product.allow_oversell   = bool(data.get('allow_oversell', False))
+    product.is_active        = bool(data.get('is_active', False))
+    product.updated_at       = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Replace image list
+    if 'image_ids' in data:
+        StoreProductImage.query.filter_by(product_id=product.id).delete()
+        for i, asset_id in enumerate(data['image_ids']):
+            db.session.add(StoreProductImage(
+                product_id=product.id, asset_id=asset_id, sort_order=i))
+
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/store/products/<int:product_id>/delete', methods=['POST'])
+@login_required
+@require_perm('store.delete')
+def store_product_delete(product_id):
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    product = StoreProduct.query.filter_by(
+        id=product_id, website_id=website.id).first_or_404()
+    db.session.delete(product)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/store/categories', methods=['POST'])
+@login_required
+@require_perm('store.categories')
+def store_category_create():
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'error': 'Name is required'}, 400)
+    slug = _slugify(data.get('slug') or name)
+    base_slug, n = slug, 1
+    while StoreCategory.query.filter_by(website_id=website.id, slug=slug).first():
+        slug = f'{base_slug}-{n}'; n += 1
+    cat = StoreCategory(website_id=website.id, name=name, slug=slug,
+                        description=data.get('description', ''))
+    db.session.add(cat)
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': cat.id, 'name': cat.name, 'slug': cat.slug})
+
+
+@app.route('/admin/store/categories/<int:cat_id>', methods=['POST'])
+@login_required
+@require_perm('store.categories')
+def store_category_update(cat_id):
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    cat = StoreCategory.query.filter_by(id=cat_id, website_id=website.id).first_or_404()
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'error': 'Name is required'}, 400)
+    cat.name = name
+    cat.description = data.get('description', cat.description)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/store/categories/<int:cat_id>/delete', methods=['POST'])
+@login_required
+@require_perm('store.categories')
+def store_category_delete(cat_id):
+    guard = _store_guard()
+    if guard:
+        return guard
+    website = _store_website()
+    cat = StoreCategory.query.filter_by(id=cat_id, website_id=website.id).first_or_404()
+    db.session.delete(cat)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/products/<string:product_slug>/review', methods=['POST'])
+def store_submit_review(product_slug):
+    website = _get_store_website()
+    if not website or not website.reviews_enabled:
+        return _utf8_json({'error': 'Reviews are not enabled'}, 404)
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Login required'}, 401)
+    product = StoreProduct.query.filter_by(
+        website_id=website.id, slug=product_slug, is_active=True).first_or_404()
+    existing = ProductReview.query.filter_by(
+        product_id=product.id, public_user_id=public_user.id).first()
+    if existing:
+        return _utf8_json({'error': 'You have already reviewed this product'}, 400)
+    purchased = db.session.query(
+        db.exists()
+        .where(StoreOrderItem.product_id == product.id)
+        .where(StoreOrder.id == StoreOrderItem.order_id)
+        .where(StoreOrder.public_user_id == public_user.id)
+        .where(StoreOrder.website_id == website.id)
+    ).scalar()
+    if not purchased:
+        return _utf8_json({'error': 'You must purchase this product before reviewing it'}, 403)
+    data   = request.get_json() or {}
+    rating = int(data.get('rating') or 0)
+    if not 1 <= rating <= 5:
+        return _utf8_json({'error': 'Rating must be 1–5'}, 400)
+    review = ProductReview(
+        website_id     = website.id,
+        product_id     = product.id,
+        public_user_id = public_user.id,
+        rating         = rating,
+        title          = (data.get('title') or '').strip() or None,
+        body           = (data.get('body') or '').strip() or None,
+    )
+    db.session.add(review)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/store/reviews/<int:review_id>/delete', methods=['POST'])
+@login_required
+@require_perm('store.reviews')
+def store_delete_review(review_id):
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website'}, 400)
+    review = ProductReview.query.filter_by(id=review_id, website_id=website.id).first_or_404()
+    db.session.delete(review)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/store/toggle-reviews', methods=['POST'])
+@login_required
+@require_perm('store.settings')
+def store_toggle_reviews():
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website found'}, 400)
+    website.reviews_enabled = not website.reviews_enabled
+    db.session.commit()
+    return _utf8_json({'reviews_enabled': website.reviews_enabled})
+
+
+@app.route('/admin/store/settings', methods=['POST'])
+@login_required
+@require_perm('store.settings')
+def store_save_settings():
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    website.store_title             = (data.get('store_title') or 'Shop').strip()[:120]
+    website.store_description       = (data.get('store_description') or '').strip()[:500] or None
+    website.store_in_store_only_label = (data.get('store_in_store_only_label') or '').strip()[:120] or None
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'store_title': website.store_title,
+                       'store_description': website.store_description,
+                       'store_in_store_only_label': website.store_in_store_only_label})
+
+
+@app.route('/admin/store/toggle-enabled', methods=['POST'])
+@login_required
+@require_perm('store.settings')
+def store_toggle_enabled():
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website found'}, 400)
+    website.store_enabled = not website.store_enabled
+    db.session.commit()
+    return _utf8_json({'store_enabled': website.store_enabled})
+
+
+@app.route('/admin/store/toggle-in-store-only', methods=['POST'])
+@login_required
+@require_perm('store.settings')
+def store_toggle_in_store_only():
+    website = _store_website()
+    if not website:
+        return _utf8_json({'error': 'No website found'}, 400)
+    website.store_in_store_only = not getattr(website, 'store_in_store_only', False)
+    db.session.commit()
+    return _utf8_json({'store_in_store_only': website.store_in_store_only})
+
+
+@app.route('/admin/store/section-data')
+@login_required
+@require_perm('store.view')
+def store_section_data():
+    """Returns categories and active products for the page-editor section picker."""
+    guard = _store_guard()
+    if guard:
+        return _utf8_json({'error': 'Store plugin not enabled'}, 403)
+    website = _store_website()
+    if not website:
+        return _utf8_json({'categories': [], 'products': []})
+    cats = (StoreCategory.query
+            .filter_by(website_id=website.id)
+            .order_by(StoreCategory.name).all())
+    products = (StoreProduct.query
+                .filter_by(website_id=website.id, is_active=True)
+                .order_by(StoreProduct.name).all())
+    return _utf8_json({
+        'categories': [{'id': c.id, 'name': c.name} for c in cats],
+        'products':   [{'id': p.id, 'name': p.name,
+                        'price': str(p.price)} for p in products],
+    })
+
+
+def _plugins_guard():
+    """Block sub-admins from the plugins section with a proper permission message."""
+    if current_user.is_sub_admin:
+        msg = ("You don't have permission to do this "
+               "(Plugins › manage). Ask your admin to grant access.")
+        wants_json = (
+            request.is_json
+            or request.method in ('POST', 'PUT', 'PATCH', 'DELETE')
+            or request.headers.get('Accept', '').startswith('application/json')
+        )
+        if wants_json:
+            return _utf8_json({'error': msg, 'permission_denied': True}, 403)
+        flash(msg, 'permission_denied')
+        return redirect(url_for('dashboard'))
+    return None
+
+
+@app.route('/admin/plugins')
+@login_required
+def plugins_page():
+    guard = _plugins_guard()
+    if guard:
+        return guard
+    registered_slugs = [p['slug'] for p in _REGISTERED_PLUGINS]
+    plugins = (Plugin.query
+               .filter(Plugin.slug.in_(registered_slugs))
+               .order_by(Plugin.name).all()) if registered_slugs else []
+    return render_template('plugins.html', plugins=plugins)
+
+
+@app.route('/admin/plugins/<slug>/toggle', methods=['POST'])
+@login_required
+def plugin_toggle(slug):
+    guard = _plugins_guard()
+    if guard:
+        return guard
+    plugin = Plugin.query.filter_by(slug=slug).first_or_404()
+    plugin.enabled = not plugin.enabled
+    db.session.commit()
+    return _utf8_json({'enabled': plugin.enabled})
+
+
+@app.route('/admin/plugins/<slug>/config', methods=['GET', 'POST'])
+@login_required
+def plugin_config(slug):
+    guard = _plugins_guard()
+    if guard:
+        return guard
+    plugin = Plugin.query.filter_by(slug=slug).first_or_404()
+    if not plugin.enabled:
+        return redirect(url_for('plugins_page'))
+    # Plugins with a dedicated admin section redirect there directly
+    _plugin_redirects = {
+        'store': 'store_products',
+    }
+    if slug in _plugin_redirects:
+        return redirect(url_for(_plugin_redirects[slug]))
+    return render_template(f'plugins/{slug}/config.html', plugin=plugin)
+
+
+# ── Posts ─────────────────────────────────────────────────────────────────────
+
+def _slugify_post(text: str) -> str:
+    """Lowercase, replace non-alphanumeric with hyphens, strip leading/trailing hyphens."""
+    import re as _re
+    text = text.lower().strip()
+    text = _re.sub(r'[^a-z0-9]+', '-', text)
+    return text.strip('-') or 'untitled'
+
+
+def _unique_collection_slug(website_id, base_slug, exclude_id=None):
+    """Return a unique slug within the website's post collections."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = PostCollection.query.filter_by(website_id=website_id, slug=slug)
+        if exclude_id:
+            q = q.filter(PostCollection.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+def _unique_post_slug(collection_id, base_slug, exclude_id=None):
+    """Return a unique slug within the collection."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = Post.query.filter_by(collection_id=collection_id, slug=slug)
+        if exclude_id:
+            q = q.filter(Post.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+_DEFAULT_PROFANITY_WORDS = "\n".join([
+    "fuck","fucking","fucker","fucks","fucked","fuckhead","fuckwit","fuckface","motherfuck",
+    "motherfucker","motherfucking","clusterfuck","shitstorm","fuckup",
+    "shit","shits","shitting","shitty","shithead","bullshit","horseshit","dipshit","apeshit",
+    "ass","asses","asshole","assholes","jackass","smartass","dumbass","badass","fatass","lardass",
+    "bitch","bitches","bitching","bitchy","son of a bitch",
+    "bastard","bastards",
+    "cunt","cunts","cunting",
+    "damn","goddamn","damnit",
+    "dick","dicks","dickhead","dickheads","dickface",
+    "piss","pissed","pisser","pisshead",
+    "cock","cocks","cockhead","cocksuck","cocksucker","cocksucking",
+    "pussy","pussies",
+    "crap","crappy",
+    "wanker","wankers","wank","wanking",
+    "twat","twats",
+    "prick","pricks",
+    "arse","arsehole","arseholes",
+    "bollocks",
+    "turd","turds",
+    "slut","sluts","slutty",
+    "whore","whores","whorish",
+    "skank","skanky",
+    "douche","douchebag","douchebags",
+    "retard","retarded","retards",
+    "faggot","faggots","fag","fags",
+    "dyke","dykes",
+    "nigger","niggers","nigga","niggas",
+    "spic","spics","spick",
+    "kike","kikes",
+    "chink","chinks",
+    "gook","gooks",
+    "wetback","wetbacks",
+    "towelhead","towelheads",
+    "raghead","ragheads",
+    "cracker","crackers",
+    "honky","honkies",
+    "tranny","trannies",
+    "shemale","shemales",
+    "jizz","cum","spunk","cumshot","cumshots",
+    "blowjob","blowjobs",
+    "handjob","handjobs",
+    "rimjob","rimjobs",
+    "titfuck","titfucking",
+    "anal","butt fuck","buttfuck","buttfucking",
+    "creampie","gangbang","gangbanging",
+    "dildo","dildos",
+    "vibrator","vibrators",
+    "tits","titties",
+    "boobs","boob",
+    "erection","boner","boners",
+    "hardcore porn","porn","pornography",
+    "pedophile","paedophile","pedophilia","paedophilia",
+    "rape","rapist","rapists","raping","gang rape",
+    "molest","molester","molesting","molestation",
+    "necrophilia","bestiality","zoophilia",
+    "kill yourself","kys","go kill yourself","go die",
+    "die in a fire","i hope you die",
+    "hate speech","nazi","nazis",
+])
+
+
+@app.route('/admin/posts')
+@login_required
+@require_perm('posts.view')
+def admin_posts_page():
+    website = get_admin_website()
+    collections = []
+    if website:
+        collections = PostCollection.query.filter_by(website_id=website.id).order_by(PostCollection.created_at.desc()).all()
+        # Seed default profanity list if none has been set yet
+        if not (website.post_profanity_words or '').strip():
+            website.post_profanity_words = _DEFAULT_PROFANITY_WORDS
+            db.session.commit()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    page_id = None
+    return render_template(
+        'posts_admin.html',
+        collections=collections,
+        website=website,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=page_id,
+    )
+
+
+@app.route('/admin/posts/create', methods=['POST'])
+@login_required
+@require_perm('posts.collections')
+def admin_posts_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    base_slug = _slugify_post(name)
+    slug = _unique_collection_slug(website.id, base_slug)
+    collection = PostCollection(
+        website_id=website.id,
+        name=name,
+        slug=slug,
+        description=(data.get('description') or '').strip(),
+    )
+    db.session.add(collection)
+    db.session.commit()
+    return _utf8_json({'success': True, 'collection': {
+        'id': collection.id,
+        'name': collection.name,
+        'slug': collection.slug,
+        'description': collection.description or '',
+    }}, 201)
+
+
+@app.route('/admin/posts/<int:cid>/update', methods=['POST'])
+@login_required
+@require_perm('posts.collections')
+def admin_posts_update(cid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    collection.name = name
+    collection.description = (data.get('description') or '').strip()
+    db.session.commit()
+    return _utf8_json({'success': True, 'collection': {
+        'id': collection.id,
+        'name': collection.name,
+        'slug': collection.slug,
+        'description': collection.description or '',
+    }})
+
+
+@app.route('/admin/posts/<int:cid>/delete', methods=['POST'])
+@login_required
+@require_perm('posts.collections')
+def admin_posts_delete(cid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    db.session.delete(collection)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/posts/<int:cid>/articles')
+@login_required
+@require_perm('posts.view')
+def admin_post_list(cid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        abort(403)
+    posts = Post.query.filter_by(collection_id=cid).order_by(Post.created_at.desc()).all()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    page_id = None
+    return render_template(
+        'post_list.html',
+        collection=collection,
+        posts=posts,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=page_id,
+    )
+
+
+@app.route('/admin/posts/<int:cid>/articles/new')
+@login_required
+@require_perm('posts.edit')
+def admin_post_new(cid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        abort(403)
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    page_id = None
+    return render_template(
+        'post_editor.html',
+        collection=collection,
+        post=None,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=page_id,
+    )
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/edit')
+@login_required
+@require_perm('posts.edit')
+def admin_post_edit(cid, pid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        abort(403)
+    post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    page_id = None
+    return render_template(
+        'post_editor.html',
+        collection=collection,
+        post=post,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=page_id,
+    )
+
+
+@app.route('/admin/posts/<int:cid>/articles/save', methods=['POST'])
+@login_required
+@require_perm('posts.edit')
+def admin_post_save(cid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    comments_enabled = bool(data.get('comments_enabled', False))
+    comments_require_login = bool(data.get('comments_require_login', False))
+    comments_moderation    = bool(data.get('comments_moderation', False))
+
+    pid = data.get('id')
+    if pid:
+        post = Post.query.filter_by(id=int(pid), collection_id=cid).first_or_404()
+        # Slug: use provided or keep existing
+        raw_slug = (data.get('slug') or '').strip()
+        if raw_slug:
+            base_slug = _slugify_post(raw_slug)
+            post.slug = _unique_post_slug(cid, base_slug, exclude_id=post.id)
+        post.title = title
+        post.excerpt = (data.get('excerpt') or '').strip() or None
+        post.content = data.get('content') or None
+        post.cover_image_url = (data.get('cover_image_url') or '').strip() or None
+        post.comments_enabled = comments_enabled
+        post.comments_require_login = comments_require_login
+        post.comments_moderation    = comments_moderation
+        post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    else:
+        raw_slug = (data.get('slug') or '').strip()
+        base_slug = _slugify_post(raw_slug if raw_slug else title)
+        slug = _unique_post_slug(cid, base_slug)
+        post = Post(
+            collection_id=cid,
+            website_id=website.id,
+            title=title,
+            slug=slug,
+            excerpt=(data.get('excerpt') or '').strip() or None,
+            content=data.get('content') or None,
+            cover_image_url=(data.get('cover_image_url') or '').strip() or None,
+            comments_enabled=comments_enabled,
+            comments_require_login=comments_require_login,
+            comments_moderation=comments_moderation,
+            status='draft',
+        )
+        db.session.add(post)
+
+    db.session.commit()
+    return _utf8_json({'success': True, 'post': {
+        'id': post.id,
+        'slug': post.slug,
+        'status': post.status,
+    }})
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/publish', methods=['POST'])
+@login_required
+@require_perm('posts.publish')
+def admin_post_publish(cid, pid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    post.status = 'published'
+    if not post.published_at:
+        post.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': post.status})
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/unpublish', methods=['POST'])
+@login_required
+@require_perm('posts.publish')
+def admin_post_unpublish(cid, pid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    post.status = 'draft'
+    post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': post.status})
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/delete', methods=['POST'])
+@login_required
+@require_perm('posts.delete')
+def admin_post_delete(cid, pid):
+    collection = PostCollection.query.get_or_404(cid)
+    website = Website.query.get_or_404(collection.website_id)
+    if not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    db.session.delete(post)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/posts/collections-list')
+@login_required
+@require_perm('posts.view')
+def admin_posts_collections_json():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json([])
+    collections = PostCollection.query.filter_by(website_id=website.id).order_by(PostCollection.name).all()
+    return _utf8_json([{'id': c.id, 'name': c.name} for c in collections])
+
+
+@app.route('/posts/<string:collection_slug>/<string:post_slug>')
+def public_post_detail(collection_slug, post_slug):
+    website = get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    if not website.is_live:
+        return render_template('site_offline.html', website=website), 503
+    collection = PostCollection.query.filter_by(website_id=website.id, slug=collection_slug).first_or_404()
+    post = Post.query.filter_by(collection_id=collection.id, slug=post_slug).first_or_404()
+    if post.status != 'published':
+        abort(404)
+    comments = PostComment.query.filter_by(post_id=post.id, is_approved=True).order_by(PostComment.created_at.asc()).all() if post.comments_enabled else []
+    public_user = get_public_user()
+    if getattr(website, 'require_login_to_view', False) and not public_user:
+        return redirect(url_for('public_login', next=request.url))
+    comments_data = [
+        {
+            'id': c.id,
+            'author_name': c.author_name,
+            'body': c.body,
+            'created_at': c.created_at.strftime('%B %-d, %Y'),
+            'like_count': c.like_count_cached or 0,
+            'liked': c.user_has_liked(public_user),
+        }
+        for c in comments
+    ]
+    return render_template('post_detail.html', website=website, collection=collection, post=post, comments=comments, comments_data=comments_data, public_user=public_user)
+
+
+@app.route('/posts/<string:collection_slug>/<string:post_slug>/comment', methods=['POST'])
+def public_post_comment(collection_slug, post_slug):
+    website = get_live_website()
+    if not website:
+        return _utf8_json({'error': 'Not found'}, 404)
+    collection = PostCollection.query.filter_by(website_id=website.id, slug=collection_slug).first_or_404()
+    post = Post.query.filter_by(collection_id=collection.id, slug=post_slug, status='published').first_or_404()
+    if not post.comments_enabled:
+        return _utf8_json({'error': 'Comments are disabled'}, 403)
+    public_user = get_public_user()
+    if post.comments_require_login and not public_user:
+        return _utf8_json({'error': 'You must be logged in to comment.', 'require_login': True}, 401)
+    data = request.get_json() or {}
+    author_name = (data.get('author_name') or '').strip()
+    author_email = (data.get('author_email') or '').strip() or None
+    body = (data.get('body') or '').strip()
+    if public_user:
+        author_name = author_name or public_user.username
+    if not author_name:
+        return _utf8_json({'error': 'Name is required'}, 400)
+    if not body:
+        return _utf8_json({'error': 'Comment cannot be empty'}, 400)
+    # System-wide profanity filter
+    body, blocked = _profanity_filter_text(body, website)
+    if blocked:
+        return _utf8_json({'error': 'Your comment contains prohibited language.'}, 400)
+    is_approved = not post.comments_moderation
+    comment = PostComment(
+        post_id=post.id,
+        website_id=website.id,
+        public_user_id=public_user.id if public_user else None,
+        author_name=author_name,
+        author_email=author_email,
+        body=body,
+        is_approved=is_approved,
+    )
+    db.session.add(comment)
+    db.session.commit()
+    return _utf8_json({'success': True, 'pending': post.comments_moderation, 'comment': {
+        'id': comment.id,
+        'author_name': comment.author_name,
+        'body': comment.body,
+        'created_at': comment.created_at.strftime('%b %-d, %Y'),
+        'like_count': 0,
+        'liked': False,
+    }})
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/comments/<int:comment_id>/delete', methods=['POST'])
+@login_required
+@require_perm('posts.moderate')
+def admin_post_comment_delete(cid, pid, comment_id):
+    collection = PostCollection.query.filter_by(id=cid).first_or_404()
+    website = Website.query.filter_by(id=collection.website_id, user_id=current_user.root_user_id).first_or_404()
+    comment = PostComment.query.filter_by(id=comment_id, post_id=pid).first_or_404()
+    db.session.delete(comment)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/comments-list', methods=['GET'])
+@login_required
+@require_perm('posts.moderate')
+def admin_post_comments_list(cid, pid):
+    collection = PostCollection.query.filter_by(id=cid).first_or_404()
+    Website.query.filter_by(id=collection.website_id, user_id=current_user.root_user_id).first_or_404()
+    comments = PostComment.query.filter_by(post_id=pid).order_by(PostComment.created_at.desc()).all()
+    return _utf8_json({'comments': [
+        {'id': c.id, 'author_name': c.author_name, 'body': c.body,
+         'is_approved': c.is_approved,
+         'created_at': c.created_at.strftime('%b %-d, %Y')} for c in comments
+    ]})
+
+
+@app.route('/admin/posts/<int:cid>/articles/<int:pid>/comments/<int:comment_id>/approve', methods=['POST'])
+@login_required
+@require_perm('posts.moderate')
+def admin_post_comment_approve(cid, pid, comment_id):
+    collection = PostCollection.query.filter_by(id=cid).first_or_404()
+    Website.query.filter_by(id=collection.website_id, user_id=current_user.root_user_id).first_or_404()
+    comment = PostComment.query.filter_by(id=comment_id, post_id=pid).first_or_404()
+    comment.is_approved = True
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/posts/profanity-settings', methods=['POST'])
+@login_required
+@require_perm('posts.settings')
+def admin_posts_profanity_settings():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'error': 'No website'}, 400)
+    data = request.get_json() or {}
+    website.post_profanity_words  = (data.get('words') or '').strip() or None
+    website.post_profanity_action = data.get('action', 'block') if data.get('action') in ('block', 'replace') else 'block'
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/settings/profanity', methods=['POST'])
+@login_required
+def save_profanity_settings():
+    if current_user.is_sub_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'error': 'No website'}, 400)
+    data = request.get_json() or {}
+    website.profanity_filter_enabled = bool(data.get('enabled', False))
+    website.post_profanity_words     = (data.get('words') or '').strip() or None
+    website.post_profanity_action    = data.get('action', 'block') if data.get('action') in ('block', 'replace') else 'block'
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 if __name__ == '__main__':
