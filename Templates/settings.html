@@ -337,35 +337,44 @@
 
     <div class="settings-field">
         <label for="current_password">Current Password</label>
-        <input
-            id="current_password"
-            name="current_password"
-            type="password"
-            autocomplete="current-password"
-            placeholder="Required only if changing password"
-        >
+        <div class="pw-wrap">
+            <input
+                id="current_password"
+                name="current_password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="Required only if changing password"
+            >
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
     </div>
 
     <div class="settings-field">
         <label for="new_password">New Password</label>
-        <input
-            id="new_password"
-            name="new_password"
-            type="password"
-            autocomplete="new-password"
-            placeholder="Leave blank to keep current password"
-        >
+        <div class="pw-wrap">
+            <input
+                id="new_password"
+                name="new_password"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Leave blank to keep current password"
+            >
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
     </div>
 
     <div class="settings-field">
         <label for="confirm_new_password">Confirm New Password</label>
-        <input
-            id="confirm_new_password"
-            name="confirm_new_password"
-            type="password"
-            autocomplete="new-password"
-            placeholder="Leave blank to keep current password"
-        >
+        <div class="pw-wrap">
+            <input
+                id="confirm_new_password"
+                name="confirm_new_password"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Leave blank to keep current password"
+            >
+            <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+        </div>
     </div>
 </div>
 
@@ -628,6 +637,135 @@
         }
     </script>
 
+    <!-- Profanity Filter -->
+    <style>
+    .pf-toggle-track {
+        width: 34px; height: 18px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.08);
+        position: relative; flex-shrink: 0;
+        transition: background 0.18s, border-color 0.18s;
+    }
+    .pf-toggle-track::after {
+        content: '';
+        position: absolute;
+        top: 2px; left: 2px;
+        width: 12px; height: 12px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.4);
+        transition: transform 0.18s, background 0.18s;
+    }
+    .pf-toggle-track.on {
+        background: rgba(94,238,200,0.2) !important;
+        border-color: rgba(94,238,200,0.5) !important;
+    }
+    .pf-toggle-track.on::after {
+        transform: translateX(16px) !important;
+        background: #5eeec8 !important;
+    }
+    </style>
+    <div class="settings-card" style="margin-top:20px;">
+        <h2 class="settings-section-title">Content Moderation</h2>
+
+        <div class="settings-field">
+            <label>Profanity Filter</label>
+            <p class="settings-help">When enabled, applies to all public comments, forum posts, and replies — both new submissions and when displaying existing content.</p>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+                    <input type="checkbox" id="profanityFilterEnabled"
+                           {% if website and website.profanity_filter_enabled %}checked{% endif %}
+                           style="position:absolute;opacity:0;pointer-events:none;">
+                    <span class="pf-toggle-track{% if website and website.profanity_filter_enabled %} on{% endif %}" id="profanityFilterTrack"></span>
+                    <span id="profanityFilterLabel">{% if website and website.profanity_filter_enabled %}Enabled{% else %}Disabled{% endif %}</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="settings-field">
+            <label>When profanity is found in a new submission</label>
+            <select id="profanityAction" style="max-width:260px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#f0f0f0;font-family:inherit;">
+                <option value="block"   {% if not website or not website.post_profanity_action or website.post_profanity_action == 'block' %}selected{% endif %}>Block the submission</option>
+                <option value="replace" {% if website and website.post_profanity_action == 'replace' %}selected{% endif %}>Replace with ***</option>
+            </select>
+        </div>
+
+        <div class="settings-field">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <label style="margin:0;">Banned Words</label>
+                <button type="button" onclick="toggleProfanityWords(this)"
+                        style="all:unset;cursor:pointer;font-size:0.78rem;opacity:0.45;display:flex;align-items:center;gap:5px;color:inherit;">
+                    <i class="fas fa-eye-slash"></i> Show
+                </button>
+            </div>
+            <div style="position:relative;">
+                <textarea id="profanityWords" rows="5"
+                          style="width:100%;box-sizing:border-box;padding:9px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#f0f0f0;font-size:0.85rem;font-family:inherit;resize:vertical;filter:blur(4px);user-select:none;pointer-events:none;">{{ website.post_profanity_words or '' }}</textarea>
+                <div id="profanityWordsOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:8px;"
+                     onclick="toggleProfanityWords(document.querySelector('button[onclick*=toggleProfanityWords]'))">
+                    <span style="font-size:0.8rem;opacity:0.5;pointer-events:none;">Click to reveal</span>
+                </div>
+            </div>
+            <p class="settings-help">One banned word or phrase per line. Case-insensitive. Existing content is also filtered when displayed.</p>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
+            <button class="settings-button" onclick="saveProfanitySettings()">Save</button>
+            <span id="profanitySettingsStatus" style="font-size:0.82rem;min-height:1em;"></span>
+        </div>
+    </div>
+
+    <script>
+    function toggleProfanityWords(btn) {
+        const ta      = document.getElementById('profanityWords');
+        const overlay = document.getElementById('profanityWordsOverlay');
+        const hidden  = ta.style.filter === 'blur(4px)';
+        if (hidden) {
+            ta.style.filter = ''; ta.style.userSelect = ''; ta.style.pointerEvents = '';
+            overlay.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide';
+        } else {
+            ta.style.filter = 'blur(4px)'; ta.style.userSelect = 'none'; ta.style.pointerEvents = 'none';
+            overlay.style.display = '';
+            btn.innerHTML = '<i class="fas fa-eye-slash"></i> Show';
+        }
+    }
+
+    async function saveProfanitySettings() {
+        const status = document.getElementById('profanitySettingsStatus');
+        status.style.color = 'rgba(255,255,255,0.4)'; status.textContent = 'Saving…';
+        try {
+            const r = await fetch('/admin/settings/profanity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: document.getElementById('profanityFilterEnabled').checked,
+                    action:  document.getElementById('profanityAction').value,
+                    words:   document.getElementById('profanityWords').value.trim(),
+                })
+            });
+            const d = await r.json();
+            if (d.success) {
+                status.style.color = '#5eeec8'; status.textContent = 'Saved';
+                setTimeout(() => status.textContent = '', 2500);
+            } else {
+                status.style.color = '#f88'; status.textContent = d.error || 'Error';
+            }
+        } catch(e) {
+            status.style.color = '#f88'; status.textContent = 'Request failed';
+        }
+    }
+
+    // Wire the enabled toggle
+    document.getElementById('profanityFilterEnabled')?.addEventListener('change', function() {
+        const track = document.getElementById('profanityFilterTrack');
+        const label = document.getElementById('profanityFilterLabel');
+        const on = this.checked;
+        track.classList.toggle('on', on);
+        label.textContent = on ? 'Enabled' : 'Disabled';
+    });
+    </script>
+
     {% if not current_user.is_sub_admin %}
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Backup &amp; Restore</h2>
@@ -796,7 +934,10 @@
             </div>
             <div class="uw-field" style="margin-bottom:14px;">
                 <label>Password</label>
-                <input type="password" id="pgPassword" placeholder="••••••••" autocomplete="new-password">
+                <div class="pw-wrap">
+                    <input type="password" id="pgPassword" placeholder="••••••••" autocomplete="new-password">
+                    <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+                </div>
             </div>
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;">

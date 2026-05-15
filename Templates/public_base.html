@@ -240,6 +240,68 @@
     </style>
 
     {% block head %}{% endblock %}
+
+    <style>
+    .pw-wrap { display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.85rem; }
+    .pw-wrap > input { flex: 1 1 auto; min-width: 0; width: auto !important; margin: 0 !important; }
+    .sco-field .pw-wrap, .sp-review-field .pw-wrap { margin-bottom: 0; }
+    button.pw-toggle {
+        all: unset; flex-shrink: 0; align-self: center; cursor: pointer; color: inherit; opacity: 0.3;
+        font-size: 0.85em; line-height: 1; display: flex; align-items: center;
+        transition: opacity 0.15s;
+    }
+    button.pw-toggle:hover, button.pw-toggle:focus-visible { opacity: 0.7; }
+
+    .public-cart-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px; height: 36px;
+        border-radius: 50%;
+        color: inherit;
+        text-decoration: none;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s;
+        flex-shrink: 0;
+    }
+    .public-cart-btn:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+    .public-cart-btn i { font-size: 0.95rem; }
+    .public-cart-badge {
+        position: absolute;
+        top: 2px; right: 2px;
+        min-width: 16px; height: 16px;
+        background: #5eeec8;
+        color: #111;
+        font-size: 0.62rem;
+        font-weight: 800;
+        border-radius: 20px;
+        padding: 0 4px;
+        display: flex; align-items: center; justify-content: center;
+        line-height: 1;
+    }
+    </style>
+    <script>
+    function pwToggle(btn) {
+        const inp = btn.closest('.pw-wrap').querySelector('input');
+        const showing = inp.type === 'text';
+        inp.type = showing ? 'password' : 'text';
+        btn.querySelector('i').className = showing ? 'fas fa-eye' : 'fas fa-eye-slash';
+        btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+    }
+    </script>
+    <script>
+    (async function initCartBadge() {
+        try {
+            const r = await fetch('/store/cart/count');
+            const d = await r.json();
+            document.querySelectorAll('.public-cart-badge, #public-cart-badge').forEach(el => {
+                el.textContent = d.count;
+                el.style.display = d.count > 0 ? '' : 'none';
+            });
+        } catch(e) {}
+    })();
+    </script>
 </head>
 
 <body class="public-page-body" style="

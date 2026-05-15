@@ -170,13 +170,6 @@
 <div class="admin-forum-shell">
     <div class="admin-forum-card">
         <h1>Forum Settings</h1>
-        {% if website.forum_account_verification_enabled and (not email_settings or not email_settings.is_active) %}
-<div class="admin-forum-warning">
-    <h3>Email verification is enabled, but your email server is not active. New public users may not be able to verify accounts.
-     </h3>
-</div>
-{% endif %}
-
         <form method="POST" action="{{ url_for('update_forum_settings') }}">
             <div class="admin-forum-grid">
                 <div>
@@ -199,19 +192,6 @@
                         <input type="checkbox" name="forum_require_login_to_post" {% if website.forum_require_login_to_post %}checked{% endif %}>
                         Require login to post
                     </label>
-                    <label>
-    <input type="checkbox"
-           name="forum_account_verification_enabled"
-           {% if website.forum_account_verification_enabled %}checked{% endif %}>
-    Require email verification for new public forum accounts
-</label>
-
-<label>
-    <input type="checkbox"
-           name="forum_allow_unverified_login"
-           {% if website.forum_allow_unverified_login %}checked{% endif %}>
-    Allow unverified public users to log in
-</label>
                 </div>
 
                 <div>

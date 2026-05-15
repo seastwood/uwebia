@@ -1,0 +1,562 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   SHOP PAGE  —  store_shop.css
+   Cards use a solid dark surface so they look great on any site background.
+───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.sshop-page {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 48px 24px 100px;
+}
+
+/* ── Header panel (title + search + filters) ─────────────────────────────── */
+.sshop-header-panel {
+    background: rgba(14, 12, 22, 0.62);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-top-color: rgba(255,255,255,0.18);
+    border-radius: 16px;
+    padding: 32px 28px 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.07);
+    color: #f0f0f0;
+    margin-bottom: 24px;
+}
+
+/* ── Hero ────────────────────────────────────────────────────────────────── */
+.sshop-hero {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.sshop-title {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+    line-height: 1.1;
+}
+
+.sshop-subtitle {
+    font-size: 0.95rem;
+    opacity: 0.55;
+    margin: 0 0 24px;
+}
+
+.sshop-search-form {
+    display: flex;
+    gap: 0;
+    max-width: 580px;
+    margin: 0 auto;
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.09);
+    border: 1px solid rgba(255,255,255,0.15);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.sshop-search-form:focus-within {
+    border-color: rgba(94,238,200,0.45);
+    box-shadow: 0 0 0 3px rgba(94,238,200,0.1), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.sshop-search-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.sshop-search-icon {
+    position: absolute;
+    left: 16px;
+    opacity: 0.3;
+    font-size: 0.88rem;
+    pointer-events: none;
+}
+
+.sshop-search-input {
+    width: 100%;
+    padding: 13px 40px 13px 42px;
+    background: transparent;
+    border: none;
+    color: #f0f0f0;
+    font-size: 0.95rem;
+    font-family: inherit;
+    outline: none;
+}
+
+.sshop-search-input::placeholder { color: rgba(255,255,255,0.3); }
+
+.sshop-search-clear {
+    position: absolute;
+    right: 12px;
+    color: inherit;
+    opacity: 0.25;
+    text-decoration: none;
+    font-size: 0.78rem;
+    line-height: 1;
+    transition: opacity 0.15s;
+    padding: 4px;
+}
+.sshop-search-clear:hover { opacity: 0.65; }
+
+.sshop-search-btn {
+    padding: 14px 22px;
+    background: rgba(94,238,200,0.18);
+    border: none;
+    border-left: 1px solid rgba(255,255,255,0.08);
+    color: #5eeec8;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: inherit;
+    transition: background 0.15s;
+    letter-spacing: 0.01em;
+}
+.sshop-search-btn:hover { background: rgba(94,238,200,0.28); }
+
+/* ── Filter bar ──────────────────────────────────────────────────────────── */
+.sshop-filterbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    flex-wrap: wrap;
+}
+
+.sshop-cats {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.sshop-cat-pill {
+    padding: 6px 14px;
+    border-radius: 30px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: rgba(255,255,255,0.65);
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+.sshop-cat-pill:hover {
+    background: rgba(255,255,255,0.13);
+    border-color: rgba(255,255,255,0.2);
+    color: #fff;
+}
+.sshop-cat-pill--active {
+    background: rgba(94,238,200,0.16);
+    border-color: rgba(94,238,200,0.38);
+    color: #5eeec8;
+}
+
+.sshop-sort-form { display: flex; align-items: center; gap: 8px; }
+
+.sshop-sort-label {
+    font-size: 0.78rem;
+    opacity: 0.45;
+    white-space: nowrap;
+}
+
+.sshop-sort-select {
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.11);
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: 0.82rem;
+    font-family: inherit;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.sshop-sort-select:focus { border-color: rgba(255,255,255,0.28); }
+.sshop-sort-select option { background: #16161e; }
+
+/* ── Results toolbar + view switcher ─────────────────────────────────────── */
+.sshop-view-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.sshop-view-switcher {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.sshop-view-btn {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(14, 12, 22, 0.45);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: rgba(255,255,255,0.35);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.sshop-view-btn:hover {
+    background: rgba(14, 12, 22, 0.65);
+    color: rgba(255,255,255,0.7);
+    border-color: rgba(255,255,255,0.18);
+}
+.sshop-view-btn.active {
+    background: rgba(94,238,200,0.15);
+    border-color: rgba(94,238,200,0.38);
+    color: #5eeec8;
+}
+
+/* ── Results info ────────────────────────────────────────────────────────── */
+.sshop-results-info {
+    font-size: 0.8rem;
+    opacity: 0.35;
+    margin: 0 0 22px;
+    letter-spacing: 0.01em;
+}
+
+/* ── Product grid ────────────────────────────────────────────────────────── */
+.sshop-grid {
+    display: grid;
+    gap: 20px;
+    margin-bottom: 48px;
+}
+.sshop-grid.pg-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.sshop-grid.pg-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.sshop-grid.pg-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (min-width: 1080px) { .sshop-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 1079px) and (min-width: 720px) { .sshop-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 719px) and (min-width: 480px) { .sshop-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 479px) { .sshop-grid { grid-template-columns: 1fr; } }
+
+/* ── Product card ────────────────────────────────────────────────────────── */
+/*
+ * Frosted-glass card: semi-transparent dark surface + blur lets the site
+ * background bleed through as a tint, so cards look great on any background —
+ * dark, light, coloured, or photographic. Text is always legible because the
+ * dark tint keeps contrast high.
+ */
+.sshop-card {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: #f0f0f0;
+    border-radius: 16px;
+    overflow: hidden;
+    background: rgba(14, 12, 22, 0.68);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-top-color: rgba(255,255,255,0.18);
+    box-shadow:
+        0 2px 4px rgba(0,0,0,0.2),
+        0 8px 24px rgba(0,0,0,0.3),
+        0 24px 48px rgba(0,0,0,0.18),
+        inset 0 1px 0 rgba(255,255,255,0.07);
+    transition: transform 0.22s cubic-bezier(.22,.68,0,1.2),
+                box-shadow 0.22s ease,
+                background 0.22s ease;
+    will-change: transform;
+    position: relative;
+}
+
+.sshop-card:hover {
+    transform: translateY(-6px) scale(1.01);
+    background: rgba(20, 18, 32, 0.80);
+    box-shadow:
+        0 4px 8px rgba(0,0,0,0.28),
+        0 16px 40px rgba(0,0,0,0.4),
+        0 32px 64px rgba(0,0,0,0.22),
+        inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+/* Image area */
+.sshop-card-img {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: #0e0e16;
+    flex-shrink: 0;
+}
+
+.sshop-card-img img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+    transition: transform 0.4s cubic-bezier(.22,.68,0,1.1);
+}
+
+.sshop-card:hover .sshop-card-img img {
+    transform: scale(1.06);
+}
+
+.sshop-card-img-empty {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem;
+    color: rgba(255,255,255,0.08);
+}
+
+/* Badges */
+.sshop-badge {
+    position: absolute;
+    top: 10px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 6px;
+}
+
+.sshop-badge--sale {
+    left: 10px;
+    background: #5eeec8;
+    color: #0e1a16;
+}
+
+.sshop-badge--out {
+    right: 10px;
+    background: rgba(0,0,0,0.72);
+    color: rgba(255,255,255,0.6);
+    backdrop-filter: blur(6px);
+}
+
+/* Image overlay on hover */
+.sshop-card-img::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(94,238,200,0.04);
+    opacity: 0;
+    transition: opacity 0.22s;
+}
+.sshop-card:hover .sshop-card-img::after { opacity: 1; }
+
+/* Body */
+.sshop-card-body {
+    display: flex;
+    flex-direction: column;
+    padding: 16px 16px 18px;
+    flex: 1;
+    gap: 4px;
+}
+
+.sshop-card-cat {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(94,238,200,0.6);
+    margin: 0;
+}
+
+.sshop-card-name {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #f0f0f0;
+    margin: 2px 0 6px;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.sshop-card-price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    margin-bottom: 12px;
+    margin-top: auto;
+}
+
+.sshop-card-price {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #f0f0f0;
+    letter-spacing: -0.01em;
+}
+
+.sshop-card-compare {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.28);
+    text-decoration: line-through;
+}
+
+/* Add to cart button */
+.sshop-card-btn {
+    width: 100%;
+    padding: 10px;
+    background: rgba(94,238,200,0.12);
+    border: 1px solid rgba(94,238,200,0.22);
+    border-radius: 9px;
+    color: #5eeec8;
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    letter-spacing: 0.01em;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    text-align: center;
+}
+
+.sshop-card-btn:hover:not(:disabled) {
+    background: rgba(94,238,200,0.22);
+    border-color: rgba(94,238,200,0.38);
+    transform: translateY(-1px);
+}
+
+.sshop-card-btn:active:not(:disabled) { transform: translateY(0); }
+
+.sshop-card-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.sshop-card-btn--added {
+    background: rgba(94,238,200,0.22);
+    color: #5eeec8;
+}
+
+/* ── Sale stripe at left edge ─────────────────────────────────────────────── */
+.sshop-card--on-sale {
+    border-left-color: rgba(94,238,200,0.3);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.sshop-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 100px 0 80px;
+    text-align: center;
+    color: inherit;
+    opacity: 0.3;
+}
+.sshop-empty i { font-size: 3rem; }
+.sshop-empty p { font-size: 0.95rem; }
+
+/* ── Pagination ───────────────────────────────────────────────────────────── */
+.sshop-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.sshop-page-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: inherit;
+    background: rgba(14, 12, 22, 0.45);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.12);
+    transition: background 0.15s, border-color 0.15s;
+}
+.sshop-page-btn:hover {
+    background: rgba(14, 12, 22, 0.6);
+    border-color: rgba(255,255,255,0.2);
+}
+.sshop-page-btn--active {
+    background: rgba(94,238,200,0.18);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border-color: rgba(94,238,200,0.4);
+    color: #5eeec8;
+    cursor: default;
+    pointer-events: none;
+}
+.sshop-page-ellipsis {
+    opacity: 0.3;
+    padding: 0 4px;
+    font-size: 0.82rem;
+    color: inherit;
+}
+
+/* ── 2-column mode ───────────────────────────────────────────────────────── */
+.sshop-grid--2col {
+    grid-template-columns: repeat(2, 1fr) !important;
+}
+@media (max-width: 360px) {
+    .sshop-grid--2col { grid-template-columns: 1fr !important; }
+}
+
+/* ── List mode ───────────────────────────────────────────────────────────── */
+.sshop-grid--list {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+}
+.sshop-grid--list .sshop-card {
+    flex-direction: row;
+    border-radius: 12px;
+}
+.sshop-grid--list .sshop-card-img {
+    width: 110px;
+    min-width: 110px;
+    aspect-ratio: 1;
+    border-radius: 10px 0 0 10px;
+    flex-shrink: 0;
+}
+.sshop-grid--list .sshop-card:hover .sshop-card-img img {
+    transform: scale(1.04);
+}
+.sshop-grid--list .sshop-card-body {
+    padding: 14px 16px;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0 14px;
+}
+.sshop-grid--list .sshop-card-cat  { width: 100%; margin-bottom: 0; }
+.sshop-grid--list .sshop-card-name {
+    flex: 1;
+    min-width: 120px;
+    font-size: 0.9rem;
+    -webkit-line-clamp: 1;
+    margin-bottom: 0;
+}
+.sshop-grid--list .sshop-card-price-row {
+    margin-bottom: 0;
+    margin-top: 0;
+}
+.sshop-grid--list .sshop-card-btn {
+    width: auto;
+    padding: 7px 14px;
+    font-size: 0.76rem;
+    margin-left: auto;
+}
+@media (max-width: 480px) {
+    .sshop-grid--list .sshop-card-img { width: 80px; min-width: 80px; }
+    .sshop-grid--list .sshop-card-name { font-size: 0.84rem; }
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+    .sshop-page { padding: 20px 12px 80px; }
+    .sshop-header-panel { padding: 22px 18px 16px; border-radius: 14px; }
+    .sshop-filterbar { flex-direction: column; align-items: flex-start; }
+    .sshop-sort-form { width: 100%; }
+    .sshop-sort-select { flex: 1; width: 100%; }
+}

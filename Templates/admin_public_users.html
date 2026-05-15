@@ -1,0 +1,484 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+body {
+    background: #363339;
+    color: #fff;
+    font-family: Roboto, Arial, sans-serif;
+}
+
+.pu-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+
+.pu-header { margin-bottom: 32px; }
+.pu-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
+.pu-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+
+.pu-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+.pu-card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.85);
+    margin: 0 0 16px;
+}
+
+/* Toggle */
+.pf-toggle-track {
+    width: 34px; height: 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    position: relative; flex-shrink: 0;
+    transition: background 0.18s, border-color 0.18s;
+    cursor: pointer;
+}
+.pf-toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    transition: transform 0.18s, background 0.18s;
+}
+.pf-toggle-track.on {
+    background: rgba(94,238,200,0.2) !important;
+    border-color: rgba(94,238,200,0.5) !important;
+}
+.pf-toggle-track.on::after {
+    transform: translateX(16px) !important;
+    background: #5eeec8 !important;
+}
+
+.pu-toggle-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.pu-toggle-row:last-of-type { border-bottom: none; }
+.pu-toggle-label { font-size: 0.9rem; font-weight: 600; color: rgba(255,255,255,0.85); margin: 0 0 2px; }
+.pu-toggle-help { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin: 0; }
+
+.pu-save-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-radius: 10px;
+    background: linear-gradient(135deg, #5eeef8, #5eeec8);
+    color: #111; font-weight: 700; font-size: 0.88rem;
+    border: none; cursor: pointer; margin-top: 18px;
+    transition: opacity 0.15s;
+}
+.pu-save-btn:hover { opacity: 0.88; }
+.pu-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Table */
+.pu-table-wrap { overflow-x: auto; }
+.pu-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+.pu-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(255,255,255,0.35);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.pu-table td {
+    padding: 12px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    vertical-align: middle;
+}
+.pu-table tr:last-child td { border-bottom: none; }
+.pu-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+.pu-username { font-weight: 600; color: #fff; }
+.pu-email { color: rgba(255,255,255,0.55); font-size: 0.82rem; }
+.pu-date { color: rgba(255,255,255,0.35); font-size: 0.8rem; white-space: nowrap; }
+
+/* Badges */
+.pu-badge {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 0.74rem; font-weight: 700;
+    margin: 2px;
+}
+.pu-badge-verified   { background: rgba(94,238,200,0.15); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.pu-badge-unverified { background: rgba(255,200,50,0.12); color: #ffc832; border: 1px solid rgba(255,200,50,0.25); }
+.pu-badge-active     { background: rgba(94,238,248,0.12); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.pu-badge-pending    { background: rgba(255,165,0,0.12);  color: #ffaa33; border: 1px solid rgba(255,165,0,0.25); }
+.pu-badge-banned     { background: rgba(255,80,80,0.12);  color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+
+/* Action buttons */
+.pu-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pu-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 10px; border-radius: 7px; font-size: 0.78rem; font-weight: 600;
+    border: none; cursor: pointer; transition: background 0.15s;
+}
+.pu-btn-approve  { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.25); }
+.pu-btn-approve:hover { background: rgba(94,238,200,0.22); }
+.pu-btn-disable  { background: rgba(255,200,50,0.10); color: #ffc832; border: 1px solid rgba(255,200,50,0.22); }
+.pu-btn-disable:hover { background: rgba(255,200,50,0.20); }
+.pu-btn-ban      { background: rgba(255,120,50,0.10); color: #ff8844; border: 1px solid rgba(255,120,50,0.22); }
+.pu-btn-ban:hover { background: rgba(255,120,50,0.20); }
+.pu-btn-unban    { background: rgba(94,238,248,0.10); color: #5eeef8; border: 1px solid rgba(94,238,248,0.22); }
+.pu-btn-unban:hover { background: rgba(94,238,248,0.20); }
+.pu-btn-delete   { background: rgba(255,80,80,0.10); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.22); }
+.pu-btn-delete:hover { background: rgba(255,80,80,0.20); }
+
+.pu-empty {
+    text-align: center;
+    padding: 48px 20px;
+    color: rgba(255,255,255,0.35);
+    font-size: 0.9rem;
+}
+
+.pu-save-status {
+    display: inline-block;
+    margin-left: 10px;
+    font-size: 0.82rem;
+    color: #5eeec8;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+.pu-save-status.visible { opacity: 1; }
+</style>
+
+<div class="pu-page">
+    <div class="pu-header">
+        <p class="pu-kicker">Admin</p>
+        <h1 class="pu-title">Public Users</h1>
+    </div>
+
+    <!-- Settings Card -->
+    <div class="pu-card">
+        <h2 class="pu-card-title">Access Settings</h2>
+
+        <div class="pu-toggle-row">
+            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
+                <input type="checkbox" id="tog_public_users_enabled"
+                       {% if website and website.public_users_enabled != false %}checked{% endif %}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <span class="pf-toggle-track{% if website and website.public_users_enabled != false %} on{% endif %}"
+                      id="track_public_users_enabled"
+                      onclick="toggleSetting('public_users_enabled')"></span>
+            </div>
+            <div>
+                <p class="pu-toggle-label">Enable Public Users</p>
+                <p class="pu-toggle-help">Master switch — when off, registration and login are disabled site-wide</p>
+            </div>
+        </div>
+
+        <div class="pu-toggle-row">
+            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
+                <input type="checkbox" id="tog_public_2fa_enabled"
+                       {% if website and website.public_2fa_enabled %}checked{% endif %}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <span class="pf-toggle-track{% if website and website.public_2fa_enabled %} on{% endif %}"
+                      id="track_public_2fa_enabled"
+                      onclick="toggleSetting('public_2fa_enabled')"></span>
+            </div>
+            <div>
+                <p class="pu-toggle-label">Allow Two-Factor Authentication</p>
+                <p class="pu-toggle-help">Let users enable email-based 2FA on their accounts (requires email verification)</p>
+            </div>
+        </div>
+
+        <div class="pu-toggle-row">
+            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
+                <input type="checkbox" id="tog_require_login_to_view"
+                       {% if website and website.require_login_to_view %}checked{% endif %}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <span class="pf-toggle-track{% if website and website.require_login_to_view %} on{% endif %}"
+                      id="track_require_login_to_view"
+                      onclick="toggleSetting('require_login_to_view')"></span>
+            </div>
+            <div>
+                <p class="pu-toggle-label">Require Login to View</p>
+                <p class="pu-toggle-help">Visitors must be logged in to view any public page</p>
+            </div>
+        </div>
+
+        <div class="pu-toggle-row">
+            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
+                <input type="checkbox" id="tog_public_approval_required"
+                       {% if website and website.public_approval_required %}checked{% endif %}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <span class="pf-toggle-track{% if website and website.public_approval_required %} on{% endif %}"
+                      id="track_public_approval_required"
+                      onclick="toggleSetting('public_approval_required')"></span>
+            </div>
+            <div>
+                <p class="pu-toggle-label">Require Admin Approval</p>
+                <p class="pu-toggle-help">New accounts must be approved by an admin before they can log in</p>
+            </div>
+        </div>
+
+        <div class="pu-toggle-row">
+            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
+                <input type="checkbox" id="tog_public_email_verification_enabled"
+                       {% if website and website.public_email_verification_enabled %}checked{% endif %}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <span class="pf-toggle-track{% if website and website.public_email_verification_enabled %} on{% endif %}"
+                      id="track_public_email_verification_enabled"
+                      onclick="toggleSetting('public_email_verification_enabled')"></span>
+            </div>
+            <div>
+                <p class="pu-toggle-label">Email Verification</p>
+                <p class="pu-toggle-help">Send a verification email when users register</p>
+            </div>
+        </div>
+
+        <div class="pu-toggle-row">
+            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
+                <input type="checkbox" id="tog_public_email_verification_required"
+                       {% if website and website.public_email_verification_required %}checked{% endif %}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <span class="pf-toggle-track{% if website and website.public_email_verification_required %} on{% endif %}"
+                      id="track_public_email_verification_required"
+                      onclick="toggleSetting('public_email_verification_required')"></span>
+            </div>
+            <div>
+                <p class="pu-toggle-label">Verification Required to Login</p>
+                <p class="pu-toggle-help">Users must verify their email before they can log in (only applies if Email Verification is enabled)</p>
+            </div>
+        </div>
+
+        <button class="pu-save-btn" id="saveSettingsBtn" onclick="saveSettings()">
+            <i class="fas fa-save"></i> Save Settings
+        </button>
+        <span class="pu-save-status" id="saveStatus">Saved!</span>
+    </div>
+
+    <!-- Users Table -->
+    <div class="pu-card">
+        <h2 class="pu-card-title">Registered Users
+            <span style="font-weight:400;color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:8px;">
+                {{ public_users | length }} total
+            </span>
+        </h2>
+
+        {% if public_users %}
+        <div class="pu-table-wrap">
+            <table class="pu-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Status</th>
+                        <th>Joined</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="publicUsersTable">
+                    {% for u in public_users %}
+                    <tr id="pu-row-{{ u.id }}">
+                        <td>
+                            <div class="pu-username">{{ u.username }}</div>
+                            <div class="pu-email">{{ u.email }}</div>
+                        </td>
+                        <td>
+                            {% if u.email_verified %}
+                            <span class="pu-badge pu-badge-verified">Verified</span>
+                            {% else %}
+                            <span class="pu-badge pu-badge-unverified">Unverified</span>
+                            {% endif %}
+                            {% if u.is_banned %}
+                            <span class="pu-badge pu-badge-banned" id="badge-banned-{{ u.id }}">Banned</span>
+                            {% elif not u.is_active_public %}
+                            <span class="pu-badge pu-badge-pending" id="badge-active-{{ u.id }}">Pending</span>
+                            {% else %}
+                            <span class="pu-badge pu-badge-active" id="badge-active-{{ u.id }}">Active</span>
+                            {% endif %}
+                        </td>
+                        <td class="pu-date">
+                            {% if u.created_at %}
+                            {{ u.created_at.strftime('%b %d, %Y') }}
+                            {% else %}
+                            &mdash;
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="pu-actions">
+                                {% if u.is_active_public and not u.is_banned %}
+                                <button class="pu-btn pu-btn-disable" id="btn-active-{{ u.id }}"
+                                        onclick="toggleActive({{ u.id }})">
+                                    <i class="fas fa-user-slash"></i> Disable
+                                </button>
+                                {% else %}
+                                <button class="pu-btn pu-btn-approve" id="btn-active-{{ u.id }}"
+                                        onclick="toggleActive({{ u.id }})">
+                                    <i class="fas fa-user-check"></i> Approve
+                                </button>
+                                {% endif %}
+
+                                {% if u.is_banned %}
+                                <button class="pu-btn pu-btn-unban" id="btn-ban-{{ u.id }}"
+                                        onclick="toggleBan({{ u.id }})">
+                                    <i class="fas fa-unlock"></i> Unban
+                                </button>
+                                {% else %}
+                                <button class="pu-btn pu-btn-ban" id="btn-ban-{{ u.id }}"
+                                        onclick="toggleBan({{ u.id }})">
+                                    <i class="fas fa-ban"></i> Ban
+                                </button>
+                                {% endif %}
+
+                                <button class="pu-btn pu-btn-delete"
+                                        onclick='confirmDeleteUser({{ u.id }}, {{ u.username | tojson }})'>
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="pu-empty">
+            <p>No public users have registered yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="uw-overlay" id="deleteOverlay" style="display:none;" onclick="if(event.target===this)closeDeleteModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="deleteModalTitle">Delete User</h3>
+            <button class="uw-modal-close" onclick="closeDeleteModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p>Are you sure you want to permanently delete <strong id="deleteModalName"></strong>? This cannot be undone.</p>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+            <button class="uw-btn uw-btn-danger" onclick="executeDelete()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script>
+var _pendingDeleteId = null;
+
+// Toggle switch visual state
+function toggleSetting(key) {
+    var track = document.getElementById('track_' + key);
+    var chk   = document.getElementById('tog_' + key);
+    if (!track || !chk) return;
+    chk.checked = !chk.checked;
+    track.classList.toggle('on', chk.checked);
+}
+
+function saveSettings() {
+    var btn = document.getElementById('saveSettingsBtn');
+    var status = document.getElementById('saveStatus');
+    btn.disabled = true;
+
+    var payload = {
+        public_users_enabled:               document.getElementById('tog_public_users_enabled').checked,
+        public_2fa_enabled:                 document.getElementById('tog_public_2fa_enabled').checked,
+        require_login_to_view:              document.getElementById('tog_require_login_to_view').checked,
+        public_approval_required:           document.getElementById('tog_public_approval_required').checked,
+        public_email_verification_enabled:  document.getElementById('tog_public_email_verification_enabled').checked,
+        public_email_verification_required: document.getElementById('tog_public_email_verification_required').checked
+    };
+
+    fetch('/admin/users/public/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        btn.disabled = false;
+        if (data.success) {
+            status.classList.add('visible');
+            setTimeout(function() { status.classList.remove('visible'); }, 2500);
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(e) {
+        btn.disabled = false;
+        alert('Request failed: ' + e);
+    });
+}
+
+function toggleActive(userId) {
+    fetch('/admin/users/public/' + userId + '/toggle-active', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) { alert(data.error || 'Error'); return; }
+        var badgeEl = document.getElementById('badge-active-' + userId);
+        var btnEl   = document.getElementById('btn-active-' + userId);
+        if (data.is_active) {
+            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-active'; badgeEl.textContent = 'Active'; }
+            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-disable'; btnEl.innerHTML = '<i class="fas fa-user-slash"></i> Disable'; btnEl.onclick = function(){ toggleActive(userId); }; }
+        } else {
+            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-pending'; badgeEl.textContent = 'Pending'; }
+            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-approve'; btnEl.innerHTML = '<i class="fas fa-user-check"></i> Approve'; btnEl.onclick = function(){ toggleActive(userId); }; }
+        }
+    })
+    .catch(function(e) { alert('Request failed: ' + e); });
+}
+
+function toggleBan(userId) {
+    fetch('/admin/users/public/' + userId + '/toggle-ban', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) { alert(data.error || 'Error'); return; }
+        var badgeEl = document.getElementById('badge-banned-' + userId);
+        var btnEl   = document.getElementById('btn-ban-' + userId);
+        if (data.is_banned) {
+            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-banned'; badgeEl.textContent = 'Banned'; badgeEl.style.display = ''; }
+            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-unban'; btnEl.innerHTML = '<i class="fas fa-unlock"></i> Unban'; btnEl.onclick = function(){ toggleBan(userId); }; }
+        } else {
+            if (badgeEl) { badgeEl.style.display = 'none'; }
+            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-ban'; btnEl.innerHTML = '<i class="fas fa-ban"></i> Ban'; btnEl.onclick = function(){ toggleBan(userId); }; }
+        }
+    })
+    .catch(function(e) { alert('Request failed: ' + e); });
+}
+
+function confirmDeleteUser(userId, username) {
+    _pendingDeleteId = userId;
+    document.getElementById('deleteModalName').textContent = username;
+    document.getElementById('deleteOverlay').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    _pendingDeleteId = null;
+    document.getElementById('deleteOverlay').style.display = 'none';
+}
+
+function executeDelete() {
+    if (!_pendingDeleteId) return;
+    var uid = _pendingDeleteId;
+    closeDeleteModal();
+    fetch('/admin/users/public/' + uid + '/delete', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) { alert(data.error || 'Error'); return; }
+        var row = document.getElementById('pu-row-' + uid);
+        if (row) row.remove();
+    })
+    .catch(function(e) { alert('Request failed: ' + e); });
+}
+</script>
+
+{% endblock %}

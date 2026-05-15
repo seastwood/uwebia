@@ -17,6 +17,7 @@ node_modules/
 
 # Environment / secrets
 .env
+db_config.json
 
 # Flask instance folder (often contains DB or secrets)
 instance/
@@ -30,4 +31,4 @@ scratch/
 .DS_Store
 
 static/uploads/
-/migrations/
+database/

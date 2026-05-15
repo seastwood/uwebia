@@ -18,40 +18,29 @@
             </button>
 
             <div class="pages-dropdown-content" id="pagesDropdownContent">
-                {% if current_website_pages %}
-                {% set folders_by_id = {} %}
-                {% if current_website_folders %}
-                    {% for f in current_website_folders %}{% set _ = folders_by_id.update({f.id: f}) %}{% endfor %}
-                {% endif %}
 
-                {# Pages without a folder first #}
-                {% for page in current_website_pages if not page.page_folder_id %}
+                {# ── Macro: render a page list for one website ── #}
+                {% macro render_pages(site, pages, folders) %}
+                {% for page in pages if not page.page_folder_id %}
                 {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
-                <a href="{{ url_for('page_editor', website_id=current_website.id, page_id=page.id) }}"
-                    class="{% if page.id == page_id %}active-page{% endif %}">
-                    {{ page.name }}
-                </a>
+                <a href="{{ url_for('page_editor', website_id=site.id, page_id=page.id) }}"
+                   class="{% if page.id == page_id %}active-page{% endif %}">{{ page.name }}</a>
                 {% else %}
                 <span class="perm-locked-nav" title="You don't have access to this page">{{ page.name }}</span>
                 {% endif %}
                 {% endfor %}
-
-                {# Grouped pages by folder #}
-                {% for folder in current_website_folders %}
-                {% set folder_pages = current_website_pages | selectattr('page_folder_id', 'equalto', folder.id) | list %}
-                {% if folder_pages %}
+                {% for folder in folders %}
+                {% set fp = pages | selectattr('page_folder_id', 'equalto', folder.id) | list %}
+                {% if fp %}
                 <details class="navbar-folder-group">
                     <summary class="navbar-folder-summary">
-                        <i class="fas fa-folder" style="font-size:0.75rem;margin-right:5px;opacity:0.6;"></i>
-                        {{ folder.name }}
+                        <i class="fas fa-folder" style="font-size:0.75rem;opacity:0.6;"></i>{{ folder.name }}
                     </summary>
                     <div class="navbar-folder-pages">
-                    {% for page in folder_pages %}
+                    {% for page in fp %}
                     {% if user_has_perm('pages.edit') and user_can_access_page(page.id) %}
-                    <a href="{{ url_for('page_editor', website_id=current_website.id, page_id=page.id) }}"
-                        class="{% if page.id == page_id %}active-page{% endif %}">
-                        {{ page.name }}
-                    </a>
+                    <a href="{{ url_for('page_editor', website_id=site.id, page_id=page.id) }}"
+                       class="{% if page.id == page_id %}active-page{% endif %}">{{ page.name }}</a>
                     {% else %}
                     <span class="perm-locked-nav" title="You don't have access to this page">{{ page.name }}</span>
                     {% endif %}
@@ -60,16 +49,61 @@
                 </details>
                 {% endif %}
                 {% endfor %}
+                {% endmacro %}
 
+                {# ── Live website section ── #}
+                {% if current_website %}
+                {% if current_draft_website %}
+                <div class="nav-pages-section-header">
+                    <i class="fas fa-globe"></i> Live
+                </div>
+                {% endif %}
+                {% if current_website_pages %}
+                {{ render_pages(current_website, current_website_pages, current_website_folders) }}
                 {% else %}
+                <div class="pages-empty">No live pages</div>
+                {% endif %}
+                {% endif %}
+
+                {# ── Draft website section ── #}
+                {% if current_draft_website %}
+                {% if current_website %}
+                <div class="nav-pages-section-divider"></div>
+                {% endif %}
+                <div class="nav-pages-section-header">
+                    <i class="fas fa-pencil-ruler"></i> Draft
+                </div>
+                {% if current_draft_website_pages %}
+                {{ render_pages(current_draft_website, current_draft_website_pages, current_draft_website_folders) }}
+                {% else %}
+                <div class="pages-empty">No draft pages</div>
+                {% endif %}
+                {% endif %}
+
+                {% if not current_website and not current_draft_website %}
                 <div class="pages-empty">No pages found</div>
                 {% endif %}
+
             </div>
 
             <style>
-            .navbar-folder-group {
-                margin: 0;
+            .nav-pages-section-header {
+                font-size: 0.68rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.09em;
+                color: rgba(255,255,255,0.28);
+                padding: 8px 14px 3px;
+                display: flex;
+                align-items: center;
+                gap: 5px;
             }
+            .nav-pages-section-divider {
+                height: 1px;
+                background: rgba(255,255,255,0.07);
+                margin: 5px 10px;
+            }
+            .navbar-folder-group { margin: 0; }
             .navbar-folder-summary {
                 cursor: pointer;
                 padding: 8px 14px;
@@ -79,7 +113,7 @@
                 list-style: none;
                 display: flex;
                 align-items: center;
-                gap: 4px;
+                gap: 6px;
                 border-radius: 6px;
             }
             .navbar-folder-summary::-webkit-details-marker { display: none; }
@@ -93,9 +127,7 @@
                 margin: 2px 8px 4px 16px;
             }
             .navbar-folder-pages a,
-            .navbar-folder-pages .perm-locked-nav {
-                padding: 6px 10px;
-            }
+            .navbar-folder-pages .perm-locked-nav { padding: 6px 10px; }
             </style>
         </div>
     <!-- </div> -->
@@ -111,13 +143,27 @@
                 <i class="fas fa-bars"></i>
             </button>
             <div class="nav-tools-dropdown-content" id="navToolsDropdownContent">
-                <a href="#" class="nav-tools-item" onclick="toggleGlobalColorPalette(); closeNavToolsDropdown(); return false;">
-                    <i class="fas fa-palette"></i>
-                    <span>Color Palette</span>
+                {% if user_has_perm('posts.view') %}
+                <a href="{{ url_for('admin_posts_page') }}" class="nav-tools-item">
+                    <i class="fas fa-newspaper"></i>
+                    <span>Posts</span>
                 </a>
+                {% endif %}
+                {% if user_has_perm('calendars.view') %}
                 <a href="{{ url_for('admin_calendars_page') }}" class="nav-tools-item">
                     <i class="fas fa-calendar-alt"></i>
                     <span>Calendars</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('store.view') %}
+                <a href="{{ url_for('store_products') }}" class="nav-tools-item">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span>Products</span>
+                </a>
+                {% endif %}
+                <a href="#" class="nav-tools-item" onclick="toggleGlobalColorPalette(); closeNavToolsDropdown(); return false;">
+                    <i class="fas fa-palette"></i>
+                    <span>Color Palette</span>
                 </a>
                 <a href="{{ url_for('ai_agents_page') }}" class="nav-tools-item">
                     <i class="fas fa-robot"></i>
@@ -145,7 +191,7 @@
             <button class="profile-icon" id="profileIcon">
                 <i class="fas fa-user-circle"></i>
             </button>
-            <div class="dropdown-content" id="profileDropdownContent">
+            <div class="profile-dropdown-content" id="profileDropdownContent">
                 <div class="profile-identity">
                     <div class="profile-identity-avatar">{{ current_user.username[0].upper() }}</div>
                     <div class="profile-identity-info">
@@ -156,46 +202,57 @@
                 <div class="profile-divider"></div>
                 {% if user_has_perm('settings.view') %}
                 <a href="{{ url_for('settings_page') }}" class="profile-menu-link">
-                    <i class="fas fa-cog"></i><span>Settings</span>
+                    <i class="fas fa-cog"></i> <span>Settings</span>
                 </a>
                 {% else %}
                 <span class="profile-menu-link perm-locked-nav" title="You don't have access to Settings">
-                    <i class="fas fa-cog"></i><span>Settings</span>
+                    <i class="fas fa-cog"></i> <span>Settings</span>
                 </span>
                 {% endif %}
 
                 {% if user_has_perm('analytics.view') %}
                 <a href="{{ url_for('analytics_page') }}" class="profile-menu-link">
-                    <i class="fas fa-chart-line"></i><span>Analytics</span>
+                    <i class="fas fa-chart-line"></i> <span>Analytics</span>
                 </a>
                 {% else %}
                 <span class="profile-menu-link perm-locked-nav" title="You don't have access to Analytics">
-                    <i class="fas fa-chart-line"></i><span>Analytics</span>
+                    <i class="fas fa-chart-line"></i> <span>Analytics</span>
                 </span>
                 {% endif %}
 
-                {% if not current_user_is_sub_admin %}
-                <a href="{{ url_for('admin_users_page') }}" class="profile-menu-link">
-                    <i class="fas fa-users-cog"></i><span>Admin Users</span>
-                </a>
-                {% elif user_has_perm('admin_users.view') %}
-                <a href="{{ url_for('admin_users_page') }}" class="profile-menu-link">
-                    <i class="fas fa-users-cog"></i><span>Admin Users</span>
-                </a>
+                {% if not current_user_is_sub_admin or user_has_perm('admin_users.view') %}
+                <div class="profile-subdropdown" id="usersSubDropdown">
+                    <div class="profile-subdropdown-trigger" onclick="toggleUsersSubdropdown(event)">
+                        <i class="fas fa-users"></i> <span>Users</span>
+                        <i class="fas fa-chevron-right profile-subdropdown-chevron"></i>
+                    </div>
+                    <div class="profile-subdropdown-content">
+                        {% if not current_user_is_sub_admin or user_has_perm('admin_users.view') %}
+                        <a href="{{ url_for('admin_users_page') }}" class="profile-menu-link">
+                            <i class="fas fa-users-cog"></i> <span>Admins</span>
+                        </a>
+                        {% endif %}
+                        {% if not current_user_is_sub_admin %}
+                        <a href="{{ url_for('admin_public_users_page') }}" class="profile-menu-link">
+                            <i class="fas fa-user-friends"></i> <span>Public</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
                 {% endif %}
 
                 {% if user_has_perm('settings.email') %}
                 <a href="{{ url_for('email_server_settings') }}" class="profile-menu-link">
-                    <i class="fas fa-envelope"></i><span>Email Server</span>
+                    <i class="fas fa-envelope"></i> <span>Email Server</span>
                 </a>
                 {% else %}
                 <span class="profile-menu-link perm-locked-nav" title="You don't have access to Email Server">
-                    <i class="fas fa-envelope"></i><span>Email Server</span>
+                    <i class="fas fa-envelope"></i> <span>Email Server</span>
                 </span>
                 {% endif %}
 
                 <a href="{{ url_for('logout') }}" class="profile-menu-link">
-                    <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+                    <i class="fas fa-sign-out-alt"></i> <span>Logout</span>
                 </a>
             </div>
         </div>

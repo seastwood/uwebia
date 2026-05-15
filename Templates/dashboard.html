@@ -1407,6 +1407,22 @@
             background: rgba(255, 255, 255, 0.07);
             border: 1px solid rgba(255, 255, 255, 0.09);
         }
+        .navbar-item-row[data-type="system"] {
+            grid-template-columns: auto 1fr auto auto;
+            background: rgba(94,238,200,0.06);
+            border-color: rgba(94,238,200,0.18);
+        }
+        .navbar-system-badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: #5eeec8;
+            background: rgba(94,238,200,0.12);
+            border: 1px solid rgba(94,238,200,0.25);
+            border-radius: 6px;
+            padding: 2px 8px;
+            white-space: nowrap;
+        }
 
         .navbar-group-row {
             padding: 12px;
@@ -1816,6 +1832,36 @@
             border-radius: 999px;
             background: currentColor;
             box-shadow: 0 0 10px currentColor;
+        }
+
+        .site-live-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid;
+            font-size: 0.68rem;
+            font-weight: 850;
+            letter-spacing: 0.055em;
+            text-transform: uppercase;
+            cursor: pointer;
+            user-select: none;
+            margin-top: 5px;
+            width: fit-content;
+            transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
+        }
+        .site-live-toggle:hover { transform: translateY(-1px); }
+        .site-live-toggle--on {
+            color: #7ee2cc;
+            background: rgba(126, 226, 204, 0.145);
+            border-color: rgba(126, 226, 204, 0.55);
+            box-shadow: 0 0 18px rgba(126, 226, 204, 0.08);
+        }
+        .site-live-toggle--off {
+            color: rgba(255, 140, 140, 0.9);
+            background: rgba(255, 80, 80, 0.08);
+            border-color: rgba(255, 80, 80, 0.35);
         }
 
         .page-box.page-root {
@@ -2496,6 +2542,17 @@
                     <div class="website-title-block">
                         <p class="website-kicker">{% if website.is_draft %}Draft{% else %}Website{% endif %}</p>
                         <h2 class="website-dashboard-title">{{ website.name }}</h2>
+                        {% if not website.is_draft %}
+                        <label class="site-live-toggle {% if website.is_live %}site-live-toggle--on{% else %}site-live-toggle--off{% endif %}"
+                               id="siteLiveToggle_{{ website.id }}"
+                               title="{% if website.is_live %}Site is live — click to take offline{% else %}Site is offline — click to go live{% endif %}">
+                            <input type="checkbox" style="position:absolute;opacity:0;pointer-events:none"
+                                   {% if website.is_live %}checked{% endif %}
+                                   onchange="toggleSiteLive('{{ website.id }}', this)">
+                            <span class="publish-badge-dot"></span>
+                            <span id="siteLiveText_{{ website.id }}">{% if website.is_live %}Live{% else %}Offline{% endif %}</span>
+                        </label>
+                        {% endif %}
                     </div>
 
                     {# ── Navbar icon widget — far right of title row ── #}
@@ -3666,6 +3723,29 @@
                         </button>
                     </div>
 
+                    <div class="navbar-builder-card">
+                        <h6>System Pages</h6>
+                        <p style="font-size:0.78rem;opacity:0.55;margin:0 0 10px;">Only renders in the public navbar when the feature is enabled.</p>
+                        {% if website.store_enabled %}
+                        <button type="button" onclick="addSystemNavbarItem('{{ website.id }}', 'shop', '{{ (website.store_title or "Shop") | e }}')">
+                            <i class="fas fa-store"></i> Add {{ website.store_title or 'Shop' }}
+                        </button>
+                        {% else %}
+                        <button type="button" disabled title="Enable the shop first" style="opacity:0.4;cursor:not-allowed;">
+                            <i class="fas fa-store"></i> {{ website.store_title or 'Shop' }} (disabled)
+                        </button>
+                        {% endif %}
+                        {% if website.forum_enabled %}
+                        <button type="button" onclick="addSystemNavbarItem('{{ website.id }}', 'forum', '{{ (website.forum_title or "Forum") | e }}')">
+                            <i class="fas fa-comments"></i> Add Forum
+                        </button>
+                        {% else %}
+                        <button type="button" disabled title="Enable the forum first" style="opacity:0.4;cursor:not-allowed;">
+                            <i class="fas fa-comments"></i> Forum (disabled)
+                        </button>
+                        {% endif %}
+                    </div>
+
                 </div>
 
                 <hr>
@@ -4787,6 +4867,28 @@
                 initializeGroupSorting(websiteId);
             }
 
+            function addSystemNavbarItem(websiteId, key, name, container = null) {
+                if (!container) {
+                    const dest = document.getElementById(`navbarDestinationSelect_${websiteId}`);
+                    const val  = dest ? dest.value : 'top';
+                    container  = getNavbarDestinationContainer(websiteId, val === 'top' ? null : val);
+                }
+                const row = document.createElement('div');
+                row.classList.add('navbar-item-row');
+                row.dataset.type      = 'system';
+                row.dataset.systemKey = key;
+                const label = { shop: 'Shop', forum: 'Forum' }[key] || key;
+                row.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder">☰</span>
+                    <input type="text" class="navbar-name form-control" placeholder="Display name" value="${escapeHtml(name || label)}">
+                    <span class="navbar-system-badge" title="System page — only shows when the feature is enabled">⚙ ${escapeHtml(key)}</span>
+                    <button type="button" onclick="this.closest('.navbar-item-row').remove()">Remove</button>
+                `;
+                container.appendChild(row);
+                initializeNavbarSorting(websiteId);
+                initializeGroupSorting(websiteId);
+            }
+
             function addNavbarGroup(websiteId, name = 'More', children = []) {
                 const container = document.getElementById(`navbarItems_${websiteId}`);
                 const groupId = `group_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
@@ -4953,6 +5055,14 @@
                         };
                     }
 
+                    if (el.dataset.type === 'system') {
+                        return {
+                            type: 'system',
+                            key: el.dataset.systemKey,
+                            name: el.querySelector('.navbar-name').value.trim()
+                        };
+                    }
+
                     if (el.dataset.type === 'group') {
                         const groupName = el.querySelector('.navbar-group-name').value.trim();
                         const childRows = Array.from(el.querySelector('.navbar-group-children').children);
@@ -4970,6 +5080,7 @@
                 }).filter(item => {
                     if (!item) return false;
                     if (item.type === 'link') return item.name && item.url;
+                    if (item.type === 'system') return !!item.key;
                     if (item.type === 'group') return item.name && item.children.length > 0;
                 });
             }
@@ -4978,9 +5089,12 @@
                 const container = document.getElementById(`navbarItems_${websiteId}`);
                 container.innerHTML = '';
 
+                const topContainer = document.getElementById(`navbarItems_${websiteId}`);
                 items.forEach(item => {
                     if (item.type === 'group') {
                         addNavbarGroup(websiteId, item.name || 'More', item.children || []);
+                    } else if (item.type === 'system') {
+                        addSystemNavbarItem(websiteId, item.key, item.name || '', topContainer);
                     } else {
                         addNavbarItem(websiteId, item.name || '', item.url || '');
                     }
@@ -6346,6 +6460,29 @@
                 shell.appendChild(iframe);
             }
 
+
+            async function toggleSiteLive(websiteId, checkbox) {
+                const label = document.getElementById('siteLiveToggle_' + websiteId);
+                const text  = document.getElementById('siteLiveText_' + websiteId);
+                try {
+                    const r = await fetch(`/admin/website/${websiteId}/toggle-live`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+                    });
+                    const d = await r.json();
+                    if (typeof d.is_live !== 'undefined') {
+                        const on = d.is_live;
+                        label.className = 'site-live-toggle ' + (on ? 'site-live-toggle--on' : 'site-live-toggle--off');
+                        label.title = on ? 'Site is live — click to take offline' : 'Site is offline — click to go live';
+                        text.textContent = on ? 'Live' : 'Offline';
+                        checkbox.checked = on;
+                    } else {
+                        checkbox.checked = !checkbox.checked;
+                    }
+                } catch(e) {
+                    checkbox.checked = !checkbox.checked;
+                }
+            }
 
             document.addEventListener('DOMContentLoaded', function () {
                 document.querySelectorAll('.dashboard-publish-toggle').forEach(toggle => {

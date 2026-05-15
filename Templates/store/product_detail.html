@@ -1,0 +1,303 @@
+{% extends 'public_base.html' %}
+{% block title %}{{ product.name }} — {{ website.name }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
+<style>
+.sp-in-store-note {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 0.85rem; color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 8px 14px; margin: 4px 0;
+}
+.sp-in-store-note i { opacity: 0.7; }
+</style>
+
+<div class="sp-page">
+    <div class="sp-container">
+
+        <a href="/shop" class="sp-back-link sp-back-link--left">
+            <i class="fas fa-chevron-left"></i> Shop
+        </a>
+
+        <div class="sp-layout">
+
+            <!-- Images -->
+            <div class="sp-images">
+                {% set imgs = product.images | selectattr('asset') | list %}
+                {% if imgs %}
+                <div class="sp-main-img-wrap">
+                    <img id="spMainImg"
+                         src="{{ imgs[0].asset.url }}"
+                         alt="{{ product.name }}"
+                         class="sp-main-img">
+                </div>
+                {% if imgs | length > 1 %}
+                <div class="sp-thumbs">
+                    {% for img in imgs %}
+                    <img src="{{ img.asset.thumbnail_url or img.asset.url }}"
+                         alt=""
+                         class="sp-thumb {% if loop.first %}sp-thumb--active{% endif %}"
+                         onclick="spSetImage('{{ img.asset.url }}', this)">
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% else %}
+                <div class="sp-no-img"><i class="fas fa-image"></i></div>
+                {% endif %}
+            </div>
+
+            <!-- Info -->
+            <div class="sp-info">
+                {% if product.category %}
+                <p class="sp-category">{{ product.category.name }}</p>
+                {% endif %}
+
+                <h1 class="sp-name">{{ product.name }}</h1>
+                {% if website.reviews_enabled and avg_rating %}
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <span class="sp-stars sp-stars--sm">
+                        {% for i in range(1,6) %}
+                        <i class="fas fa-star sp-star-{% if i <= avg_rating|round|int %}filled{% else %}empty{% endif %}"></i>
+                        {% endfor %}
+                    </span>
+                    <span style="font-size:0.8rem;opacity:0.5;">{{ '%.1f' | format(avg_rating) }} · {{ reviews|length }} review{{ 's' if reviews|length != 1 else '' }}</span>
+                </div>
+                {% endif %}
+
+                <div class="sp-price-row">
+                    <span class="sp-price">${{ '%.2f' | format(product.price) }}</span>
+                    {% if product.compare_at_price %}
+                    <span class="sp-compare">${{ '%.2f' | format(product.compare_at_price) }}</span>
+                    {% endif %}
+                </div>
+
+                {% set in_stock = not product.track_inventory or product.inventory_qty > 0 or product.allow_oversell %}
+                {% if not in_stock %}
+                <p class="sp-stock-badge sp-stock-badge--out">Out of stock</p>
+                {% elif product.track_inventory and product.inventory_qty <= 5 %}
+                <p class="sp-stock-badge sp-stock-badge--low">Only {{ product.inventory_qty }} left</p>
+                {% endif %}
+
+                {% if product.description %}
+                <div class="sp-description">{{ product.description }}</div>
+                {% endif %}
+
+                {% if in_stock and not website.store_in_store_only %}
+                <div class="sp-add-row">
+                    <div class="sp-qty-wrap">
+                        <button onclick="spQty(-1)">−</button>
+                        <input type="number" id="spQty" value="1" min="1"
+                               max="{{ product.inventory_qty if product.track_inventory else 999 }}">
+                        <button onclick="spQty(1)">+</button>
+                    </div>
+                    <button class="sp-add-btn" id="spAddBtn" onclick="spAddToCart({{ product.id }})">
+                        Add to Cart
+                    </button>
+                </div>
+                {% endif %}
+
+                {% if website.store_in_store_only %}
+                <p class="sp-in-store-note"><i class="fas fa-store"></i> {{ website.store_in_store_only_label or 'Available in store only' }}</p>
+                {% endif %}
+
+                <p class="sp-status" id="spStatus"></p>
+
+                {% if not website.store_in_store_only %}
+                <a href="/store/cart" class="sp-cart-link">
+                    <i class="fas fa-shopping-cart"></i>
+                    View cart
+                    {% if cart_count > 0 %}
+                    <span class="sp-cart-badge" id="pg-cart-badge">{{ cart_count }}</span>
+                    {% else %}
+                    <span class="sp-cart-badge" id="pg-cart-badge" style="display:none">0</span>
+                    {% endif %}
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if website.reviews_enabled %}
+        <div class="sp-reviews">
+
+            {% if reviews %}
+            <div class="sp-reviews-summary">
+                <span class="sp-rating-avg">{{ '%.1f' | format(avg_rating) }}</span>
+                <div>
+                    <div class="sp-stars sp-stars--lg">
+                        {% for i in range(1,6) %}
+                        <i class="fas fa-star sp-star-{% if i <= avg_rating|round|int %}filled{% else %}empty{% endif %}"></i>
+                        {% endfor %}
+                    </div>
+                    <div class="sp-rating-count">{{ reviews|length }} review{{ 's' if reviews|length != 1 else '' }}</div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if can_review %}
+            <div class="sp-review-form" id="spReviewForm">
+                <h3>Leave a Review</h3>
+                <div class="sp-star-picker" id="spStarPicker">
+                    {% for i in range(1,6) %}
+                    <button type="button" class="sp-star-pick-btn" data-val="{{ i }}" onclick="spPickStar({{ i }})">
+                        <i class="fas fa-star"></i>
+                    </button>
+                    {% endfor %}
+                </div>
+                <div class="sp-review-field">
+                    <input type="text" id="spReviewTitle" placeholder="Title (optional)" maxlength="200">
+                </div>
+                <div class="sp-review-field">
+                    <textarea id="spReviewBody" rows="4" placeholder="Share your experience…"></textarea>
+                </div>
+                <button class="sp-review-submit" id="spReviewSubmit" onclick="spSubmitReview('{{ product.slug }}')">
+                    Submit Review
+                </button>
+                <p class="sp-review-status" id="spReviewStatus"></p>
+            </div>
+            {% elif public_user and not user_review and website.reviews_enabled %}
+            <div class="sp-review-card" style="opacity:0.7;">
+                <p class="sp-review-body"><i class="fas fa-shopping-bag" style="margin-right:6px;opacity:0.5;"></i>Purchase this product to leave a review.</p>
+            </div>
+            {% elif not public_user and website.reviews_enabled %}
+            <div class="sp-review-card" style="opacity:0.7;">
+                <p class="sp-review-body"><i class="fas fa-user" style="margin-right:6px;opacity:0.5;"></i><a href="/account/login?next=/products/{{ product.slug }}" style="color:#5eeec8;">Log in</a> and purchase this product to leave a review.</p>
+            </div>
+            {% endif %}
+
+            {% if user_review %}
+            <div class="sp-review-card" style="border-color:rgba(94,238,200,0.2);">
+                <div class="sp-review-header">
+                    <span class="sp-stars sp-stars--sm">
+                        {% for i in range(1,6) %}
+                        <i class="fas fa-star sp-star-{% if i <= user_review.rating %}filled{% else %}empty{% endif %}"></i>
+                        {% endfor %}
+                    </span>
+                    <span class="sp-review-author">Your review</span>
+                    <span class="sp-review-date">{{ user_review.created_at.strftime('%b %-d, %Y') }}</span>
+                </div>
+                {% if user_review.title %}<p class="sp-review-title">{{ user_review.title }}</p>{% endif %}
+                {% if user_review.body %}<p class="sp-review-body">{{ user_review.body }}</p>{% endif %}
+            </div>
+            {% endif %}
+
+            {% for review in reviews %}
+            {% if not (user_review and review.id == user_review.id) %}
+            <div class="sp-review-card">
+                <div class="sp-review-header">
+                    <span class="sp-stars sp-stars--sm">
+                        {% for i in range(1,6) %}
+                        <i class="fas fa-star sp-star-{% if i <= review.rating %}filled{% else %}empty{% endif %}"></i>
+                        {% endfor %}
+                    </span>
+                    <span class="sp-review-author">{{ review.public_user.username }}</span>
+                    <span class="sp-review-date">{{ review.created_at.strftime('%b %-d, %Y') }}</span>
+                </div>
+                {% if review.title %}<p class="sp-review-title">{{ review.title }}</p>{% endif %}
+                {% if review.body %}<p class="sp-review-body">{{ review.body }}</p>{% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            {% if not user_review %}
+            <p class="sp-reviews-empty">No reviews yet. Be the first!</p>
+            {% endif %}
+            {% endfor %}
+
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+<script>
+function spSetImage(url, thumb) {
+    document.getElementById('spMainImg').src = url;
+    document.querySelectorAll('.sp-thumb').forEach(t => t.classList.remove('sp-thumb--active'));
+    thumb.classList.add('sp-thumb--active');
+}
+
+function spQty(delta) {
+    const inp = document.getElementById('spQty');
+    const max = parseInt(inp.max) || 999;
+    inp.value = Math.max(1, Math.min(max, parseInt(inp.value || 1) + delta));
+}
+
+async function spAddToCart(productId) {
+    const btn = document.getElementById('spAddBtn');
+    const st  = document.getElementById('spStatus');
+    const qty = parseInt(document.getElementById('spQty').value) || 1;
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    try {
+        const r = await fetch('/store/cart/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_id: productId, qty })
+        });
+        const d = await r.json();
+        if (d.success) {
+            btn.textContent = '✓ Added to Cart';
+            st.style.color = '#5eeec8';
+            st.textContent = '';
+            const badge = document.getElementById('pg-cart-badge');
+            if (badge) { badge.textContent = d.cart_count; badge.style.display = ''; }
+            setTimeout(() => { btn.textContent = 'Add to Cart'; btn.disabled = false; }, 1800);
+        } else {
+            st.style.color = '#f88';
+            st.textContent = d.error || 'Could not add to cart.';
+            btn.textContent = 'Add to Cart';
+            btn.disabled = false;
+        }
+    } catch(e) {
+        st.style.color = '#f88';
+        st.textContent = 'Network error.';
+        btn.textContent = 'Add to Cart';
+        btn.disabled = false;
+    }
+}
+
+let _spRating = 0;
+function spPickStar(val) {
+    _spRating = val;
+    document.querySelectorAll('.sp-star-pick-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', i < val);
+    });
+}
+
+async function spSubmitReview(slug) {
+    const btn    = document.getElementById('spReviewSubmit');
+    const status = document.getElementById('spReviewStatus');
+    if (!_spRating) {
+        status.style.color = '#f88';
+        status.textContent = 'Please select a star rating.';
+        return;
+    }
+    btn.disabled = true;
+    status.textContent = '';
+    try {
+        const r = await fetch(`/products/${slug}/review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                rating: _spRating,
+                title:  document.getElementById('spReviewTitle').value.trim(),
+                body:   document.getElementById('spReviewBody').value.trim(),
+            })
+        });
+        const d = await r.json();
+        if (d.success) {
+            document.getElementById('spReviewForm').innerHTML =
+                '<p style="color:#5eeec8;font-size:0.9rem;"><i class="fas fa-check-circle"></i> Review submitted — thank you!</p>';
+        } else {
+            status.style.color = '#f88';
+            status.textContent = d.error || 'Something went wrong.';
+            btn.disabled = false;
+        }
+    } catch(e) {
+        status.style.color = '#f88';
+        status.textContent = 'Network error.';
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}

@@ -152,9 +152,12 @@
 
             <div class="settings-group">
                 <label for="smtp_password">SMTP Password</label>
-                <input type="password" id="smtp_password" name="smtp_password" class="form-control"
-                    value="{{ email_settings.smtp_password if email_settings else '' }}"
-                    placeholder="SMTP password" required>
+                <div class="pw-wrap">
+                    <input type="password" id="smtp_password" name="smtp_password" class="form-control"
+                        value="{{ email_settings.smtp_password if email_settings else '' }}"
+                        placeholder="SMTP password" required>
+                    <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+                </div>
             </div>
 
             <div class="settings-group">

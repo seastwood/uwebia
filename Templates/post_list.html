@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.pl-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+.pl-subnav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+.pl-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.pl-back:hover { color: rgba(255,255,255,0.85); }
+.pl-title { font-size: 1.7rem; font-weight: 800; color: #fff; margin: 0; }
+.pl-subtitle { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin: 3px 0 0; }
+.pl-btn-new {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px;
+    background: linear-gradient(135deg, #5eeef8, #5eeec8);
+    color: #111; font-weight: 700; font-size: 0.9rem;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.pl-btn-new:hover { opacity: 0.88; }
+
+.pl-table { width: 100%; border-collapse: collapse; }
+.pl-table th {
+    text-align: left; font-size: 0.72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.35); padding: 8px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.pl-table td {
+    padding: 14px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    vertical-align: middle;
+}
+.pl-post-title { font-weight: 600; color: #fff; font-size: 0.95rem; }
+.pl-badge {
+    display: inline-block; padding: 3px 9px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.pl-badge-published { background: rgba(94,238,200,0.18); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.pl-badge-draft { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.12); }
+.pl-date { font-size: 0.8rem; color: rgba(255,255,255,0.4); white-space: nowrap; }
+.pl-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pl-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 10px; border-radius: 7px; font-size: 0.78rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.pl-btn-edit { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.pl-btn-edit:hover { background: rgba(255,255,255,0.13); }
+.pl-btn-publish { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.25); }
+.pl-btn-publish:hover { background: rgba(94,238,200,0.22); }
+.pl-btn-unpublish { background: rgba(255,206,115,0.12); color: #ffd982; border: 1px solid rgba(255,206,115,0.25); }
+.pl-btn-unpublish:hover { background: rgba(255,206,115,0.22); }
+.pl-btn-danger { background: rgba(255,80,80,0.1); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.22); }
+.pl-btn-danger:hover { background: rgba(255,80,80,0.2); }
+.pl-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+</style>
+
+<div class="pl-page">
+    <div class="pl-subnav">
+        <div>
+            <a href="{{ url_for('admin_posts_page') }}" class="pl-back">
+                <i class="fas fa-arrow-left"></i> Posts
+            </a>
+            <h1 class="pl-title">{{ collection.name }}</h1>
+            {% if collection.description %}
+            <p class="pl-subtitle">{{ collection.description }}</p>
+            {% endif %}
+        </div>
+        {% if user_has_perm('posts.edit') %}
+        <a href="{{ url_for('admin_post_new', cid=collection.id) }}" class="pl-btn-new">
+            <i class="fas fa-plus"></i> New Post
+        </a>
+        {% endif %}
+    </div>
+
+    {% if posts %}
+    <table class="pl-table" id="postTable">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Published</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for post in posts %}
+        <tr id="postRow-{{ post.id }}">
+            <td class="pl-post-title">{{ post.title }}</td>
+            <td>
+                <span class="pl-badge {% if post.status == 'published' %}pl-badge-published{% else %}pl-badge-draft{% endif %}"
+                      id="postBadge-{{ post.id }}">
+                    {{ post.status | capitalize }}
+                </span>
+            </td>
+            <td class="pl-date">
+                {% if post.published_at %}
+                {{ post.published_at.strftime('%b %-d, %Y') }}
+                {% else %}
+                &mdash;
+                {% endif %}
+            </td>
+            <td>
+                <div class="pl-actions">
+                    {% if user_has_perm('posts.edit') %}
+                    <a href="{{ url_for('admin_post_edit', cid=collection.id, pid=post.id) }}" class="pl-btn pl-btn-edit">
+                        <i class="fas fa-pen"></i> Edit
+                    </a>
+                    {% endif %}
+                    {% if user_has_perm('posts.publish') %}
+                    {% if post.status == 'published' %}
+                    <button class="pl-btn pl-btn-unpublish" onclick="unpublishPost({{ post.id }})">
+                        <i class="fas fa-eye-slash"></i> Unpublish
+                    </button>
+                    {% else %}
+                    <button class="pl-btn pl-btn-publish" onclick="publishPost({{ post.id }})">
+                        <i class="fas fa-globe"></i> Publish
+                    </button>
+                    {% endif %}
+                    {% endif %}
+                    {% if user_has_perm('posts.delete') %}
+                    <button class="pl-btn pl-btn-danger" onclick='confirmDelete({{ post.id }}, {{ post.title | tojson }})'>
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="pl-empty">
+        <p>No posts yet. <a href="{{ url_for('admin_post_new', cid=collection.id) }}" style="color:#5eeef8;">Create your first post →</a></p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Delete confirm modal -->
+<div class="uw-overlay" id="delModalOverlay" style="display:none;" onclick="if(event.target===this)closeDelModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:400px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Delete Post</h3>
+            <button class="uw-modal-close" onclick="closeDelModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p id="delModalMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeDelModal()">Cancel</button>
+            <button class="uw-btn" id="delModalConfirmBtn"
+                    style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+const CID = {{ collection.id }};
+let _delPostId = null;
+
+async function publishPost(pid) {
+    const r = await fetch(`/admin/posts/${CID}/articles/${pid}/publish`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) location.reload();
+    else alert(d.error || 'Failed');
+}
+
+async function unpublishPost(pid) {
+    const r = await fetch(`/admin/posts/${CID}/articles/${pid}/unpublish`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) location.reload();
+    else alert(d.error || 'Failed');
+}
+
+function confirmDelete(id, title) {
+    _delPostId = id;
+    document.getElementById('delModalMsg').textContent = `Delete "${title}"? This cannot be undone.`;
+    document.getElementById('delModalConfirmBtn').onclick = doDelete;
+    document.getElementById('delModalOverlay').style.display = 'flex';
+}
+
+function closeDelModal() {
+    document.getElementById('delModalOverlay').style.display = 'none';
+    _delPostId = null;
+}
+
+async function doDelete() {
+    if (!_delPostId) return;
+    const btn = document.getElementById('delModalConfirmBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/posts/${CID}/articles/${_delPostId}/delete`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            closeDelModal();
+            location.reload();
+        } else {
+            alert(d.error || 'Failed to delete');
+        }
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}

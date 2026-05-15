@@ -180,7 +180,19 @@
                 <label for="eventTitle">Title</label>
                 <input type="text" id="eventTitle" placeholder="Event title" required>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+
+            <div class="uw-field" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.85rem;font-weight:600;opacity:0.75;margin:0;">
+                    <input type="checkbox" id="eventAllDay" onchange="toggleEventAllDay(this)" style="width:15px;height:15px;cursor:pointer;">
+                    All day
+                </label>
+                <label id="eventHideTimeRow" style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.85rem;font-weight:600;opacity:0.75;margin:0;">
+                    <input type="checkbox" id="eventHideTime" style="width:15px;height:15px;cursor:pointer;">
+                    Hide time on calendar
+                </label>
+            </div>
+
+            <div id="eventTimePicker" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                 <div class="uw-field">
                     <label for="eventStartDate">Start Date</label>
                     <input type="date" id="eventStartDate" required>
@@ -198,6 +210,17 @@
                     <input type="time" id="eventEndTime" value="23:59">
                 </div>
             </div>
+            <div id="eventAllDayDatePicker" style="display:none;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="uw-field">
+                    <label for="eventAllDayStart">Start Date</label>
+                    <input type="date" id="eventAllDayStart">
+                </div>
+                <div class="uw-field">
+                    <label for="eventAllDayEnd">End Date <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
+                    <input type="date" id="eventAllDayEnd">
+                </div>
+            </div>
+
             <div class="uw-field">
                 <label for="eventColor">Color</label>
                 <input type="color" id="eventColor" value="#3b82f6" style="height:38px;padding:2px 6px;cursor:pointer;">
@@ -501,6 +524,35 @@
 
     /* ── Event CRUD ── */
 
+    function toggleEventAllDay(cb) {
+        const isAllDay = cb.checked;
+        document.getElementById('eventTimePicker').style.display       = isAllDay ? 'none' : 'grid';
+        document.getElementById('eventAllDayDatePicker').style.display = isAllDay ? 'grid' : 'none';
+        document.getElementById('eventHideTimeRow').style.display      = isAllDay ? 'none' : '';
+        // required lives on the visible picker only to avoid cross-browser hidden-field validation bugs
+        document.getElementById('eventAllDayStart').required = isAllDay;
+        document.getElementById('eventStartDate').required   = !isAllDay;
+        if (isAllDay) document.getElementById('eventHideTime').checked = false;
+        // sync dates between pickers
+        if (isAllDay) {
+            document.getElementById('eventAllDayStart').value = document.getElementById('eventStartDate').value;
+            document.getElementById('eventAllDayEnd').value   = document.getElementById('eventEndDate').value;
+        } else {
+            document.getElementById('eventStartDate').value = document.getElementById('eventAllDayStart').value;
+            document.getElementById('eventEndDate').value   = document.getElementById('eventAllDayEnd').value;
+        }
+    }
+
+    function _resetEventModal() {
+        document.getElementById('eventAllDay').checked  = false;
+        document.getElementById('eventHideTime').checked = false;
+        document.getElementById('eventTimePicker').style.display       = 'grid';
+        document.getElementById('eventAllDayDatePicker').style.display = 'none';
+        document.getElementById('eventHideTimeRow').style.display      = '';
+        document.getElementById('eventStartDate').required   = true;
+        document.getElementById('eventAllDayStart').required = false;
+    }
+
     function openAddEventModal(calendarId, defaultDate) {
         document.getElementById('eventModalTitle').textContent = 'Add Event';
         document.getElementById('eventModalCalendarId').value = calendarId;
@@ -510,39 +562,57 @@
         document.getElementById('eventStartTime').value = '00:00';
         document.getElementById('eventEndDate').value = defaultDate || '';
         document.getElementById('eventEndTime').value = '23:59';
+        document.getElementById('eventAllDayStart').value = defaultDate || '';
+        document.getElementById('eventAllDayEnd').value = '';
         document.getElementById('eventColor').value = '#3b82f6';
         document.getElementById('eventDescription').value = '';
         document.getElementById('eventDeleteBtn').style.display = 'none';
+        document.getElementById('eventExternalBanner').style.display = 'none';
+        document.getElementById('eventSaveBtn').style.display = '';
+        _resetEventModal();
         showModal('eventModalOverlay');
     }
 
     function openEditEventModal(calendarId, fcEvent) {
         const isExternal = (fcEvent.extendedProps.source || 'local') !== 'local';
+        const allDay     = fcEvent.extendedProps.allDay  || fcEvent.allDay || false;
+        const hideTime   = fcEvent.extendedProps.hideTime || false;
 
         document.getElementById('eventModalTitle').textContent = isExternal ? 'External Event' : 'Edit Event';
         document.getElementById('eventModalCalendarId').value = calendarId;
         document.getElementById('eventModalEventId').value = fcEvent.id;
         document.getElementById('eventTitle').value = fcEvent.title || '';
-        document.getElementById('eventStartDate').value = fcEvent.startStr ? fcEvent.startStr.split('T')[0] : '';
-        document.getElementById('eventStartTime').value = fcEvent.startStr && fcEvent.startStr.includes('T') ? fcEvent.startStr.split('T')[1].slice(0, 5) : '00:00';
-        document.getElementById('eventEndDate').value = fcEvent.endStr ? fcEvent.endStr.split('T')[0] : '';
-        document.getElementById('eventEndTime').value = fcEvent.endStr && fcEvent.endStr.includes('T') ? fcEvent.endStr.split('T')[1].slice(0, 5) : '23:59';
+
+        const startDate = fcEvent.startStr ? fcEvent.startStr.split('T')[0] : '';
+        const startTime = fcEvent.startStr && fcEvent.startStr.includes('T') ? fcEvent.startStr.split('T')[1].slice(0, 5) : '00:00';
+        const endDate   = fcEvent.endStr   ? fcEvent.endStr.split('T')[0]   : '';
+        const endTime   = fcEvent.endStr   && fcEvent.endStr.includes('T')   ? fcEvent.endStr.split('T')[1].slice(0, 5)   : '23:59';
+
+        document.getElementById('eventStartDate').value = startDate;
+        document.getElementById('eventStartTime').value = startTime;
+        document.getElementById('eventEndDate').value   = endDate;
+        document.getElementById('eventEndTime').value   = endTime;
+        document.getElementById('eventAllDayStart').value = startDate;
+        document.getElementById('eventAllDayEnd').value   = endDate;
+
+        document.getElementById('eventAllDay').checked   = allDay;
+        document.getElementById('eventHideTime').checked = hideTime;
+        document.getElementById('eventTimePicker').style.display       = allDay ? 'none' : 'grid';
+        document.getElementById('eventAllDayDatePicker').style.display = allDay ? 'grid' : 'none';
+        document.getElementById('eventHideTimeRow').style.display      = allDay ? 'none' : '';
+
         document.getElementById('eventColor').value = fcEvent.backgroundColor || '#3b82f6';
         document.getElementById('eventDescription').value = fcEvent.extendedProps.description || '';
 
-        // Show/hide controls depending on whether this is an external event
         document.getElementById('eventExternalBanner').style.display = isExternal ? 'flex' : 'none';
         document.getElementById('eventDeleteBtn').style.display = isExternal ? 'none' : 'block';
         document.getElementById('eventSaveBtn').style.display = isExternal ? 'none' : '';
 
-        // Make fields read-only for external events
         const fields = document.querySelectorAll('#eventModalForm input, #eventModalForm textarea');
-        fields.forEach(f => {
-            if (isExternal) f.setAttribute('readonly', true);
-            else f.removeAttribute('readonly');
-        });
-        const colorInput = document.getElementById('eventColor');
-        colorInput.disabled = isExternal;
+        fields.forEach(f => { if (isExternal) f.setAttribute('readonly', true); else f.removeAttribute('readonly'); });
+        document.getElementById('eventAllDay').disabled  = isExternal;
+        document.getElementById('eventHideTime').disabled = isExternal;
+        document.getElementById('eventColor').disabled = isExternal;
 
         showModal('eventModalOverlay');
     }
@@ -550,19 +620,32 @@
     async function submitEventForm(e) {
         e.preventDefault();
         const calendarId = document.getElementById('eventModalCalendarId').value;
-        const eventId = document.getElementById('eventModalEventId').value;
+        const eventId    = document.getElementById('eventModalEventId').value;
+        const allDay     = document.getElementById('eventAllDay').checked;
+        const hideTime   = document.getElementById('eventHideTime').checked;
 
-        const startDate = document.getElementById('eventStartDate').value;
-        const startTime = document.getElementById('eventStartTime').value;
-        const endDate = document.getElementById('eventEndDate').value;
-        const endTime = document.getElementById('eventEndTime').value;
+        let startStr, endStr;
+        if (allDay) {
+            startStr = document.getElementById('eventAllDayStart').value;
+            const endVal = document.getElementById('eventAllDayEnd').value;
+            endStr = endVal || null;
+        } else {
+            const startDate = document.getElementById('eventStartDate').value;
+            const startTime = document.getElementById('eventStartTime').value;
+            const endDate   = document.getElementById('eventEndDate').value;
+            const endTime   = document.getElementById('eventEndTime').value;
+            startStr = `${startDate}T${startTime}`;
+            endStr   = endDate ? `${endDate}T${endTime}` : null;
+        }
 
         const payload = {
             id: eventId || undefined,
             title: document.getElementById('eventTitle').value,
             description: document.getElementById('eventDescription').value,
-            start: `${startDate}T${startTime}`,
-            end: endDate ? `${endDate}T${endTime}` : null,
+            start: startStr,
+            end: endStr,
+            allDay: allDay,
+            hideTime: hideTime,
             backgroundColor: document.getElementById('eventColor').value
         };
 
@@ -628,6 +711,9 @@
         document.getElementById('eventSaveBtn').style.display = '';
         document.querySelectorAll('#eventModalForm input, #eventModalForm textarea').forEach(f => f.removeAttribute('readonly'));
         document.getElementById('eventColor').disabled = false;
+        document.getElementById('eventAllDay').disabled  = false;
+        document.getElementById('eventHideTime').disabled = false;
+        _resetEventModal();
     }
 
     document.getElementById('calModalOverlay').addEventListener('click', function (e) {

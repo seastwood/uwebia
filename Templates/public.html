@@ -14,6 +14,7 @@
 
     <link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css' rel='stylesheet' />
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
+    <style>.fc-hide-time .fc-event-time { display: none !important; }</style>
     <!-- Bootstrap CSS -->
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
 
@@ -3064,6 +3065,456 @@ min-height: 100dvh;
 .uwebia-comment-like-button i {
     font-size: 0.78rem;
 }
+
+/* ── Product grid section ───────────────────────────────────────────────── */
+.pg-grid {
+    display: grid;
+    gap: 20px;
+}
+.pg-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.pg-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.pg-cols-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 720px) {
+    .pg-cols-3, .pg-cols-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+    .pg-cols-2, .pg-cols-3, .pg-cols-4 { grid-template-columns: 1fr; }
+}
+
+.pg-card {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.pg-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+
+.pg-card-img {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: rgba(255,255,255,0.05);
+}
+.pg-card-img img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+    transition: transform 0.2s;
+}
+.pg-card:hover .pg-card-img img { transform: scale(1.03); }
+.pg-card-img-empty {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.15); font-size: 2rem;
+}
+
+.pg-out-of-stock {
+    position: absolute; bottom: 8px; left: 8px;
+    background: rgba(0,0,0,0.65);
+    color: rgba(255,255,255,0.7);
+    font-size: 0.72rem; font-weight: 600;
+    padding: 3px 8px; border-radius: 6px;
+}
+
+.pg-card-body {
+    padding: 12px 14px 14px;
+    display: flex; flex-direction: column; gap: 6px;
+    flex: 1;
+}
+.pg-card-name {
+    font-size: 0.9rem; font-weight: 600;
+    margin: 0; line-height: 1.3;
+}
+.pg-card-price {
+    font-size: 0.95rem; font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+}
+.pg-card-compare {
+    font-size: 0.78rem; font-weight: 400;
+    color: rgba(255,255,255,0.35);
+    text-decoration: line-through;
+}
+
+.pg-add-to-cart {
+    margin-top: auto;
+    padding: 8px 14px;
+    background: rgba(94,238,200,0.12);
+    border: 1px solid rgba(94,238,200,0.2);
+    border-radius: 8px;
+    color: #5eeec8;
+    font-size: 0.82rem; font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    width: 100%;
+}
+.pg-add-to-cart:hover { background: rgba(94,238,200,0.22); }
+.pg-add-to-cart.pg-added { background: rgba(94,238,200,0.3); }
+
+.pg-card-desc {
+    font-size: 0.8rem;
+    opacity: 0.55;
+    line-height: 1.45;
+    margin: 2px 0 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+
+.pg-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: rgba(255,255,255,0.25);
+    font-size: 0.9rem;
+    padding: 40px 0;
+}
+
+/* ── Feed section title ─────────────────────────────────────────────────── */
+.feed-section-wrap {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+}
+/* Compact-cards outer container: shrink to content, center on page */
+.cc-outer {
+    width: max-content;
+    max-width: 100%;
+    align-self: center;
+}
+.cc-title-bar {
+    padding: 13px 16px 11px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    letter-spacing: 0.01em;
+}
+.feed-section-title {
+    font-size: 1.1rem; font-weight: 700;
+    margin: 0 0 14px;
+    line-height: 1.25;
+}
+
+/* ── Product grid wrapper (keeps view-all below the grid/list) ──────────── */
+.pg-section-wrap { display: block; }
+
+/* ── Grid card image — cap height so cards don't grow too tall ──────────── */
+.pg-card-img { max-height: 260px; }
+
+/* ── Product grid list layout ───────────────────────────────────────────── */
+.pg-layout-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.pg-layout-list .pg-card {
+    flex-direction: row;
+    align-items: stretch;
+    max-height: 120px;
+}
+.pg-layout-list .pg-card-img {
+    width: 120px;
+    min-width: 120px;
+    max-height: 120px;
+    aspect-ratio: unset;
+    flex-shrink: 0;
+    border-radius: 0;
+}
+.pg-layout-list .pg-card-body {
+    justify-content: center;
+    padding: 10px 14px;
+}
+.pg-layout-list .pg-add-to-cart {
+    margin-top: 6px;
+    padding: 5px 10px;
+    font-size: 0.76rem;
+}
+@media (max-width: 480px) {
+    .pg-layout-list .pg-card { flex-direction: column; max-height: none; }
+    .pg-layout-list .pg-card-img { width: 100%; min-width: unset; max-height: 180px; aspect-ratio: 16/9; }
+}
+
+/* ── Product grid compact layout ────────────────────────────────────────── */
+.pg-compact-wrap {
+    background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+.pg-compact-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px;
+}
+.pg-compact-scroll::-webkit-scrollbar { width: 4px; }
+.pg-compact-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+.pg-compact-row {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.15s, box-shadow 0.15s;
+    width: 90px;
+    flex-shrink: 0;
+}
+.pg-compact-row:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.22); color: inherit; }
+.pg-compact-thumb {
+    width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: rgba(255,255,255,0.05);
+    flex-shrink: 0;
+}
+.pg-compact-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pg-compact-thumb-placeholder {
+    width: 100%;
+    aspect-ratio: 1;
+    background: rgba(255,255,255,0.04);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; opacity: 0.2;
+}
+.pg-compact-info { padding: 5px 7px 6px; flex: 1; min-width: 0; }
+.pg-compact-name {
+    font-size: 0.72rem; font-weight: 600; line-height: 1.2;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; white-space: normal;
+}
+.pg-compact-price { font-size: 0.7rem; opacity: 0.6; margin-top: 2px; }
+.pg-compact-badge { font-size: 0.62rem; opacity: 0.45; font-style: italic; }
+.pg-compact-desc {
+    font-size: 0.68rem; opacity: 0.5; line-height: 1.35; margin-top: 2px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; white-space: normal;
+}
+.pg-compact-pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.78rem;
+}
+.pg-compact-pagination button {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: inherit; padding: 4px 12px;
+    font-size: 0.78rem; cursor: pointer;
+    transition: background 0.15s;
+}
+.pg-compact-pagination button:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
+.pg-compact-pagination button:disabled { opacity: 0.25; cursor: default; }
+.pg-compact-page-info { opacity: 0.5; }
+
+/* ── Article feed section ───────────────────────────────────────────────── */
+.af-feed { display: grid; gap: 20px; justify-content: center; }
+.af-layout-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 360px)); }
+.af-layout-list { grid-template-columns: minmax(280px, 720px); }
+.af-card {
+    display: flex; flex-direction: column;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.18s, box-shadow 0.18s;
+}
+.af-card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,0.3); color: inherit; }
+.af-card-cover { width: 100%; aspect-ratio: 16/9; overflow: hidden; }
+.af-card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.af-card-body { padding: 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.af-card-collection { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.55; }
+.af-card-title { margin: 0; font-size: 1.05rem; font-weight: 700; line-height: 1.3; }
+.af-card-date { font-size: 0.78rem; opacity: 0.5; }
+.af-card-excerpt { margin: 0; font-size: 0.87rem; opacity: 0.75; line-height: 1.5; flex: 1; }
+.af-card-readmore { font-size: 0.82rem; font-weight: 600; opacity: 0.6; margin-top: 4px; }
+.af-empty { opacity: 0.5; font-size: 0.9rem; }
+.af-layout-list .af-card { flex-direction: row; }
+.af-layout-list .af-card-cover { width: 220px; min-width: 220px; aspect-ratio: unset; height: auto; }
+@media (max-width: 600px) {
+    .af-layout-list .af-card { flex-direction: column; }
+    .af-layout-list .af-card-cover { width: 100%; }
+}
+
+/* Compact scrollable layout */
+.af-compact-wrap {
+    background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+.af-compact-scroll {
+    max-height: 360px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.af-compact-scroll::-webkit-scrollbar { width: 4px; }
+.af-compact-scroll::-webkit-scrollbar-track { background: transparent; }
+.af-compact-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+.af-compact-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    text-decoration: none;
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    transition: background 0.15s;
+}
+.af-compact-row:last-child { border-bottom: none; }
+.af-compact-row:hover { background: rgba(255,255,255,0.08); color: inherit; }
+.af-compact-thumb {
+    width: 48px; height: 48px; min-width: 48px;
+    border-radius: 8px; overflow: hidden;
+}
+.af-compact-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.af-compact-thumb-placeholder {
+    width: 48px; height: 48px; min-width: 48px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; opacity: 0.3;
+}
+.af-compact-info { flex: 1; min-width: 0; }
+.af-compact-title { font-size: 0.9rem; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.af-compact-meta { font-size: 0.75rem; opacity: 0.45; margin-top: 2px; }
+.af-compact-arrow { font-size: 0.8rem; opacity: 0.3; flex-shrink: 0; }
+.af-compact-excerpt { font-size: 0.78rem; opacity: 0.55; line-height: 1.45; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+.af-compact-pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.78rem;
+}
+.af-compact-pagination button {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: inherit;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.af-compact-pagination button:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
+.af-compact-pagination button:disabled { opacity: 0.25; cursor: default; }
+.af-compact-page-info { opacity: 0.5; }
+
+/* ── Article feed compact-cards layout ──────────────────────────────────── */
+.af-cc-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px;
+}
+.af-cc-scroll::-webkit-scrollbar { width: 4px; }
+.af-cc-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+.af-cc-card {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.15s, box-shadow 0.15s;
+    width: 110px;
+    flex-shrink: 0;
+}
+.af-cc-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.22); color: inherit; }
+.af-cc-img {
+    width: 100%;
+    aspect-ratio: 16/9;
+    overflow: hidden;
+    background: rgba(255,255,255,0.05);
+    flex-shrink: 0;
+}
+.af-cc-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.af-cc-img-empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; opacity: 0.2; color: inherit;
+}
+.af-cc-body { padding: 6px 8px 8px; flex: 1; min-width: 0; }
+.af-cc-title {
+    font-size: 0.72rem; font-weight: 700; line-height: 1.25;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden; white-space: normal;
+}
+.af-cc-date { font-size: 0.65rem; opacity: 0.45; margin-top: 3px; }
+.af-cc-excerpt {
+    font-size: 0.67rem; opacity: 0.55; line-height: 1.35; margin-top: 3px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; white-space: normal;
+}
+
+/* ── Calendar Badges ─────────────────────────────────────────── */
+.cb-feed {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+}
+.cb-badge {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 14px 22px 14px 20px;
+    border-radius: 50px;
+    flex: 0 1 auto;
+    min-width: 0;
+    cursor: default;
+    position: relative;
+    transition: transform 0.18s, box-shadow 0.18s;
+    /* color set inline; box-shadow uses --cb-color CSS var set inline */
+    user-select: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255,255,255,0.22);
+    border-left: 1px solid rgba(255,255,255,0.14);
+    border-right: 1px solid rgba(0,0,0,0.12);
+    border-bottom: 1px solid rgba(0,0,0,0.18);
+}
+.cb-badge.cb-clickable { cursor: pointer; }
+.cb-badge.cb-clickable:hover { transform: translateY(-3px) scale(1.02); }
+.cb-badge-title { font-size: 0.92rem; font-weight: 800; line-height: 1.2; letter-spacing: 0.01em; }
+.cb-badge-date  { font-size: 0.75rem; opacity: 0.82; margin-top: 1px; font-weight: 500; }
+.cb-badge-time  { font-size: 0.72rem; opacity: 0.7; font-weight: 500; }
+.cb-badge-desc-icon { position: absolute; top: 11px; right: 14px; font-size: 0.68rem; opacity: 0.55; }
+.cb-empty { opacity: 0.5; font-size: 0.9rem; }
 </style>
 
 {% set nav_style = website.public_navbar_style or {} %}
@@ -3460,10 +3911,10 @@ box-sizing: border-box;
         {% if comments_content.get('require_login') and not public_user %}
             <div class="uwebia-comments-login-required">
                 <p>Please log in to comment.</p>
-                <a href="{{ url_for('public_forum_login', next=content.current_page_url) }}">
+                <a href="{{ url_for('public_login', next=content.current_page_url) }}">
                     Log In
                 </a>
-                <a href="{{ url_for('public_forum_register', next=content.current_page_url) }}">
+                <a href="{{ url_for('public_register', next=content.current_page_url) }}">
                     Create Account
                 </a>
             </div>
@@ -3704,8 +4155,328 @@ box-sizing: border-box;
                                         {% endif %}
                                     </div>
                                 </div>
+
+                                {% elif section.section_type == 'product_grid' %}
+                                {% set pg_products = content.products_by_section.get(section.id, []) %}
+                                {% set pg_cfg = section.content or {} %}
+                                {% set pg_layout = pg_cfg.get('layout', 'grid') %}
+                                {% set pg_cols = pg_cfg.get('columns', 3) | int %}
+                                {% set pg_show_price = pg_cfg.get('show_price', true) %}
+                                {% set pg_show_desc  = pg_cfg.get('show_description', false) %}
+                                {% set pg_show_cart = pg_cfg.get('show_add_to_cart', true) and not content.get('store_in_store_only') %}
+                                {% set pg_per_page = pg_cfg.get('limit', 12) | int %}
+                                {% set pg_source = pg_cfg.get('source', 'all') %}
+                                {% set pg_cat = pg_cfg.get('category_id') %}
+                                <div class="feed-section-wrap">
+                                {% if pg_cfg.get('title') and pg_layout not in ('compact', 'compact-cards') %}<h3 class="feed-section-title">{{ pg_cfg.title }}</h3>{% endif %}
+                                {% if pg_layout in ('compact', 'compact-cards') %}
+                                <div class="pg-compact-wrap cc-outer" id="pg-compact-{{ section.id }}">
+                                    {% if pg_cfg.get('title') %}<div class="cc-title-bar">{{ pg_cfg.title }}</div>{% endif %}
+                                    <div class="pg-compact-scroll" id="pg-compact-scroll-{{ section.id }}">
+                                    {% if pg_products %}
+                                        {% for prod in pg_products %}
+                                        <a class="pg-compact-row"
+                                           href="/products/{{ prod.slug }}"
+                                           data-page="{{ loop.index0 // pg_per_page }}">
+                                            {% if prod.cover_url %}
+                                            <div class="pg-compact-thumb">
+                                                <img src="{{ prod.cover_url }}" alt="{{ prod.name }}" loading="lazy">
+                                            </div>
+                                            {% else %}
+                                            <div class="pg-compact-thumb-placeholder"><i class="fas fa-shopping-bag"></i></div>
+                                            {% endif %}
+                                            <div class="pg-compact-info">
+                                                <div class="pg-compact-name">{{ prod.name }}</div>
+                                                <div class="pg-compact-price">
+                                                    {% if pg_show_price %}${{ '%.2f' | format(prod.price) }}{% endif %}
+                                                    {% if not prod.in_stock %}<span class="pg-compact-badge"> Out of stock</span>{% endif %}
+                                                </div>
+                                                {% if pg_show_desc and prod.description %}
+                                                <div class="pg-compact-desc">{{ prod.description }}</div>
+                                                {% endif %}
+                                            </div>
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p style="padding:16px;opacity:0.5;font-size:0.9rem;margin:0;">No products to display.</p>
+                                    {% endif %}
+                                    </div>
+                                    {% set pg_total_pages = ((pg_products|length - 1) // pg_per_page + 1) if pg_products else 1 %}
+                                    {% if pg_total_pages > 1 %}
+                                    <div class="pg-compact-pagination">
+                                        <button onclick="pgCompactPage('{{ section.id }}', -1)" id="pg-prev-{{ section.id }}" disabled>← Prev</button>
+                                        <span class="pg-compact-page-info" id="pg-info-{{ section.id }}">1 / {{ pg_total_pages }}</span>
+                                        <button onclick="pgCompactPage('{{ section.id }}', 1)" id="pg-next-{{ section.id }}" {% if pg_total_pages <= 1 %}disabled{% endif %}>Next →</button>
+                                    </div>
+                                    {% endif %}
+                                    <div class="pg-view-all-wrap" style="border-top:1px solid rgba(255,255,255,0.06);padding:10px 16px;">
+                                        <a href="/shop{% if pg_source == 'category' and pg_cat %}?category={{ pg_cat }}{% endif %}" class="pg-view-all">View all products →</a>
+                                    </div>
+                                </div>
+                                {% elif pg_layout == 'compact-list' %}
+                                <div class="pg-compact-wrap" id="pg-compact-{{ section.id }}">
+                                    <div class="af-compact-scroll" id="pg-compact-scroll-{{ section.id }}" style="max-height:320px;">
+                                    {% if pg_products %}
+                                        {% for prod in pg_products %}
+                                        <a class="af-compact-row pg-clist-row"
+                                           href="/products/{{ prod.slug }}"
+                                           data-page="{{ loop.index0 // pg_per_page }}">
+                                            {% if prod.cover_url %}
+                                            <div class="af-compact-thumb">
+                                                <img src="{{ prod.cover_url }}" alt="{{ prod.name }}" loading="lazy">
+                                            </div>
+                                            {% else %}
+                                            <div class="af-compact-thumb-placeholder"><i class="fas fa-shopping-bag"></i></div>
+                                            {% endif %}
+                                            <div class="af-compact-info">
+                                                <div class="af-compact-title">{{ prod.name }}</div>
+                                                <div class="af-compact-meta">
+                                                    {% if pg_show_price %}${{ '%.2f' | format(prod.price) }}{% endif %}
+                                                    {% if not prod.in_stock %} · Out of stock{% endif %}
+                                                </div>
+                                                {% if pg_show_desc and prod.description %}<div class="af-compact-excerpt">{{ prod.description }}</div>{% endif %}
+                                            </div>
+                                            <span class="af-compact-arrow">→</span>
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p style="padding:16px;opacity:0.5;font-size:0.9rem;margin:0;">No products to display.</p>
+                                    {% endif %}
+                                    </div>
+                                    {% set pg_total_pages = ((pg_products|length - 1) // pg_per_page + 1) if pg_products else 1 %}
+                                    {% if pg_total_pages > 1 %}
+                                    <div class="pg-compact-pagination">
+                                        <button onclick="pgCompactPage('{{ section.id }}', -1)" id="pg-prev-{{ section.id }}" disabled>← Prev</button>
+                                        <span class="pg-compact-page-info" id="pg-info-{{ section.id }}">1 / {{ pg_total_pages }}</span>
+                                        <button onclick="pgCompactPage('{{ section.id }}', 1)" id="pg-next-{{ section.id }}" {% if pg_total_pages <= 1 %}disabled{% endif %}>Next →</button>
+                                    </div>
+                                    {% endif %}
+                                    <div class="pg-view-all-wrap" style="border-top:1px solid rgba(255,255,255,0.06);padding:10px 16px;">
+                                        <a href="/shop{% if pg_source == 'category' and pg_cat %}?category={{ pg_cat }}{% endif %}" class="pg-view-all">View all products →</a>
+                                    </div>
+                                </div>
+                                {% elif pg_layout == 'list' %}
+                                <div class="pg-section-wrap">
+                                    <div class="pg-layout-list">
+                                    {% if pg_products %}
+                                        {% for prod in pg_products %}
+                                        <a class="pg-card" href="/products/{{ prod.slug }}">
+                                            <div class="pg-card-img">
+                                                {% if prod.cover_url %}<img src="{{ prod.cover_url }}" alt="{{ prod.name }}">
+                                                {% else %}<div class="pg-card-img-empty"><i class="fas fa-image"></i></div>{% endif %}
+                                                {% if not prod.in_stock %}<span class="pg-out-of-stock">Out of stock</span>{% endif %}
+                                            </div>
+                                            <div class="pg-card-body">
+                                                <p class="pg-card-name">{{ prod.name }}</p>
+                                                {% if pg_show_price %}<div class="pg-card-price">${{ '%.2f' | format(prod.price) }}{% if prod.compare_at_price %}<span class="pg-card-compare">${{ '%.2f' | format(prod.compare_at_price) }}</span>{% endif %}</div>{% endif %}
+                                                {% if pg_show_desc and prod.description %}<p class="pg-card-desc">{{ prod.description }}</p>{% endif %}
+                                                {% if pg_show_cart and prod.in_stock %}<button class="pg-add-to-cart" onclick="event.preventDefault(); pgAddToCart({{ prod.id }}, this)">Add to Cart</button>{% endif %}
+                                            </div>
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p style="opacity:0.5;font-size:0.9rem;padding:20px 0;text-align:center;">No products to display.</p>
+                                    {% endif %}
+                                    </div>
+                                    <div class="pg-view-all-wrap"><a href="/shop{% if pg_source == 'category' and pg_cat %}?category={{ pg_cat }}{% endif %}" class="pg-view-all">View all products →</a></div>
+                                </div>
+                                {% else %}
+                                <div class="pg-section-wrap">
+                                    <div class="pg-grid pg-cols-{{ pg_cols }}">
+                                    {% if pg_products %}
+                                        {% for prod in pg_products %}
+                                        <a class="pg-card" href="/products/{{ prod.slug }}">
+                                            <div class="pg-card-img">
+                                                {% if prod.cover_url %}<img src="{{ prod.cover_url }}" alt="{{ prod.name }}">
+                                                {% else %}<div class="pg-card-img-empty"><i class="fas fa-image"></i></div>{% endif %}
+                                                {% if not prod.in_stock %}<span class="pg-out-of-stock">Out of stock</span>{% endif %}
+                                            </div>
+                                            <div class="pg-card-body">
+                                                <p class="pg-card-name">{{ prod.name }}</p>
+                                                {% if pg_show_price %}<div class="pg-card-price">${{ '%.2f' | format(prod.price) }}{% if prod.compare_at_price %}<span class="pg-card-compare">${{ '%.2f' | format(prod.compare_at_price) }}</span>{% endif %}</div>{% endif %}
+                                                {% if pg_show_desc and prod.description %}<p class="pg-card-desc">{{ prod.description }}</p>{% endif %}
+                                                {% if pg_show_cart and prod.in_stock %}<button class="pg-add-to-cart" onclick="event.preventDefault(); pgAddToCart({{ prod.id }}, this)">Add to Cart</button>{% endif %}
+                                            </div>
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p class="pg-empty">No products to display.</p>
+                                    {% endif %}
+                                    </div>
+                                    <div class="pg-view-all-wrap">
+                                        <a href="/shop{% if pg_source == 'category' and pg_cat %}?category={{ pg_cat }}{% endif %}" class="pg-view-all">View all products →</a>
+                                    </div>
+                                </div>
                                 {% endif %}
-                                
+                                </div><!-- /feed-section-wrap -->
+
+                                {% elif section.section_type == 'calendar_badges' %}
+                                {% set cb_events = content.badges_by_section.get(section.id, []) %}
+                                {% set cb_cfg = section.content or {} %}
+                                {% set cb_show_desc = cb_cfg.get('show_description', true) %}
+                                {% set cb_show_time = cb_cfg.get('show_time', true) %}
+                                {% if cb_events %}
+                                <div class="cb-feed">
+                                    {% for event in cb_events %}
+                                    {% set badge_color = event.background_color or '#5c6bc0' %}
+                                    {% set text_color = badge_color | badge_text_color %}
+                                    <div class="cb-badge cb-clickable"
+                                         style="background:linear-gradient(145deg,{{ badge_color }}ee,{{ badge_color }}bb);color:{{ text_color }};box-shadow:0 6px 24px {{ badge_color }}66,0 2px 8px rgba(0,0,0,0.25),inset 0 1px 0 rgba(255,255,255,0.18);"
+                                         onclick="cbOpenEventModal(this)"
+                                         data-title="{{ event.title | e }}"
+                                         data-desc="{{ event.description | e if event.description else '' }}"
+                                         data-color="{{ badge_color }}"
+                                         data-start="{{ event.start.isoformat() }}"
+                                         data-end="{{ event.end.isoformat() if event.end else '' }}"
+                                         data-allday="{{ 'true' if event.all_day else 'false' }}"
+                                         data-hidetime="{{ 'true' if event.hide_time else 'false' }}">
+                                        {% if event.description %}
+                                        <span class="cb-badge-desc-icon" style="color:{{ text_color }};"><i class="fas fa-info-circle"></i></span>
+                                        {% endif %}
+                                        <div class="cb-badge-title">{{ event.title }}</div>
+                                        <div class="cb-badge-date">
+                                            {% if event.all_day %}
+                                                {{ event.start.strftime('%B %-d, %Y') }}{% if event.end and event.end.date() != event.start.date() %} – {{ event.end.strftime('%B %-d, %Y') }}{% endif %}
+                                            {% else %}
+                                                {{ event.start.strftime('%B %-d, %Y') }}
+                                            {% endif %}
+                                        </div>
+                                        {% if not event.all_day and not event.hide_time and cb_show_time %}
+                                        <div class="cb-badge-time">{{ event.start.strftime('%-I:%M %p') }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <p class="cb-empty">No upcoming events.</p>
+                                {% endif %}
+
+                                {% elif section.section_type == 'article_feed' %}
+                                {% set af = content.posts_by_section.get(section.id, []) %}
+                                {% set af_cfg = section.content or {} %}
+                                {% set af_layout = af_cfg.get('layout', 'grid') %}
+                                {% set af_show_excerpt = af_cfg.get('show_excerpt', true) %}
+                                {% set af_show_cover = af_cfg.get('show_cover', true) %}
+                                {% set af_show_date = af_cfg.get('show_date', true) %}
+                                {% set af_per_page = af_cfg.get('limit', 6)|int %}
+                                <div class="feed-section-wrap">
+                                {% if af_cfg.get('title') and af_layout not in ('compact', 'compact-cards') %}<h3 class="feed-section-title">{{ af_cfg.title }}</h3>{% endif %}
+                                {% if af_layout == 'compact' %}
+                                <div class="af-compact-wrap" id="af-compact-{{ section.id }}">
+                                    <div class="af-compact-scroll" id="af-compact-scroll-{{ section.id }}">
+                                    {% if af %}
+                                        {% for post in af %}
+                                        <a class="af-compact-row"
+                                           href="/posts/{{ post.collection.slug }}/{{ post.slug }}"
+                                           data-page="{{ loop.index0 // af_per_page }}">
+                                            {% if af_show_cover %}
+                                                {% if post.cover_image_url %}
+                                                <div class="af-compact-thumb">
+                                                    <img src="{{ post.cover_image_url }}" alt="{{ post.title }}" loading="lazy">
+                                                </div>
+                                                {% else %}
+                                                <div class="af-compact-thumb-placeholder"><i class="fas fa-newspaper"></i></div>
+                                                {% endif %}
+                                            {% endif %}
+                                            <div class="af-compact-info{% if af_show_excerpt and post.excerpt %} af-compact-info-excerpt{% endif %}">
+                                                <div class="af-compact-title">{{ post.title }}</div>
+                                                <div class="af-compact-meta">
+                                                    {{ post.collection.name }}{% if af_show_date and post.published_at %} &middot; {{ post.published_at.strftime('%b %-d, %Y') }}{% endif %}
+                                                </div>
+                                                {% if af_show_excerpt and post.excerpt %}
+                                                <div class="af-compact-excerpt">{{ post.excerpt }}</div>
+                                                {% endif %}
+                                            </div>
+                                            <span class="af-compact-arrow">→</span>
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p style="padding:16px;opacity:0.5;font-size:0.9rem;margin:0;">No posts to display.</p>
+                                    {% endif %}
+                                    </div>
+                                    {% set af_total_pages = ((af|length - 1) // af_per_page + 1) if af else 1 %}
+                                    {% if af_total_pages > 1 %}
+                                    <div class="af-compact-pagination" id="af-compact-pager-{{ section.id }}">
+                                        <button onclick="afCompactPage('{{ section.id }}', -1)" id="af-prev-{{ section.id }}" disabled>← Prev</button>
+                                        <span class="af-compact-page-info" id="af-info-{{ section.id }}">1 / {{ af_total_pages }}</span>
+                                        <button onclick="afCompactPage('{{ section.id }}', 1)" id="af-next-{{ section.id }}" {% if af_total_pages <= 1 %}disabled{% endif %}>Next →</button>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% elif af_layout == 'compact-cards' %}
+                                <div class="af-compact-wrap cc-outer" id="af-compact-{{ section.id }}">
+                                    {% if af_cfg.get('title') %}<div class="cc-title-bar">{{ af_cfg.title }}</div>{% endif %}
+                                    <div class="af-cc-scroll" id="af-compact-scroll-{{ section.id }}">
+                                    {% if af %}
+                                        {% for post in af %}
+                                        <a class="af-cc-card"
+                                           href="/posts/{{ post.collection.slug }}/{{ post.slug }}"
+                                           data-page="{{ loop.index0 // af_per_page }}">
+                                            {% if af_show_cover %}
+                                                {% if post.cover_image_url %}
+                                                <div class="af-cc-img">
+                                                    <img src="{{ post.cover_image_url }}" alt="{{ post.title }}" loading="lazy">
+                                                </div>
+                                                {% else %}
+                                                <div class="af-cc-img af-cc-img-empty"><i class="fas fa-newspaper"></i></div>
+                                                {% endif %}
+                                            {% endif %}
+                                            <div class="af-cc-body">
+                                                <div class="af-cc-title">{{ post.title }}</div>
+                                                {% if af_show_date and post.published_at %}
+                                                <div class="af-cc-date">{{ post.published_at.strftime('%b %-d, %Y') }}</div>
+                                                {% endif %}
+                                                {% if af_show_excerpt and post.excerpt %}
+                                                <div class="af-cc-excerpt">{{ post.excerpt }}</div>
+                                                {% endif %}
+                                            </div>
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p style="padding:16px;opacity:0.5;font-size:0.9rem;margin:0;">No posts to display.</p>
+                                    {% endif %}
+                                    </div>
+                                    {% set af_total_pages = ((af|length - 1) // af_per_page + 1) if af else 1 %}
+                                    {% if af_total_pages > 1 %}
+                                    <div class="af-compact-pagination" id="af-compact-pager-{{ section.id }}">
+                                        <button onclick="afCompactPage('{{ section.id }}', -1)" id="af-prev-{{ section.id }}" disabled>← Prev</button>
+                                        <span class="af-compact-page-info" id="af-info-{{ section.id }}">1 / {{ af_total_pages }}</span>
+                                        <button onclick="afCompactPage('{{ section.id }}', 1)" id="af-next-{{ section.id }}" {% if af_total_pages <= 1 %}disabled{% endif %}>Next →</button>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                <div class="af-feed af-layout-{{ af_layout }}">
+                                {% if af %}
+                                    {% for post in af %}
+                                    <a class="af-card" href="/posts/{{ post.collection.slug }}/{{ post.slug }}">
+                                        {% if af_show_cover and post.cover_image_url %}
+                                        <div class="af-card-cover">
+                                            <img src="{{ post.cover_image_url }}" alt="{{ post.title }}">
+                                        </div>
+                                        {% endif %}
+                                        <div class="af-card-body">
+                                            <span class="af-card-collection">{{ post.collection.name }}</span>
+                                            <h3 class="af-card-title">{{ post.title }}</h3>
+                                            {% if af_show_date and post.published_at %}
+                                            <time class="af-card-date">{{ post.published_at.strftime('%B %-d, %Y') }}</time>
+                                            {% endif %}
+                                            {% if af_show_excerpt and post.excerpt %}
+                                            <p class="af-card-excerpt">{{ post.excerpt }}</p>
+                                            {% endif %}
+                                            <span class="af-card-readmore">Read more →</span>
+                                        </div>
+                                    </a>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="af-empty">No posts to display.</p>
+                                {% endif %}
+                                </div>
+                                {% endif %}
+                                </div><!-- /feed-section-wrap -->
+
+                                {% endif %}
+
 
 
 
@@ -3725,24 +4496,104 @@ box-sizing: border-box;
             </section>
             {% endfor %}
     </div>
-    <!-- Event Modal -->
-    <div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalTitle" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content modal-dark">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="eventModalTitle"></h5>
-                    <button type="button" class="close calendar-modal-close" data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+    <!-- Event detail modal -->
+    <style>
+    #pubEventOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: rgba(0,0,0,0.52);
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+    #pubEventOverlay.peo-open { opacity: 1; }
+    .pub-event-modal {
+        background: rgba(14, 12, 22, 0.82);
+        backdrop-filter: blur(24px) saturate(160%);
+        -webkit-backdrop-filter: blur(24px) saturate(160%);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-top-color: rgba(255,255,255,0.2);
+        border-radius: 18px;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08);
+        max-width: 440px;
+        width: 100%;
+        overflow: hidden;
+        color: #f0f0f0;
+        transform: scale(0.96) translateY(8px);
+        transition: transform 0.22s cubic-bezier(.22,.68,0,1.1);
+    }
+    #pubEventOverlay.peo-open .pub-event-modal { transform: scale(1) translateY(0); }
+    .pem-color-strip { height: 4px; width: 100%; }
+    .pem-inner { padding: 20px 22px 22px; }
+    .pem-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+    .pem-title {
+        flex: 1;
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin: 0;
+        line-height: 1.35;
+        color: #fff;
+    }
+    .pem-close {
+        all: unset;
+        cursor: pointer;
+        color: rgba(255,255,255,0.35);
+        font-size: 1.3rem;
+        line-height: 1;
+        flex-shrink: 0;
+        transition: color 0.15s;
+        padding: 2px 4px;
+    }
+    .pem-close:hover { color: #fff; }
+    .pem-meta-row {
+        display: flex;
+        align-items: baseline;
+        gap: 9px;
+        font-size: 0.84rem;
+        color: rgba(255,255,255,0.62);
+        margin-bottom: 7px;
+    }
+    .pem-meta-row i {
+        width: 14px;
+        text-align: center;
+        opacity: 0.5;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+        position: relative;
+        top: 1px;
+    }
+    .pem-desc {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        font-size: 0.86rem;
+        line-height: 1.65;
+        color: rgba(255,255,255,0.68);
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    </style>
+    <div id="pubEventOverlay" onclick="closePubEventModal()">
+        <div class="pub-event-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true">
+            <div class="pem-color-strip" id="pemColorStrip"></div>
+            <div class="pem-inner">
+                <div class="pem-header">
+                    <h3 class="pem-title" id="pemTitle"></h3>
+                    <button class="pem-close" onclick="closePubEventModal()" aria-label="Close">&times;</button>
                 </div>
-                <div class="modal-body" id="eventModalBody">
-                    <!-- Event details will be populated here -->
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
-                        Close
-                    </button>
-                </div>
+                <div id="pemMeta"></div>
+                <div class="pem-desc" id="pemDesc" style="display:none;"></div>
             </div>
         </div>
     </div>
@@ -3862,10 +4713,16 @@ document.body.style.color = text_color;
                         if (m) m.style.color = tc;
                     }
                     // Tooltip: show full title, time, and description on hover
-                    const title = info.event.title || '';
-                    const desc  = info.event.extendedProps?.description || '';
-                    const time  = _fcFormatTime(info.event);
+                    const title    = info.event.title || '';
+                    const desc     = info.event.extendedProps?.description || '';
+                    const hideTime = info.event.extendedProps?.hideTime || false;
+                    const time     = hideTime ? '' : _fcFormatTime(info.event);
                     if (!title && !desc) return;
+
+                    // Only attach hover tooltip on devices with a fine pointer (mouse).
+                    // Touch devices fire a synthetic mouseenter before click, which
+                    // would show the tooltip and the modal simultaneously.
+                    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
 
                     let tip = null;
                     info.el.addEventListener('mouseenter', function (e) {
@@ -3885,26 +4742,86 @@ document.body.style.color = text_color;
                     });
                 },
                 eventClick: function (info) {
-                    // Display a modal or popover with event details when clicked
-                    // For example, you can use a library like Bootstrap for modal popups
-                    console.log('Event Clicked:', info.event); // Log clicked event details
+                    const ev       = info.event;
+                    const allDay   = ev.allDay || ev.extendedProps?.allDay  || false;
+                    const hideTime = ev.extendedProps?.hideTime || false;
+                    const color    = ev.backgroundColor || '#3b82f6';
+                    const desc     = ev.extendedProps?.description || '';
 
-                    // Format start and end dates
-                    const startDate = new Date(info.event.start);
-                    const endDate = info.event.end ? new Date(info.event.end) : null;
-                    const formattedStartDate = startDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }); // Adjust format as needed
-                    const formattedEndDate = endDate ? endDate.toLocaleString('en-US', { timeZone: 'America/Chicago' }) : null; // Adjust format as needed
+                    function fmtDate(d) {
+                        return d.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
+                    }
+                    function fmtTime(d) {
+                        return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                    }
+                    function metaRow(icon, text) {
+                        return `<div class="pem-meta-row"><i class="fas fa-${icon}"></i><span>${text}</span></div>`;
+                    }
 
-                    const description = info.event.extendedProps.description || '';
-                    const endText = formattedEndDate ? `<p><strong>End:</strong> ${formattedEndDate}</p>` : '';
+                    const start = ev.start;
+                    const end   = ev.end;
+                    let metaHtml = '';
 
-                    $('#eventModalTitle').text(info.event.title);
-                    $('#eventModalBody').html(`
-    <p><strong>Start:</strong> ${formattedStartDate}</p>
-    ${endText}
-    ${description ? `<p>${description}</p>` : ''}
-`);
-                    $('#eventModal').modal('show');
+                    if (allDay) {
+                        if (end) {
+                            // FullCalendar all-day end is exclusive — step back one day
+                            const endAdj = new Date(end);
+                            endAdj.setDate(endAdj.getDate() - 1);
+                            if (start.toDateString() === endAdj.toDateString()) {
+                                metaHtml = metaRow('calendar-day', fmtDate(start));
+                            } else {
+                                metaHtml = metaRow('calendar-day', `${fmtDate(start)} – ${fmtDate(endAdj)}`);
+                            }
+                        } else {
+                            metaHtml = metaRow('calendar-day', fmtDate(start));
+                        }
+                        metaHtml += metaRow('sun', 'All day');
+                    } else if (hideTime) {
+                        if (end && start.toDateString() !== end.toDateString()) {
+                            metaHtml = metaRow('calendar-day', `${fmtDate(start)} – ${fmtDate(end)}`);
+                        } else {
+                            metaHtml = metaRow('calendar-day', fmtDate(start));
+                        }
+                    } else {
+                        const sameDay = end && start.toDateString() === end.toDateString();
+                        // Midnight = 0h 0m — external all-day iCal events arrive as UTC midnight
+                        const startMidnight = start.getHours() === 0 && start.getMinutes() === 0;
+                        const endMidnight   = end && end.getHours() === 0 && end.getMinutes() === 0;
+                        const effectivelyAllDay = startMidnight && endMidnight;
+
+                        if (end && sameDay) {
+                            // Same-day timed event
+                            metaHtml = metaRow('calendar-day', fmtDate(start));
+                            metaHtml += metaRow('clock', `${fmtTime(start)} – ${fmtTime(end)}`);
+                        } else if (end && effectivelyAllDay) {
+                            // Multi-day event whose times are both midnight — show as date range
+                            const endAdj = new Date(end);
+                            endAdj.setDate(endAdj.getDate() - 1);
+                            if (start.toDateString() === endAdj.toDateString()) {
+                                metaHtml = metaRow('calendar-day', fmtDate(start));
+                            } else {
+                                metaHtml = metaRow('calendar-day', `${fmtDate(start)} – ${fmtDate(endAdj)}`);
+                            }
+                        } else if (end) {
+                            // Multi-day with actual times — compact single range row
+                            metaHtml = metaRow('calendar-day', `${fmtDate(start)} – ${fmtDate(end)}`);
+                            metaHtml += metaRow('clock', `${fmtTime(start)} – ${fmtTime(end)}`);
+                        } else {
+                            metaHtml = metaRow('calendar-day', fmtDate(start));
+                            metaHtml += metaRow('clock', fmtTime(start));
+                        }
+                    }
+
+                    document.getElementById('pemColorStrip').style.background = color;
+                    document.getElementById('pemTitle').textContent = ev.title;
+                    document.getElementById('pemMeta').innerHTML = metaHtml;
+                    const descEl = document.getElementById('pemDesc');
+                    if (desc) { descEl.textContent = desc; descEl.style.display = ''; }
+                    else { descEl.style.display = 'none'; }
+
+                    const overlay = document.getElementById('pubEventOverlay');
+                    overlay.style.display = 'flex';
+                    requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add('peo-open')));
                 },
                 // Add other options as needed
             });
@@ -3958,6 +4875,8 @@ document.body.style.color = text_color;
 
             const formData = {
                 section_id: sectionId,
+                _form_token: $form.find('input[name="_form_token"]').val(),
+                _hp_name: $form.find('input[name="_hp_name"]').val(),
                 senders_email: $form.find('input[name="senders_email"]').val(),
                 message_subject: $form.find('input[name="message_subject"]').val(),
                 message_body: $form.find('textarea[name="message_body"]').val()
@@ -4227,6 +5146,15 @@ function openPublicVideoPreview(videoUrl, videoMime, videoTitle, assetId) {
         console.error('Public video failed to load:', player.error, videoUrl);
     };
 }
+
+function closePubEventModal() {
+    const overlay = document.getElementById('pubEventOverlay');
+    overlay.classList.remove('peo-open');
+    setTimeout(() => { overlay.style.display = 'none'; }, 220);
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closePubEventModal();
+});
 
 function closePublicVideoPreview() {
     const modal = document.getElementById('publicVideoPreviewModal');
@@ -4568,7 +5496,7 @@ if (data.approved) {
         })
         .catch(error => {
             if (error && error.requires_login) {
-                window.location.href = "{{ url_for('public_forum_login', next=content.current_page_url) }}";
+                window.location.href = "{{ url_for('public_login', next=content.current_page_url) }}";
                 return;
             }
 
@@ -4611,7 +5539,7 @@ function togglePageCommentLike(event, commentId) {
         })
         .catch(error => {
             if (error && error.requires_login) {
-                window.location.href = "{{ url_for('public_forum_login', next=content.current_page_url) }}";
+                window.location.href = "{{ url_for('public_login', next=content.current_page_url) }}";
                 return;
             }
 
@@ -4625,6 +5553,173 @@ function togglePageCommentLike(event, commentId) {
 {{ content.custom_code | safe }}
 {% endif %}
 
+{% if content.store_enabled %}
+<script>
+async function pgAddToCart(productId, btn) {
+    btn.disabled = true;
+    btn.classList.add('pg-added');
+    const orig = btn.textContent;
+    btn.textContent = 'Adding…';
+    try {
+        const r = await fetch('/store/cart/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_id: productId, qty: 1 })
+        });
+        const d = await r.json();
+        if (d.success) {
+            btn.textContent = '✓ Added';
+            // Update cart badge if present
+            const badge = document.getElementById('pg-cart-badge');
+            if (badge && d.cart_count != null) {
+                badge.textContent = d.cart_count;
+                badge.style.display = d.cart_count > 0 ? '' : 'none';
+            }
+            setTimeout(() => {
+                btn.textContent = orig;
+                btn.disabled = false;
+                btn.classList.remove('pg-added');
+            }, 1500);
+        } else {
+            btn.textContent = d.error || 'Error';
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+        }
+    } catch(e) {
+        btn.textContent = 'Error';
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+    }
+}
+</script>
+{% endif %}
+
+<script>
+(function() {
+    const _afPages = {};
+    window.afCompactPage = function(sectionId, delta) {
+        const rows = document.querySelectorAll(`#af-compact-scroll-${sectionId} .af-compact-row`);
+        if (!rows.length) return;
+        const totalPages = parseInt(rows[rows.length - 1].dataset.page) + 1;
+        const cur = _afPages[sectionId] || 0;
+        const next = Math.max(0, Math.min(totalPages - 1, cur + delta));
+        if (next === cur) return;
+        _afPages[sectionId] = next;
+        rows.forEach(r => { r.style.display = parseInt(r.dataset.page) === next ? '' : 'none'; });
+        const scroll = document.getElementById(`af-compact-scroll-${sectionId}`);
+        if (scroll) scroll.scrollTop = 0;
+        const info = document.getElementById(`af-info-${sectionId}`);
+        if (info) info.textContent = `${next + 1} / ${totalPages}`;
+        const prev = document.getElementById(`af-prev-${sectionId}`);
+        const nxt  = document.getElementById(`af-next-${sectionId}`);
+        if (prev) prev.disabled = next === 0;
+        if (nxt)  nxt.disabled  = next === totalPages - 1;
+    };
+    // Hide pages > 0 on initial load
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.af-compact-row[data-page]').forEach(function(r) {
+            if (parseInt(r.dataset.page) > 0) r.style.display = 'none';
+        });
+    });
+})();
+</script>
+<script>
+window.cbOpenEventModal = function(badge) {
+    const title    = badge.dataset.title    || '';
+    const desc     = badge.dataset.desc     || '';
+    const color    = badge.dataset.color    || '#3b82f6';
+    const allDay   = badge.dataset.allday   === 'true';
+    const hideTime = badge.dataset.hidetime === 'true';
+    const start    = badge.dataset.start    ? new Date(badge.dataset.start) : null;
+    const end      = badge.dataset.end      ? new Date(badge.dataset.end)   : null;
+
+    function fmtDate(d) {
+        return d.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
+    }
+    function fmtTime(d) {
+        return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+    function metaRow(icon, text) {
+        return `<div class="pem-meta-row"><i class="fas fa-${icon}"></i><span>${text}</span></div>`;
+    }
+
+    let metaHtml = '';
+    if (!start) {
+        metaHtml = '';
+    } else if (allDay) {
+        if (end) {
+            const endAdj = new Date(end);
+            endAdj.setDate(endAdj.getDate() - 1);
+            metaHtml = metaRow('calendar-day', start.toDateString() === endAdj.toDateString()
+                ? fmtDate(start)
+                : `${fmtDate(start)} – ${fmtDate(endAdj)}`);
+        } else {
+            metaHtml = metaRow('calendar-day', fmtDate(start));
+        }
+        metaHtml += metaRow('sun', 'All day');
+    } else if (hideTime) {
+        metaHtml = metaRow('calendar-day', (end && start.toDateString() !== end.toDateString())
+            ? `${fmtDate(start)} – ${fmtDate(end)}`
+            : fmtDate(start));
+    } else {
+        const sameDay = end && start.toDateString() === end.toDateString();
+        const sMid = start.getHours() === 0 && start.getMinutes() === 0;
+        const eMid = end && end.getHours() === 0 && end.getMinutes() === 0;
+        if (end && sameDay) {
+            metaHtml = metaRow('calendar-day', fmtDate(start));
+            metaHtml += metaRow('clock', `${fmtTime(start)} – ${fmtTime(end)}`);
+        } else if (end && sMid && eMid) {
+            const endAdj = new Date(end); endAdj.setDate(endAdj.getDate() - 1);
+            metaHtml = metaRow('calendar-day', start.toDateString() === endAdj.toDateString()
+                ? fmtDate(start)
+                : `${fmtDate(start)} – ${fmtDate(endAdj)}`);
+        } else if (end) {
+            metaHtml = metaRow('calendar-day', `${fmtDate(start)} – ${fmtDate(end)}`);
+            metaHtml += metaRow('clock', `${fmtTime(start)} – ${fmtTime(end)}`);
+        } else {
+            metaHtml = metaRow('calendar-day', fmtDate(start));
+            metaHtml += metaRow('clock', fmtTime(start));
+        }
+    }
+
+    document.getElementById('pemColorStrip').style.background = color;
+    document.getElementById('pemTitle').textContent = title;
+    document.getElementById('pemMeta').innerHTML = metaHtml;
+    const descEl = document.getElementById('pemDesc');
+    if (desc) { descEl.textContent = desc; descEl.style.display = ''; }
+    else { descEl.style.display = 'none'; }
+
+    const overlay = document.getElementById('pubEventOverlay');
+    overlay.style.display = 'flex';
+    requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add('peo-open')));
+};
+</script>
+<script>
+(function() {
+    const _pgPages = {};
+    window.pgCompactPage = function(sectionId, delta) {
+        const rows = document.querySelectorAll(`#pg-compact-scroll-${sectionId} .pg-compact-row`);
+        if (!rows.length) return;
+        const totalPages = parseInt(rows[rows.length - 1].dataset.page) + 1;
+        const cur = _pgPages[sectionId] || 0;
+        const next = Math.max(0, Math.min(totalPages - 1, cur + delta));
+        if (next === cur) return;
+        _pgPages[sectionId] = next;
+        rows.forEach(r => { r.style.display = parseInt(r.dataset.page) === next ? '' : 'none'; });
+        const scroll = document.getElementById(`pg-compact-scroll-${sectionId}`);
+        if (scroll) scroll.scrollTop = 0;
+        const info = document.getElementById(`pg-info-${sectionId}`);
+        if (info) info.textContent = `${next + 1} / ${totalPages}`;
+        const prev = document.getElementById(`pg-prev-${sectionId}`);
+        const nxt  = document.getElementById(`pg-next-${sectionId}`);
+        if (prev) prev.disabled = next === 0;
+        if (nxt)  nxt.disabled  = next === totalPages - 1;
+    };
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.pg-compact-row[data-page]').forEach(function(r) {
+            if (parseInt(r.dataset.page) > 0) r.style.display = 'none';
+        });
+    });
+})();
+</script>
 </body>
 
 </html>

@@ -1,0 +1,166 @@
+{% extends 'public_base.html' %}
+{% block title %}Order {{ order.order_number }} — {{ website.name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
+<style>
+.acct-order-detail-page {
+    width: min(680px, calc(100% - 28px));
+    margin: 52px auto 100px;
+}
+.acct-od-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+}
+.acct-od-header h1 { margin: 0; font-size: 1.4rem; font-weight: 700; }
+.acct-od-back {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 999px;
+    background: rgba(14, 12, 22, 0.45);
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.13);
+    font-size: 0.78rem; font-weight: 600;
+    color: #e8e8e8; text-decoration: none;
+    margin-left: auto; flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+.acct-od-back:hover { background: rgba(14,12,22,0.65); border-color: rgba(255,255,255,0.22); color: #fff; }
+
+.acct-od-status {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+}
+.acct-od-status--pending  { background: rgba(255,200,80,0.12); color: #ffd060; border: 1px solid rgba(255,200,80,0.3); }
+.acct-od-status--paid     { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.acct-od-status--shipped  { background: rgba(80,160,255,0.12); color: #7cb8ff; border: 1px solid rgba(80,160,255,0.3); }
+.acct-od-status--complete { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.acct-od-status--default  { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+
+.acct-od-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+@media (max-width: 520px) { .acct-od-grid { grid-template-columns: 1fr; } }
+
+.acct-od-card {
+    background: rgba(14, 12, 22, 0.62);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-top-color: rgba(255,255,255,0.18);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.07);
+    color: #f0f0f0;
+}
+.acct-od-card-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.4;
+    margin: 0 0 14px;
+}
+.acct-od-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.88rem;
+    margin-bottom: 10px;
+    gap: 12px;
+}
+.acct-od-item-name { flex: 1; }
+.acct-od-item-qty  { opacity: 0.45; white-space: nowrap; }
+.acct-od-item-price { font-weight: 600; white-space: nowrap; }
+.acct-od-divider { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0; }
+.acct-od-total-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+.acct-od-addr-line { font-size: 0.88rem; opacity: 0.7; margin: 0 0 4px; }
+.acct-od-meta { font-size: 0.8rem; opacity: 0.4; margin: 0 0 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set status_class = {
+    'pending_payment': 'pending',
+    'paid': 'paid',
+    'shipped': 'shipped',
+    'complete': 'complete',
+    'completed': 'complete'
+}.get(order.status, 'default') %}
+
+<div class="acct-order-detail-page">
+    <div class="acct-od-header">
+        <h1>{{ order.order_number }}</h1>
+        <span class="acct-od-status acct-od-status--{{ status_class }}">
+            {{ order.status.replace('_', ' ').title() }}
+        </span>
+        <a class="acct-od-back" href="{{ url_for('public_account_orders') }}">← My Orders</a>
+    </div>
+
+    <div class="acct-od-grid" style="grid-template-columns: 1fr;">
+        <div class="acct-od-card">
+            <p class="acct-od-card-title">Items Ordered</p>
+            {% for item in order.items %}
+            <div class="acct-od-item">
+                <span class="acct-od-item-name">{{ item.product_name }}</span>
+                <span class="acct-od-item-qty">× {{ item.quantity }}</span>
+                <span class="acct-od-item-price">${{ '%.2f' | format(item.line_total) }}</span>
+            </div>
+            {% endfor %}
+            <hr class="acct-od-divider">
+            <div class="acct-od-item" style="opacity:0.5;">
+                <span>Subtotal</span>
+                <span>${{ '%.2f' | format(order.subtotal) }}</span>
+            </div>
+            {% if order.shipping_cost and order.shipping_cost > 0 %}
+            <div class="acct-od-item" style="opacity:0.5;">
+                <span>Shipping</span>
+                <span>${{ '%.2f' | format(order.shipping_cost) }}</span>
+            </div>
+            {% endif %}
+            <hr class="acct-od-divider">
+            <div class="acct-od-total-row">
+                <span>Total</span>
+                <span>${{ '%.2f' | format(order.total) }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="acct-od-grid">
+        {% if order.address %}
+        <div class="acct-od-card">
+            <p class="acct-od-card-title">Shipping To</p>
+            <p class="acct-od-addr-line">{{ order.address.name }}</p>
+            <p class="acct-od-addr-line">{{ order.address.line1 }}</p>
+            {% if order.address.line2 %}<p class="acct-od-addr-line">{{ order.address.line2 }}</p>{% endif %}
+            <p class="acct-od-addr-line">{{ order.address.city }}, {{ order.address.state }} {{ order.address.postal_code }}</p>
+            <p class="acct-od-addr-line">{{ order.address.country }}</p>
+        </div>
+        {% endif %}
+        <div class="acct-od-card">
+            <p class="acct-od-card-title">Order Info</p>
+            <p class="acct-od-meta">Placed {{ order.created_at.strftime('%B %-d, %Y') }}</p>
+            <p class="acct-od-meta">{{ order.contact_email }}</p>
+            {% if order.contact_phone %}<p class="acct-od-meta">{{ order.contact_phone }}</p>{% endif %}
+            {% if order.notes %}
+            <hr class="acct-od-divider">
+            <p class="acct-od-meta" style="opacity:0.55;">Note: {{ order.notes }}</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

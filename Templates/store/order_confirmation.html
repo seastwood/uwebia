@@ -1,0 +1,65 @@
+{% extends 'public_base.html' %}
+{% block title %}Order Confirmed — {{ website.name }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
+
+<div class="sp-page">
+    <div class="sp-container sp-container--narrow">
+
+        <div class="sconf-hero">
+            <div class="sconf-check"><i class="fas fa-check"></i></div>
+            <h1>Order Placed!</h1>
+            <p class="sconf-order-num">Order {{ order.order_number }}</p>
+            <p class="sconf-thanks">
+                Thanks, {{ order.contact_name.split()[0] }}. We've received your order
+                and will be in touch at <strong>{{ order.contact_email }}</strong>.
+            </p>
+        </div>
+
+        <div class="sconf-layout">
+
+            <div class="sconf-items">
+                <h3>Items Ordered</h3>
+                {% for item in order.items %}
+                <div class="sconf-item">
+                    <span class="sconf-item-name">
+                        {{ item.product_name }}
+                        <span class="sco-order-item-qty">× {{ item.quantity }}</span>
+                    </span>
+                    <span>${{ '%.2f' | format(item.line_total) }}</span>
+                </div>
+                {% endfor %}
+                <div class="sc-summary-divider" style="margin:14px 0"></div>
+                <div class="sconf-item sconf-item--total">
+                    <span>Total</span>
+                    <span>${{ '%.2f' | format(order.total) }}</span>
+                </div>
+            </div>
+
+            {% if order.address %}
+            <div class="sconf-address">
+                <h3>Shipping To</h3>
+                <p>{{ order.address.name }}</p>
+                <p>{{ order.address.line1 }}</p>
+                {% if order.address.line2 %}<p>{{ order.address.line2 }}</p>{% endif %}
+                <p>{{ order.address.city }}, {{ order.address.state }} {{ order.address.postal_code }}</p>
+                <p>{{ order.address.country }}</p>
+            </div>
+            {% endif %}
+
+        </div>
+
+        {% if order.status == 'pending_payment' %}
+        <div class="sconf-payment-note">
+            <i class="fas fa-info-circle"></i>
+            Payment details will be sent to {{ order.contact_email }}.
+        </div>
+        {% endif %}
+
+        <div style="text-align:center;margin-top:32px;">
+            <a href="/shop" class="sp-add-btn">Continue Shopping</a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
