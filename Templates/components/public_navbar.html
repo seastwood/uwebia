@@ -15,7 +15,7 @@
 {% set dropdown_mode_raw = nav_style.get('dropdown_mode', 'dropdown') %}
 {% set dropdown_mode = dropdown_mode_raw|replace('-', '_') %}
 
-<nav class="public-navbar dropdown-mode-{{ dropdown_mode }} {% if side_panel_use_navbar_background %}menu-panels-use-navbar-bg{% endif %}"
+<nav class="public-navbar dropdown-mode-{{ dropdown_mode }} {% if side_panel_use_navbar_background %}menu-panels-use-navbar-bg{% endif %}{% if not (navbar_items or navbar_public_accounts_enabled) %} navbar-no-right{% endif %}"
      data-dropdown-mode="{{ dropdown_mode }}"
      style="
      
@@ -964,6 +964,19 @@
     max-width: calc(100vw - 150px);
 }
 
+/* No toggle + no right side: brand can span almost the full navbar */
+.public-navbar.navbar-no-right .public-navbar-brand.title-align-left {
+    left: 14px;
+    right: 14px;
+}
+.public-navbar.navbar-no-right .public-navbar-brand.title-align-center {
+    width: calc(100% - 28px);
+    max-width: 100%;
+}
+.public-navbar.navbar-no-right .public-navbar-brand.title-align-right {
+    left: 14px;
+}
+
 .public-navbar-brand.title-align-center:hover {
     transform: translate(-50%, -50%);
 }
@@ -1262,17 +1275,36 @@
         min-width: 220px !important;
     }
 
-    /* Make room for cart + account icons so title does not sit under them */
-    .public-navbar-brand.title-align-left {
-        right: 104px !important;
+    /* Make room for visible fixed icons only — use :has() so the
+       title gets maximum space when cart/account aren't rendered. */
+
+    /* Neither icon: use base right: 14px from the earlier media query */
+
+    /* Account only */
+    .public-navbar:has(.public-account-dropdown):not(:has(.public-cart-btn)) .public-navbar-brand.title-align-left,
+    .public-navbar:has(.public-account-dropdown):not(:has(.public-cart-btn)) .public-navbar-brand.title-align-right {
+        right: 58px !important;
+    }
+    .public-navbar:has(.public-account-dropdown):not(:has(.public-cart-btn)) .public-navbar-brand.title-align-center {
+        width: calc(100vw - 148px) !important;
     }
 
-    .public-navbar-brand.title-align-center {
+    /* Cart only */
+    .public-navbar:has(.public-cart-btn):not(:has(.public-account-dropdown)) .public-navbar-brand.title-align-left,
+    .public-navbar:has(.public-cart-btn):not(:has(.public-account-dropdown)) .public-navbar-brand.title-align-right {
+        right: 58px !important;
+    }
+    .public-navbar:has(.public-cart-btn):not(:has(.public-account-dropdown)) .public-navbar-brand.title-align-center {
+        width: calc(100vw - 148px) !important;
+    }
+
+    /* Both cart + account */
+    .public-navbar:has(.public-cart-btn):has(.public-account-dropdown) .public-navbar-brand.title-align-left,
+    .public-navbar:has(.public-cart-btn):has(.public-account-dropdown) .public-navbar-brand.title-align-right {
+        right: 104px !important;
+    }
+    .public-navbar:has(.public-cart-btn):has(.public-account-dropdown) .public-navbar-brand.title-align-center {
         width: calc(100vw - 205px) !important;
-    }
-
-    .public-navbar-brand.title-align-right {
-        right: 104px !important;
     }
 }
 @media (max-width: 800px) {
