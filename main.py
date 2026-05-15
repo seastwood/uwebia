@@ -17640,6 +17640,55 @@ def _run_startup_migrations():
     _run_startup_migrations_inner()
 
 
+def _sqlite_drop_not_null(tname, col_name):
+    """SQLite has no ALTER COLUMN, so recreate the table without the NOT NULL."""
+    import re
+    try:
+        row = db.session.execute(db.text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=:t"
+        ), {'t': tname}).fetchone()
+        if not row or not row[0]:
+            return
+        old_sql = row[0]
+
+        # Remove "NOT NULL" that directly follows the target column's type.
+        # Matches:  col_name  TYPENAME[(n)]  NOT NULL
+        pattern = re.compile(
+            r'(\b' + re.escape(col_name) + r'\b\s+\w+(?:\s*\([^)]*\))?)\s+NOT\s+NULL',
+            re.IGNORECASE
+        )
+        new_sql = pattern.sub(r'\1', old_sql)
+        if new_sql == old_sql:
+            return  # already nullable or column not found
+
+        # Swap to a temp name so we can rename back
+        tmp = f'_mig_{tname}_tmp'
+        new_sql_tmp = re.sub(
+            r'(?i)CREATE\s+TABLE\s+(?:"?' + re.escape(tname) + r'"?)',
+            f'CREATE TABLE "{tmp}"',
+            new_sql,
+            count=1
+        )
+
+        from sqlalchemy import inspect as _insp2
+        cols = [c['name'] for c in _insp2(db.engine).get_columns(tname)]
+        cols_str = ', '.join(f'"{c}"' for c in cols)
+
+        db.session.execute(db.text('PRAGMA foreign_keys=OFF'))
+        db.session.execute(db.text(new_sql_tmp))
+        db.session.execute(db.text(
+            f'INSERT INTO "{tmp}" ({cols_str}) SELECT {cols_str} FROM "{tname}"'
+        ))
+        db.session.execute(db.text(f'DROP TABLE "{tname}"'))
+        db.session.execute(db.text(f'ALTER TABLE "{tmp}" RENAME TO "{tname}"'))
+        db.session.execute(db.text('PRAGMA foreign_keys=ON'))
+        db.session.commit()
+        print(f'[migrate] nullable fix (SQLite rebuild): {tname}.{col_name}')
+    except Exception as exc:
+        db.session.rollback()
+        print(f'[migrate] warning: SQLite nullable fix failed {tname}.{col_name}: {exc}')
+
+
 def _run_startup_migrations_inner():
     from sqlalchemy import inspect as _inspect
 
@@ -17717,7 +17766,36 @@ def _run_startup_migrations_inner():
                 if 'duplicate column' not in msg and 'already exists' not in msg:
                     print(f'[migrate] warning: {tname}.{col.name}: {exc}')
 
-    # ── Step 3: create any missing indexes ──────────────────────────────────
+    # ── Step 3: drop stale NOT NULL constraints ──────────────────────────────
+    # When a column is nullable=True in the model but the live DB has it NOT
+    # NULL (e.g. from an older schema), fix it so inserts with None don't fail.
+    # PostgreSQL: simple ALTER COLUMN DROP NOT NULL.
+    # SQLite: no ALTER COLUMN support — must recreate the table.
+    inspector = _inspect(db.engine)  # re-inspect after column additions
+    for table in db.metadata.tables.values():
+        tname = table.name
+        if tname not in pre_existing:
+            continue
+        db_cols = {c['name']: c for c in inspector.get_columns(tname)}
+        for col in table.columns:
+            db_col = db_cols.get(col.name)
+            if db_col is None:
+                continue
+            if col.nullable and not db_col.get('nullable', True):
+                if _is_sqlite():
+                    _sqlite_drop_not_null(tname, col.name)
+                else:
+                    try:
+                        db.session.execute(db.text(
+                            f'ALTER TABLE "{tname}" ALTER COLUMN "{col.name}" DROP NOT NULL'
+                        ))
+                        db.session.commit()
+                        print(f'[migrate] nullable fix: {tname}.{col.name}')
+                    except Exception as exc:
+                        db.session.rollback()
+                        print(f'[migrate] warning: nullable fix {tname}.{col.name}: {exc}')
+
+    # ── Step 4: create any missing indexes ──────────────────────────────────
     for table in db.metadata.tables.values():
         if table.name not in pre_existing:
             continue
