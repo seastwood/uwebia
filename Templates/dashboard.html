@@ -2229,28 +2229,34 @@
         }
 
         .website-style-preview {
+            position: relative;
             min-height: 150px;
             display: flex;
             align-items: center;
             justify-content: center;
-
             color: var(--preview-text-color, #ffffff);
             background-color: #ffffff;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-size: cover;
-
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.12);
             overflow: hidden;
-
-            transition:
-                background-color 0.2s ease,
-                background-image 0.2s ease,
-                background-size 0.2s ease,
-                color 0.2s ease;
+            transition: background-color 0.2s ease, color 0.2s ease;
         }
-
+        /* Blurred background image layer — separate from text so blur doesn't affect text */
+        .wsp-bg {
+            position: absolute;
+            inset: -8px; /* extend slightly to hide blur edge artefacts */
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            transition: filter 0.2s ease, background 0.2s ease;
+        }
+        /* Overlay color layer */
+        .wsp-overlay {
+            position: absolute;
+            inset: 0;
+            transition: background 0.2s ease, opacity 0.2s ease;
+            pointer-events: none;
+        }
         .website-style-preview span {
             position: relative;
             z-index: 1;
@@ -3596,10 +3602,28 @@
                         <input type="range" id="websiteBackgroundZoom_{{ website.id }}" min="25" max="1000" step="5"
                             value="{{ website.background_image_zoom or 100 }}"
                             oninput="updateWebsiteBackgroundPreview('{{ website.id }}')">
-
                         <span id="websiteBackgroundZoomValue_{{ website.id }}" class="range-value">
                             {{ website.background_image_zoom or 100 }}%
                         </span>
+
+                        <label>Image Blur</label>
+                        <input type="range" id="websiteBackgroundBlur_{{ website.id }}" min="0" max="40" step="1"
+                            value="{{ website.background_image_blur or 0 }}"
+                            oninput="this.nextElementSibling.textContent = this.value + 'px'; updateWebsiteBackgroundPreview('{{ website.id }}')">
+                        <span class="range-value">{{ website.background_image_blur or 0 }}px</span>
+
+                        <label>Image Overlay Color</label>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <input type="color" id="websiteBackgroundOverlayColor_{{ website.id }}"
+                                value="{{ website.background_image_overlay_color or '#000000' }}"
+                                oninput="updateWebsiteBackgroundPreview('{{ website.id }}')">
+                            <span style="font-size:0.82rem;opacity:0.6;">Strength</span>
+                            <input type="range" id="websiteBackgroundOverlayOpacity_{{ website.id }}" min="0" max="100" step="1"
+                                value="{{ website.background_image_overlay_opacity or 0 }}"
+                                style="flex:1;"
+                                oninput="this.nextElementSibling.textContent = this.value + '%'; updateWebsiteBackgroundPreview('{{ website.id }}')">
+                            <span class="range-value">{{ website.background_image_overlay_opacity or 0 }}%</span>
+                        </div>
                     </div>
                     <div class="color-option">
                         <label>Background Color</label>
@@ -3643,6 +3667,8 @@
                 {% include 'components/color_palette.html' %}
 
                 <div id="websiteStylePreview_{{ website.id }}" class="website-style-preview">
+                    <div class="wsp-bg" id="websiteStylePreviewBg_{{ website.id }}"></div>
+                    <div class="wsp-overlay" id="websiteStylePreviewOverlay_{{ website.id }}"></div>
                     <span>Website preview text</span>
                 </div>
             </div>
@@ -5318,43 +5344,84 @@
                 preview.style.color = textColor;
                 preview.style.setProperty('--preview-text-color', textColor);
 
-                // Reset background pieces first so old styles do not stick around
-                preview.style.background = '';
-                preview.style.backgroundColor = '';
-                preview.style.backgroundImage = '';
-                preview.style.backgroundRepeat = '';
-                preview.style.backgroundPosition = '';
-                preview.style.backgroundSize = '';
+                // Read blur + overlay values
+                const blurInput = document.getElementById(`websiteBackgroundBlur_${websiteId}`);
+                const overlayColorInput = document.getElementById(`websiteBackgroundOverlayColor_${websiteId}`);
+                const overlayOpacityInput = document.getElementById(`websiteBackgroundOverlayOpacity_${websiteId}`);
+                const blurPx = Number(blurInput?.value || 0);
+                const overlayColor = overlayColorInput?.value || '#000000';
+                const overlayOpacity = Number(overlayOpacityInput?.value || 0) / 100;
 
-                if (imageUrl) {
-                    const isGradient = background.startsWith('linear-gradient');
+                const previewBg = document.getElementById(`websiteStylePreviewBg_${websiteId}`);
+                const previewOverlay = document.getElementById(`websiteStylePreviewOverlay_${websiteId}`);
 
-                    // For vertical-only repeat: image fills full width (100% wide), repeats downward
-                    // For full repeat: fixed px tile size
-                    const imageSize = (repeat && !repeatX)
-                        ? '100% auto'
-                        : repeat
-                            ? `${repeatZoom}px auto`
-                            : `${zoom}% auto`;
+                // Background color on the outer div (shows in gaps if image doesn't fill)
+                preview.style.backgroundColor = background.startsWith('linear-gradient') ? 'transparent' : background;
 
-                    if (isGradient) {
-                        preview.style.backgroundColor = 'transparent';
-                        preview.style.backgroundImage = `url("${imageUrl}"), ${background}`;
-                        preview.style.backgroundRepeat = `${repeatValue}, no-repeat`;
-                        preview.style.backgroundPosition = 'center top, center';
-                        preview.style.backgroundSize = `${imageSize}, cover`;
+                // Background image + blur on the inner bg layer
+                if (previewBg) {
+                    previewBg.style.background = '';
+                    previewBg.style.backgroundImage = '';
+                    if (imageUrl) {
+                        const imageSize = (repeat && !repeatX)
+                            ? '100% auto'
+                            : repeat ? `${repeatZoom}px auto` : `${zoom}% auto`;
+                        const isGradient = background.startsWith('linear-gradient');
+                        if (isGradient) {
+                            previewBg.style.backgroundImage = `url("${imageUrl}"), ${background}`;
+                            previewBg.style.backgroundRepeat = `${repeatValue}, no-repeat`;
+                            previewBg.style.backgroundPosition = 'center top, center';
+                            previewBg.style.backgroundSize = `${imageSize}, cover`;
+                        } else {
+                            previewBg.style.backgroundColor = background;
+                            previewBg.style.backgroundImage = `url("${imageUrl}")`;
+                            previewBg.style.backgroundRepeat = repeatValue;
+                            previewBg.style.backgroundPosition = repeat ? 'center top' : 'center';
+                            previewBg.style.backgroundSize = imageSize;
+                        }
                     } else {
-                        preview.style.backgroundColor = background;
-                        preview.style.backgroundImage = `url("${imageUrl}")`;
-                        preview.style.backgroundRepeat = repeatValue;
-                        preview.style.backgroundPosition = repeat ? 'center top' : 'center';
-                        preview.style.backgroundSize = imageSize;
+                        previewBg.style.background = background;
                     }
-                } else {
-                    preview.style.background = background;
-                    preview.style.backgroundRepeat = 'no-repeat';
-                    preview.style.backgroundPosition = 'center';
-                    preview.style.backgroundSize = 'cover';
+                    previewBg.style.filter = blurPx > 0 ? `blur(${blurPx}px)` : '';
+                }
+
+                // Overlay layer
+                if (previewOverlay) {
+                    previewOverlay.style.background = overlayColor;
+                    previewOverlay.style.opacity = overlayOpacity > 0 ? overlayOpacity : 0;
+                }
+
+                // Also update navbar preview frame background so blur shows behind the navbar
+                const navbarFrame = document.querySelector(`#navbarRealPreview_${websiteId}`)?.parentElement;
+                if (navbarFrame) {
+                    navbarFrame.style.background = background.startsWith('linear-gradient') ? 'transparent' : background;
+                    // Create or update blurred bg div inside navbar frame
+                    let navBg = navbarFrame.querySelector('.wsp-bg');
+                    if (!navBg) {
+                        navBg = document.createElement('div');
+                        navBg.className = 'wsp-bg';
+                        navBg.style.cssText = 'position:absolute;inset:-8px;background-size:cover;background-position:center;';
+                        navbarFrame.style.position = 'relative';
+                        navbarFrame.insertBefore(navBg, navbarFrame.firstChild);
+                    }
+                    if (imageUrl) {
+                        navBg.style.backgroundImage = `url("${imageUrl}")`;
+                        navBg.style.backgroundSize = `${zoom}% auto`;
+                    } else {
+                        navBg.style.backgroundImage = '';
+                        navBg.style.background = background;
+                    }
+                    navBg.style.filter = blurPx > 0 ? `blur(${blurPx}px)` : '';
+
+                    // Overlay on navbar frame
+                    let navOverlay = navbarFrame.querySelector('.wsp-overlay');
+                    if (!navOverlay) {
+                        navOverlay = document.createElement('div');
+                        navOverlay.className = 'wsp-overlay';
+                        navbarFrame.appendChild(navOverlay);
+                    }
+                    navOverlay.style.background = overlayColor;
+                    navOverlay.style.opacity = overlayOpacity > 0 ? overlayOpacity : 0;
                 }
             }
 
@@ -5422,7 +5489,9 @@
                 const backgroundImageRepeatX = document.getElementById(`websiteBackgroundRepeatX_${websiteId}`)?.checked || false;
                 const backgroundImageMobileCover = document.getElementById(`websiteBackgroundMobileCover_${websiteId}`)?.checked || false;
                 const backgroundImageZoom = document.getElementById(`websiteBackgroundZoom_${websiteId}`)?.value || 100;
-
+                const backgroundImageBlur = document.getElementById(`websiteBackgroundBlur_${websiteId}`)?.value || 0;
+                const backgroundImageOverlayColor = document.getElementById(`websiteBackgroundOverlayColor_${websiteId}`)?.value || '#000000';
+                const backgroundImageOverlayOpacity = document.getElementById(`websiteBackgroundOverlayOpacity_${websiteId}`)?.value || 0;
 
                 fetch(`/edit_website_style/${websiteId}`, {
                     method: 'POST',
@@ -5437,7 +5506,10 @@
                         background_image_repeat: backgroundImageRepeat,
                         background_image_repeat_x: backgroundImageRepeatX,
                         background_image_mobile_cover: backgroundImageMobileCover,
-                        background_image_zoom: backgroundImageZoom
+                        background_image_zoom: backgroundImageZoom,
+                        background_image_blur: backgroundImageBlur,
+                        background_image_overlay_color: backgroundImageOverlayColor,
+                        background_image_overlay_opacity: backgroundImageOverlayOpacity
                     })
                 })
                     .then(response => response.json())
