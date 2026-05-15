@@ -546,7 +546,7 @@ def get_admin_website():
     Prefers non-draft; falls back to whatever exists.
     Sub-admins share the root admin's websites."""
     if current_user.is_sub_admin:
-        root = User.query.get(current_user.root_user_id)
+        root = db.session.get(User, current_user.root_user_id)
         websites = root.websites if root else []
     else:
         websites = current_user.websites
@@ -559,7 +559,7 @@ def get_admin_website():
 def get_admin_draft_website():
     """Return the draft website for the current admin, or None."""
     if current_user.is_sub_admin:
-        root = User.query.get(current_user.root_user_id)
+        root = db.session.get(User, current_user.root_user_id)
         websites = root.websites if root else []
     else:
         websites = current_user.websites
@@ -611,7 +611,7 @@ def can_access_page(page_id):
 
     # Folder-level edit grant — checked first so it works even when individual
     # page/section restrictions are also configured.
-    page_obj = PublicPageContent.query.get(page_id)
+    page_obj = db.session.get(PublicPageContent, page_id)
     if page_obj and _folder_perm(page_obj.page_folder_id, 'edit'):
         return True
 
@@ -651,12 +651,12 @@ def can_access_section(section_id):
     if not current_user.is_sub_admin:
         return True
 
-    section = PageSection.query.get(section_id)
+    section = db.session.get(PageSection, section_id)
     if not section:
         return False
 
     # Folder-level edit grant covers all sections on pages in that folder.
-    page_obj = PublicPageContent.query.get(section.page_content_id)
+    page_obj = db.session.get(PublicPageContent, section.page_content_id)
     if page_obj and _folder_perm(page_obj.page_folder_id, 'edit'):
         return True
 
@@ -700,11 +700,11 @@ def can_access_folder(folder_id):
     if folder_id in allowed:
         return True
     # Walk up the ancestor chain — if any ancestor is granted, access is allowed
-    folder = AssetFolder.query.get(folder_id)
+    folder = db.session.get(AssetFolder, folder_id)
     while folder and folder.parent_id is not None:
         if folder.parent_id in allowed:
             return True
-        folder = AssetFolder.query.get(folder.parent_id)
+        folder = db.session.get(AssetFolder, folder.parent_id)
     return False
 
 
@@ -2338,11 +2338,11 @@ def make_migration():
 
 
 def user_owns_section(section):
-    page = PublicPageContent.query.get(section.page_content_id)
+    page = db.session.get(PublicPageContent, section.page_content_id)
     if not page:
         return False
 
-    website = Website.query.get(page.website_id)
+    website = db.session.get(Website, page.website_id)
     return bool(website and is_owner(website))
 
 
@@ -3330,7 +3330,7 @@ def update_page_colors(page_id):
     background_color = (data.get('background_color') or '').strip()
     text_color = (data.get('text_color') or '').strip()
 
-    page_content = PublicPageContent.query.get(page_id)
+    page_content = db.session.get(PublicPageContent, page_id)
     if not page_content:
         return jsonify({'error': 'Page not found'}), 404
 
@@ -3474,7 +3474,7 @@ def delete_associated_section_images(section_id):
 def delete_row(row_id):
     try:
         row_id = int(row_id)  # Convert row_id to integer
-        row = Row.query.get(row_id)
+        row = db.session.get(Row, row_id)
         print("Deleting Row:", row)
         if row:
             # Delete associated columns and update associated sections
@@ -3508,7 +3508,7 @@ def delete_row(row_id):
 @login_required
 def delete_column(column_id):
     try:
-        column = Column.query.get(column_id)
+        column = db.session.get(Column, column_id)
         if not column:
             return jsonify({'error': 'Column not found'}), 404
 
@@ -4131,7 +4131,7 @@ def update_section_group_order():
         group_ids = data.get('group_ids', [])
 
         for index, group_id in enumerate(group_ids, start=1):
-            group = SectionGroup.query.get(group_id)
+            group = db.session.get(SectionGroup, group_id)
             if group:
                 group.group_order = index
 
@@ -4152,7 +4152,7 @@ def update_row_order_and_groups():
         rows = data.get('rows', [])
 
         for row_item in rows:
-            row = Row.query.get(row_item.get('row_id'))
+            row = db.session.get(Row, row_item.get('row_id'))
 
             if row:
                 row.row_number = row_item.get('row_number')
@@ -4256,12 +4256,12 @@ def update_editor_group_and_row_order():
             db.session.execute(db.text("BEGIN IMMEDIATE"))
 
         for index, group_id in enumerate(group_ids, start=1):
-            group = SectionGroup.query.get(group_id)
+            group = db.session.get(SectionGroup, group_id)
             if group:
                 group.group_order = index
 
         for row_item in rows:
-            row = Row.query.get(row_item.get('row_id'))
+            row = db.session.get(Row, row_item.get('row_id'))
             section_group_id = row_item.get('section_group_id')
             if row:
                 if not section_group_id:
@@ -4288,7 +4288,7 @@ def add_column():
     if not row_id:
         return jsonify({'error': 'Row ID is required'}), 400
 
-    row = Row.query.get(row_id)
+    row = db.session.get(Row, row_id)
     if not row:
         return jsonify({'error': 'Row not found'}), 404
 
@@ -4369,7 +4369,7 @@ def update_column_widths():
 
 
 def update_column_width_in_db(column_id, new_width):
-    column = Column.query.get(column_id)
+    column = db.session.get(Column, column_id)
     if column:
         column.width = new_width
         db.session.commit()
@@ -4821,7 +4821,7 @@ def verify_password_reset_token(token, max_age_seconds=1800):
     if data.get('purpose') != 'password_reset':
         return None, 'This password reset link is invalid.'
 
-    user = User.query.get(data.get('user_id'))
+    user = db.session.get(User, data.get('user_id'))
 
     if not user:
         return None, 'This password reset link is invalid.'
@@ -5314,7 +5314,7 @@ def dashboard():
 
     # Sub-admins share the root admin's website — never show the create-website screen to them
     if user.is_sub_admin:
-        root = User.query.get(user.root_user_id)
+        root = db.session.get(User, user.root_user_id)
         websites = root.websites if root else []
     else:
         websites = user.websites
@@ -5629,7 +5629,7 @@ def set_pending_two_factor_code(user_id, code, purpose):
             datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
     ).isoformat()
     # Stamp the send time on the User row so the cooldown is per-user, not per-session.
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if user:
         user.two_factor_last_sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.session.commit()
@@ -5639,7 +5639,7 @@ def _2fa_recently_sent(user_id, cooldown_seconds=30):
     """Return True if a 2FA code was already sent for this user within the
     cooldown window.  Checked against the database so it is per-user and
     independent of which browser/session submitted the login form."""
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user or not user.two_factor_last_sent_at:
         return False
     elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - user.two_factor_last_sent_at).total_seconds()
@@ -6123,7 +6123,7 @@ def send_email():
             'message': 'Invalid section id'
         }), 400
 
-    section = PageSection.query.get(section_id)
+    section = db.session.get(PageSection, section_id)
     if not section or section.section_type != 'contact_form':
         return jsonify({
             'status': 'error',
@@ -7974,7 +7974,7 @@ def request_promote_draft(draft_id):
     draft = Website.query.filter_by(
         id=draft_id, user_id=current_user.root_user_id, is_draft=True).first_or_404()
 
-    root_user = User.query.get(current_user.root_user_id)
+    root_user = db.session.get(User, current_user.root_user_id)
     if not root_user:
         return _utf8_json({'success': False, 'error': 'Admin user not found.'}, 404)
 
@@ -8049,8 +8049,8 @@ def update_section_position(section_id):
     data = request.get_json()
     column_id = data.get('columnId')
 
-    section = PageSection.query.get(section_id)
-    target_column = Column.query.get(column_id)
+    section = db.session.get(PageSection, section_id)
+    target_column = db.session.get(Column, column_id)
 
     if not section:
         return jsonify({'error': 'Section not found'}), 404
@@ -8087,8 +8087,8 @@ def move_or_swap_section(section_id):
         target_column_id = data.get('targetColumnId')
 
         section = PageSection.query.get_or_404(section_id)
-        source_column = Column.query.get(source_column_id)
-        target_column = Column.query.get(target_column_id)
+        source_column = db.session.get(Column, source_column_id)
+        target_column = db.session.get(Column, target_column_id)
 
         if not source_column or not target_column:
             return jsonify({
@@ -8141,7 +8141,7 @@ def move_or_swap_section(section_id):
         section.order = target_column.column_number or section.order
 
         if target_section_id:
-            swapped_section = PageSection.query.get(target_section_id)
+            swapped_section = db.session.get(PageSection, target_section_id)
             if swapped_section:
                 swapped_section.order = source_column.column_number or swapped_section.order
 
@@ -8168,8 +8168,8 @@ def move_section_to_new_row(section_id):
     data = request.get_json()
     target_row_id = data.get('targetRowId')
 
-    section = PageSection.query.get(section_id)
-    target_row = Row.query.get(target_row_id)
+    section = db.session.get(PageSection, section_id)
+    target_row = db.session.get(Row, target_row_id)
 
     if not section:
         return jsonify({'error': 'Section not found'}), 404
@@ -8211,8 +8211,8 @@ def insert_section_before_row(section_id):
     data = request.get_json()
     target_row_id = data.get('targetRowId')
 
-    section = PageSection.query.get(section_id)
-    target_row = Row.query.get(target_row_id)
+    section = db.session.get(PageSection, section_id)
+    target_row = db.session.get(Row, target_row_id)
 
     if not section:
         return jsonify({'error': 'Section not found'}), 404
@@ -8316,8 +8316,8 @@ def add_section(page_id):
 
     if row_id is not None and column_id is not None:
         # If both row_id and column_id are provided, use them directly
-        row = Row.query.get(row_id)
-        column = Column.query.get(column_id)
+        row = db.session.get(Row, row_id)
+        column = db.session.get(Column, column_id)
     else:
         # If either row_id or column_id is not provided, create new ones
         max_row = db.session.query(func.max(Row.row_number)).filter_by(page_content_id=page_id).scalar()
@@ -8460,7 +8460,7 @@ def remove_section(page_id, section_id):
 def reorder_sections(page_id):
     data = request.json
     for item in data['sections']:
-        section = PageSection.query.get(item['id'])
+        section = db.session.get(PageSection, item['id'])
         section.order = item['order']
     db.session.commit()
     return jsonify({'message': 'Sections reordered successfully'}), 200
@@ -8485,7 +8485,7 @@ def update_section_order():
         return 'Invalid new_order value', 400
 
     # Fetch the section from the database
-    section = PageSection.query.get(section_id)
+    section = db.session.get(PageSection, section_id)
     if section:
         # Update the order number
         section.order = new_order
@@ -8947,7 +8947,7 @@ def delete_image():
     image_id = request.json.get('id')
 
     # Find the image in the database
-    image = Picture.query.get(image_id)
+    image = db.session.get(Picture, image_id)
 
     if image:
         try:
@@ -9951,7 +9951,7 @@ def track_page_visit(website, page, visitor_id):
         with app.app_context():
             try:
                 # Look up the website again inside the new context
-                _website = Website.query.get(website_id)
+                _website = db.session.get(Website, website_id)
                 location = lookup_ip_location_for_website(_website, ip_address) if _website else {}
                 visit = PageVisit(
                     website_id=website_id,
@@ -10985,7 +10985,7 @@ def import_backup():
             for old_pid, last_edited_str in old_page_edited.items():
                 new_pid = page_map.get(old_pid)
                 if new_pid and last_edited_str:
-                    p_obj = PublicPageContent.query.get(new_pid)
+                    p_obj = db.session.get(PublicPageContent, new_pid)
                     if p_obj:
                         try:
                             p_obj.last_edited_at = datetime.fromisoformat(last_edited_str)
@@ -13118,7 +13118,7 @@ def update_calendar_section(section, form_data):
 
 def _touch_page(page_content_id):
     """Stamp last_edited_at / last_edited_by_id on the parent page without committing."""
-    page = PublicPageContent.query.get(page_content_id)
+    page = db.session.get(PublicPageContent, page_content_id)
     if page:
         page.last_edited_at = datetime.now(timezone.utc).replace(tzinfo=None)
         page.last_edited_by_id = current_user.id
@@ -13135,7 +13135,7 @@ def update_section():
     print(f"Received section_id: {section_id}, section_type: {section_type}")
     print(f"Form data: {request.form}")
 
-    section = PageSection.query.get(section_id)
+    section = db.session.get(PageSection, section_id)
     if section is None:
         return jsonify({'status': 'error', 'message': 'Failed to update section'})
 
@@ -13405,19 +13405,19 @@ def update_image_order_route():
             section_id = item.get('sectionId')
             new_order = item.get('order')
 
-            link = SectionAsset.query.get(link_id)
+            link = db.session.get(SectionAsset, link_id)
 
             if not link:
                 continue
 
-            section = PageSection.query.get(link.section_id)
+            section = db.session.get(PageSection, link.section_id)
 
             if not section or not user_owns_section(section):
                 continue
 
             # Allow moving order within target section too.
             if section_id:
-                target_section = PageSection.query.get(section_id)
+                target_section = db.session.get(PageSection, section_id)
 
                 if target_section and user_owns_section(target_section):
                     link.section_id = target_section.id
@@ -14252,7 +14252,7 @@ def create_admin_user():
     if User.query.filter_by(email=email).first():
         return _utf8_json({'success': False, 'error': 'Email already in use'}, 400)
     if group_id:
-        grp = PermissionGroup.query.get(group_id)
+        grp = db.session.get(PermissionGroup, group_id)
         if not grp or grp.owner_user_id != current_user.root_user_id:
             group_id = None
     sub = User(
@@ -14294,7 +14294,7 @@ def update_admin_user(user_id):
     if group_id_raw != '__unset__':
         group_id = group_id_raw or None
         if group_id:
-            grp = PermissionGroup.query.get(group_id)
+            grp = db.session.get(PermissionGroup, group_id)
             if not grp or grp.owner_user_id != current_user.root_user_id:
                 group_id = None
         sub.permission_group_id = group_id
@@ -17500,7 +17500,7 @@ def emergency_login(token):
         save_emergency_login_tokens(tokens)
         return "Emergency login link is invalid or expired.", 404
 
-    user = User.query.get(matching_token.get('user_id'))
+    user = db.session.get(User, matching_token.get('user_id'))
 
     if not user:
         return "Emergency login user not found.", 404
