@@ -5391,19 +5391,27 @@
                     previewOverlay.style.opacity = overlayOpacity > 0 ? overlayOpacity : 0;
                 }
 
-                // Also update navbar preview frame background so blur shows behind the navbar
-                const navbarFrame = document.querySelector(`#navbarRealPreview_${websiteId}`)?.parentElement;
+                // Update navbar preview frame so blur/overlay show behind the navbar iframe
+                const navbarIframe = document.getElementById(`navbarRealPreview_${websiteId}`);
+                const navbarFrame = navbarIframe?.parentElement;
                 if (navbarFrame) {
-                    navbarFrame.style.background = background.startsWith('linear-gradient') ? 'transparent' : background;
-                    // Create or update blurred bg div inside navbar frame
+                    navbarFrame.style.position = 'relative';
+                    navbarFrame.style.backgroundColor = background.startsWith('linear-gradient') ? 'transparent' : background;
+
+                    // Ensure iframe sits above the background layers
+                    if (navbarIframe) {
+                        navbarIframe.style.position = 'relative';
+                        navbarIframe.style.zIndex = '2';
+                    }
+
+                    // Blurred bg layer — z-index 0, behind iframe
                     let navBg = navbarFrame.querySelector('.wsp-bg');
                     if (!navBg) {
                         navBg = document.createElement('div');
                         navBg.className = 'wsp-bg';
-                        navBg.style.cssText = 'position:absolute;inset:-8px;background-size:cover;background-position:center;';
-                        navbarFrame.style.position = 'relative';
                         navbarFrame.insertBefore(navBg, navbarFrame.firstChild);
                     }
+                    navBg.style.cssText = 'position:absolute;inset:-8px;z-index:0;background-size:cover;background-position:center;';
                     if (imageUrl) {
                         navBg.style.backgroundImage = `url("${imageUrl}")`;
                         navBg.style.backgroundSize = `${zoom}% auto`;
@@ -5413,13 +5421,14 @@
                     }
                     navBg.style.filter = blurPx > 0 ? `blur(${blurPx}px)` : '';
 
-                    // Overlay on navbar frame
+                    // Overlay layer — z-index 1, above bg but below iframe
                     let navOverlay = navbarFrame.querySelector('.wsp-overlay');
                     if (!navOverlay) {
                         navOverlay = document.createElement('div');
                         navOverlay.className = 'wsp-overlay';
                         navbarFrame.appendChild(navOverlay);
                     }
+                    navOverlay.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;';
                     navOverlay.style.background = overlayColor;
                     navOverlay.style.opacity = overlayOpacity > 0 ? overlayOpacity : 0;
                 }
