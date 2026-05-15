@@ -8919,11 +8919,12 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                 <div class="image-layout-panel">
                     <div class="image-layout-field">
                         <label>Display Type</label>
-                        <select name="image_layout" class="image-layout-select">
+                        <select name="image_layout" class="image-layout-select"
+                                onchange="this.closest('.image-layout-panel').querySelector('.slideshow-only-options').style.display = this.value === 'slideshow' ? 'block' : 'none'">
                             <option value="single" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'single' ? 'selected' : ''}>Single Image</option>
                             <option value="grid" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'grid' ? 'selected' : ''}>Side-by-Side Grid</option>
                             <option value="masonry" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'masonry' ? 'selected' : ''}>Masonry Gallery</option>
-                            <option value="slideshow" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'slideshow' ? 'selected' : ''}>Slideshow with Arrows</option>
+                            <option value="slideshow" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'slideshow' ? 'selected' : ''}>Slideshow</option>
                             <option value="fade_slideshow" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'fade_slideshow' ? 'selected' : ''}>Auto Fade Slideshow</option>
                             <option value="carousel" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'carousel' ? 'selected' : ''}>Horizontal Carousel</option>
                             <option value="feature_grid" ${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'feature_grid' ? 'selected' : ''}>Feature Grid</option>
@@ -8936,14 +8937,14 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                         <select name="image_fit">
                             <option value="natural" ${(section.content?.image_fit || 'natural') === 'natural' ? 'selected' : ''}>Natural (no stretch)</option>
                             <option value="cover" ${(section.content?.image_fit || 'natural') === 'cover' ? 'selected' : ''}>Cover (fill &amp; crop)</option>
-                            <option value="contain" ${(section.content?.image_fit || 'natural') === 'contain' ? 'selected' : ''}>Contain (fit inside)</option>
                         </select>
                     </div>
-                    
 
                     <div class="image-layout-field">
                         <label>Corner Radius</label>
-                        <input type="range" name="image_radius" min="0" max="500" step="2" value="${section.content?.image_radius || 10}">
+                        <input type="range" name="image_radius" min="0" max="500" step="2"
+                               value="${section.content?.image_radius || 10}"
+                               oninput="this.nextElementSibling.textContent = this.value + 'px'">
                         <span class="range-value">${section.content?.image_radius || 10}px</span>
                     </div>
 
@@ -8959,14 +8960,30 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                     </div>
 
                     <label class="image-toggle-row">
-                        <input type="checkbox" name="show_thumbnails" ${section.content?.show_thumbnails !== false ? 'checked' : ''}>
-                        Show thumbnails
+                        <input type="checkbox" name="image_shadow" ${section.content?.image_shadow !== false ? 'checked' : ''}
+                               onchange="this.closest('.image-layout-panel').querySelector('.shadow-strength-row').style.display = this.checked ? '' : 'none'">
+                        Show shadow behind images
                     </label>
 
-                    <label class="image-toggle-row">
-                        <input type="checkbox" name="autoplay" ${section.content?.autoplay ? 'checked' : ''}>
-                        Autoplay slideshow
-                    </label>
+                    <div class="image-layout-field shadow-strength-row" style="display:${section.content?.image_shadow !== false ? '' : 'none'}">
+                        <label>Shadow Strength</label>
+                        <input type="range" name="image_shadow_strength" min="1" max="60" step="1"
+                               value="${section.content?.image_shadow_strength ?? 15}"
+                               oninput="this.nextElementSibling.textContent = this.value + '%'">
+                        <span class="range-value">${section.content?.image_shadow_strength ?? 15}%</span>
+                    </div>
+
+                    <div class="slideshow-only-options" style="display:${(section.content?.image_layout || defaultImageLayout(section.section_type)) === 'slideshow' ? 'block' : 'none'}">
+                        <label class="image-toggle-row">
+                            <input type="checkbox" name="show_thumbnails" ${section.content?.show_thumbnails !== false ? 'checked' : ''}>
+                            Show thumbnails
+                        </label>
+
+                        <label class="image-toggle-row">
+                            <input type="checkbox" name="autoplay" ${section.content?.autoplay ? 'checked' : ''}>
+                            Autoplay slideshow
+                        </label>
+                    </div>
                 </div>
 
                 <label>Selected Images</label>
