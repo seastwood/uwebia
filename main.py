@@ -1531,10 +1531,12 @@ class CalendarEvent(db.Model):
         is_external = (self.source or 'local') != 'local'
         all_day = bool(self.all_day)
         hide_time = bool(self.hide_time)
-        # For all-day events send date-only strings so FullCalendar treats them correctly
+        # For all-day events send date-only strings so FullCalendar treats them correctly.
+        # FullCalendar uses an exclusive end for all-day events; the DB stores the
+        # inclusive end, so add one day when serialising to FullCalendar.
         if all_day:
             start_str = self.start.strftime('%Y-%m-%d')
-            end_str   = self.end.strftime('%Y-%m-%d') if self.end else None
+            end_str   = (self.end + timedelta(days=1)).strftime('%Y-%m-%d') if self.end else None
         else:
             start_str = self.start.isoformat()
             end_str   = self.end.isoformat() if self.end else None
@@ -4166,10 +4168,10 @@ def update_editor_group_and_row_order():
         group_ids = data.get('group_ids', [])
         rows = data.get('rows', [])
 
-        # Use an IMMEDIATE transaction so SQLite acquires the write lock
-        # upfront — prevents a second concurrent reorder from reading stale
-        # row numbers between our read and write.
-        db.session.execute(db.text("BEGIN IMMEDIATE"))
+        # SQLite: use IMMEDIATE so the write lock is acquired upfront.
+        # PostgreSQL handles this automatically; BEGIN IMMEDIATE is not valid there.
+        if _is_sqlite():
+            db.session.execute(db.text("BEGIN IMMEDIATE"))
 
         for index, group_id in enumerate(group_ids, start=1):
             group = SectionGroup.query.get(group_id)
@@ -15271,6 +15273,11 @@ def update_calendar_event(calendar_id):
         event.description = data.get('description', event.description)
         if start:
             event.start = start
+        # Drag-drop (eventChange) does not send 'allDay'; FullCalendar gives an
+        # exclusive end for all-day events in that case, so subtract one day to
+        # keep the DB convention of inclusive end dates.
+        if end and event.all_day and 'allDay' not in data:
+            end = end - timedelta(days=1)
         event.end = end
         event.background_color = data.get('backgroundColor', event.background_color)
         event.all_day  = bool(data.get('allDay',   event.all_day))
