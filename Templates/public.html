@@ -294,14 +294,13 @@
     .thumbnail-container {
         overflow-x: auto;
         white-space: nowrap;
-        /* padding: 2px; */
+        text-align: center;
         box-sizing: border-box;
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 255, 255, 0.5) rgba(0, 0, 0, 0.5);
         flex-grow: 1;
         max-width: 100vw;
         margin-top: 5px;
-        /* Add space between slideshow and thumbnails */
     }
 
 
@@ -884,6 +883,34 @@
         height: auto;
     }
 
+    /* Compact cards — 2 cols mobile, 3 tablet, 4+ desktop */
+    .uwebia-image-compact-cards {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        justify-items: center;
+    }
+    @media (min-width: 580px) {
+        .uwebia-image-compact-cards { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (min-width: 900px) {
+        .uwebia-image-compact-cards { grid-template-columns: repeat(4, 1fr); }
+    }
+    @media (min-width: 1200px) {
+        .uwebia-image-compact-cards { grid-template-columns: repeat(5, 1fr); }
+    }
+    .uwebia-image-compact-cards .uwebia-img-wrap {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        height: auto;
+        overflow: hidden;
+    }
+    .uwebia-image-compact-cards .uwebia-img-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
     /* Carousel strip */
     .uwebia-image-carousel {
         display: flex;
@@ -979,6 +1006,8 @@
 
     .uwebia-image-thumbnails {
         display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
         gap: 8px;
         overflow-x: auto;
         padding: 10px 0 4px;
@@ -1111,6 +1140,7 @@
     .uwebia-image-grid,
     .uwebia-image-masonry,
     .uwebia-image-carousel,
+    .uwebia-image-compact-cards,
     .uwebia-feature-grid,
     .uwebia-slideshow {
         width: 100%;
@@ -3673,6 +3703,13 @@ box-sizing: border-box;
 
                                     {% elif image_layout == 'carousel' %}
                                     <div class="uwebia-image-carousel">
+                                        {% for imageUrl in images %}
+                                        <div class="uwebia-img-wrap"><img src="{{ imageUrl }}" loading="lazy"></div>
+                                        {% endfor %}
+                                    </div>
+
+                                    {% elif image_layout == 'compact_cards' %}
+                                    <div class="uwebia-image-compact-cards">
                                         {% for imageUrl in images %}
                                         <div class="uwebia-img-wrap"><img src="{{ imageUrl }}" loading="lazy"></div>
                                         {% endfor %}

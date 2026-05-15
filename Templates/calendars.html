@@ -588,12 +588,20 @@
         const endDate   = fcEvent.endStr   ? fcEvent.endStr.split('T')[0]   : '';
         const endTime   = fcEvent.endStr   && fcEvent.endStr.includes('T')   ? fcEvent.endStr.split('T')[1].slice(0, 5)   : '23:59';
 
+        // FC all-day end is exclusive; convert to inclusive for the date picker
+        let allDayEndDate = endDate;
+        if (allDay && endDate) {
+            const d = new Date(endDate + 'T00:00:00');
+            d.setDate(d.getDate() - 1);
+            allDayEndDate = d.toISOString().split('T')[0];
+        }
+
         document.getElementById('eventStartDate').value = startDate;
         document.getElementById('eventStartTime').value = startTime;
         document.getElementById('eventEndDate').value   = endDate;
         document.getElementById('eventEndTime').value   = endTime;
         document.getElementById('eventAllDayStart').value = startDate;
-        document.getElementById('eventAllDayEnd').value   = endDate;
+        document.getElementById('eventAllDayEnd').value   = allDayEndDate;
 
         document.getElementById('eventAllDay').checked   = allDay;
         document.getElementById('eventHideTime').checked = hideTime;
