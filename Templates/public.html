@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -765,7 +765,7 @@
         display: block;
         overflow: hidden;
         border-radius: var(--image-radius, 10px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, var(--image-shadow-opacity, 0.15));
         line-height: 0;
     }
 
@@ -789,62 +789,84 @@
      *   Never upscales. Never zooms.
      * - margin:0 auto centres a block img narrower than its container.
      */
-    .uwebia-images-natural .uwebia-img-wrap {
-        display: block;
+    /*
+     * Natural & Contain modes:
+     * box-shadow follows the element box, not the visible image pixels — so
+     * when the image is smaller than the wrapper there is a halo around empty
+     * space.  Fix: move the effect to the img itself using filter:drop-shadow,
+     * which traces actual rendered pixels (including border-radius), and put
+     * border-radius on the img so it clips its own corners.
+     * The wrapper becomes transparent pass-through (overflow:visible, no
+     * shadow, no radius) and sizes to fit its content.
+     */
+    .uwebia-images[data-fit="natural"] .uwebia-img-wrap,
+    .uwebia-images[data-fit="contain"] .uwebia-img-wrap {
         overflow: visible !important;
-        border-radius: 0 !important;
         box-shadow: none !important;
+        border-radius: 0 !important;
         height: auto !important;
+        width: fit-content !important;
+        max-width: 100% !important;
+        background: transparent !important;
+        display: block !important;
+        margin: 0 auto !important;
+        align-self: start !important;
+        justify-self: center !important;
     }
 
-    .uwebia-images-natural .uwebia-img-wrap img {
+    .uwebia-images[data-fit="natural"] .uwebia-img-wrap img,
+    .uwebia-images[data-fit="contain"] .uwebia-img-wrap img {
         display: block !important;
         width: auto !important;
         max-width: 100% !important;
         height: auto !important;
         object-fit: scale-down !important;
-        margin: 0 auto;
         border-radius: var(--image-radius, 10px) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        filter: drop-shadow(0 4px 12px rgba(0,0,0,var(--image-shadow-opacity, 0.15)));
     }
 
-    /* Natural mode carousel: items size to image width */
-    .uwebia-images-natural .uwebia-image-carousel .uwebia-img-wrap {
-        flex: 0 0 auto;
-        height: auto !important;
+    .uwebia-images[data-fit="contain"] .uwebia-img-wrap img {
+        max-height: 480px !important;
     }
 
-    /*
-     * Regular slideshow natural mode — slides go static so the container
-     * grows to the active image height. Image is centred at natural/fitted size.
-     */
-    .uwebia-images-natural.uwebia-images-slideshow .uwebia-slideshow {
-        aspect-ratio: unset;
-        min-height: 0;
+    /* Carousel: items size to image width */
+    .uwebia-images[data-fit="natural"] .uwebia-image-carousel .uwebia-img-wrap,
+    .uwebia-images[data-fit="contain"] .uwebia-image-carousel .uwebia-img-wrap {
+        flex: 0 0 auto !important;
+        justify-content: flex-start !important;
     }
 
-    .uwebia-images-natural.uwebia-images-slideshow .uwebia-slide {
+
+    /* Natural/contain slideshow: fixed-size container, image centred at
+       natural size, radius + shadow on the image via clip-path + filter. */
+    .uwebia-images[data-fit="natural"] .uwebia-slideshow,
+    .uwebia-images[data-fit="contain"] .uwebia-slideshow {
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        overflow: hidden !important;
+    }
+
+    /* Arrow slideshow: all slides use flex (set on .uwebia-images-slideshow .uwebia-slide above) */
+
+    /* Fade slideshow: all slides are visible (opacity-based), so all get flex
+       so layout doesn't jump during the cross-fade transition */
+    .uwebia-images-fade_slideshow.uwebia-images[data-fit="natural"] .uwebia-slide,
+    .uwebia-images-fade_slideshow.uwebia-images[data-fit="contain"] .uwebia-slide {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    .uwebia-images[data-fit="natural"] .uwebia-slide img,
+    .uwebia-images[data-fit="contain"] .uwebia-slide img {
         position: static !important;
-    }
-
-    .uwebia-images-natural.uwebia-images-slideshow .uwebia-slide img {
-        display: block !important;
         width: auto !important;
-        max-width: 100% !important;
         height: auto !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
         object-fit: scale-down !important;
-        margin: 0 auto;
-        border-radius: var(--image-radius, 10px) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    /*
-     * Fade slideshow natural mode — slides stay position:absolute for the
-     * opacity transition. Use contain: full image visible, no distortion.
-     */
-    .uwebia-images-natural.uwebia-images-fade_slideshow .uwebia-slide img {
-        object-fit: contain !important;
-        border-radius: var(--image-radius, 10px) !important;
+        clip-path: inset(0 round var(--image-radius, 10px)) !important;
+        filter: drop-shadow(0 4px 12px rgba(0,0,0,var(--image-shadow-opacity, 0.15))) !important;
     }
 
     /* Single */
@@ -883,6 +905,12 @@
         height: auto;
     }
 
+    /* Shadow off */
+    .uwebia-images[data-shadow="false"] .uwebia-img-wrap   { box-shadow: none !important; }
+    .uwebia-images[data-shadow="false"] .uwebia-slideshow  { box-shadow: none !important; }
+    .uwebia-images[data-shadow="false"] .uwebia-slide img,
+    .uwebia-images[data-shadow="false"] .uwebia-img-wrap img { filter: none !important; }
+
     /* Compact cards — 2 cols mobile, 3 tablet, 4+ desktop */
     .uwebia-image-compact-cards {
         display: grid;
@@ -901,14 +929,14 @@
     }
     .uwebia-image-compact-cards .uwebia-img-wrap {
         width: 100%;
-        aspect-ratio: 1 / 1;
         height: auto;
-        overflow: hidden;
+        overflow: visible;
     }
     .uwebia-image-compact-cards .uwebia-img-wrap img {
         width: 100%;
-        height: 100%;
-        object-fit: cover;
+        height: auto;
+        display: block;
+        object-fit: fill;
     }
 
     /* Carousel strip */
@@ -950,7 +978,7 @@
         aspect-ratio: 16 / 9;
         overflow: hidden;
         border-radius: var(--image-radius, 10px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, var(--image-shadow-opacity, 0.15));
     }
 
     .uwebia-slide {
@@ -958,6 +986,7 @@
         inset: 0;
         display: none;
     }
+
 
     .uwebia-slide.active {
         display: block;
@@ -973,28 +1002,68 @@
         opacity: 1;
     }
 
-    .uwebia-slide-arrow {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
+    /* ── Arrow slideshow: thumbnail navigation ──────────────────────────── */
+    /* All slides always rendered; CSS transitions handle shrink/grow/slide. */
+    .uwebia-images-slideshow .uwebia-slideshow {
+        box-shadow: none !important;
+        border-radius: 0 !important;
+    }
 
-        width: 42px;
-        height: 42px;
-
-        border: none;
-        border-radius: 999px;
-
-        background: rgba(0, 0, 0, 0.45);
-        color: #ffffff;
-
-        font-size: 24px;
+    /* All slides: hidden off right by default, square shape via clip-path */
+    .uwebia-images-slideshow .uwebia-slide {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 0;
+        transition: transform 0.45s cubic-bezier(0.4,0,0.2,1),
+                    opacity 0.35s ease,
+                    filter 0.35s ease,
+                    clip-path 0.45s cubic-bezier(0.4,0,0.2,1);
+        transform: translateX(120%) scale(0.22);
+        /* Square crop: for a 16:9 container, clip 21.875% from each side
+           so remaining width = height. Round value from: (1 - 9/16) / 2 = 21.875% */
+        clip-path: inset(0 21.875% 0 21.875% round var(--image-radius, 10px));
+        will-change: transform;
+    }
+    .uwebia-images-slideshow .uwebia-slide img {
+        filter: none !important; /* shadow lives on slide via drop-shadow, not the img */
+    }
+    .uwebia-images-slideshow .uwebia-slide.slide-far-left {
+        transform: translateX(-120%) scale(0.22);
+    }
+    .uwebia-images-slideshow .uwebia-slide.slide-prev {
+        transform: translateX(-39%) scale(0.22);
+        opacity: 0.9;
+        pointer-events: auto;
         cursor: pointer;
-        z-index: 5;
+        z-index: 3;
+        filter: drop-shadow(0 4px 10px rgba(0,0,0,var(--image-shadow-opacity, 0.4)));
     }
-
-    .uwebia-slide-arrow:hover {
-        background: rgba(0, 0, 0, 0.68);
+    .uwebia-images-slideshow .uwebia-slide.slide-prev:hover,
+    .uwebia-images-slideshow .uwebia-slide.slide-next:hover {
+        opacity: 1;
     }
+    .uwebia-images-slideshow .uwebia-slide.slide-current {
+        transform: scale(1);
+        opacity: 1;
+        pointer-events: auto;
+        z-index: 2;
+        /* Expand clip-path to full width — animates from square to 16:9 */
+        clip-path: inset(0 0% 0 0% round var(--image-radius, 10px));
+        filter: drop-shadow(0 6px 18px rgba(0,0,0,var(--image-shadow-opacity, 0.25)));
+    }
+    .uwebia-images-slideshow .uwebia-slide.slide-next {
+        transform: translateX(39%) scale(0.22);
+        opacity: 0.9;
+        pointer-events: auto;
+        cursor: pointer;
+        z-index: 3;
+        filter: drop-shadow(0 4px 10px rgba(0,0,0,var(--image-shadow-opacity, 0.4)));
+    }
+    /* ── end thumbnail navigation ──────────────────────────────────────── */
 
     .uwebia-slide-arrow.prev {
         left: 12px;
@@ -3552,8 +3621,12 @@ min-height: 100dvh;
 {% set navbar_anchor_offset = 78 + navbar_margin %}
 {% set navbar_page_offset = 58 + navbar_margin %}
 
+<meta name="theme-color" content="{{ website.background_color or '#ffffff' }}">
 <style>
   :root { --site-bg-color: {{ website.background_color or '#ffffff' }}; }
+  /* Apply site background to html + body so Safari's safe-area chrome
+     (status bar, home indicator) matches the page instead of going white. */
+  html, body { background-color: var(--site-bg-color); }
   .site-fixed-background { background: var(--site-bg-color); }
 </style>
 <body class="public-page-body" style="
@@ -3675,11 +3748,15 @@ box-sizing: border-box;
                                 {% set image_max_width = section.content.get('image_max_width', '') %}
                                 {% set show_thumbnails = section.content.get('show_thumbnails', True) %}
                                 {% set autoplay = section.content.get('autoplay', False) %}
+                                {% set image_shadow = section.content.get('image_shadow', True) %}
+                                {% set image_shadow_strength = section.content.get('image_shadow_strength', 15) %}
 
-                                <div class="uwebia-images uwebia-images-{{ image_layout }}{% if image_fit == 'natural' %} uwebia-images-natural{% endif %}"
+                                <div class="uwebia-images uwebia-images-{{ image_layout }}{% if image_fit == 'natural' %} uwebia-images-natural{% elif image_fit == 'contain' %} uwebia-images-contain{% endif %}"
                                     data-section-id="{{ section.id }}" data-layout="{{ image_layout }}"
+                                    data-fit="{{ image_fit }}"
+                                    data-shadow="{{ 'true' if image_shadow else 'false' }}"
                                     data-autoplay="{{ 'true' if autoplay else 'false' }}"
-                                    style="--image-fit: {{ image_fit if image_fit != 'natural' else 'cover' }}; --image-radius: {{ image_radius }}px;{{ ('--image-max-width: ' ~ image_max_width ~ 'px;') if image_max_width else '' }}">
+                                    style="--image-fit: {{ image_fit if image_fit != 'natural' else 'cover' }}; --image-radius: {{ image_radius }}px; --image-shadow-opacity: {{ (image_shadow_strength | int) / 100 }};{{ ('--image-max-width: ' ~ image_max_width ~ 'px;') if image_max_width else '' }}">
 
                                     {% if images %}
                                     {% if image_layout == 'single' %}
@@ -3732,17 +3809,6 @@ box-sizing: border-box;
                                         </div>
                                         {% endfor %}
 
-                                        {% if image_layout == 'slideshow' %}
-                                        <button type="button" class="uwebia-slide-arrow prev"
-                                            onclick="moveUwebiaSlide('{{ section.id }}', -1)">
-                                            &#10094;
-                                        </button>
-
-                                        <button type="button" class="uwebia-slide-arrow next"
-                                            onclick="moveUwebiaSlide('{{ section.id }}', 1)">
-                                            &#10095;
-                                        </button>
-                                        {% endif %}
                                     </div>
 
                                     {% if show_thumbnails %}
@@ -5019,47 +5085,129 @@ document.body.style.color = text_color;
 </script> -->
 
     <script>
-        const uwebiaSlideIndexes = {};
+        const uwebiaSlideIndexes   = {};
+        const uwebiaSlideAnimating = {};
 
         document.addEventListener('DOMContentLoaded', function () {
             document.querySelectorAll('.uwebia-images[data-layout="slideshow"], .uwebia-images[data-layout="fade_slideshow"]').forEach(section => {
                 const sectionId = section.dataset.sectionId;
-                uwebiaSlideIndexes[sectionId] = 0;
+                uwebiaSlideIndexes[sectionId]   = 0;
+                uwebiaSlideAnimating[sectionId] = false;
                 showUwebiaSlide(sectionId, 0);
 
                 const shouldAutoplay = section.dataset.autoplay === 'true' || section.dataset.layout === 'fade_slideshow';
-
                 if (shouldAutoplay) {
-                    setInterval(function () {
-                        moveUwebiaSlide(sectionId, 1);
-                    }, 6500);
+                    setInterval(() => moveUwebiaSlide(sectionId, 1), 6500);
+                }
+
+                // Touch swipe — arrow slideshow only
+                if (section.dataset.layout === 'slideshow') {
+                    let touchStartX = 0, touchStartY = 0;
+                    section.addEventListener('touchstart', e => {
+                        touchStartX = e.touches[0].clientX;
+                        touchStartY = e.touches[0].clientY;
+                    }, { passive: true });
+                    section.addEventListener('touchend', e => {
+                        const dx = e.changedTouches[0].clientX - touchStartX;
+                        const dy = e.changedTouches[0].clientY - touchStartY;
+                        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
+                            moveUwebiaSlide(sectionId, dx < 0 ? 1 : -1);
+                        }
+                    }, { passive: true });
                 }
             });
         });
+
+        const POS_CLASSES = ['slide-far-left', 'slide-prev', 'slide-current', 'slide-next'];
 
         function showUwebiaSlide(sectionId, index) {
             const wrapper = document.querySelector(`.uwebia-images[data-section-id="${sectionId}"]`);
             if (!wrapper) return;
 
-            const slides = wrapper.querySelectorAll('.uwebia-slide');
+            const slides = Array.from(wrapper.querySelectorAll('.uwebia-slide'));
             const thumbs = wrapper.querySelectorAll('.uwebia-image-thumbnails button');
-
             if (!slides.length) return;
 
-            const normalizedIndex = (index + slides.length) % slides.length;
-            uwebiaSlideIndexes[sectionId] = normalizedIndex;
+            const total = slides.length;
+            const normalizedIndex = ((index % total) + total) % total;
+
+            thumbs.forEach((t, i) => t.classList.toggle('active', i === normalizedIndex));
+
+            // Fade slideshow: just toggle active class (opacity-based CSS handles it)
+            if (wrapper.dataset.layout !== 'slideshow') {
+                uwebiaSlideIndexes[sectionId] = normalizedIndex;
+                slides.forEach((s, i) => s.classList.toggle('active', i === normalizedIndex));
+                return;
+            }
+
+            // Arrow slideshow: throttle rapid clicks
+            if (uwebiaSlideAnimating[sectionId]) return;
+            uwebiaSlideAnimating[sectionId] = true;
+            uwebiaSlideIndexes[sectionId]   = normalizedIndex;
+
+            // Read each slide's current side before touching classes
+            const sideOf = slide => {
+                if (slide.classList.contains('slide-prev') || slide.classList.contains('slide-far-left')) return 'left';
+                if (slide.classList.contains('slide-next')) return 'right';
+                if (slide.classList.contains('slide-current')) return 'center';
+                return 'right'; // default hidden = off right
+            };
+            const oldSides = slides.map(sideOf);
 
             slides.forEach((slide, i) => {
-                slide.classList.toggle('active', i === normalizedIndex);
+                const oldSide = oldSides[i];
+
+                // Compute new signed offset via shortest path
+                let offset = i - normalizedIndex;
+                if (offset > total / 2)  offset -= total;
+                if (offset < -total / 2) offset += total;
+                const newSide = offset < 0 ? 'left' : offset > 0 ? 'right' : 'center';
+
+                // If a slide would cross through the center (left→right or right→left),
+                // teleport it off-screen on the correct entry side first.
+                const willCross = (oldSide === 'left'  && newSide === 'right') ||
+                                  (oldSide === 'right' && newSide === 'left');
+
+                slide.classList.remove(...POS_CLASSES, 'active');
+                slide.onclick = null;
+
+                if (willCross) {
+                    // Step 1: instant jump to far-same-side (no transition)
+                    slide.style.transition = 'none';
+                    if (oldSide === 'left') slide.classList.add('slide-far-left');
+                    // else: no class = already at far-right default
+                    slide.offsetWidth; // paint far-same-side
+
+                    // Step 2: instant jump to far-opposite-side
+                    slide.classList.remove('slide-far-left');
+                    if (newSide === 'left') slide.classList.add('slide-far-left');
+                    // newSide === 'right' → no class = default far-right
+                    slide.offsetWidth; // paint far-opposite-side
+
+                    // Step 3: re-enable transition, then add target class below
+                    slide.style.transition = '';
+                }
+
+                // Apply target position
+                if (offset === 0) {
+                    slide.classList.add('slide-current', 'active');
+                } else if (offset === -1) {
+                    slide.classList.add('slide-prev');
+                    slide.onclick = () => moveUwebiaSlide(sectionId, -1);
+                } else if (offset === 1) {
+                    slide.classList.add('slide-next');
+                    slide.onclick = () => moveUwebiaSlide(sectionId, 1);
+                } else if (offset < -1) {
+                    slide.classList.add('slide-far-left');
+                }
+                // offset > 1 → no class → default hidden right
             });
 
-            thumbs.forEach((thumb, i) => {
-                thumb.classList.toggle('active', i === normalizedIndex);
-            });
+            setTimeout(() => { uwebiaSlideAnimating[sectionId] = false; }, 450);
         }
 
         function moveUwebiaSlide(sectionId, direction) {
-            const currentIndex = uwebiaSlideIndexes[sectionId] || 0;
+            const currentIndex = uwebiaSlideIndexes[sectionId] ?? 0;
             showUwebiaSlide(sectionId, currentIndex + direction);
         }
     </script>

@@ -8619,8 +8619,10 @@ def update_images_section(section, form_data):
         'image_fit': form_data.get('image_fit', 'natural'),
         'image_radius': form_data.get('image_radius', '10'),
         'image_max_width': max_width_raw if max_width_raw.isdigit() else '',
+        'image_shadow': form_data.get('image_shadow') == 'on',
+        'image_shadow_strength': int(form_data.get('image_shadow_strength') or 15),
         'show_thumbnails': form_data.get('show_thumbnails') == 'on',
-        'autoplay': form_data.get('autoplay') == 'on'
+        'autoplay': form_data.get('autoplay') == 'on',
     }
 
     # Optional but recommended: migrate old section types forward.
