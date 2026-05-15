@@ -89,40 +89,6 @@
         font-weight: 700;
     }
 
-    .folder-grid {
-        display: flex;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin: 16px 0 28px;
-    }
-
-    .folder-item {
-        text-align: center;
-        padding: 15px;
-        border: 2px dashed transparent;
-        border-radius: 12px;
-        transition: all 0.2s;
-        cursor: pointer;
-        width: 130px;
-        background: rgba(255, 255, 255, 0.045);
-    }
-
-    .folder-item.drag-over {
-        background: rgba(243, 156, 18, 0.1);
-        border-color: #f39c12;
-        transform: scale(1.04);
-    }
-
-    .folder-item i {
-        color: #f39c12;
-        margin-bottom: 5px;
-    }
-
-    .active-folder {
-        background: rgba(126, 226, 204, 0.12);
-        border-color: #7ee2cc;
-    }
-
     .asset-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -266,6 +232,7 @@
         gap: 6px;
         z-index: 5;
     }
+
 
     .download-btn,
     .delete-btn {
@@ -572,9 +539,332 @@
         background: #000;
         display: block;
     }
+
+    /* Sidebar layout */
+    .al-layout {
+        display: flex;
+        min-height: 100vh;
+        color: #fff;
+    }
+    .al-sidebar {
+        width: 220px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 60px;
+        max-height: calc(100vh - 60px);
+        overflow-y: auto;
+        background: rgba(0,0,0,0.25);
+        border-right: 1px solid rgba(255,255,255,0.08);
+        padding: 12px 0 40px;
+    }
+    .al-main {
+        flex: 1;
+        min-width: 0;
+        padding: 20px;
+    }
+    .al-sidebar-tabs { display: none; }
+
+    .al-scroll-hint { display: none; }
+
+    .al-sidebar-header {
+        padding: 4px 14px 10px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(255,255,255,0.35);
+    }
+    .tree-item { position: relative; }
+    .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        cursor: pointer;
+        border-radius: 0;
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.75);
+        position: relative;
+        transition: background 0.12s;
+        user-select: none;
+    }
+    .tree-row:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .tree-row.active { background: rgba(126,226,204,0.12); color: #7ee2cc; }
+    .tree-row.drag-over { background: rgba(255,165,0,0.18); outline: 2px dashed rgba(255,165,0,0.6); }
+    .tree-indent { display: inline-block; }
+    .tree-toggle {
+        width: 14px;
+        font-size: 0.65rem;
+        color: rgba(255,255,255,0.3);
+        flex-shrink: 0;
+        transition: transform 0.15s;
+        text-align: center;
+    }
+    .tree-toggle.open { transform: rotate(90deg); }
+    .tree-toggle.leaf { opacity: 0; pointer-events: none; }
+    .tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tree-count {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: rgba(255,255,255,0.35);
+        background: rgba(255,255,255,0.07);
+        border-radius: 999px;
+        padding: 1px 6px;
+        flex-shrink: 0;
+    }
+    .tree-row.active .tree-count { color: rgba(126,226,204,0.7); background: rgba(126,226,204,0.1); }
+    .tree-actions {
+        display: none;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+    .tree-row:hover .tree-actions { display: flex; }
+    .tree-action-btn {
+        background: none;
+        border: none;
+        color: rgba(255,255,255,0.45);
+        cursor: pointer;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-size: 0.72rem;
+        line-height: 1;
+    }
+    .tree-action-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .tree-children { display: none; }
+    .tree-children.open { display: block; }
+
+    /* ── Mobile action bar + folder panel ─────────────────────────────── */
+    .al-mobile-bar { display: none; }
+    .al-mobile-bar-btn {
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 13px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .al-mobile-bar-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+    .al-mobile-bar-btn.folders-active {
+        background: rgba(126,226,204,0.18);
+        border-color: rgba(126,226,204,0.4);
+        color: #7ee2cc;
+    }
+    .sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 1098;
+    }
+    .sidebar-backdrop.open {
+        display: block;
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+    }
+
+    @media (max-width: 767px) {
+        /* .content already has padding-top:52px for the admin nav;
+           this adds space for the 52px mobile action bar */
+        .al-layout { display: block; margin-top: 52px; }
+
+        /* Fixed action bar — flush with admin navbar bottom (52px) */
+        .al-mobile-bar {
+            display: flex;
+            position: fixed;
+            top: 52px;
+            left: 0;
+            right: 0;
+            height: 52px;
+            z-index: 1100;
+            background: rgba(18,18,22,0.96);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding: 0 10px;
+            gap: 8px;
+            align-items: center;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .al-mobile-bar::-webkit-scrollbar { display: none; }
+
+        /* Folder panel: fixed below both navbars, collapses via max-height */
+        .al-sidebar {
+            position: fixed;
+            top: 104px;   /* 52px admin + 52px mobile bar */
+            left: 0;
+            right: 0;
+            width: 100%;
+            max-height: 0;
+            overflow: hidden;
+            border-right: none;
+            border-bottom: none;
+            border-radius: 0;
+            padding: 0;
+            z-index: 1099;
+            background: rgba(18,18,22,0.98);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            transform: none;
+            transition: max-height 0.28s cubic-bezier(0.4,0,0.2,1);
+        }
+        .al-sidebar.drawer-open {
+            max-height: 160px;
+            overflow-y: auto;
+            padding: 12px 0 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* Padding driven by CSS so it's always exact — no JS guessing */
+        .al-sidebar + .al-main {
+            transition: padding-top 0.28s cubic-bezier(0.4,0,0.2,1);
+        }
+        .al-sidebar.drawer-open + .al-main {
+            padding-top: 196px; /* 160px panel max-height + 16px bottom-pad + 20px clearance */
+        }
+
+        /* Scroll-more indicator */
+        .al-scroll-hint {
+            display: block;
+            position: sticky;
+            bottom: 0;
+            margin-top: 0;
+            padding: 14px 0 4px;
+            text-align: center;
+            pointer-events: none;
+            background: linear-gradient(transparent, rgba(18,18,22,0.97));
+            color: rgba(255,255,255,0.45);
+            font-size: 0.7rem;
+            transition: opacity 0.2s;
+        }
+        .al-scroll-hint.hint-hidden { opacity: 0; }
+
+        /* No backdrop — sidebar is fixed but content remains accessible */
+        .sidebar-backdrop { display: none !important; }
+
+        /* Main content base padding */
+        .al-main { padding: 14px; }
+
+        /* Asset type tabs live inside the sidebar panel on mobile */
+        .al-sidebar-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 10px 12px 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .al-sidebar-tabs .asset-tab {
+            padding: 6px 10px;
+            font-size: 0.79rem;
+        }
+        /* Hide the duplicate tabs in the main content on mobile */
+        .al-main .asset-tabs { display: none; }
+
+        /* Desktop controls bar hidden — replaced by mobile bar */
+        .library-controls { display: none !important; }
+
+        /* Always-visible folder actions on touch */
+        .tree-actions { display: flex !important; }
+
+        /* Two columns on mobile */
+        .asset-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            padding: 10px;
+        }
+    }
 </style>
 
-<div class="library-container">
+<div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
+
+<!-- Mobile action bar (hidden on desktop) -->
+<div class="al-mobile-bar">
+    <button class="al-mobile-bar-btn" id="mobileFoldersBtn" onclick="toggleSidebar()" title="Folders">
+        <i class="fas fa-folder-tree"></i>
+    </button>
+
+    {% if user_has_perm('assets.folders') %}
+    <button class="al-mobile-bar-btn" onclick="createFolder(CURRENT_FOLDER_ID || null)" title="New Folder">
+        <i class="fas fa-folder-plus"></i>
+    </button>
+    {% endif %}
+
+    {% if user_has_perm('assets.upload') %}
+    <button class="al-mobile-bar-btn" onclick="document.getElementById('assetInput').click()" title="Upload">
+        <i class="fas fa-upload"></i>
+    </button>
+    {% else %}
+    <button class="al-mobile-bar-btn" disabled title="No upload permission">
+        <i class="fas fa-lock"></i>
+    </button>
+    {% endif %}
+
+    {% if current_type == 'image' %}
+    {% if user_has_perm('assets.ai_generate') %}
+    <button class="al-mobile-bar-btn" onclick="openAiGenModal()" title="Generate with AI" style="background:linear-gradient(135deg,rgba(123,47,247,0.5),rgba(0,198,255,0.5));border-color:rgba(0,198,255,0.4);">
+        <i class="fas fa-magic"></i> AI
+    </button>
+    {% endif %}
+    {% endif %}
+</div>
+
+<div class="al-layout">
+  <div class="al-sidebar" id="alSidebar"><script>if(sessionStorage.getItem('alSidebarOpen'))document.currentScript.parentElement.classList.add('drawer-open');</script>
+    <div class="al-sidebar-tabs">
+        {% set tabs = [
+            ('image', 'Images', 'fa-images'),
+            ('audio', 'Audio', 'fa-music'),
+            ('video', 'Video', 'fa-video'),
+            ('pdf', 'PDFs', 'fa-file-pdf'),
+            ('document', 'Documents', 'fa-file-alt'),
+            ('misc', 'Misc', 'fa-box'),
+            ('all', 'All', 'fa-layer-group')
+        ] %}
+        {% for value, label, icon in tabs %}
+        <a class="asset-tab {% if current_type == value %}active{% endif %}"
+            href="{{ url_for('asset_library', type=value) }}">
+            <i class="fas {{ icon }}"></i> {{ label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <div class="al-sidebar-header">
+        Folders
+        <span style="opacity:0.55; font-weight:500; text-transform:none; letter-spacing:0;">
+            &nbsp;·&nbsp;{{ {'image':'Images','audio':'Audio','video':'Video','pdf':'PDFs','document':'Documents','misc':'Misc','all':'All'}.get(current_type, current_type|capitalize) }}
+        </span>
+    </div>
+
+    <!-- Root item -->
+    <div class="tree-row {% if not current_folder %}active{% endif %}"
+         data-folder-id="root"
+         onclick="_goTo('{{ url_for('asset_library', type=current_type) }}')"
+         ondrop="dropToFolder(event, 'root')" ondragover="allowDrop(event)" ondragleave="clearDrag(event)">
+      <span class="tree-toggle leaf">&#9658;</span>
+      <i class="fas fa-home" style="font-size:0.8rem;"></i>
+      <span class="tree-name">{{ {'image':'Images','audio':'Audio','video':'Video','pdf':'PDFs','document':'Documents','misc':'Misc','all':'All'}.get(current_type, 'Root') }}</span>
+      <span class="tree-count">{{ root_count }}</span>
+      {% if user_has_perm('assets.folders') %}
+      <span class="tree-actions">
+        <button class="tree-action-btn" title="New folder" onclick="event.stopPropagation(); createFolder(null)"><i class="fas fa-plus"></i></button>
+      </span>
+      {% endif %}
+    </div>
+
+    <!-- Folder tree (JS-rendered) -->
+    <div id="folderTree"></div>
+
+    <div class="al-scroll-hint hint-hidden" id="alScrollHint"><i class="fas fa-chevron-down"></i></div>
+  </div>
+
+  <div class="al-main">
     <div class="asset-library-header">
         <div>
             <h2><i class="fas fa-box-open"></i> Asset Library</h2>
@@ -610,7 +900,7 @@
 
         {% for value, label, icon in tabs %}
         <a class="asset-tab {% if current_type == value %}active{% endif %}"
-            href="{{ url_for('asset_library', type=value, folder_id=current_folder.id if current_folder else None) }}">
+            href="{{ url_for('asset_library', type=value) }}">
             <i class="fas {{ icon }}"></i> {{ label }}
         </a>
         {% endfor %}
@@ -628,7 +918,7 @@
         {% endif %}
 
         {% if user_has_perm('assets.folders') %}
-        <button onclick="createFolder()">
+        <button onclick="createFolder(CURRENT_FOLDER_ID || null)">
             <i class="fas fa-folder-plus"></i> New Folder
         </button>
         {% else %}
@@ -663,44 +953,19 @@
         <div class="upload-progress-text" id="uploadProgressText">0%</div>
     </div>
 
-    <div style="margin: 20px 0 10px; font-weight: bold;">Folders</div>
-
-    <div class="folder-grid">
-        <div class="folder-item {% if not current_folder %}active-folder{% endif %}"
-            onclick="window.location.href='{{ url_for('asset_library', type=current_type) }}'"
-            ondrop="dropToFolder(event, 'root')" ondragover="allowDrop(event)" ondragleave="clearDrag(event)">
-            <i class="fas fa-home fa-3x"></i>
-            <p>Main Library</p>
+    <div style="margin: 10px 0;">
+        <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:rgba(255,255,255,0.38); margin-bottom:3px;">
+            {{ {'image':'Images','audio':'Audio','video':'Video','pdf':'PDFs','document':'Documents','misc':'Misc','all':'All Assets'}.get(current_type, current_type|capitalize) }}
         </div>
-
-        {% for folder in folders %}
-        {% set folder_accessible = user_can_access_folder(folder.id) %}
-        <div class="folder-item {% if current_folder and current_folder.id == folder.id %}active-folder{% endif %} {% if not folder_accessible %}perm-locked-btn{% endif %}"
-            {% if folder_accessible %}
-            onclick="window.location.href='{{ url_for('asset_library', type=current_type, folder_id=folder.id) }}'"
-            ondrop="dropToFolder(event, '{{ folder.id }}')" ondragover="allowDrop(event)"
-            ondragleave="clearDrag(event)"
-            {% else %}
-            style="opacity:0.4;cursor:not-allowed;pointer-events:none;"
-            title="You don't have access to this folder"
-            {% endif %}>
-            <i class="fas fa-folder fa-3x" {% if not folder_accessible %}style="color:rgba(255,100,100,0.4);"{% endif %}></i>
-            <p>{{ folder.name }}{% if not folder_accessible %} <i class="fas fa-lock" style="font-size:0.65rem;"></i>{% endif %}</p>
-        </div>
-        {% endfor %}
-    </div>
-
-    <div style="margin: 10px 0; font-weight: bold;">
         {% if current_folder %}
-        {{ current_folder.name }}
-        {% else %}
-        Root Assets
+        <div style="font-weight:bold;">{{ current_folder.name }}</div>
         {% endif %}
     </div>
 
     <div class="asset-grid">
         {% for asset in assets %}
         <div class="asset-card asset-card-{{ asset.asset_type }}" draggable="true"
+            data-asset-id="{{ asset.id }}"
             ondragstart="dragStart(event, '{{ asset.id }}')">
             <div class="asset-preview{% if asset.asset_type == 'image' %} is-image{% endif %}"
                 {% if asset.asset_type == 'image' %}
@@ -793,10 +1058,12 @@
                 </button>
                 {% endif %}
             </div>
+
         </div>
         {% endfor %}
     </div>
-</div>
+  </div><!-- /.al-main -->
+</div><!-- /.al-layout -->
 
 <div id="imgLightbox" class="uw-overlay" onclick="closeImagePreview()" style="align-items:center;justify-content:center;flex-direction:column;gap:14px;cursor:zoom-out;">
     <button class="uw-modal-close" onclick="closeImagePreview()" title="Close" style="position:fixed;top:18px;right:22px;width:40px;height:40px;font-size:1.4rem;">&times;</button>
@@ -827,10 +1094,287 @@
 </div>
 
 <script>
+    // ── Folder tree data ──
+    const FOLDERS_DATA = [
+      {% for f in folders %}
+      {"id": {{ f.id }}, "name": {{ f.name | tojson }}, "parent_id": {{ f.parent_id or 'null' }}, "asset_type": {{ (f.asset_type or '') | tojson }}, "count": {{ folder_counts.get(f.id, 0) }}},
+      {% endfor %}
+    ];
+    const CURRENT_FOLDER_ID = {{ current_folder.id if current_folder else 'null' }};
+    const CURRENT_TYPE = {{ current_type | tojson }};
+    const CAN_MANAGE_FOLDERS = {{ 'true' if user_has_perm('assets.folders') else 'false' }};
+
+    function buildFolderTree(folders, parentId) {
+        return folders.filter(f => f.parent_id == parentId).map(f => ({
+            ...f,
+            children: buildFolderTree(folders, f.id)
+        }));
+    }
+
+    function renderTree(nodes, depth) {
+        if (!nodes.length) return '';
+        return nodes.map(node => {
+            const hasChildren = node.children.length > 0;
+            const isActive = node.id === CURRENT_FOLDER_ID;
+            const isOpen = isAncestorOfCurrent(node.id) || isActive;
+            const indent = depth * 14;
+            const escapedName = node.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `
+<div class="tree-item" id="tree-item-${node.id}">
+  <div class="tree-row ${isActive ? 'active' : ''}"
+       style="padding-left: ${14 + indent}px;"
+       data-folder-id="${node.id}"
+       onclick="navigateToFolder(${node.id})"
+       ondrop="dropToFolder(event, ${node.id})" ondragover="allowDrop(event)" ondragleave="clearDrag(event)">
+    <span class="tree-toggle ${hasChildren ? (isOpen ? 'open' : '') : 'leaf'}"
+          onclick="event.stopPropagation(); toggleFolder(${node.id})">&#9658;</span>
+    <i class="fas fa-folder" style="font-size:0.8rem;"></i>
+    <span class="tree-name" title="${node.name}">${node.name}</span>
+    <span class="tree-count">${node.count ?? 0}</span>
+    ${CAN_MANAGE_FOLDERS ? `
+    <span class="tree-actions">
+      <button class="tree-action-btn" title="New subfolder" onclick="event.stopPropagation(); createFolder(${node.id})"><i class="fas fa-plus"></i></button>
+      <button class="tree-action-btn" title="Rename" onclick="event.stopPropagation(); renameFolder(${node.id}, '${escapedName}')"><i class="fas fa-pen"></i></button>
+      <button class="tree-action-btn" title="Delete" onclick="event.stopPropagation(); deleteFolder(${node.id})"><i class="fas fa-trash"></i></button>
+    </span>` : ''}
+  </div>
+  <div class="tree-children ${isOpen ? 'open' : ''}" id="tree-children-${node.id}">
+    ${renderTree(node.children, depth + 1)}
+  </div>
+</div>`;
+        }).join('');
+    }
+
+    function isAncestorOfCurrent(folderId) {
+        if (!CURRENT_FOLDER_ID) return false;
+        let f = FOLDERS_DATA.find(x => x.id === CURRENT_FOLDER_ID);
+        while (f) {
+            if (f.id === folderId) return true;
+            f = FOLDERS_DATA.find(x => x.id === f.parent_id);
+        }
+        return false;
+    }
+
+    function toggleFolder(id) {
+        const children = document.getElementById(`tree-children-${id}`);
+        const toggle = document.querySelector(`#tree-item-${id} > .tree-row .tree-toggle`);
+        if (!children) return;
+        const isOpen = children.classList.toggle('open');
+        if (toggle) toggle.classList.toggle('open', isOpen);
+    }
+
+    function _goTo(url) {
+        const sidebar = document.getElementById('alSidebar');
+        if (sidebar) sessionStorage.setItem('alSidebarScroll', sidebar.scrollTop);
+        window.location.href = url;
+    }
+
+    function _saveAndReload() {
+        const sidebar = document.getElementById('alSidebar');
+        if (sidebar) sessionStorage.setItem('alSidebarScroll', sidebar.scrollTop);
+        location.reload();
+    }
+
+    function navigateToFolder(id) {
+        const typeParam = CURRENT_TYPE ? `&type=${encodeURIComponent(CURRENT_TYPE)}` : '';
+        _goTo(`/admin/dashboard/assets?folder_id=${id}${typeParam}`);
+    }
+
+    async function createFolder(parentId) {
+        const label = parentId ? 'Subfolder name:' : 'Folder name:';
+        const name = prompt(label);
+        if (!name || !name.trim()) return;
+        const resp = await fetch('/admin/assets/create_folder', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name.trim(), parent_id: parentId || null, asset_type: CURRENT_TYPE})
+        });
+        if (resp.ok) _saveAndReload();
+    }
+
+    async function renameFolder(id, currentName) {
+        const name = prompt('New name:', currentName);
+        if (!name || !name.trim() || name.trim() === currentName) return;
+        const resp = await fetch('/admin/assets/rename_folder', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({folder_id: id, name: name.trim()})
+        });
+        if (resp.ok) _saveAndReload();
+    }
+
+    async function deleteFolder(id) {
+        if (!confirm('Delete this folder? Assets and subfolders will be moved to the parent folder.')) return;
+        const resp = await fetch(`/admin/assets/delete_folder/${id}`, {method: 'POST'});
+        if (resp.ok) {
+            if (CURRENT_FOLDER_ID === id) {
+                window.location.href = '/admin/dashboard/assets';
+            } else {
+                location.reload();
+            }
+        }
+    }
+
+    // Render the tree on load
+    document.getElementById('folderTree').innerHTML = renderTree(buildFolderTree(FOLDERS_DATA, null), 0);
+
+    // ── Drag and drop ──
+    /* ── Mobile sidebar folder panel ────────────────────────────── */
+    function _updateScrollHint() {
+        const sidebar = document.getElementById('alSidebar');
+        const hint = document.getElementById('alScrollHint');
+        if (!sidebar || !hint) return;
+        const atBottom = sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight - 2;
+        hint.classList.toggle('hint-hidden', atBottom);
+    }
+
+    function openSidebar() {
+        const sidebar = document.getElementById('alSidebar');
+        sidebar.classList.add('drawer-open');
+        document.getElementById('sidebarBackdrop').classList.add('open');
+        const btn = document.getElementById('mobileFoldersBtn');
+        if (btn) btn.classList.add('folders-active');
+        sessionStorage.setItem('alSidebarOpen', '1');
+        _updateScrollHint();
+    }
+    function closeSidebar() {
+        const sidebar = document.getElementById('alSidebar');
+        sidebar.classList.remove('drawer-open');
+        document.getElementById('sidebarBackdrop').classList.remove('open');
+        const btn = document.getElementById('mobileFoldersBtn');
+        if (btn) btn.classList.remove('folders-active');
+        sessionStorage.removeItem('alSidebarOpen');
+    }
+    function toggleSidebar() {
+        const open = document.getElementById('alSidebar').classList.contains('drawer-open');
+        open ? closeSidebar() : openSidebar();
+    }
+    /* ─────────────────────────────────────────────────────────────── */
+
     function dragStart(event, assetId) {
         event.dataTransfer.setData("assetId", assetId);
         event.dataTransfer.effectAllowed = "move";
+        if (window.innerWidth < 768) openSidebar();
     }
+
+    /* ── Touch drag-and-drop for mobile (long-press to drag) ────────── */
+    let _touchAssetId = null, _touchGhost = null, _touchTarget = null;
+    let _touchTimer = null, _touchStartX = 0, _touchStartY = 0, _touchLastX = 0, _touchLastY = 0;
+    const LONG_PRESS_MS = 420;
+    const CANCEL_MOVE_PX = 10;
+
+    function _touchFolderAt(x, y) {
+        if (_touchGhost) _touchGhost.style.display = 'none';
+        const el = document.elementFromPoint(x, y);
+        if (_touchGhost) _touchGhost.style.display = '';
+        return el?.closest('[data-folder-id]') || null;
+    }
+
+    function _setTouchTarget(el) {
+        if (_touchTarget === el) return;
+        if (_touchTarget) _touchTarget.classList.remove('drag-over');
+        _touchTarget = el;
+        if (_touchTarget) _touchTarget.classList.add('drag-over');
+    }
+
+    function _cancelTouchTimer() {
+        clearTimeout(_touchTimer);
+        _touchTimer = null;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Save sidebar scroll when clicking asset-type tabs
+        document.querySelectorAll('.al-sidebar-tabs .asset-tab').forEach(a => {
+            a.addEventListener('click', () => {
+                const sidebar = document.getElementById('alSidebar');
+                if (sidebar) sessionStorage.setItem('alSidebarScroll', sidebar.scrollTop);
+            });
+        });
+
+        // Sync button state if sidebar was already opened by the inline script
+        if (sessionStorage.getItem('alSidebarOpen')) {
+            const btn = document.getElementById('mobileFoldersBtn');
+            if (btn) btn.classList.add('folders-active');
+            _updateScrollHint();
+        }
+
+        document.getElementById('alSidebar')?.addEventListener('scroll', _updateScrollHint);
+
+        // Restore the sidebar panel's scroll position
+        const savedSidebarScroll = sessionStorage.getItem('alSidebarScroll');
+        if (savedSidebarScroll) {
+            const sidebar = document.getElementById('alSidebar');
+            if (sidebar) sidebar.scrollTop = parseInt(savedSidebarScroll, 10);
+            sessionStorage.removeItem('alSidebarScroll');
+        }
+
+        document.addEventListener('touchstart', e => {
+            const card = e.target.closest('.asset-card[data-asset-id]');
+            if (!card) return;
+            const t = e.touches[0];
+            _touchStartX = _touchLastX = t.clientX;
+            _touchStartY = _touchLastY = t.clientY;
+
+            _touchTimer = setTimeout(() => {
+                _touchTimer = null;
+                _touchAssetId = card.dataset.assetId;
+
+                _touchGhost = card.cloneNode(true);
+                const r = card.getBoundingClientRect();
+                Object.assign(_touchGhost.style, {
+                    position: 'fixed', pointerEvents: 'none', zIndex: '9999',
+                    width: r.width + 'px', opacity: '0.72',
+                    transform: 'scale(0.88)', transformOrigin: 'top left',
+                    top: (_touchLastY - 40) + 'px',
+                    left: (_touchLastX - r.width / 2) + 'px',
+                    transition: 'none', borderRadius: '12px'
+                });
+                document.body.appendChild(_touchGhost);
+
+                if (window.innerWidth < 768) openSidebar();
+            }, LONG_PRESS_MS);
+        }, { passive: true });
+
+        document.addEventListener('touchmove', e => {
+            const t = e.touches[0];
+            _touchLastX = t.clientX;
+            _touchLastY = t.clientY;
+
+            if (_touchTimer) {
+                const dx = Math.abs(t.clientX - _touchStartX);
+                const dy = Math.abs(t.clientY - _touchStartY);
+                if (dx > CANCEL_MOVE_PX || dy > CANCEL_MOVE_PX) _cancelTouchTimer();
+                return;
+            }
+
+            if (!_touchAssetId) return;
+            e.preventDefault();
+            _touchGhost.style.top  = (t.clientY - 40) + 'px';
+            _touchGhost.style.left = (t.clientX - _touchGhost.offsetWidth / 2) + 'px';
+            _setTouchTarget(_touchFolderAt(t.clientX, t.clientY));
+        }, { passive: false });
+
+        document.addEventListener('touchend', async e => {
+            _cancelTouchTimer();
+            if (!_touchAssetId) return;
+            _touchGhost?.remove(); _touchGhost = null;
+
+            const target = _touchTarget;
+            _setTouchTarget(null);
+
+            if (target) {
+                const folderId = target.dataset.folderId;
+                const resp = await fetch('/admin/assets/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ asset_id: _touchAssetId, folder_id: folderId })
+                });
+                if (resp.ok) _saveAndReload();
+            }
+            _touchAssetId = null;
+        }, { passive: true });
+    });
+    /* ─────────────────────────────────────────────────────────────── */
 
     function allowDrop(event) {
         event.preventDefault();
@@ -857,7 +1401,7 @@
         });
 
         if (response.ok) {
-            location.reload();
+            _saveAndReload();
         }
     }
 
@@ -899,7 +1443,7 @@
             if (xhr.status >= 200 && xhr.status < 300) {
                 progressFill.style.width = '100%';
                 progressText.textContent = 'Upload complete';
-                location.reload();
+                _saveAndReload();
             } else {
                 let message = 'Upload failed.';
 
@@ -921,24 +1465,6 @@
         xhr.send(formData);
     }
 
-    async function createFolder() {
-        const folderName = prompt("Folder name:");
-        if (!folderName) return;
-
-        const response = await fetch('/admin/assets/create_folder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: folderName,
-                asset_type: "{{ current_type }}"
-            })
-        });
-
-        if (response.ok) {
-            location.reload();
-        }
-    }
-
     async function deleteAsset(assetId) {
         if (!confirm("Delete this asset? If it is used by a section, that section may lose access to it.")) return;
 
@@ -947,7 +1473,7 @@
         });
 
         if (response.ok) {
-            location.reload();
+            _saveAndReload();
         }
     }
     function openVideoPreview(videoUrl, mimeType, title) {

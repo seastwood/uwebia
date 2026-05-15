@@ -686,14 +686,26 @@ def can_access_section(section_id):
 
 
 def can_access_folder(folder_id):
-    """Sub-admins may be restricted to specific asset library folders."""
+    """Sub-admins may be restricted to specific asset library folders.
+    Granting access to a folder implicitly grants access to all its descendants."""
     if not current_user.is_sub_admin:
         return True
     perms = _effective_perms()
     allowed = perms.get('assets.allowed_folder_ids')
     if allowed is None:
         return True
-    return folder_id in (allowed or [])
+    if not allowed:
+        return False
+    # Direct grant
+    if folder_id in allowed:
+        return True
+    # Walk up the ancestor chain — if any ancestor is granted, access is allowed
+    folder = AssetFolder.query.get(folder_id)
+    while folder and folder.parent_id is not None:
+        if folder.parent_id in allowed:
+            return True
+        folder = AssetFolder.query.get(folder.parent_id)
+    return False
 
 
 class PublicUser(UserMixin, db.Model):
@@ -1846,6 +1858,7 @@ class AssetFolder(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     asset_type = db.Column(db.String(30), nullable=True)  # optional: image, audio, pdf, document, misc
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parent_id = db.Column(db.Integer, db.ForeignKey('asset_folder.id'), nullable=True)
 
     assets = db.relationship('Asset', backref='parent_folder', lazy=True)
 
@@ -2486,7 +2499,18 @@ def asset_library():
         allowed_folder_ids = _effective_perms().get('assets.allowed_folder_ids')
 
     if allowed_folder_ids is not None:
-        folders = [f for f in all_folders if f.id in allowed_folder_ids]
+        # Include explicitly granted folders AND all their descendants so the
+        # sidebar tree is navigable without requiring every child to be listed.
+        def _is_accessible(f):
+            if f.id in allowed_folder_ids:
+                return True
+            node = f
+            while node and node.parent_id is not None:
+                if node.parent_id in allowed_folder_ids:
+                    return True
+                node = next((x for x in all_folders if x.id == node.parent_id), None)
+            return False
+        folders = [f for f in all_folders if _is_accessible(f)]
     else:
         folders = all_folders
 
@@ -2522,6 +2546,12 @@ def asset_library():
 
     assets = assets_query.order_by(Asset.upload_date.desc()).all()
 
+    # Count assets per folder for the badge display
+    _count_q = db.session.query(Asset.folder_id, db.func.count(Asset.id)).filter_by(user_id=current_user.root_user_id)
+    if asset_type != 'all':
+        _count_q = _count_q.filter(Asset.asset_type == asset_type)
+    folder_counts = {fid: cnt for fid, cnt in _count_q.group_by(Asset.folder_id).all()}
+
     config = get_asset_library_config()
     used_bytes = get_user_asset_storage_bytes(current_user.root_user_id)
     max_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
@@ -2544,6 +2574,8 @@ def asset_library():
         storage=storage,
         asset_config=config,
         allowed_folder_ids=allowed_folder_ids,
+        folder_counts=folder_counts,
+        root_count=folder_counts.get(None, 0),
     )
 
 
@@ -3009,6 +3041,8 @@ def create_asset_folder():
 
     name = (data.get('name') or '').strip()
     asset_type = (data.get('asset_type') or None)
+    parent_id_raw = data.get('parent_id')
+    parent_id = int(parent_id_raw) if parent_id_raw else None
 
     if not name:
         return jsonify({'status': 'error', 'message': 'Folder name is required.'}), 400
@@ -3016,7 +3050,8 @@ def create_asset_folder():
     folder = AssetFolder(
         name=name,
         user_id=current_user.id,
-        asset_type=asset_type if asset_type != 'all' else None
+        asset_type=asset_type if asset_type != 'all' else None,
+        parent_id=parent_id
     )
 
     db.session.add(folder)
@@ -3026,6 +3061,39 @@ def create_asset_folder():
         'status': 'success',
         'folder_id': folder.id
     })
+
+
+@app.route('/admin/assets/rename_folder', methods=['POST'])
+@login_required
+@require_perm('assets.folders')
+def rename_asset_folder():
+    data = request.get_json() or {}
+    folder_id = data.get('folder_id')
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'status': 'error', 'message': 'Name required'}), 400
+    folder = AssetFolder.query.filter_by(id=folder_id, user_id=current_user.root_user_id).first_or_404()
+    if not can_access_folder(folder.id):
+        return jsonify({'status': 'error', 'message': 'Access denied'}), 403
+    folder.name = name
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+
+@app.route('/admin/assets/delete_folder/<int:folder_id>', methods=['POST'])
+@login_required
+@require_perm('assets.folders')
+def delete_asset_folder(folder_id):
+    folder = AssetFolder.query.filter_by(id=folder_id, user_id=current_user.root_user_id).first_or_404()
+    if not can_access_folder(folder.id):
+        return jsonify({'status': 'error', 'message': 'Access denied'}), 403
+    # Move child assets to the folder's parent (or root)
+    Asset.query.filter_by(folder_id=folder_id).update({'folder_id': folder.parent_id})
+    # Re-parent child folders to the deleted folder's parent
+    AssetFolder.query.filter_by(parent_id=folder_id, user_id=current_user.root_user_id).update({'parent_id': folder.parent_id})
+    db.session.delete(folder)
+    db.session.commit()
+    return jsonify({'status': 'success'})
 
 
 @app.route('/admin/assets/move', methods=['POST'])
@@ -3132,7 +3200,16 @@ def get_asset_library_root():
         allowed_folder_ids = _effective_perms().get('assets.allowed_folder_ids')
 
     if allowed_folder_ids is not None:
-        folders = [f for f in all_folders if f.id in allowed_folder_ids]
+        def _api_accessible(f):
+            if f.id in allowed_folder_ids:
+                return True
+            node = f
+            while node and node.parent_id is not None:
+                if node.parent_id in allowed_folder_ids:
+                    return True
+                node = next((x for x in all_folders if x.id == node.parent_id), None)
+            return False
+        folders = [f for f in all_folders if _api_accessible(f)]
         # Root-level assets are not visible when the sub-admin has folder restrictions
         assets = []
     else:
@@ -3150,7 +3227,8 @@ def get_asset_library_root():
             {
                 'id': folder.id,
                 'name': folder.name,
-                'asset_type': folder.asset_type
+                'asset_type': folder.asset_type,
+                'parent_id': folder.parent_id
             }
             for folder in folders
         ],
@@ -3190,7 +3268,8 @@ def get_asset_library_folder(folder_id):
         'folder': {
             'id': folder.id,
             'name': folder.name,
-            'asset_type': folder.asset_type
+            'asset_type': folder.asset_type,
+            'parent_id': folder.parent_id
         },
         'assets': [asset.to_dict() for asset in assets]
     })
