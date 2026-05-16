@@ -545,17 +545,29 @@
         display: flex;
         min-height: 100vh;
         color: #fff;
+        position: relative;
+    }
+    /* Full-height background column — purely visual, doesn't affect scroll */
+    .al-layout::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; bottom: 0;
+        width: 220px;
+        background: rgba(0,0,0,0.25);
+        border-right: 1px solid rgba(255,255,255,0.08);
+        pointer-events: none;
+        z-index: 0;
     }
     .al-sidebar {
         width: 220px;
         flex-shrink: 0;
+        align-self: flex-start;
         position: sticky;
-        top: 60px;
-        max-height: calc(100vh - 60px);
+        top: 52px;
+        max-height: calc(100vh - 52px);
         overflow-y: auto;
-        background: rgba(0,0,0,0.25);
-        border-right: 1px solid rgba(255,255,255,0.08);
         padding: 12px 0 40px;
+        z-index: 1;
     }
     .al-main {
         flex: 1;
@@ -591,6 +603,9 @@
     .tree-row:hover { background: rgba(255,255,255,0.06); color: #fff; }
     .tree-row.active { background: rgba(126,226,204,0.12); color: #7ee2cc; }
     .tree-row.drag-over { background: rgba(255,165,0,0.18); outline: 2px dashed rgba(255,165,0,0.6); }
+    .tree-row.folder-drop-inside { background: rgba(126,226,204,0.15); outline: 1px solid rgba(126,226,204,0.5); border-radius: 4px; }
+    .tree-row.folder-drop-before { box-shadow: inset 0 2px 0 0 #7ee2cc; }
+    .tree-row.folder-drop-after  { box-shadow: inset 0 -2px 0 0 #7ee2cc; }
     .tree-indent { display: inline-block; }
     .tree-toggle {
         width: 14px;
@@ -773,6 +788,8 @@
         /* Always-visible folder actions on touch */
         .tree-actions { display: flex !important; }
 
+        .al-layout::before { display: none; }
+
         /* Two columns on mobile */
         .asset-grid {
             grid-template-columns: repeat(2, 1fr);
@@ -846,7 +863,7 @@
     <div class="tree-row {% if not current_folder %}active{% endif %}"
          data-folder-id="root"
          onclick="_goTo('{{ url_for('asset_library', type=current_type) }}')"
-         ondrop="dropToFolder(event, 'root')" ondragover="allowDrop(event)" ondragleave="clearDrag(event)">
+         ondrop="folderOrAssetDrop(event,'root')" ondragover="folderAllowDrop(event,'root')" ondragleave="folderClearDrag(event)">
       <span class="tree-toggle leaf">&#9658;</span>
       <i class="fas fa-home" style="font-size:0.8rem;"></i>
       <span class="tree-name">{{ {'image':'Images','audio':'Audio','video':'Video','pdf':'PDFs','document':'Documents','misc':'Misc','all':'All'}.get(current_type, 'Root') }}</span>
@@ -972,7 +989,7 @@
                 onclick="event.stopPropagation(); openImagePreview('{{ asset.url }}', '{{ asset.original_filename | e }}')"
                 {% endif %}>
                 {% if asset.asset_type == 'image' %}
-                <img src="{{ asset.thumbnail_url or asset.url }}" loading="lazy" alt="{{ asset.original_filename }}">
+                <img src="{{ asset.thumbnail_url or asset.url }}" loading="lazy" alt="{{ asset.original_filename }}" draggable="false">
 
                 {% elif asset.asset_type == 'audio' %}
                 <div class="audio-preview">
@@ -1125,7 +1142,11 @@
        style="padding-left: ${14 + indent}px;"
        data-folder-id="${node.id}"
        onclick="navigateToFolder(${node.id})"
-       ondrop="dropToFolder(event, ${node.id})" ondragover="allowDrop(event)" ondragleave="clearDrag(event)">
+       draggable="${CAN_MANAGE_FOLDERS ? 'true' : 'false'}"
+       ondragstart="${CAN_MANAGE_FOLDERS ? `folderDragStart(event,${node.id})` : 'event.preventDefault()'}"
+       ondragover="folderAllowDrop(event,${node.id})"
+       ondragleave="folderClearDrag(event)"
+       ondrop="folderOrAssetDrop(event,${node.id})">
     <span class="tree-toggle ${hasChildren ? (isOpen ? 'open' : '') : 'leaf'}"
           onclick="event.stopPropagation(); toggleFolder(${node.id})">&#9658;</span>
     <i class="fas fa-folder" style="font-size:0.8rem;"></i>
@@ -1254,11 +1275,44 @@
     function dragStart(event, assetId) {
         event.dataTransfer.setData("assetId", assetId);
         event.dataTransfer.effectAllowed = "move";
+        const card = event.currentTarget;
+
+        // Suppress the native drag ghost and use our own so opacity works on images too
+        const _blank = new Image(1, 1);
+        _blank.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=';
+        event.dataTransfer.setDragImage(_blank, 0, 0);
+
+        card.style.opacity = '0.45';
+
+        const _r = card.getBoundingClientRect();
+        const _desktopGhost = card.cloneNode(true);
+        _desktopGhost.querySelectorAll('img').forEach(img => img.removeAttribute('loading'));
+        Object.assign(_desktopGhost.style, {
+            position: 'fixed', pointerEvents: 'none', zIndex: '9999',
+            width: _r.width + 'px', opacity: '0.45', borderRadius: '14px',
+            top: (event.clientY - 40) + 'px',
+            left: (event.clientX - _r.width / 2) + 'px',
+            transform: 'scale(0.92)', transformOrigin: 'top center', transition: 'none'
+        });
+        document.body.appendChild(_desktopGhost);
+
+        const _onDrag = (e) => {
+            if (!e.clientX && !e.clientY) return;
+            _desktopGhost.style.top  = (e.clientY - 40) + 'px';
+            _desktopGhost.style.left = (e.clientX - _r.width / 2) + 'px';
+        };
+        card.addEventListener('drag', _onDrag);
+        card.addEventListener('dragend', () => {
+            card.style.opacity = '';
+            _desktopGhost.remove();
+            card.removeEventListener('drag', _onDrag);
+        }, { once: true });
+
         if (window.innerWidth < 768) openSidebar();
     }
 
     /* ── Touch drag-and-drop for mobile (long-press to drag) ────────── */
-    let _touchAssetId = null, _touchGhost = null, _touchTarget = null;
+    let _touchAssetId = null, _touchGhost = null, _touchTarget = null, _touchSourceCard = null;
     let _touchTimer = null, _touchStartX = 0, _touchStartY = 0, _touchLastX = 0, _touchLastY = 0;
     const LONG_PRESS_MS = 420;
     const CANCEL_MOVE_PX = 10;
@@ -1318,12 +1372,14 @@
             _touchTimer = setTimeout(() => {
                 _touchTimer = null;
                 _touchAssetId = card.dataset.assetId;
+                _touchSourceCard = card;
+                card.style.opacity = '0.45';
 
                 _touchGhost = card.cloneNode(true);
                 const r = card.getBoundingClientRect();
                 Object.assign(_touchGhost.style, {
                     position: 'fixed', pointerEvents: 'none', zIndex: '9999',
-                    width: r.width + 'px', opacity: '0.72',
+                    width: r.width + 'px', opacity: '0.45',
                     transform: 'scale(0.88)', transformOrigin: 'top left',
                     top: (_touchLastY - 40) + 'px',
                     left: (_touchLastX - r.width / 2) + 'px',
@@ -1358,6 +1414,7 @@
             _cancelTouchTimer();
             if (!_touchAssetId) return;
             _touchGhost?.remove(); _touchGhost = null;
+            if (_touchSourceCard) { _touchSourceCard.style.opacity = ''; _touchSourceCard = null; }
 
             const target = _touchTarget;
             _setTouchTarget(null);
@@ -1376,34 +1433,85 @@
     });
     /* ─────────────────────────────────────────────────────────────── */
 
-    function allowDrop(event) {
-        event.preventDefault();
-        event.currentTarget.classList.add('drag-over');
+    // ── Folder drag state ───────────────────────────────────────────────
+    let _dragFolderId = null;
+
+    function folderDragStart(event, folderId) {
+        event.stopPropagation();
+        _dragFolderId = folderId;
+        event.dataTransfer.setData('folderId', String(folderId));
+        event.dataTransfer.effectAllowed = 'move';
+        const row = event.currentTarget;
+        row.style.opacity = '0.45';
+        row.addEventListener('dragend', () => { row.style.opacity = ''; _dragFolderId = null; }, { once: true });
     }
 
-    function clearDrag(event) {
-        event.currentTarget.classList.remove('drag-over');
-    }
-
-    async function dropToFolder(event, folderId) {
+    function folderAllowDrop(event, targetId) {
         event.preventDefault();
-        event.currentTarget.classList.remove('drag-over');
+        const row = event.currentTarget;
+        row.classList.remove('drag-over', 'folder-drop-inside', 'folder-drop-before', 'folder-drop-after');
 
-        const assetId = event.dataTransfer.getData("assetId");
-
-        const response = await fetch('/admin/assets/move', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                asset_id: assetId,
-                folder_id: folderId
-            })
-        });
-
-        if (response.ok) {
-            _saveAndReload();
+        if (_dragFolderId !== null) {
+            if (String(_dragFolderId) === String(targetId)) return;
+            if (targetId === 'root') {
+                row.classList.add('folder-drop-inside');
+                row.dataset.dropMode = 'inside';
+                return;
+            }
+            const rect = row.getBoundingClientRect();
+            const y = event.clientY - rect.top;
+            const h = rect.height;
+            if (y < h * 0.33)       { row.classList.add('folder-drop-before'); row.dataset.dropMode = 'before'; }
+            else if (y > h * 0.67)  { row.classList.add('folder-drop-after');  row.dataset.dropMode = 'after'; }
+            else                    { row.classList.add('folder-drop-inside'); row.dataset.dropMode = 'inside'; }
+        } else {
+            row.classList.add('drag-over');
         }
     }
+
+    function folderClearDrag(event) {
+        event.currentTarget.classList.remove('drag-over', 'folder-drop-inside', 'folder-drop-before', 'folder-drop-after');
+    }
+
+    async function folderOrAssetDrop(event, targetId) {
+        event.preventDefault();
+        const row = event.currentTarget;
+        const mode = row.dataset.dropMode || 'inside';
+        row.classList.remove('drag-over', 'folder-drop-inside', 'folder-drop-before', 'folder-drop-after');
+
+        if (_dragFolderId !== null) {
+            const fid = _dragFolderId;
+            _dragFolderId = null;
+            if (String(fid) === String(targetId)) return;
+
+            let newParentId, sendTargetId;
+            if (targetId === 'root' || mode === 'inside') {
+                newParentId = targetId === 'root' ? null : parseInt(targetId);
+                sendTargetId = null;
+            } else {
+                const t = FOLDERS_DATA.find(f => f.id === parseInt(targetId));
+                newParentId = t ? (t.parent_id ?? null) : null;
+                sendTargetId = parseInt(targetId);
+            }
+
+            const resp = await fetch('/admin/assets/move_folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder_id: fid, parent_id: newParentId, target_id: sendTargetId, mode })
+            });
+            if (resp.ok) _saveAndReload();
+        } else {
+            const assetId = event.dataTransfer.getData('assetId');
+            if (!assetId) return;
+            const resp = await fetch('/admin/assets/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ asset_id: assetId, folder_id: targetId === 'root' ? null : targetId })
+            });
+            if (resp.ok) _saveAndReload();
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     async function handleUpload(event) {
         const files = event.target.files;
