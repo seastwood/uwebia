@@ -299,6 +299,39 @@
         {% endfor %}
     });
 
+    function _calSlide(cal, el, goNext, onDone) {
+        const DURATION = 340, EASE = 'cubic-bezier(0.4,0,0.2,1)';
+        const outTo  = goNext ? '-100%' : '100%';
+        const inFrom = goNext ? '100%'  : '-100%';
+        const rect = el.getBoundingClientRect();
+        const snap = el.cloneNode(true);
+        Object.assign(snap.style, {
+            position: 'fixed', top: rect.top + 'px', left: rect.left + 'px',
+            width: rect.width + 'px', height: rect.height + 'px',
+            pointerEvents: 'none', zIndex: '9998', overflow: 'hidden',
+            transform: 'translateX(0)', willChange: 'transform', transition: 'none', margin: '0',
+        });
+        document.body.appendChild(snap);
+        el.style.transform = `translateX(${inFrom})`;
+        el.style.transition = 'none';
+        el.style.overflow = 'hidden';
+        goNext ? cal.next() : cal.prev();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const t = `transform ${DURATION}ms ${EASE}`;
+            el.style.transition = t;
+            el.style.transform = 'translateX(0)';
+            snap.style.transition = t;
+            snap.style.transform = `translateX(${outTo})`;
+        }));
+        setTimeout(() => {
+            snap.remove();
+            el.style.transform = '';
+            el.style.transition = '';
+            el.style.overflow = '';
+            if (onDone) onDone();
+        }, DURATION + 60);
+    }
+
     function initCalendar(calendarId) {
         const el = document.getElementById(`fc-${calendarId}`);
         if (!el) return;
@@ -372,6 +405,22 @@
 
         fc.render();
         fullCalendarInstances[calendarId] = fc;
+
+        // Swipe left/right to change month with slide animation
+        let _cTx = 0, _cTy = 0, _cAnim = false;
+        el.addEventListener('touchstart', e => {
+            _cTx = e.touches[0].clientX;
+            _cTy = e.touches[0].clientY;
+        }, { passive: true });
+        el.addEventListener('touchend', e => {
+            if (_cAnim) return;
+            const dx = e.changedTouches[0].clientX - _cTx;
+            const dy = e.changedTouches[0].clientY - _cTy;
+            if (Math.abs(dx) > 44 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                _calSlide(fc, el, dx < 0, () => { _cAnim = false; });
+                _cAnim = true;
+            }
+        }, { passive: true });
     }
 
     async function loadSubscriberStats(calendarId) {
