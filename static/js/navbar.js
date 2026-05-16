@@ -177,35 +177,48 @@ function makeGlobalColorPaletteDraggable() {
     let offsetX = 0;
     let offsetY = 0;
 
-    handle.addEventListener('mousedown', function (event) {
+    function startDrag(clientX, clientY) {
         isDragging = true;
-
         const rect = panel.getBoundingClientRect();
-        offsetX = event.clientX - rect.left;
-        offsetY = event.clientY - rect.top;
-
+        offsetX = clientX - rect.left;
+        offsetY = clientY - rect.top;
         panel.style.right = 'auto';
         panel.style.left = `${rect.left}px`;
         panel.style.top = `${rect.top}px`;
-
         document.body.style.userSelect = 'none';
-    });
+    }
 
-    document.addEventListener('mousemove', function (event) {
+    function moveDrag(clientX, clientY) {
         if (!isDragging) return;
-
-        const left = Math.max(8, Math.min(window.innerWidth - panel.offsetWidth - 8, event.clientX - offsetX));
-        const top = Math.max(8, Math.min(window.innerHeight - panel.offsetHeight - 8, event.clientY - offsetY));
-
+        const left = Math.max(8, Math.min(window.innerWidth  - panel.offsetWidth  - 8, clientX - offsetX));
+        const top  = Math.max(8, Math.min(window.innerHeight - panel.offsetHeight - 8, clientY - offsetY));
         panel.style.left = `${left}px`;
-        panel.style.top = `${top}px`;
-    });
+        panel.style.top  = `${top}px`;
+    }
 
-    document.addEventListener('mouseup', function () {
+    function endDrag() {
         if (!isDragging) return;
         isDragging = false;
         document.body.style.userSelect = '';
-    });
+    }
+
+    // Mouse
+    handle.addEventListener('mousedown', e => startDrag(e.clientX, e.clientY));
+    document.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY));
+    document.addEventListener('mouseup', endDrag);
+
+    // Touch
+    handle.addEventListener('touchstart', e => {
+        // Let button taps (e.g. the × close button) pass through normally
+        if (e.target.closest('button')) return;
+        startDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+        if (!isDragging) return;
+        e.preventDefault(); // prevent page scroll only while dragging
+        moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+    document.addEventListener('touchend', endDrag, { passive: true });
 }
 
 function toggleGlobalColorPalette() {
