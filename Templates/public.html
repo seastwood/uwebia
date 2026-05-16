@@ -5015,7 +5015,7 @@ document.body.style.color = text_color;
                     document.getElementById('pemTitle').textContent = ev.title;
                     document.getElementById('pemMeta').innerHTML = metaHtml;
                     const descEl = document.getElementById('pemDesc');
-                    if (desc) { descEl.textContent = desc; descEl.style.display = ''; }
+                    if (desc) { descEl.innerHTML = _autolink(desc); descEl.style.display = ''; }
                     else { descEl.style.display = 'none'; }
 
                     const overlay = document.getElementById('pubEventOverlay');
@@ -6001,11 +6001,22 @@ window.cbOpenEventModal = function(badge) {
         }
     }
 
+    function _autolink(text) {
+        const esc = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        return esc.replace(/(https?:\/\/[^\s<>"']+)/g,
+            '<a href="$1" target="_blank" rel="noopener noreferrer" ' +
+            'style="color:#7ee2cc;word-break:break-all;">$1</a>');
+    }
+
     document.getElementById('pemColorStrip').style.background = color;
     document.getElementById('pemTitle').textContent = title;
     document.getElementById('pemMeta').innerHTML = metaHtml;
     const descEl = document.getElementById('pemDesc');
-    if (desc) { descEl.textContent = desc; descEl.style.display = ''; }
+    if (desc) { descEl.innerHTML = _autolink(desc); descEl.style.display = ''; }
     else { descEl.style.display = 'none'; }
 
     const overlay = document.getElementById('pubEventOverlay');
