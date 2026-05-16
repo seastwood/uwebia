@@ -54,6 +54,27 @@
 .pl-btn-danger { background: rgba(255,80,80,0.1); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.22); }
 .pl-btn-danger:hover { background: rgba(255,80,80,0.2); }
 .pl-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+
+@media (max-width: 600px) {
+    .pl-table thead { display: none; }
+    .pl-table, .pl-table tbody, .pl-table tr, .pl-table td { display: block; width: 100%; }
+    .pl-table tr {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 10px;
+    }
+    .pl-table td { padding: 0; border: none; }
+    .pl-post-title { font-size: 1rem; margin-bottom: 8px; display: block; }
+    .pl-table td:nth-child(2), .pl-table td:nth-child(3) {
+        display: inline-block;
+        margin-right: 8px;
+        margin-bottom: 10px;
+        vertical-align: middle;
+    }
+    .pl-actions { margin-top: 4px; }
+}
 </style>
 
 <div class="pl-page">

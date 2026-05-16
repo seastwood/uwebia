@@ -19301,7 +19301,7 @@ def admin_post_publish(cid, pid):
         post.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
     post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
-    return _utf8_json({'success': True, 'status': post.status})
+    return _utf8_json({'success': True, 'status': post.status, 'slug': post.slug})
 
 
 @app.route('/admin/posts/<int:cid>/articles/<int:pid>/unpublish', methods=['POST'])

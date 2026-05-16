@@ -47,7 +47,8 @@
 
 /* Quill overrides */
 #quill-editor { background: rgba(255,255,255,0.03); color: #fff; border-radius: 0 0 10px 10px; min-height: 320px; font-family: inherit; }
-.ql-toolbar { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
+.ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
+.ql-toolbar.is-stuck { border-radius: 0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 2px 16px rgba(0,0,0,0.45); }
 .ql-container { border-color: rgba(255,255,255,0.12) !important; border-radius: 0 0 10px 10px; }
 .ql-editor { color: #f0f0f0; font-size: 0.97rem; line-height: 1.7; min-height: 300px; }
 .ql-editor.ql-blank::before { color: rgba(255,255,255,0.25); font-style: normal; }
@@ -289,6 +290,14 @@
                     <i class="fas fa-globe"></i> Publish
                 </button>
                 {% endif %}
+                {% if post %}
+                <a id="peVisitBtn"
+                   class="pe-btn pe-btn-draft"
+                   {% if post.status == 'published' %}href="/posts/{{ collection.slug }}/{{ post.slug }}" target="_blank"{% endif %}
+                   style="text-decoration:none;text-align:center;{% if post.status != 'published' %}opacity:0.35;cursor:not-allowed;pointer-events:none;{% endif %}">
+                    <i class="fas fa-external-link-alt"></i> Visit Page
+                </a>
+                {% endif %}
             </div>
             <div class="pe-save-indicator" id="peSaveIndicator"></div>
         </div>
@@ -347,6 +356,7 @@
 <script>
 const CID = {{ cid }};
 const PID = {{ pid }};
+const COLLECTION_SLUG = {{ collection.slug | tojson }};
 let _postId = PID || null;
 let _postStatus = {{ (post.status if post else 'draft') | tojson }};
 let _quill = null;
@@ -439,18 +449,11 @@ function initQuill() {
     const SIZES = ['10px','12px','14px','16px','18px','20px','24px','28px','32px','40px','48px','64px','80px','96px'];
 
     const toolbarOptions = [
-        [{ 'font': FONTS }],
-        [{ 'size': SIZES }],
-        [{ 'header': [1, 2, 3, 4, false] }],
-        ['bold', 'italic', 'underline', 'strike'],
-        [{ 'color': [] }, { 'background': [] }],
-        [{ 'script': 'sub' }, { 'script': 'super' }],
-        ['blockquote', 'code-block'],
-        [{ 'align': [] }],
-        [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-        [{ 'indent': '-1' }, { 'indent': '+1' }],
-        ['link', 'image', 'video'],
-        ['clean']
+        [{ 'header': [1, 2, 3, 4, false] }, { 'font': FONTS }, { 'size': SIZES }],
+        ['bold', 'italic', 'underline', 'strike', { 'color': [] }, { 'background': [] }],
+        [{ 'align': [] }, { 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+        ['blockquote', 'code-block', { 'script': 'sub' }, { 'script': 'super' }],
+        ['link', 'image', 'video', 'clean'],
     ];
 
     _quill = new Quill('#quill-editor', {
@@ -467,6 +470,54 @@ function initQuill() {
         }
     });
 
+    // ── Sticky toolbar (runs after Quill creates .ql-toolbar) ─────────────
+    (function() {
+        const NAV_H = 52;
+        const toolbar = document.querySelector('.ql-toolbar');
+        if (!toolbar) return;
+
+        const ph = document.createElement('div');
+        ph.style.display = 'none';
+        toolbar.insertAdjacentElement('afterend', ph);
+
+        let stuck = false;
+        let origTop = null;
+
+        function updateToolbar() {
+            if (origTop === null) {
+                origTop = (stuck ? ph : toolbar).getBoundingClientRect().top + window.scrollY;
+            }
+            const shouldStick = window.scrollY + NAV_H >= origTop;
+
+            if (shouldStick && !stuck) {
+                stuck = true;
+                ph.style.cssText = `display:block;height:${toolbar.offsetHeight}px;`;
+                toolbar.classList.add('is-stuck');
+                const r = ph.getBoundingClientRect();
+                Object.assign(toolbar.style, {
+                    position: 'fixed', top: NAV_H + 'px',
+                    left: r.left + 'px', width: ph.offsetWidth + 'px', zIndex: '9000',
+                });
+            } else if (!shouldStick && stuck) {
+                stuck = false;
+                ph.style.display = 'none';
+                toolbar.classList.remove('is-stuck');
+                toolbar.removeAttribute('style');
+            }
+        }
+
+        function updateWidth() {
+            if (!stuck) return;
+            const r = ph.getBoundingClientRect();
+            toolbar.style.left  = r.left + 'px';
+            toolbar.style.width = ph.offsetWidth + 'px';
+        }
+
+        window.addEventListener('scroll', updateToolbar, { passive: true });
+        window.addEventListener('resize', updateWidth, { passive: true });
+    })();
+    // ──────────────────────────────────────────────────────────────────────
+
     // Load existing content by writing directly to the editor DOM.
     // dangerouslyPasteHTML routes through Quill's clipboard converter which
     // normalises / collapses consecutive empty paragraphs, causing blank lines
@@ -478,15 +529,14 @@ function initQuill() {
         _quill.root.innerHTML = existingHtml;
     }
 
-    // Auto-save + image resize wiring on every change
+    // Auto-save on content change
     _quill.on('text-change', () => {
         clearTimeout(_autoSaveTimer);
         _autoSaveTimer = setTimeout(() => autoSave(), 3000);
-        wireImageResize();
     });
 
-    // Wire resize on initial load
-    setTimeout(wireImageResize, 200);
+    // Initial wiring after Quill has normalised the loaded content
+    setTimeout(_doWireImages, 400);
 }
 
 function quillImageHandler() {
@@ -715,92 +765,104 @@ function pickAsset(asset) {
 
 // ── Image resize ─────────────────────────────────────────────────────────
 let _resizeBar = null;
+let _activeResizeImg = null;
+let _wireDebounce = null;
 
-function wireImageResize() {
+function _doWireImages() {
     document.querySelectorAll('#quill-editor .ql-editor img').forEach(img => {
-        if (img.dataset.resizeWired) return;
-        img.dataset.resizeWired = '1';
+        if (img._rw) return;
+        img._rw = true;
         img.style.cursor = 'pointer';
-        img.addEventListener('click', showImageResizeBar);
+        img.addEventListener('click', () => showImageResizeBar(img));
     });
 }
 
-function showImageResizeBar(e) {
-    e.stopPropagation();
-    const img = e.currentTarget;
+function wireImageResize() {
+    // Debounce so Quill's own normalization finishes before we wire
+    clearTimeout(_wireDebounce);
+    _wireDebounce = setTimeout(_doWireImages, 150);
+}
+
+// MutationObserver catches every DOM change in the editor —
+// Quill normalization after load, drag-and-drop, insertEmbed, etc.
+document.addEventListener('DOMContentLoaded', () => {
+    const container = document.getElementById('quill-editor');
+    if (container) new MutationObserver(wireImageResize).observe(container, { childList: true, subtree: true });
+
+});
+
+function showImageResizeBar(img) {
+    if (_activeResizeImg === img && _resizeBar) return;
     dismissResizeBar();
+    _activeResizeImg = img;
 
     _resizeBar = document.createElement('div');
     _resizeBar.id = 'imgResizeBar';
     _resizeBar.style.cssText = [
         'position:fixed;z-index:999999;',
-        'background:#1e1e2e;border:1px solid rgba(255,255,255,0.18);',
-        'border-radius:10px;padding:7px 10px;',
-        'display:flex;align-items:center;gap:6px;',
-        'box-shadow:0 6px 24px rgba(0,0,0,0.5);',
-        'font-size:0.78rem;color:rgba(255,255,255,0.7);',
+        'background:rgba(18,18,30,0.93);border:1px solid rgba(255,255,255,0.18);',
+        'border-radius:8px;padding:5px 8px;',
+        'display:flex;align-items:center;gap:5px;',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.6);',
+        'font-size:0.78rem;color:rgba(255,255,255,0.75);',
+        'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);',
     ].join('');
 
     const rect = img.getBoundingClientRect();
-    const top  = Math.min(rect.bottom + 6, window.innerHeight - 60);
-    _resizeBar.style.top  = top + 'px';
-    _resizeBar.style.left = Math.max(8, rect.left) + 'px';
+    _resizeBar.style.top  = (rect.top  + 8) + 'px';
+    _resizeBar.style.left = Math.max(8, rect.left + 8) + 'px';
 
-    [['Small','25%'],['Half','50%'],['¾','75%'],['Full','100%'],['Original','']].forEach(([label, w]) => {
+    [['S','25%'],['½','50%'],['¾','75%'],['Full','100%'],['Auto','']].forEach(([label, w]) => {
         const btn = document.createElement('button');
         btn.textContent = label;
-        btn.title = w || 'Original size';
-        btn.style.cssText = [
-            'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);',
-            'color:inherit;padding:4px 9px;border-radius:6px;cursor:pointer;font-size:0.78rem;',
-            'transition:background 0.12s;',
-        ].join('');
-        btn.onmouseenter = () => btn.style.background = 'rgba(94,238,248,0.15)';
-        btn.onmouseleave = () => btn.style.background = 'rgba(255,255,255,0.08)';
-        btn.onclick = (ev) => {
+        btn.title = w ? `Width ${w}` : 'Natural size';
+        btn.style.cssText = 'background:rgba(255,255,255,0.09);border:1px solid rgba(255,255,255,0.14);color:inherit;padding:3px 8px;border-radius:5px;cursor:pointer;font-size:0.78rem;';
+        btn.onmouseenter = () => btn.style.background = 'rgba(94,238,248,0.2)';
+        btn.onmouseleave = () => btn.style.background = 'rgba(255,255,255,0.09)';
+        btn.onclick = ev => {
             ev.stopPropagation();
-            img.style.width  = w || '';
-            img.style.height = w ? 'auto' : '';
-            // Re-insert the image embed so the Delta captures the new style
-            if (_quill) {
-                const blot = Quill.find(img);
-                if (blot) {
-                    const idx = _quill.getIndex(blot);
-                    const newVal = { src: img.getAttribute('src'), style: img.getAttribute('style') || undefined };
-                    _quill.deleteText(idx, 1, 'silent');
-                    _quill.insertEmbed(idx, 'image', newVal, 'silent');
-                    _quill.setSelection(idx + 1, 0, 'silent');
-                }
-            }
+            const target = _activeResizeImg;
+            if (!target || !_quill) return;
+            const blot = Quill.find(target);
+            if (!blot) return;
+            const idx = _quill.getIndex(blot);
+            const newStyle = w ? `width:${w};height:auto;` : undefined;
+            _quill.deleteText(idx, 1, 'silent');
+            _quill.insertEmbed(idx, 'image', { src: target.getAttribute('src'), style: newStyle }, 'silent');
+            _quill.setSelection(idx + 1, 0, 'silent');
             dismissResizeBar();
+            // Wire the freshly-inserted img immediately
+            setTimeout(_doWireImages, 0);
         };
         _resizeBar.appendChild(btn);
     });
 
-    // Divider + close
     const sep = document.createElement('span');
-    sep.style.cssText = 'width:1px;height:18px;background:rgba(255,255,255,0.12);flex-shrink:0;';
+    sep.style.cssText = 'width:1px;height:16px;background:rgba(255,255,255,0.12);flex-shrink:0;';
     _resizeBar.appendChild(sep);
 
     const close = document.createElement('button');
     close.innerHTML = '&times;';
     close.style.cssText = 'background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:1.1rem;padding:0 3px;line-height:1;';
-    close.onclick = (ev) => { ev.stopPropagation(); dismissResizeBar(); };
+    close.onclick = ev => { ev.stopPropagation(); dismissResizeBar(); };
     _resizeBar.appendChild(close);
 
     document.body.appendChild(_resizeBar);
 
     // Dismiss when clicking outside
-    setTimeout(() => document.addEventListener('click', outsideResizeClick), 0);
+    setTimeout(() => document.addEventListener('click', _outsideResizeClick), 0);
 }
 
-function outsideResizeClick(e) {
-    if (_resizeBar && !_resizeBar.contains(e.target)) dismissResizeBar();
+function _outsideResizeClick(e) {
+    if (!_resizeBar) return;
+    if (_resizeBar.contains(e.target)) return;
+    dismissResizeBar();
 }
 
 function dismissResizeBar() {
+    _activeResizeImg = null;
     if (_resizeBar) { _resizeBar.remove(); _resizeBar = null; }
-    document.removeEventListener('click', outsideResizeClick);
+    document.removeEventListener('click', _outsideResizeClick);
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────
@@ -891,6 +953,14 @@ async function publishPost() {
             btn.onclick = unpublishPost;
             const saveBtn = document.getElementById('peSaveBtn');
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+            const visitBtn = document.getElementById('peVisitBtn');
+            if (visitBtn && d.slug) {
+                visitBtn.href = `/posts/${COLLECTION_SLUG}/${d.slug}`;
+                visitBtn.target = '_blank';
+                visitBtn.style.opacity = '';
+                visitBtn.style.cursor = '';
+                visitBtn.style.pointerEvents = '';
+            }
         }
     } catch(e) { alert('Request failed'); }
 }
@@ -911,6 +981,14 @@ async function unpublishPost() {
             btn.onclick = publishPost;
             const saveBtn = document.getElementById('peSaveBtn');
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Draft';
+            const visitBtn = document.getElementById('peVisitBtn');
+            if (visitBtn) {
+                visitBtn.removeAttribute('href');
+                visitBtn.removeAttribute('target');
+                visitBtn.style.opacity = '0.35';
+                visitBtn.style.cursor = 'not-allowed';
+                visitBtn.style.pointerEvents = 'none';
+            }
         }
     } catch(e) { alert('Request failed'); }
 }
