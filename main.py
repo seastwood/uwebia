@@ -1859,6 +1859,7 @@ class AssetFolder(db.Model):
     asset_type = db.Column(db.String(30), nullable=True)  # optional: image, audio, pdf, document, misc
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     parent_id = db.Column(db.Integer, db.ForeignKey('asset_folder.id'), nullable=True)
+    sort_order = db.Column(db.Integer, nullable=True, default=0)
 
     assets = db.relationship('Asset', backref='parent_folder', lazy=True)
 
@@ -2491,7 +2492,7 @@ def asset_library():
             )
         )
 
-    all_folders = folders_query.order_by(AssetFolder.name).all()
+    all_folders = folders_query.order_by(AssetFolder.sort_order.nullslast(), AssetFolder.name).all()
 
     # For sub-admins, restrict to allowed folders
     allowed_folder_ids = None
@@ -3096,6 +3097,55 @@ def delete_asset_folder(folder_id):
     return jsonify({'status': 'success'})
 
 
+@app.route('/admin/assets/move_folder', methods=['POST'])
+@login_required
+@require_perm('assets.folders')
+def move_asset_folder():
+    data = request.get_json() or {}
+    folder_id = int(data.get('folder_id', 0))
+    new_parent_id = data.get('parent_id')
+    target_id = data.get('target_id')
+    mode = data.get('mode', 'inside')
+
+    if new_parent_id is not None:
+        new_parent_id = int(new_parent_id)
+    if target_id is not None:
+        target_id = int(target_id)
+
+    folder = AssetFolder.query.filter_by(id=folder_id, user_id=current_user.root_user_id).first_or_404()
+
+    # Prevent moving into itself or one of its own descendants
+    if new_parent_id is not None:
+        node = db.session.get(AssetFolder, new_parent_id)
+        while node:
+            if node.id == folder_id:
+                return jsonify({'error': 'Cannot move a folder into its own subfolder'}), 400
+            node = db.session.get(AssetFolder, node.parent_id) if node.parent_id else None
+
+    folder.parent_id = new_parent_id
+
+    # Reorder siblings
+    siblings = AssetFolder.query.filter_by(
+        parent_id=new_parent_id,
+        user_id=current_user.root_user_id
+    ).filter(AssetFolder.id != folder_id).order_by(
+        AssetFolder.sort_order.nullslast(), AssetFolder.name
+    ).all()
+
+    if mode == 'inside' or target_id is None:
+        folder.sort_order = (max(s.sort_order or 0 for s in siblings) + 10) if siblings else 0
+    else:
+        insert_at = next((i for i, s in enumerate(siblings) if s.id == target_id), len(siblings))
+        if mode == 'after':
+            insert_at += 1
+        siblings.insert(insert_at, folder)
+        for i, s in enumerate(siblings):
+            s.sort_order = i * 10
+
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @app.route('/admin/assets/move', methods=['POST'])
 @login_required
 def move_asset():
@@ -3192,7 +3242,7 @@ def get_asset_library_root():
             )
         )
 
-    all_folders = folders_query.order_by(AssetFolder.name).all()
+    all_folders = folders_query.order_by(AssetFolder.sort_order.nullslast(), AssetFolder.name).all()
 
     # Restrict sub-admins to their allowed folder list
     allowed_folder_ids = None
