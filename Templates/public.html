@@ -215,6 +215,29 @@
         min-height: 1.4em;
     }
 
+    /* ── Quill nested unordered lists ── */
+    .text-area ul, .text-area ol { padding-left: 1.6em; margin: 0.6em 0; }
+    .text-area li { margin-bottom: 0.3em; }
+    .text-area ul li.ql-indent-1 { margin-left: 1.8em; list-style-type: circle; }
+    .text-area ul li.ql-indent-2 { margin-left: 3.6em; list-style-type: square; }
+    .text-area ul li.ql-indent-3 { margin-left: 5.4em; list-style-type: disc; }
+    .text-area ul li.ql-indent-4 { margin-left: 7.2em; list-style-type: circle; }
+    .text-area ul li.ql-indent-5 { margin-left: 9.0em; list-style-type: square; }
+
+    /* ── Quill nested ordered lists — custom counters to fix numbering ── */
+    .text-area ol { list-style: none; counter-reset: pd-l0 pd-l1 pd-l2 pd-l3 pd-l4; }
+    .text-area ol li { list-style: none; position: relative; padding-left: 2em; }
+    .text-area ol li:not([class*="ql-indent"]) { counter-increment: pd-l0; counter-reset: pd-l1 pd-l2 pd-l3 pd-l4; margin-left: 0; }
+    .text-area ol li:not([class*="ql-indent"])::before { content: counter(pd-l0) '.'; position: absolute; left: 0; }
+    .text-area ol li.ql-indent-1 { counter-increment: pd-l1; counter-reset: pd-l2 pd-l3 pd-l4; margin-left: 1.8em; }
+    .text-area ol li.ql-indent-1::before { content: counter(pd-l1, lower-alpha) '.'; position: absolute; left: 0; }
+    .text-area ol li.ql-indent-2 { counter-increment: pd-l2; counter-reset: pd-l3 pd-l4; margin-left: 3.6em; }
+    .text-area ol li.ql-indent-2::before { content: counter(pd-l2, lower-roman) '.'; position: absolute; left: 0; }
+    .text-area ol li.ql-indent-3 { counter-increment: pd-l3; counter-reset: pd-l4; margin-left: 5.4em; }
+    .text-area ol li.ql-indent-3::before { content: counter(pd-l3, decimal) '.'; position: absolute; left: 0; }
+    .text-area ol li.ql-indent-4 { counter-increment: pd-l4; margin-left: 7.2em; }
+    .text-area ol li.ql-indent-4::before { content: counter(pd-l4, lower-alpha) '.'; position: absolute; left: 0; }
+
     .single-image-container {
         /* position: relative;e */
         /* width: 100vw; */

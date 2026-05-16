@@ -144,6 +144,71 @@
 
 .pd-content li { margin-bottom: 0.4em; }
 
+/* ── Quill nested unordered lists ──────────────────────────────────────
+   margin-left shifts the whole item (bullet + text) inward             */
+.pd-content ul li.ql-indent-1 { margin-left: 1.8em; list-style-type: circle; }
+.pd-content ul li.ql-indent-2 { margin-left: 3.6em; list-style-type: square; }
+.pd-content ul li.ql-indent-3 { margin-left: 5.4em; list-style-type: disc; }
+.pd-content ul li.ql-indent-4 { margin-left: 7.2em; list-style-type: circle; }
+.pd-content ul li.ql-indent-5 { margin-left: 9.0em; list-style-type: square; }
+
+/* ── Quill nested ordered lists ────────────────────────────────────────
+   The browser uses one sequential counter for all flat <li>s, so
+   sub-items bleed into the parent count. Custom CSS counters fix this. */
+.pd-content ol {
+    list-style: none;
+    counter-reset: pd-l0 pd-l1 pd-l2 pd-l3 pd-l4;
+}
+.pd-content ol li {
+    list-style: none;
+    position: relative;
+    padding-left: 2em;
+}
+.pd-content ol li:not([class*="ql-indent"]) {
+    counter-increment: pd-l0;
+    counter-reset: pd-l1 pd-l2 pd-l3 pd-l4;
+    margin-left: 0;
+}
+.pd-content ol li:not([class*="ql-indent"])::before {
+    content: counter(pd-l0) '.';
+    position: absolute; left: 0;
+}
+.pd-content ol li.ql-indent-1 {
+    counter-increment: pd-l1;
+    counter-reset: pd-l2 pd-l3 pd-l4;
+    margin-left: 1.8em;
+}
+.pd-content ol li.ql-indent-1::before {
+    content: counter(pd-l1, lower-alpha) '.';
+    position: absolute; left: 0;
+}
+.pd-content ol li.ql-indent-2 {
+    counter-increment: pd-l2;
+    counter-reset: pd-l3 pd-l4;
+    margin-left: 3.6em;
+}
+.pd-content ol li.ql-indent-2::before {
+    content: counter(pd-l2, lower-roman) '.';
+    position: absolute; left: 0;
+}
+.pd-content ol li.ql-indent-3 {
+    counter-increment: pd-l3;
+    counter-reset: pd-l4;
+    margin-left: 5.4em;
+}
+.pd-content ol li.ql-indent-3::before {
+    content: counter(pd-l3, decimal) '.';
+    position: absolute; left: 0;
+}
+.pd-content ol li.ql-indent-4 {
+    counter-increment: pd-l4;
+    margin-left: 7.2em;
+}
+.pd-content ol li.ql-indent-4::before {
+    content: counter(pd-l4, lower-alpha) '.';
+    position: absolute; left: 0;
+}
+
 /* Back link */
 .pd-back {
     display: inline-flex;
