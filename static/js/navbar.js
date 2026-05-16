@@ -82,19 +82,21 @@ document.addEventListener('DOMContentLoaded', function () {
         const navRight = document.querySelector('.nav-right');
         if (!navbar || !navHome || !navLeft || !navRight) return;
 
-        // Available width for the centre column (total minus the fixed left/right wings)
+        // Available width for the centre column
         const availableCenter = navbar.offsetWidth - navLeft.offsetWidth - navRight.offsetWidth;
 
-        // Expand so we measure the natural (uncompressed) content width
+        // Temporarily expand to measure natural content width
         navHome.classList.remove('nav-compact');
-        void navHome.offsetHeight; // force synchronous reflow so CSS takes effect
+        void navHome.offsetHeight; // force synchronous reflow
 
         let contentWidth = 0;
-        Array.from(navHome.children).forEach(el => {
-            contentWidth += el.offsetWidth;
-        });
+        Array.from(navHome.children).forEach(el => { contentWidth += el.offsetWidth; });
 
-        navHome.classList.toggle('nav-compact', contentWidth + 12 > availableCenter);
+        // Collapse again if items don't fit; stay expanded if they do
+        if (contentWidth + 12 > availableCenter) {
+            navHome.classList.add('nav-compact');
+        }
+        // else: nav-compact was already removed above — items fit, stay expanded
     }
 
     function scheduleCheck() {
