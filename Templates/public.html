@@ -486,6 +486,24 @@
         box-shadow: 1px 0px 10px 5px rgba(0, 0, 0, 0.4);
         background-color: #00000045;
         overflow: hidden;
+        -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+        touch-action: pan-y;
+    }
+    .calendar *,
+    .calendar *:active {
+        -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+    }
+    .calendar a:active, .calendar td:active, .calendar th:active,
+    .calendar button:active, .calendar [role="gridcell"]:active,
+    .calendar .fc-daygrid-day:active, .calendar .fc-daygrid-day-frame:active,
+    .calendar .fc-event:active, .calendar .fc-col-header-cell:active,
+    .calendar .fc-daygrid-day-number:active {
+        opacity: 1 !important;
+        background: inherit !important;
+        background-color: inherit !important;
+        color: inherit !important;
+        -webkit-filter: none !important;
+        filter: none !important;
     }
 
     .calendar .fc {
@@ -4825,6 +4843,45 @@ document.body.style.color = text_color;
                 .catch(error => { failureCallback(error); });
         }
 
+        // Slide animation helper for calendar month navigation
+        function _calSlide(cal, el, goNext, onDone) {
+            const DURATION = 340, EASE = 'cubic-bezier(0.4,0,0.2,1)';
+            const outTo  = goNext ? '-100%' : '100%';
+            const inFrom = goNext ? '100%'  : '-100%';
+
+            const rect = el.getBoundingClientRect();
+            const snap = el.cloneNode(true);
+            Object.assign(snap.style, {
+                position: 'fixed', top: rect.top + 'px', left: rect.left + 'px',
+                width: rect.width + 'px', height: rect.height + 'px',
+                pointerEvents: 'none', zIndex: '9998', overflow: 'hidden',
+                transform: 'translateX(0)', willChange: 'transform', transition: 'none', margin: '0',
+            });
+            document.body.appendChild(snap);
+
+            el.style.transform = `translateX(${inFrom})`;
+            el.style.transition = 'none';
+            el.style.overflow = 'hidden';
+
+            goNext ? cal.next() : cal.prev();
+
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const t = `transform ${DURATION}ms ${EASE}`;
+                el.style.transition = t;
+                el.style.transform = 'translateX(0)';
+                snap.style.transition = t;
+                snap.style.transform = `translateX(${outTo})`;
+            }));
+
+            setTimeout(() => {
+                snap.remove();
+                el.style.transform = '';
+                el.style.transition = '';
+                el.style.overflow = '';
+                if (onDone) onDone();
+            }, DURATION + 60);
+        }
+
         // Initialize the calendar
         function initializeCalendar(sectionId, calendarId) {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
@@ -4968,6 +5025,46 @@ document.body.style.color = text_color;
                 // Add other options as needed
             });
             calendar.render();
+
+            // Safari: suppress tap highlight on all interactive calendar elements.
+            // CSS alone is ignored by Safari for dynamically-created elements;
+            // inline style is the only reliable override.
+            // Apply directly to the root too
+            Object.assign(calendarEl.style, {
+                webkitTapHighlightColor: 'rgba(0,0,0,0)',
+                webkitTouchCallout: 'none',
+                userSelect: 'none',
+                webkitUserSelect: 'none',
+                touchAction: 'pan-y',
+            });
+
+            function _suppressTapHighlight() {
+                calendarEl.querySelectorAll('a, button, td, th, [role="gridcell"], [role="button"]').forEach(el => {
+                    el.style.webkitTapHighlightColor = 'rgba(0,0,0,0)';
+                    el.style.webkitTouchCallout = 'none';
+                    el.style.userSelect = 'none';
+                    el.style.webkitUserSelect = 'none';
+                });
+            }
+            _suppressTapHighlight();
+            new MutationObserver(_suppressTapHighlight)
+                .observe(calendarEl, { childList: true, subtree: true });
+
+            // Swipe left/right to change month with slide animation
+            let _cTouchX = 0, _cTouchY = 0, _cAnimating = false;
+            calendarEl.addEventListener('touchstart', e => {
+                _cTouchX = e.touches[0].clientX;
+                _cTouchY = e.touches[0].clientY;
+            }, { passive: true });
+            calendarEl.addEventListener('touchend', e => {
+                if (_cAnimating) return;
+                const dx = e.changedTouches[0].clientX - _cTouchX;
+                const dy = e.changedTouches[0].clientY - _cTouchY;
+                if (Math.abs(dx) > 44 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    _calSlide(calendar, calendarEl, dx < 0, () => { _cAnimating = false; });
+                    _cAnimating = true;
+                }
+            }, { passive: true });
         }
 
         // Call initializeCalendar for each calendar section

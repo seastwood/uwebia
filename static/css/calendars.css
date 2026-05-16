@@ -400,6 +400,21 @@ body {
     border-radius: 12px;
     overflow: hidden;
     background: rgba(0, 0, 0, 0.15);
+    -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+    touch-action: pan-y;
+}
+.fc-wrapper *,
+.fc-wrapper *:active {
+    -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+}
+/* Suppress Safari active-state darkening on calendar cells and events */
+.fc-daygrid-day:active,
+.fc-event:active,
+.fc-col-header-cell:active,
+.fc-button:active {
+    opacity: 1 !important;
+    background-color: inherit !important;
+    -webkit-filter: none !important;
 }
 
 /* FullCalendar dark-theme overrides */
