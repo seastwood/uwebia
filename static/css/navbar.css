@@ -278,6 +278,20 @@
     align-items: center;
     justify-content: center;
 }
+/* ── Inline tool shortcuts ────────────────────────────────────────────── */
+.nav-inline-items {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Compact mode: hide inline items, show dropdown button */
+.nav-home.nav-compact .nav-inline-items { display: none; }
+
+/* Expanded mode: hide the dropdown toggle button */
+.nav-home:not(.nav-compact) .nav-tools-btn { display: none; }
+
+/* ─────────────────────────────────────────────────────────────────────── */
 .nav-tools-dropdown {
     position: relative;
 }

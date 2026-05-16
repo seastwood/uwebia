@@ -71,6 +71,44 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+// ── Responsive center nav: inline items ↔ dropdown ───────────────────────
+(function () {
+    let _rafId = null;
+
+    function checkNavLayout() {
+        const navbar  = document.querySelector('.navbar');
+        const navHome = document.querySelector('.nav-home');
+        const navLeft = document.querySelector('.nav-left');
+        const navRight = document.querySelector('.nav-right');
+        if (!navbar || !navHome || !navLeft || !navRight) return;
+
+        // Available width for the centre column (total minus the fixed left/right wings)
+        const availableCenter = navbar.offsetWidth - navLeft.offsetWidth - navRight.offsetWidth;
+
+        // Expand so we measure the natural (uncompressed) content width
+        navHome.classList.remove('nav-compact');
+        void navHome.offsetHeight; // force synchronous reflow so CSS takes effect
+
+        let contentWidth = 0;
+        Array.from(navHome.children).forEach(el => {
+            contentWidth += el.offsetWidth;
+        });
+
+        navHome.classList.toggle('nav-compact', contentWidth + 12 > availableCenter);
+    }
+
+    function scheduleCheck() {
+        cancelAnimationFrame(_rafId);
+        _rafId = requestAnimationFrame(checkNavLayout);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        checkNavLayout();
+        new ResizeObserver(scheduleCheck).observe(document.querySelector('.navbar') || document.body);
+    });
+})();
+// ─────────────────────────────────────────────────────────────────────────
+
 function closeNavToolsDropdown() {
     const toolsDropdown = document.querySelector('.nav-tools-dropdown');
     if (toolsDropdown) toolsDropdown.classList.remove('open');

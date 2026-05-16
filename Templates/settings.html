@@ -530,7 +530,51 @@
         </form>
     </div>
 
+    <!-- Admin Navbar Visibility -->
+    <div class="settings-card">
+        <h2 class="settings-section-title">Admin Navbar</h2>
+        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar. Disabled items are hidden everywhere.</p>
+        <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
+            {% set _nd = current_user.admin_navbar_disabled or [] %}
+            {% for key, label, icon in [
+                ('posts',     'Posts',         'fa-newspaper'),
+                ('calendars', 'Calendars',     'fa-calendar-alt'),
+                ('products',  'Products',      'fa-shopping-cart'),
+                ('palette',   'Color Palette', 'fa-palette'),
+                ('ai_agents', 'AI Agents',     'fa-robot'),
+                ('plugins',   'Plugins',       'fa-puzzle-piece'),
+            ] %}
+            <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);">
+                <input type="checkbox" class="nav-vis-check" data-key="{{ key }}"
+                       {% if key not in _nd %}checked{% endif %}
+                       style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                <i class="fas {{ icon }}" style="width:16px;text-align:center;color:rgba(255,255,255,0.5);"></i>
+                {{ label }}
+            </label>
+            {% endfor %}
+        </div>
+        <button class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
+        <div id="navVisStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
+    </div>
+
     <script>
+        async function saveNavbarVisibility() {
+            const checks = document.querySelectorAll('.nav-vis-check');
+            const disabled = [];
+            checks.forEach(c => { if (!c.checked) disabled.push(c.dataset.key); });
+            const status = document.getElementById('navVisStatus');
+            try {
+                const r = await fetch('/admin/settings/navbar-visibility', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ disabled })
+                });
+                const d = await r.json();
+                status.style.color = d.ok ? '#5eeec8' : '#f55';
+                status.textContent = d.ok ? 'Saved — reload the page to see changes.' : 'Save failed.';
+            } catch { status.style.color = '#f55'; status.textContent = 'Request failed.'; }
+        }
+
         function copyAdminLoginUrl() {
             const element = document.getElementById('adminLoginUrlValue');
 

@@ -310,6 +310,7 @@ class User(UserMixin, db.Model):
 
     timezone = db.Column(db.String(100), nullable=False, default='America/Chicago')
     date_format = db.Column(db.String(50), nullable=False, default='%b %d, %Y %I:%M %p')
+    admin_navbar_disabled = db.Column(db.JSON, nullable=True, default=list)
 
     websites = db.relationship('Website', backref='owner', lazy=True, cascade="all, delete-orphan")
     _is_active = db.Column(db.Boolean, default=True)  # Use a different attribute name
@@ -5347,6 +5348,7 @@ def inject_current_website():
         draft_folders = PageFolder.query.filter_by(website_id=draft_website.id) \
             .order_by(PageFolder.sort_order, PageFolder.id).all()
 
+    disabled = current_user.admin_navbar_disabled or []
     return {
         'current_website': website,
         'current_website_pages': pages,
@@ -5354,6 +5356,7 @@ def inject_current_website():
         'current_draft_website': draft_website,
         'current_draft_website_pages': draft_pages,
         'current_draft_website_folders': draft_folders,
+        'admin_navbar_disabled': disabled,
     }
 
 
@@ -5923,6 +5926,17 @@ def email_server_settings():
 
 def get_email_settings():
     return EmailServerSettings.query.first()
+
+
+@app.route('/admin/settings/navbar-visibility', methods=['POST'])
+@login_required
+def save_navbar_visibility():
+    data = request.get_json() or {}
+    valid = {'posts', 'calendars', 'products', 'palette', 'ai_agents', 'plugins'}
+    disabled = [k for k in data.get('disabled', []) if k in valid]
+    current_user.admin_navbar_disabled = disabled
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/save_email_settings', methods=['POST'])
