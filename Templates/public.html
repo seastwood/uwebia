@@ -26,8 +26,7 @@
     href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
 />
     <!-- Favicon -->
-    {% set navbar_style = website.public_navbar_style or {} %}
-    {% set icon_url = navbar_style.get('icon_url') %}
+    {% set icon_url = get_site_icon_url(website) %}
 
     {% if icon_url %}
     {% if icon_url.endswith('.svg') %}
@@ -4050,7 +4049,8 @@ box-sizing: border-box;
                 <article class="uwebia-comment">
     <div class="uwebia-comment-top">
         <div class="uwebia-comment-meta">
-            <strong>{{ comment.display_name }}</strong>
+            <strong>{{ comment.author.effective_display_name if comment.author else comment.display_name }}</strong>
+            {% if comment.author and comment.author.mirrored_admin_user_id %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);margin-left:6px;" title="Site owner">Admin</span>{% endif %}
             <span>{{ comment.created_at.strftime('%b %d, %Y %I:%M %p') }}</span>
         </div>
     </div>
@@ -4071,10 +4071,10 @@ box-sizing: border-box;
         {% if comments_content.get('require_login') and not public_user %}
             <div class="uwebia-comments-login-required">
                 <p>Please log in to comment.</p>
-                <a href="{{ url_for('public_login', next=content.current_page_url) }}">
+                <a href="{{ url_for('public_login', website_prefix=website.url_prefix, next=content.current_page_url) }}">
                     Log In
                 </a>
-                <a href="{{ url_for('public_register', next=content.current_page_url) }}">
+                <a href="{{ url_for('public_register', website_prefix=website.url_prefix, next=content.current_page_url) }}">
                     Create Account
                 </a>
             </div>
@@ -4470,6 +4470,33 @@ box-sizing: border-box;
                                 {% endif %}
                                 </div><!-- /feed-section-wrap -->
 
+                                {% elif section.section_type == 'newsletter_signup' %}
+                                {% set ns_id = section.content.get('newsletter_id') if section.content else None %}
+                                {% set ns_nl = content.newsletter_lookup.get(ns_id) if (ns_id and content.newsletter_lookup is defined) else None %}
+                                {% if ns_nl %}
+                                <div class="newsletter-signup-container" style="max-width:520px;margin:0 auto;padding:22px 20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:14px;text-align:center;">
+                                    <h2 style="margin:0 0 8px;font-size:1.35rem;">{{ section.content.get('heading_override') or ns_nl.signup_heading }}</h2>
+                                    {% set ns_blurb = section.content.get('blurb_override') or ns_nl.signup_blurb %}
+                                    {% if ns_blurb %}
+                                    <p style="margin:0 0 16px;color:rgba(255,255,255,0.65);font-size:0.95rem;line-height:1.5;">{{ ns_blurb }}</p>
+                                    {% endif %}
+                                    <form class="newsletter-signup-form" data-slug="{{ ns_nl.slug }}" onsubmit="return submitNewsletterSignup(event, this)" style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+                                        {% if ns_nl.collect_name %}
+                                        <input type="text" name="name" placeholder="Your name (optional)"
+                                               style="width:100%;max-width:340px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.13);background:rgba(255,255,255,0.07);color:#fff;box-sizing:border-box;">
+                                        {% endif %}
+                                        <input type="email" name="email" required placeholder="you@example.com"
+                                               style="width:100%;max-width:340px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.13);background:rgba(255,255,255,0.07);color:#fff;box-sizing:border-box;">
+                                        <button type="submit"
+                                                style="padding:10px 22px;border:none;border-radius:10px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;font-weight:700;cursor:pointer;font-size:0.95rem;">
+                                            {{ ns_nl.signup_button_label }}
+                                        </button>
+                                    </form>
+                                    <div class="newsletter-signup-result" style="margin-top:12px;min-height:18px;font-size:0.88rem;"></div>
+                                </div>
+                                {% else %}
+                                <div style="max-width:520px;margin:0 auto;padding:22px 20px;text-align:center;color:rgba(255,255,255,0.45);font-size:0.85rem;">Newsletter signup is not configured.</div>
+                                {% endif %}
                                 {% elif section.section_type == 'calendar_badges' %}
                                 {% set cb_events = content.badges_by_section.get(section.id, []) %}
                                 {% set cb_cfg = section.content or {} %}
@@ -4527,7 +4554,7 @@ box-sizing: border-box;
                                     {% if af %}
                                         {% for post in af %}
                                         <a class="af-compact-row"
-                                           href="/posts/{{ post.collection.slug }}/{{ post.slug }}"
+                                           href="{{ '/' + website.url_prefix + '/posts/' + post.collection.slug + '/' + post.slug if website.url_prefix else '/posts/' + post.collection.slug + '/' + post.slug }}"
                                            data-page="{{ loop.index0 // af_per_page }}">
                                             {% if af_show_cover %}
                                                 {% if post.cover_image_url %}
@@ -4570,7 +4597,7 @@ box-sizing: border-box;
                                     {% if af %}
                                         {% for post in af %}
                                         <a class="af-cc-card"
-                                           href="/posts/{{ post.collection.slug }}/{{ post.slug }}"
+                                           href="{{ '/' + website.url_prefix + '/posts/' + post.collection.slug + '/' + post.slug if website.url_prefix else '/posts/' + post.collection.slug + '/' + post.slug }}"
                                            data-page="{{ loop.index0 // af_per_page }}">
                                             {% if af_show_cover %}
                                                 {% if post.cover_image_url %}
@@ -4609,7 +4636,7 @@ box-sizing: border-box;
                                 <div class="af-feed af-layout-{{ af_layout }}">
                                 {% if af %}
                                     {% for post in af %}
-                                    <a class="af-card" href="/posts/{{ post.collection.slug }}/{{ post.slug }}">
+                                    <a class="af-card" href="{{ '/' + website.url_prefix + '/posts/' + post.collection.slug + '/' + post.slug if website.url_prefix else '/posts/' + post.collection.slug + '/' + post.slug }}">
                                         {% if af_show_cover and post.cover_image_url %}
                                         <div class="af-card-cover">
                                             <img src="{{ post.cover_image_url }}" alt="{{ post.title }}">
@@ -5676,7 +5703,10 @@ function renderPublicComments(sectionId, comments) {
     <article class="uwebia-comment" id="pageComment_${comment.id}">
         <div class="uwebia-comment-top">
             <div class="uwebia-comment-meta">
-                <strong>${escapePublicCommentHtml(comment.display_name || 'Anonymous')}</strong>
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
+                    <strong>${escapePublicCommentHtml(comment.display_name || 'Anonymous')}</strong>
+                    ${(comment.roles || []).map(r => `<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:${r.color}22;color:${r.color};border:1px solid ${r.color}44;white-space:nowrap;">${escapePublicCommentHtml(r.name)}</span>`).join('')}
+                </div>
                 <span>${escapePublicCommentHtml(comment.created_at || '')}</span>
             </div>
 
@@ -5817,7 +5847,7 @@ if (data.approved) {
         })
         .catch(error => {
             if (error && error.requires_login) {
-                window.location.href = "{{ url_for('public_login', next=content.current_page_url) }}";
+                window.location.href = "{{ url_for('public_login', website_prefix=website.url_prefix, next=content.current_page_url) }}";
                 return;
             }
 
@@ -5860,7 +5890,7 @@ function togglePageCommentLike(event, commentId) {
         })
         .catch(error => {
             if (error && error.requires_login) {
-                window.location.href = "{{ url_for('public_login', next=content.current_page_url) }}";
+                window.location.href = "{{ url_for('public_login', website_prefix=website.url_prefix, next=content.current_page_url) }}";
                 return;
             }
 
@@ -6051,6 +6081,33 @@ window.cbOpenEventModal = function(badge) {
         });
     });
 })();
+</script>
+<script>
+async function submitNewsletterSignup(event, form) {
+    event.preventDefault();
+    const slug = form.dataset.slug;
+    if (!slug) return false;
+    const result = form.parentElement.querySelector('.newsletter-signup-result');
+    const button = form.querySelector('button[type="submit"]');
+    const data = new FormData(form);
+    if (button) { button.disabled = true; button.style.opacity = '0.6'; }
+    if (result) { result.textContent = 'Submitting…'; result.style.color = 'rgba(255,255,255,0.6)'; }
+    try {
+        const r = await fetch(`/newsletter/${encodeURIComponent(slug)}/subscribe`, {method: 'POST', body: data});
+        const j = await r.json();
+        if (!r.ok || !j.success) {
+            if (result) { result.textContent = j.error || 'Sign-up failed.'; result.style.color = '#ff8a8a'; }
+        } else {
+            if (result) { result.textContent = j.message || 'Thanks!'; result.style.color = '#5eeec8'; }
+            form.reset();
+        }
+    } catch (e) {
+        if (result) { result.textContent = 'Network error.'; result.style.color = '#ff8a8a'; }
+    } finally {
+        if (button) { button.disabled = false; button.style.opacity = ''; }
+    }
+    return false;
+}
 </script>
 </body>
 

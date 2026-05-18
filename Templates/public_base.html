@@ -13,8 +13,7 @@
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
     />
 
-    {% set navbar_style = website.public_navbar_style or {} %}
-    {% set icon_url = navbar_style.get('icon_url') %}
+    {% set icon_url = get_site_icon_url(website) %}
 
     {% if icon_url %}
         {% if icon_url.endswith('.svg') %}
@@ -61,6 +60,7 @@
             color: {{ website.text_color or '#ffffff' }};
         }
 
+        {% set _bg_blur = (website.background_image_blur or 0)|int %}
         .site-fixed-background {
             position: fixed;
             inset: 0;
@@ -70,7 +70,7 @@
 
             z-index: 0;
             pointer-events: none;
-            transform: translateZ(0);
+            transform: translateZ(0){% if website.background_image_url and _bg_blur > 0 %} scale(1.08){% endif %};
 
             background: {{ website.background_color or '#ffffff' }};
 
@@ -95,6 +95,10 @@
                     background-repeat: no-repeat;
                     background-position: center center;
                     background-size: {{ bg_zoom }}% auto;
+                {% endif %}
+
+                {% if _bg_blur > 0 %}
+                    filter: blur({{ _bg_blur }}px);
                 {% endif %}
             {% endif %}
         }
@@ -308,8 +312,14 @@
     --navbar-page-offset: {{ navbar_page_offset }}px;
     --navbar-anchor-offset: {{ navbar_anchor_offset }}px;
     --public-page-max-width: 1180px;
+    color: {{ website.text_color or '#ffffff' }};
 ">
     <div class="site-fixed-background" aria-hidden="true"></div>
+    {% set _overlay_color = website.background_image_overlay_color %}
+    {% set _overlay_opacity = (website.background_image_overlay_opacity or 0)|int %}
+    {% if _overlay_color and _overlay_opacity > 0 %}
+    <div aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;background:{{ _overlay_color }};opacity:{{ _overlay_opacity / 100 }};"></div>
+    {% endif %}
 
     {% include 'components/public_navbar.html' %}
 

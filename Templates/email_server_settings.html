@@ -1,294 +1,322 @@
-
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/navbar.html' %}
 
-
 <style>
-    .settings-page {
-        max-width: 760px;
-        margin: 40px auto;
-        padding: 24px;
-        color: #fff;
-    }
-
-    .settings-card {
-        background: #2a2a2a;
-        border-radius: 14px;
-        padding: 24px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-
-    .settings-card h1 {
-        margin-top: 0;
-        margin-bottom: 10px;
-    }
-
-    .settings-card p {
-        color: #cfcfcf;
-        margin-bottom: 20px;
-    }
-
-    .settings-group {
-        margin-bottom: 16px;
-    }
-
-    .settings-group label {
-        display: block;
-        margin-bottom: 8px;
-        font-weight: 600;
-        color: #e8e8e8;
-        background: transparent;
-        padding: 0;
-    }
-
-    .form-control {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 10px 12px;
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 10px;
-        background: #3a3a3a;
-        color: #fff;
-    }
-
-    .settings-check {
-        margin-top: 14px;
-    }
-
-    .settings-check label {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-weight: 500;
-    }
-
-    .settings-actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        margin-top: 24px;
-    }
-
-    .settings-actions button,
-    .settings-actions a {
-        padding: 10px 16px;
-        border: none;
-        border-radius: 10px;
-        cursor: pointer;
-        text-decoration: none;
-        font-weight: 600;
-    }
-
-    .btn-primary {
-        background: #6200ea;
-        color: white;
-    }
-
-    .btn-primary:hover {
-        background: #3700b3;
-    }
-
-    .btn-secondary {
-        background: #444;
-        color: white;
-    }
-
-    .btn-secondary:hover {
-        background: #555;
-    }
-
-    .settings-message {
-        margin-top: 16px;
-        color: #bfeecf;
-        min-height: 20px;
-    }
-    .settings-warning {
-    margin: 14px 0 20px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    color: #ffdda3;
-    background: rgba(255, 193, 7, 0.12);
-    border: 1px solid rgba(255, 193, 7, 0.28);
-    line-height: 1.45;
+.es-page { max-width: 880px; margin: 30px auto 60px; padding: 0 20px; color: #fff; }
+.es-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 12px; flex-wrap: wrap; }
+.es-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+.es-title { font-size: 1.8rem; font-weight: 800; margin: 4px 0 0; }
+.es-help { color: rgba(255,255,255,0.55); margin: 6px 0 0; }
+.es-btn-new {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 10px 16px; border-radius: 10px;
+    background: linear-gradient(135deg,#5eeef8,#5eeec8);
+    color: #111; font-weight: 700; font-size: 0.9rem; border: none; cursor: pointer;
 }
+.es-btn-new:hover { opacity: 0.88; }
+
+.es-server-card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px; padding: 18px; margin-bottom: 16px;
+}
+.es-server-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-bottom: 12px; flex-wrap: wrap;
+}
+.es-server-title { font-weight: 700; font-size: 1.05rem; }
+.es-default-pill { display: inline-block; padding: 3px 10px; border-radius: 14px; background: rgba(94,238,200,0.15); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 10px; }
+.es-server-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.es-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.es-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.12); }
+.es-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.es-btn-primary { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.es-btn-primary:hover { background: rgba(94,238,248,0.25); }
+.es-btn-danger { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.es-btn-danger:hover { background: rgba(255,80,80,0.22); }
+
+.es-form { display: none; }
+.es-form.open { display: block; }
+.es-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .es-row { grid-template-columns: 1fr; } }
+.es-field { margin-bottom: 10px; }
+.es-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 4px; font-weight: 600; }
+.es-input {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; box-sizing: border-box; font-size: 0.9rem; font-family: inherit;
+}
+.es-check { display: flex; align-items: center; gap: 8px; margin: 6px 12px 6px 0; font-size: 0.88rem; }
+.es-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+.es-msg { font-size: 0.85rem; min-height: 18px; margin-left: auto; color: #bfeecf; }
+.es-warning {
+    margin: 10px 0 16px; padding: 11px 14px; border-radius: 10px;
+    color: #ffdda3; background: rgba(255,193,7,0.1); border: 1px solid rgba(255,193,7,0.25);
+    font-size: 0.86rem;
+}
+.es-pw-wrap { position: relative; }
+.es-pw-toggle { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: rgba(255,255,255,0.5); cursor: pointer; }
+.es-empty { padding: 36px 18px; text-align: center; background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; color: rgba(255,255,255,0.55); }
 </style>
-</head>
 
-<div class="settings-page">
-    <div class="settings-card">
-        <h1>Email Server Settings</h1>
-        <p>Configure SMTP for your site contact form and send a test email.</p>
-        {% if two_factor_enabled %}
-<div class="settings-warning">
-    <strong>Heads up:</strong>
-    Editing and saving email server settings will disable two-factor authentication.
-    You will need to reactivate 2FA from Settings after confirming email sending still works.
-</div>
-{% endif %}
+<div class="es-page">
+    <div class="es-header">
+        <div>
+            <p class="es-kicker">Admin</p>
+            <h1 class="es-title">Email Servers</h1>
+            <p class="es-help">Configure one or more SMTP servers. The default is used for transactional email (2FA, contact form, account recovery); newsletters can override per-newsletter.</p>
+        </div>
+        <button class="es-btn-new" onclick="esOpenForm(0)">
+            <i class="fas fa-plus"></i> Add Server
+        </button>
+    </div>
 
-        <form id="emailSettingsForm">
-            <div class="settings-group">
-                <label for="smtp_host">SMTP Host</label>
-                <input type="text" id="smtp_host" name="smtp_host" class="form-control"
-                    value="{{ email_settings.smtp_host if email_settings else '' }}"
-                    placeholder="smtp.example.com" required>
-            </div>
+    {% if two_factor_enabled %}
+    <div class="es-warning">
+        <strong>Heads up:</strong> editing the default email server will disable two-factor authentication. You'll need to reactivate 2FA from Settings after confirming email still works.
+    </div>
+    {% endif %}
 
-            <div class="settings-group">
-                <label for="smtp_port">SMTP Port</label>
-                <input type="number" id="smtp_port" name="smtp_port" class="form-control"
-                    value="{{ email_settings.smtp_port if email_settings else 587 }}"
-                    placeholder="587" required>
-            </div>
-
-            <div class="settings-group">
-                <label for="smtp_username">SMTP Username</label>
-                <input type="text" id="smtp_username" name="smtp_username" class="form-control"
-                    value="{{ email_settings.smtp_username if email_settings else '' }}"
-                    placeholder="username@example.com" required>
-            </div>
-
-            <div class="settings-group">
-                <label for="smtp_password">SMTP Password</label>
-                <div class="pw-wrap">
-                    <input type="password" id="smtp_password" name="smtp_password" class="form-control"
-                        value="{{ email_settings.smtp_password if email_settings else '' }}"
-                        placeholder="SMTP password" required>
-                    <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
+    {% if email_servers %}
+    {% for s in email_servers %}
+    <div class="es-server-card" id="serverCard-{{ s.id }}" data-id="{{ s.id }}">
+        <div class="es-server-head">
+            <div class="es-server-title">
+                {{ s.label or 'Email Server' }}
+                {% if s.is_default %}<span class="es-default-pill">Default</span>{% endif %}
+                <div style="font-size:0.78rem;color:rgba(255,255,255,0.45);font-weight:400;margin-top:3px;">
+                    {{ s.from_email }}{% if s.smtp_host %} via {{ s.smtp_host }}{% endif %}{% if not s.is_active %} <span style="color:#ffd982;">— disabled</span>{% endif %}
                 </div>
             </div>
-
-            <div class="settings-group">
-                <label for="from_email">From Email</label>
-                <input type="email" id="from_email" name="from_email" class="form-control"
-                    value="{{ email_settings.from_email if email_settings else '' }}"
-                    placeholder="noreply@example.com" required>
+            <div class="es-server-actions">
+                {% if not s.is_default %}
+                <button class="es-btn es-btn-secondary" onclick="esSetDefault({{ s.id }})">
+                    <i class="fas fa-star"></i> Make default
+                </button>
+                {% endif %}
+                <button class="es-btn es-btn-primary" onclick="esToggleForm({{ s.id }})">
+                    <i class="fas fa-pen"></i> Edit
+                </button>
+                {% if email_servers | length > 1 %}
+                <button class="es-btn es-btn-danger" onclick="esDelete({{ s.id }}, {{ (s.label or 'Email Server') | tojson }})">
+                    <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
             </div>
+        </div>
 
-            <div class="settings-group">
-                <label for="from_name">From Name</label>
-                <input type="text" id="from_name" name="from_name" class="form-control"
-                    value="{{ email_settings.from_name if email_settings else '' }}"
-                    placeholder="My Website">
+        <form class="es-form" id="serverForm-{{ s.id }}" data-id="{{ s.id }}">
+            <div class="es-row">
+                <div class="es-field">
+                    <label class="es-label">Label</label>
+                    <input class="es-input" name="label" value="{{ s.label or '' }}" placeholder="e.g. Primary, Marketing">
+                </div>
+                <div class="es-field">
+                    <label class="es-label">From email</label>
+                    <input class="es-input" name="from_email" type="email" value="{{ s.from_email or '' }}" required>
+                </div>
             </div>
-
-            <div class="settings-check">
-                <label>
-                    <input type="checkbox" name="use_tls" {% if not email_settings or email_settings.use_tls %}checked{% endif %}>
-                    Use TLS
-                </label>
+            <div class="es-row">
+                <div class="es-field">
+                    <label class="es-label">From name</label>
+                    <input class="es-input" name="from_name" value="{{ s.from_name or '' }}" placeholder="Your Site">
+                </div>
+                <div class="es-field">
+                    <label class="es-label">SMTP host</label>
+                    <input class="es-input" name="smtp_host" value="{{ s.smtp_host or '' }}" required>
+                </div>
             </div>
-
-            <div class="settings-check">
-                <label>
-                    <input type="checkbox" name="use_ssl" {% if email_settings and email_settings.use_ssl %}checked{% endif %}>
-                    Use SSL
-                </label>
+            <div class="es-row">
+                <div class="es-field">
+                    <label class="es-label">SMTP port</label>
+                    <input class="es-input" name="smtp_port" type="number" value="{{ s.smtp_port or 587 }}" required>
+                </div>
+                <div class="es-field">
+                    <label class="es-label">SMTP username</label>
+                    <input class="es-input" name="smtp_username" value="{{ s.smtp_username or '' }}" required>
+                </div>
             </div>
-
-            <div class="settings-check">
-                <label>
-                    <input type="checkbox" name="is_active" {% if not email_settings or email_settings.is_active %}checked{% endif %}>
-                    Enable email sending
-                </label>
+            <div class="es-field">
+                <label class="es-label">SMTP password <span style="opacity:0.6;font-weight:400;">(leave blank to keep current)</span></label>
+                <div class="es-pw-wrap">
+                    <input class="es-input" name="smtp_password" type="password" placeholder="••••••••">
+                    <button type="button" class="es-pw-toggle" onclick="esPwToggle(this)"><i class="fas fa-eye"></i></button>
+                </div>
             </div>
-
-            <div class="settings-group" style="margin-top: 22px;">
-                <label for="testEmailInput">Send Test Email To</label>
-                <input type="email" id="testEmailInput" class="form-control" placeholder="you@example.com">
+            <div style="display:flex;gap:18px;flex-wrap:wrap;">
+                <label class="es-check"><input type="checkbox" name="use_tls" {% if s.use_tls %}checked{% endif %}> Use TLS</label>
+                <label class="es-check"><input type="checkbox" name="use_ssl" {% if s.use_ssl %}checked{% endif %}> Use SSL</label>
+                <label class="es-check"><input type="checkbox" name="is_active" {% if s.is_active %}checked{% endif %}> Enabled</label>
             </div>
-
-            <div class="settings-actions">
-                <button type="submit" class="btn-primary">Save Settings</button>
-                <button type="button" id="sendTestEmailButton" class="btn-secondary">Send Test Email</button>
-                <a href="{{ url_for('dashboard') }}" class="btn-secondary">Back to Dashboard</a>
+            <div class="es-field" style="margin-top:14px;">
+                <label class="es-label">Send a test email to</label>
+                <input class="es-input es-test-input" type="email" placeholder="you@example.com">
             </div>
+            <div class="es-form-actions">
+                <button type="button" class="es-btn es-btn-primary" onclick="esSave({{ s.id }})"><i class="fas fa-save"></i> Save</button>
+                <button type="button" class="es-btn es-btn-secondary" onclick="esTest({{ s.id }})"><i class="fas fa-paper-plane"></i> Send Test</button>
+                <span class="es-msg" id="serverMsg-{{ s.id }}"></span>
+            </div>
+        </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="es-empty">No email servers configured yet. Click "Add Server" to set one up.</div>
+    {% endif %}
 
-            <div class="settings-message" id="settingsMessage"></div>
+    <!-- Add-new form (server_id=0 means "new") -->
+    <div class="es-server-card" id="serverCard-0" style="display:none;">
+        <div class="es-server-head">
+            <div class="es-server-title">New email server</div>
+            <button class="es-btn es-btn-secondary" onclick="esCloseForm(0)"><i class="fas fa-times"></i> Cancel</button>
+        </div>
+        <form class="es-form open" id="serverForm-0" data-id="0">
+            <div class="es-row">
+                <div class="es-field">
+                    <label class="es-label">Label</label>
+                    <input class="es-input" name="label" required placeholder="e.g. Primary, Marketing">
+                </div>
+                <div class="es-field">
+                    <label class="es-label">From email</label>
+                    <input class="es-input" name="from_email" type="email" required>
+                </div>
+            </div>
+            <div class="es-row">
+                <div class="es-field">
+                    <label class="es-label">From name</label>
+                    <input class="es-input" name="from_name" placeholder="Your Site">
+                </div>
+                <div class="es-field">
+                    <label class="es-label">SMTP host</label>
+                    <input class="es-input" name="smtp_host" required>
+                </div>
+            </div>
+            <div class="es-row">
+                <div class="es-field">
+                    <label class="es-label">SMTP port</label>
+                    <input class="es-input" name="smtp_port" type="number" value="587" required>
+                </div>
+                <div class="es-field">
+                    <label class="es-label">SMTP username</label>
+                    <input class="es-input" name="smtp_username" required>
+                </div>
+            </div>
+            <div class="es-field">
+                <label class="es-label">SMTP password</label>
+                <div class="es-pw-wrap">
+                    <input class="es-input" name="smtp_password" type="password" required>
+                    <button type="button" class="es-pw-toggle" onclick="esPwToggle(this)"><i class="fas fa-eye"></i></button>
+                </div>
+            </div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;">
+                <label class="es-check"><input type="checkbox" name="use_tls" checked> Use TLS</label>
+                <label class="es-check"><input type="checkbox" name="use_ssl"> Use SSL</label>
+                <label class="es-check"><input type="checkbox" name="is_active" checked> Enabled</label>
+            </div>
+            <div class="es-field" style="margin-top:14px;">
+                <label class="es-label">Send a test email to</label>
+                <input class="es-input es-test-input" type="email" placeholder="you@example.com">
+            </div>
+            <div class="es-form-actions">
+                <button type="button" class="es-btn es-btn-primary" onclick="esCreate()"><i class="fas fa-plus"></i> Create</button>
+                <button type="button" class="es-btn es-btn-secondary" onclick="esTest(0)"><i class="fas fa-paper-plane"></i> Test (without saving)</button>
+                <span class="es-msg" id="serverMsg-0"></span>
+            </div>
         </form>
     </div>
 </div>
+
 <script>
-    const emailSettingsForm = document.getElementById('emailSettingsForm');
-    const sendTestEmailButton = document.getElementById('sendTestEmailButton');
-    const settingsMessage = document.getElementById('settingsMessage');
-    const twoFactorEnabled = {{ 'true' if two_factor_enabled else 'false' }};
+const twoFactorEnabled = {{ 'true' if two_factor_enabled else 'false' }};
 
-    if (emailSettingsForm) {
-        emailSettingsForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-
-            if (twoFactorEnabled) {
-    const confirmed = confirm(
-        'Editing and saving email server settings will disable two-factor authentication. You will need to reactivate 2FA afterward. Continue?'
-    );
-
-    if (!confirmed) {
-        return;
-    }
+function esToggleForm(id) {
+    const form = document.getElementById(`serverForm-${id}`);
+    if (form) form.classList.toggle('open');
+}
+function esCloseForm(id) {
+    const card = document.getElementById(`serverCard-${id}`);
+    if (card) card.style.display = 'none';
+    const form = document.getElementById(`serverForm-${id}`);
+    if (form) form.reset();
+}
+function esOpenForm(id) {
+    const card = document.getElementById(`serverCard-${id}`);
+    if (card) card.style.display = 'block';
+    card.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+function esPwToggle(btn) {
+    const inp = btn.previousElementSibling;
+    if (!inp) return;
+    inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
-            const formData = new FormData(emailSettingsForm);
-
-            fetch('/save_email_settings', {
-                method: 'POST',
-                body: formData
-            })
-            .then(async response => {
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.message || 'Failed to save email settings.');
-                }
-                settingsMessage.textContent = data.message || 'Finished saving settings.';
-                if (data.two_factor_disabled) {
-    settingsMessage.style.color = '#ffcc8a';
-} else {
-    settingsMessage.style.color = '#bfeecf';
+function esSetMsg(id, text, kind) {
+    const el = document.getElementById(`serverMsg-${id}`);
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = kind === 'err' ? '#ff8a8a' : kind === 'warn' ? '#ffd982' : '#bfeecf';
 }
-            })
-            .catch(error => {
-                console.error('Error saving email settings:', error);
-                settingsMessage.textContent = error.message || 'Failed to save email settings.';
-                settingsMessage.style.color = '#ff9d9d';
-            });
-        });
-    }
 
-    if (sendTestEmailButton) {
-        sendTestEmailButton.addEventListener('click', function () {
-            const formData = new FormData(emailSettingsForm);
-            const testEmail = document.getElementById('testEmailInput').value.trim();
+function _formToData(id, includeId) {
+    const form = document.getElementById(`serverForm-${id}`);
+    const data = new FormData(form);
+    if (includeId && id) data.append('id', String(id));
+    return data;
+}
 
-            if (!testEmail) {
-                settingsMessage.textContent = 'Please enter a test email address first.';
-                settingsMessage.style.color = '#ff9d9d';
-                return;
-            }
+async function esSave(id) {
+    const isDefault = !!document.querySelector(`#serverCard-${id} .es-default-pill`);
+    if (twoFactorEnabled && isDefault &&
+        !confirm('This is the default server. Saving will disable 2FA. Continue?')) return;
+    esSetMsg(id, 'Saving…');
+    const data = _formToData(id, true);
+    const r = await fetch('/save_email_settings', {method: 'POST', body: data});
+    const j = await r.json();
+    if (!r.ok || j.status !== 'success') { esSetMsg(id, j.message || 'Save failed.', 'err'); return; }
+    esSetMsg(id, j.message || 'Saved.', j.two_factor_disabled ? 'warn' : 'ok');
+}
 
-            formData.append('test_email', testEmail);
+async function esCreate() {
+    const data = _formToData(0, false);
+    esSetMsg(0, 'Creating…');
+    const r = await fetch('/admin/email-servers/create', {method: 'POST', body: data});
+    const j = await r.json();
+    if (!r.ok || j.status !== 'success') { esSetMsg(0, j.message || 'Create failed.', 'err'); return; }
+    location.reload();
+}
 
-            fetch('/send_test_email', {
-                method: 'POST',
-                body: formData
-            })
-            .then(async response => {
-                const data = await response.json();
+async function esTest(id) {
+    const form = document.getElementById(`serverForm-${id}`);
+    const testEmail = form.querySelector('.es-test-input').value.trim();
+    if (!testEmail) { esSetMsg(id, 'Enter a test email first.', 'err'); return; }
+    const data = new FormData(form);
+    data.append('test_email', testEmail);
+    esSetMsg(id, 'Sending…');
+    const r = await fetch('/send_test_email', {method: 'POST', body: data});
+    const j = await r.json();
+    if (!r.ok || j.status !== 'success') { esSetMsg(id, j.message || 'Test failed.', 'err'); return; }
+    esSetMsg(id, j.message || 'Test sent.', 'ok');
+}
 
-                if (!response.ok) {
-                    throw new Error(data.message || 'Failed to send test email.');
-                }
+async function esDelete(id, label) {
+    if (!confirm(`Delete the email server "${label}"? Any newsletters using it will fall back to the default.`)) return;
+    const r = await fetch(`/admin/email-servers/${id}/delete`, {method: 'POST'});
+    const j = await r.json();
+    if (!r.ok || j.status !== 'success') { alert(j.message || 'Delete failed.'); return; }
+    location.reload();
+}
 
-                settingsMessage.textContent = data.message || 'Test email sent successfully.';
-                settingsMessage.style.color = '#bfeecf';
-            })
-            .catch(error => {
-                console.error('Error sending test email:', error);
-                settingsMessage.textContent = error.message || 'Failed to send test email.';
-                settingsMessage.style.color = '#ff9d9d';
-            });
-        });
-    }
+async function esSetDefault(id) {
+    if (twoFactorEnabled && !confirm('Promoting this server to default will disable 2FA. Continue?')) return;
+    const r = await fetch(`/admin/email-servers/${id}/set-default`, {method: 'POST'});
+    const j = await r.json();
+    if (!r.ok || j.status !== 'success') { alert(j.message || 'Failed.'); return; }
+    location.reload();
+}
 </script>
+
 {% endblock %}

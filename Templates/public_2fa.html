@@ -4,13 +4,6 @@
 
 {% block head %}
 <style>
-    body {
-        margin: 0;
-        font-family: Roboto, Arial, sans-serif;
-        background: {{ website.background_color or '#111' }};
-        color: {{ website.text_color or '#fff' }};
-    }
-
     .auth-card {
         width: min(420px, calc(100% - 28px));
         margin: 110px auto;
@@ -90,8 +83,6 @@
 {% endblock %}
 
 {% block content %}
-{% include 'components/public_navbar.html' %}
-
 <div class="auth-card">
     <h1>Check your email</h1>
     <p class="subtitle">We sent a 6-digit code to your email address. Enter it below to continue.</p>
@@ -109,6 +100,55 @@
         <button type="submit" class="auth-submit">Verify</button>
     </form>
 
-    <a class="auth-back" href="{{ url_for('public_login') }}">← Back to login</a>
+    <div style="text-align:center;margin-top:14px;">
+        <button id="resendBtn" onclick="resendCode()"
+                style="background:none;border:none;color:rgba(255,255,255,0.45);font-size:0.84rem;cursor:pointer;text-decoration:underline;padding:4px;">
+            Resend code
+        </button>
+        <span id="resendStatus" style="font-size:0.82rem;margin-left:6px;"></span>
+    </div>
+
+    <a class="auth-back" href="{{ url_for('public_login', website_prefix=website.url_prefix) }}">← Back to login</a>
 </div>
+<script>
+let _resendCooldown = null;
+function resendCode() {
+    const btn = document.getElementById('resendBtn');
+    const status = document.getElementById('resendStatus');
+    btn.disabled = true;
+    status.textContent = 'Sending…';
+    status.style.color = 'rgba(255,255,255,0.5)';
+    fetch('{{ url_for("public_2fa_resend") }}', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                status.textContent = 'Code sent!';
+                status.style.color = '#5eeec8';
+            } else {
+                status.textContent = d.error || 'Failed to send.';
+                status.style.color = '#ff8888';
+                btn.disabled = false;
+                return;
+            }
+            let secs = 10;
+            btn.textContent = `Resend code (${secs}s)`;
+            _resendCooldown = setInterval(() => {
+                secs--;
+                if (secs <= 0) {
+                    clearInterval(_resendCooldown);
+                    btn.disabled = false;
+                    btn.textContent = 'Resend code';
+                    status.textContent = '';
+                } else {
+                    btn.textContent = `Resend code (${secs}s)`;
+                }
+            }, 1000);
+        })
+        .catch(() => {
+            status.textContent = 'Request failed.';
+            status.style.color = '#ff8888';
+            btn.disabled = false;
+        });
+}
+</script>
 {% endblock %}

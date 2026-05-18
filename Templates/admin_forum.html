@@ -206,7 +206,7 @@
             <button type="submit">Save Forum Settings</button>
 
             {% if website.forum_enabled %}
-            <a class="admin-forum-button" href="{{ url_for('public_forum') }}" target="_blank">
+            <a class="admin-forum-button" href="{{ url_for('public_forum_prefixed', prefix=website.url_prefix) if website.url_prefix else url_for('public_forum') }}" target="_blank">
                 View Public Forum
             </a>
             {% endif %}

@@ -746,6 +746,9 @@
                     <tr>
                         <td>
                             {{ visit.page_name }}
+                            {% if visit.website_prefix %}
+                            <span style="font-size:0.72rem;color:rgba(94,238,248,0.6);margin-left:5px;font-weight:600;">/{{ visit.website_prefix }}</span>
+                            {% endif %}
                             <br>
                             <span style="color: rgba(255,255,255,0.42);">
                                 {{ visit.path }}
@@ -795,8 +798,11 @@
                     <tr>
                         <td>
                             {{ page.name }}
+                            {% if page.website_prefix %}
+                            <span style="font-size:0.72rem;color:rgba(94,238,248,0.6);margin-left:5px;font-weight:600;">/{{ page.website_prefix }}</span>
+                            {% endif %}
                             <br>
-                            <span style="color: rgba(255,255,255,0.42);">/{{ page.slug }}</span>
+                            <span style="color: rgba(255,255,255,0.42);">{{ ('/' + page.website_prefix + '/' + page.slug) if page.website_prefix else ('/' + page.slug) }}</span>
                         </td>
                         <td class="analytics-count-col">{{ page.page_views }}</td>
                         <td class="analytics-count-col">{{ page.unique_visitors }}</td>

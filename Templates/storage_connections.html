@@ -1,0 +1,535 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.sc-page { max-width: 980px; margin: 30px auto 60px; padding: 0 20px; color: #fff; }
+.sc-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.sc-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+.sc-title { font-size: 1.8rem; font-weight: 800; margin: 4px 0 0; }
+.sc-help { color: rgba(255,255,255,0.55); font-size: 0.92rem; margin: 6px 0 0; line-height: 1.5; }
+
+.sc-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.sc-card h2 { margin: 0 0 6px; font-size: 1rem; }
+.sc-card-sub { font-size: 0.82rem; color: rgba(255,255,255,0.45); margin: 0 0 14px; }
+
+.sc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .sc-row { grid-template-columns: 1fr; } }
+.sc-field { margin-bottom: 10px; }
+.sc-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 5px; font-weight: 600; }
+.sc-input { width: 100%; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.9rem; box-sizing: border-box; font-family: inherit; }
+.sc-input:focus { border-color: rgba(94,238,248,0.4); outline: none; }
+
+.sc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 0.86rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.sc-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.sc-btn-primary:hover { opacity: 0.88; }
+.sc-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.12); }
+.sc-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.sc-btn-danger { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.sc-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.sc-google-btn { background: #fff; color: #1a1a1a; padding: 10px 18px; border-radius: 8px; font-weight: 700; }
+.sc-google-btn:hover { background: rgba(255,255,255,0.92); }
+
+.sc-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.sc-msg { font-size: 0.85rem; min-height: 18px; }
+.sc-redirect-pill { display: inline-block; padding: 7px 11px; border-radius: 8px; background: rgba(94,238,248,0.08); border: 1px solid rgba(94,238,248,0.22); color: #5eeef8; font-family: monospace; font-size: 0.82rem; word-break: break-all; user-select: all; }
+
+.sc-connection { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); border-radius: 12px; margin-bottom: 10px; }
+.sc-conn-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(94,238,248,0.1); color: #5eeef8; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
+.sc-conn-info { flex: 1; min-width: 0; }
+.sc-conn-label { font-weight: 700; font-size: 0.98rem; margin: 0 0 3px; }
+.sc-conn-meta { font-size: 0.78rem; color: rgba(255,255,255,0.45); }
+.sc-conn-actions { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+
+.sc-empty { padding: 36px 18px; text-align: center; background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; color: rgba(255,255,255,0.55); }
+
+/* Browser modal */
+.sc-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; }
+.sc-overlay.open { display: flex; }
+.sc-browser { background: #181820; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; width: min(820px, 96vw); max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; }
+.sc-browser-head { padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.07); }
+.sc-browser-title { font-weight: 700; }
+.sc-browser-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.4rem; cursor: pointer; }
+.sc-breadcrumb { padding: 8px 18px; font-size: 0.82rem; color: rgba(255,255,255,0.55); border-bottom: 1px solid rgba(255,255,255,0.05); }
+.sc-breadcrumb a { color: #5eeef8; cursor: pointer; text-decoration: none; }
+.sc-breadcrumb a:hover { text-decoration: underline; }
+.sc-browser-body { flex: 1; overflow-y: auto; padding: 8px; }
+.sc-row-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; }
+.sc-row-item:hover { background: rgba(255,255,255,0.06); }
+.sc-row-item.selected { background: rgba(94,238,248,0.12); }
+.sc-row-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.55); flex-shrink: 0; }
+.sc-row-name { flex: 1; min-width: 0; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-row-meta { font-size: 0.78rem; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+.sc-row-check { width: 18px; height: 18px; accent-color: #5eeef8; }
+.sc-browser-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sc-import-msg { font-size: 0.85rem; margin-left: auto; min-height: 18px; }
+.sc-loading { padding: 24px; text-align: center; color: rgba(255,255,255,0.45); font-size: 0.9rem; }
+</style>
+
+<div class="sc-page">
+    <div class="sc-header">
+        <div>
+            <p class="sc-kicker">Admin</p>
+            <h1 class="sc-title">External Drives</h1>
+            <p class="sc-help">Connect to Google Drive (and, eventually, other cloud drives) so you can browse and import files into your asset library.</p>
+        </div>
+    </div>
+
+    <!-- ── Google Drive OAuth app credentials ────────────────────────────── -->
+    <div class="sc-card">
+        <h2>Google Drive · OAuth app credentials</h2>
+        <p class="sc-card-sub">Paste the client_id and client_secret from your Google Cloud project. You only need to do this once.</p>
+
+        <details style="margin-bottom:14px;">
+            <summary style="cursor:pointer;color:rgba(255,255,255,0.65);font-size:0.86rem;">How to get these (≈15 minutes) ↓</summary>
+            <ol style="margin:10px 0 0;padding-left:20px;font-size:0.86rem;color:rgba(255,255,255,0.6);line-height:1.6;">
+                <li>Go to <a href="https://console.cloud.google.com/" target="_blank" style="color:#5eeef8;">Google Cloud Console</a> and create a new project (or pick an existing one).</li>
+                <li>Open <strong>APIs &amp; Services → Library</strong>, search for <strong>Google Drive API</strong>, and click <strong>Enable</strong>.</li>
+                <li>Open <strong>APIs &amp; Services → OAuth consent screen</strong>, fill in the basic info, and add the scope <code style="background:rgba(255,255,255,0.07);padding:1px 4px;border-radius:3px;">https://www.googleapis.com/auth/drive.readonly</code>.</li>
+                <li>Open <strong>APIs &amp; Services → Credentials</strong>, click <strong>Create Credentials → OAuth client ID</strong>, choose <strong>Web application</strong>.</li>
+                <li>Under <strong>Authorized redirect URIs</strong>, add this exact URL:
+                    <div style="margin:6px 0;">
+                        <span class="sc-redirect-pill">{{ google_redirect_uri }}</span>
+                    </div>
+                </li>
+                <li>Save, then copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the form below.</li>
+            </ol>
+        </details>
+
+        <form id="googleCredsForm">
+            <div class="sc-row">
+                <div class="sc-field">
+                    <label class="sc-label">Client ID</label>
+                    <input class="sc-input" name="client_id" value="{{ google_creds.client_id if google_creds else '' }}" required placeholder="123456789-abc.apps.googleusercontent.com">
+                </div>
+                <div class="sc-field">
+                    <label class="sc-label">Client Secret <span style="opacity:0.55;font-weight:400;">{% if google_creds %}(leave blank to keep current){% endif %}</span></label>
+                    <input class="sc-input" name="client_secret" type="password" placeholder="••••••••" {% if not google_creds %}required{% endif %}>
+                </div>
+            </div>
+            <div class="sc-toolbar">
+                <button type="button" class="sc-btn sc-btn-primary" onclick="saveGoogleCreds()"><i class="fas fa-save"></i> Save credentials</button>
+                {% if google_creds %}
+                <a href="{{ url_for('storage_oauth_start', provider='google_drive') }}" class="sc-btn sc-google-btn">
+                    <i class="fab fa-google"></i> Connect a Google Drive
+                </a>
+                {% endif %}
+                <span class="sc-msg" id="googleCredsMsg"></span>
+            </div>
+        </form>
+    </div>
+
+    <!-- ── Local Path allowlist + Add (Local / SMB) ──────────────────────── -->
+    <div class="sc-card">
+        <h2>Local & network shares</h2>
+        <p class="sc-card-sub">For NFS or any pre-mounted share, set one or more allowlisted root paths below — then add a connection that points to one of them. For SMB you can either mount it at the OS level (and use Local Path) or connect to it directly with credentials.</p>
+
+        <div class="sc-field">
+            <label class="sc-label">Allowed root paths <span style="opacity:0.55;font-weight:400;">(one per line)</span></label>
+            <textarea id="allowRoots" class="sc-input" rows="3" placeholder="/mnt/nas&#10;/srv/shares" style="font-family:monospace;">{% for r in local_path_allowed_roots %}{{ r }}
+{% endfor %}</textarea>
+            <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                Each path must already exist and be readable by the app process. Connections can only point at — or inside — one of these roots.
+            </p>
+        </div>
+        <div class="sc-toolbar">
+            <button class="sc-btn sc-btn-primary" onclick="saveAllowlist()"><i class="fas fa-save"></i> Save allowlist</button>
+            <button class="sc-btn sc-btn-secondary" onclick="openAddModal('local_path')"><i class="fas fa-folder"></i> Add Local Path</button>
+            <button class="sc-btn sc-btn-secondary" onclick="openAddModal('smb')"><i class="fas fa-server"></i> Add SMB Share</button>
+            <span class="sc-msg" id="allowlistMsg"></span>
+        </div>
+    </div>
+
+    <!-- ── Connected drives ──────────────────────────────────────────────── -->
+    <div class="sc-card">
+        <h2>Connected drives</h2>
+        {% if connections %}
+        <div id="connList">
+            {% for c in connections %}
+            <div class="sc-connection" id="connRow-{{ c.id }}">
+                <div class="sc-conn-icon">
+                    {% if c.provider == 'google_drive' %}<i class="fab fa-google-drive"></i>
+                    {% elif c.provider == 'onedrive' %}<i class="fab fa-microsoft"></i>
+                    {% elif c.provider == 's3' %}<i class="fab fa-aws"></i>
+                    {% else %}<i class="fas fa-database"></i>{% endif %}
+                </div>
+                <div class="sc-conn-info">
+                    <p class="sc-conn-label">{{ c.label }}</p>
+                    <div class="sc-conn-meta">
+                        {{ c.provider | replace('_', ' ') | title }}
+                        {% if c.account_identifier %} · {{ c.account_identifier }}{% endif %}
+                        {% if c.last_used_at %} · last used {{ c.last_used_at.strftime('%b %-d, %Y') }}{% endif %}
+                        {% if not c.is_active %} · <span style="color:#ffd982;">disabled</span>{% endif %}
+                    </div>
+                </div>
+                <div class="sc-conn-actions">
+                    <button class="sc-btn sc-btn-primary" onclick='openBrowser({{ c.id }}, {{ c.label | tojson }})'>
+                        <i class="fas fa-folder-open"></i> Browse
+                    </button>
+                    <button class="sc-btn sc-btn-secondary" onclick="testConnection({{ c.id }})">
+                        <i class="fas fa-bolt"></i> Test
+                    </button>
+                    <button class="sc-btn sc-btn-danger" onclick='deleteConnection({{ c.id }}, {{ c.label | tojson }})'>
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="sc-empty">No drives connected yet. Save your Google credentials above, then click "Connect a Google Drive".</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Browser modal -->
+<div class="sc-overlay" id="browserOverlay" onclick="if(event.target===this)closeBrowser()">
+    <div class="sc-browser">
+        <div class="sc-browser-head">
+            <div class="sc-browser-title" id="browserTitle">Browse</div>
+            <button class="sc-browser-close" onclick="closeBrowser()">&times;</button>
+        </div>
+        <div class="sc-breadcrumb" id="breadcrumb">
+            <a onclick="navigateTo(null, 'Root')">Root</a>
+        </div>
+        <div class="sc-browser-body" id="browserBody">
+            <div class="sc-loading">Loading…</div>
+        </div>
+        <div class="sc-browser-foot">
+            <span style="font-size:0.85rem;color:rgba(255,255,255,0.55);"><span id="selectedCount">0</span> selected</span>
+            <button class="sc-btn sc-btn-secondary" onclick="clearSelection()">Clear</button>
+            <button class="sc-btn sc-btn-primary" onclick="importSelected()">
+                <i class="fas fa-download"></i> Import to Library
+            </button>
+            <span class="sc-import-msg" id="importMsg"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Add connection modal -->
+<div class="sc-overlay" id="addConnOverlay" onclick="if(event.target===this)closeAddModal()">
+    <div class="sc-browser" style="max-height:none;">
+        <div class="sc-browser-head">
+            <div class="sc-browser-title" id="addConnTitle">Add connection</div>
+            <button class="sc-browser-close" onclick="closeAddModal()">&times;</button>
+        </div>
+        <div style="padding:18px;display:flex;flex-direction:column;gap:10px;">
+            <!-- LOCAL PATH form -->
+            <form id="localPathForm" style="display:none;flex-direction:column;gap:10px;">
+                <div class="sc-field">
+                    <label class="sc-label">Label</label>
+                    <input class="sc-input" name="label" required placeholder="e.g. NAS Photos">
+                </div>
+                <div class="sc-field">
+                    <label class="sc-label">Root path</label>
+                    <input class="sc-input" name="root_path" required placeholder="/mnt/nas/photos" style="font-family:monospace;">
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                        Must be inside one of the allowlisted roots.
+                    </p>
+                </div>
+            </form>
+
+            <!-- SMB form -->
+            <form id="smbForm" style="display:none;flex-direction:column;gap:10px;">
+                <div class="sc-field">
+                    <label class="sc-label">Label</label>
+                    <input class="sc-input" name="label" required placeholder="e.g. Office NAS">
+                </div>
+                <div class="sc-row">
+                    <div class="sc-field">
+                        <label class="sc-label">Server (host or IP)</label>
+                        <input class="sc-input" name="server" required placeholder="192.168.1.5 or nas.local">
+                    </div>
+                    <div class="sc-field">
+                        <label class="sc-label">Share name</label>
+                        <input class="sc-input" name="share" required placeholder="media">
+                    </div>
+                </div>
+                <div class="sc-row">
+                    <div class="sc-field">
+                        <label class="sc-label">Username <span style="opacity:0.55;font-weight:400;">(blank for guest)</span></label>
+                        <input class="sc-input" name="username" placeholder="alice">
+                    </div>
+                    <div class="sc-field">
+                        <label class="sc-label">Password</label>
+                        <input class="sc-input" name="password" type="password" placeholder="••••••••">
+                    </div>
+                </div>
+                <div class="sc-row">
+                    <div class="sc-field">
+                        <label class="sc-label">Domain <span style="opacity:0.55;font-weight:400;">(optional)</span></label>
+                        <input class="sc-input" name="domain" placeholder="WORKGROUP">
+                    </div>
+                    <div class="sc-field">
+                        <label class="sc-label">Port</label>
+                        <input class="sc-input" name="port" type="number" value="445">
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="sc-browser-foot">
+            <button class="sc-btn sc-btn-secondary" onclick="closeAddModal()">Cancel</button>
+            <button class="sc-btn sc-btn-primary" onclick="submitAddConnection()"><i class="fas fa-plus"></i> Add</button>
+            <span class="sc-import-msg" id="addConnMsg"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+let _addConnProvider = null;
+
+function openAddModal(provider) {
+    _addConnProvider = provider;
+    document.getElementById('addConnMsg').textContent = '';
+    document.getElementById('localPathForm').style.display = provider === 'local_path' ? 'flex' : 'none';
+    document.getElementById('smbForm').style.display = provider === 'smb' ? 'flex' : 'none';
+    document.getElementById('addConnTitle').textContent =
+        provider === 'local_path' ? 'Add Local Path connection' : 'Add SMB connection';
+    document.getElementById('addConnOverlay').classList.add('open');
+}
+function closeAddModal() {
+    document.getElementById('addConnOverlay').classList.remove('open');
+}
+
+function _formObj(formId) {
+    const form = document.getElementById(formId);
+    const obj = {};
+    new FormData(form).forEach((v, k) => obj[k] = v);
+    return obj;
+}
+
+async function submitAddConnection() {
+    const msg = document.getElementById('addConnMsg');
+    msg.textContent = 'Saving…';
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    let endpoint, payload;
+    if (_addConnProvider === 'local_path') {
+        endpoint = '/admin/storage-connections/local-path/create';
+        payload = _formObj('localPathForm');
+        if (!payload.label || !payload.root_path) { msg.textContent = 'Label and root path are required.'; msg.style.color = '#ff8a8a'; return; }
+    } else if (_addConnProvider === 'smb') {
+        endpoint = '/admin/storage-connections/smb/create';
+        payload = _formObj('smbForm');
+        if (!payload.label || !payload.server || !payload.share) { msg.textContent = 'Label, server, and share are required.'; msg.style.color = '#ff8a8a'; return; }
+    } else {
+        msg.textContent = 'Unknown provider'; msg.style.color = '#ff8a8a'; return;
+    }
+    const r = await fetch(endpoint, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.success) { msg.textContent = j.error || 'Failed.'; msg.style.color = '#ff8a8a'; return; }
+    if (j.test_ok === false) {
+        msg.textContent = `Saved, but test failed: ${j.test_message || 'unknown'}`;
+        msg.style.color = '#ffd982';
+        return;
+    }
+    msg.textContent = 'Added.'; msg.style.color = '#5eeec8';
+    setTimeout(() => location.reload(), 600);
+}
+
+async function saveAllowlist() {
+    const msg = document.getElementById('allowlistMsg');
+    const raw = document.getElementById('allowRoots').value;
+    msg.textContent = 'Saving…'; msg.style.color = 'rgba(255,255,255,0.6)';
+    const r = await fetch('/admin/storage-connections/local-path/allowlist', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({allowed_roots: raw.split('\n').map(s => s.trim()).filter(Boolean)}),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.textContent = j.error || 'Save failed.'; msg.style.color = '#ff8a8a'; return; }
+    msg.textContent = 'Saved.'; msg.style.color = '#5eeec8';
+}
+
+async function saveGoogleCreds() {
+    const form = document.getElementById('googleCredsForm');
+    const msg = document.getElementById('googleCredsMsg');
+    const data = new FormData(form);
+    msg.textContent = 'Saving…';
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    const r = await fetch('/admin/storage-connections/oauth-credentials/google_drive', {
+        method: 'POST', body: data,
+    });
+    const j = await r.json();
+    if (!r.ok || !j.success) {
+        msg.textContent = j.error || 'Save failed.'; msg.style.color = '#ff8a8a';
+        return;
+    }
+    msg.textContent = 'Saved. Reload to enable "Connect" button.'; msg.style.color = '#5eeec8';
+    setTimeout(() => location.reload(), 800);
+}
+
+async function testConnection(cid) {
+    const r = await fetch(`/admin/storage-connections/${cid}/test`, {method: 'POST'});
+    const j = await r.json();
+    alert((j.success ? '✓ ' : '✗ ') + (j.message || j.error || 'Unknown result'));
+}
+
+async function deleteConnection(cid, label) {
+    if (!confirm(`Disconnect "${label}"? Imported files stay in your library.`)) return;
+    const r = await fetch(`/admin/storage-connections/${cid}/delete`, {method: 'POST'});
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Delete failed.'); return; }
+    document.getElementById(`connRow-${cid}`).remove();
+}
+
+// ── Browser ─────────────────────────────────────────────────────────────────
+let _bCid = null;
+let _bPath = [];      // [{id, name}]
+let _bSelected = new Map();  // remoteId -> name
+
+function openBrowser(cid, label) {
+    _bCid = cid;
+    _bPath = [];
+    _bSelected = new Map();
+    document.getElementById('browserTitle').textContent = `Browse — ${label}`;
+    document.getElementById('importMsg').textContent = '';
+    updateSelectedCount();
+    document.getElementById('browserOverlay').classList.add('open');
+    navigateTo(null, 'Root');
+}
+
+function closeBrowser() {
+    document.getElementById('browserOverlay').classList.remove('open');
+}
+
+function updateBreadcrumb() {
+    const el = document.getElementById('breadcrumb');
+    el.innerHTML = '';
+    const root = document.createElement('a');
+    root.textContent = 'Root';
+    root.onclick = () => { _bPath = []; loadFolder(null); };
+    el.appendChild(root);
+    _bPath.forEach((p, i) => {
+        el.appendChild(document.createTextNode(' / '));
+        const a = document.createElement('a');
+        a.textContent = p.name;
+        a.onclick = () => {
+            _bPath = _bPath.slice(0, i + 1);
+            loadFolder(p.id);
+        };
+        el.appendChild(a);
+    });
+}
+
+function navigateTo(folderId, name) {
+    if (folderId === null) {
+        _bPath = [];
+    } else {
+        _bPath.push({id: folderId, name});
+    }
+    loadFolder(folderId);
+}
+
+async function loadFolder(folderId) {
+    updateBreadcrumb();
+    const body = document.getElementById('browserBody');
+    body.innerHTML = '<div class="sc-loading">Loading…</div>';
+    const params = new URLSearchParams();
+    if (folderId) params.set('folder_id', folderId);
+    const r = await fetch(`/admin/storage-connections/${_bCid}/browse?${params.toString()}`);
+    const j = await r.json();
+    if (!j.success) {
+        body.innerHTML = `<div class="sc-loading" style="color:#ff8a8a;">${j.error || 'Failed to load folder.'}</div>`;
+        return;
+    }
+    if (!j.items.length) {
+        body.innerHTML = '<div class="sc-loading">This folder is empty.</div>';
+        return;
+    }
+    body.innerHTML = '';
+    j.items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'sc-row-item';
+        const isFolder = item.type === 'folder';
+        const sizeText = (!isFolder && item.size) ? formatBytes(item.size) : '';
+        const exportNote = (!isFolder && item.export_ext) ? ` <span style="color:rgba(94,238,248,0.65);">→ .${item.export_ext}</span>` : '';
+
+        row.innerHTML = `
+            ${isFolder
+              ? '<div class="sc-row-icon"><i class="fas fa-folder"></i></div>'
+              : `<input type="checkbox" class="sc-row-check" data-id="${item.id}" data-name="${(item.name || '').replace(/"/g,'&quot;')}">`}
+            <span class="sc-row-icon" style="margin-left:${isFolder ? '0' : '0'};">
+                ${isFolder ? '' : `<i class="fas ${iconForMime(item.mime_type)}"></i>`}
+            </span>
+            <span class="sc-row-name">${escapeHtml(item.name)}${exportNote}</span>
+            <span class="sc-row-meta">${sizeText}</span>
+        `;
+        if (isFolder) {
+            row.style.cursor = 'pointer';
+            row.onclick = () => navigateTo(item.id, item.name);
+        } else {
+            const cb = row.querySelector('.sc-row-check');
+            cb.checked = _bSelected.has(item.id);
+            if (cb.checked) row.classList.add('selected');
+            cb.addEventListener('change', () => {
+                if (cb.checked) { _bSelected.set(item.id, item.name); row.classList.add('selected'); }
+                else { _bSelected.delete(item.id); row.classList.remove('selected'); }
+                updateSelectedCount();
+            });
+            row.addEventListener('click', (e) => {
+                if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+            });
+        }
+        body.appendChild(row);
+    });
+}
+
+function clearSelection() {
+    _bSelected = new Map();
+    document.querySelectorAll('.sc-row-check').forEach(cb => { cb.checked = false; cb.closest('.sc-row-item').classList.remove('selected'); });
+    updateSelectedCount();
+}
+function updateSelectedCount() {
+    document.getElementById('selectedCount').textContent = _bSelected.size;
+}
+
+async function importSelected() {
+    if (_bSelected.size === 0) return;
+    const msg = document.getElementById('importMsg');
+    msg.textContent = `Importing ${_bSelected.size} file(s)…`;
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    const ids = Array.from(_bSelected.keys());
+    const r = await fetch(`/admin/storage-connections/${_bCid}/import`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file_ids: ids}),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.textContent = j.error || 'Import failed.'; msg.style.color = '#ff8a8a'; return; }
+    let txt = `Imported ${j.imported_count}.`;
+    if (j.failed_count) txt += ` ${j.failed_count} failed.`;
+    msg.textContent = txt;
+    msg.style.color = j.failed_count ? '#ffd982' : '#5eeec8';
+    if (j.failed_count) {
+        console.error('Failed imports:', j.failed);
+    }
+    clearSelection();
+}
+
+function formatBytes(n) {
+    n = Number(n) || 0;
+    for (const u of ['B','KB','MB','GB','TB']) {
+        if (n < 1024) return (u === 'B' ? n.toFixed(0) : n.toFixed(1)) + ' ' + u;
+        n /= 1024;
+    }
+    return n.toFixed(1) + ' PB';
+}
+function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function iconForMime(mt) {
+    mt = (mt || '').toLowerCase();
+    if (mt.startsWith('image/')) return 'fa-image';
+    if (mt.startsWith('video/')) return 'fa-film';
+    if (mt.startsWith('audio/')) return 'fa-music';
+    if (mt.includes('pdf')) return 'fa-file-pdf';
+    if (mt.includes('spreadsheet')) return 'fa-file-excel';
+    if (mt.includes('document') || mt.includes('msword')) return 'fa-file-word';
+    if (mt.includes('presentation')) return 'fa-file-powerpoint';
+    if (mt.includes('zip') || mt.includes('compressed')) return 'fa-file-archive';
+    return 'fa-file';
+}
+</script>
+
+{% endblock %}

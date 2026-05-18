@@ -443,7 +443,11 @@ document.querySelectorAll('.pd-content pre').forEach(function(pre) {
         {% for c in comments_data %}
         <div class="post-comment-card">
             <div class="post-comment-header">
-                <span class="post-comment-author">{{ c.author_name }}</span>
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;">
+                    <span class="post-comment-author">{{ c.author_name }}</span>
+                    {% if c.is_admin_mirror %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);white-space:nowrap;" title="Site owner">Admin</span>{% endif %}
+                    {% for role in (c.roles or []) %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;white-space:nowrap;">{{ role.name }}</span>{% endfor %}
+                </div>
                 <span class="post-comment-date">{{ c.created_at }}</span>
                 <button class="pcl-heart-btn{% if c.liked %} liked{% endif %}"
                         data-comment-id="{{ c.id }}"
@@ -466,7 +470,7 @@ document.querySelectorAll('.pd-content pre').forEach(function(pre) {
     {% if post.comments_require_login and not public_user %}
     <div class="post-comment-form" style="text-align:center;padding:24px;">
         <p style="opacity:0.65;font-size:0.9rem;margin:0 0 12px;">You must be logged in to leave a comment.</p>
-        <a href="{{ url_for('public_login', next=request.path) }}"
+        <a href="{{ url_for('public_login', website_prefix=website.url_prefix, next=request.path) }}"
            style="display:inline-block;padding:9px 22px;background:rgba(94,238,200,0.15);border:1px solid rgba(94,238,200,0.28);border-radius:8px;color:#5eeec8;font-size:0.88rem;font-weight:700;text-decoration:none;">
             Log In
         </a>
@@ -569,7 +573,7 @@ async function togglePostCommentLike(btn) {
         });
         const d = await r.json();
         if (d.requires_login) {
-            window.location.href = "{{ url_for('public_login') }}?next=" + encodeURIComponent(window.location.pathname);
+            window.location.href = "{{ url_for('public_login', website_prefix=website.url_prefix) }}" + "{{ '&' if website.url_prefix else '?' }}" + "next=" + encodeURIComponent(window.location.pathname);
             return;
         }
         if (d.success) {

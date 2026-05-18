@@ -1,0 +1,281 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
+
+<style>
+.ce-page { display: grid; grid-template-columns: 1fr 280px; gap: 22px; max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; align-items: start; }
+@media (max-width: 760px) { .ce-page { grid-template-columns: 1fr; } }
+
+.ce-subnav { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.ce-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.ce-back:hover { color: rgba(255,255,255,0.85); }
+.ce-subnav-title { font-size: 1.05rem; font-weight: 700; color: rgba(255,255,255,0.8); }
+
+.ce-main { display: flex; flex-direction: column; gap: 14px; }
+.ce-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px; padding: 18px;
+}
+.ce-label { display: block; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.4); margin-bottom: 6px; }
+.ce-input-lg {
+    width: 100%; padding: 12px 14px; font-size: 1.4rem; font-weight: 700;
+    background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.12);
+    color: #fff; outline: none; box-sizing: border-box; font-family: inherit;
+}
+.ce-input-lg:focus { border-bottom-color: #5eeef8; }
+.ce-input {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; font-size: 0.9rem; outline: none; box-sizing: border-box; font-family: inherit;
+}
+.ce-select { padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.9rem; box-sizing: border-box; font-family: inherit; width: 100%; }
+
+#quill-editor { background: rgba(255,255,255,0.03); color: #fff; border-radius: 0 0 10px 10px; min-height: 380px; font-family: inherit; }
+.ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
+.ql-container { border-color: rgba(255,255,255,0.12) !important; border-radius: 0 0 10px 10px; }
+.ql-editor { color: #f0f0f0; font-size: 0.97rem; line-height: 1.7; min-height: 360px; }
+.ql-editor.ql-blank::before { color: rgba(255,255,255,0.25); font-style: normal; }
+.ql-snow .ql-stroke { stroke: rgba(255,255,255,0.6); }
+.ql-snow .ql-fill { fill: rgba(255,255,255,0.6); }
+.ql-snow .ql-picker { color: rgba(255,255,255,0.6); }
+.ql-snow .ql-picker-options { background: #1e1e2e; border-color: rgba(255,255,255,0.15); }
+.ql-snow .ql-picker-item { color: rgba(255,255,255,0.75); }
+.ql-snow .ql-picker-item:hover { color: #fff; }
+.ql-snow.ql-toolbar button:hover .ql-stroke,
+.ql-snow .ql-toolbar button:hover .ql-stroke,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #5eeef8; }
+.ql-snow.ql-toolbar button:hover .ql-fill,
+.ql-snow .ql-toolbar button:hover .ql-fill,
+.ql-snow.ql-toolbar button.ql-active .ql-fill { fill: #5eeef8; }
+.ql-snow .ql-picker.ql-font .ql-picker-label::before { content: 'Font'; }
+.ql-snow .ql-picker.ql-size .ql-picker-label::before { content: 'Size'; }
+.ql-toolbar.ql-snow { flex-wrap: wrap; }
+
+.ce-sidebar { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 80px; }
+.ce-sidebar-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 16px; }
+.ce-sidebar-title { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.4); margin: 0 0 12px; }
+.ce-status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+.ce-status-draft { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.12); }
+.ce-status-sent { background: rgba(94,238,200,0.18); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.ce-status-partial { background: rgba(255,206,115,0.18); color: #ffd982; border: 1px solid rgba(255,206,115,0.3); }
+.ce-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 14px; border-radius: 10px; font-size: 0.86rem; font-weight: 700;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.ce-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.12); }
+.ce-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.ce-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.ce-btn-primary:hover { opacity: 0.88; }
+.ce-btn-send { background: linear-gradient(135deg,#ff8a4c,#ff5757); color: #fff; }
+.ce-btn-send:hover { opacity: 0.88; }
+.ce-sidebar-actions { display: flex; flex-direction: column; gap: 8px; }
+.ce-message { font-size: 0.78rem; text-align: center; min-height: 18px; }
+.ce-help { font-size: 0.78rem; color: rgba(255,255,255,0.4); margin: 0 0 8px; }
+.ce-stat-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.82rem; }
+.ce-stat-row > div { flex: 1; min-width: 90px; }
+.ce-stat-row strong { display: block; font-size: 1.05rem; }
+</style>
+
+{% set is_sent = campaign and campaign.status in ('sent','partial') %}
+
+<div style="max-width:1100px;margin:0 auto;padding:16px 20px 0;">
+    <div class="ce-subnav">
+        <a href="{{ url_for('admin_newsletter_detail', nid=newsletter.id) }}" class="ce-back">
+            <i class="fas fa-arrow-left"></i> {{ newsletter.name }}
+        </a>
+        <span class="ce-subnav-title">{% if campaign %}{{ campaign.subject }}{% else %}New campaign{% endif %}</span>
+    </div>
+</div>
+
+<div class="ce-page">
+    <div class="ce-main">
+        <div class="ce-card">
+            <input type="text" id="ceSubject" class="ce-input-lg"
+                   placeholder="Subject line…"
+                   value="{{ campaign.subject if campaign else '' }}"
+                   {% if is_sent %}disabled{% endif %}>
+        </div>
+
+        <div class="ce-card" style="padding:0;overflow:hidden;">
+            <div id="quill-editor"></div>
+            <textarea id="ceContent" style="display:none;">{{ campaign.html_body if campaign else '' }}</textarea>
+        </div>
+
+        {% if is_sent %}
+        <div class="ce-card">
+            <h2 style="margin:0 0 12px;font-size:1rem;">Send results</h2>
+            <div class="ce-stat-row">
+                <div><strong>{{ campaign.recipient_count }}</strong><span style="color:rgba(255,255,255,0.45);">Recipients</span></div>
+                <div><strong style="color:#5eeec8;">{{ campaign.success_count }}</strong><span style="color:rgba(255,255,255,0.45);">Delivered</span></div>
+                <div><strong style="color:#ff8a8a;">{{ campaign.fail_count }}</strong><span style="color:rgba(255,255,255,0.45);">Failed</span></div>
+                <div><strong>{{ campaign.sent_at.strftime('%b %-d, %Y %I:%M %p') if campaign.sent_at else '' }}</strong><span style="color:rgba(255,255,255,0.45);">Sent at</span></div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="ce-sidebar">
+        <div class="ce-sidebar-card">
+            <p class="ce-sidebar-title">Status</p>
+            <div class="ce-status-badge ce-status-{{ campaign.status if campaign else 'draft' }}">
+                {% if campaign and campaign.status == 'sent' %}Sent
+                {% elif campaign and campaign.status == 'partial' %}Sent (errors)
+                {% elif campaign and campaign.status == 'sending' %}Sending
+                {% else %}Draft{% endif %}
+            </div>
+
+            <div style="margin:10px 0 14px;">
+                <label class="ce-label">Email server</label>
+                <select id="ceServer" class="ce-select" {% if is_sent %}disabled{% endif %}>
+                    <option value="">— Use newsletter default —</option>
+                    {% for s in email_servers %}
+                    <option value="{{ s.id }}"
+                            {% if campaign and campaign.email_server_id == s.id %}selected{% endif %}>
+                        {{ s.label }}{% if s.is_default %} (default){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% if newsletter.email_server_id %}
+                <p class="ce-help">Newsletter default: server #{{ newsletter.email_server_id }}.</p>
+                {% endif %}
+            </div>
+
+            {% if not is_sent %}
+            <div class="ce-sidebar-actions">
+                <button class="ce-btn ce-btn-secondary" id="ceSaveBtn" onclick="saveDraft()">
+                    <i class="fas fa-save"></i> Save Draft
+                </button>
+                <button class="ce-btn ce-btn-primary" onclick="openTestModal()">
+                    <i class="fas fa-paper-plane"></i> Send Test
+                </button>
+                <button class="ce-btn ce-btn-send" onclick="confirmSend()" {% if not campaign %}disabled style="opacity:0.45;cursor:not-allowed;"{% endif %}>
+                    <i class="fas fa-bullhorn"></i> Send to All
+                </button>
+            </div>
+            <p class="ce-message" id="ceMsg"></p>
+            <p class="ce-help" style="margin-top:8px;">Subscribers ready to receive: <strong>{{ newsletter.subscriber_count }}</strong></p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Test modal -->
+<div id="testOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:9999;" onclick="if(event.target===this)closeTestModal()">
+    <div style="background:#1d1d27;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:min(420px,92vw);padding:22px;color:#fff;">
+        <h3 style="margin:0 0 12px;font-size:1rem;">Send test email</h3>
+        <p style="margin:0 0 12px;color:rgba(255,255,255,0.55);font-size:0.85rem;">A preview will be sent to the address below. Save your draft first if you've made changes.</p>
+        <input type="email" id="testEmail" class="ce-input" placeholder="you@example.com" style="margin-bottom:14px;">
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="ce-btn ce-btn-secondary" style="flex:0 0 auto;" onclick="closeTestModal()">Cancel</button>
+            <button class="ce-btn ce-btn-primary" style="flex:0 0 auto;" onclick="sendTest()">Send Test</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script>
+const NL_ID = {{ newsletter.id }};
+const CAMPAIGN_ID = {{ campaign.id if campaign else 'null' }};
+const IS_SENT = {{ 'true' if is_sent else 'false' }};
+let CAMP_ID = CAMPAIGN_ID;
+
+const FONTS = ['Arial','Georgia','Times New Roman','Verdana','Trebuchet MS','Courier New','Impact'];
+const SIZES = ['10px','12px','14px','16px','18px','20px','24px','28px','32px','40px','48px','64px','80px','96px'];
+
+(function() {
+    const Font = Quill.import('formats/font');
+    Font.whitelist = FONTS;
+    Quill.register(Font, true);
+    const FontStyle = Quill.import('attributors/style/font');
+    FontStyle.whitelist = FONTS;
+    Quill.register(FontStyle, true);
+    const SizeStyle = Quill.import('attributors/style/size');
+    SizeStyle.whitelist = SIZES;
+    Quill.register(SizeStyle, true);
+})();
+
+const toolbarOptions = [
+    [{ 'header': [1, 2, 3, 4, false] }, { 'font': FONTS }, { 'size': SIZES }],
+    ['bold', 'italic', 'underline', 'strike', { 'color': [] }, { 'background': [] }],
+    [{ 'align': [] }, { 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+    ['blockquote', 'code-block', { 'script': 'sub' }, { 'script': 'super' }],
+    ['link', 'clean'],
+];
+
+const _quill = new Quill('#quill-editor', {
+    theme: 'snow',
+    readOnly: IS_SENT,
+    placeholder: 'Write your newsletter content here…',
+    modules: { toolbar: toolbarOptions },
+});
+
+const existingHtml = document.getElementById('ceContent').value;
+if (existingHtml) _quill.root.innerHTML = existingHtml;
+
+const msgEl = document.getElementById('ceMsg');
+function setMsg(text, kind) {
+    msgEl.textContent = text;
+    msgEl.style.color = kind === 'err' ? '#ff8a8a' : kind === 'ok' ? '#5eeec8' : 'rgba(255,255,255,0.6)';
+}
+
+async function saveDraft() {
+    if (IS_SENT) return;
+    const subject = document.getElementById('ceSubject').value.trim();
+    if (!subject) { setMsg('Subject is required.', 'err'); return; }
+    setMsg('Saving…');
+    const payload = {
+        id: CAMP_ID || null,
+        subject,
+        html_body: _quill.root.innerHTML,
+        email_server_id: document.getElementById('ceServer').value || null,
+    };
+    const r = await fetch(`/admin/newsletters/${NL_ID}/campaigns/save`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!data.success) { setMsg(data.error || 'Save failed.', 'err'); return null; }
+    CAMP_ID = data.campaign.id;
+    setMsg('Saved.', 'ok');
+    setTimeout(() => setMsg(''), 2200);
+    return data.campaign.id;
+}
+
+function openTestModal() { document.getElementById('testOverlay').style.display = 'flex'; setTimeout(() => document.getElementById('testEmail').focus(), 50); }
+function closeTestModal() { document.getElementById('testOverlay').style.display = 'none'; }
+
+async function sendTest() {
+    const email = document.getElementById('testEmail').value.trim();
+    if (!email) return;
+    let cid = CAMP_ID;
+    if (!cid) cid = await saveDraft();
+    if (!cid) return;
+    setMsg('Sending test…');
+    const r = await fetch(`/admin/newsletters/${NL_ID}/campaigns/${cid}/send-test`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email}),
+    });
+    const data = await r.json();
+    if (!data.success) { setMsg(data.error || 'Test send failed.', 'err'); return; }
+    closeTestModal();
+    setMsg(data.message || 'Test sent.', 'ok');
+    setTimeout(() => setMsg(''), 2500);
+}
+
+async function confirmSend() {
+    let cid = CAMP_ID || await saveDraft();
+    if (!cid) return;
+    if (!confirm('Send this newsletter to all confirmed subscribers? This cannot be undone.')) return;
+    setMsg('Sending…');
+    const r = await fetch(`/admin/newsletters/${NL_ID}/campaigns/${cid}/send`, {method: 'POST'});
+    const data = await r.json();
+    if (!data.success) { setMsg(data.error || 'Send failed.', 'err'); return; }
+    location.reload();
+}
+</script>
+
+{% endblock %}

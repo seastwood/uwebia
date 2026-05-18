@@ -314,7 +314,7 @@
                         {% endfor %}
                         <span style="font-size:0.75rem;opacity:0.4;margin-left:4px;">{{ review.created_at.strftime('%b %-d, %Y') }}</span>
                     </div>
-                    <p class="store-review-author">by {{ review.public_user.username }}</p>
+                    <p class="store-review-author">by {{ review.public_user.effective_display_name }}{% if review.public_user.mirrored_admin_user_id %} <span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Site owner">Admin</span>{% endif %}</p>
                     {% if review.title %}<p class="store-review-body" style="font-weight:600;">{{ review.title }}</p>{% endif %}
                     {% if review.body %}<p class="store-review-body">{{ review.body }}</p>{% endif %}
                 </div>

@@ -1,0 +1,438 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.nd-page { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; color: #fff; }
+.nd-subnav { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.nd-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.nd-back:hover { color: rgba(255,255,255,0.85); }
+.nd-title { font-size: 1.7rem; font-weight: 800; margin: 0 0 4px; }
+.nd-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+
+.nd-stat-row { display: flex; gap: 12px; margin: 18px 0 24px; flex-wrap: wrap; }
+.nd-stat {
+    flex: 1; min-width: 140px; padding: 14px 18px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 12px;
+}
+.nd-stat-val { font-size: 1.7rem; font-weight: 800; }
+.nd-stat-lbl { font-size: 0.78rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.nd-tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
+.nd-tab {
+    padding: 10px 18px; background: none; border: none;
+    color: rgba(255,255,255,0.55); font-size: 0.92rem; font-weight: 600;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer;
+}
+.nd-tab:hover { color: #fff; }
+.nd-tab.active { color: #5eeef8; border-bottom-color: #5eeef8; }
+
+.nd-panel { display: none; }
+.nd-panel.active { display: block; }
+
+.nd-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+.nd-card h2 { margin: 0 0 12px; font-size: 1rem; }
+
+.nd-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.nd-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.nd-btn-primary:hover { opacity: 0.88; }
+.nd-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.13); }
+.nd-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.nd-btn-danger { background: rgba(255,80,80,0.14); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.nd-btn-danger:hover { background: rgba(255,80,80,0.22); }
+
+table.nd-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+table.nd-table th, table.nd-table td { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; }
+table.nd-table th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.4); font-weight: 600; }
+.nd-status-confirmed { color: #5eeec8; }
+.nd-status-pending { color: #ffd982; }
+.nd-status-unsubscribed { color: rgba(255,255,255,0.4); }
+
+.nd-input, .nd-textarea, .nd-select {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; font-size: 0.9rem; box-sizing: border-box; font-family: inherit;
+}
+.nd-textarea { min-height: 80px; resize: vertical; }
+.nd-field { margin-bottom: 14px; }
+.nd-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 5px; font-weight: 600; }
+.nd-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 600px) { .nd-row-2 { grid-template-columns: 1fr; } }
+.nd-check { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.88rem; }
+.nd-help { font-size: 0.78rem; color: rgba(255,255,255,0.4); margin-top: 4px; }
+.nd-toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.nd-message { font-size: 0.82rem; color: rgba(94,238,200,0.95); margin-left: auto; min-height: 18px; }
+.nd-empty { color: rgba(255,255,255,0.4); padding: 20px; text-align: center; }
+.nd-shortcode { background: rgba(94,238,248,0.07); border: 1px dashed rgba(94,238,248,0.35); border-radius: 8px; padding: 10px 12px; font-family: monospace; font-size: 0.85rem; color: #5eeef8; }
+</style>
+
+<div class="nd-page">
+    <div class="nd-subnav">
+        <a href="{{ url_for('admin_newsletters_page') }}" class="nd-back">
+            <i class="fas fa-arrow-left"></i> Newsletters
+        </a>
+    </div>
+    <p class="nd-kicker">Newsletter</p>
+    <h1 class="nd-title">{{ newsletter.name }}</h1>
+    {% if newsletter.description %}
+    <p style="margin:0;color:rgba(255,255,255,0.55);font-size:0.92rem;">{{ newsletter.description }}</p>
+    {% endif %}
+
+    <div class="nd-stat-row">
+        <div class="nd-stat">
+            <div class="nd-stat-val">{{ newsletter.subscriber_count }}</div>
+            <div class="nd-stat-lbl">Confirmed subscribers</div>
+        </div>
+        <div class="nd-stat">
+            <div class="nd-stat-val">{{ newsletter.pending_count }}</div>
+            <div class="nd-stat-lbl">Pending confirmation</div>
+        </div>
+        <div class="nd-stat">
+            <div class="nd-stat-val">{{ campaigns | length }}</div>
+            <div class="nd-stat-lbl">Campaigns</div>
+        </div>
+    </div>
+
+    <div class="nd-tabs">
+        <button type="button" class="nd-tab active" data-panel="subscribers">Subscribers</button>
+        <button type="button" class="nd-tab" data-panel="campaigns">Campaigns</button>
+        <button type="button" class="nd-tab" data-panel="settings">Settings</button>
+    </div>
+
+    <!-- SUBSCRIBERS -->
+    <div class="nd-panel active" data-panel="subscribers">
+        <div class="nd-card">
+            <div class="nd-toolbar">
+                {% if user_has_perm('newsletters.manage') %}
+                <button class="nd-btn nd-btn-primary" onclick="openAddSubModal()">
+                    <i class="fas fa-user-plus"></i> Add subscriber
+                </button>
+                {% endif %}
+                <a class="nd-btn nd-btn-secondary"
+                   href="{{ url_for('admin_newsletter_subscribers_csv', nid=newsletter.id) }}">
+                    <i class="fas fa-download"></i> Export CSV
+                </a>
+                <div class="nd-shortcode" style="margin-left:auto;">
+                    Embed slug: <strong>{{ newsletter.slug }}</strong>
+                </div>
+            </div>
+            {% if subscribers %}
+            <table class="nd-table" id="subsTable">
+                <thead>
+                    <tr>
+                        <th>Email</th><th>Name</th><th>Status</th><th>Subscribed</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for s in subscribers %}
+                    <tr id="subRow-{{ s.id }}">
+                        <td>{{ s.email }}</td>
+                        <td>{{ s.name or '' }}</td>
+                        <td>
+                            {% if s.unsubscribed_at %}
+                                <span class="nd-status-unsubscribed">Unsubscribed</span>
+                            {% elif s.confirmed_at %}
+                                <span class="nd-status-confirmed">Confirmed</span>
+                            {% else %}
+                                <span class="nd-status-pending">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ s.subscribed_at.strftime('%b %-d, %Y') if s.subscribed_at else '' }}</td>
+                        <td style="text-align:right;">
+                            {% if user_has_perm('newsletters.manage') %}
+                            <button class="nd-btn nd-btn-danger" style="padding:4px 10px;"
+                                    onclick='deleteSub({{ s.id }}, {{ s.email | tojson }})'>
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="nd-empty">No subscribers yet. Add the signup section to a page or share the form on social.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- CAMPAIGNS -->
+    <div class="nd-panel" data-panel="campaigns">
+        <div class="nd-card">
+            <div class="nd-toolbar">
+                {% if user_has_perm('newsletters.manage') %}
+                <a class="nd-btn nd-btn-primary"
+                   href="{{ url_for('admin_newsletter_campaign_new', nid=newsletter.id) }}">
+                    <i class="fas fa-pen"></i> New campaign
+                </a>
+                {% endif %}
+            </div>
+            {% if campaigns %}
+            <table class="nd-table">
+                <thead>
+                    <tr>
+                        <th>Subject</th><th>Status</th><th>Recipients</th><th>Updated</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for c in campaigns %}
+                    <tr id="campRow-{{ c.id }}">
+                        <td>{{ c.subject }}</td>
+                        <td>
+                            {% if c.status == 'sent' %}
+                                <span class="nd-status-confirmed">Sent</span>
+                            {% elif c.status == 'partial' %}
+                                <span class="nd-status-pending">Sent (with errors)</span>
+                            {% elif c.status == 'sending' %}
+                                <span class="nd-status-pending">Sending…</span>
+                            {% else %}
+                                <span style="color:rgba(255,255,255,0.5);">Draft</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.status in ('sent','partial') %}
+                                {{ c.success_count }} / {{ c.recipient_count }}
+                                {% if c.fail_count %} <span style="color:#ff8a8a;">({{ c.fail_count }} failed)</span>{% endif %}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td>{{ (c.updated_at or c.created_at).strftime('%b %-d, %Y') if (c.updated_at or c.created_at) else '' }}</td>
+                        <td style="text-align:right;">
+                            <a class="nd-btn nd-btn-secondary" style="padding:4px 10px;"
+                               href="{{ url_for('admin_newsletter_campaign_edit', nid=newsletter.id, cid=c.id) }}">
+                                {% if c.status in ('sent','partial') %}View{% else %}Edit{% endif %}
+                            </a>
+                            {% if user_has_perm('newsletters.manage') and c.status not in ('sent','partial') %}
+                            <button class="nd-btn nd-btn-danger" style="padding:4px 10px;"
+                                    onclick='deleteCampaign({{ c.id }})'>
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="nd-empty">No campaigns yet.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="nd-panel" data-panel="settings">
+        <form id="settingsForm" onsubmit="saveSettings(event)">
+            <div class="nd-card">
+                <h2>General</h2>
+                <div class="nd-field">
+                    <label class="nd-label">Name</label>
+                    <input type="text" class="nd-input" id="setName" value="{{ newsletter.name }}" required>
+                </div>
+                <div class="nd-field">
+                    <label class="nd-label">Description</label>
+                    <textarea class="nd-textarea" id="setDesc">{{ newsletter.description or '' }}</textarea>
+                </div>
+                <div class="nd-field">
+                    <label class="nd-label">URL slug (read-only)</label>
+                    <input type="text" class="nd-input" value="{{ newsletter.slug }}" disabled style="opacity:0.6;">
+                </div>
+            </div>
+
+            <div class="nd-card">
+                <h2>Signup form</h2>
+                <div class="nd-row-2">
+                    <div class="nd-field">
+                        <label class="nd-label">Heading shown above the form</label>
+                        <input type="text" class="nd-input" id="setHeading" value="{{ newsletter.signup_heading }}">
+                    </div>
+                    <div class="nd-field">
+                        <label class="nd-label">Button label</label>
+                        <input type="text" class="nd-input" id="setButton" value="{{ newsletter.signup_button_label }}">
+                    </div>
+                </div>
+                <div class="nd-field">
+                    <label class="nd-label">Blurb (shown below the heading)</label>
+                    <textarea class="nd-textarea" id="setBlurb">{{ newsletter.signup_blurb or '' }}</textarea>
+                </div>
+                <div class="nd-field">
+                    <label class="nd-label">Message shown after a successful signup</label>
+                    <textarea class="nd-textarea" id="setSuccess">{{ newsletter.signup_success_message }}</textarea>
+                </div>
+                <label class="nd-check"><input type="checkbox" id="setCollectName" {% if newsletter.collect_name %}checked{% endif %}> Collect a name field on the signup form</label>
+                <label class="nd-check"><input type="checkbox" id="setDoubleOptin" {% if newsletter.require_double_optin %}checked{% endif %}> Require double opt-in (sends a confirmation email)</label>
+            </div>
+
+            <div class="nd-card">
+                <h2>Email server</h2>
+                <p class="nd-help" style="margin:0 0 10px;">Pick which configured SMTP server sends this newsletter. Leave blank to use the site default.</p>
+                <div class="nd-field">
+                    <label class="nd-label">Server for this newsletter</label>
+                    <select class="nd-select" id="setServer">
+                        <option value="">— Use site default —</option>
+                        {% for s in email_servers %}
+                        <option value="{{ s.id }}" {% if newsletter.email_server_id == s.id %}selected{% endif %}>
+                            {{ s.label }}{% if s.is_default %} (default){% endif %} — {{ s.from_email }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="nd-field">
+                    <label class="nd-label">Subject prefix <span style="opacity:0.6;font-weight:400;">(optional, e.g. "[Updates] ")</span></label>
+                    <input type="text" class="nd-input" id="setSubjPrefix" value="{{ newsletter.default_subject_prefix or '' }}" placeholder="e.g. [Updates] ">
+                </div>
+            </div>
+
+            <div class="nd-card">
+                <h2>Confirmation email</h2>
+                <div class="nd-field">
+                    <label class="nd-label">Subject line</label>
+                    <input type="text" class="nd-input" id="setConfSubject" value="{{ newsletter.confirmation_subject }}">
+                </div>
+                <div class="nd-field">
+                    <label class="nd-label">Intro HTML (shown above the "Confirm" button)</label>
+                    <textarea class="nd-textarea" id="setConfIntro" placeholder="Leave blank to use the default copy.">{{ newsletter.confirmation_intro or '' }}</textarea>
+                </div>
+            </div>
+
+            <div class="nd-toolbar">
+                <button type="submit" class="nd-btn nd-btn-primary"><i class="fas fa-save"></i> Save Settings</button>
+                <span class="nd-message" id="setMsg"></span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add subscriber modal -->
+<div class="uw-overlay" id="addSubOverlay" style="display:none;" onclick="if(event.target===this)closeAddSubModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Add subscriber</h3>
+            <button class="uw-modal-close" onclick="closeAddSubModal()" aria-label="Close">&times;</button>
+        </div>
+        <form id="addSubForm" onsubmit="submitAddSub(event)">
+            <div class="uw-modal-body">
+                <div class="uw-field">
+                    <label for="addSubEmail">Email <span style="color:#ff6b6b;">*</span></label>
+                    <input type="email" id="addSubEmail" required placeholder="someone@example.com" class="nd-input">
+                </div>
+                <div class="uw-field">
+                    <label for="addSubName">Name <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
+                    <input type="text" id="addSubName" placeholder="Their display name" class="nd-input">
+                </div>
+                <p class="nd-help">Added subscribers are pre-confirmed and skip the double-opt-in email. Only add people who consented offline.</p>
+            </div>
+            <div class="uw-modal-actions">
+                <button type="button" class="nd-btn nd-btn-secondary" onclick="closeAddSubModal()">Cancel</button>
+                <button type="submit" class="nd-btn nd-btn-primary"><i class="fas fa-user-plus"></i> Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const NL_ID = {{ newsletter.id }};
+
+// Tabs
+document.querySelectorAll('.nd-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const panel = btn.dataset.panel;
+        document.querySelectorAll('.nd-tab').forEach(b => b.classList.toggle('active', b === btn));
+        document.querySelectorAll('.nd-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === panel));
+    });
+});
+
+// Subscribers
+function openAddSubModal() {
+    document.getElementById('addSubEmail').value = '';
+    document.getElementById('addSubName').value = '';
+    document.getElementById('addSubOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('addSubEmail').focus(), 50);
+}
+function closeAddSubModal() {
+    document.getElementById('addSubOverlay').style.display = 'none';
+}
+
+async function submitAddSub(e) {
+    e.preventDefault();
+    const email = document.getElementById('addSubEmail').value.trim();
+    const name = document.getElementById('addSubName').value.trim();
+    if (!email) return;
+    const r = await fetch(`/admin/newsletters/${NL_ID}/subscribers/add`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, name}),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) {
+        alert(data.error || 'Failed to add subscriber.');
+        return;
+    }
+    closeAddSubModal();
+    location.reload();
+}
+
+async function deleteSub(sid, email) {
+    if (!confirm(`Remove "${email}" from this newsletter?`)) return;
+    const r = await fetch(`/admin/newsletters/${NL_ID}/subscribers/${sid}/delete`, {method: 'POST'});
+    const data = await r.json();
+    if (!data.success) {
+        alert(data.error || 'Failed to remove.');
+        return;
+    }
+    const row = document.getElementById(`subRow-${sid}`);
+    if (row) row.remove();
+}
+
+async function deleteCampaign(cid) {
+    if (!confirm('Delete this draft campaign?')) return;
+    const r = await fetch(`/admin/newsletters/${NL_ID}/campaigns/${cid}/delete`, {method: 'POST'});
+    const data = await r.json();
+    if (!data.success) {
+        alert(data.error || 'Failed to delete.');
+        return;
+    }
+    const row = document.getElementById(`campRow-${cid}`);
+    if (row) row.remove();
+}
+
+async function saveSettings(e) {
+    e.preventDefault();
+    const msg = document.getElementById('setMsg');
+    msg.textContent = 'Saving…';
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    const payload = {
+        name: document.getElementById('setName').value.trim(),
+        description: document.getElementById('setDesc').value.trim(),
+        signup_heading: document.getElementById('setHeading').value.trim(),
+        signup_blurb: document.getElementById('setBlurb').value.trim(),
+        signup_button_label: document.getElementById('setButton').value.trim(),
+        signup_success_message: document.getElementById('setSuccess').value.trim(),
+        collect_name: document.getElementById('setCollectName').checked,
+        require_double_optin: document.getElementById('setDoubleOptin').checked,
+        email_server_id: document.getElementById('setServer').value || null,
+        default_subject_prefix: document.getElementById('setSubjPrefix').value,
+        confirmation_subject: document.getElementById('setConfSubject').value.trim(),
+        confirmation_intro: document.getElementById('setConfIntro').value,
+    };
+    const r = await fetch(`/admin/newsletters/${NL_ID}/update`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!data.success) {
+        msg.textContent = data.error || 'Failed to save.';
+        msg.style.color = '#ff8a8a';
+        return;
+    }
+    msg.textContent = 'Saved.';
+    msg.style.color = 'rgba(94,238,200,0.95)';
+    setTimeout(() => { msg.textContent = ''; }, 2500);
+}
+</script>
+
+{% endblock %}

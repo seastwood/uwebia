@@ -484,7 +484,6 @@
 
             width: 300px;
             min-width: 260px;
-            min-height: 220px;
 
             display: flex;
             flex-direction: column;
@@ -860,37 +859,27 @@
         }
 
         .create-website-box {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
+            display: inline-flex;
             align-items: center;
-            background-color: #8f7eb2;
-            color: white;
-            width: 200px;
-            height: 200px;
-            cursor: pointer;
-            transition: background-color 0.6s;
-            margin: 30px;
+            gap: 8px;
+            padding: 9px 16px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.14);
             border-radius: 10px;
-            border-style: solid;
-            border-color: #5a506c;
-            box-shadow: 0 4px 8px rgba(0, 0, 0.5, .7);
+            color: rgba(255,255,255,0.7);
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 0 0 18px 0;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
         }
-
         .create-website-box:hover {
-            background-color: #683179;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border-color: rgba(255,255,255,0.25);
         }
-
-        .create-text {
-            font-size: 1.2em;
-            /* Adjust the font size for the text */
-            margin-bottom: 3px;
-            /* Add margin to separate text from icon */
-        }
-
-        #plus-icon {
-            font-size: 3em;
-        }
+        .create-text { margin: 0; font-size: inherit; }
+        #plus-icon { font-size: 0.8rem; }
 
         .more-dropdown {
             position: relative;
@@ -1084,6 +1073,14 @@
             top: 10px;
             right: 10px;
             z-index: 20;
+            display: flex;
+            gap: 6px;
+        }
+        .visit-page-button {
+            text-decoration: none;
+        }
+        .visit-page-button i {
+            font-size: 0.85rem;
         }
 
         .page-menu {
@@ -1156,6 +1153,21 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        .page-require-login-icon {
+            position: absolute;
+            top: 10px;
+            left: 50px;
+            height: 34px;
+            width: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.78rem;
+            color: #5eeef8;
+            z-index: 19;
+            pointer-events: auto;
+            cursor: help;
         }
 
 
@@ -2498,32 +2510,44 @@
         </form>
     </div> -->
 
-    {% if not user_has_website %}
-    <div class="create-website-box" onclick="openModal('createWebsiteModal')">
-        <p class="create-text">Create New Website</p>
-        <i class="fas fa-plus" id="plus-icon"></i>
-    </div>
-    {% endif %}
 
     <!-- Create New Website Modal -->
     <div id="createWebsiteModal" class="modal modal-content">
         <span class="close" onclick="closeModal('createWebsiteModal')">&times;</span>
         <h5>Create New Website</h5>
-        <form id="createWebsiteForm" action="{{ url_for('create_website') }}" method="POST">
+        <form id="createWebsiteForm" onsubmit="submitCreateWebsite(event)">
             <div class="modal-body">
-                <p>Website Name</p>
-                <input type="text" id="newWebsiteName" name="name" class="form-control" placeholder="Website Name"
-                    required>
-                <p>Website Description</p>
-                <textarea id="newWebsiteDescription" name="description" class="form-control"
-                    placeholder="Website Description"></textarea>
-                <p>Tags (comma-separated)</p>
-                <input type="text" id="newWebsiteTags" name="tags" class="form-control"
-                    placeholder="Tags (comma-separated)">
+                <p>Website Name <span style="color:rgba(255,255,255,0.4);font-weight:400;font-size:0.82rem;">(used as the site title)</span></p>
+                <input type="text" id="newWebsiteName" name="name" class="form-control" placeholder="My Website" required>
+
+                <div id="urlPrefixField" style="margin-top:12px;">
+                    <p>URL Prefix <span style="color:rgba(255,255,255,0.4);font-weight:400;font-size:0.82rem;">(leave blank if this is your primary website)</span></p>
+                    <div style="display:flex;align-items:center;gap:0;border:1px solid rgba(255,255,255,0.18);border-radius:8px;overflow:hidden;">
+                        <span style="padding:8px 10px;background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.4);font-size:0.88rem;white-space:nowrap;">yourdomain.com/</span>
+                        <input type="text" name="url_prefix" id="newWebsitePrefix" class="form-control"
+                               placeholder="e.g. shop or portal"
+                               style="border:none;border-radius:0;flex:1;"
+                               pattern="[a-z0-9\-]*">
+                    </div>
+                    <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:4px;">Lowercase letters, numbers, hyphens only. Empty = root domain.</p>
+                </div>
+
+                <p style="margin-top:12px;">Description</p>
+                <textarea id="newWebsiteDescription" name="description" class="form-control" placeholder="Website Description"></textarea>
+
+                <p style="margin-top:12px;">Tags (comma-separated)</p>
+                <input type="text" id="newWebsiteTags" name="tags" class="form-control" placeholder="Tags (comma-separated)">
+
+                <label style="display:flex;align-items:center;gap:10px;margin-top:14px;cursor:pointer;font-size:0.9rem;">
+                    <input type="checkbox" name="require_login_to_view" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                    Require public user login to view this website
+                </label>
+
+                <p id="createWebsiteError" style="display:none;margin-top:12px;color:#ff6b6b;font-size:0.85rem;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:6px;padding:8px 12px;"></p>
             </div>
             <div class="modal-footer">
                 <button type="button" onclick="closeModal('createWebsiteModal')">Close</button>
-                <button type="submit">Create</button>
+                <button type="submit" id="createWebsiteSubmitBtn">Create</button>
             </div>
         </form>
     </div>
@@ -2538,16 +2562,24 @@
         <li class="website-dashboard-card{% if website.is_draft %} website-dashboard-card--draft{% endif %}">
 
             {% if website.is_draft %}
+            {% set _parent_site = live_websites | selectattr('id', 'equalto', website.draft_of_website_id) | first %}
             <div class="draft-website-banner">
-                <i class="fas fa-pencil-ruler"></i>
-                <span><strong>Draft Website</strong> — Editing sandbox. Changes here won't affect the live site until you promote.</span>
+                <i class="fas fa-code-branch"></i>
+                <span>
+                    <strong>Draft</strong>{% if _parent_site %} of <strong>{{ _parent_site.name }}</strong>{% if _parent_site.url_prefix %} <code style="font-size:0.78rem;opacity:0.7;">/{{ _parent_site.url_prefix }}/</code>{% endif %}{% endif %}
+                    — Editing sandbox. Promote to push changes live.
+                </span>
             </div>
             {% endif %}
             <div class="website-dashboard-header">
                 <div class="website-header-top">
                     <div class="website-title-block">
-                        <p class="website-kicker">{% if website.is_draft %}Draft{% else %}Website{% endif %}</p>
-                        <h2 class="website-dashboard-title">{{ website.name }}</h2>
+                        <p class="website-kicker">{% if website.is_draft %}Draft{% else %}Website{% endif %}{% if website.url_prefix %} · <span style="font-family:monospace;font-size:0.8rem;">/ {{ website.url_prefix }}/</span>{% endif %}</p>
+                        <h2 class="website-dashboard-title">{{ website.name }}
+                            {% if website.require_login_to_view %}
+                            <span title="Requires public user login" style="font-size:0.65rem;padding:2px 7px;border-radius:999px;background:rgba(255,150,50,0.15);border:1px solid rgba(255,150,50,0.35);color:rgba(255,170,80,0.9);vertical-align:middle;margin-left:6px;"><i class="fas fa-lock" style="font-size:0.6rem;"></i> Login Required</span>
+                            {% endif %}
+                        </h2>
                         {% if not website.is_draft %}
                         <label class="site-live-toggle {% if website.is_live %}site-live-toggle--on{% else %}site-live-toggle--off{% endif %}"
                                id="siteLiveToggle_{{ website.id }}"
@@ -2621,7 +2653,7 @@
                         <i class="fas fa-eye"></i><span>Preview Site</span>
                     </a>
                     {% else %}
-                    <a class="website-action-button" href="/{{ _home.slug }}" target="_blank" rel="noopener">
+                    <a class="website-action-button" href="/{{ (website.url_prefix + '/') if website.url_prefix else '' }}{{ _home.slug }}" target="_blank" rel="noopener">
                         <i class="fas fa-external-link-alt"></i><span>View Website</span>
                     </a>
                     {% endif %}
@@ -2697,7 +2729,7 @@
                         <i class="fas fa-lock"></i><span>Forum</span>
                     </button>
                     {% endif %}
-                    {% if user_has_perm('website.draft.create') and not draft_websites %}
+                    {% if user_has_perm('website.draft.create') and website.id not in drafted_website_ids %}
                     <button type="button" class="website-action-button website-action-button-draft" onclick="createDraftWebsite({{ website.id }})">
                         <i class="fas fa-copy"></i><span>Create Draft</span>
                     </button>
@@ -2938,6 +2970,10 @@
                                 </div>
                             </div>
 
+                            {% if page.require_login %}
+                            <i class="fas fa-user-lock page-require-login-icon" id="pageRequireLoginIcon_{{ page.id }}" title="Login required to view this page"></i>
+                            {% endif %}
+
                             {% if not website.is_draft %}
                             <label
                                 class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
@@ -2977,6 +3013,19 @@
                             </div>
 
                             <div class="edit-button-container">
+                                {% if website.is_draft %}
+                                <a class="edit-button visit-page-button" title="Preview this page"
+                                   href="{{ url_for('preview_page', website_id=website.id, page_id=page.id) }}"
+                                   target="_blank" rel="noopener">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                                {% else %}
+                                <a class="edit-button visit-page-button" title="Visit this page"
+                                   href="/{{ (website.url_prefix + '/') if website.url_prefix else '' }}{{ page.slug }}"
+                                   target="_blank" rel="noopener">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                                {% endif %}
                                 {% if user_has_page_action(page, 'pages.edit', website) and user_can_access_page_for(page.id, website) %}
                                 <button class="edit-button"
                                     onclick="window.location.href='{{ url_for('page_editor', website_id=website.id, page_id=page.id) }}'">
@@ -3047,6 +3096,12 @@
                                     <p>Tags (comma-separated)</p>
                                     <input type="text" id="editPageTags_{{ website.id }}_{{ page.id }}" name="tags"
                                         class="form-control" placeholder="Tags (comma-separated)">
+                                    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer;">
+                                        <input type="checkbox"
+                                               id="editPageRequireLogin_{{ website.id }}_{{ page.id }}"
+                                               style="width:16px;height:16px;accent-color:#5eeef8;cursor:pointer;">
+                                        <span>Require login to view this page</span>
+                                    </label>
                                     <input type="hidden" id="editPageId_{{ website.id }}_{{ page.id }}" name="page_id"
                                         value="{{ page.id }}"> <!-- Hidden input for page ID -->
                                     <input type="hidden" id="editPageWebsiteId_{{ website.id }}_{{ page.id }}"
@@ -3295,6 +3350,10 @@
                                             </div>
                                         </div>
 
+                                        {% if page.require_login %}
+                                        <i class="fas fa-user-lock page-require-login-icon" id="pageRequireLoginIcon_{{ page.id }}" title="Login required to view this page"></i>
+                                        {% endif %}
+
                                         <label
                                             class="publish-badge-toggle {% if page.site_active_status %}published{% else %}draft{% endif %}"
                                             id="pagePublishBadge_{{ page.id }}"
@@ -3319,12 +3378,23 @@
                                         </div>
                                         {% endif %}
 
-                                        <div class="page-title">
-                                            {{ page.name }}
-                                        </div>
+                                        <div class="page-title">{{ page.name }}</div>
 
 
                                         <div class="edit-button-container">
+                                            {% if website.is_draft %}
+                                            <a class="edit-button visit-page-button" title="Preview this page"
+                                               href="{{ url_for('preview_page', website_id=website.id, page_id=page.id) }}"
+                                               target="_blank" rel="noopener">
+                                                <i class="fas fa-external-link-alt"></i>
+                                            </a>
+                                            {% else %}
+                                            <a class="edit-button visit-page-button" title="Visit this page"
+                                               href="/{{ (website.url_prefix + '/') if website.url_prefix else '' }}{{ page.slug }}"
+                                               target="_blank" rel="noopener">
+                                                <i class="fas fa-external-link-alt"></i>
+                                            </a>
+                                            {% endif %}
                                             <!-- Edit button for page -->
                                             {% if user_has_page_action(page, 'pages.edit', website) and user_can_access_page_for(page.id, website) %}
                                             <button class="edit-button"
@@ -3398,6 +3468,12 @@
                                                 <input type="text" id="editPageTags_{{ website.id }}_{{ page.id }}"
                                                     name="tags" class="form-control"
                                                     placeholder="Tags (comma-separated)">
+                                                <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer;">
+                                                    <input type="checkbox"
+                                                           id="editPageRequireLogin_{{ website.id }}_{{ page.id }}"
+                                                           style="width:16px;height:16px;accent-color:#5eeef8;cursor:pointer;">
+                                                    <span>Require login to view this page</span>
+                                                </label>
                                                 <input type="hidden" id="editPageId_{{ website.id }}_{{ page.id }}"
                                                     name="page_id" value="{{ page.id }}">
                                                 <!-- Hidden input for page ID -->
@@ -3528,21 +3604,69 @@
                     <p>Tags (comma-separated)</p>
                     <input type="text" id="editWebsiteTags_{{ website.id }}" name="tags" class="form-control"
                         placeholder="Tags (comma-separated)">
+                    {% if not website.is_draft %}
+                    <p style="margin-top:12px;">URL Prefix <span style="color:rgba(255,255,255,0.4);font-weight:400;font-size:0.82rem;">(primary website = blank)</span></p>
+                    <div style="display:flex;align-items:center;gap:0;border:1px solid rgba(255,255,255,0.18);border-radius:8px;overflow:hidden;">
+                        <span style="padding:8px 10px;background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.4);font-size:0.88rem;white-space:nowrap;">yourdomain.com/</span>
+                        <input type="text" id="editWebsitePrefix_{{ website.id }}" name="url_prefix" class="form-control"
+                               value="{{ website.url_prefix or '' }}"
+                               placeholder="e.g. shop" style="border:none;border-radius:0;flex:1;" pattern="[a-z0-9\-]*">
+                    </div>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:12px;cursor:pointer;font-size:0.9rem;">
+                        <input type="checkbox" id="editWebsiteRequireLogin_{{ website.id }}"
+                               {% if website.require_login_to_view %}checked{% endif %}
+                               style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        Require public user login to view this website
+                    </label>
+                    {% endif %}
                     <input type="hidden" id="editWebsiteId_{{ website.id }}" name="website_id" value="{{ website.id }}">
                     <!-- Hidden input for website ID -->
                 </div>
-                <div class="modal-footer">
+                <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;">
                     <button type="button" onclick="closeModal('editWebsiteModal_{{ website.id }}')">
                         Close
                     </button>
-
-                    <button type="button" onclick="saveWebsiteChanges('{{ website.id }}')">
-                        Save Changes
-                    </button>
+                    <div style="display:flex;gap:8px;">
+                        {% if not website.is_draft and website.url_prefix is not none %}
+                        <button type="button"
+                                onclick="openDeleteWebsiteConfirm('{{ website.id }}')"
+                                style="background:rgba(255,80,80,0.15);color:#ff6b6b;border:1px solid rgba(255,80,80,0.3);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;">
+                            Delete Website
+                        </button>
+                        {% endif %}
+                        <button type="button" onclick="saveWebsiteChanges('{{ website.id }}')">
+                            Save Changes
+                        </button>
+                    </div>
                 </div>
 
             </form>
         </div>
+
+        {% if not website.is_draft and website.url_prefix is not none %}
+        <div id="deleteWebsiteConfirm_{{ website.id }}" class="modal modal-content" style="max-width:420px;">
+            <span class="close" onclick="closeModal('deleteWebsiteConfirm_{{ website.id }}')">&times;</span>
+            <h5 style="color:#ff6b6b;">Delete Website</h5>
+            <div class="modal-body">
+                <p style="color:rgba(255,255,255,0.8);margin-bottom:16px;">
+                    This will permanently delete <strong>{{ website.name }}</strong> and all its pages. This cannot be undone.
+                </p>
+                <p style="margin-bottom:6px;font-size:0.85rem;color:rgba(255,255,255,0.6);">Enter your password to confirm:</p>
+                <input type="password" id="deleteWebsitePassword_{{ website.id }}"
+                       placeholder="Your password"
+                       style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);color:#fff;box-sizing:border-box;font-size:0.9rem;">
+                <p id="deleteWebsiteError_{{ website.id }}" style="color:#ff6b6b;font-size:0.82rem;margin-top:8px;min-height:1em;"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" onclick="closeModal('deleteWebsiteConfirm_{{ website.id }}')">Cancel</button>
+                <button type="button"
+                        onclick="confirmDeleteWebsite('{{ website.id }}')"
+                        style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;">
+                    Delete
+                </button>
+            </div>
+        </div>
+        {% endif %}
 
         <div id="websiteStyleModal_{{ website.id }}" class="modal modal-content">
             <span class="close" onclick="closeModal('websiteStyleModal_{{ website.id }}')">&times;</span>
@@ -3696,16 +3820,12 @@
                     <div class="navbar-builder-card">
                         <h6>Add Page Link</h6>
 
+                        <select id="navbarWebsiteSelect_{{ website.id }}" class="form-control"
+                                onchange="onNavbarWebsiteChange('{{ website.id }}', this.value)">
+                        </select>
+
                         <select id="navbarPageSelect_{{ website.id }}" class="form-control">
                             <option value="">Select page...</option>
-
-                            {% for page in pages %}
-                            <option value="{{ url_for('public_page_by_slug', page_slug=page.slug) }}"
-                                data-name="{{ page.name }}" data-page-id="{{ page.id }}">
-                                {{ page.name }}
-                            </option>
-                            {% endfor %}
-
                             <option value="manual">Enter manually</option>
                         </select>
 
@@ -4199,6 +4319,14 @@
                         ghostClass: 'sortable-ghost',
                         chosenClass: 'sortable-chosen',
                         dragClass: 'sortable-drag',
+
+                        // Touch: require a 280ms press-and-hold before drag starts
+                        // so plain finger-scrolls don't pick up a tile. Mouse drag
+                        // stays instant. touchStartThreshold tolerates a few pixels
+                        // of movement during the hold so micro-jitter doesn't cancel.
+                        delay: 280,
+                        delayOnTouchOnly: true,
+                        touchStartThreshold: 5,
 
                         filter: '.page-menu-container, .page-menu, .edit-button-container, .publish-badge-toggle, .page-preview-placeholder button, iframe, input, button, a, select, textarea',
                         preventOnFilter: false,
@@ -4978,6 +5106,49 @@
 
 
 
+            function _buildNavbarPageUrl(urlPrefix, pageSlug) {
+                return urlPrefix ? `/${urlPrefix}/${pageSlug}` : `/${pageSlug}`;
+            }
+
+            function _populateNavbarPageSelect(navbarWebsiteId, pages, urlPrefix) {
+                const pageSelect = document.getElementById(`navbarPageSelect_${navbarWebsiteId}`);
+                if (!pageSelect) return;
+                pageSelect.innerHTML = '<option value="">Select page...</option>';
+                (pages || []).forEach(page => {
+                    const option = document.createElement('option');
+                    option.value = _buildNavbarPageUrl(urlPrefix, page.slug);
+                    option.dataset.name = page.name;
+                    option.dataset.pageId = page.id;
+                    option.textContent = page.name;
+                    pageSelect.appendChild(option);
+                });
+                const manualOption = document.createElement('option');
+                manualOption.value = 'manual';
+                manualOption.textContent = 'Enter manually';
+                pageSelect.appendChild(manualOption);
+            }
+
+            async function onNavbarWebsiteChange(navbarWebsiteId, selectedWebsiteId) {
+                const pageSelect = document.getElementById(`navbarPageSelect_${navbarWebsiteId}`);
+                const groupSelect = document.getElementById(`navbarGroupSelect_${navbarWebsiteId}`);
+                if (!pageSelect) return;
+                pageSelect.innerHTML = '<option value="">Loading…</option>';
+                pageSelect.disabled = true;
+                if (groupSelect) { groupSelect.innerHTML = '<option value="">Select group...</option>'; groupSelect.style.display = 'none'; }
+                try {
+                    const response = await fetch(`/api/page/${selectedWebsiteId}/pages`);
+                    const data = await response.json();
+                    _populateNavbarPageSelect(navbarWebsiteId, data.pages || [], data.url_prefix || '');
+                    if (data.page_groups) {
+                        websitePageGroups[selectedWebsiteId] = data.page_groups;
+                    }
+                } catch (e) {
+                    pageSelect.innerHTML = '<option value="">Error loading pages</option>';
+                } finally {
+                    pageSelect.disabled = false;
+                }
+            }
+
             function addSelectedNavbarPage(websiteId) {
                 const select = document.getElementById(`navbarPageSelect_${websiteId}`);
                 const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
@@ -5017,6 +5188,7 @@
             function updateNavbarGroupSelect(websiteId) {
                 const pageSelect = document.getElementById(`navbarPageSelect_${websiteId}`);
                 const groupSelect = document.getElementById(`navbarGroupSelect_${websiteId}`);
+                const websiteSelect = document.getElementById(`navbarWebsiteSelect_${websiteId}`);
 
                 if (!pageSelect || !groupSelect) return;
 
@@ -5030,7 +5202,8 @@
                     return;
                 }
 
-                const groups = websitePageGroups?.[websiteId]?.[pageId] || [];
+                const activeWebsiteId = websiteSelect ? websiteSelect.value : websiteId;
+                const groups = websitePageGroups?.[activeWebsiteId]?.[pageId] || [];
 
                 if (!groups.length) {
                     groupSelect.style.display = 'none';
@@ -5194,6 +5367,23 @@
 
                     renderSavedColors(`website_${websiteId}`);
                     enableSavedColorDropZone(`website_${websiteId}`);
+
+                    // Populate website selector
+                    const websiteSelect = document.getElementById(`navbarWebsiteSelect_${websiteId}`);
+                    if (websiteSelect) {
+                        const allLive = dashboardData.allLiveWebsites || [];
+                        websiteSelect.innerHTML = '';
+                        allLive.forEach(w => {
+                            const option = document.createElement('option');
+                            option.value = w.id;
+                            option.textContent = w.url_prefix ? `${w.name} (/${w.url_prefix})` : w.name;
+                            if (String(w.id) === websiteId) option.selected = true;
+                            websiteSelect.appendChild(option);
+                        });
+                    }
+
+                    // Populate page selector with current website's pages (correct URL prefix)
+                    _populateNavbarPageSelect(websiteId, website.pages || [], website.url_prefix || '');
 
                     const pageSelect = document.getElementById(`navbarPageSelect_${websiteId}`);
 
@@ -5540,11 +5730,23 @@
         {% for website, pages in website_pages.items() %}
         {
             "id": {{ website.id | tojson }},
+            "name": {{ website.name | tojson }},
+            "url_prefix": {{ (website.url_prefix or "") | tojson }},
             "background_color": {{ (website.background_color or "#ffffff") | tojson }},
             "text_color": {{ (website.text_color or "#000000") | tojson }},
             "public_navbar_items": {{ (website.public_navbar_items or []) | tojson }},
-            "navbar_background": {{ ((website.public_navbar_style or {}).get("background", "")) | tojson }}
+            "navbar_background": {{ ((website.public_navbar_style or {}).get("background", "")) | tojson }},
+            "pages": [
+                {% for page in pages %}
+                {"id": {{ page.id | tojson }}, "name": {{ page.name | tojson }}, "slug": {{ page.slug | tojson }}}{% if not loop.last %},{% endif %}
+                {% endfor %}
+            ]
         }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ],
+    "allLiveWebsites": [
+        {% for w in live_websites %}
+        {"id": {{ w.id | tojson }}, "name": {{ w.name | tojson }}, "url_prefix": {{ (w.url_prefix or "") | tojson }}}{% if not loop.last %},{% endif %}
         {% endfor %}
     ]
 }
@@ -6102,15 +6304,43 @@
                 if (overlay) overlay.style.display = 'none';
             }
 
+            async function submitCreateWebsite(event) {
+                event.preventDefault();
+                const errorEl = document.getElementById('createWebsiteError');
+                const submitBtn = document.getElementById('createWebsiteSubmitBtn');
+                errorEl.style.display = 'none';
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Creating…';
+                try {
+                    const formData = new FormData(document.getElementById('createWebsiteForm'));
+                    const response = await fetch('{{ url_for("create_website") }}', {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': csrfToken },
+                        body: formData
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        window.location.reload();
+                    } else {
+                        errorEl.textContent = data.error || 'An error occurred. Please try again.';
+                        errorEl.style.display = 'block';
+                    }
+                } catch (e) {
+                    errorEl.textContent = 'An unexpected error occurred. Please try again.';
+                    errorEl.style.display = 'block';
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Create';
+                }
+            }
+
             // Function to handle form submission for editing website
             function saveWebsiteChanges(websiteId) {
-                var newName = document.getElementById(`editWebsiteName_${websiteId}`).value;
-                var newTags = document.getElementById(`editWebsiteTags_${websiteId}`).value;
+                var newName        = document.getElementById(`editWebsiteName_${websiteId}`).value;
+                var newTags        = document.getElementById(`editWebsiteTags_${websiteId}`).value;
                 var newDescription = document.getElementById(`editWebsiteDescription_${websiteId}`).value;
-
-                console.log("newName: ", newName);
-                console.log("newTags: ", newTags);
-                console.log("newDescription: ", newDescription);
+                var urlPrefix      = document.getElementById(`editWebsitePrefix_${websiteId}`)?.value.trim() ?? null;
+                var requireLogin   = document.getElementById(`editWebsiteRequireLogin_${websiteId}`)?.checked ?? null;
 
                 fetch(`/edit_website/${websiteId}`, {
                     method: 'POST',
@@ -6122,6 +6352,8 @@
                         name: newName,
                         description: newDescription,
                         tags: newTags,
+                        ...(urlPrefix    !== null ? { url_prefix: urlPrefix }                    : {}),
+                        ...(requireLogin !== null ? { require_login_to_view: requireLogin }     : {}),
                     })
                 })
                     .then(response => {
@@ -6140,18 +6372,15 @@
                 var newName = document.getElementById(`editPageName_${websiteId}_${pageId}`).value;
                 var newTags = document.getElementById(`editPageTags_${websiteId}_${pageId}`).value;
                 var newDescription = document.getElementById(`editPageDescription_${websiteId}_${pageId}`).value;
-
-                console.log("newName: ", newName);
-                console.log("newTags: ", newTags);
-                console.log("newDescription: ", newDescription);
+                var requireLogin = document.getElementById(`editPageRequireLogin_${websiteId}_${pageId}`)?.checked ? 'true' : 'false';
 
                 fetch(`/edit_page/${websiteId}/${pageId}`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded', // Set content type to form data
-                        'X-CSRFToken': csrfToken // Include CSRF token in the headers
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrfToken
                     },
-                    body: `name=${encodeURIComponent(newName)}&tags=${encodeURIComponent(newTags)}&description=${encodeURIComponent(newDescription)}` // Encode form data
+                    body: `name=${encodeURIComponent(newName)}&tags=${encodeURIComponent(newTags)}&description=${encodeURIComponent(newDescription)}&require_login=${requireLogin}`
                 })
                     .then(response => {
                         if (response.ok) {
@@ -6447,6 +6676,34 @@
                 else { alert(d.error || 'Failed to delete draft'); }
             }
 
+            function openDeleteWebsiteConfirm(websiteId) {
+                closeModal(`editWebsiteModal_${websiteId}`);
+                const pwEl = document.getElementById(`deleteWebsitePassword_${websiteId}`);
+                const errEl = document.getElementById(`deleteWebsiteError_${websiteId}`);
+                if (pwEl) pwEl.value = '';
+                if (errEl) errEl.textContent = '';
+                openModal(`deleteWebsiteConfirm_${websiteId}`);
+                setTimeout(() => pwEl && pwEl.focus(), 80);
+            }
+
+            async function confirmDeleteWebsite(websiteId) {
+                const pwEl  = document.getElementById(`deleteWebsitePassword_${websiteId}`);
+                const errEl = document.getElementById(`deleteWebsiteError_${websiteId}`);
+                const password = pwEl ? pwEl.value : '';
+                if (!password) { if (errEl) errEl.textContent = 'Please enter your password.'; return; }
+                const r = await fetch(`/delete_website/${websiteId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    location.reload();
+                } else {
+                    if (errEl) errEl.textContent = d.error || 'Failed to delete website.';
+                }
+            }
+
             function editWebsite(websiteId) {
                 fetch(`/get_website_details/${websiteId}`)
                     .then(response => response.json())
@@ -6493,6 +6750,13 @@
                 // Adjusting IDs to include dynamic parts
                 var websiteId = modalId.split('_')[1]; // Extract website ID from modal ID
                 var pageId = modalId.split('_')[2]; // Extract page ID from modal ID
+
+                if (pageId) {
+                    var requireLoginField = document.getElementById(`editPageRequireLogin_${websiteId}_${pageId}`);
+                    if (requireLoginField) {
+                        requireLoginField.checked = !!data.require_login;
+                    }
+                }
 
                 if (websiteIdField && websiteId) {
                     websiteIdField.value = websiteId;

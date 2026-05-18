@@ -654,8 +654,10 @@
         white-space: nowrap;
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
-        padding: 7px 13px;
+        padding: 7px 0;
+        min-width: 40px;
         border-radius: 8px;
         border: 1px solid rgba(255,255,255,0.15);
         background: rgba(255,255,255,0.08);
@@ -664,6 +666,12 @@
         font-weight: 600;
         cursor: pointer;
         flex-shrink: 0;
+    }
+    /* Use a font where I/l are clearly distinguishable on the "AI" label. */
+    .al-mobile-bar-btn .ai-label {
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: 700;
+        letter-spacing: 0.06em;
     }
     .al-mobile-bar-btn:disabled { opacity: 0.38; cursor: not-allowed; }
     .al-mobile-bar-btn.folders-active {
@@ -826,9 +834,15 @@
     {% if current_type == 'image' %}
     {% if user_has_perm('assets.ai_generate') %}
     <button class="al-mobile-bar-btn" onclick="openAiGenModal()" title="Generate with AI" style="background:linear-gradient(135deg,rgba(123,47,247,0.5),rgba(0,198,255,0.5));border-color:rgba(0,198,255,0.4);">
-        <i class="fas fa-magic"></i> AI
+        <span class="ai-label">AI</span>
     </button>
     {% endif %}
+    {% endif %}
+
+    {% if user_has_perm('storage.import') %}
+    <button class="al-mobile-bar-btn" onclick="openDriveBrowser()" title="Import from Drive" style="background:linear-gradient(135deg,rgba(42,140,240,0.55),rgba(94,238,248,0.55));border-color:rgba(94,238,248,0.4);">
+        <i class="fas fa-cloud-download-alt"></i>
+    </button>
     {% endif %}
 </div>
 
@@ -954,6 +968,12 @@
             <i class="fas fa-lock"></i> Generate with AI
         </button>
         {% endif %}
+        {% endif %}
+
+        {% if user_has_perm('storage.import') %}
+        <button onclick="openDriveBrowser()" style="background:linear-gradient(135deg,#2a8cf0,#5eeef8); border-color:transparent;">
+            <i class="fas fa-cloud-download-alt"></i> Import from Drive
+        </button>
         {% endif %}
 
         <input type="file" id="assetInput" multiple style="display:none" onchange="handleUpload(event)">
@@ -1981,6 +2001,301 @@
             btn.innerHTML = '<i class="fas fa-magic"></i> Generate';
         }
     }
+</script>
+
+<!-- ── External Drive browser modal ─────────────────────────────────────── -->
+<style>
+    /* Drive browser modal — base layout uses inline styles for the desktop look,
+       these rules tighten it up on phone-sized viewports and tablet-portrait. */
+    #aldOverlay .ald-row { display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; cursor:pointer; user-select:none; min-height:34px; font-size:0.88rem; }
+    #aldOverlay .ald-row.selected { background: rgba(94,238,248,0.12); }
+    #aldOverlay #aldBack {
+        background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer;
+        font-size: 0.95rem; padding: 6px 10px; border-radius: 6px; display: inline-flex;
+        align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    #aldOverlay #aldBack:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #fff; }
+    #aldOverlay #aldBack:disabled { opacity: 0.35; cursor: not-allowed; }
+    @media (max-width: 767px) {
+        /* Sit below the fixed admin navbar (52px) so the modal title isn't hidden. */
+        #aldOverlay { top: 52px !important; padding: 0; align-items: stretch !important; }
+        #aldOverlay > div {
+            width: 100vw !important;
+            max-width: 100vw !important;
+            max-height: calc(100vh - 52px) !important;
+            height: calc(100vh - 52px);
+            border-radius: 0 !important;
+            border: none !important;
+        }
+        #aldOverlay #aldBody { padding: 2px 4px; }
+        /* Tighter rows — list-like rather than card-like */
+        #aldOverlay .ald-row { padding: 6px 8px; min-height: 36px; gap: 10px; font-size: 0.9rem; }
+        #aldOverlay .ald-row input[type="checkbox"] { width: 18px; height: 18px; }
+        /* Footer: pin to the bottom of the visible modal */
+        #aldBrowserView > div:last-child {
+            position: sticky;
+            bottom: 0;
+            background: #181820;
+        }
+        #aldOverlay #aldImportMsg {
+            flex-basis: 100%;
+            margin-left: 0 !important;
+            text-align: center;
+        }
+        #aldConnList > div { padding: 12px !important; }
+    }
+</style>
+<div id="aldOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;" onclick="if(event.target===this)closeDriveBrowser()">
+    <div style="background:#181820;border:1px solid rgba(255,255,255,0.1);border-radius:16px;width:min(820px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;color:#fff;">
+        <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.07);">
+            <div style="font-weight:700;" id="aldTitle">Import from Drive</div>
+            <button style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:1.4rem;cursor:pointer;" onclick="closeDriveBrowser()">&times;</button>
+        </div>
+        <div id="aldPickerView" style="padding:18px;display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:0.85rem;color:rgba(255,255,255,0.55);">Choose which connected drive to browse.</div>
+            <div id="aldConnList" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+                <div style="padding:18px;text-align:center;color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>
+            </div>
+        </div>
+        <div id="aldBrowserView" style="display:none;flex:1;flex-direction:column;min-height:0;">
+            <div style="display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.05);">
+                <button id="aldBack" type="button" onclick="aldGoBack()" title="Back to parent folder">
+                    <i class="fas fa-arrow-left"></i><span>Back</span>
+                </button>
+                <div id="aldBreadcrumb" style="flex:1;min-width:0;font-size:0.82rem;color:rgba(255,255,255,0.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+            </div>
+            <div id="aldBody" style="flex:1;overflow-y:auto;padding:8px;">
+                <div style="padding:24px;text-align:center;color:rgba(255,255,255,0.45);font-size:0.9rem;">Loading…</div>
+            </div>
+            <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="font-size:0.85rem;color:rgba(255,255,255,0.55);"><span id="aldSelectedCount">0</span> selected</span>
+                <button onclick="aldClearSelection()" style="padding:7px 13px;border-radius:8px;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.12);font-size:0.85rem;font-weight:600;cursor:pointer;">Clear</button>
+                <button onclick="aldChangeDrive()" style="padding:7px 13px;border-radius:8px;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.12);font-size:0.85rem;font-weight:600;cursor:pointer;">Change drive</button>
+                <button onclick="aldImportSelected()" style="padding:7px 16px;border-radius:8px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;border:none;font-size:0.85rem;font-weight:700;cursor:pointer;">
+                    <i class="fas fa-download"></i> Import to this folder
+                </button>
+                <span id="aldImportMsg" style="font-size:0.85rem;margin-left:auto;min-height:18px;"></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let _aldCid = null;
+let _aldPath = [];
+let _aldSelected = new Map();
+
+async function openDriveBrowser() {
+    document.getElementById('aldOverlay').style.display = 'flex';
+    document.getElementById('aldImportMsg').textContent = '';
+    document.getElementById('aldPickerView').style.display = 'flex';
+    document.getElementById('aldBrowserView').style.display = 'none';
+    _aldSelected = new Map(); _aldPath = []; _aldCid = null;
+    aldUpdateSelectedCount();
+
+    const list = document.getElementById('aldConnList');
+    list.innerHTML = '<div style="padding:18px;text-align:center;color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
+    try {
+        const r = await fetch('/admin/storage-connections-list');
+        const j = await r.json();
+        if (!j.success || !j.connections || j.connections.length === 0) {
+            list.innerHTML = `<div style="padding:18px;text-align:center;color:rgba(255,255,255,0.5);font-size:0.9rem;">
+                No drives connected.
+                <a href="/admin/storage-connections" style="color:#5eeef8;text-decoration:none;">Connect one →</a>
+            </div>`;
+            return;
+        }
+        list.innerHTML = '';
+        j.connections.forEach(c => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);border-radius:10px;cursor:pointer;';
+            row.innerHTML = `
+                <div style="width:36px;height:36px;border-radius:8px;background:rgba(94,238,248,0.1);color:#5eeef8;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    <i class="fab ${c.provider==='google_drive'?'fa-google-drive':'fa-cloud'}"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:700;font-size:0.95rem;">${escapeHtmlAld(c.label)}</div>
+                    <div style="font-size:0.78rem;color:rgba(255,255,255,0.45);">${escapeHtmlAld(c.account_identifier || c.provider)}</div>
+                </div>
+                <i class="fas fa-chevron-right" style="color:rgba(255,255,255,0.35);"></i>
+            `;
+            row.onmouseover = () => row.style.background = 'rgba(255,255,255,0.06)';
+            row.onmouseout  = () => row.style.background = 'rgba(255,255,255,0.03)';
+            row.onclick = () => aldPickConnection(c.id, c.label);
+            list.appendChild(row);
+        });
+    } catch (e) {
+        list.innerHTML = `<div style="padding:18px;text-align:center;color:#ff8a8a;">Failed to load drives.</div>`;
+    }
+}
+
+function closeDriveBrowser() {
+    document.getElementById('aldOverlay').style.display = 'none';
+}
+
+function aldChangeDrive() {
+    document.getElementById('aldPickerView').style.display = 'flex';
+    document.getElementById('aldBrowserView').style.display = 'none';
+    _aldCid = null; _aldPath = []; _aldSelected = new Map();
+    aldUpdateSelectedCount();
+}
+
+function aldPickConnection(cid, label) {
+    _aldCid = cid;
+    _aldPath = [];
+    _aldSelected = new Map();
+    aldUpdateSelectedCount();
+    document.getElementById('aldTitle').textContent = `Import from ${label}`;
+    document.getElementById('aldPickerView').style.display = 'none';
+    document.getElementById('aldBrowserView').style.display = 'flex';
+    aldLoadFolder(null);
+}
+
+function aldUpdateBreadcrumb() {
+    const el = document.getElementById('aldBreadcrumb');
+    el.innerHTML = '';
+    const root = document.createElement('a');
+    root.textContent = 'Root';
+    root.style.cssText = 'color:#5eeef8;cursor:pointer;';
+    root.onclick = () => { _aldPath = []; aldLoadFolder(null); };
+    el.appendChild(root);
+    _aldPath.forEach((p, i) => {
+        el.appendChild(document.createTextNode(' / '));
+        const a = document.createElement('a');
+        a.textContent = p.name;
+        a.style.cssText = 'color:#5eeef8;cursor:pointer;';
+        a.onclick = () => { _aldPath = _aldPath.slice(0, i + 1); aldLoadFolder(p.id); };
+        el.appendChild(a);
+    });
+    const backBtn = document.getElementById('aldBack');
+    if (backBtn) backBtn.disabled = _aldPath.length === 0;
+}
+
+function aldGoBack() {
+    if (_aldPath.length === 0) return;
+    _aldPath.pop();
+    const parent = _aldPath.length ? _aldPath[_aldPath.length - 1].id : null;
+    aldLoadFolder(parent);
+}
+
+async function aldLoadFolder(folderId) {
+    aldUpdateBreadcrumb();
+    const body = document.getElementById('aldBody');
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.45);font-size:0.9rem;">Loading…</div>';
+    const params = new URLSearchParams();
+    if (folderId) params.set('folder_id', folderId);
+    const r = await fetch(`/admin/storage-connections/${_aldCid}/browse?${params.toString()}`);
+    const j = await r.json();
+    if (!j.success) {
+        body.innerHTML = `<div style="padding:24px;text-align:center;color:#ff8a8a;font-size:0.9rem;">${j.error || 'Failed to load folder.'}</div>`;
+        return;
+    }
+    if (!j.items.length) {
+        body.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.45);font-size:0.9rem;">This folder is empty.</div>';
+        return;
+    }
+    body.innerHTML = '';
+    j.items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'ald-row';
+        row.onmouseover = () => { if (!row.classList.contains('selected')) row.style.background = 'rgba(255,255,255,0.06)'; };
+        row.onmouseout  = () => { if (!row.classList.contains('selected')) row.style.background = ''; };
+        const isFolder = item.type === 'folder';
+        const sizeText = (!isFolder && item.size) ? aldFormatBytes(item.size) : '';
+        const exportNote = (!isFolder && item.export_ext) ? ` <span style="color:rgba(94,238,248,0.65);">→ .${item.export_ext}</span>` : '';
+        row.innerHTML = `
+            ${isFolder
+              ? '<div style="width:24px;text-align:center;color:rgba(255,255,255,0.6);"><i class="fas fa-folder"></i></div>'
+              : `<input type="checkbox" data-id="${item.id}" style="accent-color:#5eeef8;width:18px;height:18px;">`}
+            <span style="width:24px;text-align:center;color:rgba(255,255,255,0.55);">
+                ${isFolder ? '' : `<i class="fas ${aldIconForMime(item.mime_type)}"></i>`}
+            </span>
+            <span style="flex:1;min-width:0;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlAld(item.name)}${exportNote}</span>
+            <span style="font-size:0.78rem;color:rgba(255,255,255,0.4);flex-shrink:0;">${sizeText}</span>
+        `;
+        if (isFolder) {
+            row.onclick = () => aldNavigateTo(item.id, item.name);
+        } else {
+            const cb = row.querySelector('input');
+            cb.checked = _aldSelected.has(item.id);
+            if (cb.checked) { row.style.background = 'rgba(94,238,248,0.12)'; row.classList.add('selected'); }
+            cb.addEventListener('change', () => {
+                if (cb.checked) { _aldSelected.set(item.id, item.name); row.style.background = 'rgba(94,238,248,0.12)'; row.classList.add('selected'); }
+                else { _aldSelected.delete(item.id); row.style.background = ''; row.classList.remove('selected'); }
+                aldUpdateSelectedCount();
+            });
+            row.addEventListener('click', (e) => {
+                if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+            });
+        }
+        body.appendChild(row);
+    });
+}
+
+function aldNavigateTo(folderId, name) {
+    _aldPath.push({id: folderId, name});
+    aldLoadFolder(folderId);
+}
+
+function aldClearSelection() {
+    _aldSelected = new Map();
+    document.querySelectorAll('#aldBody input[type=checkbox]').forEach(cb => {
+        cb.checked = false;
+        const row = cb.closest('div');
+        if (row) { row.style.background = ''; row.classList.remove('selected'); }
+    });
+    aldUpdateSelectedCount();
+}
+
+function aldUpdateSelectedCount() {
+    document.getElementById('aldSelectedCount').textContent = _aldSelected.size;
+}
+
+async function aldImportSelected() {
+    if (_aldSelected.size === 0) return;
+    const msg = document.getElementById('aldImportMsg');
+    msg.textContent = `Importing ${_aldSelected.size}…`;
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    const r = await fetch(`/admin/storage-connections/${_aldCid}/import`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            file_ids: Array.from(_aldSelected.keys()),
+            folder_id: CURRENT_FOLDER_ID || null,
+        }),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.textContent = j.error || 'Import failed.'; msg.style.color = '#ff8a8a'; return; }
+    msg.textContent = `Imported ${j.imported_count}.${j.failed_count ? ' ' + j.failed_count + ' failed.' : ''}`;
+    msg.style.color = j.failed_count ? '#ffd982' : '#5eeec8';
+    aldClearSelection();
+    if (j.imported_count > 0) {
+        setTimeout(() => location.reload(), 900);
+    }
+}
+
+function aldFormatBytes(n) {
+    n = Number(n) || 0;
+    for (const u of ['B','KB','MB','GB','TB']) {
+        if (n < 1024) return (u === 'B' ? n.toFixed(0) : n.toFixed(1)) + ' ' + u;
+        n /= 1024;
+    }
+    return n.toFixed(1) + ' PB';
+}
+function escapeHtmlAld(s) {
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function aldIconForMime(mt) {
+    mt = (mt || '').toLowerCase();
+    if (mt.startsWith('image/')) return 'fa-image';
+    if (mt.startsWith('video/')) return 'fa-film';
+    if (mt.startsWith('audio/')) return 'fa-music';
+    if (mt.includes('pdf')) return 'fa-file-pdf';
+    if (mt.includes('spreadsheet')) return 'fa-file-excel';
+    if (mt.includes('document') || mt.includes('msword')) return 'fa-file-word';
+    if (mt.includes('presentation')) return 'fa-file-powerpoint';
+    if (mt.includes('zip') || mt.includes('compressed')) return 'fa-file-archive';
+    return 'fa-file';
+}
 </script>
 
 {% endblock %}
