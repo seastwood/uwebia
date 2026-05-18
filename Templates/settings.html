@@ -530,6 +530,34 @@
         </form>
     </div>
 
+    <!-- Public Display Names (per-website mirror) -->
+    {% if admin_mirrors %}
+    <div class="settings-card">
+        <h2 class="settings-section-title">Public Display Names</h2>
+        <p class="settings-subtitle" style="margin-bottom:14px;">
+            Pick what name shows next to your activity on each public site (comments, forum posts, reviews).
+            Your <strong>admin login username</strong> stays private. Leave blank to fall back to your login username on that site.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:14px;" id="mirrorDisplayList">
+            {% for w, pu in admin_mirrors %}
+            <div style="display:grid;grid-template-columns:200px 1fr auto;gap:10px;align-items:center;" data-mirror-id="{{ pu.id }}">
+                <div>
+                    <div style="font-weight:600;color:rgba(255,255,255,0.85);font-size:0.9rem;">{{ w.name }}</div>
+                    <div style="font-size:0.75rem;color:rgba(255,255,255,0.4);">{% if w.url_prefix %}/{{ w.url_prefix }}/{% else %}primary{% endif %}</div>
+                </div>
+                <input type="text" class="form-control mirror-display-input"
+                       value="{{ pu.display_username or '' }}"
+                       placeholder="{{ pu.username }}"
+                       maxlength="80"
+                       style="padding:9px 12px;border-radius:8px;background:#3a3a3a;border:1px solid rgba(255,255,255,0.1);color:#fff;width:100%;box-sizing:border-box;">
+                <button type="button" class="settings-button" onclick="saveMirrorDisplay(this)" style="padding:8px 14px;">Save</button>
+            </div>
+            {% endfor %}
+        </div>
+        <div id="mirrorDisplayStatus" style="margin-top:10px;font-size:0.82rem;min-height:1em;"></div>
+    </div>
+    {% endif %}
+
     <!-- Admin Navbar Visibility -->
     <div class="settings-card">
         <h2 class="settings-section-title">Admin Navbar</h2>
@@ -537,12 +565,15 @@
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
             {% set _nd = current_user.admin_navbar_disabled or [] %}
             {% for key, label, icon in [
-                ('posts',     'Posts',         'fa-newspaper'),
-                ('calendars', 'Calendars',     'fa-calendar-alt'),
-                ('products',  'Products',      'fa-shopping-cart'),
-                ('palette',   'Color Palette', 'fa-palette'),
-                ('ai_agents', 'AI Agents',     'fa-robot'),
-                ('plugins',   'Plugins',       'fa-puzzle-piece'),
+                ('posts',       'Posts',           'fa-newspaper'),
+                ('newsletters', 'Newsletters',     'fa-envelope-open-text'),
+                ('forum',       'Forum',           'fa-comments'),
+                ('calendars',   'Calendars',       'fa-calendar-alt'),
+                ('products',    'Products',        'fa-shopping-cart'),
+                ('palette',     'Color Palette',   'fa-palette'),
+                ('storage',     'External Drives', 'fa-cloud'),
+                ('ai_agents',   'AI Agents',       'fa-robot'),
+                ('plugins',     'Plugins',         'fa-puzzle-piece'),
             ] %}
             <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);">
                 <input type="checkbox" class="nav-vis-check" data-key="{{ key }}"
@@ -558,6 +589,35 @@
     </div>
 
     <script>
+        async function saveMirrorDisplay(btn) {
+            const row = btn.closest('[data-mirror-id]');
+            const mirror_id = row.dataset.mirrorId;
+            const display_username = row.querySelector('.mirror-display-input').value.trim();
+            const status = document.getElementById('mirrorDisplayStatus');
+            status.textContent = 'Saving…';
+            status.style.color = 'rgba(255,255,255,0.6)';
+            try {
+                const r = await fetch('/admin/dashboard/settings/mirror-display-name', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mirror_id, display_username}),
+                });
+                const d = await r.json();
+                if (!r.ok || d.error) {
+                    status.textContent = d.error || 'Save failed.';
+                    status.style.color = '#ff8a8a';
+                    return;
+                }
+                status.textContent = d.display_username
+                    ? `Saved "${d.display_username}".`
+                    : 'Cleared — using your login username on that site.';
+                status.style.color = '#5eeec8';
+            } catch (e) {
+                status.textContent = 'Network error.';
+                status.style.color = '#ff8a8a';
+            }
+        }
+
         async function saveNavbarVisibility() {
             const checks = document.querySelectorAll('.nav-vis-check');
             const disabled = [];

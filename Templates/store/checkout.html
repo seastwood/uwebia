@@ -89,8 +89,8 @@
                     <i class="fas fa-user-circle"></i>
                     <h3>Have an account?</h3>
                     <p>Log in to save your order history and speed up future checkouts.</p>
-                    <a href="{{ url_for('public_login', next='/store/checkout') }}" class="sco-gate-btn sco-gate-btn--primary">Log In</a>
-                    <a href="{{ url_for('public_register', next='/store/checkout') }}" class="sco-gate-btn sco-gate-btn--ghost">Create Account</a>
+                    <a href="{{ url_for('public_login', website_prefix=website.url_prefix, next='/store/checkout') }}" class="sco-gate-btn sco-gate-btn--primary">Log In</a>
+                    <a href="{{ url_for('public_register', website_prefix=website.url_prefix, next='/store/checkout') }}" class="sco-gate-btn sco-gate-btn--ghost">Create Account</a>
                 </div>
                 <div class="sco-gate-divider">or</div>
                 <div class="sco-gate-option">

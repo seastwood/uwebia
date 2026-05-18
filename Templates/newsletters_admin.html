@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.nl-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+.nl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 12px; }
+.nl-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
+.nl-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.nl-btn-new {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px;
+    background: linear-gradient(135deg, #5eeef8, #5eeec8);
+    color: #111; font-weight: 700; font-size: 0.9rem;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.nl-btn-new:hover { opacity: 0.88; }
+
+.nl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+.nl-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.nl-card-name { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; }
+.nl-card-desc { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin: 0; line-height: 1.5; }
+.nl-card-meta { font-size: 0.78rem; color: rgba(255,255,255,0.35); }
+.nl-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.nl-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 13px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.nl-btn-primary { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.nl-btn-primary:hover { background: rgba(94,238,248,0.25); }
+.nl-btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.nl-btn-secondary:hover { background: rgba(255,255,255,0.12); }
+.nl-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.nl-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.nl-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+
+/* Reuse modal styling — falls back to inline. */
+.uw-overlay { display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.65); align-items: center; justify-content: center; z-index: 9999; }
+.uw-modal { background: #1d1d27; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; width: min(480px, 92vw); padding: 22px; color: #fff; }
+.uw-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.uw-modal-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.uw-modal-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.3rem; cursor: pointer; }
+.uw-modal-body { display: flex; flex-direction: column; gap: 12px; }
+.uw-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.uw-field label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 4px; }
+.uw-field input, .uw-field textarea {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; font-size: 0.9rem; box-sizing: border-box;
+}
+</style>
+
+<div class="nl-page">
+    <div class="nl-header">
+        <div>
+            <p class="nl-kicker">Admin</p>
+            <h1 class="nl-title">Newsletters</h1>
+        </div>
+        {% if user_has_perm('newsletters.manage') %}
+        <button class="nl-btn-new" onclick="openNlModal()">
+            <i class="fas fa-plus"></i> New Newsletter
+        </button>
+        {% endif %}
+    </div>
+
+    {% if newsletters %}
+    <div class="nl-grid" id="nlGrid">
+        {% for nl in newsletters %}
+        <div class="nl-card" id="nlCard-{{ nl.id }}">
+            <h2 class="nl-card-name">{{ nl.name }}</h2>
+            {% if nl.description %}
+            <p class="nl-card-desc">{{ nl.description }}</p>
+            {% endif %}
+            <p class="nl-card-meta">
+                {{ nl.subscriber_count }} subscriber{{ 's' if nl.subscriber_count != 1 else '' }}
+                {% if nl.pending_count %} &middot; {{ nl.pending_count }} pending{% endif %}
+            </p>
+            <div class="nl-card-actions">
+                <a href="{{ url_for('admin_newsletter_detail', nid=nl.id) }}" class="nl-btn nl-btn-primary">
+                    <i class="fas fa-list"></i> Manage
+                </a>
+                {% if user_has_perm('newsletters.manage') %}
+                <button class="nl-btn nl-btn-secondary"
+                        onclick='openNlEditModal({{ nl.id }}, {{ nl.name | tojson }}, {{ (nl.description or "") | tojson }})'>
+                    <i class="fas fa-pen"></i> Edit
+                </button>
+                <button class="nl-btn nl-btn-danger"
+                        onclick='confirmNlDelete({{ nl.id }}, {{ nl.name | tojson }})'>
+                    <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="nl-empty" id="nlGrid">
+        <p>No newsletters yet. Create one to start collecting subscribers.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- New / edit modal -->
+<div class="uw-overlay" id="nlModalOverlay" style="display:none;" onclick="if(event.target===this)closeNlModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="nlModalTitle">New Newsletter</h3>
+            <button class="uw-modal-close" onclick="closeNlModal()" aria-label="Close">&times;</button>
+        </div>
+        <form id="nlModalForm" onsubmit="submitNlModal(event)">
+            <input type="hidden" id="nlModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field">
+                    <label for="nlModalName">Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="nlModalName" required placeholder="e.g. Monthly Updates">
+                </div>
+                <div class="uw-field">
+                    <label for="nlModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
+                    <textarea id="nlModalDesc" rows="3" placeholder="What is this newsletter about?"></textarea>
+                </div>
+            </div>
+            <div class="uw-modal-actions">
+                <button type="button" class="nl-btn nl-btn-secondary" onclick="closeNlModal()">Cancel</button>
+                <button type="submit" class="nl-btn nl-btn-primary"><i class="fas fa-save"></i> Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openNlModal() {
+    document.getElementById('nlModalId').value = '';
+    document.getElementById('nlModalName').value = '';
+    document.getElementById('nlModalDesc').value = '';
+    document.getElementById('nlModalTitle').textContent = 'New Newsletter';
+    document.getElementById('nlModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('nlModalName').focus(), 50);
+}
+function openNlEditModal(id, name, desc) {
+    document.getElementById('nlModalId').value = id;
+    document.getElementById('nlModalName').value = name;
+    document.getElementById('nlModalDesc').value = desc || '';
+    document.getElementById('nlModalTitle').textContent = 'Edit Newsletter';
+    document.getElementById('nlModalOverlay').style.display = 'flex';
+}
+function closeNlModal() {
+    document.getElementById('nlModalOverlay').style.display = 'none';
+}
+
+async function submitNlModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('nlModalId').value;
+    const name = document.getElementById('nlModalName').value.trim();
+    const desc = document.getElementById('nlModalDesc').value.trim();
+    if (!name) return;
+    const url = id ? `/admin/newsletters/${id}/update` : '/admin/newsletters/create';
+    const r = await fetch(url, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, description: desc}),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) {
+        alert(data.error || 'Failed to save.');
+        return;
+    }
+    closeNlModal();
+    location.reload();
+}
+
+async function confirmNlDelete(id, name) {
+    if (!confirm(`Delete the newsletter "${name}"? Its subscribers and past campaigns will also be removed.`)) return;
+    const r = await fetch(`/admin/newsletters/${id}/delete`, {method: 'POST'});
+    const data = await r.json();
+    if (!data.success) {
+        alert(data.error || 'Failed to delete.');
+        return;
+    }
+    const card = document.getElementById(`nlCard-${id}`);
+    if (card) card.remove();
+}
+</script>
+
+{% endblock %}

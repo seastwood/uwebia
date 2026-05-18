@@ -72,7 +72,7 @@
                 </a>
                 {% if user_has_perm('posts.collections') %}
                 <button class="pa-btn pa-btn-secondary"
-                        onclick='openEditModal({{ col.id }}, {{ col.name | tojson }}, {{ (col.description or "") | tojson }})'>
+                        onclick='openEditModal({{ col.id }}, {{ col.name | tojson }}, {{ (col.description or "") | tojson }}, {{ col.require_login | tojson }})'>
                     <i class="fas fa-pen"></i> Edit
                 </button>
                 <button class="pa-btn pa-btn-danger"
@@ -117,6 +117,12 @@
                     <label for="colModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
                     <textarea id="colModalDesc" rows="3" placeholder="Short description of this collection"></textarea>
                 </div>
+                <div class="uw-field">
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                        <input type="checkbox" id="colModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        Require public user login to view this collection
+                    </label>
+                </div>
             </div>
             <div class="uw-modal-footer">
                 <button type="button" class="uw-btn uw-btn-secondary" onclick="closeColModal()">Cancel</button>
@@ -153,16 +159,18 @@ function openCollectionModal() {
     document.getElementById('colModalId').value = '';
     document.getElementById('colModalName').value = '';
     document.getElementById('colModalDesc').value = '';
+    document.getElementById('colModalRequireLogin').checked = false;
     document.getElementById('colModalTitle').textContent = 'New Collection';
     document.getElementById('colModalSubmitBtn').textContent = 'Create';
     document.getElementById('colModalOverlay').style.display = 'flex';
     setTimeout(() => document.getElementById('colModalName').focus(), 60);
 }
 
-function openEditModal(id, name, desc) {
+function openEditModal(id, name, desc, requireLogin) {
     document.getElementById('colModalId').value = id;
     document.getElementById('colModalName').value = name;
     document.getElementById('colModalDesc').value = desc;
+    document.getElementById('colModalRequireLogin').checked = !!requireLogin;
     document.getElementById('colModalTitle').textContent = 'Edit Collection';
     document.getElementById('colModalSubmitBtn').textContent = 'Save';
     document.getElementById('colModalOverlay').style.display = 'flex';
@@ -175,9 +183,10 @@ function closeColModal() {
 
 async function submitColModal(e) {
     e.preventDefault();
-    const id   = document.getElementById('colModalId').value;
-    const name = document.getElementById('colModalName').value.trim();
-    const desc = document.getElementById('colModalDesc').value.trim();
+    const id           = document.getElementById('colModalId').value;
+    const name         = document.getElementById('colModalName').value.trim();
+    const desc         = document.getElementById('colModalDesc').value.trim();
+    const requireLogin = document.getElementById('colModalRequireLogin').checked;
     if (!name) return;
 
     const btn = document.getElementById('colModalSubmitBtn');
@@ -188,7 +197,7 @@ async function submitColModal(e) {
         const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description: desc }),
+            body: JSON.stringify({ name, description: desc, require_login: requireLogin }),
         });
         const d = await r.json();
         if (d.success) {

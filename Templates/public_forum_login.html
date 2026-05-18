@@ -5,13 +5,6 @@ Forum Login
 {% endblock %}
 {% block head %}
     <style>
-        body {
-            margin: 0;
-            font-family: Roboto, Arial, sans-serif;
-            background: {{ website.background_color or '#111' }};
-            color: {{ website.text_color or '#fff' }};
-        }
-
         .forum-auth {
             width: min(460px, calc(100% - 28px));
             margin: 110px auto;
@@ -141,10 +134,6 @@ Forum Login
 {% endblock %}
 
 {% block content %}
-
-
-    {% include 'components/public_navbar.html' %}
-
     <form class="forum-auth" method="POST">
         <h1>Log In</h1>
 
@@ -154,12 +143,25 @@ Forum Login
             <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
         </div>
 
+        {% if show_captcha %}
+        <div style="margin:14px 0 6px;padding:14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;">
+            <label style="font-size:0.83rem;display:block;margin-bottom:8px;color:rgba(255,255,255,0.7);">
+                <i class="fas fa-shield-alt" style="margin-right:5px;color:rgba(94,238,200,0.7);"></i>
+                Quick check — what is <strong style="color:#fff;">{{ captcha_question }}</strong>?
+            </label>
+            <input type="text" name="captcha" autocomplete="one-time-code" inputmode="numeric"
+                   data-lpignore="true" data-1p-ignore="true" data-form-type="other"
+                   placeholder="Enter the answer" required
+                   style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#fff;font-size:0.9rem;outline:none;">
+        </div>
+        {% endif %}
+
 <div class="forum-auth-actions">
     <button type="submit">
         Log In
     </button>
 
-    <a class="forum-auth-secondary-button" href="{{ url_for('public_register') }}">
+    <a class="forum-auth-secondary-button" href="{{ url_for('public_register', website_prefix=website.url_prefix) }}">
         Create Account
     </a>
 </div>
@@ -174,7 +176,7 @@ Forum Login
     </a>
 
     {% if website.forum_account_verification_enabled %}
-        <a href="{{ url_for('public_resend_verification') }}">
+        <a href="{{ url_for('public_resend_verification', website_prefix=website.url_prefix) }}">
             <i class="fas fa-envelope-open-text"></i>
             Resend verification email
         </a>

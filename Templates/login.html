@@ -107,6 +107,17 @@
                 <input type="password" id="password" name="password" required>
                 <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
             </div>
+            {% if show_captcha %}
+            <div style="margin:14px 0 6px;">
+                <label for="captcha" style="font-size:0.85rem;display:block;margin-bottom:6px;">
+                    <i class="fas fa-shield-alt" style="margin-right:4px;color:rgba(255,255,255,0.5);"></i>
+                    Verification: what is <strong>{{ captcha_question }}</strong>?
+                </label>
+                <input type="text" id="captcha" name="captcha" autocomplete="off" inputmode="numeric"
+                       placeholder="Answer" required
+                       style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:0.95rem;">
+            </div>
+            {% endif %}
             <button type="submit" id="loginBtn">Login</button>
         </form>
         <script>

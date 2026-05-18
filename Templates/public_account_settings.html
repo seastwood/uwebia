@@ -181,8 +181,6 @@
 {% endblock %}
 
 {% block content %}
-{% include 'components/public_navbar.html' %}
-
 <div class="settings-wrap">
     <h1 class="settings-title">Account Settings</h1>
 
@@ -229,8 +227,27 @@
     {% endif %}
 
     <div class="settings-card">
+        <h2>Display Name</h2>
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.55);margin:0 0 12px;">
+            Shown everywhere your activity appears on this site (comments, forum posts, reviews).
+            Your <strong>login username</strong> stays private. Leave blank to fall back to your login username.
+        </p>
+        <form id="displayNameForm" onsubmit="saveDisplayName(event)" style="display:flex;flex-direction:column;gap:10px;">
+            <input type="text" name="display_username" id="displayNameInput"
+                   value="{{ public_user.display_username or '' }}"
+                   placeholder="{{ public_user.username }}"
+                   maxlength="80"
+                   style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;box-sizing:border-box;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <button type="submit" class="btn btn-primary">Save Display Name</button>
+                <span id="displayNameStatus" style="font-size:0.82rem;min-height:18px;"></span>
+            </div>
+        </form>
+    </div>
+
+    <div class="settings-card">
         <h2>Change Password</h2>
-        <form method="POST" action="{{ url_for('public_account_change_password') }}">
+        <form method="POST" action="{{ url_for('public_account_change_password', prefix=website.url_prefix or none) }}">
             <div class="pw-field">
                 <input type="password" name="current_password" placeholder="Current password" required autocomplete="current-password">
                 <button type="button" class="pw-eye" onclick="pwToggle(this)" tabindex="-1"><i class="fas fa-eye"></i></button>
@@ -272,6 +289,33 @@
 </div>
 
 <script>
+async function saveDisplayName(e) {
+    e.preventDefault();
+    const status = document.getElementById('displayNameStatus');
+    const input = document.getElementById('displayNameInput');
+    const fd = new FormData();
+    fd.append('display_username', input.value.trim());
+    status.textContent = 'Saving…';
+    status.style.color = 'rgba(255,255,255,0.6)';
+    try {
+        const r = await fetch("{{ url_for('public_account_set_display_name', prefix=website.url_prefix or none) }}", {
+            method: 'POST', body: fd,
+        });
+        const j = await r.json();
+        if (!r.ok || j.error) {
+            status.textContent = j.error || 'Save failed.';
+            status.style.color = '#ff8a8a';
+            return;
+        }
+        status.textContent = j.display_username ? 'Saved.' : 'Cleared — using your login username.';
+        status.style.color = '#5eeec8';
+        input.placeholder = "{{ public_user.username }}";
+    } catch (err) {
+        status.textContent = 'Network error.';
+        status.style.color = '#ff8a8a';
+    }
+}
+
 function pwToggle(btn) {
     var input = btn.closest('.pw-field').querySelector('input');
     var showing = input.type === 'text';
@@ -280,6 +324,7 @@ function pwToggle(btn) {
 }
 
 var _2faEnabled = {{ 'true' if public_user.two_factor_enabled else 'false' }};
+var _acctBase = {{ (('/' + website.url_prefix) if website.url_prefix else '') | tojson }};
 
 function toggleTwoFa() {
     if (_2faEnabled) {
@@ -290,7 +335,7 @@ function toggleTwoFa() {
 }
 
 function sendSetupCode() {
-    fetch('/account/2fa/send', {method: 'POST'})
+    fetch(_acctBase + '/account/2fa/send', {method: 'POST'})
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
@@ -310,7 +355,7 @@ function confirmSetup() {
     var body = new FormData();
     body.append('code', code);
 
-    fetch('/account/2fa/enable', {method: 'POST', body: body})
+    fetch(_acctBase + '/account/2fa/enable', {method: 'POST', body: body})
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
@@ -326,7 +371,7 @@ function confirmSetup() {
 }
 
 function disableTwoFa() {
-    fetch('/account/2fa/disable', {method: 'POST'})
+    fetch(_acctBase + '/account/2fa/disable', {method: 'POST'})
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
@@ -344,7 +389,7 @@ function openDeleteModal()  { document.getElementById('deleteModal').classList.a
 function closeDeleteModal() { document.getElementById('deleteModal').classList.remove('open'); }
 
 function executeDelete() {
-    fetch('/account/delete', {method: 'POST'})
+    fetch(_acctBase + '/account/delete', {method: 'POST'})
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {

@@ -3,17 +3,45 @@
 {% include 'components/navbar.html' %}
 
 <style>
-body {
-    background: #363339;
-    color: #fff;
-    font-family: Roboto, Arial, sans-serif;
-}
+body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif; }
 
-.pu-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
-
-.pu-header { margin-bottom: 32px; }
+.pu-page { max-width: 1040px; margin: 0 auto; padding: 32px 20px 60px; }
+.pu-header { margin-bottom: 28px; }
 .pu-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
-.pu-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.pu-title  { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+
+/* Website tabs */
+.pu-tabs {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 22px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 0;
+}
+.pu-tab {
+    padding: 8px 16px;
+    border-radius: 8px 8px 0 0;
+    font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.45);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+}
+.pu-tab:hover { color: rgba(255,255,255,0.75); }
+.pu-tab.active { color: #5eeef8; border-bottom-color: #5eeef8; }
+.pu-tab-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 999px; font-size: 0.68rem; font-weight: 700;
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5);
+    margin-left: 6px;
+}
+.pu-tab.active .pu-tab-badge { background: rgba(94,238,248,0.15); color: #5eeef8; }
+
+/* Website panel */
+.pu-website-panel { display: none; }
+.pu-website-panel.active { display: block; }
 
 .pu-card {
     background: rgba(255,255,255,0.05);
@@ -23,138 +51,181 @@ body {
     margin-bottom: 24px;
 }
 .pu-card-title {
-    font-size: 1rem;
-    font-weight: 700;
-    color: rgba(255,255,255,0.85);
-    margin: 0 0 16px;
+    font-size: 1rem; font-weight: 700;
+    color: rgba(255,255,255,0.85); margin: 0 0 16px;
 }
-
-/* Toggle */
-.pf-toggle-track {
-    width: 34px; height: 18px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.08);
-    position: relative; flex-shrink: 0;
-    transition: background 0.18s, border-color 0.18s;
-    cursor: pointer;
-}
-.pf-toggle-track::after {
-    content: '';
-    position: absolute;
-    top: 2px; left: 2px;
-    width: 12px; height: 12px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.4);
-    transition: transform 0.18s, background 0.18s;
-}
-.pf-toggle-track.on {
-    background: rgba(94,238,200,0.2) !important;
-    border-color: rgba(94,238,200,0.5) !important;
-}
-.pf-toggle-track.on::after {
-    transform: translateX(16px) !important;
-    background: #5eeec8 !important;
-}
-
-.pu-toggle-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.pu-toggle-row:last-of-type { border-bottom: none; }
-.pu-toggle-label { font-size: 0.9rem; font-weight: 600; color: rgba(255,255,255,0.85); margin: 0 0 2px; }
-.pu-toggle-help { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin: 0; }
-
-.pu-save-btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 10px 20px; border-radius: 10px;
-    background: linear-gradient(135deg, #5eeef8, #5eeec8);
-    color: #111; font-weight: 700; font-size: 0.88rem;
-    border: none; cursor: pointer; margin-top: 18px;
-    transition: opacity 0.15s;
-}
-.pu-save-btn:hover { opacity: 0.88; }
-.pu-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Table */
-.pu-table-wrap { overflow-x: auto; }
-.pu-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.88rem;
+.pu-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pu-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+@media (max-width: 640px) {
+    .pu-table .pu-date { display: none; }
+    .pu-table th.col-date { display: none; }
+    .pu-actions { flex-direction: column; align-items: flex-start; }
+    .pu-actions .pu-btn { width: 100%; justify-content: center; }
+    .pu-role-dropdown { width: 100%; }
+    .pu-role-dropdown > .pu-btn { width: 100%; justify-content: center; }
 }
 .pu-table th {
-    text-align: left;
-    padding: 10px 12px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
+    text-align: left; padding: 10px 12px;
+    font-size: 0.75rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.07em;
     color: rgba(255,255,255,0.35);
     border-bottom: 1px solid rgba(255,255,255,0.1);
 }
-.pu-table td {
-    padding: 12px 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    vertical-align: middle;
-}
+.pu-table td { padding: 12px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: middle; }
 .pu-table tr:last-child td { border-bottom: none; }
 .pu-table tr:hover td { background: rgba(255,255,255,0.03); }
-
 .pu-username { font-weight: 600; color: #fff; }
-.pu-email { color: rgba(255,255,255,0.55); font-size: 0.82rem; }
-.pu-date { color: rgba(255,255,255,0.35); font-size: 0.8rem; white-space: nowrap; }
+.pu-email    { color: rgba(255,255,255,0.55); font-size: 0.82rem; }
+.pu-date     { color: rgba(255,255,255,0.35); font-size: 0.8rem; white-space: nowrap; }
+.pu-activity { color: rgba(255,255,255,0.55); font-size: 0.78rem; white-space: nowrap; line-height: 1.5; }
+.pu-activity-row { display: flex; gap: 4px; align-items: baseline; }
+.pu-activity-num { color: #fff; font-weight: 600; min-width: 26px; text-align: right; }
+@media (max-width: 800px) {
+    .pu-table th.col-activity { display: none; }
+    .pu-table td.col-activity { display: none; }
+}
+
+/* Search / filter controls */
+.pu-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.pu-search, .pu-select {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.pu-search { flex: 1; min-width: 220px; }
+.pu-search:focus, .pu-select:focus { border-color: rgba(94,238,248,0.5); }
+.pu-select { background-color: rgba(40,40,45,0.95); cursor: pointer; }
+.pu-select option { background: #2c2c30; color: #fff; }
+
+/* Pagination */
+.pu-page-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.7);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.pu-page-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #fff; }
+.pu-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pu-page-btn.active { background: rgba(94,238,248,0.18); color: #5eeef8; border-color: rgba(94,238,248,0.4); }
+.pu-page-ellipsis { color: rgba(255,255,255,0.4); padding: 6px 4px; font-size: 0.8rem; }
 
 /* Badges */
-.pu-badge {
-    display: inline-flex; align-items: center;
-    padding: 2px 8px; border-radius: 999px;
-    font-size: 0.74rem; font-weight: 700;
-    margin: 2px;
-}
+.pu-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; margin: 2px; }
 .pu-badge-verified   { background: rgba(94,238,200,0.15); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
-.pu-badge-unverified { background: rgba(255,200,50,0.12); color: #ffc832; border: 1px solid rgba(255,200,50,0.25); }
-.pu-badge-active     { background: rgba(94,238,248,0.12); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
-.pu-badge-pending    { background: rgba(255,165,0,0.12);  color: #ffaa33; border: 1px solid rgba(255,165,0,0.25); }
-.pu-badge-banned     { background: rgba(255,80,80,0.12);  color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.pu-badge-unverified { background: rgba(255,200,50,0.12);  color: #ffc832; border: 1px solid rgba(255,200,50,0.25); }
+.pu-badge-active     { background: rgba(94,238,248,0.12);  color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.pu-badge-pending    { background: rgba(255,165,0,0.12);   color: #ffaa33; border: 1px solid rgba(255,165,0,0.25); }
+.pu-badge-banned     { background: rgba(255,80,80,0.12);   color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
 
 /* Action buttons */
 .pu-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.pu-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 5px 10px; border-radius: 7px; font-size: 0.78rem; font-weight: 600;
-    border: none; cursor: pointer; transition: background 0.15s;
-}
-.pu-btn-approve  { background: rgba(94,238,200,0.12); color: #5eeec8; border: 1px solid rgba(94,238,200,0.25); }
+.pu-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 7px; font-size: 0.78rem; font-weight: 600; border: none; cursor: pointer; transition: background 0.15s; }
+.pu-btn-edit    { background: rgba(255,255,255,0.08);  color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15); }
+.pu-btn-edit:hover { background: rgba(255,255,255,0.14); }
+.pu-btn-approve { background: rgba(94,238,200,0.12);  color: #5eeec8; border: 1px solid rgba(94,238,200,0.25); }
 .pu-btn-approve:hover { background: rgba(94,238,200,0.22); }
-.pu-btn-disable  { background: rgba(255,200,50,0.10); color: #ffc832; border: 1px solid rgba(255,200,50,0.22); }
+.pu-btn-disable { background: rgba(255,200,50,0.10);  color: #ffc832; border: 1px solid rgba(255,200,50,0.22); }
 .pu-btn-disable:hover { background: rgba(255,200,50,0.20); }
-.pu-btn-ban      { background: rgba(255,120,50,0.10); color: #ff8844; border: 1px solid rgba(255,120,50,0.22); }
+.pu-btn-ban     { background: rgba(255,120,50,0.10);  color: #ff8844; border: 1px solid rgba(255,120,50,0.22); }
 .pu-btn-ban:hover { background: rgba(255,120,50,0.20); }
-.pu-btn-unban    { background: rgba(94,238,248,0.10); color: #5eeef8; border: 1px solid rgba(94,238,248,0.22); }
+.pu-btn-unban   { background: rgba(94,238,248,0.10);  color: #5eeef8; border: 1px solid rgba(94,238,248,0.22); }
 .pu-btn-unban:hover { background: rgba(94,238,248,0.20); }
-.pu-btn-delete   { background: rgba(255,80,80,0.10); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.22); }
+.pu-btn-delete  { background: rgba(255,80,80,0.10);   color: #ff6b6b; border: 1px solid rgba(255,80,80,0.22); }
 .pu-btn-delete:hover { background: rgba(255,80,80,0.20); }
 
-.pu-empty {
-    text-align: center;
-    padding: 48px 20px;
-    color: rgba(255,255,255,0.35);
-    font-size: 0.9rem;
-}
+.pu-empty { text-align: center; padding: 48px 20px; color: rgba(255,255,255,0.35); font-size: 0.9rem; }
 
-.pu-save-status {
-    display: inline-block;
-    margin-left: 10px;
-    font-size: 0.82rem;
-    color: #5eeec8;
-    opacity: 0;
-    transition: opacity 0.3s;
+/* Settings toggles */
+.pu-toggle-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
 }
+.pu-toggle-row:last-of-type { border-bottom: none; }
+.pu-toggle-label { font-size: 0.9rem; font-weight: 600; color: rgba(255,255,255,0.85); margin: 0 0 2px; }
+.pu-toggle-help  { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin: 0; }
+.pf-toggle-track {
+    width: 34px; height: 18px; border-radius: 999px; flex-shrink: 0; margin-top: 2px;
+    border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08);
+    position: relative; cursor: pointer; transition: background 0.18s, border-color 0.18s;
+}
+.pf-toggle-track::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: rgba(255,255,255,0.4); transition: transform 0.18s, background 0.18s;
+}
+.pf-toggle-track.on { background: rgba(94,238,200,0.2) !important; border-color: rgba(94,238,200,0.5) !important; }
+.pf-toggle-track.on::after { transform: translateX(16px) !important; background: #5eeec8 !important; }
+.pu-save-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 18px; border-radius: 10px; margin-top: 18px;
+    background: linear-gradient(135deg,#5eeef8,#5eeec8);
+    color: #111; font-weight: 700; font-size: 0.88rem;
+    border: none; cursor: pointer; transition: opacity 0.15s;
+}
+.pu-save-btn:hover { opacity: 0.88; }
+.pu-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pu-save-status { margin-left: 10px; font-size: 0.82rem; color: #5eeec8; opacity: 0; transition: opacity 0.3s; }
 .pu-save-status.visible { opacity: 1; }
+
+/* Modal overlay */
+.pu-overlay {
+    display: none; position: fixed; inset: 0; z-index: 9000;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+}
+.pu-overlay.show { display: flex; }
+.pu-modal {
+    background: #2a2830; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 18px; padding: 28px; width: min(460px, calc(100vw - 32px));
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+}
+.pu-modal-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 20px; }
+.pu-field { margin-bottom: 14px; }
+.pu-label { display: block; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.4); margin-bottom: 6px; }
+.pu-input {
+    width: 100%; padding: 10px 12px; box-sizing: border-box;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 9px; color: #fff; font-size: 0.9rem; outline: none;
+    transition: border-color 0.15s;
+}
+.pu-input:focus { border-color: rgba(94,238,248,0.5); }
+.pu-input-hint { font-size: 0.75rem; color: rgba(255,255,255,0.35); margin-top: 4px; }
+.pu-modal-error { font-size: 0.83rem; color: #ff6b6b; background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.25); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; display: none; }
+.pu-modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+.pu-modal-btn { padding: 9px 20px; border-radius: 9px; font-size: 0.88rem; font-weight: 700; cursor: pointer; border: none; transition: opacity 0.15s; }
+.pu-modal-btn-cancel { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.12); }
+.pu-modal-btn-cancel:hover { background: rgba(255,255,255,0.13); }
+.pu-modal-btn-save { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.pu-modal-btn-save:hover { opacity: 0.88; }
+.pu-modal-btn-danger { background: rgba(255,80,80,0.15); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.3); }
+.pu-modal-btn-danger:hover { background: rgba(255,80,80,0.25); }
+
+/* Role management */
+.pu-roles-card { margin-bottom: 18px; }
+.pu-role-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+.pu-role-row:last-of-type { border-bottom:none; }
+.pu-role-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:700; white-space:nowrap; }
+.pu-role-name-input { flex:1 1 120px; min-width:100px; padding:5px 8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:0.82rem; }
+.pu-role-color-input { width:32px; height:28px; border:none; border-radius:5px; cursor:pointer; padding:0; background:none; flex-shrink:0; }
+.pu-add-role-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+/* Role assignment dropdown */
+.pu-role-dropdown { position:relative; display:inline-block; }
+.pu-role-dropdown-menu { display:none; position:absolute; right:0; top:100%; z-index:100; min-width:180px; background:#2a2830; border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
+.pu-role-dropdown-menu.show { display:block; }
+.pu-role-check-item { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:6px; cursor:pointer; font-size:0.82rem; }
+.pu-role-check-item:hover { background:rgba(255,255,255,0.06); }
 </style>
 
 <div class="pu-page">
@@ -163,321 +234,678 @@ body {
         <h1 class="pu-title">Public Users</h1>
     </div>
 
-    <!-- Settings Card -->
-    <div class="pu-card">
-        <h2 class="pu-card-title">Access Settings</h2>
-
-        <div class="pu-toggle-row">
-            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
-                <input type="checkbox" id="tog_public_users_enabled"
-                       {% if website and website.public_users_enabled != false %}checked{% endif %}
-                       style="position:absolute;opacity:0;pointer-events:none;">
-                <span class="pf-toggle-track{% if website and website.public_users_enabled != false %} on{% endif %}"
-                      id="track_public_users_enabled"
-                      onclick="toggleSetting('public_users_enabled')"></span>
-            </div>
-            <div>
-                <p class="pu-toggle-label">Enable Public Users</p>
-                <p class="pu-toggle-help">Master switch — when off, registration and login are disabled site-wide</p>
-            </div>
-        </div>
-
-        <div class="pu-toggle-row">
-            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
-                <input type="checkbox" id="tog_public_2fa_enabled"
-                       {% if website and website.public_2fa_enabled %}checked{% endif %}
-                       style="position:absolute;opacity:0;pointer-events:none;">
-                <span class="pf-toggle-track{% if website and website.public_2fa_enabled %} on{% endif %}"
-                      id="track_public_2fa_enabled"
-                      onclick="toggleSetting('public_2fa_enabled')"></span>
-            </div>
-            <div>
-                <p class="pu-toggle-label">Allow Two-Factor Authentication</p>
-                <p class="pu-toggle-help">Let users enable email-based 2FA on their accounts (requires email verification)</p>
-            </div>
-        </div>
-
-        <div class="pu-toggle-row">
-            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
-                <input type="checkbox" id="tog_require_login_to_view"
-                       {% if website and website.require_login_to_view %}checked{% endif %}
-                       style="position:absolute;opacity:0;pointer-events:none;">
-                <span class="pf-toggle-track{% if website and website.require_login_to_view %} on{% endif %}"
-                      id="track_require_login_to_view"
-                      onclick="toggleSetting('require_login_to_view')"></span>
-            </div>
-            <div>
-                <p class="pu-toggle-label">Require Login to View</p>
-                <p class="pu-toggle-help">Visitors must be logged in to view any public page</p>
-            </div>
-        </div>
-
-        <div class="pu-toggle-row">
-            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
-                <input type="checkbox" id="tog_public_approval_required"
-                       {% if website and website.public_approval_required %}checked{% endif %}
-                       style="position:absolute;opacity:0;pointer-events:none;">
-                <span class="pf-toggle-track{% if website and website.public_approval_required %} on{% endif %}"
-                      id="track_public_approval_required"
-                      onclick="toggleSetting('public_approval_required')"></span>
-            </div>
-            <div>
-                <p class="pu-toggle-label">Require Admin Approval</p>
-                <p class="pu-toggle-help">New accounts must be approved by an admin before they can log in</p>
-            </div>
-        </div>
-
-        <div class="pu-toggle-row">
-            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
-                <input type="checkbox" id="tog_public_email_verification_enabled"
-                       {% if website and website.public_email_verification_enabled %}checked{% endif %}
-                       style="position:absolute;opacity:0;pointer-events:none;">
-                <span class="pf-toggle-track{% if website and website.public_email_verification_enabled %} on{% endif %}"
-                      id="track_public_email_verification_enabled"
-                      onclick="toggleSetting('public_email_verification_enabled')"></span>
-            </div>
-            <div>
-                <p class="pu-toggle-label">Email Verification</p>
-                <p class="pu-toggle-help">Send a verification email when users register</p>
-            </div>
-        </div>
-
-        <div class="pu-toggle-row">
-            <div style="display:inline-flex;align-items:center;cursor:pointer;margin-top:2px;">
-                <input type="checkbox" id="tog_public_email_verification_required"
-                       {% if website and website.public_email_verification_required %}checked{% endif %}
-                       style="position:absolute;opacity:0;pointer-events:none;">
-                <span class="pf-toggle-track{% if website and website.public_email_verification_required %} on{% endif %}"
-                      id="track_public_email_verification_required"
-                      onclick="toggleSetting('public_email_verification_required')"></span>
-            </div>
-            <div>
-                <p class="pu-toggle-label">Verification Required to Login</p>
-                <p class="pu-toggle-help">Users must verify their email before they can log in (only applies if Email Verification is enabled)</p>
-            </div>
-        </div>
-
-        <button class="pu-save-btn" id="saveSettingsBtn" onclick="saveSettings()">
-            <i class="fas fa-save"></i> Save Settings
+    {% if live_websites %}
+    <!-- Website tabs -->
+    <div class="pu-tabs">
+        {% for w in live_websites %}
+        <button class="pu-tab{% if w.id == selected_website_id %} active{% endif %}"
+                onclick="switchTab({{ w.id }})">
+            {{ w.name }}{% if w.url_prefix %} <span style="opacity:0.5;font-weight:400;">/{{ w.url_prefix }}</span>{% endif %}
+            <span class="pu-tab-badge">{{ user_counts_by_website.get(w.id, 0) }}</span>
         </button>
-        <span class="pu-save-status" id="saveStatus">Saved!</span>
+        {% endfor %}
     </div>
 
-    <!-- Users Table -->
-    <div class="pu-card">
-        <h2 class="pu-card-title">Registered Users
-            <span style="font-weight:400;color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:8px;">
-                {{ public_users | length }} total
-            </span>
-        </h2>
+    <!-- Per-website panels -->
+    {% for w in live_websites %}
+    <div class="pu-website-panel{% if w.id == selected_website_id %} active{% endif %}" id="panel-{{ w.id }}">
 
-        {% if public_users %}
-        <div class="pu-table-wrap">
-            <table class="pu-table">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>Status</th>
-                        <th>Joined</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="publicUsersTable">
-                    {% for u in public_users %}
-                    <tr id="pu-row-{{ u.id }}">
-                        <td>
-                            <div class="pu-username">{{ u.username }}</div>
-                            <div class="pu-email">{{ u.email }}</div>
-                        </td>
-                        <td>
-                            {% if u.email_verified %}
-                            <span class="pu-badge pu-badge-verified">Verified</span>
-                            {% else %}
-                            <span class="pu-badge pu-badge-unverified">Unverified</span>
-                            {% endif %}
-                            {% if u.is_banned %}
-                            <span class="pu-badge pu-badge-banned" id="badge-banned-{{ u.id }}">Banned</span>
-                            {% elif not u.is_active_public %}
-                            <span class="pu-badge pu-badge-pending" id="badge-active-{{ u.id }}">Pending</span>
-                            {% else %}
-                            <span class="pu-badge pu-badge-active" id="badge-active-{{ u.id }}">Active</span>
-                            {% endif %}
-                        </td>
-                        <td class="pu-date">
-                            {% if u.created_at %}
-                            {{ u.created_at.strftime('%b %d, %Y') }}
-                            {% else %}
-                            &mdash;
-                            {% endif %}
-                        </td>
-                        <td>
-                            <div class="pu-actions">
-                                {% if u.is_active_public and not u.is_banned %}
-                                <button class="pu-btn pu-btn-disable" id="btn-active-{{ u.id }}"
-                                        onclick="toggleActive({{ u.id }})">
-                                    <i class="fas fa-user-slash"></i> Disable
-                                </button>
-                                {% else %}
-                                <button class="pu-btn pu-btn-approve" id="btn-active-{{ u.id }}"
-                                        onclick="toggleActive({{ u.id }})">
-                                    <i class="fas fa-user-check"></i> Approve
-                                </button>
-                                {% endif %}
-
-                                {% if u.is_banned %}
-                                <button class="pu-btn pu-btn-unban" id="btn-ban-{{ u.id }}"
-                                        onclick="toggleBan({{ u.id }})">
-                                    <i class="fas fa-unlock"></i> Unban
-                                </button>
-                                {% else %}
-                                <button class="pu-btn pu-btn-ban" id="btn-ban-{{ u.id }}"
-                                        onclick="toggleBan({{ u.id }})">
-                                    <i class="fas fa-ban"></i> Ban
-                                </button>
-                                {% endif %}
-
-                                <button class="pu-btn pu-btn-delete"
-                                        onclick='confirmDeleteUser({{ u.id }}, {{ u.username | tojson }})'>
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="pu-empty">
-            <p>No public users have registered yet.</p>
+        <!-- Roles card -->
+        {% if not current_user_is_sub_admin %}
+        <div class="pu-card pu-roles-card">
+            <h2 class="pu-card-title">Roles</h2>
+            <div id="rolesList-{{ w.id }}">
+                {% for role in roles_by_website[w.id] %}
+                <div class="pu-role-row" id="roleRow-{{ role.id }}">
+                    <span class="pu-role-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>
+                    <input type="text" class="pu-role-name-input" id="roleName-{{ role.id }}" value="{{ role.name }}" placeholder="Role name">
+                    <input type="color" class="pu-role-color-input" id="roleColor-{{ role.id }}" value="{{ role.color }}" title="Badge color"
+                           oninput="previewRoleBadge({{ role.id }}, this.value)">
+                    <button class="pu-btn pu-btn-edit" onclick="saveRole({{ role.id }}, {{ w.id }})">Save</button>
+                    <button class="pu-btn pu-btn-delete" onclick="deleteRole({{ role.id }})"><i class='fas fa-trash'></i></button>
+                </div>
+                {% endfor %}
+            </div>
+            {% if not roles_by_website[w.id] %}
+            <p style="font-size:0.8rem;color:rgba(255,255,255,0.35);margin:0 0 8px;">No roles yet.</p>
+            {% endif %}
+            <div class="pu-add-role-row">
+                <input type="text" class="pu-role-name-input" id="newRoleName-{{ w.id }}" placeholder="Role name" style="flex:1;">
+                <input type="color" class="pu-role-color-input" id="newRoleColor-{{ w.id }}" value="#5eeef8" title="Badge color">
+                <button class="pu-btn pu-btn-approve" onclick="createRole({{ w.id }})"><i class="fas fa-plus"></i> Add Role</button>
+            </div>
         </div>
         {% endif %}
+
+        <!-- Access settings -->
+        {% if not current_user_is_sub_admin %}
+        <div class="pu-card">
+            <h2 class="pu-card-title">Access Settings</h2>
+
+            {% set _tog = [
+                ('public_users_enabled',               'Enable Public Users',             'Master switch — when off, registration and login are disabled for this site',              w.public_users_enabled != false),
+                ('public_2fa_enabled',                 'Two-Factor Authentication',        'Let users enable email-based 2FA on their accounts',                                     w.public_2fa_enabled),
+                ('require_login_to_view',              'Require Login to View',            'Visitors must be logged in to view any public page on this site',                        w.require_login_to_view),
+                ('public_approval_required',           'Require Admin Approval',           'New accounts must be approved before they can log in',                                   w.public_approval_required),
+                ('public_email_verification_enabled',  'Email Verification',               'Send a verification email when users register',                                          w.public_email_verification_enabled),
+                ('public_email_verification_required', 'Verification Required to Login',   'Users must verify their email before logging in (requires Email Verification enabled)',  w.public_email_verification_required),
+            ] %}
+            {% for key, label, help, checked in _tog %}
+            <div class="pu-toggle-row">
+                <span class="pf-toggle-track{{ ' on' if checked else '' }}"
+                      id="track-{{ w.id }}-{{ key }}"
+                      onclick="toggleSetting({{ w.id }}, '{{ key }}')"></span>
+                <input type="checkbox" id="tog-{{ w.id }}-{{ key }}"
+                       {{ 'checked' if checked else '' }}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <div>
+                    <p class="pu-toggle-label">{{ label }}</p>
+                    <p class="pu-toggle-help">{{ help }}</p>
+                </div>
+            </div>
+            {% endfor %}
+
+            <button class="pu-save-btn" id="save-btn-{{ w.id }}" onclick="saveSettings({{ w.id }})">
+                <i class="fas fa-save"></i> Save Settings
+            </button>
+            <span class="pu-save-status" id="save-status-{{ w.id }}">Saved!</span>
+        </div>
+        {% endif %}
+
+        <div class="pu-card">
+            <h2 class="pu-card-title">
+                Registered Users
+                <span class="pu-total-label" id="totalLabel-{{ w.id }}" style="font-weight:400;color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:8px;">
+                    {{ user_counts_by_website.get(w.id, 0) }} total
+                </span>
+            </h2>
+
+            <div class="pu-controls" data-website-id="{{ w.id }}">
+                <input type="search" class="pu-search" id="search-{{ w.id }}"
+                       placeholder="Search username or email…"
+                       oninput="onSearchInput({{ w.id }})">
+                <select class="pu-select" id="filter-{{ w.id }}" onchange="reloadList({{ w.id }})">
+                    <option value="all">All users</option>
+                    <option value="active">Active</option>
+                    <option value="pending">Pending approval</option>
+                    <option value="banned">Banned</option>
+                    <option value="verified">Email verified</option>
+                    <option value="unverified">Email unverified</option>
+                </select>
+                <select class="pu-select" id="sort-{{ w.id }}" onchange="reloadList({{ w.id }})">
+                    <option value="joined_new">Joined — newest</option>
+                    <option value="joined_old">Joined — oldest</option>
+                    <option value="recent_active">Recently active</option>
+                    <option value="most_threads">Most threads</option>
+                    <option value="most_replies">Most replies</option>
+                    <option value="most_comments">Most comments</option>
+                    <option value="username_az">Username A→Z</option>
+                </select>
+                <select class="pu-select" id="role-{{ w.id }}" onchange="reloadList({{ w.id }})">
+                    <option value="">All roles</option>
+                    {% for role in roles_by_website[w.id] %}
+                    <option value="{{ role.id }}">{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="pu-table-wrap">
+                <table class="pu-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Status</th>
+                            <th class="col-activity">Activity</th>
+                            <th class="col-date">Last Login</th>
+                            <th class="col-date">Joined</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-{{ w.id }}"></tbody>
+                </table>
+            </div>
+            <div class="pu-empty" id="empty-{{ w.id }}" style="display:none">No users match these filters.</div>
+            <div class="pu-loading" id="loading-{{ w.id }}" style="display:none;text-align:center;padding:18px;color:rgba(255,255,255,0.4);font-size:0.85rem;">Loading…</div>
+            <div class="pu-pagination" id="pagination-{{ w.id }}" style="display:none;justify-content:center;gap:6px;margin-top:14px;flex-wrap:wrap;"></div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% else %}
+    <div class="pu-card">
+        <div class="pu-empty">No live websites found.</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Edit modal -->
+<div class="pu-overlay" id="editOverlay" onclick="if(event.target===this)closeEdit()">
+    <div class="pu-modal">
+        <h3 class="pu-modal-title">Edit User</h3>
+        <div class="pu-modal-error" id="editError"></div>
+        <div class="pu-field">
+            <label class="pu-label">Username</label>
+            <input class="pu-input" id="editUsername" type="text" autocomplete="off">
+        </div>
+        <div class="pu-field">
+            <label class="pu-label">Email</label>
+            <input class="pu-input" id="editEmail" type="email" autocomplete="off">
+        </div>
+        <div class="pu-field">
+            <label class="pu-label">New Password</label>
+            <input class="pu-input" id="editPassword" type="password" placeholder="Leave blank to keep current" autocomplete="new-password">
+            <p class="pu-input-hint">Min 8 characters. Leave blank to keep the current password.</p>
+        </div>
+        <div class="pu-modal-footer">
+            <button class="pu-modal-btn pu-modal-btn-cancel" onclick="closeEdit()">Cancel</button>
+            <button class="pu-modal-btn pu-modal-btn-save" onclick="saveEdit()">Save Changes</button>
+        </div>
     </div>
 </div>
 
-<!-- Delete confirmation modal -->
-<div class="uw-overlay" id="deleteOverlay" style="display:none;" onclick="if(event.target===this)closeDeleteModal()">
-    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
-        <div class="uw-modal-header">
-            <h3 class="uw-modal-title" id="deleteModalTitle">Delete User</h3>
-            <button class="uw-modal-close" onclick="closeDeleteModal()" aria-label="Close">&times;</button>
-        </div>
-        <div class="uw-modal-body">
-            <p>Are you sure you want to permanently delete <strong id="deleteModalName"></strong>? This cannot be undone.</p>
-        </div>
-        <div class="uw-modal-footer">
-            <button class="uw-btn uw-btn-secondary" onclick="closeDeleteModal()">Cancel</button>
-            <button class="uw-btn uw-btn-danger" onclick="executeDelete()">Delete</button>
+<!-- Delete confirm modal -->
+<div class="pu-overlay" id="deleteOverlay" onclick="if(event.target===this)closeDelete()">
+    <div class="pu-modal">
+        <h3 class="pu-modal-title">Delete User</h3>
+        <p style="color:rgba(255,255,255,0.7);margin:0 0 22px;">
+            Permanently delete <strong id="deleteModalName"></strong>? This cannot be undone.
+        </p>
+        <div class="pu-modal-footer">
+            <button class="pu-modal-btn pu-modal-btn-cancel" onclick="closeDelete()">Cancel</button>
+            <button class="pu-modal-btn pu-modal-btn-danger" onclick="executeDelete()">Delete</button>
         </div>
     </div>
 </div>
 
 <script>
-var _pendingDeleteId = null;
+function escapeHtml(v) {
+    return String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
-// Toggle switch visual state
-function toggleSetting(key) {
-    var track = document.getElementById('track_' + key);
-    var chk   = document.getElementById('tog_' + key);
-    if (!track || !chk) return;
+var _editUserId = null;
+var _deleteUserId = null;
+
+const _rolesData = {{ roles_by_website_dicts | tojson }};
+const _userRoleData = {};        // populated as user rows load
+const _websiteLoaded = {};       // websiteId → true once first fetch is done
+const _searchTimers = {};        // websiteId → debounce timer
+
+function switchTab(websiteId) {
+    document.querySelectorAll('.pu-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pu-website-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector(`.pu-tab[onclick="switchTab(${websiteId})"]`).classList.add('active');
+    document.getElementById('panel-' + websiteId).classList.add('active');
+    if (!_websiteLoaded[websiteId]) reloadList(websiteId);
+}
+
+function onSearchInput(websiteId) {
+    clearTimeout(_searchTimers[websiteId]);
+    _searchTimers[websiteId] = setTimeout(() => reloadList(websiteId, 1), 280);
+}
+
+function reloadList(websiteId, page) {
+    const search = document.getElementById('search-' + websiteId).value.trim();
+    const filter = document.getElementById('filter-' + websiteId).value;
+    const sort = document.getElementById('sort-' + websiteId).value;
+    const roleId = document.getElementById('role-' + websiteId).value;
+    const targetPage = page || 1;
+
+    const params = new URLSearchParams({
+        website_id: websiteId, page: targetPage, per_page: 25,
+        sort, filter,
+    });
+    if (search) params.set('search', search);
+    if (roleId) params.set('role_id', roleId);
+
+    const loadingEl = document.getElementById('loading-' + websiteId);
+    const emptyEl = document.getElementById('empty-' + websiteId);
+    const tbody = document.getElementById('tbody-' + websiteId);
+    const pagEl = document.getElementById('pagination-' + websiteId);
+
+    loadingEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+    tbody.innerHTML = '';
+    pagEl.style.display = 'none';
+
+    fetch('/admin/users/public/list?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            loadingEl.style.display = 'none';
+            if (data.error) { alert(data.error); return; }
+            _websiteLoaded[websiteId] = true;
+            renderUsers(websiteId, data);
+            renderPagination(websiteId, data);
+            const totalLabel = document.getElementById('totalLabel-' + websiteId);
+            if (totalLabel) totalLabel.textContent = data.total + ' total';
+            const tabBadge = document.querySelector(`.pu-tab[onclick="switchTab(${websiteId})"] .pu-tab-badge`);
+            if (tabBadge && !search && filter === 'all' && !roleId) {
+                tabBadge.textContent = data.total;
+            }
+        })
+        .catch(() => {
+            loadingEl.style.display = 'none';
+            alert('Failed to load users.');
+        });
+}
+
+function renderUsers(websiteId, data) {
+    const tbody = document.getElementById('tbody-' + websiteId);
+    const emptyEl = document.getElementById('empty-' + websiteId);
+    tbody.innerHTML = '';
+    if (!data.users.length) {
+        emptyEl.style.display = 'block';
+        return;
+    }
+    emptyEl.style.display = 'none';
+    data.users.forEach(u => {
+        _userRoleData[u.id] = u.roles;
+        tbody.appendChild(buildUserRow(websiteId, u));
+    });
+}
+
+function buildUserRow(websiteId, u) {
+    const tr = document.createElement('tr');
+    tr.id = 'pu-row-' + u.id;
+
+    const verifiedBadge = u.email_verified
+        ? '<span class="pu-badge pu-badge-verified">Verified</span>'
+        : '<span class="pu-badge pu-badge-unverified">Unverified</span>';
+    const bannedBadge = u.is_banned
+        ? `<span class="pu-badge pu-badge-banned" id="badge-banned-${u.id}">Banned</span>` : '';
+    let stateBadge;
+    if (!u.is_active_public) {
+        stateBadge = `<span class="pu-badge pu-badge-pending" id="badge-active-${u.id}">Pending</span>`;
+    } else if (!u.is_banned) {
+        stateBadge = `<span class="pu-badge pu-badge-active" id="badge-active-${u.id}">Active</span>`;
+    } else {
+        stateBadge = `<span class="pu-badge pu-badge-active" id="badge-active-${u.id}" style="display:none">Active</span>`;
+    }
+
+    const roleBadges = (u.roles || []).map(role =>
+        `<span class="pu-role-badge" style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}44;">${escapeHtml(role.name)}</span>`
+    ).join('');
+
+    const adminBadge = u.is_admin_mirror
+        ? `<span class="pu-badge" style="background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="This is the public-facing mirror of an admin account. It auto-syncs with the admin's username and cannot be removed from here.">Admin</span>`
+        : '';
+
+    let stateBtn, banBtn, deleteBtn, editBtn, roleBtn;
+    if (u.is_admin_mirror) {
+        // Auth lives on the admin User row, so account-level actions are locked.
+        // Roles are still assignable: the "Admin" badge is auto-derived, and
+        // anything else (Moderator, Owner, etc.) layers on top.
+        const lockTitle = "Admin mirror — manage from the Admin Users page";
+        stateBtn  = `<button class="pu-btn pu-btn-disable" disabled style="opacity:0.45;cursor:not-allowed;" title="${lockTitle}"><i class="fas fa-lock"></i> Locked</button>`;
+        banBtn    = '';
+        deleteBtn = '';
+        editBtn   = `<button class="pu-btn pu-btn-edit" disabled style="opacity:0.45;cursor:not-allowed;" title="${lockTitle}"><i class="fas fa-lock"></i> Edit</button>`;
+        roleBtn   = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
+                <button class="pu-btn pu-btn-edit" onclick="toggleRoleDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-tag"></i> Roles</button>
+                <div class="pu-role-dropdown-menu" id="roleMenu-${u.id}"></div>
+            </div>`;
+    } else {
+        stateBtn = (u.is_active_public && !u.is_banned)
+            ? `<button class="pu-btn pu-btn-disable" id="btn-active-${u.id}" onclick="toggleActive(${u.id})"><i class="fas fa-user-slash"></i> Disable</button>`
+            : `<button class="pu-btn pu-btn-approve" id="btn-active-${u.id}" onclick="toggleActive(${u.id})"><i class="fas fa-user-check"></i> Approve</button>`;
+        banBtn = u.is_banned
+            ? `<button class="pu-btn pu-btn-unban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-unlock"></i> Unban</button>`
+            : `<button class="pu-btn pu-btn-ban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-ban"></i> Ban</button>`;
+        deleteBtn = `<button class="pu-btn pu-btn-delete" onclick='confirmDelete(${u.id}, ${JSON.stringify(u.username)})'><i class="fas fa-trash"></i></button>`;
+        editBtn   = `<button class="pu-btn pu-btn-edit" onclick='openEdit(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)})'><i class="fas fa-pencil-alt"></i> Edit</button>`;
+        roleBtn   = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
+                <button class="pu-btn pu-btn-edit" onclick="toggleRoleDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-tag"></i> Roles</button>
+                <div class="pu-role-dropdown-menu" id="roleMenu-${u.id}"></div>
+            </div>`;
+    }
+
+    tr.innerHTML = `
+        <td>
+            <div class="pu-username" id="uname-${u.id}">${escapeHtml(u.username)} ${adminBadge}</div>
+            <div class="pu-email" id="uemail-${u.id}">${escapeHtml(u.email)}</div>
+            <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;" id="userRoles-${u.id}">${roleBadges}</div>
+        </td>
+        <td>${verifiedBadge}${bannedBadge}${stateBadge}</td>
+        <td class="pu-activity col-activity">
+            <div class="pu-activity-row"><span class="pu-activity-num">${u.thread_count}</span><span>threads</span></div>
+            <div class="pu-activity-row"><span class="pu-activity-num">${u.reply_count}</span><span>replies</span></div>
+            <div class="pu-activity-row"><span class="pu-activity-num">${u.comment_count}</span><span>comments</span></div>
+        </td>
+        <td class="pu-date col-date">${formatDate(u.last_login_at)}</td>
+        <td class="pu-date col-date">${formatDate(u.created_at)}</td>
+        <td>
+            <div class="pu-actions">
+                ${roleBtn}
+                ${editBtn}
+                ${stateBtn}
+                ${banBtn}
+                ${deleteBtn}
+            </div>
+        </td>`;
+    return tr;
+}
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+}
+
+function renderPagination(websiteId, data) {
+    const pagEl = document.getElementById('pagination-' + websiteId);
+    pagEl.innerHTML = '';
+    if (data.pages <= 1) { pagEl.style.display = 'none'; return; }
+    pagEl.style.display = 'flex';
+
+    const mkBtn = (label, page, opts = {}) => {
+        const btn = document.createElement('button');
+        btn.className = 'pu-page-btn' + (opts.active ? ' active' : '');
+        btn.textContent = label;
+        if (opts.disabled) btn.disabled = true;
+        else btn.onclick = () => reloadList(websiteId, page);
+        return btn;
+    };
+
+    pagEl.appendChild(mkBtn('‹ Prev', data.page - 1, {disabled: data.page <= 1}));
+
+    const pages = pageNumberList(data.page, data.pages);
+    pages.forEach(p => {
+        if (p === '…') {
+            const span = document.createElement('span');
+            span.className = 'pu-page-ellipsis';
+            span.textContent = '…';
+            pagEl.appendChild(span);
+        } else {
+            pagEl.appendChild(mkBtn(String(p), p, {active: p === data.page}));
+        }
+    });
+
+    pagEl.appendChild(mkBtn('Next ›', data.page + 1, {disabled: data.page >= data.pages}));
+}
+
+function pageNumberList(current, total) {
+    const out = [];
+    const window = 1;
+    for (let p = 1; p <= total; p++) {
+        if (p === 1 || p === total || (p >= current - window && p <= current + window)) {
+            out.push(p);
+        } else if (out[out.length - 1] !== '…') {
+            out.push('…');
+        }
+    }
+    return out;
+}
+
+/* Edit */
+function openEdit(userId, username, email) {
+    _editUserId = userId;
+    document.getElementById('editUsername').value = username;
+    document.getElementById('editEmail').value = email;
+    document.getElementById('editPassword').value = '';
+    document.getElementById('editError').style.display = 'none';
+    document.getElementById('editOverlay').classList.add('show');
+    document.getElementById('editUsername').focus();
+}
+
+function closeEdit() {
+    _editUserId = null;
+    document.getElementById('editOverlay').classList.remove('show');
+}
+
+async function saveEdit() {
+    if (!_editUserId) return;
+    const errEl = document.getElementById('editError');
+    errEl.style.display = 'none';
+    const payload = {
+        username: document.getElementById('editUsername').value.trim(),
+        email:    document.getElementById('editEmail').value.trim(),
+        password: document.getElementById('editPassword').value,
+    };
+    try {
+        const r = await fetch(`/admin/users/public/${_editUserId}/update`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (!d.success) {
+            errEl.textContent = d.error || 'An error occurred.';
+            errEl.style.display = 'block';
+            return;
+        }
+        const unameEl = document.getElementById('uname-' + _editUserId);
+        const emailEl = document.getElementById('uemail-' + _editUserId);
+        if (unameEl) unameEl.textContent = d.username;
+        if (emailEl) emailEl.textContent = d.email;
+        closeEdit();
+    } catch (e) {
+        errEl.textContent = 'Request failed.';
+        errEl.style.display = 'block';
+    }
+}
+
+/* Toggle active */
+function toggleActive(userId) {
+    fetch('/admin/users/public/' + userId + '/toggle-active', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+        if (!d.success) { alert(d.error || 'Error'); return; }
+        const badgeEl = document.getElementById('badge-active-' + userId);
+        const btnEl   = document.getElementById('btn-active-' + userId);
+        if (d.is_active) {
+            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-active'; badgeEl.textContent = 'Active'; badgeEl.style.display = ''; }
+            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-disable'; btnEl.innerHTML = '<i class="fas fa-user-slash"></i> Disable'; btnEl.onclick = () => toggleActive(userId); }
+        } else {
+            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-pending'; badgeEl.textContent = 'Pending'; badgeEl.style.display = ''; }
+            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-approve'; btnEl.innerHTML = '<i class="fas fa-user-check"></i> Approve'; btnEl.onclick = () => toggleActive(userId); }
+        }
+    });
+}
+
+/* Toggle ban */
+function toggleBan(userId) {
+    fetch('/admin/users/public/' + userId + '/toggle-ban', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+        if (!d.success) { alert(d.error || 'Error'); return; }
+        let bannedEl = document.getElementById('badge-banned-' + userId);
+        const btnEl  = document.getElementById('btn-ban-' + userId);
+        if (d.is_banned) {
+            if (!bannedEl) {
+                bannedEl = document.createElement('span');
+                bannedEl.id = 'badge-banned-' + userId;
+                bannedEl.className = 'pu-badge pu-badge-banned';
+                bannedEl.textContent = 'Banned';
+                const activeEl = document.getElementById('badge-active-' + userId);
+                if (activeEl) activeEl.after(bannedEl);
+            }
+            bannedEl.style.display = '';
+            if (btnEl) { btnEl.className = 'pu-btn pu-btn-unban'; btnEl.innerHTML = '<i class="fas fa-unlock"></i> Unban'; btnEl.onclick = () => toggleBan(userId); }
+        } else {
+            if (bannedEl) bannedEl.style.display = 'none';
+            if (btnEl)    { btnEl.className = 'pu-btn pu-btn-ban'; btnEl.innerHTML = '<i class="fas fa-ban"></i> Ban'; btnEl.onclick = () => toggleBan(userId); }
+        }
+    });
+}
+
+/* Delete */
+function confirmDelete(userId, username) {
+    _deleteUserId = userId;
+    document.getElementById('deleteModalName').textContent = username;
+    document.getElementById('deleteOverlay').classList.add('show');
+}
+
+function closeDelete() {
+    _deleteUserId = null;
+    document.getElementById('deleteOverlay').classList.remove('show');
+}
+
+function executeDelete() {
+    if (!_deleteUserId) return;
+    const uid = _deleteUserId;
+    closeDelete();
+    fetch('/admin/users/public/' + uid + '/delete', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+        if (!d.success) { alert(d.error || 'Error'); return; }
+        const row = document.getElementById('pu-row-' + uid);
+        if (row) row.remove();
+    });
+}
+
+/* Settings */
+function toggleSetting(websiteId, key) {
+    const chk   = document.getElementById(`tog-${websiteId}-${key}`);
+    const track = document.getElementById(`track-${websiteId}-${key}`);
+    if (!chk || !track) return;
     chk.checked = !chk.checked;
     track.classList.toggle('on', chk.checked);
 }
 
-function saveSettings() {
-    var btn = document.getElementById('saveSettingsBtn');
-    var status = document.getElementById('saveStatus');
+async function saveSettings(websiteId) {
+    const btn    = document.getElementById(`save-btn-${websiteId}`);
+    const status = document.getElementById(`save-status-${websiteId}`);
     btn.disabled = true;
-
-    var payload = {
-        public_users_enabled:               document.getElementById('tog_public_users_enabled').checked,
-        public_2fa_enabled:                 document.getElementById('tog_public_2fa_enabled').checked,
-        require_login_to_view:              document.getElementById('tog_require_login_to_view').checked,
-        public_approval_required:           document.getElementById('tog_public_approval_required').checked,
-        public_email_verification_enabled:  document.getElementById('tog_public_email_verification_enabled').checked,
-        public_email_verification_required: document.getElementById('tog_public_email_verification_required').checked
-    };
-
-    fetch('/admin/users/public/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        btn.disabled = false;
-        if (data.success) {
+    const keys = ['public_users_enabled','public_2fa_enabled','require_login_to_view',
+                  'public_approval_required','public_email_verification_enabled','public_email_verification_required'];
+    const payload = { website_id: websiteId };
+    keys.forEach(k => {
+        const el = document.getElementById(`tog-${websiteId}-${k}`);
+        if (el) payload[k] = el.checked;
+    });
+    try {
+        const r = await fetch('/admin/users/public/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (d.success) {
             status.classList.add('visible');
-            setTimeout(function() { status.classList.remove('visible'); }, 2500);
+            setTimeout(() => status.classList.remove('visible'), 2500);
         } else {
-            alert('Error: ' + (data.error || 'Unknown error'));
+            alert('Error: ' + (d.error || 'Unknown error'));
         }
-    })
-    .catch(function(e) {
-        btn.disabled = false;
+    } catch (e) {
         alert('Request failed: ' + e);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeEdit(); closeDelete(); }
+    if (e.key === 'Enter' && document.getElementById('editOverlay').classList.contains('show')) saveEdit();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const initial = {{ selected_website_id|tojson if selected_website_id is not none else 'null' }};
+    if (initial) reloadList(initial);
+});
+
+// ── Role management ───────────────────────────────────────────────────────────
+
+async function createRole(websiteId) {
+    const name = document.getElementById(`newRoleName-${websiteId}`).value.trim();
+    const color = document.getElementById(`newRoleColor-${websiteId}`).value;
+    if (!name) { alert('Enter a role name.'); return; }
+    const r = await fetch('/admin/users/public/roles', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({website_id: websiteId, name, color})
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Error'); return; }
+    location.reload();
+}
+
+async function saveRole(roleId, websiteId) {
+    const name  = document.getElementById(`roleName-${roleId}`).value.trim();
+    const color = document.getElementById(`roleColor-${roleId}`).value;
+    if (!name) { alert('Enter a role name.'); return; }
+    const r = await fetch(`/admin/users/public/roles/${roleId}/update`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({name, color})
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Error'); return; }
+    location.reload();
+}
+
+async function deleteRole(roleId) {
+    if (!confirm('Delete this role? It will be removed from all users.')) return;
+    const r = await fetch(`/admin/users/public/roles/${roleId}/delete`, {method:'POST'});
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Error'); return; }
+    document.getElementById(`roleRow-${roleId}`)?.remove();
+}
+
+function previewRoleBadge(roleId, color) {
+    const badge = document.querySelector(`#roleRow-${roleId} .pu-role-badge`);
+    if (!badge) return;
+    badge.style.background = color + '22';
+    badge.style.color = color;
+    badge.style.border = `1px solid ${color}44`;
+}
+
+// ── Role assignment dropdown ──────────────────────────────────────────────────
+
+const _roleMenuState = {};
+
+function toggleRoleDropdown(userId, websiteId, event) {
+    event.stopPropagation();
+    const menu = document.getElementById(`roleMenu-${userId}`);
+    if (!menu) return;
+    const isOpen = menu.classList.contains('show');
+    document.querySelectorAll('.pu-role-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+    if (!isOpen) {
+        _buildRoleMenu(userId, websiteId, menu);
+        menu.classList.add('show');
+    }
+}
+
+document.addEventListener('click', () => {
+    document.querySelectorAll('.pu-role-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+});
+
+function _buildRoleMenu(userId, websiteId, menu) {
+    const allRoles = _rolesData[websiteId] || [];
+    const assigned = new Set((_userRoleData[userId] || []).map(r => r.id));
+    menu.innerHTML = '';
+    if (!allRoles.length) {
+        menu.innerHTML = '<p style="font-size:0.78rem;color:rgba(255,255,255,0.4);padding:4px 6px;margin:0;">No roles for this website.</p>';
+        return;
+    }
+    allRoles.forEach(role => {
+        const checked = assigned.has(role.id);
+        const item = document.createElement('label');
+        item.className = 'pu-role-check-item';
+        item.innerHTML = `
+            <input type="checkbox" ${checked ? 'checked' : ''} data-role-id="${role.id}" data-user-id="${userId}" onchange="_onRoleCheck(${userId}, ${websiteId})">
+            <span class="pu-role-badge" style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}44;">${escapeHtml(role.name)}</span>`;
+        menu.appendChild(item);
     });
 }
 
-function toggleActive(userId) {
-    fetch('/admin/users/public/' + userId + '/toggle-active', {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (!data.success) { alert(data.error || 'Error'); return; }
-        var badgeEl = document.getElementById('badge-active-' + userId);
-        var btnEl   = document.getElementById('btn-active-' + userId);
-        if (data.is_active) {
-            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-active'; badgeEl.textContent = 'Active'; }
-            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-disable'; btnEl.innerHTML = '<i class="fas fa-user-slash"></i> Disable'; btnEl.onclick = function(){ toggleActive(userId); }; }
-        } else {
-            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-pending'; badgeEl.textContent = 'Pending'; }
-            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-approve'; btnEl.innerHTML = '<i class="fas fa-user-check"></i> Approve'; btnEl.onclick = function(){ toggleActive(userId); }; }
-        }
-    })
-    .catch(function(e) { alert('Request failed: ' + e); });
-}
-
-function toggleBan(userId) {
-    fetch('/admin/users/public/' + userId + '/toggle-ban', {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (!data.success) { alert(data.error || 'Error'); return; }
-        var badgeEl = document.getElementById('badge-banned-' + userId);
-        var btnEl   = document.getElementById('btn-ban-' + userId);
-        if (data.is_banned) {
-            if (badgeEl) { badgeEl.className = 'pu-badge pu-badge-banned'; badgeEl.textContent = 'Banned'; badgeEl.style.display = ''; }
-            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-unban'; btnEl.innerHTML = '<i class="fas fa-unlock"></i> Unban'; btnEl.onclick = function(){ toggleBan(userId); }; }
-        } else {
-            if (badgeEl) { badgeEl.style.display = 'none'; }
-            if (btnEl)   { btnEl.className = 'pu-btn pu-btn-ban'; btnEl.innerHTML = '<i class="fas fa-ban"></i> Ban'; btnEl.onclick = function(){ toggleBan(userId); }; }
-        }
-    })
-    .catch(function(e) { alert('Request failed: ' + e); });
-}
-
-function confirmDeleteUser(userId, username) {
-    _pendingDeleteId = userId;
-    document.getElementById('deleteModalName').textContent = username;
-    document.getElementById('deleteOverlay').style.display = 'flex';
-}
-
-function closeDeleteModal() {
-    _pendingDeleteId = null;
-    document.getElementById('deleteOverlay').style.display = 'none';
-}
-
-function executeDelete() {
-    if (!_pendingDeleteId) return;
-    var uid = _pendingDeleteId;
-    closeDeleteModal();
-    fetch('/admin/users/public/' + uid + '/delete', {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (!data.success) { alert(data.error || 'Error'); return; }
-        var row = document.getElementById('pu-row-' + uid);
-        if (row) row.remove();
-    })
-    .catch(function(e) { alert('Request failed: ' + e); });
+async function _onRoleCheck(userId, websiteId) {
+    const menu = document.getElementById(`roleMenu-${userId}`);
+    const checkedIds = Array.from(menu.querySelectorAll('input[type="checkbox"]:checked')).map(cb => parseInt(cb.dataset.roleId));
+    const r = await fetch(`/admin/users/public/${userId}/set-roles`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({role_ids: checkedIds})
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Error'); return; }
+    // Update badge display in user row
+    _userRoleData[userId] = d.roles;
+    const badgesEl = document.getElementById(`userRoles-${userId}`);
+    if (badgesEl) {
+        badgesEl.innerHTML = d.roles.map(role =>
+            `<span class="pu-role-badge" style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}44;">${escapeHtml(role.name)}</span>`
+        ).join('');
+    }
 }
 </script>
 

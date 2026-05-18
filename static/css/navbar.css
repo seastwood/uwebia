@@ -68,7 +68,7 @@
     padding: 6px 10px;
     border-radius: 8px;
     text-decoration: none;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .nav-link-btn:hover,
@@ -278,6 +278,25 @@
     align-items: center;
     justify-content: center;
 }
+/* ── Profile chat badge ───────────────────────────────────────────────── */
+.profile-icon { position: relative; }
+.profile-chat-badge {
+    position: absolute;
+    top: 2px; right: 2px;
+    min-width: 16px; height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #f55;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    line-height: 1;
+}
+
 /* ── Inline tool shortcuts ────────────────────────────────────────────── */
 .nav-inline-items {
     display: flex;
@@ -285,11 +304,30 @@
     gap: 2px;
 }
 
-/* Compact mode: hide inline items, show dropdown button */
-.nav-home.nav-compact .nav-inline-items { display: none; }
+/* Compact mode: hide inline items (kept in DOM offscreen so JS can still measure them) */
+.nav-home.nav-compact .nav-inline-items {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
 
-/* Expanded mode: hide the dropdown toggle button */
-.nav-home:not(.nav-compact) .nav-tools-btn { display: none; }
+/* Expanded mode: responsive dropdown items are hidden — only the always-pinned
+   items (External Drives, AI Agents, Plugins) show. In compact mode they appear
+   alongside the pinned ones because the inline bar has collapsed. */
+.nav-home:not(.nav-compact) .nav-tools-item--responsive {
+    display: none;
+}
+
+/* If every always-pinned item is disabled, the dropdown is empty in expanded
+   mode — hide the hamburger entirely. When the inline bar collapses into the
+   dropdown (compact mode), the responsive items take over and we show it
+   again. The JS layout check reads offsetWidth, which is 0 while display:none,
+   so the responsive-collapse math still works correctly. */
+.nav-home:not(.nav-compact) .nav-tools-dropdown--no-pinned {
+    display: none;
+}
 
 /* ─────────────────────────────────────────────────────────────────────── */
 .nav-tools-dropdown {

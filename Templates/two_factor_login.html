@@ -95,6 +95,14 @@
 
         <button type="submit" id="verifyBtn">Verify Code</button>
     </form>
+
+    <div style="margin-top:14px;text-align:center;">
+        <button id="resendBtn" onclick="resendCode()"
+                style="background:none;border:none;color:rgba(255,255,255,0.45);font-size:0.85rem;cursor:pointer;text-decoration:underline;padding:4px;">
+            Resend code
+        </button>
+        <span id="resendStatus" style="font-size:0.82rem;margin-left:8px;"></span>
+    </div>
 </div>
 <script>
 document.querySelector('.two-factor-card').addEventListener('submit', function () {
@@ -102,6 +110,46 @@ document.querySelector('.two-factor-card').addEventListener('submit', function (
     btn.disabled = true;
     btn.textContent = 'Verifying…';
 });
+
+let _resendCooldown = null;
+function resendCode() {
+    const btn = document.getElementById('resendBtn');
+    const status = document.getElementById('resendStatus');
+    btn.disabled = true;
+    status.textContent = 'Sending…';
+    status.style.color = 'rgba(255,255,255,0.5)';
+    fetch('{{ request.path }}/resend', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                status.textContent = 'Code sent!';
+                status.style.color = '#7ee2cc';
+            } else {
+                status.textContent = d.error || 'Failed to send.';
+                status.style.color = '#ff8888';
+                btn.disabled = false;
+                return;
+            }
+            let secs = 10;
+            btn.textContent = `Resend code (${secs}s)`;
+            _resendCooldown = setInterval(() => {
+                secs--;
+                if (secs <= 0) {
+                    clearInterval(_resendCooldown);
+                    btn.disabled = false;
+                    btn.textContent = 'Resend code';
+                    status.textContent = '';
+                } else {
+                    btn.textContent = `Resend code (${secs}s)`;
+                }
+            }, 1000);
+        })
+        .catch(() => {
+            status.textContent = 'Request failed.';
+            status.style.color = '#ff8888';
+            btn.disabled = false;
+        });
+}
 </script>
 
 {% endblock %}

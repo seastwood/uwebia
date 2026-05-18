@@ -308,7 +308,7 @@
 
 {% block content %}
 <main class="forum-shell">
-    <p><a href="{{ url_for('public_forum') }}">← Back to Forum</a></p>
+    <p><a href="{{ url_for('public_forum_prefixed', prefix=website.url_prefix) if website.url_prefix else url_for('public_forum') }}">← Back to Forum</a></p>
 
     <article class="forum-card forum-original-post">
     <button type="button"
@@ -326,9 +326,12 @@
         <h1>{{ thread.title }}</h1>
 
         <div class="forum-meta">
-            Posted by {{ thread.author.username if thread.author else 'Guest' }}
-            · {{ thread.created_at.strftime('%b %d, %Y %I:%M %p') }}
-            {% if thread.is_locked %} · Locked{% endif %}
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
+                <span>Posted by {{ thread.author.effective_display_name if thread.author else 'Guest' }}</span>
+                {% if thread.author and thread.author.mirrored_admin_user_id %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Site owner">Admin</span>{% endif %}
+                {% if thread.author %}{% for role in thread.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
+            </div>
+            <span>{{ thread.created_at.strftime('%b %d, %Y %I:%M %p') }}{% if thread.is_locked %} · Locked{% endif %}</span>
         </div>
 
         <div class="forum-body">{{ thread.body | profanity_clean(website) }}</div>
@@ -350,8 +353,12 @@
 
         <div class="forum-reply-main">
             <div class="forum-meta">
-                {{ reply.author.username if reply.author else 'Guest' }}
-                · {{ reply.created_at.strftime('%b %d, %Y %I:%M %p') }}
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
+                    <span>{{ reply.author.effective_display_name if reply.author else 'Guest' }}</span>
+                    {% if reply.author and reply.author.mirrored_admin_user_id %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Site owner">Admin</span>{% endif %}
+                    {% if reply.author %}{% for role in reply.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
+                </div>
+                <span>{{ reply.created_at.strftime('%b %d, %Y %I:%M %p') }}</span>
             </div>
 
             <div class="forum-body">{{ reply.body | profanity_clean(website) }}</div>
@@ -363,7 +370,7 @@
 {% if replies_pagination.pages > 1 %}
 <nav class="forum-pagination" aria-label="Forum reply pagination">
     {% if replies_pagination.has_prev %}
-        <a href="{{ url_for('public_forum_thread', thread_id=thread.id, reply_page=replies_pagination.prev_num) }}">
+        <a href="{{ url_for('public_forum_thread', prefix=website.url_prefix or none, thread_id=thread.id, reply_page=replies_pagination.prev_num) }}">
             ← Prev
         </a>
     {% endif %}
@@ -373,7 +380,7 @@
             {% if page_num == replies_pagination.page %}
                 <span class="forum-pagination-current">{{ page_num }}</span>
             {% else %}
-                <a href="{{ url_for('public_forum_thread', thread_id=thread.id, reply_page=page_num) }}">
+                <a href="{{ url_for('public_forum_thread', prefix=website.url_prefix or none, thread_id=thread.id, reply_page=page_num) }}">
                     {{ page_num }}
                 </a>
             {% endif %}
@@ -383,7 +390,7 @@
     {% endfor %}
 
     {% if replies_pagination.has_next %}
-        <a href="{{ url_for('public_forum_thread', thread_id=thread.id, reply_page=replies_pagination.next_num) }}">
+        <a href="{{ url_for('public_forum_thread', prefix=website.url_prefix or none, thread_id=thread.id, reply_page=replies_pagination.next_num) }}">
             Next →
         </a>
     {% endif %}
@@ -400,23 +407,24 @@
     </form>
 {% else %}
     <div class="forum-card">
-        <a href="{{ url_for('public_login', next=url_for('public_forum_thread', thread_id=thread.id)) }}">
+        <a href="{{ url_for('public_login', website_prefix=website.url_prefix, next=url_for('public_forum_thread', prefix=website.url_prefix or none, thread_id=thread.id)) }}">
             Log in to reply.
         </a>
     </div>
 {% endif %}
 </main>
 <script>
+const _forumBase = {{ (('/' + website.url_prefix) if website.url_prefix else '') | tojson }};
 function voteForumThread(event, threadId) {
     event.preventDefault();
     event.stopPropagation();
 
-    fetch(`/forum/thread/${threadId}/vote`, {
+    fetch(`${_forumBase}/forum/thread/${threadId}/vote`, {
         method: 'POST'
     })
         .then(response => {
             if (response.status === 401) {
-                window.location.href = "{{ url_for('public_login') }}";
+                window.location.href = "{{ url_for('public_login', website_prefix=website.url_prefix) }}";
                 return null;
             }
 
@@ -451,12 +459,12 @@ function voteForumReply(event, replyId) {
     event.preventDefault();
     event.stopPropagation();
 
-    fetch(`/forum/reply/${replyId}/vote`, {
+    fetch(`${_forumBase}/forum/reply/${replyId}/vote`, {
         method: 'POST'
     })
         .then(response => {
             if (response.status === 401) {
-                window.location.href = "{{ url_for('public_login') }}";
+                window.location.href = "{{ url_for('public_login', website_prefix=website.url_prefix) }}";
                 return null;
             }
 
