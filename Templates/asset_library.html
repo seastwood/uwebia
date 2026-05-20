@@ -476,6 +476,18 @@
         font-weight: 700;
     }
 
+    /* Clickable PDF / text card */
+    .doc-preview-button {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 8px; width: 100%; height: 100%; padding: 14px;
+        background: transparent; border: none; cursor: pointer; color: inherit;
+        font-family: inherit; transition: background 0.15s;
+    }
+    .doc-preview-button:hover { background: rgba(255,255,255,0.05); }
+    .doc-preview-button i { font-size: 2.2rem; color: rgba(255,255,255,0.5); transition: color 0.15s; }
+    .doc-preview-button:hover i { color: #5eeef8; }
+    .doc-preview-label { font-size: 0.74rem; opacity: 0.55; }
+
     .video-preview-modal {
         position: fixed;
         inset: 0;
@@ -1053,7 +1065,20 @@
                 </button>
 
                 {% elif asset.asset_type == 'pdf' %}
-                <i class="fas fa-file-pdf"></i>
+                <button type="button" class="doc-preview-button"
+                        title="Preview PDF"
+                        onclick="event.stopPropagation(); openDocPreview('pdf', '{{ asset.url }}', '{{ asset.original_filename | e }}')">
+                    <i class="fas fa-file-pdf"></i>
+                    <div class="doc-preview-label">Click to preview</div>
+                </button>
+
+                {% elif asset.asset_type == 'document' and asset.extension in ['txt','csv','json','md','log','xml','yml','yaml','tsv'] %}
+                <button type="button" class="doc-preview-button"
+                        title="Preview {{ asset.extension|upper }}"
+                        onclick="event.stopPropagation(); openDocPreview('text', '{{ asset.url }}', '{{ asset.original_filename | e }}', '{{ asset.extension }}')">
+                    <i class="fas fa-file-alt"></i>
+                    <div class="doc-preview-label">Click to preview</div>
+                </button>
 
                 {% elif asset.asset_type == 'document' %}
                 <i class="fas fa-file-alt"></i>
@@ -1106,6 +1131,37 @@
     <button class="uw-modal-close" onclick="closeImagePreview()" title="Close" style="position:fixed;top:18px;right:22px;width:40px;height:40px;font-size:1.4rem;">&times;</button>
     <img id="imgLightboxImg" style="max-width:min(92vw,1400px);max-height:82vh;object-fit:contain;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.7);cursor:default;" src="" alt="" onclick="event.stopPropagation()">
     <div id="imgLightboxCaption" style="color:rgba(255,255,255,0.6);font-size:0.85rem;text-align:center;max-width:600px;"></div>
+</div>
+
+<div id="docPreviewModal" class="uw-overlay" onclick="closeDocPreview()" style="align-items:center;justify-content:center;">
+    <div class="uw-modal uw-modal--wide" onclick="event.stopPropagation();"
+         style="width:min(96vw,1100px);max-height:92vh;display:flex;flex-direction:column;">
+        <div class="uw-modal-header" style="display:flex;align-items:flex-start;gap:10px;min-width:0;">
+            <div id="docPreviewCaption" class="uw-modal-title"
+                 title="Click to see the full name"
+                 onclick="toggleTitleExpand(this, event)"
+                 style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;">Preview</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+                <a id="docPreviewDownload" href="#" download
+                   title="Download"
+                   style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;color:#5eeef8;text-decoration:none;background:rgba(94,238,248,0.1);border:1px solid rgba(94,238,248,0.25);">
+                    <i class="fas fa-download"></i>
+                </a>
+                <button type="button" class="uw-modal-close" onclick="closeDocPreview()" title="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div style="flex:1;min-height:0;overflow:hidden;background:#1c1c1c;">
+            <iframe id="docPreviewIframe" src="about:blank"
+                    style="width:100%;height:75vh;border:none;background:#fff;"></iframe>
+            <div id="docPreviewTextWrap" style="display:none;height:75vh;overflow:auto;padding:14px 18px;">
+                <pre id="docPreviewText"
+                     style="margin:0;font-family:ui-monospace,Menlo,monospace;font-size:0.85rem;
+                            color:#e8e8e8;white-space:pre-wrap;word-wrap:break-word;line-height:1.55;"></pre>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div id="videoPreviewModal" class="uw-overlay" onclick="closeVideoPreview()">
@@ -1706,6 +1762,88 @@
 
     document.addEventListener('DOMContentLoaded', generateVideoThumbnails);
 
+    /* ── Title expand-on-click (shared across preview modals) ── */
+    function toggleTitleExpand(el, ev) {
+        if (ev) ev.stopPropagation();
+        const expanded = el.dataset.expanded === '1';
+        if (expanded) _collapseTitle(el);
+        else _expandTitle(el);
+    }
+    function _expandTitle(el) {
+        el.dataset.expanded = '1';
+        el.style.whiteSpace = 'normal';
+        el.style.overflow = 'visible';
+        el.style.textOverflow = 'clip';
+        el.style.wordBreak = 'break-word';
+    }
+    function _collapseTitle(el) {
+        el.dataset.expanded = '0';
+        el.style.whiteSpace = 'nowrap';
+        el.style.overflow = 'hidden';
+        el.style.textOverflow = 'ellipsis';
+        el.style.wordBreak = '';
+    }
+    // Any click outside a currently-expanded title collapses it.
+    document.addEventListener('click', (e) => {
+        document.querySelectorAll('[data-expanded="1"]').forEach(el => {
+            if (!el.contains(e.target)) _collapseTitle(el);
+        });
+    });
+
+    /* ── PDF + text preview ── */
+    async function openDocPreview(kind, url, title, ext) {
+        const lb = document.getElementById('docPreviewModal');
+        const cap = document.getElementById('docPreviewCaption');
+        cap.textContent = title || '';
+        cap.setAttribute('title', title || '');
+        const iframe = document.getElementById('docPreviewIframe');
+        const textWrap = document.getElementById('docPreviewTextWrap');
+        const text = document.getElementById('docPreviewText');
+        const downloadLink = document.getElementById('docPreviewDownload');
+        downloadLink.href = url;
+        if (kind === 'pdf') {
+            iframe.style.display = '';
+            textWrap.style.display = 'none';
+            iframe.src = url + '#view=FitH';
+        } else {
+            iframe.style.display = 'none';
+            textWrap.style.display = '';
+            text.textContent = 'Loading…';
+            try {
+                const r = await fetch(url);
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const blob = await r.blob();
+                const max = 1024 * 1024; // 1MB cap for the preview body
+                if (blob.size > max) {
+                    text.textContent = '(File is ' + Math.round(blob.size / 1024) +
+                        ' KB — only the first 1 MB is shown. Download the original for the full contents.)\n\n';
+                    const slice = blob.slice(0, max);
+                    text.textContent += await slice.text();
+                } else {
+                    text.textContent = await blob.text();
+                }
+            } catch (e) {
+                text.textContent = 'Could not load file: ' + (e.message || e);
+            }
+        }
+        lb.classList.add('open');
+        document.body.classList.add('uw-modal-open');
+    }
+
+    function closeDocPreview() {
+        const lb = document.getElementById('docPreviewModal');
+        document.getElementById('docPreviewIframe').src = 'about:blank';
+        document.getElementById('docPreviewText').textContent = '';
+        _collapseTitle(document.getElementById('docPreviewCaption'));
+        lb.classList.remove('open');
+        document.body.classList.remove('uw-modal-open');
+    }
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && document.getElementById('docPreviewModal')?.classList.contains('open')) {
+            closeDocPreview();
+        }
+    });
+
     /* ── Image lightbox ── */
     function openImagePreview(url, filename) {
         const lb  = document.getElementById('imgLightbox');
@@ -2080,6 +2218,26 @@
     </div>
 </div>
 
+<!-- Preview modal — sits on top of the import-from-drive overlay. -->
+<div id="aldPreviewOverlay"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10000;align-items:center;justify-content:center;padding:18px;"
+     onclick="if(event.target===this)aldClosePreview()">
+    <div style="background:#181820;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:min(1100px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;color:#fff;">
+        <div style="padding:12px 18px;display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid rgba(255,255,255,0.07);min-width:0;">
+            <div id="aldPreviewTitle" onclick="toggleTitleExpand(this, event)"
+                 title="Click to see the full name"
+                 style="flex:1;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;">Preview</div>
+            <a id="aldPreviewDownload" href="#" download title="Download"
+               style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;color:#5eeef8;text-decoration:none;background:rgba(94,238,248,0.1);border:1px solid rgba(94,238,248,0.25);flex-shrink:0;">
+                <i class="fas fa-download"></i>
+            </a>
+            <button type="button" onclick="aldClosePreview()" title="Close"
+                    style="background:none;border:none;color:rgba(255,255,255,0.55);font-size:1.4rem;cursor:pointer;flex-shrink:0;">&times;</button>
+        </div>
+        <div id="aldPreviewBody" style="flex:1;min-height:0;overflow:auto;background:#0f0f12;padding:12px;"></div>
+    </div>
+</div>
+
 <script>
 let _aldCid = null;
 let _aldPath = [];
@@ -2203,6 +2361,7 @@ async function aldLoadFolder(folderId) {
         const isFolder = item.type === 'folder';
         const sizeText = (!isFolder && item.size) ? aldFormatBytes(item.size) : '';
         const exportNote = (!isFolder && item.export_ext) ? ` <span style="color:rgba(94,238,248,0.65);">→ .${item.export_ext}</span>` : '';
+        const previewable = !isFolder && aldIsPreviewable(item);
         row.innerHTML = `
             ${isFolder
               ? '<div style="width:24px;text-align:center;color:rgba(255,255,255,0.6);"><i class="fas fa-folder"></i></div>'
@@ -2212,6 +2371,15 @@ async function aldLoadFolder(folderId) {
             </span>
             <span style="flex:1;min-width:0;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlAld(item.name)}${exportNote}</span>
             <span style="font-size:0.78rem;color:rgba(255,255,255,0.4);flex-shrink:0;">${sizeText}</span>
+            ${previewable
+              ? `<button type="button" class="ald-preview-btn" title="Preview"
+                         data-id="${escapeHtmlAld(item.id)}"
+                         data-name="${escapeHtmlAld(item.name || '')}"
+                         data-mime="${escapeHtmlAld(item.mime_type || '')}"
+                         data-export="${escapeHtmlAld(item.export_mime || '')}"
+                         style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);border-radius:6px;cursor:pointer;flex-shrink:0;font-size:0.78rem;">
+                    <i class="fas fa-eye"></i>
+                 </button>` : ''}
         `;
         if (isFolder) {
             row.onclick = () => aldNavigateTo(item.id, item.name);
@@ -2224,12 +2392,89 @@ async function aldLoadFolder(folderId) {
                 else { _aldSelected.delete(item.id); row.style.background = ''; row.classList.remove('selected'); }
                 aldUpdateSelectedCount();
             });
+            const pbtn = row.querySelector('.ald-preview-btn');
+            if (pbtn) {
+                pbtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    aldOpenPreview(pbtn.dataset.id, pbtn.dataset.name, pbtn.dataset.mime, pbtn.dataset.export);
+                });
+                pbtn.addEventListener('mouseover', () => { pbtn.style.background = 'rgba(94,238,248,0.18)'; pbtn.style.color = '#5eeef8'; pbtn.style.borderColor = 'rgba(94,238,248,0.32)'; });
+                pbtn.addEventListener('mouseout',  () => { pbtn.style.background = 'rgba(255,255,255,0.07)'; pbtn.style.color = 'rgba(255,255,255,0.7)'; pbtn.style.borderColor = 'rgba(255,255,255,0.12)'; });
+            }
             row.addEventListener('click', (e) => {
-                if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+                if (e.target !== cb && !e.target.closest('.ald-preview-btn')) {
+                    cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+                }
             });
         }
         body.appendChild(row);
     });
+}
+
+function aldIsPreviewable(item) {
+    const m = (item.mime_type || '').toLowerCase();
+    const n = (item.name || '').toLowerCase();
+    if (m.startsWith('image/') || m.startsWith('video/') || m.startsWith('audio/')) return true;
+    if (m === 'application/pdf' || n.endsWith('.pdf')) return true;
+    if (m.startsWith('text/')) return true;
+    const textExts = ['.txt','.csv','.json','.md','.log','.xml','.yml','.yaml','.tsv','.html','.css','.js','.py'];
+    if (textExts.some(ext => n.endsWith(ext))) return true;
+    if (item.export_mime) return true;
+    return false;
+}
+
+function aldOpenPreview(fileId, name, mime, exportMime) {
+    const ov = document.getElementById('aldPreviewOverlay');
+    document.getElementById('aldPreviewTitle').textContent = name || 'Preview';
+    document.getElementById('aldPreviewTitle').setAttribute('title', name || '');
+    const body = document.getElementById('aldPreviewBody');
+    const dl = document.getElementById('aldPreviewDownload');
+    body.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.6;">Loading…</div>';
+    let url = `/admin/storage-connections/${_aldCid}/preview/${encodeURIComponent(fileId)}`;
+    if (exportMime) url += `?export_mime=${encodeURIComponent(exportMime)}`;
+    dl.href = url;
+    const eff = (exportMime || mime || '').toLowerCase();
+    const n = (name || '').toLowerCase();
+    const isImg = eff.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(n);
+    const isVid = eff.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(n);
+    const isAud = eff.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(n);
+    const isPdf = eff === 'application/pdf' || n.endsWith('.pdf');
+    const isTxt = eff.startsWith('text/') ||
+                  /\.(txt|csv|json|md|log|xml|yml|yaml|tsv|html|css|js|py)$/i.test(n);
+    if (isImg) {
+        body.innerHTML = `<img src="${url}" alt="${escapeHtmlAld(name||'')}" style="max-width:100%;max-height:74vh;object-fit:contain;display:block;margin:0 auto;">`;
+    } else if (isVid) {
+        body.innerHTML = `<video src="${url}" controls preload="metadata" style="width:100%;max-height:74vh;background:#000;"></video>`;
+    } else if (isAud) {
+        body.innerHTML = `<div style="padding:40px 16px;text-align:center;"><audio src="${url}" controls preload="metadata" style="width:100%;"></audio></div>`;
+    } else if (isPdf) {
+        body.innerHTML = `<iframe src="${url}#view=FitH" style="width:100%;height:74vh;border:none;background:#fff;"></iframe>`;
+    } else if (isTxt) {
+        fetch(url).then(r => r.blob()).then(blob => {
+            const max = 1024 * 1024;
+            const slice = blob.size > max ? blob.slice(0, max) : blob;
+            return slice.text().then(text => ({text, truncated: blob.size > max, size: blob.size}));
+        }).then(({text, truncated, size}) => {
+            const note = truncated
+                ? `<div style="font-size:0.78rem;opacity:0.6;margin-bottom:8px;">Showing first 1 MB of ${Math.round(size/1024)} KB. Download for the full file.</div>` : '';
+            body.innerHTML = `${note}<pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,monospace;font-size:0.85rem;color:#e8e8e8;background:#1c1c1c;padding:14px;border-radius:8px;max-height:72vh;overflow:auto;margin:0;">${escapeHtmlAld(text)}</pre>`;
+        }).catch(err => {
+            body.innerHTML = `<div style="padding:40px;text-align:center;color:#ff8a8a;">Could not load: ${escapeHtmlAld(err.message || String(err))}</div>`;
+        });
+    } else {
+        body.innerHTML = `<div style="padding:40px;text-align:center;opacity:0.65;">
+            <i class="fas fa-file" style="font-size:2.5rem;display:block;margin-bottom:14px;"></i>
+            This file type can't be previewed in-browser.
+            <div style="margin-top:14px;"><a href="${url}" download="${escapeHtmlAld(name||'')}" style="color:#5eeef8;">Download to your device</a></div>
+        </div>`;
+    }
+    ov.style.display = 'flex';
+}
+
+function aldClosePreview() {
+    document.getElementById('aldPreviewBody').innerHTML = '';
+    _collapseTitle(document.getElementById('aldPreviewTitle'));
+    document.getElementById('aldPreviewOverlay').style.display = 'none';
 }
 
 function aldNavigateTo(folderId, name) {

@@ -61,6 +61,12 @@
 .sc-row-name { flex: 1; min-width: 0; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-row-meta { font-size: 0.78rem; color: rgba(255,255,255,0.4); flex-shrink: 0; }
 .sc-row-check { width: 18px; height: 18px; accent-color: #5eeef8; }
+.sc-preview-btn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; flex-shrink: 0; font-size: 0.78rem; }
+.sc-preview-btn:hover { background: rgba(94,238,248,0.18); color: #5eeef8; border-color: rgba(94,238,248,0.32); }
+.sc-preview-modal { background: #181820; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; width: min(1100px, 96vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; }
+.sc-preview-head { padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.07); gap: 12px; }
+.sc-preview-title { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-preview-body { flex: 1; overflow: auto; background: #0f0f12; padding: 12px; }
 .sc-browser-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sc-import-msg { font-size: 0.85rem; margin-left: auto; min-height: 18px; }
 .sc-loading { padding: 24px; text-align: center; color: rgba(255,255,255,0.45); font-size: 0.9rem; }
@@ -205,6 +211,36 @@
         </div>
     </div>
 </div>
+
+<!-- File preview modal — sits above the browser, so closing it returns to the list. -->
+<div class="sc-overlay" id="scPreviewOverlay" onclick="if(event.target===this)closeStoragePreview()" style="z-index:10000;">
+    <div class="sc-preview-modal">
+        <div class="sc-preview-head">
+            <div class="sc-preview-title" id="scPreviewTitle"
+                 onclick="scToggleTitle(this, event)"
+                 title="Click to see the full name"
+                 style="cursor:pointer;">Preview</div>
+            <div style="display:flex;gap:10px;align-items:center;flex-shrink:0;">
+                <a id="scPreviewDownload" href="#" download
+                   style="color:#5eeef8;font-size:0.86rem;text-decoration:none;">
+                    <i class="fas fa-download"></i> Download
+                </a>
+                <button type="button" class="sc-browser-close" onclick="closeStoragePreview()">&times;</button>
+            </div>
+        </div>
+        <div class="sc-preview-body" id="scPreviewBody"></div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const previewOv = document.getElementById('scPreviewOverlay');
+    if (previewOv && previewOv.classList.contains('open')) {
+        closeStoragePreview();
+    }
+});
+</script>
 
 <!-- Add connection modal -->
 <div class="sc-overlay" id="addConnOverlay" onclick="if(event.target===this)closeAddModal()">
@@ -446,6 +482,7 @@ async function loadFolder(folderId) {
         const sizeText = (!isFolder && item.size) ? formatBytes(item.size) : '';
         const exportNote = (!isFolder && item.export_ext) ? ` <span style="color:rgba(94,238,248,0.65);">→ .${item.export_ext}</span>` : '';
 
+        const previewable = !isFolder && isPreviewable(item);
         row.innerHTML = `
             ${isFolder
               ? '<div class="sc-row-icon"><i class="fas fa-folder"></i></div>'
@@ -455,6 +492,14 @@ async function loadFolder(folderId) {
             </span>
             <span class="sc-row-name">${escapeHtml(item.name)}${exportNote}</span>
             <span class="sc-row-meta">${sizeText}</span>
+            ${previewable
+              ? `<button type="button" class="sc-preview-btn" title="Preview"
+                         data-id="${escapeHtml(item.id)}"
+                         data-name="${escapeHtml(item.name || '')}"
+                         data-mime="${escapeHtml(item.mime_type || '')}"
+                         data-export="${escapeHtml(item.export_mime || '')}">
+                    <i class="fas fa-eye"></i>
+                 </button>` : ''}
         `;
         if (isFolder) {
             row.style.cursor = 'pointer';
@@ -468,13 +513,124 @@ async function loadFolder(folderId) {
                 else { _bSelected.delete(item.id); row.classList.remove('selected'); }
                 updateSelectedCount();
             });
+            const previewBtn = row.querySelector('.sc-preview-btn');
+            if (previewBtn) {
+                previewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openStoragePreview(previewBtn.dataset.id,
+                                       previewBtn.dataset.name,
+                                       previewBtn.dataset.mime,
+                                       previewBtn.dataset.export);
+                });
+            }
             row.addEventListener('click', (e) => {
-                if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+                if (e.target !== cb && !e.target.closest('.sc-preview-btn')) {
+                    cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+                }
             });
         }
         body.appendChild(row);
     });
 }
+
+function isPreviewable(item) {
+    const m = (item.mime_type || '').toLowerCase();
+    const n = (item.name || '').toLowerCase();
+    if (m.startsWith('image/') || m.startsWith('video/') || m.startsWith('audio/')) return true;
+    if (m === 'application/pdf' || n.endsWith('.pdf')) return true;
+    if (m.startsWith('text/')) return true;
+    const textExts = ['.txt','.csv','.json','.md','.log','.xml','.yml','.yaml','.tsv','.html','.css','.js','.py'];
+    if (textExts.some(ext => n.endsWith(ext))) return true;
+    // Google native docs come with an export_mime hint — preview them as the
+    // export target (commonly PDF / DOCX / etc.).
+    if (item.export_mime) return true;
+    return false;
+}
+
+function openStoragePreview(fileId, name, mime, exportMime) {
+    const ov = document.getElementById('scPreviewOverlay');
+    const title = document.getElementById('scPreviewTitle');
+    const body = document.getElementById('scPreviewBody');
+    const dl = document.getElementById('scPreviewDownload');
+    title.textContent = name || 'Preview';
+    body.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.6;">Loading…</div>';
+    let url = `/admin/storage-connections/${_bCid}/preview/${encodeURIComponent(fileId)}`;
+    if (exportMime) url += `?export_mime=${encodeURIComponent(exportMime)}`;
+    dl.href = url;
+
+    // Pick the right inline renderer.
+    const effectiveMime = exportMime || mime || '';
+    const m = effectiveMime.toLowerCase();
+    const n = (name || '').toLowerCase();
+    const isImage = m.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(n);
+    const isVideo = m.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(n);
+    const isAudio = m.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(n);
+    const isPdf   = m === 'application/pdf' || n.endsWith('.pdf');
+    const isText  = m.startsWith('text/') ||
+                    /\.(txt|csv|json|md|log|xml|yml|yaml|tsv|html|css|js|py)$/i.test(n);
+
+    if (isImage) {
+        body.innerHTML = `<img src="${url}" alt="${escapeHtml(name||'')}" style="max-width:100%;max-height:78vh;object-fit:contain;display:block;margin:0 auto;">`;
+    } else if (isVideo) {
+        body.innerHTML = `<video src="${url}" controls preload="metadata" style="width:100%;max-height:78vh;background:#000;"></video>`;
+    } else if (isAudio) {
+        body.innerHTML = `<div style="padding:40px 16px;text-align:center;"><audio src="${url}" controls preload="metadata" style="width:100%;"></audio></div>`;
+    } else if (isPdf) {
+        body.innerHTML = `<iframe src="${url}#view=FitH" style="width:100%;height:78vh;border:none;background:#fff;"></iframe>`;
+    } else if (isText) {
+        fetch(url).then(r => r.blob()).then(blob => {
+            const max = 1024 * 1024;
+            const slice = blob.size > max ? blob.slice(0, max) : blob;
+            return slice.text().then(text => ({text, truncated: blob.size > max, size: blob.size}));
+        }).then(({text, truncated, size}) => {
+            const note = truncated
+                ? `<div style="font-size:0.78rem;opacity:0.6;margin-bottom:8px;">Showing first 1 MB of ${Math.round(size/1024)} KB. Download for the full file.</div>` : '';
+            body.innerHTML = `${note}<pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,monospace;font-size:0.85rem;color:#e8e8e8;background:#1c1c1c;padding:14px;border-radius:8px;max-height:74vh;overflow:auto;margin:0;">${escapeHtml(text)}</pre>`;
+        }).catch(err => {
+            body.innerHTML = `<div style="padding:40px;text-align:center;color:#ff8a8a;">Could not load: ${escapeHtml(err.message || String(err))}</div>`;
+        });
+    } else {
+        body.innerHTML = `<div style="padding:40px;text-align:center;opacity:0.65;">
+            <i class="fas fa-file" style="font-size:2.5rem;display:block;margin-bottom:14px;"></i>
+            This file type can't be previewed in-browser.
+            <div style="margin-top:14px;"><a href="${url}" download="${escapeHtml(name||'')}" style="color:#5eeef8;">Download to your device</a></div>
+        </div>`;
+    }
+    ov.classList.add('open');
+}
+
+function closeStoragePreview() {
+    const ov = document.getElementById('scPreviewOverlay');
+    document.getElementById('scPreviewBody').innerHTML = '';
+    _scCollapseTitle(document.getElementById('scPreviewTitle'));
+    ov.classList.remove('open');
+}
+
+function scToggleTitle(el, ev) {
+    if (ev) ev.stopPropagation();
+    const expanded = el.dataset.expanded === '1';
+    if (expanded) _scCollapseTitle(el);
+    else _scExpandTitle(el);
+}
+function _scExpandTitle(el) {
+    el.dataset.expanded = '1';
+    el.style.whiteSpace = 'normal';
+    el.style.overflow = 'visible';
+    el.style.textOverflow = 'clip';
+    el.style.wordBreak = 'break-word';
+}
+function _scCollapseTitle(el) {
+    el.dataset.expanded = '0';
+    el.style.whiteSpace = 'nowrap';
+    el.style.overflow = 'hidden';
+    el.style.textOverflow = 'ellipsis';
+    el.style.wordBreak = '';
+}
+document.addEventListener('click', (e) => {
+    document.querySelectorAll('.sc-preview-title[data-expanded="1"]').forEach(el => {
+        if (!el.contains(e.target)) _scCollapseTitle(el);
+    });
+});
 
 function clearSelection() {
     _bSelected = new Map();

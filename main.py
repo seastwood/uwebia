@@ -263,6 +263,9 @@ class PermissionGroup(db.Model):
     description = db.Column(db.String(500), nullable=True)
     permissions = db.Column(db.JSON, nullable=True)
     website_permissions = db.Column(db.JSON, nullable=True, default=dict)
+    # Per-external-drive access toggle. Keys are str(StorageConnection.id),
+    # values bool. Missing key = allowed (backwards-compatible default).
+    storage_connection_access = db.Column(db.JSON, nullable=True, default=dict)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     members = db.relationship(
@@ -279,6 +282,7 @@ class PermissionGroup(db.Model):
             'description': self.description or '',
             'permissions': self.permissions or {},
             'website_permissions': self.website_permissions or {},
+            'storage_connection_access': self.storage_connection_access or {},
             'member_count': len(self.members),
         }
 
@@ -310,12 +314,20 @@ class User(UserMixin, db.Model):
     )
     admin_url_key = db.Column(db.String(120), nullable=True)
     admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
+    # so existing installs stay email-only unless the admin opts in.
+    phone_number      = db.Column(db.String(40), nullable=True)
+    sms_2fa_enabled   = db.Column(db.Boolean, nullable=False, default=False,
+                                  server_default=_sa_false())
 
     timezone = db.Column(db.String(100), nullable=False, default='America/Chicago')
     date_format = db.Column(db.String(50), nullable=False, default='%b %d, %Y %I:%M %p')
     admin_navbar_disabled = db.Column(db.JSON, nullable=True, default=list)
     admin_chat_last_read = db.Column(db.DateTime, nullable=True)
     website_permissions = db.Column(db.JSON, nullable=True, default=dict)
+    # Per-external-drive access toggle. Keys are str(StorageConnection.id),
+    # values bool. Missing key = allowed (backwards-compatible default).
+    storage_connection_access = db.Column(db.JSON, nullable=True, default=dict)
 
     websites = db.relationship('Website', backref='owner', lazy=True, cascade="all, delete-orphan")
     _is_active = db.Column(db.Boolean, default=True)  # Use a different attribute name
@@ -388,7 +400,8 @@ def _perm_label(key):
         'pages': 'Pages', 'sections': 'Sections', 'appearance': 'Appearance',
         'code': 'Code', 'assets': 'Asset Library', 'calendars': 'Calendars',
         'posts': 'Posts', 'store': 'Store', 'newsletters': 'Newsletters',
-        'storage': 'External Drives',
+        'storage': 'External Drives', 'notifications': 'Notifications',
+        'payments': 'Payments',
         'ai_agents': 'AI Agents', 'forum': 'Forum', 'comments': 'Comments',
         'messages': 'Messages', 'settings': 'Settings', 'templates': 'Templates',
         'admin_users': 'Admin Users',
@@ -406,6 +419,13 @@ def _perm_label(key):
         'manage_users': 'manage users', 'delete_posts': 'delete posts',
         'download': 'download files',
         'manage': 'manage', 'send': 'send',
+        'orders.fulfill': 'process orders',
+        'returns': 'manage returns', 'refunds': 'issue refunds',
+        'cancellations': 'approve cancellations',
+        'tickets.scan': 'scan tickets', 'tickets.issue': 're-issue tickets',
+        'support': 'handle customer support', 'analytics': 'view sales reports',
+        'products': 'manage products', 'categories': 'manage categories',
+        'reviews': 'moderate reviews',
     }
     s = section_labels.get(section, section.replace('_', ' ').title())
     a = action_labels.get(action, action.replace('_', ' '))
@@ -789,6 +809,13 @@ class PublicUser(UserMixin, db.Model):
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     two_factor_last_sent_at = db.Column(db.DateTime, nullable=True)
+
+    # Phone + SMS opt-in. NULL phone or sms_opt_in=False means SMS sends to
+    # this user fall back to email.
+    phone_number = db.Column(db.String(40), nullable=True)
+    sms_opt_in   = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    sms_opted_out_at = db.Column(db.DateTime, nullable=True)
 
     website = db.relationship('Website', backref=db.backref('public_users', lazy=True, cascade='all, delete-orphan'))
     roles   = db.relationship('PublicUserRole', secondary='public_user_role_assignment',
@@ -1831,6 +1858,11 @@ class Newsletter(db.Model):
     __tablename__ = 'newsletter'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    # Site that hosts the public URL for sent campaigns. Nullable so existing
+    # rows survive a website delete; admin can re-assign in newsletter settings.
+    website_id = db.Column(db.Integer,
+                           db.ForeignKey('website.id', ondelete='SET NULL'),
+                           nullable=True, index=True)
     name = db.Column(db.String(200), nullable=False)
     slug = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -1859,6 +1891,7 @@ class Newsletter(db.Model):
                                 lazy='dynamic', cascade='all, delete-orphan',
                                 order_by='NewsletterCampaign.created_at.desc()')
     email_server = db.relationship('EmailServerSettings', foreign_keys=[email_server_id])
+    website = db.relationship('Website', foreign_keys=[website_id])
 
     __table_args__ = (db.UniqueConstraint('user_id', 'slug', name='uq_newsletter_user_slug'),)
 
@@ -1899,6 +1932,9 @@ class NewsletterCampaign(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     newsletter_id = db.Column(db.Integer, db.ForeignKey('newsletter.id', ondelete='CASCADE'), nullable=False, index=True)
     subject = db.Column(db.String(300), nullable=False)
+    # URL slug for the public campaign page. Generated from the subject when
+    # the campaign is saved or sent. Unique per newsletter.
+    slug = db.Column(db.String(300), nullable=True, index=True)
     html_body = db.Column(db.Text, nullable=False, default='', server_default=db.text("''"))
     plain_body = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), nullable=False, default='draft', server_default=db.text("'draft'"))
@@ -1911,6 +1947,10 @@ class NewsletterCampaign(db.Model):
     updated_at = db.Column(db.DateTime, nullable=True)
 
     email_server = db.relationship('EmailServerSettings', foreign_keys=[email_server_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('newsletter_id', 'slug', name='uq_newsletter_campaign_slug'),
+    )
 
 
 class AIAgent(db.Model):
@@ -2162,6 +2202,14 @@ class StoreCategory(db.Model):
     slug        = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Defaults applied to new products in this category. The product editor
+    # prefills these on creation but each product can still override on its
+    # own row — categories are templates, not live inheritance.
+    default_fulfillment_type           = db.Column(db.String(20), nullable=True)
+    default_allowed_fulfillment_types  = db.Column(db.JSON, nullable=True)
+    default_tax_code                   = db.Column(db.String(40), nullable=True)
+    default_track_inventory            = db.Column(db.Boolean, nullable=True)
+    default_allow_oversell             = db.Column(db.Boolean, nullable=True)
     __table_args__ = (
         db.UniqueConstraint('website_id', 'slug', name='uq_store_category_site_slug'),
     )
@@ -2184,6 +2232,59 @@ class StoreProduct(db.Model):
     track_inventory  = db.Column(db.Boolean, nullable=False, server_default=_sa_true())
     allow_oversell   = db.Column(db.Boolean, nullable=False, server_default=_sa_false())
     is_active        = db.Column(db.Boolean, nullable=False, server_default=_sa_false())
+    # How this product gets to the customer. Drives the order-item state machine
+    # and which fields the admin sees in the order detail view.
+    #   shipping       — physical good; admin captures carrier + tracking#
+    #   local_delivery — delivered by the merchant; no tracking#
+    #   pickup         — buyer picks up in store / restaurant
+    #   digital        — downloadable file, emailed as a tokenized link
+    #   ticket         — event ticket; unique code emailed to the buyer
+    #   custom         — open-ended; admin "marks fulfilled" with a note
+    fulfillment_type     = db.Column(db.String(20), nullable=False, default='shipping',
+                                     server_default=db.text("'shipping'"))
+    # Optional list of additional fulfillment types this product supports, in
+    # addition to (and including) `fulfillment_type`. When set, the cart UI
+    # lets the buyer pick — e.g. ['local_delivery', 'pickup'] means the buyer
+    # can choose pickup (free) instead of paid local delivery. None = single
+    # mode, no choice offered.
+    allowed_fulfillment_types = db.Column(db.JSON, nullable=True)
+    # Per-product preparation time for pickup/delivery orders, in minutes.
+    # NULL = inherit the store-level default. The cart computes the effective
+    # prep time as max(item.prep_minutes) so parallel-preppable items don't
+    # add up.
+    prep_minutes = db.Column(db.Integer, nullable=True)
+    # Event/ticket fields (only meaningful when fulfillment_type='ticket').
+    # If `event_calendar_id` is set, saving the product mirrors a
+    # CalendarEvent into that calendar — back-link stored on
+    # `event_calendar_event_id` for in-place updates and cleanup.
+    event_calendar_id       = db.Column(db.Integer,
+                                        db.ForeignKey('calendar.id', ondelete='SET NULL'),
+                                        nullable=True, index=True)
+    event_calendar_event_id = db.Column(db.Integer,
+                                        db.ForeignKey('calendar_event.id', ondelete='SET NULL'),
+                                        nullable=True)
+    event_starts_at  = db.Column(db.DateTime, nullable=True)
+    event_ends_at    = db.Column(db.DateTime, nullable=True)
+    event_location   = db.Column(db.String(255), nullable=True)
+    event_all_day    = db.Column(db.Boolean, nullable=False, default=False,
+                                 server_default=_sa_false())
+    # JSON list of option type names — defines what the variant slots
+    # option1/option2/option3 represent (e.g., ["Size", "Color"]). Max 3
+    # entries to match Shopify-style slot semantics. Empty/null = product has
+    # no variants and is sold as a single SKU at product-level price/inventory.
+    option_types = db.Column(db.JSON, nullable=True)
+    # When True, all variants draw from a shared inventory pool stored on
+    # product.inventory_qty. The per-variant `inventory_qty` is ignored in
+    # this mode. Typical use: an event with Adult/Child/Veteran tiers sharing
+    # one venue capacity — selling any tier decrements the same pool.
+    variants_share_inventory = db.Column(db.Boolean, nullable=False, default=False,
+                                         server_default=_sa_false())
+    # For digital products only:
+    digital_file_url     = db.Column(db.String(700), nullable=True)
+    digital_expiry_days  = db.Column(db.Integer, nullable=False, default=7, server_default='7')
+    # Stripe Tax category for this product. NULL falls back to the generic
+    # "tangible goods" code so collecting tax still works.
+    tax_code             = db.Column(db.String(40), nullable=True)
     created_at       = db.Column(db.DateTime,
                                  default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at       = db.Column(db.DateTime,
@@ -2226,10 +2327,18 @@ class StoreCartItem(db.Model):
                            nullable=False, index=True)
     product_id = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='CASCADE'),
                            nullable=False)
+    # NULL = product has no variants. Otherwise the chosen variant on this line.
+    variant_id = db.Column(db.Integer,
+                           db.ForeignKey('store_product_variant.id', ondelete='CASCADE'),
+                           nullable=True, index=True)
     quantity   = db.Column(db.Integer, nullable=False, default=1)
+    # When the product allows multiple fulfillment types, this is the buyer's
+    # choice (pickup, local_delivery, etc.). NULL = use product's primary.
+    fulfillment_choice = db.Column(db.String(20), nullable=True)
     added_at   = db.Column(db.DateTime,
                            default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     product    = db.relationship('StoreProduct')
+    variant    = db.relationship('StoreProductVariant')
 
 
 class StoreOrder(db.Model):
@@ -2244,11 +2353,44 @@ class StoreOrder(db.Model):
     contact_name             = db.Column(db.String(200), nullable=False)
     contact_email            = db.Column(db.String(200), nullable=False)
     contact_phone            = db.Column(db.String(50), nullable=True)
+    # Guest-checkout SMS opt-in. Logged-in buyers' opt-in lives on PublicUser
+    # instead — this column lets guests get texts on this specific order.
+    sms_opt_in               = db.Column(db.Boolean, nullable=False, default=False,
+                                         server_default=_sa_false())
     subtotal                 = db.Column(db.Numeric(10, 2), nullable=False)
     shipping_cost            = db.Column(db.Numeric(10, 2), nullable=False, server_default='0')
+    # Display name of the buyer's chosen shipping rate, captured from the
+    # Stripe Checkout Session (e.g. "Standard shipping", "Express overnight").
+    # NULL when no shipping was applicable (pickup/digital-only orders).
+    shipping_method_label    = db.Column(db.String(120), nullable=True)
+    # Amount of tax Stripe Tax added at checkout (in dollars). 0 when tax is
+    # disabled or the buyer's region isn't taxable.
+    tax_total                = db.Column(db.Numeric(10, 2), nullable=False, server_default='0')
+    # Customer-added tip (in dollars). Sent to Stripe as a separate line item.
+    # Service-tip Stripe tax_code so it's exempt from sales tax.
+    tip_total                = db.Column(db.Numeric(10, 2), nullable=False, server_default='0')
     total                    = db.Column(db.Numeric(10, 2), nullable=False)
     notes                    = db.Column(db.Text, nullable=True)
     stripe_payment_intent_id = db.Column(db.String(200), nullable=True)
+    # Random token in the order-status URL emailed to the buyer. Lets guests
+    # check status without an account.
+    tracking_token           = db.Column(db.String(64), nullable=True, index=True)
+    paid_at                  = db.Column(db.DateTime, nullable=True)
+    fulfilled_at             = db.Column(db.DateTime, nullable=True)
+    # Buyer-chosen pickup time for pickup-fulfillment items. NULL = no pickup
+    # was requested (cart contained no pickup items, or admin chose "ASAP").
+    pickup_at                = db.Column(db.DateTime, nullable=True)
+    pickup_is_asap           = db.Column(db.Boolean, nullable=False, default=False,
+                                         server_default=_sa_false())
+    # Buyer-initiated cancellation request. While requested_at is set and
+    # resolved_at is null, the order is in a pending-review state — admin
+    # must approve or deny.
+    cancellation_requested_at = db.Column(db.DateTime, nullable=True)
+    cancellation_reason       = db.Column(db.Text, nullable=True)
+    cancellation_resolved_at  = db.Column(db.DateTime, nullable=True)
+    # 'approved' | 'denied' | NULL (still pending)
+    cancellation_decision     = db.Column(db.String(20), nullable=True)
+    cancellation_admin_note   = db.Column(db.Text, nullable=True)
     created_at               = db.Column(db.DateTime,
                                          default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at               = db.Column(db.DateTime,
@@ -2267,9 +2409,42 @@ class StoreOrderItem(db.Model):
                              nullable=True)
     product_name = db.Column(db.String(200), nullable=False)
     product_sku  = db.Column(db.String(100), nullable=True)
+    # The chosen variant (if any) and a snapshot of its option values, so we
+    # can keep showing "Size: M, Color: Red" even after the variant is later
+    # renamed or deleted.
+    variant_id   = db.Column(db.Integer,
+                             db.ForeignKey('store_product_variant.id', ondelete='SET NULL'),
+                             nullable=True, index=True)
+    variant      = db.relationship('StoreProductVariant', foreign_keys=[variant_id])
+    variant_options_snapshot = db.Column(db.String(200), nullable=True)
     quantity     = db.Column(db.Integer, nullable=False)
     unit_price   = db.Column(db.Numeric(10, 2), nullable=False)
     line_total   = db.Column(db.Numeric(10, 2), nullable=False)
+
+    # Snapshot of the product's fulfillment type at order time (so changing the
+    # product later doesn't rewrite history). Possible values:
+    #   shipping | local_delivery | pickup | digital | ticket | custom
+    fulfillment_type   = db.Column(db.String(20), nullable=True)
+    # State within that type's pipeline. See FULFILLMENT_PIPELINES.
+    fulfillment_status = db.Column(db.String(40), nullable=True)
+    # Shipping / delivery tracking metadata.
+    tracking_carrier   = db.Column(db.String(50), nullable=True)
+    tracking_number    = db.Column(db.String(120), nullable=True)
+    tracking_url       = db.Column(db.String(700), nullable=True)
+    tracking_note      = db.Column(db.Text, nullable=True)
+    # For digital products: tokenized download URL + expiry.
+    digital_token      = db.Column(db.String(64), nullable=True, index=True)
+    digital_expires_at = db.Column(db.DateTime, nullable=True)
+    # For ticket products: unique code emailed to the buyer.
+    ticket_code        = db.Column(db.String(80), nullable=True, index=True)
+    status_updated_at  = db.Column(db.DateTime, nullable=True)
+    fulfilled_at       = db.Column(db.DateTime, nullable=True)
+    # When the admin groups this item into a package (an OrderShipment), this
+    # is the FK. NULL = not yet packed; the item is on its own. Returns remain
+    # per-item even when packaged.
+    shipment_id        = db.Column(db.Integer,
+                                   db.ForeignKey('order_shipment.id', ondelete='SET NULL'),
+                                   nullable=True, index=True)
 
 
 class StoreOrderAddress(db.Model):
@@ -2284,6 +2459,423 @@ class StoreOrderAddress(db.Model):
     state       = db.Column(db.String(100), nullable=False)
     postal_code = db.Column(db.String(20), nullable=False)
     country     = db.Column(db.String(100), nullable=False)
+
+
+class OrderTicket(db.Model):
+    """An individual ticket — one row per attendee seat. A line item can
+    produce many tickets when bought as a package (variant.tickets_per_package).
+    Each ticket has its own unique code so it can be scanned/redeemed
+    independently, even when bought together."""
+    __tablename__ = 'order_ticket'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='CASCADE'),
+                         nullable=False, index=True)
+    order_item_id = db.Column(db.Integer, db.ForeignKey('store_order_item.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='SET NULL'),
+                           nullable=True)
+    variant_id = db.Column(db.Integer, db.ForeignKey('store_product_variant.id', ondelete='SET NULL'),
+                           nullable=True)
+    calendar_event_id = db.Column(db.Integer,
+                                  db.ForeignKey('calendar_event.id', ondelete='SET NULL'),
+                                  nullable=True)
+    # Short displayable code (the email + ticket page show this).
+    code = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    # Buyer-facing snapshot of the event title / tier — so renaming later
+    # doesn't rewrite history.
+    event_label = db.Column(db.String(200), nullable=True)
+    tier_label  = db.Column(db.String(200), nullable=True)
+    # Optional per-seat attendee name (captured at checkout for some events).
+    attendee_name = db.Column(db.String(200), nullable=True)
+    # Redemption state.
+    redeemed_at = db.Column(db.DateTime, nullable=True)
+    redeemed_by_user_id = db.Column(db.Integer,
+                                    db.ForeignKey('user.id', ondelete='SET NULL'),
+                                    nullable=True)
+    created_at = db.Column(db.DateTime,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    order = db.relationship('StoreOrder', backref=db.backref('tickets', lazy='dynamic'))
+    order_item = db.relationship('StoreOrderItem',
+                                 backref=db.backref('tickets', lazy='dynamic',
+                                                    cascade='all, delete-orphan'))
+
+
+class SupportThread(db.Model):
+    """Customer-service chat thread. Anchored to an order so buyers can
+    raise an issue from the order page and the admin sees it in context.
+    Each side has an unread counter so the navbar/badge math is cheap."""
+    __tablename__ = 'support_thread'
+    id = db.Column(db.Integer, primary_key=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='SET NULL'),
+                         nullable=True, index=True)
+    public_user_id = db.Column(db.Integer,
+                               db.ForeignKey('public_user.id', ondelete='SET NULL'),
+                               nullable=True, index=True)
+    contact_name  = db.Column(db.String(200), nullable=True)
+    contact_email = db.Column(db.String(200), nullable=True)
+    subject       = db.Column(db.String(200), nullable=True)
+    # 'open' | 'closed' (admin can close once resolved)
+    status        = db.Column(db.String(20), nullable=False, default='open',
+                              server_default=db.text("'open'"))
+    created_at      = db.Column(db.DateTime,
+                                default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    last_message_at = db.Column(db.DateTime,
+                                default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                                index=True)
+    admin_unread_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    buyer_unread_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    messages = db.relationship('SupportMessage', backref='thread',
+                               cascade='all, delete-orphan',
+                               order_by='SupportMessage.created_at')
+    order = db.relationship('StoreOrder')
+
+
+class SupportMessage(db.Model):
+    __tablename__ = 'support_message'
+    id = db.Column(db.Integer, primary_key=True)
+    thread_id = db.Column(db.Integer, db.ForeignKey('support_thread.id', ondelete='CASCADE'),
+                          nullable=False, index=True)
+    # 'buyer' | 'admin'
+    sender_type = db.Column(db.String(20), nullable=False)
+    sender_user_id = db.Column(db.Integer,
+                               db.ForeignKey('user.id', ondelete='SET NULL'),
+                               nullable=True)
+    sender_public_user_id = db.Column(db.Integer,
+                                      db.ForeignKey('public_user.id', ondelete='SET NULL'),
+                                      nullable=True)
+    sender_name = db.Column(db.String(200), nullable=True)
+    body        = db.Column(db.Text, nullable=False)
+    created_at  = db.Column(db.DateTime,
+                            default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                            index=True)
+
+
+class PublicUserAddress(db.Model):
+    """Saved addresses for logged-in public users. Lets repeat buyers skip
+    the address form at checkout. One row per buyer per address; a single
+    `is_default` row per buyer is the auto-fill pick."""
+    __tablename__ = 'public_user_address'
+    id             = db.Column(db.Integer, primary_key=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    label          = db.Column(db.String(60), nullable=True)
+    name           = db.Column(db.String(200), nullable=False)
+    line1          = db.Column(db.String(200), nullable=False)
+    line2          = db.Column(db.String(200), nullable=True)
+    city           = db.Column(db.String(100), nullable=False)
+    state          = db.Column(db.String(100), nullable=False)
+    postal_code    = db.Column(db.String(20), nullable=False)
+    country        = db.Column(db.String(100), nullable=False)
+    phone          = db.Column(db.String(50), nullable=True)
+    is_default     = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    created_at     = db.Column(db.DateTime,
+                               default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    public_user    = db.relationship('PublicUser',
+                                     backref=db.backref('saved_addresses', lazy='dynamic',
+                                                        cascade='all, delete-orphan'))
+
+
+class OrderShipment(db.Model):
+    """A package — a bundle of order items being fulfilled together. Created
+    when the admin selects items and groups them. Once grouped, the items move
+    through preparing → shipped → delivered as a unit, share one tracking
+    number, and produce one buyer email per transition (not one per item).
+
+    Returns are still per-item (via OrderReturn / OrderReturnItem) — the
+    shipment groups for fulfillment, not for refunds."""
+    __tablename__ = 'order_shipment'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='CASCADE'),
+                         nullable=False, index=True)
+    # 1-based per-order index so the buyer sees "Package 2 of 3".
+    sequence = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    # 'shipping' | 'local_delivery' | 'pickup' — enforced same across all items
+    # in this shipment (so transitions are well-defined).
+    fulfillment_type = db.Column(db.String(20), nullable=False,
+                                 server_default=db.text("'shipping'"))
+    status = db.Column(db.String(40), nullable=False,
+                       server_default=db.text("'preparing'"))
+    # Shared tracking for the whole package.
+    tracking_carrier = db.Column(db.String(50), nullable=True)
+    tracking_number  = db.Column(db.String(120), nullable=True)
+    tracking_url     = db.Column(db.String(700), nullable=True)
+    tracking_note    = db.Column(db.Text, nullable=True)
+    status_updated_at = db.Column(db.DateTime, nullable=True)
+    fulfilled_at     = db.Column(db.DateTime, nullable=True)
+    created_at       = db.Column(db.DateTime,
+                                 default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    order = db.relationship('StoreOrder', backref=db.backref('shipments', lazy='dynamic'))
+    items = db.relationship('StoreOrderItem',
+                            backref=db.backref('shipment', uselist=False),
+                            foreign_keys='StoreOrderItem.shipment_id')
+
+
+class OrderStatusEvent(db.Model):
+    """Audit-log / buyer-visible timeline of every status transition that
+    happens to an order or one of its line items."""
+    __tablename__ = 'order_status_event'
+    id              = db.Column(db.Integer, primary_key=True)
+    order_id        = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    # NULL = order-level event (e.g. "paid", "refunded"). Non-NULL = per-item.
+    item_id         = db.Column(db.Integer, db.ForeignKey('store_order_item.id', ondelete='CASCADE'),
+                                nullable=True)
+    from_status     = db.Column(db.String(40), nullable=True)
+    to_status       = db.Column(db.String(40), nullable=False)
+    message         = db.Column(db.String(500), nullable=True)
+    # Extra structured payload — e.g. {'carrier': 'UPS', 'tracking_number': '...'}
+    payload         = db.Column(db.JSON, nullable=True)
+    # Who made the change. Either an admin User or the system itself.
+    actor_user_id   = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True)
+    is_visible_to_buyer = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    created_at      = db.Column(db.DateTime,
+                                default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class ShippingMethod(db.Model):
+    """A shipping / delivery rate the admin offers at checkout. The buyer
+    picks one on the Stripe-hosted page. `applies_to` controls when a method
+    shows up: 'shipping' for physical-good carts, 'local_delivery' for local
+    delivery, 'both' for either."""
+    __tablename__ = 'shipping_method'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    label = db.Column(db.String(120), nullable=False)
+    amount_cents = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    currency = db.Column(db.String(8), nullable=False, default='usd', server_default=db.text("'usd'"))
+    # Delivery estimate range in business days.
+    delivery_min_days = db.Column(db.Integer, nullable=True)
+    delivery_max_days = db.Column(db.Integer, nullable=True)
+    # 'shipping' | 'local_delivery' | 'both'
+    applies_to = db.Column(db.String(20), nullable=False, default='shipping',
+                           server_default=db.text("'shipping'"))
+    # If set and the cart subtotal meets/exceeds this amount (in cents), the
+    # method is offered at $0 instead of its normal price.
+    free_over_amount_cents = db.Column(db.Integer, nullable=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class DeliveryArea(db.Model):
+    """Postal-code allowlist for local-delivery products. One row per admin."""
+    __tablename__ = 'delivery_area'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'),
+                        nullable=False, unique=True, index=True)
+    # JSON list of normalised postal codes (uppercased, whitespace stripped).
+    # Empty list = no restriction (delivery to any address).
+    allowed_postal_codes = db.Column(db.JSON, nullable=False, default=list)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class StoreFulfillmentSettings(db.Model):
+    """Per-admin configuration for the fulfillment pipeline. Mostly: which
+    transition emails are enabled vs muted. `config` is a JSON dict mapping
+    state keys (e.g. 'shipping.shipped') to bool."""
+    __tablename__ = 'store_fulfillment_settings'
+    id        = db.Column(db.Integer, primary_key=True)
+    user_id   = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'),
+                          nullable=False, unique=True, index=True)
+    config    = db.Column(db.JSON, nullable=False, default=dict)
+    # When True, buyers can request returns from their tokenized order page.
+    # When False, returns must be opened by an admin.
+    allow_buyer_returns = db.Column(db.Boolean, nullable=False, default=True,
+                                    server_default=_sa_true())
+    # How long after delivery a return can be requested. NULL = no window.
+    return_window_days = db.Column(db.Integer, nullable=True, default=30,
+                                   server_default='30')
+    # Free-form text shown to buyers + on RMA emails (e.g. ship-to label +
+    # whether buyer or seller pays return shipping).
+    returns_address = db.Column(db.Text, nullable=True)
+    returns_instructions = db.Column(db.Text, nullable=True)
+    # Show a tip selector on the cart page. The percentages in `tip_presets`
+    # power the quick-pick buttons; the buyer can always enter a custom amount.
+    tips_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    # JSON list of integer percentages, e.g. [15, 20].
+    tip_presets = db.Column(db.JSON, nullable=True)
+    # Pickup scheduling. `pickup_hours` is a JSON dict keyed by weekday code
+    # ('mon','tue',...,'sun') with {'enabled': bool, 'open': 'HH:MM',
+    # 'close': 'HH:MM'} values. NULL/empty = pickup unavailable.
+    pickup_hours          = db.Column(db.JSON, nullable=True)
+    pickup_slot_minutes   = db.Column(db.Integer, nullable=True)  # default 30
+    pickup_allow_asap     = db.Column(db.Boolean, nullable=False, default=True,
+                                      server_default=_sa_true())
+    pickup_advance_days   = db.Column(db.Integer, nullable=True)  # default 14
+    pickup_lead_minutes   = db.Column(db.Integer, nullable=True)  # default 30
+    # Default time it takes to prepare any pickup order. Per-product
+    # `prep_minutes` overrides on a per-item basis; the cart's effective prep
+    # is the MAX of all selected items' values (parallel preparation).
+    pickup_prep_minutes   = db.Column(db.Integer, nullable=True)  # default 0
+    pickup_location_note  = db.Column(db.Text, nullable=True)
+    # When True, buyers see a "Need help?" support chat on their order pages
+    # and the admin gets a navbar badge for unread customer messages.
+    support_enabled       = db.Column(db.Boolean, nullable=False, default=True,
+                                      server_default=_sa_true())
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class OrderReturn(db.Model):
+    """An RMA (Return Merchandise Authorization). Stages: requested → approved
+    → awaiting_shipment → in_transit → received → refunded. Terminal
+    alternatives: denied, canceled. The Stripe refund only fires when an
+    admin clicks 'Finalize & refund' on the `received` step, which is what
+    prevents customers from getting both their money and the product back.
+
+    Per-item rows (OrderReturnItem) make partial returns natural: buyer keeps
+    2 of 3, returns 1; only the returned line is refunded and restocked."""
+    __tablename__ = 'order_return'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('store_order.id', ondelete='CASCADE'),
+                         nullable=False, index=True)
+    rma_number = db.Column(db.String(20), unique=True, nullable=False)
+    status = db.Column(db.String(30), nullable=False,
+                       server_default=db.text("'requested'"))
+    reason_code = db.Column(db.String(40), nullable=True)
+    reason_note = db.Column(db.Text, nullable=True)
+    admin_note = db.Column(db.Text, nullable=True)
+    # Inbound tracking (the buyer's return shipment back to the admin).
+    return_carrier = db.Column(db.String(50), nullable=True)
+    return_tracking_number = db.Column(db.String(120), nullable=True)
+    return_tracking_url = db.Column(db.String(700), nullable=True)
+    # Refund accounting in cents (Stripe convention).
+    refund_amount_cents = db.Column(db.Integer, nullable=True)
+    refund_includes_shipping = db.Column(db.Boolean, nullable=False, default=False,
+                                         server_default=_sa_false())
+    stripe_refund_id = db.Column(db.String(200), nullable=True)
+    restocked = db.Column(db.Boolean, nullable=False, default=False,
+                          server_default=_sa_false())
+    # 'buyer' if opened from the public order page, 'admin' otherwise.
+    initiated_by = db.Column(db.String(20), nullable=False,
+                             server_default=db.text("'admin'"))
+    initiated_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                                     nullable=True)
+    requested_at = db.Column(db.DateTime,
+                             default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    approved_at = db.Column(db.DateTime, nullable=True)
+    shipped_at = db.Column(db.DateTime, nullable=True)
+    received_at = db.Column(db.DateTime, nullable=True)
+    refunded_at = db.Column(db.DateTime, nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    items = db.relationship('OrderReturnItem', backref='return_record',
+                            cascade='all, delete-orphan')
+    order = db.relationship('StoreOrder', backref=db.backref('returns', lazy='dynamic'))
+
+
+class OrderReturnItem(db.Model):
+    """One returned line. quantity ≤ the parent order item's quantity (the
+    route enforces it)."""
+    __tablename__ = 'order_return_item'
+    id = db.Column(db.Integer, primary_key=True)
+    return_id = db.Column(db.Integer, db.ForeignKey('order_return.id', ondelete='CASCADE'),
+                          nullable=False, index=True)
+    order_item_id = db.Column(db.Integer, db.ForeignKey('store_order_item.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    quantity = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    refund_amount_cents = db.Column(db.Integer, nullable=True)
+    restocked = db.Column(db.Boolean, nullable=False, default=False,
+                          server_default=_sa_false())
+    order_item = db.relationship('StoreOrderItem')
+
+
+class StoreProductVariant(db.Model):
+    """A specific size/color/etc combination of a product. Three slot-based
+    option strings (option1/option2/option3) parallel the product's
+    `option_types` list. Per-variant SKU, price override, inventory, and
+    image. A product with no variants is sold at the product-level price
+    and inventory; with variants, each variant is its own SKU."""
+    __tablename__ = 'store_product_variant'
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    sku = db.Column(db.String(100), nullable=True)
+    option1 = db.Column(db.String(80), nullable=True)
+    option2 = db.Column(db.String(80), nullable=True)
+    option3 = db.Column(db.String(80), nullable=True)
+    # NULL = use the product's price.
+    price_override = db.Column(db.Numeric(10, 2), nullable=True)
+    inventory_qty = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    # Optional override for the product cover image when this variant is
+    # selected (e.g., a red shirt shows the red photo).
+    image_asset_id = db.Column(db.Integer, db.ForeignKey('asset.id', ondelete='SET NULL'),
+                               nullable=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # For ticket products: how many individual tickets a buyer gets per unit
+    # purchased (e.g., "Family 4-pack" → 4). Defaults to 1 so single-ticket
+    # tiers don't need any extra config.
+    tickets_per_package = db.Column(db.Integer, nullable=False, default=1,
+                                    server_default='1')
+    created_at = db.Column(db.DateTime,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    product = db.relationship('StoreProduct',
+                              backref=db.backref('variants',
+                                                 cascade='all, delete-orphan',
+                                                 lazy='dynamic',
+                                                 order_by='StoreProductVariant.sort_order'))
+    image_asset = db.relationship('Asset')
+
+    def effective_price(self):
+        if self.price_override is not None:
+            return float(self.price_override)
+        return float(self.product.price) if self.product else 0.0
+
+    def effective_sku(self):
+        return self.sku or (self.product.sku if self.product else None)
+
+    def display_options(self, product=None):
+        """Comma-separated label of selected options, e.g. "Size: M, Color: Red"."""
+        prod = product or self.product
+        types = (prod.option_types if prod else None) or []
+        out = []
+        for i, t in enumerate(types[:3]):
+            val = [self.option1, self.option2, self.option3][i]
+            if val:
+                out.append(f'{t}: {val}')
+        return ', '.join(out)
+
+
+class InventoryMovement(db.Model):
+    """One row per inventory change. Lets admin trace why a count shifted —
+    sale, refund, RMA receive, cancellation, expired pending cart, or a
+    manual adjustment. Snapshot of the resulting `quantity_after` makes the
+    log usable even after products/variants are renamed."""
+    __tablename__ = 'inventory_movement'
+    id = db.Column(db.Integer, primary_key=True)
+    # Scoped by tenant for cheap admin-side queries.
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('store_product.id', ondelete='SET NULL'),
+                           nullable=True, index=True)
+    variant_id = db.Column(db.Integer, db.ForeignKey('store_product_variant.id', ondelete='SET NULL'),
+                           nullable=True, index=True)
+    # Snapshots so the log survives renames/deletes.
+    product_name_snapshot = db.Column(db.String(200), nullable=True)
+    variant_label_snapshot = db.Column(db.String(200), nullable=True)
+    # Negative = decrement (sale), positive = restock.
+    delta = db.Column(db.Integer, nullable=False)
+    quantity_after = db.Column(db.Integer, nullable=False)
+    # Free-form bucket label so we can group/filter in reports.
+    # Values: 'sale', 'refund', 'rma_received', 'cancellation', 'expired',
+    # 'manual_adjustment', 'initial', 'import', 'other'.
+    reason = db.Column(db.String(40), nullable=False, default='other',
+                       server_default=db.text("'other'"))
+    # Polymorphic pointer back to whatever caused the movement.
+    source_type = db.Column(db.String(40), nullable=True)  # 'order','rma','admin'
+    source_id   = db.Column(db.Integer, nullable=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                              nullable=True)
+    note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                           index=True)
+    product = db.relationship('StoreProduct', foreign_keys=[product_id])
+    variant = db.relationship('StoreProductVariant', foreign_keys=[variant_id])
 
 
 class StoreProductImage(db.Model):
@@ -2338,6 +2930,209 @@ class StorageConnection(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     last_used_at = db.Column(db.DateTime, nullable=True)
+
+
+class NotificationChannel(db.Model):
+    """An external destination notifications get pushed to. Provider-agnostic
+    so additional outputs (Slack, Telegram, email-webhook) can slot in later;
+    Discord webhooks are the only provider implemented for now."""
+    __tablename__ = 'notification_channel'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    label = db.Column(db.String(200), nullable=False)
+    provider = db.Column(db.String(40), nullable=False, default='discord_webhook',
+                         server_default=db.text("'discord_webhook'"))
+    # Provider-specific config. For discord_webhook: {webhook_url (encrypted),
+    # bot_username (str), bot_avatar_url (str)}.
+    config = db.Column(db.JSON, nullable=False, default=dict)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    last_used_at = db.Column(db.DateTime, nullable=True)
+
+    rules = db.relationship('NotificationRule', backref='channel',
+                            lazy='dynamic', cascade='all, delete-orphan')
+
+
+class NotificationRule(db.Model):
+    """A rule that fires a notification for a specific event type on a specific
+    channel. Optional website filter (None = all sites this admin owns).
+    Per-event options live in `config` (e.g. minutes_before for calendar)."""
+    __tablename__ = 'notification_rule'
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.Integer,
+                           db.ForeignKey('notification_channel.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    # 'post.published' | 'newsletter.campaign_sent' | 'calendar.event_upcoming'
+    event_type = db.Column(db.String(60), nullable=False, index=True)
+    # Optional scoping: a specific website (None = every website this admin owns).
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                           nullable=True, index=True)
+    # Optional calendar/collection filter for finer routing.
+    calendar_id = db.Column(db.Integer, db.ForeignKey('calendar.id', ondelete='CASCADE'),
+                            nullable=True)
+    collection_id = db.Column(db.Integer,
+                              db.ForeignKey('post_collection.id', ondelete='CASCADE'),
+                              nullable=True)
+    # Free-form prepend text added before the embed (commonly used to ping a
+    # Discord role like "<@&123456> Heads up:").
+    prepend_text = db.Column(db.String(500), nullable=True)
+    # Per-event options. For calendar.event_upcoming: {'minutes_before': 30}.
+    config = db.Column(db.JSON, nullable=False, default=dict)
+    is_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class NotificationDelivery(db.Model):
+    """Idempotency record: tracks that (rule, subject) was already fired so the
+    calendar scheduler doesn't double-send when it re-runs."""
+    __tablename__ = 'notification_delivery'
+    id = db.Column(db.Integer, primary_key=True)
+    rule_id = db.Column(db.Integer,
+                        db.ForeignKey('notification_rule.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    # Stable identifier of the thing this delivery covers, e.g.
+    # 'calendar_event:42' or 'post:17' or 'campaign:9'.
+    subject_key = db.Column(db.String(120), nullable=False, index=True)
+    sent_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    success = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    error = db.Column(db.Text, nullable=True)
+    __table_args__ = (
+        db.UniqueConstraint('rule_id', 'subject_key',
+                            name='uq_notification_delivery_rule_subject'),
+    )
+
+
+class StripeSettings(db.Model):
+    """Per-admin Stripe configuration. Secrets are encrypted with the existing
+    Fernet helper so they're never stored in plaintext.
+
+    `is_live_mode` is just an informational flag — Stripe knows which mode the
+    keys belong to (test keys start with sk_test_, live with sk_live_). It's
+    here so the admin UI can show a clear test/live badge."""
+    __tablename__ = 'stripe_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True, index=True)
+    account_label = db.Column(db.String(120), nullable=True)
+    publishable_key = db.Column(db.String(500), nullable=True)
+    secret_key = db.Column(db.String(500), nullable=True)
+    webhook_secret = db.Column(db.String(500), nullable=True)
+    is_live_mode = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    currency = db.Column(db.String(8), nullable=False, default='usd', server_default=db.text("'usd'"))
+    # When True, Checkout Sessions are created with automatic_tax enabled.
+    # Stripe Tax then computes sales tax / VAT / GST from the buyer's address
+    # and the per-line tax_code on each item.
+    automatic_tax_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
+    # When True, buyers can enter Stripe promotion codes at checkout. The
+    # actual code catalog lives in Stripe Dashboard — they handle %/fixed
+    # discounts, expiry, usage caps, and per-customer rules.
+    allow_promotion_codes = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class SmsProviderSettings(db.Model):
+    """Per-admin SMS provider configuration. Pluggable: `provider` is a
+    registry key (e.g. 'twilio'). Provider-specific credentials live in the
+    `config` JSON; secret fields inside are encrypted via the Fernet helper.
+
+    Each admin can configure one default provider. The codebase calls into
+    `send_sms()`, which dispatches based on `provider` so adding a new one is
+    just registering a new send-function in SMS_PROVIDER_REGISTRY."""
+    __tablename__ = 'sms_provider_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False,
+                        unique=True, index=True)
+    # 'twilio' (initially). Future: 'aws_sns', 'vonage', 'plivo', etc.
+    provider = db.Column(db.String(40), nullable=False, default='twilio',
+                         server_default=db.text("'twilio'"))
+    is_active = db.Column(db.Boolean, nullable=False, default=False,
+                          server_default=_sa_false())
+    account_label = db.Column(db.String(120), nullable=True)
+    # Per-provider credential blob. Stored fields the registry says are
+    # secret get Fernet-encrypted before write.
+    config = db.Column(db.JSON, nullable=False, default=dict)
+    # Hard spending cap per calendar month. 0 = unlimited. When exceeded,
+    # `fallback_to_email` decides whether the message switches channel or
+    # is silently dropped.
+    monthly_cap_cents = db.Column(db.Integer, nullable=False, default=500,
+                                  server_default='500')
+    current_month_key = db.Column(db.String(7), nullable=True)  # 'YYYY-MM'
+    current_month_spend_cents = db.Column(db.Integer, nullable=False, default=0,
+                                          server_default='0')
+    fallback_to_email = db.Column(db.Boolean, nullable=False, default=True,
+                                  server_default=_sa_true())
+    # Per-event channel choice — overrides the email-only fulfilment config.
+    # Shape: {'order.received': 'email'|'sms'|'both'|'off', ...}
+    channel_config = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class SmsLog(db.Model):
+    """Audit row for every outbound (and inbound STOP/HELP) SMS. Keeps the
+    monthly spend honest and lets admin troubleshoot delivery failures."""
+    __tablename__ = 'sms_log'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    provider = db.Column(db.String(40), nullable=True)
+    direction = db.Column(db.String(10), nullable=False, default='outbound',
+                          server_default=db.text("'outbound'"))
+    phone = db.Column(db.String(40), nullable=True)
+    body = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='sent',
+                       server_default=db.text("'sent'"))
+    cost_cents = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    provider_message_id = db.Column(db.String(200), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                           index=True)
+
+
+class Payment(db.Model):
+    """Generic payment record. Today it represents a Stripe Checkout Session
+    backing a StoreOrder; tomorrow the same row shape backs event tickets or
+    anything else that takes money. `source_type` + `source_id` is the polymorphic
+    pointer so the webhook handler can route fulfilment to the right place."""
+    __tablename__ = 'payment'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # 'store_order', future: 'ticket_order', 'donation', ...
+    source_type = db.Column(db.String(40), nullable=False, index=True)
+    source_id = db.Column(db.Integer, nullable=False, index=True)
+    # Money is stored in cents (Stripe convention) to avoid float drift.
+    amount_cents = db.Column(db.Integer, nullable=False)
+    currency = db.Column(db.String(8), nullable=False, default='usd', server_default=db.text("'usd'"))
+    # 'pending' (Checkout Session created), 'paid' (webhook fired success),
+    # 'failed', 'canceled', 'refunded'.
+    status = db.Column(db.String(20), nullable=False, default='pending', server_default=db.text("'pending'"))
+    # Stripe identifiers we need to look up / reconcile later.
+    stripe_session_id = db.Column(db.String(200), nullable=True, index=True)
+    stripe_payment_intent_id = db.Column(db.String(200), nullable=True, index=True)
+    stripe_charge_id = db.Column(db.String(200), nullable=True)
+    # Email Stripe sent the receipt to (handy for support).
+    customer_email = db.Column(db.String(255), nullable=True)
+    # Last event ID we processed (idempotency in the webhook handler).
+    last_event_id = db.Column(db.String(200), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    completed_at = db.Column(db.DateTime, nullable=True)
+    __table_args__ = (
+        db.Index('ix_payment_source', 'source_type', 'source_id'),
+    )
+
+
+class StripeWebhookEvent(db.Model):
+    """Records every Stripe event we've seen so we can detect duplicate
+    deliveries (Stripe retries on non-2xx) and prove idempotency."""
+    __tablename__ = 'stripe_webhook_event'
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.String(200), nullable=False, unique=True, index=True)
+    event_type = db.Column(db.String(120), nullable=False)
+    payment_id = db.Column(db.Integer, db.ForeignKey('payment.id', ondelete='SET NULL'), nullable=True)
+    received_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class OAuthAppCredentials(db.Model):
@@ -5397,7 +6192,7 @@ def login(admin_key=None):
         # Rate limit check
         rl = _rl_check(ip, username)
         if rl['locked']:
-            mins = max(1, int((rl['locked_until'] - datetime.utcnow()).total_seconds() / 60) + 1)
+            mins = max(1, int((rl['locked_until'] - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds() / 60) + 1)
             flash(f'Too many failed attempts. Try again in {mins} minute{"s" if mins != 1 else ""}.', 'error')
             return redirect(request.path)
 
@@ -6312,6 +7107,202 @@ def get_email_server_by_id(server_id):
     return db.session.get(EmailServerSettings, int(server_id))
 
 
+# ── SMS / text-message sending ────────────────────────────────────────────
+#
+# Pluggable provider system. Adding a new SMS backend = register a send
+# function here. Existing transition code calls `send_sms()` and never has to
+# know which provider is active. Credentials are admin-supplied via the
+# /admin/sms UI; sensitive fields are encrypted via the existing Fernet helper.
+
+def _sms_send_twilio(settings, phone, body):
+    """Send via Twilio Messages REST API. Returns (ok, error_or_message_id,
+    cost_cents). No SDK dependency — uses `requests` (already installed)."""
+    cfg = settings.config or {}
+    sid = (cfg.get('account_sid') or '').strip()
+    token_enc = cfg.get('auth_token') or ''
+    token = decrypt_api_key(token_enc) if token_enc else ''
+    from_number = (cfg.get('from_number') or '').strip()
+    messaging_service_sid = (cfg.get('messaging_service_sid') or '').strip()
+    if not sid or not token or (not from_number and not messaging_service_sid):
+        return (False, 'Twilio is not fully configured.', 0)
+    try:
+        import requests
+        url = f'https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json'
+        data = {'To': phone, 'Body': body[:1600]}  # Twilio limit per message
+        if messaging_service_sid:
+            data['MessagingServiceSid'] = messaging_service_sid
+        else:
+            data['From'] = from_number
+        resp = requests.post(url, data=data, auth=(sid, token), timeout=12)
+        if resp.status_code >= 400:
+            try:
+                err = resp.json().get('message') or resp.text
+            except Exception:
+                err = resp.text or f'HTTP {resp.status_code}'
+            return (False, err[:400], 0)
+        body_json = resp.json() if resp.text else {}
+        # Twilio doesn't return cost on send — use a default per-msg estimate.
+        # US transactional ≈ $0.0079 → 0.79 cents, round up to 1.
+        return (True, body_json.get('sid'), 1)
+    except Exception as e:
+        return (False, f'Twilio send failed: {e}', 0)
+
+
+# Adding a provider: write a `_sms_send_X(settings, phone, body)` returning
+# (ok, msg_id_or_error, cost_cents) and add a config_fields list + send_fn
+# below. The admin UI auto-renders fields from this registry.
+SMS_PROVIDER_REGISTRY = {
+    'twilio': {
+        'label': 'Twilio',
+        'send_fn': _sms_send_twilio,
+        'config_fields': [
+            {'key': 'account_sid',          'label': 'Account SID',           'secret': False},
+            {'key': 'auth_token',           'label': 'Auth Token',            'secret': True},
+            {'key': 'from_number',          'label': 'From number (E.164)',   'secret': False,
+             'placeholder': '+15551234567',
+             'hint': 'Either this OR a Messaging Service SID is required.'},
+            {'key': 'messaging_service_sid','label': 'Messaging Service SID', 'secret': False,
+             'optional': True,
+             'hint': 'Recommended for production sending pools / 10DLC.'},
+        ],
+    },
+    # Future providers register here. Example shape for AWS SNS / Plivo / etc.
+}
+
+
+def _normalize_phone(raw):
+    """Coerce a buyer's phone string into Twilio-style E.164. Best-effort —
+    we don't bring in `phonenumbers` to keep the dependency footprint small.
+    Returns None when we can't produce a plausible E.164 string."""
+    if not raw:
+        return None
+    s = ''.join(c for c in str(raw) if c.isdigit() or c == '+')
+    if not s:
+        return None
+    if s.startswith('+'):
+        return s if 8 <= len(s) <= 16 else None
+    # Bare digits — assume US for 10-digit numbers, otherwise require user input
+    # with a leading + sign.
+    digits = ''.join(c for c in s if c.isdigit())
+    if len(digits) == 10:
+        return f'+1{digits}'
+    if len(digits) == 11 and digits.startswith('1'):
+        return f'+{digits}'
+    return None
+
+
+def get_sms_settings_for_user(user_id):
+    if not user_id:
+        return None
+    return SmsProviderSettings.query.filter_by(user_id=int(user_id)).first()
+
+
+def _sms_current_month_key():
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return now.strftime('%Y-%m')
+
+
+def _sms_roll_month_if_needed(settings):
+    """Reset the spent counter when we cross into a new calendar month."""
+    if not settings:
+        return
+    this_month = _sms_current_month_key()
+    if settings.current_month_key != this_month:
+        settings.current_month_key = this_month
+        settings.current_month_spend_cents = 0
+
+
+def _sms_over_budget(settings, additional_cents=0):
+    cap = int(settings.monthly_cap_cents or 0)
+    if cap <= 0:
+        return False  # 0 = unlimited
+    return int(settings.current_month_spend_cents or 0) + max(0, additional_cents) > cap
+
+
+def _record_sms_spend(settings, cost_cents):
+    _sms_roll_month_if_needed(settings)
+    settings.current_month_spend_cents = int(settings.current_month_spend_cents or 0) + int(cost_cents or 0)
+
+
+def send_sms(user_id, phone, body, *, email_fallback=None, log_label=None):
+    """Top-level SMS send. Honors monthly cap, normalises phone, dispatches
+    to the configured provider, and falls back to email when configured.
+
+    Arguments:
+      user_id        — owner admin (whose provider settings + budget apply)
+      phone          — buyer phone (or None to force the email path)
+      body           — message text
+      email_fallback — dict with {'server','to','subject','html','text'} to
+                       fall through to when SMS isn't possible. Optional —
+                       leave None when there's no sensible email path.
+
+    Returns (channel, error). channel ∈ ('sms', 'email', None)."""
+    settings = get_sms_settings_for_user(user_id)
+    norm = _normalize_phone(phone) if phone else None
+
+    def _try_email():
+        if not email_fallback:
+            return (None, 'No SMS provider and no email fallback.')
+        srv = email_fallback.get('server') or get_default_email_server()
+        if not srv or not srv.is_active:
+            return (None, 'Email fallback unavailable (no active server).')
+        try:
+            send_via(srv, email_fallback['to'], email_fallback.get('subject') or '',
+                     html=email_fallback.get('html'),
+                     text=email_fallback.get('text'))
+            return ('email', None)
+        except Exception as e:
+            return (None, f'Email fallback failed: {e}')
+
+    if not settings or not settings.is_active:
+        return _try_email()
+    if not norm:
+        return _try_email() if settings.fallback_to_email else (None, 'No usable phone.')
+
+    _sms_roll_month_if_needed(settings)
+    if _sms_over_budget(settings):
+        if settings.fallback_to_email:
+            db.session.add(SmsLog(user_id=settings.user_id, provider=settings.provider,
+                                  phone=norm, body=body[:300], status='over_budget',
+                                  error_message='Monthly cap reached — fell back to email.'))
+            db.session.commit()
+            return _try_email()
+        return (None, 'Monthly SMS cap reached.')
+
+    entry = SMS_PROVIDER_REGISTRY.get(settings.provider)
+    if not entry:
+        return _try_email()
+    ok, info, cost = entry['send_fn'](settings, norm, body)
+    if ok:
+        _record_sms_spend(settings, cost or 1)
+        db.session.add(SmsLog(user_id=settings.user_id, provider=settings.provider,
+                              phone=norm, body=body[:300], status='sent',
+                              cost_cents=cost or 1, provider_message_id=info))
+        db.session.commit()
+        return ('sms', None)
+    # Failure path — log and (maybe) fall back.
+    db.session.add(SmsLog(user_id=settings.user_id, provider=settings.provider,
+                          phone=norm, body=body[:300], status='failed',
+                          error_message=str(info)[:400]))
+    db.session.commit()
+    if settings.fallback_to_email:
+        return _try_email()
+    return (None, str(info))
+
+
+# Channel-config helper: each transition is one of email / sms / both / off.
+_CHANNEL_DEFAULT = 'email'
+
+def _resolve_channel(sms_settings, event_key, default=_CHANNEL_DEFAULT):
+    if not sms_settings or not sms_settings.is_active:
+        return default if default in ('email', 'off') else 'email'
+    cfg = sms_settings.channel_config or {}
+    val = cfg.get(event_key)
+    if val in ('email', 'sms', 'both', 'off'):
+        return val
+    return default
+
+
 def _html_to_plain(html):
     """Minimal HTML-to-text fallback used to fill the text/plain MIME part."""
     if not html:
@@ -6425,7 +7416,7 @@ def admin_chat_send():
         return jsonify({'error': 'Invalid message'}), 400
     m = AdminChatMessage(user_id=current_user.id, message=msg)
     db.session.add(m)
-    current_user.admin_chat_last_read = datetime.utcnow()
+    current_user.admin_chat_last_read = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return jsonify({'ok': True, 'id': m.id})
 
@@ -6433,7 +7424,7 @@ def admin_chat_send():
 @app.route('/admin/chat/mark-read', methods=['POST'])
 @login_required
 def admin_chat_mark_read():
-    current_user.admin_chat_last_read = datetime.utcnow()
+    current_user.admin_chat_last_read = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -6463,7 +7454,7 @@ def admin_switch_website(website_id):
 @login_required
 def save_navbar_visibility():
     data = request.get_json() or {}
-    valid = {'posts', 'newsletters', 'storage', 'forum', 'calendars', 'products', 'palette', 'ai_agents', 'plugins'}
+    valid = {'posts', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins'}
     disabled = [k for k in data.get('disabled', []) if k in valid]
     current_user.admin_navbar_disabled = disabled
     db.session.commit()
@@ -6732,6 +7723,88 @@ def inject_unread_message_count():
         unread_message_count = 0
 
     return dict(unread_message_count=unread_message_count)
+
+
+@app.context_processor
+def inject_store_nav_badges():
+    """One processor that fans out per-item badge counts for the Store nav
+    dropdown plus a summed `store_attention_count` for the umbrella icon.
+
+    Keys produced:
+      - store_nav_badges (dict, per-item counts)
+      - store_attention_count (int, sum of the items that need real action)
+      - support_unread_count (int, kept for callers that already read it)
+
+    Counts are intentionally cheap (count(*) per table, scoped to this admin's
+    websites). They run on every admin page load, so any new badge added here
+    must remain O(1) DB-side."""
+    zero = {
+        'store_nav_badges': {
+            'orders': 0, 'returns': 0, 'cancellations': 0,
+            'support': 0, 'tickets': 0, 'sms': 0,
+        },
+        'store_attention_count': 0,
+        'support_unread_count': 0,
+    }
+    if _DB_MAINTENANCE_MODE:
+        return zero
+    try:
+        if not current_user.is_authenticated:
+            return zero
+        root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
+    except Exception:
+        return zero
+
+    try:
+        websites_owned = [w.id for w in Website.query.filter_by(user_id=root_id).all()]
+        if not websites_owned:
+            return zero
+
+        terminal = list(_terminal_statuses())
+        # Orders needing fulfillment action.
+        orders_count = (db.session.query(StoreOrder.id)
+                        .join(StoreOrderItem, StoreOrderItem.order_id == StoreOrder.id)
+                        .filter(StoreOrder.website_id.in_(websites_owned),
+                                StoreOrder.status == 'paid',
+                                or_(StoreOrderItem.fulfillment_status.is_(None),
+                                    ~StoreOrderItem.fulfillment_status.in_(terminal + ['canceled', 'refunded'])))
+                        .distinct().count())
+        # Buyer cancellation requests awaiting admin decision — counted toward
+        # the Orders chip since that's where the resolution UI lives.
+        cancel_count = (db.session.query(StoreOrder.id)
+                        .filter(StoreOrder.website_id.in_(websites_owned),
+                                StoreOrder.cancellation_requested_at.isnot(None),
+                                StoreOrder.cancellation_resolved_at.is_(None))
+                        .count())
+        # Open RMAs.
+        rma_count = (db.session.query(OrderReturn.id)
+                     .join(StoreOrder, StoreOrder.id == OrderReturn.order_id)
+                     .filter(StoreOrder.website_id.in_(websites_owned),
+                             ~OrderReturn.status.in_(['refunded', 'denied', 'canceled']))
+                     .count())
+        # Unread customer-support messages on admin's side.
+        support_total = (db.session.query(
+                            db.func.coalesce(db.func.sum(SupportThread.admin_unread_count), 0))
+                         .filter(SupportThread.website_id.in_(websites_owned))
+                         .scalar()) or 0
+        badges = {
+            'orders':        int(orders_count) + int(cancel_count),
+            'returns':       int(rma_count),
+            'cancellations': int(cancel_count),  # exposed separately if needed
+            'support':       int(support_total),
+            'tickets':       0,  # reserved for future (e.g., pending issuance)
+            'sms':           0,
+        }
+        # Total = orders attention + RMAs + support, so the Store icon badge
+        # reflects "things that need a click".
+        total = badges['orders'] + badges['returns'] + badges['support']
+        return {
+            'store_nav_badges': badges,
+            'store_attention_count': total,
+            'support_unread_count': badges['support'],
+        }
+    except Exception:
+        return zero
 
 
 _CONTACT_RATE_LIMIT_HOURS = 8  # one submission per IP per section per N hours
@@ -13003,15 +14076,37 @@ def render_public_page(website, page, is_preview=False):
             nid = s.content.get('newsletter_id')
             if nid:
                 _ns_ids.add(int(nid))
+        if s.section_type == 'newsletter_feed' and s.content:
+            nid = s.content.get('newsletter_id')
+            if nid:
+                _ns_ids.add(int(nid))
     if _ns_ids:
         for nl in Newsletter.query.filter(Newsletter.id.in_(_ns_ids)).all():
             newsletter_lookup[nl.id] = nl
+
+    # Pre-fetch sent campaigns per newsletter_feed section.
+    campaigns_by_section = {}
+    for s in sections:
+        if s.section_type != 'newsletter_feed' or not s.content:
+            continue
+        nid = s.content.get('newsletter_id')
+        if not nid:
+            campaigns_by_section[s.id] = []
+            continue
+        limit = max(1, min(int(s.content.get('limit') or 6), 50))
+        campaigns_by_section[s.id] = (NewsletterCampaign.query
+                                      .filter(NewsletterCampaign.newsletter_id == nid,
+                                              NewsletterCampaign.status.in_(['sent', 'partial']))
+                                      .order_by(NewsletterCampaign.sent_at.desc().nullslast(),
+                                                NewsletterCampaign.id.desc())
+                                      .limit(limit).all())
 
     public_page_content = {
         'page_id': page.id,
         'page_slug': page.slug,
         'current_page_url': current_page_url,
         'newsletter_lookup': newsletter_lookup,
+        'campaigns_by_section': campaigns_by_section,
         'sections': [
             {**s.to_dict(),
              'custom_code': _scope_section_css(s.custom_code, s.id) if s.custom_code else ''}
@@ -13884,6 +14979,19 @@ def update_newsletter_signup_section(section, form_data):
     return section
 
 
+def update_newsletter_feed_section(section, form_data):
+    newsletter_id = form_data.get('nf_newsletter_id')
+    section.content = {
+        'newsletter_id': int(newsletter_id) if newsletter_id else None,
+        'title':         (form_data.get('nf_title') or '').strip(),
+        'limit':         int(form_data.get('nf_limit') or 6),
+        'layout':        form_data.get('nf_layout') or 'list',
+        'show_excerpt':  form_data.get('nf_show_excerpt') == 'on',
+        'show_date':     form_data.get('nf_show_date') == 'on',
+    }
+    return section
+
+
 @app.route('/edit_public_navbar/<int:website_id>', methods=['POST'])
 @login_required
 @require_perm('appearance.navbar')
@@ -14218,6 +15326,8 @@ def update_section():
         section = update_calendar_badges_section(section, form_data)
     elif section_type == 'newsletter_signup':
         section = update_newsletter_signup_section(section, form_data)
+    elif section_type == 'newsletter_feed':
+        section = update_newsletter_feed_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
@@ -14898,6 +16008,82 @@ def _start_subscription_sync_scheduler():
     print("[calendar sync] background sync scheduler started (interval: 15 min)")
 
 
+_notif_scheduler_started = False
+
+
+def _start_notification_event_scheduler():
+    """Background daemon that fires notifications for upcoming calendar events.
+    For each enabled `calendar.event_upcoming` rule, it looks for events whose
+    start is within the rule's `minutes_before` window and that haven't been
+    fired yet (idempotency via NotificationDelivery)."""
+    import threading
+    import time
+
+    global _notif_scheduler_started
+    if _notif_scheduler_started:
+        return
+    _notif_scheduler_started = True
+
+    def _loop():
+        # Brief startup delay so app context is fully ready.
+        time.sleep(45)
+        while True:
+            try:
+                with app.app_context():
+                    _run_upcoming_event_scan()
+            except Exception as loop_err:
+                print(f"[notifications] scheduler error: {loop_err}")
+            time.sleep(120)  # 2 minutes
+
+    t = threading.Thread(target=_loop, daemon=True, name='notification-event-scheduler')
+    t.start()
+    print("[notifications] background event scheduler started (interval: 2 min)")
+
+
+def _run_upcoming_event_scan():
+    """One pass of the upcoming-event scan. Extracted so it can be triggered
+    manually for testing as well as from the daemon loop."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Find every enabled calendar.event_upcoming rule.
+    rules = (NotificationRule.query
+             .join(NotificationChannel, NotificationRule.channel_id == NotificationChannel.id)
+             .filter(NotificationRule.event_type == 'calendar.event_upcoming',
+                     NotificationRule.is_enabled.is_(True),
+                     NotificationChannel.is_active.is_(True))
+             .all())
+    if not rules:
+        return
+
+    for rule in rules:
+        try:
+            minutes_before = int((rule.config or {}).get('minutes_before') or 30)
+        except (TypeError, ValueError):
+            minutes_before = 30
+        window_end = now + timedelta(minutes=minutes_before)
+
+        q = CalendarEvent.query.filter(
+            CalendarEvent.start.isnot(None),
+            CalendarEvent.start >= now,
+            CalendarEvent.start <= window_end,
+        )
+        if rule.calendar_id:
+            q = q.filter(CalendarEvent.calendar_id == rule.calendar_id)
+        events = q.all()
+
+        # Filter further by website if the rule narrows it.
+        for event in events:
+            cal = event.calendar
+            if rule.website_id and cal and cal.website_id != rule.website_id:
+                continue
+            website = db.session.get(Website, cal.website_id) if cal and cal.website_id else None
+            # dispatch_notification handles per-(rule, event) idempotency.
+            dispatch_notification(
+                'calendar.event_upcoming',
+                event=event, website=website,
+                minutes_before=minutes_before,
+            )
+
+
 @app.route('/calendar/<int:calendar_id>/events', methods=['GET'])
 def get_calendar_events_public(calendar_id):
     cal = Calendar.query.get_or_404(calendar_id)
@@ -15090,13 +16276,34 @@ ADMIN_PERMISSIONS = {
         'manage': 'Add, edit & delete drive connections and OAuth credentials',
         'import': 'Import files from connected drives into the asset library',
     }},
+    'notifications': {'label': 'Notifications', 'actions': {
+        'view': 'View notification channels & rules and run test sends',
+        'manage': 'Create / edit / delete channels and rules',
+    }},
+    'payments': {'label': 'Payments', 'actions': {
+        'view': 'View payment history and Stripe connection',
+        'manage': 'Edit Stripe keys & payment settings',
+    }},
     'store': {'label': 'Store', 'actions': {
-        'view': 'View products & categories',
-        'products': 'Create & edit products',
-        'delete': 'Delete products',
+        # Catalog
+        'view':       'View store data (products, orders, returns, support)',
+        'products':   'Create & edit products + variants',
+        'delete':     'Delete products',
         'categories': 'Create, edit & delete categories',
-        'settings': 'Edit store settings (enable/disable, in-store-only, etc.)',
-        'reviews': 'Delete product reviews',
+        'settings':   'Edit store settings (enable/disable, in-store-only, etc.)',
+        'reviews':    'Delete product reviews',
+        # Fulfillment
+        'orders.fulfill':  'Process orders (advance status, package shipments, pack lists)',
+        'returns':         'Approve / deny / receive / refund customer returns (RMAs)',
+        'refunds':         'Issue refunds directly without a return',
+        'cancellations':   'Approve / deny buyer cancellation requests',
+        # Events / tickets
+        'tickets.scan':    'Use the ticket scanner & redeem tickets at the door',
+        'tickets.issue':   'Manually re-issue tickets for an order',
+        # Support
+        'support':         'View customer support inbox & reply to messages',
+        # Reports
+        'analytics':       'View sales analytics & reports',
     }},
     'forum': {'label': 'Forum', 'actions': {
         'view': 'View forum admin page',
@@ -15194,6 +16401,15 @@ def admin_users_page():
             'page_folders': [{'id': f.id, 'name': f.name} for f in w_page_folders],
         }
 
+    storage_conns = (StorageConnection.query
+                     .filter_by(user_id=root_user_id)
+                     .order_by(StorageConnection.label.asc()).all())
+    storage_conns_data = [
+        {'id': c.id, 'label': c.label or '(unnamed)',
+         'provider': c.provider, 'is_active': bool(c.is_active),
+         'account_identifier': c.account_identifier or ''}
+        for c in storage_conns
+    ]
     return render_template('admin_users.html',
                            sub_admins=sub_admins,
                            permissions_schema=ADMIN_PERMISSIONS,
@@ -15202,6 +16418,7 @@ def admin_users_page():
                            permission_groups=perm_groups,
                            live_websites=live_websites,
                            website_data=website_data,
+                           storage_connections=storage_conns_data,
                            pf_actions=_PF_ACTIONS,
                            now=datetime.now(timezone.utc).replace(tzinfo=None))
 
@@ -15690,6 +16907,10 @@ def update_admin_user(user_id):
     website_perms = data.get('website_permissions')
     if website_perms is not None:
         sub.website_permissions = {str(k): v for k, v in website_perms.items()}
+    if 'storage_connection_access' in data:
+        raw = data.get('storage_connection_access') or {}
+        if isinstance(raw, dict):
+            sub.storage_connection_access = {str(k): bool(v) for k, v in raw.items()}
     db.session.commit()
     # Propagate any username/email changes down to public mirrors.
     sync_admin_mirrors_for_user(sub)
@@ -15764,6 +16985,10 @@ def update_permission_group(group_id):
         grp.permissions = data['permissions'] or {}
     if 'website_permissions' in data:
         grp.website_permissions = {str(k): v for k, v in (data['website_permissions'] or {}).items()}
+    if 'storage_connection_access' in data:
+        raw = data.get('storage_connection_access') or {}
+        if isinstance(raw, dict):
+            grp.storage_connection_access = {str(k): bool(v) for k, v in raw.items()}
     db.session.commit()
     return _utf8_json({'success': True, 'group': grp.to_dict()})
 
@@ -17159,7 +18384,7 @@ def public_login():
         # Rate limit check
         rl = _rl_check(ip, login_value)
         if rl['locked']:
-            mins = max(1, int((rl['locked_until'] - datetime.utcnow()).total_seconds() / 60) + 1)
+            mins = max(1, int((rl['locked_until'] - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds() / 60) + 1)
             flash(f'Too many failed attempts. Try again in {mins} minute{"s" if mins != 1 else ""}.', 'error')
             return _login_redirect()
 
@@ -18211,6 +19436,123 @@ def public_account_orders(prefix=None):
                            website=website, public_user=public_user, orders=orders)
 
 
+@app.route('/<string:prefix>/account/addresses')
+@app.route('/account/addresses', defaults={'prefix': None})
+def public_account_addresses(prefix=None):
+    """List + manage the logged-in buyer's saved addresses."""
+    public_user = get_public_user()
+    if not public_user:
+        login_kwargs = {'next': request.path}
+        if prefix:
+            login_kwargs['website_prefix'] = prefix
+        return redirect(url_for('public_login', **login_kwargs))
+    website = public_user.website
+    if not website or website.is_draft:
+        return "Public accounts are not enabled for this site.", 404
+    if (prefix or None) != (website.url_prefix or None):
+        return redirect(url_for('public_account_addresses', prefix=website.url_prefix))
+    addresses = (PublicUserAddress.query
+                 .filter_by(public_user_id=public_user.id)
+                 .order_by(PublicUserAddress.is_default.desc(),
+                           PublicUserAddress.created_at.desc())
+                 .all())
+    return render_template('public_account_addresses.html',
+                           website=website, public_user=public_user,
+                           addresses=addresses)
+
+
+@app.route('/account/addresses/save', methods=['POST'])
+def public_account_address_save():
+    """Create or update a saved address."""
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'success': False, 'error': 'Login required.'}, 401)
+    data = request.get_json() or {}
+    required = ['name', 'line1', 'city', 'state', 'postal_code', 'country']
+    for f in required:
+        if not (data.get(f) or '').strip():
+            return _utf8_json({'success': False, 'error': f'Missing required field: {f}'}, 400)
+
+    addr_id = data.get('id')
+    if addr_id:
+        addr = PublicUserAddress.query.filter_by(
+            id=int(addr_id), public_user_id=public_user.id).first()
+        if not addr:
+            return _utf8_json({'success': False, 'error': 'Address not found.'}, 404)
+    else:
+        addr = PublicUserAddress(public_user_id=public_user.id)
+        db.session.add(addr)
+
+    addr.label       = (data.get('label') or '').strip() or None
+    addr.name        = data['name'].strip()
+    addr.line1       = data['line1'].strip()
+    addr.line2       = (data.get('line2') or '').strip() or None
+    addr.city        = data['city'].strip()
+    addr.state       = data['state'].strip()
+    addr.postal_code = data['postal_code'].strip()
+    addr.country     = data['country'].strip()
+    addr.phone       = (data.get('phone') or '').strip() or None
+    make_default     = bool(data.get('is_default', False))
+
+    db.session.flush()
+    if make_default:
+        # Clear any other default for this user.
+        PublicUserAddress.query.filter(
+            PublicUserAddress.public_user_id == public_user.id,
+            PublicUserAddress.id != addr.id
+        ).update({'is_default': False}, synchronize_session=False)
+        addr.is_default = True
+    else:
+        # If no default exists for the user, this becomes the default.
+        any_default = PublicUserAddress.query.filter_by(
+            public_user_id=public_user.id, is_default=True
+        ).filter(PublicUserAddress.id != addr.id).first()
+        if not any_default:
+            addr.is_default = True
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': addr.id})
+
+
+@app.route('/account/addresses/<int:addr_id>/delete', methods=['POST'])
+def public_account_address_delete(addr_id):
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'success': False, 'error': 'Login required.'}, 401)
+    addr = PublicUserAddress.query.filter_by(
+        id=addr_id, public_user_id=public_user.id).first()
+    if not addr:
+        return _utf8_json({'success': False, 'error': 'Address not found.'}, 404)
+    was_default = addr.is_default
+    db.session.delete(addr)
+    db.session.flush()
+    # Promote the most-recent remaining address to default if we just deleted
+    # the default one.
+    if was_default:
+        next_addr = (PublicUserAddress.query
+                     .filter_by(public_user_id=public_user.id)
+                     .order_by(PublicUserAddress.created_at.desc()).first())
+        if next_addr:
+            next_addr.is_default = True
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/account/addresses/<int:addr_id>/default', methods=['POST'])
+def public_account_address_set_default(addr_id):
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'success': False, 'error': 'Login required.'}, 401)
+    addr = PublicUserAddress.query.filter_by(
+        id=addr_id, public_user_id=public_user.id).first()
+    if not addr:
+        return _utf8_json({'success': False, 'error': 'Address not found.'}, 404)
+    PublicUserAddress.query.filter_by(public_user_id=public_user.id).update(
+        {'is_default': False}, synchronize_session=False)
+    addr.is_default = True
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 @app.route('/<string:prefix>/account/orders/<order_number>')
 @app.route('/account/orders/<order_number>', defaults={'prefix': None})
 def public_account_order_detail(order_number, prefix=None):
@@ -18233,8 +19575,18 @@ def public_account_order_detail(order_number, prefix=None):
         public_user_id=public_user.id,
         order_number=order_number
     ).first_or_404()
+    events = (OrderStatusEvent.query
+              .filter_by(order_id=order.id, is_visible_to_buyer=True)
+              .order_by(OrderStatusEvent.created_at.desc()).all())
+    can_cancel, cancel_reason = _can_cancel_order(order)
+    settings_row = _fulfillment_settings_for(website.user_id) if website else None
+    db.session.commit()
+    can_return, _ = _can_buyer_request_return(order, settings=settings_row)
     return render_template('public_account_order_detail.html',
-                           website=website, public_user=public_user, order=order)
+                           website=website, public_user=public_user,
+                           order=order, events=events,
+                           can_cancel=can_cancel, cancel_reason=cancel_reason,
+                           can_return=can_return)
 
 
 @app.route('/<string:prefix>/account/change-password', methods=['GET', 'POST'])
@@ -18902,7 +20254,7 @@ def ensure_admin_public_mirror(user, website):
         email=user.email,
         password_hash=None,
         email_verified=True,
-        email_verified_at=datetime.utcnow(),
+        email_verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
         is_active_public=True,
         is_banned=False,
     )
@@ -19084,7 +20436,7 @@ _RL_WINDOW_HOURS      = 1    # sliding window — attempts older than this are f
 def _rl_check(ip, login_value=''):
     """Return rate-limit status for an IP (and optionally a login identifier).
     Returns: {locked, locked_until, needs_captcha, attempts}"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     keys = [f'ip:{ip}']
     if login_value:
         keys.append(f'ip:{ip}:id:{login_value.lower()[:100]}')
@@ -19123,7 +20475,7 @@ def _rl_check(ip, login_value=''):
 
 def _rl_record(ip, login_value='', success=False):
     """Record a login attempt result. Clears counters on success."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     keys = [f'ip:{ip}']
     if login_value:
         keys.append(f'ip:{ip}:id:{login_value.lower()[:100]}')
@@ -19168,7 +20520,7 @@ def _rl_captcha_generate(force=False):
     existing_exp = session.get('_rl_captcha_exp', 0)
     still_valid = (
         existing_q is not None and existing_a is not None
-        and datetime.utcnow().timestamp() <= existing_exp
+        and datetime.now(timezone.utc).replace(tzinfo=None).timestamp() <= existing_exp
     )
     if still_valid and not force:
         return existing_q
@@ -19176,7 +20528,7 @@ def _rl_captcha_generate(force=False):
     b = random.randint(2, 9)
     session['_rl_captcha'] = a + b
     session['_rl_captcha_q'] = f"{a} + {b}"
-    session['_rl_captcha_exp'] = (datetime.utcnow() + timedelta(minutes=10)).timestamp()
+    session['_rl_captcha_exp'] = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)).timestamp()
     return session['_rl_captcha_q']
 
 
@@ -19186,7 +20538,7 @@ def _rl_captcha_verify(answer):
     exp      = session.get('_rl_captcha_exp', 0)
     if not expected:
         return False, 'Verification required — please reload and try again.'
-    if datetime.utcnow().timestamp() > exp:
+    if datetime.now(timezone.utc).replace(tzinfo=None).timestamp() > exp:
         session.pop('_rl_captcha', None)
         session.pop('_rl_captcha_q', None)
         session.pop('_rl_captcha_exp', None)
@@ -20033,6 +21385,30 @@ with app.app_context():
             db.session.rollback()
             print('[migrate] warning: could not backfill admin mirrors:', _e)
 
+        # Backfill: every newsletter gets a host website, and every campaign
+        # gets a slug so the public route can resolve to it.
+        try:
+            _backfilled = 0
+            for _nl in Newsletter.query.filter(Newsletter.website_id.is_(None)).all():
+                _w = Website.query.filter_by(
+                    user_id=_nl.user_id, is_draft=False
+                ).order_by(Website.id.asc()).first()
+                if _w:
+                    _nl.website_id = _w.id
+                    _backfilled += 1
+            for _c in NewsletterCampaign.query.filter(
+                or_(NewsletterCampaign.slug.is_(None), NewsletterCampaign.slug == '')
+            ).all():
+                _base = _slugify_post(_c.subject or 'untitled')
+                _c.slug = _unique_campaign_slug(_c.newsletter_id, _base, exclude_id=_c.id)
+                _backfilled += 1
+            if _backfilled:
+                db.session.commit()
+                print(f'[migrate] backfilled {_backfilled} newsletter/campaign field(s)')
+        except Exception as _e:
+            db.session.rollback()
+            print('[migrate] warning: newsletter backfill failed:', _e)
+
         ensure_default_website()
 
         _sync_plugins()
@@ -20049,6 +21425,7 @@ with app.app_context():
         )
         if not _reloader_parent:
             _start_subscription_sync_scheduler()
+            _start_notification_event_scheduler()
 
         _DB_MAINTENANCE_MODE = False
 
@@ -20252,10 +21629,29 @@ def store_product_detail(product_slug):
                 .where(StoreOrder.website_id == website.id)
             ).scalar()
 
+    # Serialize variants for the page JS. When the product has a shared
+    # inventory pool, override every variant's inventory_qty with the product
+    # pool so the storefront treats them all as drawing from the same well.
+    variants_json = []
+    if product.option_types:
+        shared = bool(getattr(product, 'variants_share_inventory', False))
+        pool = int(product.inventory_qty or 0)
+        for v in (product.variants.all() if hasattr(product.variants, 'all') else product.variants):
+            if not v.is_active:
+                continue
+            variants_json.append({
+                'id': v.id,
+                'option1': v.option1, 'option2': v.option2, 'option3': v.option3,
+                'price': v.effective_price(),
+                'sku': v.effective_sku(),
+                'inventory_qty': pool if shared else int(v.inventory_qty or 0),
+                'shared_inventory': shared,
+            })
     return render_template('store/product_detail.html',
                            website=website, product=product,
                            cart_count=cart_count, public_user=public_user,
                            reviews=reviews, avg_rating=avg_rating,
+                           variants_json=variants_json,
                            user_review=user_review, can_review=can_review)
 
 
@@ -20268,14 +21664,42 @@ def store_cart_view():
         return redirect(url_for('store_shop'))
     cart, _ = _store_get_cart(website.id)
     items = cart.items if cart else []
-    subtotal = sum(float(i.product.price) * i.quantity
+    subtotal = sum(_cart_line_unit_price(i) * i.quantity
                    for i in items if i.product) if items else 0
     public_user = _public_user_for_website(website)
     if getattr(website, 'require_login_to_view', False) and not public_user:
         return redirect(url_for('public_login', next=request.url))
+    # Per-item fulfillment alternatives, used to render the pickup-vs-delivery
+    # toggle. Map: cart_item.id → list of allowed type keys (primary first).
+    fulfillment_choices = {it.id: _product_allowed_fulfillment_types(it.product)
+                           for it in items if it.product}
+    settings_row = _fulfillment_settings_for(website.user_id)
+    db.session.commit()
+    tip_presets = settings_row.tip_presets if settings_row.tip_presets else [15, 20]
+    # Express checkout is available when the buyer is signed in, has a
+    # default saved address, and Stripe is configured for this admin.
+    express_available = False
+    if public_user:
+        has_default = PublicUserAddress.query.filter_by(
+            public_user_id=public_user.id, is_default=True).first() is not None
+        stripe_cfg = get_stripe_settings_for_user(website.user_id)
+        express_available = bool(has_default and stripe_cfg
+                                 and _stripe_secret_key(stripe_cfg))
+    cart_ft_set_v = _cart_fulfillment_set(items)
+    subtotal_cents = int(round(float(subtotal) * 100))
+    delivery_estimate = _cart_delivery_estimate(website.user_id, cart_ft_set_v, subtotal_cents)
+    cart_prep_v = _cart_pickup_prep_minutes(items, _pickup_settings_with_defaults(settings_row)) \
+        if 'pickup' in cart_ft_set_v else 0
     return render_template('store/cart.html',
                            website=website, cart=cart, items=items,
-                           subtotal=subtotal, public_user=public_user)
+                           subtotal=subtotal, public_user=public_user,
+                           fulfillment_choices=fulfillment_choices,
+                           tips_enabled=bool(settings_row.tips_enabled),
+                           tip_presets=tip_presets,
+                           express_available=express_available,
+                           delivery_estimate=delivery_estimate,
+                           cart_prep_minutes=cart_prep_v,
+                           resolve_fulfillment=_resolve_item_fulfillment)
 
 
 @app.route('/store/cart/add', methods=['POST'])
@@ -20288,23 +21712,49 @@ def store_cart_add():
     data = request.get_json() or {}
     product_id = int(data.get('product_id') or 0)
     qty = max(1, int(data.get('qty') or 1))
+    variant_id = data.get('variant_id')
+    variant_id = int(variant_id) if variant_id else None
 
     product = StoreProduct.query.filter_by(
         id=product_id, website_id=website.id, is_active=True).first()
     if not product:
         return _utf8_json({'error': 'Product not found'}, 404)
-    if product.track_inventory and not product.allow_oversell and product.inventory_qty < qty:
-        return _utf8_json({'error': 'Not enough stock'}, 400)
+
+    # Variant handling: required when the product has option types, validated
+    # to belong to this product.
+    variant = None
+    if product.option_types:
+        if not variant_id:
+            return _utf8_json({'error': 'Please choose all product options.'}, 400)
+        variant = StoreProductVariant.query.filter_by(
+            id=variant_id, product_id=product.id, is_active=True).first()
+        if not variant:
+            return _utf8_json({'error': 'Selected variant is unavailable.'}, 400)
+        if product.track_inventory and not product.allow_oversell:
+            # Honor shared-inventory mode: all variants draw from the product
+            # pool, not their own (unused) inventory_qty.
+            if product.variants_share_inventory:
+                avail = int(product.inventory_qty or 0)
+            else:
+                avail = int(variant.inventory_qty or 0)
+            if avail < qty:
+                return _utf8_json({'error': 'Not enough stock for that option.'}, 400)
+    else:
+        if product.track_inventory and not product.allow_oversell and product.inventory_qty < qty:
+            return _utf8_json({'error': 'Not enough stock'}, 400)
 
     cart, token, is_new = _store_get_or_create_cart(website.id)
 
     existing = StoreCartItem.query.filter_by(
-        cart_id=cart.id, product_id=product_id).first()
+        cart_id=cart.id, product_id=product_id,
+        variant_id=(variant.id if variant else None)).first()
     if existing:
         existing.quantity += qty
     else:
         db.session.add(StoreCartItem(
-            cart_id=cart.id, product_id=product_id, quantity=qty))
+            cart_id=cart.id, product_id=product_id,
+            variant_id=(variant.id if variant else None),
+            quantity=qty))
 
     cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
@@ -20341,12 +21791,41 @@ def store_cart_update():
     cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
 
-    subtotal = sum(float(i.product.price) * i.quantity
+    subtotal = sum(_cart_line_unit_price(i) * i.quantity
                    for i in cart.items if i.product)
     count = _store_cart_count(website.id)
     return _utf8_json({'success': True, 'cart_count': count,
                        'subtotal': f'{subtotal:.2f}',
-                       'line_total': f'{float(item.product.price if qty > 0 and item.product else 0) * qty:.2f}'})
+                       'line_total': f'{(_cart_line_unit_price(item) if qty > 0 and item.product else 0) * qty:.2f}'})
+
+
+@app.route('/store/cart/set_fulfillment', methods=['POST'])
+def store_cart_set_fulfillment():
+    """Buyer picks pickup vs local_delivery (etc.) for one cart item."""
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'error': 'Store unavailable'}, 404)
+    if getattr(website, 'store_in_store_only', False):
+        return _utf8_json({'error': 'Online purchasing is not available.'}, 403)
+    data = request.get_json() or {}
+    item_id = int(data.get('item_id') or 0)
+    choice = (data.get('fulfillment') or '').strip() or None
+
+    cart, _ = _store_get_cart(website.id)
+    if not cart:
+        return _utf8_json({'error': 'No cart'}, 404)
+    item = StoreCartItem.query.filter_by(id=item_id, cart_id=cart.id).first()
+    if not item:
+        return _utf8_json({'error': 'Item not found'}, 404)
+
+    # Validate the choice is actually one this product offers.
+    allowed = _product_allowed_fulfillment_types(item.product)
+    if choice and choice not in allowed:
+        return _utf8_json({'error': 'That option is not available for this item.'}, 400)
+    item.fulfillment_choice = choice
+    cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'fulfillment': choice or allowed[0]})
 
 
 @app.route('/store/cart/remove', methods=['POST'])
@@ -20367,10 +21846,107 @@ def store_cart_remove():
         cart.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.session.commit()
     count = _store_cart_count(website.id)
-    subtotal = sum(float(i.product.price) * i.quantity
+    subtotal = sum(_cart_line_unit_price(i) * i.quantity
                    for i in cart.items if i.product)
     return _utf8_json({'success': True, 'cart_count': count,
                        'subtotal': f'{subtotal:.2f}'})
+
+
+@app.route('/store/express-checkout', methods=['POST'])
+def store_express_checkout():
+    """One-click express checkout for logged-in buyers with a saved default
+    address. Skips the address form and goes straight to Stripe (where Apple
+    Pay / Google Pay show automatically). Returns a redirect URL."""
+    website = _get_store_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'Store unavailable'}, 404)
+    if getattr(website, 'store_in_store_only', False):
+        return _utf8_json({'success': False, 'error': 'Online purchasing is not available.'}, 403)
+
+    public_user = _public_user_for_website(website)
+    if not public_user:
+        return _utf8_json({'success': False, 'error': 'Login required.', 'require_login': True}, 401)
+
+    default_addr = PublicUserAddress.query.filter_by(
+        public_user_id=public_user.id, is_default=True).first()
+    if not default_addr:
+        return _utf8_json({'success': False,
+                           'error': 'Add a default address to use express checkout.'}, 400)
+
+    cart, _ = _store_get_cart(website.id)
+    items = [i for i in (cart.items if cart else []) if i.product and i.product.is_active]
+    if not items:
+        return _utf8_json({'success': False, 'error': 'Cart is empty.'}, 400)
+    for item in items:
+        p = item.product
+        if p.track_inventory and not p.allow_oversell and p.inventory_qty < item.quantity:
+            return _utf8_json({'success': False,
+                               'error': f'"{p.name}" only has {p.inventory_qty} in stock.'}, 400)
+
+    cart_ft = _cart_fulfillment_set(items)
+    if 'local_delivery' in cart_ft:
+        if not _delivery_area_allows(website.user_id, default_addr.postal_code):
+            return _utf8_json({
+                'success': False,
+                'error': 'Your default address is outside our local delivery area.',
+                'reason': 'outside_delivery_area',
+            }, 400)
+
+    subtotal = sum(_cart_line_unit_price(i) * i.quantity for i in items)
+
+    order_number = _gen_order_number()
+    while StoreOrder.query.filter_by(order_number=order_number).first():
+        order_number = _gen_order_number()
+
+    order = StoreOrder(
+        website_id=website.id,
+        public_user_id=public_user.id,
+        order_number=order_number,
+        status='pending_payment',
+        contact_name=default_addr.name,
+        contact_email=(public_user.email or '').strip().lower(),
+        contact_phone=default_addr.phone,
+        subtotal=subtotal, shipping_cost=0.0, tip_total=0.0,
+        total=subtotal,
+    )
+    db.session.add(order)
+    db.session.flush()
+    for item in items:
+        item_ft = _resolve_item_fulfillment(item)
+        unit_price = _cart_line_unit_price(item)
+        variant_snap = item.variant.display_options(item.product) if item.variant else None
+        db.session.add(StoreOrderItem(
+            order_id=order.id, product_id=item.product.id,
+            product_name=item.product.name, product_sku=_cart_line_sku(item),
+            variant_id=item.variant_id,
+            variant_options_snapshot=variant_snap,
+            quantity=item.quantity, unit_price=unit_price,
+            line_total=unit_price * item.quantity,
+            fulfillment_type=item_ft,
+        ))
+        _decrement_inventory_for_cart_item(item, item.quantity)
+    db.session.add(StoreOrderAddress(
+        order_id=order.id,
+        name=default_addr.name, line1=default_addr.line1,
+        line2=default_addr.line2, city=default_addr.city,
+        state=default_addr.state, postal_code=default_addr.postal_code,
+        country=default_addr.country,
+    ))
+    for item in list(cart.items):
+        db.session.delete(item)
+    db.session.commit()
+
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    if not stripe_settings or not _stripe_secret_key(stripe_settings):
+        return _utf8_json({'success': False,
+                           'error': 'Payments are not configured.', 'order_id': order.id}, 400)
+    try:
+        session, _payment = create_stripe_checkout_session_for_store_order(order)
+    except Exception as e:
+        app.logger.exception(f'[express] checkout session creation failed: {e}')
+        return _utf8_json({'success': False,
+                           'error': f'Could not start payment: {e}', 'order_id': order.id}, 200)
+    return _utf8_json({'success': True, 'redirect': session.url})
 
 
 @app.route('/store/checkout', methods=['GET'])
@@ -20384,14 +21960,54 @@ def store_checkout():
     items = cart.items if cart else []
     if not items:
         return redirect(url_for('store_cart_view'))
-    subtotal = sum(float(i.product.price) * i.quantity
+    subtotal = sum(_cart_line_unit_price(i) * i.quantity
                    for i in items if i.product)
     public_user = _public_user_for_website(website)
     if getattr(website, 'require_login_to_view', False) and not public_user:
         return redirect(url_for('public_login', next=request.url))
+    settings_row = _fulfillment_settings_for(website.user_id)
+    db.session.commit()
+    tip_presets = settings_row.tip_presets if settings_row.tip_presets else [15, 20]
+    fulfillment_choices = {it.id: _product_allowed_fulfillment_types(it.product)
+                           for it in items if it.product}
+    saved_addresses = []
+    if public_user:
+        saved_addresses = (PublicUserAddress.query
+                           .filter_by(public_user_id=public_user.id)
+                           .order_by(PublicUserAddress.is_default.desc(),
+                                     PublicUserAddress.created_at.desc())
+                           .all())
+    cart_ft_set = _cart_fulfillment_set(items)
+    charge_label, charge_show = _checkout_charge_label(cart_ft_set)
+    needs_pickup_picker = 'pickup' in cart_ft_set
+    pickup_cfg = _pickup_settings_with_defaults(settings_row) if needs_pickup_picker else None
+    cart_prep = _cart_pickup_prep_minutes(items, pickup_cfg) if needs_pickup_picker else 0
+    pickup_days = _available_pickup_days(pickup_cfg, extra_lead_minutes=cart_prep) if pickup_cfg else []
+    needs_address = bool(cart_ft_set & {'shipping', 'local_delivery'})
+    subtotal_cents = int(round(float(subtotal) * 100))
+    delivery_estimate = _cart_delivery_estimate(website.user_id, cart_ft_set, subtotal_cents)
+    # Only show SMS opt-in to the buyer when the admin has a live SMS
+    # provider configured. Otherwise the checkbox is misleading — no text
+    # would actually fire even if they ticked it.
+    sms_provider = get_sms_settings_for_user(website.user_id)
+    sms_enabled_for_buyer = bool(sms_provider and sms_provider.is_active)
     return render_template('store/checkout.html',
                            website=website, cart=cart, items=items,
-                           subtotal=subtotal, public_user=public_user)
+                           subtotal=subtotal, public_user=public_user,
+                           tips_enabled=bool(settings_row.tips_enabled),
+                           tip_presets=tip_presets,
+                           fulfillment_choices=fulfillment_choices,
+                           saved_addresses=saved_addresses,
+                           charge_label=charge_label,
+                           charge_show=charge_show,
+                           needs_pickup_picker=needs_pickup_picker,
+                           needs_address=needs_address,
+                           pickup_cfg=pickup_cfg,
+                           pickup_days=pickup_days,
+                           cart_prep_minutes=cart_prep,
+                           delivery_estimate=delivery_estimate,
+                           sms_enabled_for_buyer=sms_enabled_for_buyer,
+                           resolve_fulfillment=_resolve_item_fulfillment)
 
 
 @app.route('/store/checkout', methods=['POST'])
@@ -20412,9 +22028,15 @@ def store_checkout_submit():
 
     data = request.get_json() or {}
 
-    # Validate required fields
-    required = ['contact_name', 'contact_email',
-                'addr_line1', 'addr_city', 'addr_state', 'addr_postal', 'addr_country']
+    # Validate required fields. Address is only required when the cart has
+    # items being shipped or locally delivered — pickup-only orders don't
+    # need one.
+    cart_items_preview = [i for i in (cart.items or []) if i.product and i.product.is_active]
+    preview_ft_set = _cart_fulfillment_set(cart_items_preview)
+    needs_addr = bool(preview_ft_set & {'shipping', 'local_delivery'})
+    required = ['contact_name', 'contact_email']
+    if needs_addr:
+        required += ['addr_line1', 'addr_city', 'addr_state', 'addr_postal', 'addr_country']
     for f in required:
         if not (data.get(f) or '').strip():
             return _utf8_json({'error': f'Field required: {f}'}, 400)
@@ -20426,13 +22048,44 @@ def store_checkout_submit():
 
     for item in items:
         p = item.product
-        if p.track_inventory and not p.allow_oversell and p.inventory_qty < item.quantity:
+        avail = _cart_line_inventory_available(item, item.quantity)
+        if avail < item.quantity:
+            label = p.name
+            if item.variant:
+                opts = item.variant.display_options(p)
+                if opts:
+                    label = f'{p.name} ({opts})'
             return _utf8_json(
-                {'error': f'"{p.name}" only has {p.inventory_qty} in stock'}, 400)
+                {'error': f'"{label}" only has {avail} in stock'}, 400)
 
-    subtotal = sum(float(i.product.price) * i.quantity for i in items)
+    # Delivery-area gate: if the cart has any local_delivery products, the
+    # buyer's postal code must be inside the admin's allowlist.
+    cart_ft = _cart_fulfillment_set(items)
+    if 'local_delivery' in cart_ft:
+        if not _delivery_area_allows(website.user_id, data.get('addr_postal')):
+            return _utf8_json({
+                'error': 'Sorry, your address is outside our local delivery area. '
+                         'Contact us if you think this is wrong.',
+                'reason': 'outside_delivery_area',
+            }, 400)
+
+    subtotal = sum(_cart_line_unit_price(i) * i.quantity for i in items)
     shipping = 0.0
-    total = subtotal + shipping
+
+    # Tip: validate against the admin's tip settings if enabled. We accept the
+    # buyer's computed dollar amount and re-clamp to a sane range (0 ≤ tip ≤
+    # 100% of subtotal) so a tampered client can't send absurd values.
+    settings_row = _fulfillment_settings_for(website.user_id)
+    tip_total = 0.0
+    if getattr(settings_row, 'tips_enabled', False):
+        try:
+            tip_total = max(0.0, float(data.get('tip') or 0))
+        except (TypeError, ValueError):
+            tip_total = 0.0
+        tip_total = min(tip_total, subtotal)  # cap at the subtotal as a safety
+        tip_total = round(tip_total, 2)
+
+    total = subtotal + shipping + tip_total
 
     # Generate unique order number
     order_number = _gen_order_number()
@@ -20440,6 +22093,13 @@ def store_checkout_submit():
         order_number = _gen_order_number()
 
     public_user = get_public_user()
+    phone_clean = (data.get('contact_phone') or '').strip() or None
+    sms_opt_in_flag = bool(data.get('sms_opt_in')) and bool(phone_clean)
+    # Mirror the opt-in onto the logged-in PublicUser so subsequent orders
+    # inherit it (and the buyer can later manage it from their account).
+    if public_user and sms_opt_in_flag:
+        public_user.phone_number = phone_clean
+        public_user.sms_opt_in = True
     order = StoreOrder(
         website_id=website.id,
         public_user_id=public_user.id if public_user else None,
@@ -20447,9 +22107,11 @@ def store_checkout_submit():
         status='pending_payment',
         contact_name=data['contact_name'].strip(),
         contact_email=data['contact_email'].strip().lower(),
-        contact_phone=(data.get('contact_phone') or '').strip() or None,
+        contact_phone=phone_clean,
+        sms_opt_in=sms_opt_in_flag,
         subtotal=subtotal,
         shipping_cost=shipping,
+        tip_total=tip_total,
         total=total,
         notes=(data.get('notes') or '').strip() or None,
     )
@@ -20457,34 +22119,88 @@ def store_checkout_submit():
     db.session.flush()
 
     for item in items:
+        # Snapshot each item's effective fulfillment type — honours buyer's
+        # cart choice if any, else the product's primary type.
+        item_ft = _resolve_item_fulfillment(item)
+        unit_price = _cart_line_unit_price(item)
+        variant_snap = item.variant.display_options(item.product) if item.variant else None
         db.session.add(StoreOrderItem(
             order_id=order.id,
             product_id=item.product.id,
             product_name=item.product.name,
-            product_sku=item.product.sku,
+            product_sku=_cart_line_sku(item),
+            variant_id=item.variant_id,
+            variant_options_snapshot=variant_snap,
             quantity=item.quantity,
-            unit_price=float(item.product.price),
-            line_total=float(item.product.price) * item.quantity,
+            unit_price=unit_price,
+            line_total=unit_price * item.quantity,
+            fulfillment_type=item_ft,
         ))
-        if item.product.track_inventory:
-            item.product.inventory_qty = max(0, item.product.inventory_qty - item.quantity)
+        _decrement_inventory_for_cart_item(item, item.quantity)
 
-    db.session.add(StoreOrderAddress(
-        order_id=order.id,
-        name=data['contact_name'].strip(),
-        line1=data['addr_line1'].strip(),
-        line2=(data.get('addr_line2') or '').strip() or None,
-        city=data['addr_city'].strip(),
-        state=data['addr_state'].strip(),
-        postal_code=data['addr_postal'].strip(),
-        country=data['addr_country'].strip(),
-    ))
+    if needs_addr:
+        db.session.add(StoreOrderAddress(
+            order_id=order.id,
+            name=data['contact_name'].strip(),
+            line1=data['addr_line1'].strip(),
+            line2=(data.get('addr_line2') or '').strip() or None,
+            city=data['addr_city'].strip(),
+            state=data['addr_state'].strip(),
+            postal_code=data['addr_postal'].strip(),
+            country=data['addr_country'].strip(),
+        ))
+
+    # Pickup time, when the cart has any pickup items.
+    if 'pickup' in preview_ft_set:
+        pickup_cfg_local = _pickup_settings_with_defaults(settings_row)
+        if not pickup_cfg_local or not pickup_cfg_local.get('any_day_enabled'):
+            return _utf8_json({'error': 'Pickup is not currently available.'}, 400)
+        cart_prep_local = _cart_pickup_prep_minutes(items, pickup_cfg_local)
+        is_asap = bool(data.get('pickup_asap'))
+        if is_asap:
+            if not pickup_cfg_local.get('allow_asap'):
+                return _utf8_json({'error': 'ASAP pickup is not available — pick a time.'}, 400)
+            order.pickup_is_asap = True
+            order.pickup_at = None
+        else:
+            when_iso = (data.get('pickup_at') or '').strip()
+            when, err = _validate_pickup_time(
+                when_iso, pickup_cfg_local, extra_lead_minutes=cart_prep_local)
+            if err:
+                return _utf8_json({'error': err}, 400)
+            order.pickup_at = when
+            order.pickup_is_asap = False
 
     # Clear cart
     for item in list(cart.items):
         db.session.delete(item)
 
     db.session.commit()
+
+    # If Stripe is configured for this admin, create a Checkout Session and
+    # redirect the buyer there. Otherwise fall through to the existing
+    # confirmation page so the store still works without payments (the order
+    # stays in pending_payment until a future Stripe configuration).
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    if stripe_settings and _stripe_secret_key(stripe_settings):
+        try:
+            session, _payment = create_stripe_checkout_session_for_store_order(order)
+            return _utf8_json({
+                'success': True,
+                'order_id': order.id,
+                'redirect': session.url,
+                'stripe_session_id': session.id,
+            })
+        except Exception as e:
+            app.logger.exception(f'Stripe checkout session creation failed: {e}')
+            # Status 400 instead of 502 — the customer's browser shouldn't see a
+            # gateway error from a successful Flask response. The JSON body
+            # carries the human-readable failure.
+            return _utf8_json({
+                'success': False,
+                'error': f'Payment could not be initiated: {e}',
+                'order_id': order.id,
+            }, 400)
 
     return _utf8_json({'success': True, 'order_id': order.id,
                        'redirect': url_for('store_order_confirmation', order_id=order.id)})
@@ -20551,8 +22267,551 @@ def store_order_confirmation(order_id):
     order = StoreOrder.query.filter_by(
         id=order_id, website_id=website.id).first_or_404()
     public_user = get_public_user()
+    # Build a delivery estimate for the buyer using the item-level fulfillment
+    # types snapshotted on the order. Compute a date range from paid_at when
+    # we have both. Stripe Tax / shipping rate min/max are business days; the
+    # display below approximates a calendar range.
+    fts = {(it.fulfillment_type or 'shipping') for it in order.items}
+    delivery_estimate = _cart_delivery_estimate(
+        website.user_id, fts, int(round(float(order.subtotal or 0) * 100)))
+    if delivery_estimate and order.paid_at:
+        anchor = order.paid_at
+        try:
+            lo_d = (anchor + timedelta(days=int(delivery_estimate['min']))) if delivery_estimate.get('min') else None
+            hi_d = (anchor + timedelta(days=int(delivery_estimate['max']))) if delivery_estimate.get('max') else None
+            if lo_d and hi_d and lo_d != hi_d:
+                delivery_estimate['date_range'] = f"{lo_d.strftime('%b %-d')} – {hi_d.strftime('%b %-d')}"
+            elif lo_d or hi_d:
+                delivery_estimate['date_range'] = (lo_d or hi_d).strftime('%b %-d')
+        except Exception:
+            pass
     return render_template('store/order_confirmation.html',
-                           website=website, order=order, public_user=public_user)
+                           website=website, order=order, public_user=public_user,
+                           delivery_estimate=delivery_estimate)
+
+
+@app.route('/order/<string:token>')
+def public_order_status(token):
+    """Tokenized order page — emailed to buyers in the order-received email so
+    they can check status without logging in. Logged-in buyers also see the
+    same view via /account/orders/<id>."""
+    if not token or len(token) < 10:
+        abort(404)
+    order = StoreOrder.query.filter_by(tracking_token=token).first()
+    if not order:
+        abort(404)
+    website = db.session.get(Website, order.website_id)
+    events = (OrderStatusEvent.query
+              .filter_by(order_id=order.id, is_visible_to_buyer=True)
+              .order_by(OrderStatusEvent.created_at.desc()).all())
+    can_cancel, cancel_reason = _can_cancel_order(order)
+    settings_row = _fulfillment_settings_for(website.user_id) if website else None
+    db.session.commit()
+    can_return, _ = _can_buyer_request_return(order, settings=settings_row)
+    return render_template(
+        'public_order_status.html',
+        order=order, website=website, events=events,
+        can_cancel=can_cancel, cancel_reason=cancel_reason,
+        can_return=can_return,
+    )
+
+
+@app.route('/order/<string:token>/return', methods=['GET', 'POST'])
+def public_order_return_request(token):
+    """Buyer-facing form to request a return on their order. Tokenized so
+    no login is required."""
+    if not token or len(token) < 10:
+        abort(404)
+    order = StoreOrder.query.filter_by(tracking_token=token).first()
+    if not order:
+        abort(404)
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    settings = _fulfillment_settings_for(website.user_id) if website else None
+    ok, reason = _can_buyer_request_return(order, settings=settings)
+
+    if request.method == 'POST':
+        if not ok:
+            return _utf8_json({'success': False, 'error': reason or 'Returns not allowed.'}, 400)
+        data = request.get_json() or request.form.to_dict(flat=True) or {}
+        items_spec = []
+        raw_items = data.get('items')
+        if isinstance(raw_items, list):
+            for row in raw_items:
+                items_spec.append((row.get('order_item_id'), row.get('quantity')))
+        else:
+            for k, v in data.items():
+                if k.startswith('qty_'):
+                    items_spec.append((k[4:], v))
+        reason_code = (data.get('reason_code') or '').strip()
+        reason_note = (data.get('reason_note') or '').strip()
+        try:
+            rma = _create_return_record(
+                order, items_spec, reason_code=reason_code, reason_note=reason_note,
+                initiated_by='buyer', initial_status='requested')
+        except ValueError as e:
+            return _utf8_json({'success': False, 'error': str(e)}, 400)
+        db.session.commit()
+        _send_return_email(rma, 'requested', settings=settings)
+        db.session.commit()
+        return _utf8_json({'success': True, 'rma_number': rma.rma_number,
+                           'redirect': url_for('public_order_status', token=token)})
+
+    remaining = {it.id: _eligible_remaining_qty(it) for it in (order.items or [])}
+    return render_template(
+        'public_order_return_request.html',
+        order=order, website=website, settings=settings,
+        eligible=ok, ineligible_reason=reason,
+        remaining=remaining, reason_codes=RETURN_REASON_CODES,
+        non_returnable_types=list(NON_RETURNABLE_TYPES),
+    )
+
+
+@app.route('/order/<string:token>/retry-payment', methods=['POST'])
+def public_order_retry_payment(token):
+    """Re-open Stripe Checkout for an order stuck in pending_payment. Reuses
+    the same order (and same order number) — only generates a fresh Stripe
+    session. Idempotent: if Stripe isn't configured or the order is no longer
+    pending, returns an error instead of charging twice."""
+    if not token or len(token) < 10:
+        return _utf8_json({'success': False, 'error': 'Invalid order link.'}, 404)
+    order = StoreOrder.query.filter_by(tracking_token=token).first()
+    if not order:
+        return _utf8_json({'success': False, 'error': 'Order not found.'}, 404)
+    if order.status != 'pending_payment':
+        return _utf8_json({'success': False,
+                           'error': 'This order is no longer awaiting payment.'}, 400)
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not website:
+        return _utf8_json({'success': False, 'error': 'Order has no website.'}, 400)
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    if not stripe_settings or not _stripe_secret_key(stripe_settings):
+        return _utf8_json({'success': False,
+                           'error': 'Payments are not currently configured. Please contact support.'}, 400)
+    try:
+        session, _payment = create_stripe_checkout_session_for_store_order(order)
+    except Exception as e:
+        app.logger.exception(f'[retry] checkout session creation failed: {e}')
+        return _utf8_json({'success': False,
+                           'error': f'Could not start payment: {e}'}, 200)
+    return _utf8_json({'success': True, 'redirect': session.url})
+
+
+@app.route('/order/<string:token>/cancel-request', methods=['POST'])
+def public_order_cancel_request(token):
+    """Buyer-initiated cancellation request from the tokenized order page.
+    Creates the request; admin must approve or deny it."""
+    if not token or len(token) < 10:
+        return _utf8_json({'success': False, 'error': 'Invalid order link.'}, 404)
+    order = StoreOrder.query.filter_by(tracking_token=token).first()
+    if not order:
+        return _utf8_json({'success': False, 'error': 'Order not found.'}, 404)
+    ok, reason = _can_cancel_order(order)
+    if not ok:
+        return _utf8_json({'success': False, 'error': reason}, 400)
+    data = request.get_json() or {}
+    note = (data.get('reason') or '').strip() or None
+    order.cancellation_requested_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    order.cancellation_reason = note
+    order.cancellation_resolved_at = None
+    order.cancellation_decision = None
+    _log_order_event(order, None, None, 'cancellation_requested',
+                     message=(note or 'Buyer requested cancellation.'))
+    db.session.commit()
+    _send_cancellation_email(order, 'requested')
+    return _utf8_json({'success': True})
+
+
+def _generate_qr_svg(payload, box_size=8, border=2):
+    """Return an SVG string encoding `payload` as a QR code. Used for the
+    on-page (browser) display where vector scales nicely."""
+    try:
+        import qrcode
+        from qrcode.image.svg import SvgPathImage
+    except ImportError:
+        return None
+    qr = qrcode.QRCode(
+        version=None, error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=box_size, border=border,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(image_factory=SvgPathImage)
+    buf = io.BytesIO()
+    img.save(buf)
+    return buf.getvalue().decode('utf-8')
+
+
+def _generate_qr_png_bytes(payload, box_size=8, border=2):
+    """Return PNG bytes for the QR. Used in emails — Gmail and many other
+    clients block SVG images, so PNG is the safe format for inboxes."""
+    try:
+        import qrcode
+    except ImportError:
+        return None
+    qr = qrcode.QRCode(
+        version=None, error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=box_size, border=border,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color='black', back_color='white')
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
+@app.route('/ticket/<string:code>/qr.svg')
+def public_ticket_qr(code):
+    """SVG QR encoding the ticket URL — used on the in-browser ticket page."""
+    if not code:
+        abort(404)
+    ticket = OrderTicket.query.filter_by(code=code.strip().upper()).first()
+    if not ticket:
+        abort(404)
+    payload = url_for('public_ticket', code=ticket.code, _external=True)
+    svg = _generate_qr_svg(payload)
+    if not svg:
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+               '<rect width="100" height="100" fill="#eee"/>'
+               '<text x="50" y="55" text-anchor="middle" font-size="8" fill="#666">'
+               'QR unavailable</text></svg>')
+    resp = make_response(svg)
+    resp.headers['Content-Type'] = 'image/svg+xml'
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
+@app.route('/ticket/<string:code>/qr.png')
+def public_ticket_qr_png(code):
+    """PNG QR for use in email clients (Gmail blocks SVG)."""
+    if not code:
+        abort(404)
+    ticket = OrderTicket.query.filter_by(code=code.strip().upper()).first()
+    if not ticket:
+        abort(404)
+    payload = url_for('public_ticket', code=ticket.code, _external=True)
+    png = _generate_qr_png_bytes(payload)
+    if not png:
+        # 1x1 transparent PNG fallback
+        png = (b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+               b'\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xfc\xcf'
+               b'\xc0\x00\x00\x00\x03\x00\x01\x80\xa8b\xe3\x00\x00\x00\x00IEND\xaeB`\x82')
+    resp = make_response(png)
+    resp.headers['Content-Type'] = 'image/png'
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
+@app.route('/ticket/<string:code>')
+def public_ticket(code):
+    """Buyer-facing ticket page — shows the code (and lets the buyer save /
+    screenshot it). Linked from the ticket email and order pages."""
+    if not code:
+        abort(404)
+    ticket = OrderTicket.query.filter_by(code=code.strip().upper()).first()
+    if not ticket:
+        abort(404)
+    order = ticket.order or db.session.get(StoreOrder, ticket.order_id)
+    product = db.session.get(StoreProduct, ticket.product_id) if ticket.product_id else None
+    website = db.session.get(Website, order.website_id) if order and order.website_id else None
+    return render_template('public_ticket.html',
+                           ticket=ticket, order=order, product=product, website=website)
+
+
+# ── Customer support / live chat ──────────────────────────────────────────
+
+def _serialize_support_message(m):
+    return {
+        'id': m.id,
+        'sender_type': m.sender_type,
+        'sender_name': m.sender_name or ('Admin' if m.sender_type == 'admin' else 'You'),
+        'body': m.body,
+        'created_at': m.created_at.isoformat() if m.created_at else None,
+        'created_label': m.created_at.strftime('%-I:%M %p · %b %-d') if m.created_at else '',
+    }
+
+
+def _support_enabled_for(website):
+    if not website:
+        return False
+    s = _fulfillment_settings_for(website.user_id)
+    return bool(getattr(s, 'support_enabled', True))
+
+
+def _get_or_create_thread_for_order(order, public_user=None):
+    """Return the open support thread for an order, creating one if missing."""
+    if not order:
+        return None
+    thread = (SupportThread.query
+              .filter_by(order_id=order.id)
+              .filter(SupportThread.status != 'closed')
+              .order_by(SupportThread.id.desc()).first())
+    if thread:
+        return thread
+    thread = SupportThread(
+        website_id=order.website_id,
+        order_id=order.id,
+        public_user_id=(public_user.id if public_user else order.public_user_id),
+        contact_name=order.contact_name,
+        contact_email=order.contact_email,
+        subject=f'Order #{order.order_number}',
+    )
+    db.session.add(thread)
+    db.session.flush()
+    return thread
+
+
+def _post_support_message(thread, sender_type, body, *, sender_name=None,
+                          admin_user_id=None, public_user_id=None):
+    """Insert a message and bump unread counters on the OTHER side."""
+    body = (body or '').strip()
+    if not body:
+        return None
+    msg = SupportMessage(
+        thread_id=thread.id,
+        sender_type=sender_type,
+        sender_user_id=admin_user_id if sender_type == 'admin' else None,
+        sender_public_user_id=public_user_id if sender_type == 'buyer' else None,
+        sender_name=sender_name,
+        body=body[:5000],
+    )
+    db.session.add(msg)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    thread.last_message_at = now
+    if sender_type == 'buyer':
+        thread.admin_unread_count = (thread.admin_unread_count or 0) + 1
+    else:
+        thread.buyer_unread_count = (thread.buyer_unread_count or 0) + 1
+    db.session.flush()
+    return msg
+
+
+def _send_support_email_admin(thread, msg, website):
+    """Notify the admin (default email server) that a buyer messaged us."""
+    try:
+        owner = db.session.get(User, website.user_id) if website else None
+        if not owner or not owner.email:
+            return
+        server = get_default_email_server()
+        if not server or not server.is_active:
+            return
+        base = _site_external_base(website) or ''
+        thread_url = f'{base}/admin/support/{thread.id}' if base else f'/admin/support/{thread.id}'
+        html = (
+            f'<p>New customer message on order '
+            f'<strong>#{escape(thread.order.order_number) if thread.order else thread.id}</strong>:</p>'
+            f'<blockquote style="background:#f5f5f7;color:#111;padding:10px 14px;'
+            f'border-radius:8px;border-left:3px solid #5eeef8;">{escape(msg.body)}</blockquote>'
+            f'<p style="margin:18px 0;"><a href="{escape(thread_url)}" '
+            f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+            f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+            f'Open thread</a></p>'
+        )
+        send_via(server, owner.email,
+                 f'Customer support: new message from {thread.contact_name or thread.contact_email or "buyer"}',
+                 html=html, text=_html_to_plain(html))
+    except Exception as e:
+        app.logger.warning(f'[support] admin email failed: {e}')
+
+
+def _send_support_email_buyer(thread, msg, website):
+    """Notify the buyer that the admin replied."""
+    try:
+        if not thread or not thread.contact_email:
+            return
+        server = get_default_email_server()
+        if not server or not server.is_active:
+            return
+        base = _site_external_base(website) or ''
+        order_url = (base + url_for('public_order_status', token=thread.order.tracking_token)
+                     if thread.order and thread.order.tracking_token else None)
+        html = (
+            f'<p>Hi {escape(thread.contact_name or "there")},</p>'
+            f'<p>You have a new reply from our team about your order:</p>'
+            f'<blockquote style="background:#f5f5f7;color:#111;padding:10px 14px;'
+            f'border-radius:8px;border-left:3px solid #5eeef8;">{escape(msg.body)}</blockquote>'
+            + (f'<p style="margin:18px 0;"><a href="{escape(order_url)}" '
+               f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+               f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+               f'View order &amp; reply</a></p>' if order_url else '')
+        )
+        send_via(server, thread.contact_email,
+                 f'Reply about order #{thread.order.order_number if thread.order else ""}',
+                 html=html, text=_html_to_plain(html))
+    except Exception as e:
+        app.logger.warning(f'[support] buyer email failed: {e}')
+
+
+@app.route('/order/<string:token>/support', methods=['GET'])
+def public_order_support_thread(token):
+    """Buyer-side fetch: returns thread + all messages + clears buyer unread."""
+    order = StoreOrder.query.filter_by(tracking_token=token).first() if token else None
+    if not order:
+        return _utf8_json({'success': False, 'error': 'Order not found.'}, 404)
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not _support_enabled_for(website):
+        return _utf8_json({'success': False, 'error': 'Support is not available.',
+                           'enabled': False}, 200)
+    thread = _get_or_create_thread_for_order(order, public_user=get_public_user())
+    # Buyer is viewing — clear their unread.
+    if thread.buyer_unread_count:
+        thread.buyer_unread_count = 0
+    db.session.commit()
+    return _utf8_json({
+        'success': True,
+        'enabled': True,
+        'thread_id': thread.id,
+        'status': thread.status,
+        'messages': [_serialize_support_message(m) for m in thread.messages],
+    })
+
+
+@app.route('/order/<string:token>/support/send', methods=['POST'])
+def public_order_support_send(token):
+    order = StoreOrder.query.filter_by(tracking_token=token).first() if token else None
+    if not order:
+        return _utf8_json({'success': False, 'error': 'Order not found.'}, 404)
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not _support_enabled_for(website):
+        return _utf8_json({'success': False, 'error': 'Support is not available.'}, 400)
+    data = request.get_json() or {}
+    body = (data.get('body') or '').strip()
+    if not body:
+        return _utf8_json({'success': False, 'error': 'Message body is required.'}, 400)
+    public_user = get_public_user()
+    thread = _get_or_create_thread_for_order(order, public_user=public_user)
+    sender_name = (public_user.effective_display_name if public_user else order.contact_name) or 'Customer'
+    msg = _post_support_message(thread, 'buyer', body,
+                                sender_name=sender_name,
+                                public_user_id=(public_user.id if public_user else None))
+    if thread.status == 'closed':
+        thread.status = 'open'
+    db.session.commit()
+    _send_support_email_admin(thread, msg, website)
+    return _utf8_json({'success': True, 'message': _serialize_support_message(msg)})
+
+
+@app.route('/admin/support')
+@login_required
+@require_perm('store.support')
+def admin_support_inbox():
+    website = get_admin_website()
+    websites_owned = [w.id for w in Website.query.filter_by(user_id=current_user.root_user_id).all()]
+    threads = []
+    if websites_owned:
+        threads = (SupportThread.query
+                   .filter(SupportThread.website_id.in_(websites_owned))
+                   .order_by(SupportThread.admin_unread_count.desc(),
+                             SupportThread.last_message_at.desc())
+                   .limit(200).all())
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template('admin_support_inbox.html',
+                           threads=threads,
+                           website=website, current_website=current_website,
+                           current_website_pages=current_website_pages, page_id=None)
+
+
+@app.route('/admin/support/<int:thread_id>')
+@login_required
+@require_perm('store.support')
+def admin_support_thread(thread_id):
+    thread = SupportThread.query.get_or_404(thread_id)
+    website = db.session.get(Website, thread.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+    # Admin is viewing — clear unread.
+    if thread.admin_unread_count:
+        thread.admin_unread_count = 0
+        db.session.commit()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template('admin_support_thread.html',
+                           thread=thread, order=thread.order, website=website,
+                           current_website=current_website,
+                           current_website_pages=current_website_pages, page_id=None)
+
+
+@app.route('/admin/support/<int:thread_id>/fetch')
+@login_required
+@require_perm('store.support')
+def admin_support_thread_fetch(thread_id):
+    """Polling endpoint — returns all messages + clears admin unread."""
+    thread = SupportThread.query.get_or_404(thread_id)
+    website = db.session.get(Website, thread.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized.'}, 403)
+    if thread.admin_unread_count:
+        thread.admin_unread_count = 0
+        db.session.commit()
+    return _utf8_json({
+        'success': True,
+        'thread_id': thread.id,
+        'status': thread.status,
+        'messages': [_serialize_support_message(m) for m in thread.messages],
+    })
+
+
+@app.route('/admin/support/<int:thread_id>/send', methods=['POST'])
+@login_required
+@require_perm('store.support')
+def admin_support_thread_send(thread_id):
+    thread = SupportThread.query.get_or_404(thread_id)
+    website = db.session.get(Website, thread.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized.'}, 403)
+    data = request.get_json() or {}
+    body = (data.get('body') or '').strip()
+    if not body:
+        return _utf8_json({'success': False, 'error': 'Message body is required.'}, 400)
+    msg = _post_support_message(thread, 'admin', body,
+                                sender_name=current_user.username,
+                                admin_user_id=current_user.id)
+    if thread.status == 'closed':
+        thread.status = 'open'
+    db.session.commit()
+    _send_support_email_buyer(thread, msg, website)
+    return _utf8_json({'success': True, 'message': _serialize_support_message(msg)})
+
+
+@app.route('/admin/support/<int:thread_id>/close', methods=['POST'])
+@login_required
+@require_perm('store.support')
+def admin_support_thread_close(thread_id):
+    thread = SupportThread.query.get_or_404(thread_id)
+    website = db.session.get(Website, thread.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized.'}, 403)
+    thread.status = 'closed' if thread.status != 'closed' else 'open'
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': thread.status})
+
+
+@app.route('/digital/<string:token>')
+def public_digital_download(token):
+    """Serve a digital product's file via a one-time tokenized URL emailed
+    when the order item enters the file_delivered state."""
+    if not token or len(token) < 10:
+        abort(404)
+    item = StoreOrderItem.query.filter_by(digital_token=token).first()
+    if not item:
+        abort(404)
+    if item.digital_expires_at and datetime.now(timezone.utc).replace(tzinfo=None) > item.digital_expires_at:
+        return render_template('newsletter_status.html',
+                               title='Link expired',
+                               heading='This download link has expired.',
+                               body='Contact the seller to get a new link.'), 410
+    product = db.session.get(StoreProduct, item.product_id) if item.product_id else None
+    if not product or not product.digital_file_url:
+        return render_template('newsletter_status.html',
+                               title='Download unavailable',
+                               heading='No file is attached to this product.',
+                               body='Contact the seller.'), 404
+    return redirect(product.digital_file_url)
 
 
 # ── Store plugin routes ────────────────────────────────────────────────────────
@@ -20575,6 +22834,1300 @@ def store_admin():
     if guard:
         return guard
     return redirect(url_for('store_products'))
+
+
+@app.route('/admin/shipping')
+@login_required
+@require_perm('store.view')
+def admin_shipping_page():
+    website = get_admin_website()
+    methods = (ShippingMethod.query
+               .filter_by(user_id=current_user.root_user_id)
+               .order_by(ShippingMethod.sort_order.asc(),
+                         ShippingMethod.amount_cents.asc())
+               .all())
+    area = _delivery_area_for(current_user.root_user_id)
+    fulfillment_settings = _fulfillment_settings_for(current_user.root_user_id)
+    db.session.commit()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template(
+        'admin_shipping.html',
+        methods=methods, area=area,
+        fulfillment_settings=fulfillment_settings,
+        website=website, current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+@app.route('/admin/shipping/pickup', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_pickup_save():
+    data = request.get_json() or {}
+    s = _fulfillment_settings_for(current_user.root_user_id)
+    raw_hours = data.get('hours') or {}
+    cleaned = {}
+    if isinstance(raw_hours, dict):
+        for d in _WEEKDAY_KEYS:
+            row = raw_hours.get(d) or {}
+            o = (row.get('open') or '').strip() or '09:00'
+            c = (row.get('close') or '').strip() or '17:00'
+            if not _parse_hm(o): o = '09:00'
+            if not _parse_hm(c): c = '17:00'
+            cleaned[d] = {
+                'enabled': bool(row.get('enabled')),
+                'open': o, 'close': c,
+            }
+    s.pickup_hours = cleaned or None
+    try:
+        s.pickup_slot_minutes = max(5, min(180, int(data.get('slot_minutes') or 30)))
+    except (TypeError, ValueError):
+        s.pickup_slot_minutes = 30
+    s.pickup_allow_asap = bool(data.get('allow_asap', True))
+    try:
+        s.pickup_advance_days = max(1, min(90, int(data.get('advance_days') or 14)))
+    except (TypeError, ValueError):
+        s.pickup_advance_days = 14
+    try:
+        s.pickup_lead_minutes = max(0, min(720, int(data.get('lead_minutes') or 30)))
+    except (TypeError, ValueError):
+        s.pickup_lead_minutes = 30
+    try:
+        s.pickup_prep_minutes = max(0, min(600, int(data.get('prep_minutes') or 0)))
+    except (TypeError, ValueError):
+        s.pickup_prep_minutes = 0
+    s.pickup_location_note = (data.get('location_note') or '').strip() or None
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/shipping/support-toggle', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_support_toggle():
+    data = request.get_json() or {}
+    s = _fulfillment_settings_for(current_user.root_user_id)
+    s.support_enabled = bool(data.get('support_enabled', True))
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'support_enabled': s.support_enabled})
+
+
+@app.route('/admin/shipping/tips', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_tips_save():
+    data = request.get_json() or {}
+    s = _fulfillment_settings_for(current_user.root_user_id)
+    s.tips_enabled = bool(data.get('tips_enabled', False))
+    raw = data.get('tip_presets') or []
+    cleaned = []
+    if isinstance(raw, list):
+        for v in raw:
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= n <= 100 and n not in cleaned:
+                cleaned.append(n)
+    s.tip_presets = cleaned[:4] or None
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'tip_presets': s.tip_presets or []})
+
+
+@app.route('/admin/shipping/methods', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_method_create():
+    data = request.get_json() or {}
+    label = (data.get('label') or '').strip()
+    if not label:
+        return _utf8_json({'success': False, 'error': 'Label is required.'}, 400)
+    try:
+        amount_cents = max(0, int(round(float(data.get('amount') or 0) * 100)))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid amount.'}, 400)
+    applies_to = (data.get('applies_to') or 'shipping').strip().lower()
+    if applies_to not in ('shipping', 'local_delivery', 'both'):
+        applies_to = 'shipping'
+    free_over = data.get('free_over_amount')
+    try:
+        free_over_cents = max(0, int(round(float(free_over) * 100))) if free_over not in (None, '') else None
+    except (TypeError, ValueError):
+        free_over_cents = None
+    def _int_or_none(v):
+        try:
+            return int(v) if v not in (None, '') else None
+        except (TypeError, ValueError):
+            return None
+    m = ShippingMethod(
+        user_id=current_user.root_user_id,
+        label=label,
+        amount_cents=amount_cents,
+        currency=(data.get('currency') or 'usd').strip().lower() or 'usd',
+        delivery_min_days=_int_or_none(data.get('delivery_min_days')),
+        delivery_max_days=_int_or_none(data.get('delivery_max_days')),
+        applies_to=applies_to,
+        free_over_amount_cents=free_over_cents,
+        sort_order=_int_or_none(data.get('sort_order')) or 0,
+        is_active=bool(data.get('is_active', True)),
+    )
+    db.session.add(m)
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': m.id})
+
+
+@app.route('/admin/shipping/methods/<int:mid>/update', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_method_update(mid):
+    m = ShippingMethod.query.filter_by(
+        id=mid, user_id=current_user.root_user_id).first_or_404()
+    data = request.get_json() or {}
+    if 'label' in data:
+        label = (data.get('label') or '').strip()
+        if not label:
+            return _utf8_json({'success': False, 'error': 'Label required.'}, 400)
+        m.label = label
+    if 'amount' in data:
+        try:
+            m.amount_cents = max(0, int(round(float(data['amount']) * 100)))
+        except (TypeError, ValueError):
+            return _utf8_json({'success': False, 'error': 'Invalid amount.'}, 400)
+    if 'applies_to' in data:
+        v = (data.get('applies_to') or '').strip().lower()
+        if v in ('shipping', 'local_delivery', 'both'):
+            m.applies_to = v
+    if 'free_over_amount' in data:
+        raw = data.get('free_over_amount')
+        try:
+            m.free_over_amount_cents = max(0, int(round(float(raw) * 100))) if raw not in (None, '') else None
+        except (TypeError, ValueError):
+            m.free_over_amount_cents = None
+    if 'delivery_min_days' in data:
+        try:
+            m.delivery_min_days = int(data['delivery_min_days']) if data['delivery_min_days'] not in (None, '') else None
+        except (TypeError, ValueError):
+            m.delivery_min_days = None
+    if 'delivery_max_days' in data:
+        try:
+            m.delivery_max_days = int(data['delivery_max_days']) if data['delivery_max_days'] not in (None, '') else None
+        except (TypeError, ValueError):
+            m.delivery_max_days = None
+    if 'sort_order' in data:
+        try:
+            m.sort_order = int(data['sort_order'])
+        except (TypeError, ValueError):
+            pass
+    if 'is_active' in data:
+        m.is_active = bool(data['is_active'])
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/shipping/methods/<int:mid>/delete', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_method_delete(mid):
+    m = ShippingMethod.query.filter_by(
+        id=mid, user_id=current_user.root_user_id).first_or_404()
+    db.session.delete(m)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/shipping/delivery-area', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def admin_shipping_delivery_area_save():
+    data = request.get_json() or {}
+    raw = data.get('allowed_postal_codes')
+    # Accept comma- or whitespace-separated string OR list.
+    if isinstance(raw, str):
+        codes = [c for c in re.split(r'[\s,]+', raw) if c.strip()]
+    elif isinstance(raw, list):
+        codes = [str(c) for c in raw if str(c).strip()]
+    else:
+        codes = []
+    normalised = sorted({_postal_normalize(c) for c in codes if _postal_normalize(c)})
+    area = _delivery_area_for(current_user.root_user_id)
+    if not area:
+        area = DeliveryArea(user_id=current_user.root_user_id)
+        db.session.add(area)
+    area.allowed_postal_codes = normalised
+    area.is_active = bool(data.get('is_active', True))
+    area.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'count': len(normalised)})
+
+
+@app.route('/admin/sales')
+@login_required
+@require_perm('store.analytics')
+def admin_sales_analytics():
+    """Aggregate sales report. Default window is 30 days; admin can switch
+    to 7 / 90 / 365 / all. Counts only paid + fulfilled + refunded orders
+    so abandoned/canceled don't skew metrics."""
+    website = get_admin_website()
+    if not website:
+        return render_template('admin_sales_analytics.html',
+                               website=None, summary={}, current_window='30d',
+                               current_website=None, current_website_pages=[], page_id=None)
+
+    window = request.args.get('window', '30d')
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = None
+    if window == '7d':
+        cutoff = now - timedelta(days=7)
+    elif window == '30d':
+        cutoff = now - timedelta(days=30)
+    elif window == '90d':
+        cutoff = now - timedelta(days=90)
+    elif window == '365d':
+        cutoff = now - timedelta(days=365)
+    else:
+        window = 'all'
+        cutoff = None
+
+    websites_owned = [w.id for w in Website.query.filter_by(user_id=current_user.root_user_id).all()]
+    q = (StoreOrder.query
+         .filter(StoreOrder.website_id.in_(websites_owned),
+                 StoreOrder.status.in_(['paid', 'fulfilled', 'refunded'])))
+    if cutoff:
+        q = q.filter(StoreOrder.paid_at >= cutoff)
+    orders = q.all()
+
+    total_revenue = sum(float(o.total or 0) for o in orders if o.status != 'refunded')
+    refunded_revenue = sum(float(o.total or 0) for o in orders if o.status == 'refunded')
+    order_count = sum(1 for o in orders if o.status != 'refunded')
+    refund_count = sum(1 for o in orders if o.status == 'refunded')
+    aov = (total_revenue / order_count) if order_count else 0
+    unique_customers = len({(o.contact_email or '').lower() for o in orders if o.contact_email})
+
+    # Top products by units + revenue. Pull the OrderItems matching these orders.
+    order_ids = [o.id for o in orders if o.status != 'refunded']
+    top_products = []
+    if order_ids:
+        rows = (db.session.query(
+                    StoreOrderItem.product_name,
+                    db.func.sum(StoreOrderItem.quantity).label('units'),
+                    db.func.sum(StoreOrderItem.line_total).label('revenue'))
+                .filter(StoreOrderItem.order_id.in_(order_ids))
+                .group_by(StoreOrderItem.product_name)
+                .order_by(db.desc('revenue'))
+                .limit(10).all())
+        top_products = [{'name': r.product_name,
+                         'units': int(r.units or 0),
+                         'revenue': float(r.revenue or 0)} for r in rows]
+
+    # Daily revenue series for a simple sparkline (last 14 buckets max).
+    daily = []
+    if orders:
+        buckets = {}
+        for o in orders:
+            if o.status == 'refunded' or not o.paid_at:
+                continue
+            day = o.paid_at.date().isoformat()
+            buckets[day] = buckets.get(day, 0) + float(o.total or 0)
+        days = sorted(buckets.keys())[-30:]
+        daily = [{'date': d, 'revenue': round(buckets[d], 2)} for d in days]
+
+    summary = {
+        'window': window,
+        'total_revenue': round(total_revenue, 2),
+        'refunded_revenue': round(refunded_revenue, 2),
+        'order_count': order_count,
+        'refund_count': refund_count,
+        'aov': round(aov, 2),
+        'unique_customers': unique_customers,
+        'top_products': top_products,
+        'daily': daily,
+    }
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    return render_template('admin_sales_analytics.html',
+                           website=website, summary=summary, current_window=window,
+                           current_website=current_website,
+                           current_website_pages=current_website_pages, page_id=None)
+
+
+@app.route('/admin/orders')
+@login_required
+@require_perm('store.view')
+def admin_orders_page():
+    website = get_admin_website()
+    if not website:
+        return render_template('admin_orders.html', orders=[], filter_status='all',
+                               website=None, current_website=None,
+                               current_website_pages=[], page_id=None)
+    status_filter = (request.args.get('status') or 'all').strip().lower()
+    search = (request.args.get('q') or '').strip()
+    q = StoreOrder.query.filter_by(website_id=website.id)
+    if status_filter and status_filter != 'all':
+        q = q.filter(StoreOrder.status == status_filter)
+    if search:
+        like = f'%{search}%'
+        q = q.filter(or_(StoreOrder.order_number.ilike(like),
+                          StoreOrder.contact_email.ilike(like),
+                          StoreOrder.contact_name.ilike(like)))
+    orders = q.order_by(StoreOrder.created_at.desc()).limit(250).all()
+    summaries = {o.id: _build_order_card_summary(o) for o in orders}
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    return render_template(
+        'admin_orders.html',
+        orders=orders, summaries=summaries,
+        filter_status=status_filter, search=search,
+        website=website, current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+# Order item statuses grouped into broad "stages" for the orders-list summary
+# pills. Statuses not in this map fall under 'other'.
+_FULFILLMENT_STAGE_BUCKETS = {
+    'preparing':         'preparing',
+    'shipped':           'shipped',
+    'out_for_delivery':  'shipped',
+    'ready_for_pickup':  'shipped',
+    'delivered':         'delivered',
+    'picked_up':         'delivered',
+    'file_delivered':    'delivered',
+    'ticket_issued':     'delivered',
+    'fulfilled':         'delivered',
+    'paid':              'paid',
+    'pending_payment':   'pending',
+    'pending':           'pending',
+    'canceled':          'canceled',
+    'refunded':          'canceled',
+}
+
+_FULFILLMENT_STAGE_LABELS = {
+    'preparing': ('Preparing', 'preparing'),
+    'shipped':   ('Shipped',   'shipped'),
+    'delivered': ('Delivered', 'delivered'),
+    'paid':      ('Paid',      'paid'),
+    'pending':   ('Awaiting payment', 'pending'),
+    'canceled':  ('Canceled',  'canceled'),
+}
+
+
+def _build_order_card_summary(order):
+    """Build a list of small status badges to show on an admin orders-list
+    card. Captures fulfillment progress + cancellation/return flags so the
+    admin can see what each order needs at a glance."""
+    badges = []
+    flags = {
+        'cancel_pending': bool(order.cancellation_requested_at
+                               and not order.cancellation_resolved_at),
+        'open_returns':   0,
+    }
+    # Cancellation pending is the most urgent flag — show it first.
+    if flags['cancel_pending']:
+        badges.append({'label': 'Cancel requested', 'tone': 'cancel', 'icon': 'fa-clock'})
+
+    # Open returns (RMAs not yet resolved)
+    try:
+        rma_rows = (order.returns.filter(
+            ~OrderReturn.status.in_(['refunded', 'denied', 'canceled'])
+        ).all() if hasattr(order.returns, 'filter') else
+            [r for r in order.returns
+             if r.status not in ('refunded', 'denied', 'canceled')])
+        flags['open_returns'] = len(rma_rows)
+        if flags['open_returns'] > 0:
+            n = flags['open_returns']
+            badges.append({
+                'label': f'{n} return{"s" if n != 1 else ""} open',
+                'tone': 'return', 'icon': 'fa-undo-alt',
+            })
+    except Exception:
+        pass
+
+    # Fulfillment stage(s) — collapse per-item statuses to broad buckets.
+    if order.status not in ('canceled', 'refunded', 'pending_payment'):
+        stages = set()
+        for it in (order.items or []):
+            s = (it.fulfillment_status or '').strip().lower()
+            if s in _FULFILLMENT_STAGE_BUCKETS:
+                stages.add(_FULFILLMENT_STAGE_BUCKETS[s])
+        # Order stages by progression so the badge reads naturally.
+        progression = ['pending', 'paid', 'preparing', 'shipped', 'delivered']
+        stages_sorted = [g for g in progression if g in stages]
+        if len(stages_sorted) > 1:
+            # Use the earliest stage so the admin sees what's still pending.
+            min_stage = stages_sorted[0]
+            label, tone = _FULFILLMENT_STAGE_LABELS.get(min_stage, (min_stage, 'paid'))
+            badges.append({'label': f'Partial — {label.lower()}+', 'tone': tone, 'icon': 'fa-hourglass-half'})
+        elif len(stages_sorted) == 1:
+            stage = stages_sorted[0]
+            if stage not in ('paid', 'pending'):
+                label, tone = _FULFILLMENT_STAGE_LABELS[stage]
+                badges.append({'label': label, 'tone': tone, 'icon': 'fa-truck'})
+
+    return {'badges': badges, **flags}
+
+
+@app.route('/admin/orders/<int:order_id>')
+@login_required
+@require_perm('store.view')
+def admin_order_detail(order_id):
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+    events = (OrderStatusEvent.query
+              .filter_by(order_id=order.id)
+              .order_by(OrderStatusEvent.created_at.desc()).all())
+    # Build per-item "next status" hints
+    next_steps = {}
+    for it in order.items:
+        ns = _next_status_after(it.fulfillment_type or 'shipping', it.fulfillment_status)
+        next_steps[it.id] = ns  # tuple or None
+
+    # Group items by package. Items with no shipment_id stay in "unpacked".
+    shipments = list(order.shipments.order_by(OrderShipment.sequence.asc())) \
+        if hasattr(order.shipments, 'order_by') else list(order.shipments)
+    shipment_next_steps = {
+        s.id: _next_status_after(s.fulfillment_type or 'shipping', s.status)
+        for s in shipments
+    }
+    unpacked_items = [it for it in order.items if it.shipment_id is None]
+    packageable_unpacked = [it for it in unpacked_items
+                            if (it.fulfillment_type or 'shipping') in PACKAGEABLE_TYPES
+                            and next_steps.get(it.id)]
+
+    public_url = url_for('public_order_status', token=order.tracking_token, _external=True) \
+        if order.tracking_token else None
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    support_thread = (SupportThread.query
+                      .filter_by(order_id=order.id)
+                      .order_by(SupportThread.last_message_at.desc()).first())
+    return render_template(
+        'admin_order_detail.html',
+        order=order, events=events, next_steps=next_steps,
+        shipments=shipments, shipment_next_steps=shipment_next_steps,
+        unpacked_items=unpacked_items, packageable_unpacked=packageable_unpacked,
+        support_thread=support_thread,
+        public_url=public_url, fulfillment_pipelines=FULFILLMENT_PIPELINES,
+        website=website, current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+@app.route('/admin/orders/<int:order_id>/packlist')
+@login_required
+@require_perm('store.view')
+def admin_order_packlist(order_id):
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+    return render_template('admin_order_packlist.html', order=order, website=website)
+
+
+@app.route('/admin/orders/<int:order_id>/refund', methods=['POST'])
+@login_required
+@require_perm('store.refunds')
+def admin_order_refund(order_id):
+    """Refund an order via Stripe. Supports partial refunds by passing an
+    `amount` (dollars) in the JSON body; omitting it refunds the full charge.
+    Restocks inventory when the refund is for the entire order."""
+    import stripe as _stripe
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if order.status == 'refunded':
+        return _utf8_json({'success': False, 'error': 'Order is already refunded.'}, 400)
+
+    # Find the Payment + payment_intent for this order.
+    payment = (Payment.query
+               .filter_by(source_type='store_order', source_id=order.id, status='paid')
+               .order_by(Payment.id.desc()).first())
+    if not payment or not payment.stripe_payment_intent_id:
+        return _utf8_json({'success': False, 'error': 'No paid Stripe charge found for this order.'}, 400)
+
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    if not stripe_settings or not _stripe_secret_key(stripe_settings):
+        return _utf8_json({'success': False, 'error': 'Stripe is not configured.'}, 400)
+
+    data = request.get_json() or {}
+    refund_kwargs = {
+        'payment_intent': payment.stripe_payment_intent_id,
+        'api_key': _stripe_secret_key(stripe_settings),
+        'metadata': {
+            'order_id': str(order.id),
+            'order_number': order.order_number or '',
+            'refunded_by_user_id': str(current_user.id),
+        },
+    }
+    is_partial = False
+    amount_raw = data.get('amount')
+    if amount_raw not in (None, '', 0, '0'):
+        try:
+            cents = int(round(float(amount_raw) * 100))
+        except (TypeError, ValueError):
+            return _utf8_json({'success': False, 'error': 'Invalid refund amount.'}, 400)
+        if cents <= 0:
+            return _utf8_json({'success': False, 'error': 'Refund amount must be positive.'}, 400)
+        if cents > int(round(float(order.total) * 100)):
+            return _utf8_json({'success': False,
+                               'error': 'Refund amount exceeds the order total.'}, 400)
+        refund_kwargs['amount'] = cents
+        is_partial = (cents < int(round(float(order.total) * 100)))
+    reason = (data.get('reason') or '').strip()
+    if reason in ('duplicate', 'fraudulent', 'requested_by_customer'):
+        refund_kwargs['reason'] = reason
+
+    try:
+        refund = _stripe.Refund.create(**refund_kwargs)
+    except _stripe.error.StripeError as e:
+        return _utf8_json({'success': False,
+                           'error': f'Stripe rejected the refund: {e.user_message or str(e)}'}, 200)
+    except Exception as e:
+        app.logger.exception(f'[stripe] refund failed: {e}')
+        return _utf8_json({'success': False, 'error': f'Refund failed: {e}'}, 200)
+
+    # Record locally — the webhook (charge.refunded) will also fire and is
+    # idempotent against our state, so duplicate-marking is safe.
+    note_msg = data.get('note') or ''
+    if is_partial:
+        payment.status = 'paid'  # keep payment as paid; partial refund only
+        _log_order_event(order, None, order.status, order.status,
+                         message=f'Partial refund of ${refund_kwargs.get("amount", 0)/100:.2f} '
+                                 f'issued via Stripe. {note_msg}'.strip())
+    else:
+        payment.status = 'refunded'
+        order.status = 'refunded'
+        _log_order_event(order, None, None, 'refunded',
+                         message=(f'Full refund issued via Stripe. {note_msg}'.strip() or
+                                  'Full refund issued via Stripe.'))
+        _restock_order_items(order, reason='admin refund')
+
+    db.session.commit()
+
+    # Buyer email — best-effort, doesn't block the refund.
+    try:
+        server = get_default_email_server()
+        if server and server.is_active and order.contact_email:
+            base = _site_external_base(website) or ''
+            order_url = (base + url_for('public_order_status', token=order.tracking_token)
+                         if order.tracking_token else None)
+            refunded_dollars = (refund_kwargs.get('amount') or int(round(float(order.total) * 100))) / 100.0
+            html = (
+                f'<p>Hi {escape(order.contact_name or "there")},</p>'
+                f'<p>A refund of <strong>${refunded_dollars:.2f}</strong> was issued for '
+                f'order <strong>{escape(order.order_number)}</strong>.</p>'
+                f'<p>Funds typically appear on your statement within 5–10 business days.</p>'
+                + (f'<p style="margin:18px 0;"><a href="{escape(order_url)}" '
+                   f'style="display:inline-block;padding:11px 22px;background:#5eeef8;color:#111;'
+                   f'border-radius:8px;text-decoration:none;font-weight:600;">View order</a></p>'
+                   if order_url else '')
+            )
+            send_via(server, order.contact_email,
+                     f'Refund issued for order #{order.order_number}',
+                     html=html, text=_html_to_plain(html))
+    except Exception as e:
+        app.logger.warning(f'[orders] refund email failed: {e}')
+
+    return _utf8_json({'success': True,
+                       'refunded_amount': refund_kwargs.get('amount'),
+                       'status': order.status,
+                       'is_partial': is_partial})
+
+
+# ── RMA admin routes ────────────────────────────────────────────────────────
+
+def _rma_owned_or_403(rma):
+    """Verify the RMA belongs to the current admin's tenant."""
+    order = rma.order or db.session.get(StoreOrder, rma.order_id)
+    if not order:
+        abort(404)
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+    return order, website
+
+
+@app.route('/admin/returns')
+@login_required
+@require_perm('store.view')
+def admin_returns():
+    """Cross-order RMA list."""
+    status_filter = (request.args.get('status') or '').strip()
+    q = (db.session.query(OrderReturn)
+         .join(StoreOrder, StoreOrder.id == OrderReturn.order_id)
+         .join(Website, Website.id == StoreOrder.website_id)
+         .filter(Website.user_id == current_user.root_user_id)
+         .order_by(OrderReturn.requested_at.desc()))
+    if status_filter == 'open':
+        q = q.filter(~OrderReturn.status.in_(list(RETURN_TERMINAL)))
+    elif status_filter in RETURN_PIPELINE:
+        q = q.filter(OrderReturn.status == status_filter)
+    rmas = q.limit(500).all()
+    settings = _fulfillment_settings_for(current_user.root_user_id)
+    db.session.commit()
+    website = get_admin_website()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template(
+        'admin_returns.html',
+        rmas=rmas, status_filter=status_filter, settings=settings,
+        website=website, current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+@app.route('/admin/returns/settings', methods=['POST'])
+@login_required
+@require_perm('payments.manage')
+def admin_returns_settings_save():
+    data = request.get_json() or {}
+    s = _fulfillment_settings_for(current_user.root_user_id)
+    s.allow_buyer_returns = bool(data.get('allow_buyer_returns', True))
+    window_raw = data.get('return_window_days')
+    if window_raw in (None, '', 'null'):
+        s.return_window_days = None
+    else:
+        try:
+            n = int(window_raw)
+            s.return_window_days = max(0, n) if n > 0 else None
+        except (TypeError, ValueError):
+            return _utf8_json({'success': False, 'error': 'Invalid window days.'}, 400)
+    s.returns_address = (data.get('returns_address') or '').strip() or None
+    s.returns_instructions = (data.get('returns_instructions') or '').strip() or None
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/orders/<int:order_id>/returns/new', methods=['GET', 'POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_new(order_id):
+    """Admin opens an RMA on behalf of a buyer."""
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+
+    if request.method == 'POST':
+        data = request.get_json() or request.form.to_dict(flat=True) or {}
+        # Items as list of {order_item_id, quantity} or items[<id>] form-style
+        items_spec = []
+        raw_items = data.get('items')
+        if isinstance(raw_items, list):
+            for row in raw_items:
+                items_spec.append((row.get('order_item_id'), row.get('quantity')))
+        else:
+            for k, v in data.items():
+                if k.startswith('qty_'):
+                    items_spec.append((k[4:], v))
+        reason_code = (data.get('reason_code') or '').strip()
+        reason_note = (data.get('reason_note') or '').strip()
+        admin_note = (data.get('admin_note') or '').strip()
+        try:
+            rma = _create_return_record(
+                order, items_spec, reason_code=reason_code, reason_note=reason_note,
+                initiated_by='admin', initial_status='approved',
+                admin_user_id=current_user.id)
+        except ValueError as e:
+            return _utf8_json({'success': False, 'error': str(e)}, 400)
+        if admin_note:
+            rma.admin_note = admin_note
+        db.session.commit()
+        settings = _fulfillment_settings_for(website.user_id)
+        _send_return_email(rma, 'approved', settings=settings)
+        db.session.commit()
+        return _utf8_json({'success': True, 'rma_id': rma.id,
+                           'redirect': url_for('admin_return_detail', return_id=rma.id)})
+
+    # GET — render the new-return form
+    remaining = {it.id: _eligible_remaining_qty(it) for it in (order.items or [])}
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    return render_template(
+        'admin_return_new.html',
+        order=order, website=website,
+        remaining=remaining, reason_codes=RETURN_REASON_CODES,
+        non_returnable_types=list(NON_RETURNABLE_TYPES),
+        current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+@app.route('/admin/returns/<int:return_id>')
+@login_required
+@require_perm('store.view')
+def admin_return_detail(return_id):
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    timeline = (OrderStatusEvent.query
+                .filter_by(order_id=order.id)
+                .filter(OrderStatusEvent.to_status.like('return.%'))
+                .order_by(OrderStatusEvent.created_at.desc()).all())
+    settings = _fulfillment_settings_for(website.user_id)
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    return render_template(
+        'admin_return_detail.html',
+        rma=rma, order=order, website=website, timeline=timeline,
+        settings=settings, pipeline=RETURN_PIPELINE,
+        reason_codes=dict(RETURN_REASON_CODES),
+        current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+@app.route('/admin/returns/<int:return_id>/approve', methods=['POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_approve(return_id):
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    data = request.get_json() or {}
+    try:
+        _transition_return(rma, 'approved',
+                           message=(data.get('note') or 'Approved.'))
+    except ValueError as e:
+        return _utf8_json({'success': False, 'error': str(e)}, 400)
+    if data.get('note'):
+        rma.admin_note = (data.get('note') or '').strip() or rma.admin_note
+    db.session.commit()
+    _send_return_email(rma, 'approved', settings=_fulfillment_settings_for(website.user_id))
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': rma.status})
+
+
+@app.route('/admin/returns/<int:return_id>/deny', methods=['POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_deny(return_id):
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip()
+    if note:
+        rma.admin_note = note
+    try:
+        _transition_return(rma, 'denied', message=(note or 'Return denied.'))
+    except ValueError as e:
+        return _utf8_json({'success': False, 'error': str(e)}, 400)
+    db.session.commit()
+    _send_return_email(rma, 'denied')
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': rma.status})
+
+
+@app.route('/admin/returns/<int:return_id>/mark_shipped', methods=['POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_mark_shipped(return_id):
+    """Buyer has shipped the items back; record tracking and flip to in_transit."""
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    data = request.get_json() or {}
+    carrier = (data.get('carrier') or '').strip() or None
+    tn = (data.get('tracking_number') or '').strip() or None
+    url = (data.get('tracking_url') or '').strip() or None
+    rma.return_carrier = carrier
+    rma.return_tracking_number = tn
+    if url:
+        rma.return_tracking_url = url
+    elif carrier or tn:
+        rma.return_tracking_url = _build_tracking_url(carrier, tn)
+    target_status = 'in_transit' if rma.status in ('approved', 'awaiting_shipment') else rma.status
+    if target_status != rma.status:
+        try:
+            _transition_return(rma, target_status,
+                               message='Buyer marked items as shipped back.',
+                               payload={'carrier': carrier, 'tracking_number': tn})
+        except ValueError as e:
+            return _utf8_json({'success': False, 'error': str(e)}, 400)
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': rma.status})
+
+
+@app.route('/admin/returns/<int:return_id>/mark_received', methods=['POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_mark_received(return_id):
+    """Admin confirms the package is in hand. This is the gate before refund."""
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip()
+    try:
+        _transition_return(rma, 'received',
+                           message=(note or 'Return received in good order.'))
+    except ValueError as e:
+        return _utf8_json({'success': False, 'error': str(e)}, 400)
+    if bool(data.get('restock', True)):
+        _restock_return_items(rma, reason='return received')
+    db.session.commit()
+    _send_return_email(rma, 'received')
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': rma.status, 'restocked': rma.restocked})
+
+
+@app.route('/admin/returns/<int:return_id>/refund', methods=['POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_finalize(return_id):
+    """Final gate: now (and only now) call Stripe."""
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    data = request.get_json() or {}
+    override = None
+    amount_raw = data.get('amount')
+    if amount_raw not in (None, '', 0, '0'):
+        try:
+            override = int(round(float(amount_raw) * 100))
+        except (TypeError, ValueError):
+            return _utf8_json({'success': False, 'error': 'Invalid refund amount.'}, 400)
+    ok, err = _finalize_return_refund(rma, override_amount_cents=override,
+                                      note=(data.get('note') or '').strip() or None)
+    if not ok:
+        return _utf8_json({'success': False, 'error': err}, 200)
+    db.session.commit()
+    _send_return_email(rma, 'refunded')
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': rma.status,
+                       'refund_id': rma.stripe_refund_id,
+                       'amount': rma.refund_amount_cents})
+
+
+@app.route('/admin/returns/<int:return_id>/cancel', methods=['POST'])
+@login_required
+@require_perm('store.returns')
+def admin_return_cancel(return_id):
+    rma = OrderReturn.query.get_or_404(return_id)
+    order, website = _rma_owned_or_403(rma)
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip()
+    try:
+        _transition_return(rma, 'canceled',
+                           message=(note or 'Return canceled.'))
+    except ValueError as e:
+        return _utf8_json({'success': False, 'error': str(e)}, 400)
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': rma.status})
+
+
+@app.route('/admin/orders/<int:order_id>/items/<int:item_id>/advance', methods=['POST'])
+@login_required
+@require_perm('store.orders.fulfill')
+def admin_order_item_advance(order_id, item_id):
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    item = next((it for it in order.items if it.id == item_id), None)
+    if not item:
+        return _utf8_json({'success': False, 'error': 'Item not found'}, 404)
+    data = request.get_json() or {}
+    target = (data.get('to_status') or '').strip()
+    if not target:
+        nxt = _next_status_after(item.fulfillment_type or 'shipping', item.fulfillment_status)
+        if not nxt:
+            return _utf8_json({'success': False, 'error': 'Item already fulfilled.'}, 400)
+        target = nxt[0]
+    try:
+        advance_item_status(
+            item, target,
+            tracking_carrier=data.get('tracking_carrier'),
+            tracking_number=data.get('tracking_number'),
+            tracking_note=data.get('tracking_note'),
+            message=data.get('message'),
+        )
+    except ValueError as e:
+        return _utf8_json({'success': False, 'error': str(e)}, 400)
+    return _utf8_json({'success': True, 'status': item.fulfillment_status,
+                       'tracking_url': item.tracking_url})
+
+
+@app.route('/admin/orders/<int:order_id>/issue-tickets', methods=['POST'])
+@login_required
+@require_perm('store.tickets.issue')
+def admin_order_issue_tickets(order_id):
+    """Manually generate tickets for any ticket-type line items that don't
+    have OrderTicket rows yet. Used to recover orders that paid before the
+    auto-issuance code was working."""
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    issued_count = 0
+    items_touched = 0
+    for it in order.items:
+        ft = (it.fulfillment_type or '').lower()
+        if ft != 'ticket':
+            continue
+        # Skip if already has tickets.
+        existing = it.tickets.all() if hasattr(it.tickets, 'all') else list(it.tickets or [])
+        if existing:
+            continue
+        try:
+            # If the item is still at 'paid' (or earlier), advance it through
+            # the pipeline — this issues tickets, sets status, sends email.
+            if (it.fulfillment_status or '') != 'ticket_issued':
+                advance_item_status(it, 'ticket_issued')
+            else:
+                # Status is already ticket_issued but tickets missing — generate
+                # them directly without re-sending an email.
+                _issue_tickets_for_order_item(it)
+            items_touched += 1
+            issued_count += it.tickets.count() if hasattr(it.tickets, 'count') else len(list(it.tickets))
+        except Exception as e:
+            app.logger.warning(f'[admin] issue-tickets failed for item {it.id}: {e}')
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'items_touched': items_touched,
+                       'tickets_issued': issued_count})
+
+
+@app.route('/admin/tickets/scan')
+@login_required
+@require_perm('store.tickets.scan')
+def admin_ticket_scan():
+    """Door-staff scanner page. Opens the device camera, decodes QR codes
+    (or the buyer can type the code), and posts to the redeem endpoint.
+    Loads the list of event products so staff can scope scanning to a
+    specific event."""
+    website = get_admin_website()
+    # Tickets-only products for this admin, ordered by upcoming event date.
+    # Past events come last so the natural choice is today's event.
+    websites_owned = [w.id for w in Website.query.filter_by(user_id=current_user.root_user_id).all()]
+    today = datetime.now(timezone.utc).replace(tzinfo=None)
+    events = []
+    if websites_owned:
+        events = (StoreProduct.query
+                  .filter(StoreProduct.website_id.in_(websites_owned),
+                          StoreProduct.fulfillment_type == 'ticket')
+                  .order_by(StoreProduct.event_starts_at.asc().nullslast())
+                  .limit(200).all())
+    # Pre-select the next upcoming event if one is clearly "today".
+    selected_id = None
+    for e in events:
+        if e.event_starts_at and e.event_starts_at >= today - timedelta(days=1):
+            selected_id = e.id
+            break
+    return render_template('admin_ticket_scan.html', website=website,
+                           events=events, selected_event_id=selected_id)
+
+
+@app.route('/admin/tickets/redeem', methods=['POST'])
+@login_required
+@require_perm('store.tickets.scan')
+def admin_ticket_redeem():
+    """Mark a ticket as redeemed. Used by the on-site scanner / manual entry.
+
+    When `event_product_id` is provided, the redemption is scoped to that
+    event — a ticket for a different event returns `reason='wrong_event'` so
+    door staff sees why it was declined instead of silently approving."""
+    data = request.get_json() or {}
+    code = (data.get('code') or '').strip().upper()
+    if not code:
+        return _utf8_json({'success': False, 'error': 'Code required.',
+                           'reason': 'invalid'}, 400)
+    # Accept either a single legacy `event_product_id` or a list of
+    # `event_product_ids`. Empty list = no scoping (every valid ticket OK).
+    raw_ids = data.get('event_product_ids')
+    allowed_event_ids = set()
+    if isinstance(raw_ids, list):
+        for x in raw_ids:
+            try:
+                allowed_event_ids.add(int(x))
+            except (TypeError, ValueError):
+                continue
+    legacy_single = data.get('event_product_id')
+    if legacy_single:
+        try:
+            allowed_event_ids.add(int(legacy_single))
+        except (TypeError, ValueError):
+            pass
+
+    ticket = OrderTicket.query.filter_by(code=code).first()
+    if not ticket:
+        return _utf8_json({'success': False, 'error': 'Ticket not found.',
+                           'reason': 'not_found'}, 404)
+    order = ticket.order or db.session.get(StoreOrder, ticket.order_id)
+    website = db.session.get(Website, order.website_id) if order and order.website_id else None
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized.',
+                           'reason': 'unauthorized'}, 403)
+
+    # Scope-by-event: if the scanner is set to specific events and this
+    # ticket doesn't belong to any of them, decline with a clear reason.
+    if allowed_event_ids and ticket.product_id and ticket.product_id not in allowed_event_ids:
+        return _utf8_json({'success': False,
+                           'error': f'Ticket is for "{ticket.event_label or "another event"}" '
+                                    f'— not in the selected event(s).',
+                           'reason': 'wrong_event',
+                           'event_label': ticket.event_label,
+                           'tier_label': ticket.tier_label,
+                           'order_id': order.id if order else None}, 200)
+
+    if ticket.redeemed_at:
+        return _utf8_json({'success': False,
+                           'error': f'Already redeemed at '
+                                    f'{ticket.redeemed_at.strftime("%b %-d, %-I:%M %p")}',
+                           'already': True,
+                           'reason': 'already_redeemed',
+                           'redeemed_at': ticket.redeemed_at.isoformat(),
+                           'event_label': ticket.event_label,
+                           'tier_label': ticket.tier_label,
+                           'order_id': order.id if order else None}, 200)
+    ticket.redeemed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    ticket.redeemed_by_user_id = current_user.id
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'redeemed_at': ticket.redeemed_at.isoformat(),
+                       'event_label': ticket.event_label,
+                       'tier_label': ticket.tier_label,
+                       'order_id': order.id if order else None})
+
+
+@app.route('/admin/orders/<int:order_id>/items/bulk_advance', methods=['POST'])
+@login_required
+@require_perm('store.orders.fulfill')
+def admin_order_items_bulk_advance(order_id):
+    """Move several items on the same order through their pipelines at once.
+    The typical use is shipping multiple items in one package — one carrier +
+    tracking number applies to every selected item.
+
+    Payload:
+      { "item_ids": [1,2,3],
+        "to_status": "shipped",       (optional — if omitted, each item gets
+                                       its own per-pipeline 'next' status)
+        "tracking_carrier": "UPS",     (applied to every applicable item)
+        "tracking_number":  "1Z...",
+        "tracking_note":    "..." }
+
+    Validates each item's pipeline accepts the target status. Items already at
+    or past the target are silently skipped (so re-clicking is a no-op)."""
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+
+    data = request.get_json() or {}
+    raw_ids = data.get('item_ids') or []
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return _utf8_json({'success': False, 'error': 'No items selected.'}, 400)
+    try:
+        ids = {int(x) for x in raw_ids}
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid item ids.'}, 400)
+
+    target = (data.get('to_status') or '').strip() or None
+    carrier = data.get('tracking_carrier')
+    tracking = data.get('tracking_number')
+    note = data.get('tracking_note')
+    message = data.get('message')
+
+    items = [it for it in order.items if it.id in ids]
+    if not items:
+        return _utf8_json({'success': False, 'error': 'None of the selected items belong to this order.'}, 404)
+
+    advanced, skipped, errors = [], [], []
+    for item in items:
+        ft = item.fulfillment_type or 'shipping'
+        pipeline_keys = [k for k, _ in _pipeline_for(ft)]
+        # Per-item resolution of the destination status.
+        item_target = target
+        if not item_target:
+            nxt = _next_status_after(ft, item.fulfillment_status)
+            if not nxt:
+                skipped.append({'id': item.id, 'reason': 'Already at terminal state.'})
+                continue
+            item_target = nxt[0]
+        # Targets that don't exist in this item's pipeline => skip (mixed types).
+        if item_target not in pipeline_keys:
+            skipped.append({'id': item.id,
+                            'reason': f"{ft.replace('_', ' ')} item has no '{item_target}' step."})
+            continue
+        # If item is already at or past the target, skip.
+        try:
+            cur_idx = pipeline_keys.index(item.fulfillment_status) if item.fulfillment_status in pipeline_keys else -1
+            tgt_idx = pipeline_keys.index(item_target)
+            if cur_idx >= tgt_idx:
+                skipped.append({'id': item.id, 'reason': 'Already at or past that status.'})
+                continue
+        except ValueError:
+            pass
+        try:
+            advance_item_status(
+                item, item_target,
+                tracking_carrier=carrier,
+                tracking_number=tracking,
+                tracking_note=note,
+                message=message,
+            )
+            advanced.append({'id': item.id, 'status': item.fulfillment_status,
+                             'tracking_url': item.tracking_url})
+        except ValueError as e:
+            errors.append({'id': item.id, 'error': str(e)})
+
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'advanced': advanced,
+                       'skipped': skipped,
+                       'errors': errors,
+                       'order_status': order.status})
+
+
+# ── Cancellation request: admin approval ──────────────────────────────────
+
+@app.route('/admin/orders/<int:order_id>/cancellation/approve', methods=['POST'])
+@login_required
+@require_perm('store.cancellations')
+def admin_order_cancellation_approve(order_id):
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not order.cancellation_requested_at or order.cancellation_resolved_at:
+        return _utf8_json({'success': False, 'error': 'No pending cancellation request.'}, 400)
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip() or None
+    ok, err = _finalize_order_cancellation(order, refund_note=note)
+    if not ok:
+        return _utf8_json({'success': False, 'error': err}, 200)
+    if note:
+        order.cancellation_admin_note = note
+    db.session.commit()
+    _send_cancellation_email(order, 'approved')
+    return _utf8_json({'success': True, 'status': order.status})
+
+
+@app.route('/admin/orders/<int:order_id>/cancellation/deny', methods=['POST'])
+@login_required
+@require_perm('store.cancellations')
+def admin_order_cancellation_deny(order_id):
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not order.cancellation_requested_at or order.cancellation_resolved_at:
+        return _utf8_json({'success': False, 'error': 'No pending cancellation request.'}, 400)
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip() or None
+    order.cancellation_resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    order.cancellation_decision = 'denied'
+    order.cancellation_admin_note = note
+    _log_order_event(order, None, None, 'cancellation_denied',
+                     message=(note or 'Cancellation request denied.'))
+    db.session.commit()
+    _send_cancellation_email(order, 'denied', admin_note=note)
+    return _utf8_json({'success': True})
+
+
+# ── Shipments / packages ──────────────────────────────────────────────────
+
+def _shipment_owned_or_403(shipment):
+    """Verify the shipment's order belongs to the current admin's tenant."""
+    order = shipment.order or db.session.get(StoreOrder, shipment.order_id)
+    if not order:
+        abort(404)
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+    return order, website
+
+
+@app.route('/admin/orders/<int:order_id>/shipments', methods=['POST'])
+@login_required
+@require_perm('store.orders.fulfill')
+def admin_shipment_create(order_id):
+    """Group selected items into a new package and advance them to 'preparing'
+    (or another given initial status) as a unit."""
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    raw_ids = data.get('item_ids') or []
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return _utf8_json({'success': False, 'error': 'Select at least one item.'}, 400)
+    try:
+        ids = [int(x) for x in raw_ids]
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid item ids.'}, 400)
+    initial = (data.get('initial_status') or 'preparing').strip()
+    shipment, err = _create_shipment_from_items(order, ids, initial_status=initial)
+    if err:
+        return _utf8_json({'success': False, 'error': err}, 400)
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'shipment_id': shipment.id,
+                       'sequence': shipment.sequence,
+                       'status': shipment.status})
+
+
+@app.route('/admin/orders/<int:order_id>/shipments/<int:shipment_id>/advance',
+           methods=['POST'])
+@login_required
+@require_perm('store.orders.fulfill')
+def admin_shipment_advance(order_id, shipment_id):
+    """Advance a shipment + all its items together. Optional shared tracking."""
+    shipment = OrderShipment.query.get_or_404(shipment_id)
+    if shipment.order_id != order_id:
+        return _utf8_json({'success': False, 'error': 'Mismatched order.'}, 400)
+    order, website = _shipment_owned_or_403(shipment)
+    data = request.get_json() or {}
+    target = (data.get('to_status') or '').strip()
+    if not target:
+        nxt = _next_status_after(shipment.fulfillment_type or 'shipping', shipment.status)
+        if not nxt:
+            return _utf8_json({'success': False, 'error': 'Package already fulfilled.'}, 400)
+        target = nxt[0]
+    payload = {
+        'tracking_carrier': data.get('tracking_carrier'),
+        'tracking_number':  data.get('tracking_number'),
+        'tracking_note':    data.get('tracking_note'),
+        'message':          data.get('message'),
+    }
+    _, err = _advance_shipment_status(shipment, target, payload=payload)
+    if err:
+        return _utf8_json({'success': False, 'error': err}, 400)
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'status': shipment.status,
+                       'tracking_url': shipment.tracking_url})
+
+
+@app.route('/admin/orders/<int:order_id>/shipments/<int:shipment_id>/disband',
+           methods=['POST'])
+@login_required
+@require_perm('store.orders.fulfill')
+def admin_shipment_disband(order_id, shipment_id):
+    """Break apart a package so items go back to per-item handling."""
+    shipment = OrderShipment.query.get_or_404(shipment_id)
+    if shipment.order_id != order_id:
+        return _utf8_json({'success': False, 'error': 'Mismatched order.'}, 400)
+    _shipment_owned_or_403(shipment)
+    _disband_shipment(shipment)
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 @app.route('/admin/store/products')
@@ -20600,6 +24153,7 @@ def store_products():
     return render_template('store/products.html',
                            products=products,
                            categories=categories,
+                           tax_codes=STRIPE_TAX_CODES,
                            website=website,
                            reviews=reviews)
 
@@ -20616,10 +24170,28 @@ def store_product_new():
                   .filter_by(website_id=website.id)
                   .order_by(StoreCategory.name)
                   .all()) if website else []
+    category_defaults = {
+        c.id: {
+            'fulfillment_type': c.default_fulfillment_type,
+            'allowed_fulfillment_types': c.default_allowed_fulfillment_types or [],
+            'tax_code': c.default_tax_code,
+            'track_inventory': c.default_track_inventory,
+            'allow_oversell': c.default_allow_oversell,
+        }
+        for c in categories
+    }
+    calendars = (Calendar.query
+                 .filter_by(user_id=current_user.root_user_id)
+                 .order_by(Calendar.name).all())
     return render_template('store/product_edit.html',
                            product=None,
                            categories=categories,
-                           website=website)
+                           category_defaults=category_defaults,
+                           tax_codes=STRIPE_TAX_CODES,
+                           website=website,
+                           calendars=calendars,
+                           option_types_list=[],
+                           variants_data=[])
 
 
 @app.route('/admin/store/products/new', methods=['POST'])
@@ -20649,19 +24221,38 @@ def store_product_create():
     except (ValueError, TypeError):
         return _utf8_json({'error': 'Invalid price'}, 400)
 
+    ft = (data.get('fulfillment_type') or 'shipping').strip().lower()
+    if ft not in FULFILLMENT_PIPELINES:
+        ft = 'shipping'
+    extra_ft = _sanitize_allowed_fulfillment_types(
+        data.get('allowed_fulfillment_types') or [], primary=ft)
     product = StoreProduct(
-        website_id       = website.id,
-        category_id      = data.get('category_id') or None,
-        name             = data['name'].strip(),
-        slug             = slug,
-        description      = data.get('description', ''),
-        price            = price,
-        compare_at_price = compare,
-        sku              = (data.get('sku') or '').strip() or None,
-        inventory_qty    = int(data.get('inventory_qty') or 0),
-        track_inventory  = bool(data.get('track_inventory', True)),
-        allow_oversell   = bool(data.get('allow_oversell', False)),
-        is_active        = bool(data.get('is_active', False)),
+        website_id          = website.id,
+        category_id         = data.get('category_id') or None,
+        name                = data['name'].strip(),
+        slug                = slug,
+        description         = data.get('description', ''),
+        price               = price,
+        compare_at_price    = compare,
+        sku                 = (data.get('sku') or '').strip() or None,
+        inventory_qty       = int(data.get('inventory_qty') or 0),
+        track_inventory     = bool(data.get('track_inventory', True)),
+        allow_oversell      = bool(data.get('allow_oversell', False)),
+        is_active           = bool(data.get('is_active', False)),
+        fulfillment_type    = ft,
+        allowed_fulfillment_types = extra_ft,
+        prep_minutes        = (None if data.get('prep_minutes') in (None, '', 'null')
+                               else max(0, min(600, int(data.get('prep_minutes') or 0)))),
+        event_calendar_id   = (int(data['event_calendar_id'])
+                               if data.get('event_calendar_id') else None),
+        event_starts_at     = _parse_iso(data.get('event_starts_at')),
+        event_ends_at       = _parse_iso(data.get('event_ends_at')),
+        event_location      = (data.get('event_location') or '').strip()[:255] or None,
+        event_all_day       = bool(data.get('event_all_day')),
+        variants_share_inventory = bool(data.get('variants_share_inventory')),
+        digital_file_url    = (data.get('digital_file_url') or '').strip() or None,
+        digital_expiry_days = max(1, min(int(data.get('digital_expiry_days') or 7), 365)),
+        tax_code            = _validate_tax_code(data.get('tax_code')),
     )
     db.session.add(product)
     db.session.flush()
@@ -20670,9 +24261,96 @@ def store_product_create():
         db.session.add(StoreProductImage(
             product_id=product.id, asset_id=asset_id, sort_order=i))
 
+    _persist_product_variants(product, data)
+    _sync_calendar_event_for_product(product)
+
     db.session.commit()
     return _utf8_json({'success': True, 'id': product.id,
                        'redirect': url_for('store_product_edit', product_id=product.id)})
+
+
+def _persist_product_variants(product, data):
+    """Sync the variants for `product` from the incoming JSON payload.
+    Payload shape:
+        option_types: ["Size", "Color"]   # up to 3, empty = no variants
+        variants: [
+          {"id": <existing id or null>, "option1": "S", "option2": "Red",
+           "sku": "...", "price_override": 12.50 or null,
+           "inventory_qty": 5, "is_active": true,
+           "image_asset_id": null, "sort_order": 0},
+          ...
+        ]
+    Variants present in DB but absent from the payload are deleted (after
+    nulling out FKs on order_items via SET NULL)."""
+    raw_types = data.get('option_types')
+    if isinstance(raw_types, list):
+        cleaned = [str(t).strip()[:60] for t in raw_types if str(t).strip()][:3]
+        product.option_types = cleaned or None
+    elif 'option_types' in data:
+        product.option_types = None  # explicit clear
+
+    raw_variants = data.get('variants') or []
+    if not isinstance(raw_variants, list):
+        raw_variants = []
+
+    # If no option types, drop all variants.
+    if not product.option_types:
+        existing = list(product.variants) if hasattr(product.variants, '__iter__') else product.variants.all()
+        for v in existing:
+            db.session.delete(v)
+        return
+
+    # Map existing variants by id for in-place updates.
+    existing = list(product.variants) if hasattr(product.variants, '__iter__') else product.variants.all()
+    by_id = {v.id: v for v in existing}
+    submitted_ids = set()
+
+    for idx, row in enumerate(raw_variants):
+        if not isinstance(row, dict):
+            continue
+        vid = row.get('id')
+        if vid:
+            try:
+                vid = int(vid)
+            except (TypeError, ValueError):
+                vid = None
+        v = by_id.get(vid) if vid else None
+        if not v:
+            v = StoreProductVariant(product_id=product.id)
+            db.session.add(v)
+        # Slot values
+        v.option1 = (row.get('option1') or '').strip()[:80] or None
+        v.option2 = (row.get('option2') or '').strip()[:80] or None
+        v.option3 = (row.get('option3') or '').strip()[:80] or None
+        v.sku = (row.get('sku') or '').strip()[:100] or None
+        po = row.get('price_override')
+        if po in (None, '', 'null'):
+            v.price_override = None
+        else:
+            try:
+                v.price_override = max(0.0, float(po))
+            except (TypeError, ValueError):
+                v.price_override = None
+        try:
+            v.inventory_qty = max(0, int(row.get('inventory_qty') or 0))
+        except (TypeError, ValueError):
+            v.inventory_qty = 0
+        try:
+            v.tickets_per_package = max(1, min(100, int(row.get('tickets_per_package') or 1)))
+        except (TypeError, ValueError):
+            v.tickets_per_package = 1
+        v.is_active = bool(row.get('is_active', True))
+        v.sort_order = int(idx)
+        img_id = row.get('image_asset_id')
+        v.image_asset_id = int(img_id) if img_id else None
+        db.session.flush()
+        if v.id:
+            submitted_ids.add(v.id)
+
+    # Delete variants that weren't in the submission.
+    for v in existing:
+        if v.id not in submitted_ids:
+            db.session.delete(v)
 
 
 @app.route('/admin/store/products/<int:product_id>', methods=['GET'])
@@ -20689,10 +24367,46 @@ def store_product_edit(product_id):
                   .filter_by(website_id=website.id)
                   .order_by(StoreCategory.name)
                   .all())
+    # Build a JSON-safe map of category defaults so the editor JS can read
+    # them and prefill the form when the buyer picks a category for a new
+    # product (or hits "Apply defaults").
+    category_defaults = {
+        c.id: {
+            'fulfillment_type': c.default_fulfillment_type,
+            'allowed_fulfillment_types': c.default_allowed_fulfillment_types or [],
+            'tax_code': c.default_tax_code,
+            'track_inventory': c.default_track_inventory,
+            'allow_oversell': c.default_allow_oversell,
+        }
+        for c in categories
+    }
+    # Serialize variants for the editor.
+    variant_rows = []
+    for v in (product.variants.all() if hasattr(product.variants, 'all') else product.variants):
+        variant_rows.append({
+            'id': v.id,
+            'option1': v.option1 or '', 'option2': v.option2 or '', 'option3': v.option3 or '',
+            'sku': v.sku or '',
+            'price_override': float(v.price_override) if v.price_override is not None else None,
+            'inventory_qty': int(v.inventory_qty or 0),
+            'tickets_per_package': int(v.tickets_per_package or 1),
+            'is_active': bool(v.is_active),
+            'image_asset_id': v.image_asset_id,
+            'sort_order': v.sort_order or 0,
+        })
+    calendars = (Calendar.query
+                 .filter_by(user_id=current_user.root_user_id)
+                 .order_by(Calendar.name).all())
     return render_template('store/product_edit.html',
                            product=product,
                            categories=categories,
-                           website=website)
+                           category_defaults=category_defaults,
+                           tax_codes=STRIPE_TAX_CODES,
+                           website=website,
+                           calendars=calendars,
+                           option_types_list=product.option_types or [],
+                           variants_data=variant_rows,
+                           allowed_ft_list=(product.allowed_fulfillment_types or []) if product else [])
 
 
 @app.route('/admin/store/products/<int:product_id>', methods=['POST'])
@@ -20734,6 +24448,32 @@ def store_product_update(product_id):
     product.track_inventory  = bool(data.get('track_inventory', True))
     product.allow_oversell   = bool(data.get('allow_oversell', False))
     product.is_active        = bool(data.get('is_active', False))
+    if 'fulfillment_type' in data:
+        ft = (data.get('fulfillment_type') or 'shipping').strip().lower()
+        if ft in FULFILLMENT_PIPELINES:
+            product.fulfillment_type = ft
+    if 'allowed_fulfillment_types' in data:
+        product.allowed_fulfillment_types = _sanitize_allowed_fulfillment_types(
+            data.get('allowed_fulfillment_types') or [],
+            primary=product.fulfillment_type)
+    if 'prep_minutes' in data:
+        v = data.get('prep_minutes')
+        if v in (None, '', 'null'):
+            product.prep_minutes = None
+        else:
+            try:
+                product.prep_minutes = max(0, min(600, int(v)))
+            except (TypeError, ValueError):
+                product.prep_minutes = None
+    if 'digital_file_url' in data:
+        product.digital_file_url = (data.get('digital_file_url') or '').strip() or None
+    if 'digital_expiry_days' in data:
+        try:
+            product.digital_expiry_days = max(1, min(int(data.get('digital_expiry_days') or 7), 365))
+        except (TypeError, ValueError):
+            product.digital_expiry_days = 7
+    if 'tax_code' in data:
+        product.tax_code = _validate_tax_code(data.get('tax_code'))
     product.updated_at       = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Replace image list
@@ -20743,8 +24483,130 @@ def store_product_update(product_id):
             db.session.add(StoreProductImage(
                 product_id=product.id, asset_id=asset_id, sort_order=i))
 
+    if 'option_types' in data or 'variants' in data:
+        _persist_product_variants(product, data)
+
+    if 'event_calendar_id' in data:
+        product.event_calendar_id = int(data['event_calendar_id']) if data['event_calendar_id'] else None
+    if 'event_starts_at' in data:
+        product.event_starts_at = _parse_iso(data.get('event_starts_at'))
+    if 'event_ends_at' in data:
+        product.event_ends_at = _parse_iso(data.get('event_ends_at'))
+    if 'event_location' in data:
+        product.event_location = (data.get('event_location') or '').strip()[:255] or None
+    if 'event_all_day' in data:
+        product.event_all_day = bool(data.get('event_all_day'))
+    if 'variants_share_inventory' in data:
+        product.variants_share_inventory = bool(data.get('variants_share_inventory'))
+    _sync_calendar_event_for_product(product)
+
     db.session.commit()
     return _utf8_json({'success': True})
+
+
+@app.route('/admin/inventory/log')
+@login_required
+@require_perm('store.view')
+def admin_inventory_log():
+    """Paginated audit log of every inventory change for this admin's products."""
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = 50
+    product_id = request.args.get('product_id', type=int)
+    reason = (request.args.get('reason') or '').strip()
+
+    websites_owned = [w.id for w in Website.query.filter_by(user_id=current_user.root_user_id).all()]
+    if not websites_owned:
+        return render_template('admin_inventory_log.html',
+                               movements=[], page=1, has_next=False,
+                               product_id=product_id, reason=reason,
+                               products=[],
+                               website=None, current_website=None,
+                               current_website_pages=[], page_id=None)
+    q = (InventoryMovement.query
+         .filter(InventoryMovement.user_id == current_user.root_user_id))
+    if product_id:
+        q = q.filter(InventoryMovement.product_id == product_id)
+    if reason:
+        q = q.filter(InventoryMovement.reason == reason)
+    q = q.order_by(InventoryMovement.created_at.desc())
+    total = q.count()
+    movements = q.offset((page - 1) * per_page).limit(per_page + 1).all()
+    has_next = len(movements) > per_page
+    movements = movements[:per_page]
+
+    products = (StoreProduct.query
+                .filter(StoreProduct.website_id.in_(websites_owned))
+                .order_by(StoreProduct.name).all())
+    website = get_admin_website()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template('admin_inventory_log.html',
+                           movements=movements, page=page, has_next=has_next,
+                           total=total,
+                           product_id=product_id, reason=reason,
+                           products=products,
+                           website=website, current_website=current_website,
+                           current_website_pages=current_website_pages, page_id=None)
+
+
+@app.route('/admin/store/products/<int:product_id>/inventory-adjust', methods=['POST'])
+@login_required
+@require_perm('store.products')
+def store_product_inventory_adjust(product_id):
+    """Manual inventory adjustment — admin enters +/− delta with a note.
+    Targets a variant when `variant_id` is included; otherwise the product
+    pool. Always logged in InventoryMovement."""
+    website = _store_website()
+    product = StoreProduct.query.filter_by(
+        id=product_id, website_id=website.id).first_or_404()
+    if not product.track_inventory:
+        return _utf8_json({'success': False,
+                           'error': 'Turn on "Track inventory" first.'}, 400)
+    data = request.get_json() or {}
+    try:
+        delta = int(data.get('delta') or 0)
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid delta.'}, 400)
+    if delta == 0:
+        return _utf8_json({'success': False, 'error': 'Delta must be non-zero.'}, 400)
+    reason = (data.get('reason') or 'manual_adjustment').strip().lower()
+    if reason not in ('manual_adjustment', 'initial', 'import', 'other'):
+        reason = 'manual_adjustment'
+    note = (data.get('note') or '').strip() or None
+    raw_v = data.get('variant_id')
+    variant = None
+    if raw_v:
+        try:
+            variant = StoreProductVariant.query.filter_by(
+                id=int(raw_v), product_id=product.id).first()
+        except (TypeError, ValueError):
+            variant = None
+        if not variant:
+            return _utf8_json({'success': False, 'error': 'Variant not found.'}, 404)
+    # Decide which pool to adjust.
+    if variant and not getattr(product, 'variants_share_inventory', False):
+        variant.inventory_qty = max(0, int(variant.inventory_qty or 0) + delta)
+        after = variant.inventory_qty
+        _log_inventory_movement(
+            product=product, variant=variant, delta=delta,
+            quantity_after=after, reason=reason,
+            source_type='admin', source_id=current_user.id,
+            actor_user_id=current_user.id, note=note,
+        )
+    else:
+        product.inventory_qty = max(0, int(product.inventory_qty or 0) + delta)
+        after = product.inventory_qty
+        _log_inventory_movement(
+            product=product, variant=None, delta=delta,
+            quantity_after=after, reason=reason,
+            source_type='admin', source_id=current_user.id,
+            actor_user_id=current_user.id, note=note,
+        )
+    product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'quantity_after': after})
 
 
 @app.route('/admin/store/products/<int:product_id>/delete', methods=['POST'])
@@ -20782,6 +24644,7 @@ def store_category_create():
         slug = f'{base_slug}-{n}'; n += 1
     cat = StoreCategory(website_id=website.id, name=name, slug=slug,
                         description=data.get('description', ''))
+    _apply_category_defaults_from_payload(cat, data)
     db.session.add(cat)
     db.session.commit()
     return _utf8_json({'success': True, 'id': cat.id, 'name': cat.name, 'slug': cat.slug})
@@ -20802,8 +24665,29 @@ def store_category_update(cat_id):
         return _utf8_json({'error': 'Name is required'}, 400)
     cat.name = name
     cat.description = data.get('description', cat.description)
+    _apply_category_defaults_from_payload(cat, data)
     db.session.commit()
     return _utf8_json({'success': True})
+
+
+def _apply_category_defaults_from_payload(cat, data):
+    """Pull category template defaults from a JSON payload onto the row.
+    Tolerant: missing keys leave existing values intact; explicit null clears."""
+    if 'default_fulfillment_type' in data:
+        v = (data.get('default_fulfillment_type') or '').strip().lower() or None
+        cat.default_fulfillment_type = v if (not v or v in FULFILLMENT_PIPELINES) else None
+    if 'default_allowed_fulfillment_types' in data:
+        cat.default_allowed_fulfillment_types = _sanitize_allowed_fulfillment_types(
+            data.get('default_allowed_fulfillment_types') or [],
+            primary=(cat.default_fulfillment_type or 'shipping'))
+    if 'default_tax_code' in data:
+        cat.default_tax_code = _validate_tax_code(data.get('default_tax_code'))
+    if 'default_track_inventory' in data:
+        v = data.get('default_track_inventory')
+        cat.default_track_inventory = None if v is None else bool(v)
+    if 'default_allow_oversell' in data:
+        v = data.get('default_allow_oversell')
+        cat.default_allow_oversell = None if v is None else bool(v)
 
 
 @app.route('/admin/store/categories/<int:cat_id>/delete', methods=['POST'])
@@ -21342,15 +25226,23 @@ def admin_post_save(cid):
 @require_perm('posts.publish')
 def admin_post_publish(cid, pid):
     collection = PostCollection.query.get_or_404(cid)
-    website = get_admin_website()
-    if not website or not is_owner(website):
+    admin_website = get_admin_website()
+    if not admin_website or not is_owner(admin_website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    was_published_before = bool(post.published_at)
     post.status = 'published'
     if not post.published_at:
         post.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
     post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
+    # Fire notifications only on the FIRST publish so re-publishing a post
+    # after an unpublish/republish cycle doesn't double-ping. The dispatcher
+    # resolves the URL per rule based on each rule's website filter, so the
+    # site shown in Discord follows what the admin actually configured the
+    # rule for (rather than where the post was created).
+    if not was_published_before:
+        dispatch_notification('post.published', post=post)
     return _utf8_json({'success': True, 'status': post.status, 'slug': post.slug})
 
 
@@ -22073,6 +25965,7 @@ def admin_storage_connections():
     website = get_admin_website()
     connections = StorageConnection.query.filter_by(user_id=current_user.root_user_id) \
         .order_by(StorageConnection.created_at.desc()).all()
+    connections = [c for c in connections if can_access_storage_connection(current_user, c)]
     google_creds = _storage_get_app_credentials('google_drive')
     current_website = website
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
@@ -22194,10 +26087,35 @@ def storage_oauth_callback(provider):
     return redirect(url_for('admin_storage_connections'))
 
 
+def can_access_storage_connection(user, conn):
+    """True if `user` may interact with the given external-drive connection.
+    Main admins always pass. Sub-admins must:
+      1. Belong to the same tenant as the connection's owner.
+      2. NOT be blocked by a per-drive override on their user row OR their
+         permission group. Missing entry = allowed (backwards compatible)."""
+    if not user or not conn:
+        return False
+    if not user.is_sub_admin:
+        return True
+    if conn.user_id != user.root_user_id:
+        return False
+    key = str(conn.id)
+    own = (user.storage_connection_access or {}).get(key)
+    if own is not None:
+        return bool(own)
+    if user.permission_group_id and user.permission_group:
+        grp = (user.permission_group.storage_connection_access or {}).get(key)
+        if grp is not None:
+            return bool(grp)
+    return True
+
+
 def _get_storage_connection_for_admin(cid):
     conn = StorageConnection.query.filter_by(
         id=cid, user_id=current_user.root_user_id
     ).first()
+    if conn and not can_access_storage_connection(current_user, conn):
+        return None
     return conn
 
 
@@ -22267,6 +26185,44 @@ def storage_connection_browse(cid):
         return _utf8_json({'success': True, 'folder_id': folder_id or 'root', 'items': items})
     except Exception as e:
         return _utf8_json({'success': False, 'error': str(e)}, 502)
+
+
+@app.route('/admin/storage-connections/<int:cid>/preview/<path:file_id>')
+@login_required
+@require_perm('storage.view')
+def storage_connection_preview(cid, file_id):
+    """Stream an external-drive file through uwebia so the browser can render
+    it inline (image, video, PDF, text, etc.) without first importing it.
+
+    The provider adapter fetches the bytes; we set headers Conservatively —
+    `Content-Disposition: inline` and the reported MIME — so PDFs and media
+    open natively. For unknown types the browser will offer to download.
+    Honours the `export_mime` query param for Google-Docs-style native files
+    that need explicit export conversion."""
+    conn = _get_storage_connection_for_admin(cid)
+    if not conn:
+        return 'Not found', 404
+    adapter = get_storage_adapter(conn.provider)
+    if not adapter:
+        return 'No adapter', 400
+    export_mime = request.args.get('export_mime') or None
+    try:
+        data, filename, mime = adapter.download_file(conn, file_id, export_mime=export_mime)
+    except Exception as e:
+        return f'Preview failed: {e}', 502
+    # Cap previews at 25 MB so a giant video doesn't tie up workers — buyers
+    # can still import-then-preview from the asset library.
+    MAX = 25 * 1024 * 1024
+    if data and len(data) > MAX:
+        data = data[:MAX]
+    resp = make_response(data or b'')
+    resp.headers['Content-Type'] = mime or 'application/octet-stream'
+    safe_name = (filename or 'file').replace('"', '')
+    resp.headers['Content-Disposition'] = f'inline; filename="{safe_name}"'
+    # Mild caching — these IDs are stable per file but we don't know the
+    # upstream mtime here. 5 minutes keeps repeated clicks snappy.
+    resp.headers['Cache-Control'] = 'private, max-age=300'
+    return resp
 
 
 @app.route('/admin/storage-connections/local-path/allowlist', methods=['POST'])
@@ -22384,6 +26340,7 @@ def admin_storage_connections_list():
     items = StorageConnection.query.filter_by(
         user_id=current_user.root_user_id, is_active=True
     ).order_by(StorageConnection.label.asc()).all()
+    items = [c for c in items if can_access_storage_connection(current_user, c)]
     return _utf8_json({'success': True, 'connections': [{
         'id': c.id,
         'label': c.label,
@@ -22452,11 +26409,3438 @@ def storage_connection_import(cid):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Payments (Stripe Checkout)
+# ════════════════════════════════════════════════════════════════════════════
+
+# Curated short list of Stripe tax codes the admin can pick per product.
+# Stripe maintains the full taxonomy at https://docs.stripe.com/tax/tax-codes —
+# we surface the most-used categories with friendly labels and fall back to
+# the generic tangible-goods code when nothing is selected.
+STRIPE_TAX_CODES = [
+    ('txcd_99999999', 'General — physical goods (default)'),
+    ('txcd_20030000', 'General — services'),
+    ('txcd_30070003', 'Software / SaaS'),
+    ('txcd_10103000', 'Prepared food (restaurant / takeout)'),
+    ('txcd_40060003', 'Groceries / unprepared food'),
+    ('txcd_20030004', 'Clothing'),
+    ('txcd_30060011', 'Digital download — audio/video/file'),
+    ('txcd_30070000', 'Event ticket / admission'),
+    ('txcd_92010001', 'Shipping & handling'),
+]
+_STRIPE_TAX_CODE_SET = {c for c, _ in STRIPE_TAX_CODES}
+DEFAULT_TAX_CODE = 'txcd_99999999'
+
+
+def _validate_tax_code(code):
+    """Return a known tax code or None."""
+    if not code:
+        return None
+    code = code.strip()
+    return code if code in _STRIPE_TAX_CODE_SET else None
+
+def get_stripe_settings_for_user(user_id):
+    return StripeSettings.query.filter_by(user_id=user_id).first()
+
+
+def _stripe_secret_key(settings):
+    if not settings or not settings.secret_key:
+        return None
+    return decrypt_api_key(settings.secret_key)
+
+
+def _stripe_publishable_key(settings):
+    return settings.publishable_key if settings else None
+
+
+def _stripe_webhook_secret(settings):
+    if not settings or not settings.webhook_secret:
+        return None
+    return decrypt_api_key(settings.webhook_secret)
+
+
+def _to_cents(amount):
+    """Convert a float dollar amount to integer cents safely."""
+    if amount is None:
+        return 0
+    return int(round(float(amount) * 100))
+
+
+def _stripe_client(settings):
+    """Return the stripe module configured with this admin's secret key.
+    The Stripe SDK keeps global state, so calls must always pass api_key
+    explicitly rather than relying on the global to avoid leaking one
+    admin's key into another's request."""
+    import stripe as _stripe
+    secret = _stripe_secret_key(settings)
+    if not secret:
+        raise RuntimeError('Stripe is not configured for this admin.')
+    return _stripe, secret
+
+
+def _sync_shipping_method_from_session(order, session_obj):
+    """Pull shipping rate label + amounts from a Stripe Checkout Session and
+    write them onto the StoreOrder. Safe to call from both the webhook and
+    the success-page poll. Tolerates missing/non-expanded fields."""
+    if not order or not session_obj:
+        return
+    shipping_cost_obj = getattr(session_obj, 'shipping_cost', None)
+    if shipping_cost_obj:
+        amount = getattr(shipping_cost_obj, 'amount_total', None)
+        if amount is not None:
+            try:
+                order.shipping_cost = round(int(amount) / 100.0, 2)
+            except (TypeError, ValueError):
+                pass
+        sr = getattr(shipping_cost_obj, 'shipping_rate', None)
+        # Stripe gives either the rate id (str) or the expanded object —
+        # use the inline label when present, otherwise leave alone.
+        if sr and not isinstance(sr, str):
+            label = getattr(sr, 'display_name', None)
+            if label:
+                order.shipping_method_label = label
+    total_details = getattr(session_obj, 'total_details', None)
+    if total_details:
+        tax_amt = getattr(total_details, 'amount_tax', None)
+        if tax_amt is not None:
+            try:
+                order.tax_total = round(int(tax_amt) / 100.0, 2)
+            except (TypeError, ValueError):
+                pass
+
+
+def create_stripe_checkout_session_for_store_order(order):
+    """Build a Stripe Checkout Session for a StoreOrder. Returns (session, payment)."""
+    website = db.session.get(Website, order.website_id)
+    if not website:
+        raise RuntimeError('Order has no website.')
+    settings = get_stripe_settings_for_user(website.user_id)
+    if not settings or not _stripe_secret_key(settings):
+        raise RuntimeError('Stripe is not configured.')
+    stripe_mod, api_key = _stripe_client(settings)
+
+    tax_on = bool(getattr(settings, 'automatic_tax_enabled', False))
+
+    # Build Stripe line items from the order items.
+    line_items = []
+    for it in order.items:
+        # Pull the product's tax category. Snapshot it onto the line so changing
+        # the product later doesn't rewrite history.
+        product = db.session.get(StoreProduct, it.product_id) if it.product_id else None
+        line_tax_code = _validate_tax_code(product.tax_code) if product else None
+        # Include variant options in the line name so Stripe receipts read
+        # "Shirt — Size: M, Color: Red" instead of just "Shirt".
+        line_name = it.product_name or f'Item #{it.id}'
+        if getattr(it, 'variant_options_snapshot', None):
+            line_name = f'{line_name} — {it.variant_options_snapshot}'
+        price_data = {
+            'currency': (settings.currency or 'usd').lower(),
+            'product_data': {'name': line_name},
+            'unit_amount': _to_cents(it.unit_price),
+        }
+        if tax_on:
+            # tax_behavior must be set when automatic_tax is enabled so Stripe
+            # knows whether the price is inclusive or exclusive of tax.
+            price_data['tax_behavior'] = 'exclusive'
+            price_data['product_data']['tax_code'] = line_tax_code or DEFAULT_TAX_CODE
+        line_items.append({'price_data': price_data, 'quantity': it.quantity})
+
+    # Tip line — only if there's an actual tip. Stripe's service-tip tax
+    # code (txcd_90020001) marks it as non-taxable so automatic_tax doesn't
+    # double-tax it as a service.
+    tip_cents = _to_cents(getattr(order, 'tip_total', 0) or 0)
+    if tip_cents > 0:
+        tip_price_data = {
+            'currency': (settings.currency or 'usd').lower(),
+            'product_data': {'name': 'Tip'},
+            'unit_amount': tip_cents,
+        }
+        if tax_on:
+            tip_price_data['tax_behavior'] = 'exclusive'
+            tip_price_data['product_data']['tax_code'] = 'txcd_90020001'
+        line_items.append({'price_data': tip_price_data, 'quantity': 1})
+
+    # Stripe handles shipping via a dedicated `shipping_options` parameter on
+    # the Checkout Session (radio picker on the hosted page). We compute the
+    # applicable rates from the admin's ShippingMethod list based on what's
+    # actually in the cart — using the per-item snapshot type (which already
+    # honours buyer pickup-vs-delivery choices made on the cart page) rather
+    # than the product's primary type.
+    subtotal_cents = sum(_to_cents(it.unit_price) * (it.quantity or 1)
+                         for it in order.items)
+    fulfillment_types_in_cart = set()
+    for it in order.items:
+        ft = (it.fulfillment_type or '').strip()
+        if not ft:
+            product = db.session.get(StoreProduct, it.product_id) if it.product_id else None
+            ft = (product.fulfillment_type if product else 'shipping') or 'shipping'
+        fulfillment_types_in_cart.add(ft)
+    # If every item is pickup/digital/ticket/service, there's no shipping to
+    # quote — skip the Stripe shipping_options block entirely.
+    needs_shipping = bool(fulfillment_types_in_cart & {'shipping', 'local_delivery'})
+    shipping_options = _applicable_shipping_methods(
+        website.user_id, fulfillment_types_in_cart, subtotal_cents,
+    ) if needs_shipping else []
+
+    success_url = url_for(
+        'payment_success', payment_id=0,
+        _external=True
+    ).replace('/payment-id-0',
+              '/{CHECKOUT_SESSION_ID}')  # noop, ensures _external picks host
+
+    # We build a Payment row first so we can reference its id in the
+    # Stripe success URL — that way the return handler doesn't need to trust
+    # query params alone.
+    payment = Payment(
+        user_id=website.user_id,
+        source_type='store_order',
+        source_id=order.id,
+        amount_cents=_to_cents(order.total),
+        currency=(settings.currency or 'usd').lower(),
+        status='pending',
+        customer_email=order.contact_email,
+    )
+    db.session.add(payment)
+    db.session.flush()
+
+    success_url = url_for(
+        'payment_success', payment_id=payment.id, _external=True
+    ) + '?stripe_session_id={CHECKOUT_SESSION_ID}'
+    cancel_url = url_for(
+        'payment_cancel', payment_id=payment.id, _external=True
+    )
+
+    session_kwargs = dict(
+        api_key=api_key,
+        mode='payment',
+        line_items=line_items,
+        success_url=success_url,
+        cancel_url=cancel_url,
+        customer_email=order.contact_email,
+        client_reference_id=f'payment:{payment.id}',
+        metadata={
+            'payment_id': str(payment.id),
+            'source_type': 'store_order',
+            'source_id': str(order.id),
+            'order_number': order.order_number or '',
+        },
+    )
+    if tax_on:
+        # Stripe needs the buyer's address to compute the right rate; for
+        # tax-bearing carts we ask Checkout to collect a billing address it
+        # can use even when the order doesn't otherwise need shipping (e.g.
+        # digital products). 'auto' lets Stripe collect only when required.
+        session_kwargs['automatic_tax'] = {'enabled': True}
+        session_kwargs['billing_address_collection'] = 'required'
+    if getattr(settings, 'allow_promotion_codes', False):
+        session_kwargs['allow_promotion_codes'] = True
+    if shipping_options:
+        session_kwargs['shipping_options'] = shipping_options
+        # Stripe needs a shipping address when shipping_options is set so it
+        # knows where to ship + can tax the shipping line correctly.
+        session_kwargs['shipping_address_collection'] = {
+            'allowed_countries': [
+                'US', 'CA', 'GB', 'AU', 'NZ', 'IE', 'DE', 'FR', 'NL', 'ES', 'IT',
+            ],
+        }
+    session = stripe_mod.checkout.Session.create(**session_kwargs)
+
+    payment.stripe_session_id = session.id
+    # Stripe SDK objects don't expose a dict-style .get() reliably; use attribute
+    # access. payment_intent is None on Checkout Sessions until the buyer pays —
+    # we'll fill it in from the webhook (or from the success-page poll).
+    pi = getattr(session, 'payment_intent', None)
+    if pi:
+        payment.stripe_payment_intent_id = pi
+    db.session.commit()
+    return session, payment
+
+
+def verify_stripe_webhook(payload_bytes, signature_header, settings):
+    """Validate an incoming Stripe webhook payload. Raises if the signature
+    doesn't match the configured webhook secret."""
+    import stripe as _stripe
+    secret = _stripe_webhook_secret(settings)
+    if not secret:
+        raise RuntimeError('Webhook secret is not configured.')
+    return _stripe.Webhook.construct_event(payload_bytes, signature_header, secret)
+
+
+# ── Shipping methods + delivery area ──────────────────────────────────────
+
+def _postal_normalize(code):
+    """Compare postal codes case- and whitespace-insensitively. US ZIP+4
+    matches on the leading 5 digits."""
+    s = (code or '').strip().upper().replace(' ', '')
+    if not s:
+        return ''
+    # Strip ZIP+4 suffix so '94103-1234' matches '94103'.
+    if '-' in s:
+        head, _, _ = s.partition('-')
+        if head.isdigit() and len(head) == 5:
+            return head
+    return s
+
+
+def _delivery_area_for(user_id):
+    return DeliveryArea.query.filter_by(user_id=user_id).first()
+
+
+def _delivery_area_allows(user_id, postal_code):
+    """Return True if the given postal code is inside the admin's allowlist.
+    An empty allowlist or no DeliveryArea row = unrestricted (allow)."""
+    area = _delivery_area_for(user_id)
+    if not area or not area.is_active:
+        return True
+    allowed = area.allowed_postal_codes or []
+    if not allowed:
+        return True
+    target = _postal_normalize(postal_code)
+    if not target:
+        return False
+    allowed_set = {_postal_normalize(c) for c in allowed if c}
+    return target in allowed_set
+
+
+def _cart_fulfillment_set(cart_items):
+    """Distinct fulfillment types present in the cart. Honors per-item
+    `fulfillment_choice` (the buyer's pick when the product allowed several);
+    falls back to the product's primary type, then 'shipping'."""
+    out = set()
+    for it in cart_items:
+        out.add(_resolve_item_fulfillment(it))
+    return out
+
+
+def _sanitize_allowed_fulfillment_types(raw, primary='shipping'):
+    """Normalize the multi-fulfillment input from the product editor. Keeps
+    only valid pipeline keys, removes the primary (it's always implicit), and
+    de-dupes. Returns None when the cleaned list is empty so we don't bloat
+    rows with empty arrays."""
+    if not isinstance(raw, (list, tuple)):
+        return None
+    cleaned, seen = [], set()
+    for ft in raw:
+        if not isinstance(ft, str):
+            continue
+        ft = ft.strip().lower()
+        if ft and ft in FULFILLMENT_PIPELINES and ft != primary and ft not in seen:
+            seen.add(ft)
+            cleaned.append(ft)
+    return cleaned or None
+
+
+def _product_allowed_fulfillment_types(product):
+    """Return the list of fulfillment types a product offers, including its
+    primary type. If `allowed_fulfillment_types` is set, that list wins; we
+    keep the primary at index 0 so the UI defaults to it. None/empty falls
+    back to just the primary."""
+    if not product:
+        return ['shipping']
+    primary = (product.fulfillment_type or 'shipping')
+    raw = getattr(product, 'allowed_fulfillment_types', None) or []
+    if not raw:
+        return [primary]
+    # De-dupe while preserving order, with primary first.
+    seen, out = set(), []
+    for ft in [primary] + list(raw):
+        if ft and ft not in seen:
+            seen.add(ft)
+            out.append(ft)
+    return out
+
+
+# ── Pickup scheduling ─────────────────────────────────────────────────────
+
+_WEEKDAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+_WEEKDAY_LABELS = {'mon': 'Monday', 'tue': 'Tuesday', 'wed': 'Wednesday',
+                   'thu': 'Thursday', 'fri': 'Friday', 'sat': 'Saturday',
+                   'sun': 'Sunday'}
+_DEFAULT_PICKUP_HOURS = {
+    'mon': {'enabled': True,  'open': '09:00', 'close': '17:00'},
+    'tue': {'enabled': True,  'open': '09:00', 'close': '17:00'},
+    'wed': {'enabled': True,  'open': '09:00', 'close': '17:00'},
+    'thu': {'enabled': True,  'open': '09:00', 'close': '17:00'},
+    'fri': {'enabled': True,  'open': '09:00', 'close': '17:00'},
+    'sat': {'enabled': False, 'open': '10:00', 'close': '15:00'},
+    'sun': {'enabled': False, 'open': '10:00', 'close': '15:00'},
+}
+
+
+def _pickup_settings_with_defaults(settings):
+    """Pull pickup config off StoreFulfillmentSettings, filling defaults."""
+    if not settings:
+        return None
+    hours = settings.pickup_hours or _DEFAULT_PICKUP_HOURS
+    return {
+        'hours': hours,
+        'slot_minutes': int(settings.pickup_slot_minutes or 30),
+        'allow_asap': bool(settings.pickup_allow_asap),
+        'advance_days': max(1, int(settings.pickup_advance_days or 14)),
+        'lead_minutes': max(0, int(settings.pickup_lead_minutes or 30)),
+        'default_prep_minutes': max(0, int(settings.pickup_prep_minutes or 0)),
+        'location_note': settings.pickup_location_note or '',
+        'any_day_enabled': any((h or {}).get('enabled') for h in hours.values()),
+    }
+
+
+def _cart_pickup_prep_minutes(cart_items, settings_dict):
+    """Effective prep time for a cart's pickup items. Returns max of:
+    item-level prep_minutes (when set) or the store-level default — across
+    all pickup items in the cart. Non-pickup items don't contribute."""
+    default = (settings_dict or {}).get('default_prep_minutes', 0) or 0
+    best = 0
+    for it in cart_items or []:
+        if _resolve_item_fulfillment(it) != 'pickup':
+            continue
+        p = getattr(it, 'product', None)
+        if not p:
+            continue
+        val = p.prep_minutes if (p.prep_minutes is not None) else default
+        best = max(best, int(val or 0))
+    return best
+
+
+def _parse_hm(s):
+    """Parse 'HH:MM' into (hour, minute). Returns None on failure."""
+    try:
+        h, m = s.split(':')
+        h = int(h); m = int(m)
+        if 0 <= h < 24 and 0 <= m < 60:
+            return h, m
+    except Exception:
+        pass
+    return None
+
+
+def _generate_pickup_slots_for_day(day, hours, slot_minutes, lead_after=None):
+    """Return a list of datetimes on `day` that fall within open/close hours
+    at the given slot interval. `lead_after` filters out slots strictly
+    earlier than that datetime."""
+    if not day:
+        return []
+    cfg = (hours or {}).get(_WEEKDAY_KEYS[day.weekday()]) or {}
+    if not cfg.get('enabled'):
+        return []
+    o = _parse_hm(cfg.get('open') or '09:00')
+    c = _parse_hm(cfg.get('close') or '17:00')
+    if not o or not c:
+        return []
+    start = datetime(day.year, day.month, day.day, o[0], o[1])
+    end = datetime(day.year, day.month, day.day, c[0], c[1])
+    if end <= start:
+        return []
+    slots = []
+    cur = start
+    step = timedelta(minutes=max(5, slot_minutes))
+    while cur <= end - timedelta(minutes=slot_minutes):
+        if lead_after is None or cur >= lead_after:
+            slots.append(cur)
+        cur += step
+    return slots
+
+
+def _available_pickup_days(settings_dict, extra_lead_minutes=0):
+    """Return a list of {date, label, slots: ['HH:MM', ...]} for the next N
+    days. `extra_lead_minutes` is added to the global lead — pass the cart's
+    effective prep time to ensure the earliest slot accounts for it."""
+    if not settings_dict or not settings_dict.get('any_day_enabled'):
+        return []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    lead_after = now + timedelta(minutes=settings_dict['lead_minutes'] + max(0, int(extra_lead_minutes or 0)))
+    out = []
+    for offset in range(settings_dict['advance_days']):
+        day = (now + timedelta(days=offset)).date()
+        slots = _generate_pickup_slots_for_day(
+            day, settings_dict['hours'], settings_dict['slot_minutes'],
+            lead_after=lead_after,
+        )
+        if slots:
+            out.append({
+                'date': day.isoformat(),
+                'label': day.strftime('%a %b %-d'),
+                'slots': [s.strftime('%H:%M') for s in slots],
+            })
+    return out
+
+
+def _validate_pickup_time(value_iso, settings_dict, extra_lead_minutes=0):
+    """Verify a buyer-submitted ISO datetime falls inside a valid slot.
+    Returns (datetime or None, error or None)."""
+    if not value_iso:
+        return None, 'Pickup time is required.'
+    if not settings_dict:
+        return None, 'Pickup is not configured.'
+    try:
+        when = datetime.fromisoformat(value_iso)
+        if when.tzinfo is not None:
+            when = when.astimezone(timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        return None, 'Invalid pickup time.'
+    day = when.date()
+    lead_after = (datetime.now(timezone.utc).replace(tzinfo=None)
+                  + timedelta(minutes=settings_dict['lead_minutes']
+                              + max(0, int(extra_lead_minutes or 0))))
+    slots = _generate_pickup_slots_for_day(
+        day, settings_dict['hours'], settings_dict['slot_minutes'],
+        lead_after=lead_after,
+    )
+    if when not in slots:
+        return None, 'That time is no longer available — pick another slot.'
+    return when, None
+
+
+def _cart_delivery_estimate(user_id, fulfillment_types, subtotal_cents):
+    """For a cart with shipping/local_delivery items, return a {min, max, label}
+    dict summarizing the buyer-facing delivery estimate. Picks the tightest
+    range across applicable rates so we don't over-promise."""
+    if not (fulfillment_types & {'shipping', 'local_delivery'}):
+        return None
+    methods = (ShippingMethod.query
+               .filter_by(user_id=user_id, is_active=True)
+               .order_by(ShippingMethod.amount_cents.asc())
+               .all())
+    mins, maxs = [], []
+    for m in methods:
+        if m.applies_to != 'both' and m.applies_to not in fulfillment_types:
+            continue
+        if m.delivery_min_days is not None:
+            mins.append(int(m.delivery_min_days))
+        if m.delivery_max_days is not None:
+            maxs.append(int(m.delivery_max_days))
+    if not mins and not maxs:
+        return None
+    lo = min(mins) if mins else (min(maxs) if maxs else None)
+    hi = max(maxs) if maxs else (max(mins) if mins else None)
+    if lo is None and hi is None:
+        return None
+    label = (f'{lo}–{hi} business days' if (lo and hi and lo != hi)
+             else (f'{lo or hi} business day{"s" if (lo or hi) != 1 else ""}'))
+    if 'local_delivery' in fulfillment_types and 'shipping' not in fulfillment_types:
+        prefix = 'Estimated delivery'
+    elif 'shipping' in fulfillment_types and 'local_delivery' not in fulfillment_types:
+        prefix = 'Estimated shipping'
+    else:
+        prefix = 'Estimated arrival'
+    return {'min': lo, 'max': hi, 'label': f'{prefix}: {label}'}
+
+
+def _checkout_charge_label(fulfillment_types):
+    """Pick the right label for the price-summary charge row at checkout.
+    Returns (label, show_row) — show_row is False when no shipping fee
+    applies (digital/ticket/custom/pickup-only carts hide the row entirely)."""
+    if not fulfillment_types:
+        return ('Shipping', False)
+    physical = fulfillment_types & {'shipping', 'local_delivery'}
+    if not physical:
+        # ticket / digital / custom / pickup-only — no shipping line at all.
+        return ('Shipping', False)
+    if physical == {'shipping'}:
+        return ('Shipping', True)
+    if physical == {'local_delivery'}:
+        return ('Delivery charge', True)
+    # Mix of shipping + local_delivery.
+    return ('Shipping & delivery', True)
+
+
+def _cart_line_unit_price(cart_item):
+    """Per-unit price for a cart line — variant override beats product price."""
+    if not cart_item:
+        return 0.0
+    if cart_item.variant_id and getattr(cart_item, 'variant', None):
+        return cart_item.variant.effective_price()
+    return float(cart_item.product.price) if cart_item.product else 0.0
+
+
+def _cart_line_sku(cart_item):
+    if not cart_item:
+        return None
+    if cart_item.variant_id and getattr(cart_item, 'variant', None):
+        return cart_item.variant.effective_sku()
+    return cart_item.product.sku if cart_item.product else None
+
+
+def _cart_line_inventory_available(cart_item, requested_qty=None):
+    """How many units of this line are available right now. Three modes:
+    - product has variants AND variants_share_inventory: pool from product
+    - product has variants (per-variant): pool from variant
+    - no variants: pool from product
+    Honors `allow_oversell` and `track_inventory=off`."""
+    if not cart_item or not cart_item.product:
+        return 0
+    p = cart_item.product
+    if p.allow_oversell or not p.track_inventory:
+        return requested_qty if requested_qty is not None else 10**9
+    if cart_item.variant_id and getattr(cart_item, 'variant', None):
+        if getattr(p, 'variants_share_inventory', False):
+            return int(p.inventory_qty or 0)
+        return int(cart_item.variant.inventory_qty or 0)
+    return int(p.inventory_qty or 0)
+
+
+def _log_inventory_movement(*, product, variant, delta, quantity_after, reason,
+                            source_type=None, source_id=None, note=None,
+                            actor_user_id=None):
+    """Append one row to the inventory log. Best-effort — never raises, since
+    we don't want a logging failure to block a payment or refund.
+
+    `user_id` is required (the inventory_log page filters by it). We look it
+    up from the product's website_id since StoreProduct has no `website`
+    relationship attribute."""
+    if not product or delta == 0:
+        return None
+    try:
+        # Snapshot human-readable labels so the log survives rename/delete.
+        v_label = None
+        if variant:
+            try:
+                v_label = variant.display_options(product)
+            except Exception:
+                v_label = None
+        # Resolve the owning admin from the website.
+        site = db.session.get(Website, product.website_id) if product.website_id else None
+        owner_id = site.user_id if site else None
+        if not owner_id:
+            return None  # No owner -> can't scope; skip rather than insert orphan.
+        m = InventoryMovement(
+            user_id=owner_id,
+            product_id=product.id,
+            variant_id=variant.id if variant else None,
+            product_name_snapshot=(product.name or None),
+            variant_label_snapshot=v_label,
+            delta=int(delta),
+            quantity_after=int(quantity_after or 0),
+            reason=(reason or 'other'),
+            source_type=source_type,
+            source_id=source_id,
+            actor_user_id=actor_user_id,
+            note=(note or None),
+        )
+        db.session.add(m)
+        # Caller commits.
+    except Exception as e:
+        try:
+            app.logger.warning(f'[inventory] log write failed: {e}')
+        except Exception:
+            pass
+    return None
+
+
+def _decrement_inventory_for_cart_item(cart_item, qty):
+    """Decrement inventory at checkout. Returns the amount actually decremented."""
+    if not cart_item or not cart_item.product or qty <= 0:
+        return 0
+    p = cart_item.product
+    if not p.track_inventory:
+        return qty
+    variant_for_log = None
+    if cart_item.variant_id and getattr(cart_item, 'variant', None):
+        if getattr(p, 'variants_share_inventory', False):
+            # Shared pool — decrement the product, not the variant.
+            p.inventory_qty = max(0, int(p.inventory_qty or 0) - qty)
+            after = p.inventory_qty
+        else:
+            v = cart_item.variant
+            v.inventory_qty = max(0, int(v.inventory_qty or 0) - qty)
+            after = v.inventory_qty
+            variant_for_log = v
+    else:
+        p.inventory_qty = max(0, int(p.inventory_qty or 0) - qty)
+        after = p.inventory_qty
+    _log_inventory_movement(
+        product=p, variant=variant_for_log,
+        delta=-qty, quantity_after=after, reason='sale',
+    )
+    return qty
+
+
+def _restock_for_order_item(order_item, qty, *, reason='refund', source_type=None, source_id=None, note=None):
+    """Reverse-decrement when refunding / canceling / RMA-receiving. Mirrors
+    the decrement path: variants either share with the product or each track
+    their own inventory. `reason` is recorded in the inventory log."""
+    if not order_item or qty <= 0:
+        return False
+    product = db.session.get(StoreProduct, order_item.product_id) if order_item.product_id else None
+    if not product or not product.track_inventory:
+        return False
+    if order_item.variant_id and not getattr(product, 'variants_share_inventory', False):
+        variant = db.session.get(StoreProductVariant, order_item.variant_id)
+        if variant:
+            variant.inventory_qty = max(0, int(variant.inventory_qty or 0) + qty)
+            _log_inventory_movement(
+                product=product, variant=variant, delta=qty,
+                quantity_after=variant.inventory_qty, reason=reason,
+                source_type=source_type or 'order',
+                source_id=source_id or order_item.order_id,
+                note=note,
+            )
+            return True
+    product.inventory_qty = max(0, int(product.inventory_qty or 0) + qty)
+    _log_inventory_movement(
+        product=product, variant=None, delta=qty,
+        quantity_after=product.inventory_qty, reason=reason,
+        source_type=source_type or 'order',
+        source_id=source_id or order_item.order_id,
+        note=note,
+    )
+    return True
+
+
+def _find_variant_for(product, option_values):
+    """Find the variant matching a list of option values, in order.
+    `option_values` is a list like ["M", "Red"] — must match product.option_types positions."""
+    if not product or not product.option_types or not option_values:
+        return None
+    types_len = len(product.option_types or [])
+    padded = (list(option_values) + [None, None, None])[:3]
+    variants = list(product.variants) if hasattr(product.variants, '__iter__') else product.variants.all()
+    for v in variants:
+        if not v.is_active:
+            continue
+        slots = (v.option1, v.option2, v.option3)
+        # Only require equality on positions that have a defined option_type.
+        if all((padded[i] or None) == (slots[i] or None) for i in range(types_len)):
+            return v
+    return None
+
+
+def _resolve_item_fulfillment(cart_or_order_item):
+    """Pick the active fulfillment type for a cart or order item.
+    Order: explicit choice → product primary → 'shipping'."""
+    if cart_or_order_item is None:
+        return 'shipping'
+    choice = getattr(cart_or_order_item, 'fulfillment_choice', None)
+    if choice:
+        return choice
+    # OrderItems already snapshot fulfillment_type at checkout time.
+    snap = getattr(cart_or_order_item, 'fulfillment_type', None)
+    if snap:
+        return snap
+    p = getattr(cart_or_order_item, 'product', None)
+    if p and p.fulfillment_type:
+        return p.fulfillment_type
+    return 'shipping'
+
+
+def _applicable_shipping_methods(user_id, fulfillment_types, subtotal_cents):
+    """Pick the ShippingMethods that apply to a cart and return them as
+    Stripe shipping_options entries. Sorted by sort_order then amount."""
+    if not fulfillment_types:
+        return []
+    methods = (ShippingMethod.query
+               .filter_by(user_id=user_id, is_active=True)
+               .order_by(ShippingMethod.sort_order.asc(),
+                         ShippingMethod.amount_cents.asc())
+               .all())
+    out = []
+    for m in methods:
+        # 'both' applies to either; otherwise must match.
+        if m.applies_to != 'both' and m.applies_to not in fulfillment_types:
+            continue
+        amount = m.amount_cents
+        free_threshold = m.free_over_amount_cents
+        if free_threshold and subtotal_cents >= free_threshold:
+            amount = 0
+        out.append(_shipping_option_from_method(m, amount))
+    return out
+
+
+def _shipping_option_from_method(method, amount_cents):
+    """Build a Stripe `shipping_options` entry from a ShippingMethod row.
+    The display name is auto-prefixed with "Delivery — " or "Shipping — " so
+    buyers see the right wording on the Stripe-hosted page (Stripe's own
+    section header always reads "Shipping" and can't be customized). The
+    prefix is only added when the admin's label doesn't already contain a
+    relevant word."""
+    label = (method.label or 'Shipping').strip()
+    low = label.lower()
+    if method.applies_to == 'local_delivery':
+        if 'deliver' not in low and 'pickup' not in low:
+            label = f'Delivery — {label}'
+    elif method.applies_to == 'shipping':
+        if 'ship' not in low and 'deliver' not in low:
+            label = f'Shipping — {label}'
+    # 'both' keeps admin label verbatim — they're naming it themselves.
+    # Stripe display_name has an 80-char cap — be defensive.
+    if len(label) > 80:
+        label = label[:79] + '…'
+    rate = {
+        'type': 'fixed_amount',
+        'fixed_amount': {
+            'amount': int(amount_cents),
+            'currency': (method.currency or 'usd').lower(),
+        },
+        'display_name': label,
+        'tax_behavior': 'exclusive',
+        'tax_code': 'txcd_92010001',
+    }
+    if method.delivery_min_days is not None or method.delivery_max_days is not None:
+        rate['delivery_estimate'] = {}
+        if method.delivery_min_days is not None:
+            rate['delivery_estimate']['minimum'] = {
+                'unit': 'business_day', 'value': int(method.delivery_min_days)
+            }
+        if method.delivery_max_days is not None:
+            rate['delivery_estimate']['maximum'] = {
+                'unit': 'business_day', 'value': int(method.delivery_max_days)
+            }
+    return {'shipping_rate_data': rate}
+
+
+# ── Fulfillment pipeline ───────────────────────────────────────────────────
+
+FULFILLMENT_PIPELINES = {
+    'shipping': [
+        ('paid',      'Paid — preparing to ship'),
+        ('preparing', 'Preparing your shipment'),
+        ('shipped',   'Shipped'),
+        ('delivered', 'Delivered'),
+    ],
+    'local_delivery': [
+        ('paid',             'Paid — preparing your delivery'),
+        ('preparing',        'Preparing your delivery'),
+        ('out_for_delivery', 'Out for delivery'),
+        ('delivered',        'Delivered'),
+    ],
+    'pickup': [
+        ('paid',              'Paid — preparing your order'),
+        ('preparing',         'Preparing your order'),
+        ('ready_for_pickup',  'Ready for pickup'),
+        ('picked_up',         'Picked up'),
+    ],
+    'digital': [
+        ('paid',           'Paid'),
+        ('file_delivered', 'File delivered'),
+    ],
+    'ticket': [
+        ('paid',           'Paid'),
+        ('ticket_issued',  'Ticket issued'),
+    ],
+    'custom': [
+        ('paid',      'Paid'),
+        ('fulfilled', 'Fulfilled'),
+    ],
+}
+
+
+def _pipeline_for(fulfillment_type):
+    return FULFILLMENT_PIPELINES.get(fulfillment_type or 'shipping',
+                                     FULFILLMENT_PIPELINES['shipping'])
+
+
+def _next_status_after(fulfillment_type, current_status):
+    """Return the next (status_key, label) tuple in the pipeline after the
+    current one, or None when there's no further step."""
+    pipeline = _pipeline_for(fulfillment_type)
+    keys = [k for k, _ in pipeline]
+    if current_status not in keys:
+        # Unknown current status — start from the beginning.
+        return pipeline[0] if pipeline else None
+    idx = keys.index(current_status)
+    if idx + 1 >= len(pipeline):
+        return None
+    return pipeline[idx + 1]
+
+
+def _terminal_statuses():
+    """Set of statuses that mean 'this item is done' for rollup purposes."""
+    return {
+        'delivered', 'picked_up', 'file_delivered', 'ticket_issued', 'fulfilled',
+    }
+
+
+def _build_tracking_url(carrier, tracking_number):
+    """Build a clickable URL for known carriers; falls back to a search-engine
+    URL for the generic case."""
+    if not tracking_number:
+        return None
+    c = (carrier or '').strip().lower()
+    n = tracking_number.strip()
+    if not c:
+        return None
+    if c in ('ups',):
+        return f'https://www.ups.com/track?tracknum={n}'
+    if c in ('usps',):
+        return f'https://tools.usps.com/go/TrackConfirmAction?tLabels={n}'
+    if c in ('fedex',):
+        return f'https://www.fedex.com/fedextrack/?trknbr={n}'
+    if c in ('dhl',):
+        return f'https://www.dhl.com/en/express/tracking.html?AWB={n}'
+    if c in ('ontrac',):
+        return f'https://www.ontrac.com/tracking?number={n}'
+    if c in ('canada post', 'canadapost'):
+        return f'https://www.canadapost-postescanada.ca/track-reperage/en#/details/{n}'
+    return None
+
+
+def _get_fulfillment_settings(user_id):
+    s = StoreFulfillmentSettings.query.filter_by(user_id=user_id).first()
+    if not s:
+        s = StoreFulfillmentSettings(user_id=user_id, config={})
+        db.session.add(s)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            s = StoreFulfillmentSettings.query.filter_by(user_id=user_id).first()
+    return s
+
+
+def _email_enabled(user_id, fulfillment_type, status):
+    """Return True if the buyer email for (type, status) is enabled. Defaults
+    to True — admin must explicitly mute a transition to disable it."""
+    s = _get_fulfillment_settings(user_id)
+    cfg = (s.config if s else None) or {}
+    key = f'{fulfillment_type}.{status}'
+    return cfg.get(key, True) is not False
+
+
+# Default email subject + body builders per (fulfillment_type, status).
+def _maybe_sms_for_event(order, event_key, body):
+    """Fire a buyer SMS for an order-related event, but only when:
+      - the admin's SMS provider is active
+      - the admin's channel_config for this event is 'sms' or 'both'
+      - the buyer has provided a phone AND opted in (account or guest level)
+    No-op silently otherwise — email is already handled by the caller."""
+    if not order:
+        return
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not website:
+        return
+    sms_settings = get_sms_settings_for_user(website.user_id)
+    if not sms_settings or not sms_settings.is_active:
+        return
+    channel = _resolve_channel(sms_settings, event_key, default='email')
+    if channel not in ('sms', 'both'):
+        return
+    phone = None
+    if order.public_user_id:
+        pu = db.session.get(PublicUser, order.public_user_id)
+        if pu and pu.sms_opt_in and pu.phone_number:
+            phone = pu.phone_number
+    if not phone and getattr(order, 'sms_opt_in', False) and order.contact_phone:
+        phone = order.contact_phone
+    if not phone:
+        return
+    try:
+        send_sms(website.user_id, phone, body[:1000])
+    except Exception as e:
+        app.logger.warning(f'[sms] event {event_key} send failed: {e}')
+
+
+def _short_order_url(order, website):
+    base = _site_external_base(website) or ''
+    if order.tracking_token:
+        return f'{base}/order/{order.tracking_token}'
+    return base
+
+
+def _build_transition_email(order, item, fulfillment_type, status, website):
+    """Return (subject, html_body, plain_body). Returns None if no email
+    should be sent for this transition (e.g. 'paid' is announced via the
+    order-received email instead)."""
+    base = _site_external_base(website) or ''
+    order_url = (base + url_for('public_order_status', token=order.tracking_token)
+                 if order.tracking_token else None)
+    site_name = (website.name if website else 'our store')
+    item_name = item.product_name or 'your order'
+
+    def shell(headline, body_html, cta_label=None, cta_url=None):
+        cta = ''
+        if cta_url and cta_label:
+            cta = (f'<p style="margin:22px 0;text-align:center;">'
+                   f'<a href="{escape(cta_url)}" '
+                   f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+                   f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+                   f'{escape(cta_label)}</a></p>')
+        track_link = ''
+        if order_url:
+            track_link = (f'<p style="font-size:13px;color:#666;margin-top:18px;">'
+                          f'You can view this order anytime: '
+                          f'<a href="{escape(order_url)}">{escape(order_url)}</a></p>')
+        html = (f'<p>Hi {escape(order.contact_name or "there")},</p>'
+                f'<p>{body_html}</p>'
+                f'{cta}'
+                f'<p style="font-size:13px;color:#666;">Order #{escape(order.order_number)} · {escape(site_name)}</p>'
+                f'{track_link}')
+        plain = _html_to_plain(html)
+        return html, plain
+
+    if status == 'preparing':
+        subject = f'Order #{order.order_number}: {item_name} is being prepared'
+        html, plain = shell('Preparing',
+            f'We\'ve started preparing <strong>{escape(item_name)}</strong>. You\'ll get another email when it ships out.',
+            'View order', order_url)
+        return subject, html, plain
+
+    if status == 'shipped':
+        subject = f'Order #{order.order_number}: {item_name} shipped'
+        details = []
+        if item.tracking_carrier:
+            details.append(f'<strong>Carrier:</strong> {escape(item.tracking_carrier)}')
+        if item.tracking_number:
+            details.append(f'<strong>Tracking #:</strong> {escape(item.tracking_number)}')
+        if item.tracking_note:
+            details.append(f'<em>{escape(item.tracking_note)}</em>')
+        detail_html = ('<br>'.join(details)) if details else ''
+        html, plain = shell('Shipped',
+            f'Your <strong>{escape(item_name)}</strong> is on its way!<br>{detail_html}',
+            'Track package' if item.tracking_url else 'View order',
+            item.tracking_url or order_url)
+        return subject, html, plain
+
+    if status == 'out_for_delivery':
+        subject = f'Order #{order.order_number}: {item_name} is out for delivery'
+        html, plain = shell('Out for delivery',
+            f'<strong>{escape(item_name)}</strong> is out for delivery today.',
+            'View order', order_url)
+        return subject, html, plain
+
+    if status == 'delivered':
+        subject = f'Order #{order.order_number}: {item_name} delivered'
+        html, plain = shell('Delivered',
+            f'Your <strong>{escape(item_name)}</strong> has been delivered. Thanks for shopping with us!',
+            'View order', order_url)
+        return subject, html, plain
+
+    if status == 'ready_for_pickup':
+        subject = f'Order #{order.order_number}: ready for pickup'
+        body = f'<strong>{escape(item_name)}</strong> is ready! Come grab it whenever you can.'
+        if item.tracking_note:
+            body += f'<br><br>{escape(item.tracking_note)}'
+        html, plain = shell('Ready for pickup', body, 'View order', order_url)
+        return subject, html, plain
+
+    if status == 'picked_up':
+        subject = f'Order #{order.order_number}: picked up'
+        html, plain = shell('Picked up',
+            f'Thanks for picking up <strong>{escape(item_name)}</strong>. Hope you enjoy it!',
+            'View order', order_url)
+        return subject, html, plain
+
+    if status == 'file_delivered':
+        dl_url = None
+        if item.digital_token:
+            try:
+                dl_url = url_for('public_digital_download', token=item.digital_token, _external=True)
+            except Exception:
+                dl_url = None
+        subject = f'Order #{order.order_number}: your download is ready'
+        body = f'Your purchase of <strong>{escape(item_name)}</strong> is ready to download.'
+        if item.digital_expires_at:
+            body += (f'<br><span style="color:#666;font-size:13px;">'
+                     f'Link expires {item.digital_expires_at.strftime("%b %-d, %Y")}.</span>')
+        html, plain = shell('Download ready', body, 'Download now', dl_url)
+        return subject, html, plain
+
+    if status == 'ticket_issued':
+        # List every issued ticket (multi-pack packages produce many).
+        tickets = list(item.tickets) if hasattr(item, 'tickets') else []
+        tickets = tickets if not hasattr(tickets, 'all') else tickets.all()
+        if not tickets and item.ticket_code:
+            # Legacy single-code path — keep working for older orders.
+            tickets = [type('T', (), {'code': item.ticket_code, 'tier_label': None})()]
+        n = len(tickets) if tickets else 1
+        subject = (f'Order #{order.order_number}: your ticket'
+                   if n <= 1 else f'Order #{order.order_number}: your {n} tickets')
+        product = db.session.get(StoreProduct, item.product_id) if item.product_id else None
+        event_line = ''
+        if product and product.event_starts_at:
+            when = (product.event_starts_at.strftime('%A, %B %-d, %Y')
+                    if product.event_all_day else
+                    product.event_starts_at.strftime('%A, %B %-d at %-I:%M %p'))
+            event_line = f'<p><strong>{escape(when)}</strong>'
+            if product.event_location:
+                event_line += f' · {escape(product.event_location)}'
+            event_line += '</p>'
+        ticket_rows = ''
+        for tk in tickets:
+            code = tk.code
+            tier = getattr(tk, 'tier_label', None)
+            link = f'{base}/ticket/{code}' if base else f'/ticket/{code}'
+            # PNG (not SVG) for email — Gmail and most clients block SVG images.
+            qr_src = f'{base}/ticket/{code}/qr.png' if base else f'/ticket/{code}/qr.png'
+            ticket_rows += (
+                f'<div style="margin:14px 0;padding:18px;background:#f5f5f7;'
+                f'border-radius:12px;color:#111;text-align:center;">'
+                f'<img src="{escape(qr_src)}" alt="QR for {escape(code)}" '
+                f'width="180" height="180" '
+                f'style="display:block;margin:0 auto 12px;background:#fff;border-radius:6px;">'
+                f'<div style="font-family:monospace;font-size:1.15rem;letter-spacing:0.1em;'
+                f'font-weight:700;">{escape(code)}</div>'
+                + (f'<div style="font-size:0.86rem;color:#444;margin-top:4px;">{escape(tier)}</div>' if tier else '')
+                + f'<div style="margin-top:10px;"><a href="{escape(link)}" style="color:#0078d4;font-size:0.86rem;">Open ticket page →</a></div>'
+                f'</div>'
+            )
+        body = (f'Your {"ticket" if n == 1 else f"{n} tickets"} for '
+                f'<strong>{escape(item_name)}</strong> '
+                f'{"is" if n == 1 else "are"} below. Present {"this code" if n == 1 else "each code"} on arrival.')
+        body += event_line + ticket_rows
+        html, plain = shell('Ticket issued' if n == 1 else f'{n} tickets issued',
+                            body, 'View order', order_url)
+        return subject, html, plain
+
+    if status == 'fulfilled':
+        subject = f'Order #{order.order_number}: {item_name} fulfilled'
+        body = f'Your order for <strong>{escape(item_name)}</strong> is complete.'
+        if item.tracking_note:
+            body += f'<br><br>{escape(item.tracking_note)}'
+        html, plain = shell('Fulfilled', body, 'View order', order_url)
+        return subject, html, plain
+
+    # paid / unknown — no separate email; the order-received email covers paid.
+    return None
+
+
+def _log_order_event(order, item, from_status, to_status, message=None, payload=None):
+    """Append a row to the order timeline."""
+    actor_id = None
+    try:
+        if current_user.is_authenticated and isinstance(current_user, User):
+            actor_id = current_user.id
+    except Exception:
+        pass
+    db.session.add(OrderStatusEvent(
+        order_id=order.id,
+        item_id=item.id if item else None,
+        from_status=from_status,
+        to_status=to_status,
+        message=message,
+        payload=payload,
+        actor_user_id=actor_id,
+    ))
+
+
+def _maybe_finalize_order(order):
+    """Roll up: if every item is in a terminal status, mark the order itself
+    fulfilled (top-level order.status = 'fulfilled') and timestamp it."""
+    terminal = _terminal_statuses()
+    statuses = [(it.fulfillment_status or '') for it in order.items]
+    if statuses and all(s in terminal for s in statuses):
+        if order.status != 'fulfilled':
+            order.status = 'fulfilled'
+            order.fulfilled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            _log_order_event(order, None, None, 'fulfilled',
+                             message='All items fulfilled.')
+
+
+def advance_item_status(item, new_status, **payload):
+    """Move an order item to a new status, capture any payload, log a status
+    event, and email the buyer (if enabled). Returns the OrderStatusEvent."""
+    order = item.order
+    if not order:
+        raise ValueError('Item has no parent order.')
+    ft = item.fulfillment_type or 'shipping'
+    pipeline_keys = [k for k, _ in _pipeline_for(ft)]
+    if new_status not in pipeline_keys:
+        raise ValueError(f'Status {new_status!r} is not valid for {ft}.')
+    prev = item.fulfillment_status
+
+    # Apply any payload fields before logging so the event carries them.
+    if 'tracking_carrier' in payload:
+        item.tracking_carrier = (payload.get('tracking_carrier') or '').strip() or None
+    if 'tracking_number' in payload:
+        item.tracking_number = (payload.get('tracking_number') or '').strip() or None
+    if 'tracking_note' in payload:
+        item.tracking_note = (payload.get('tracking_note') or '').strip() or None
+    if item.tracking_carrier or item.tracking_number:
+        item.tracking_url = _build_tracking_url(item.tracking_carrier, item.tracking_number)
+
+    if new_status == 'file_delivered':
+        product = db.session.get(StoreProduct, item.product_id) if item.product_id else None
+        ttl_days = (product.digital_expiry_days if product and product.digital_expiry_days else 7)
+        if not item.digital_token:
+            item.digital_token = secrets.token_urlsafe(32)[:64]
+        item.digital_expires_at = (datetime.now(timezone.utc).replace(tzinfo=None)
+                                   + timedelta(days=int(ttl_days)))
+    if new_status == 'ticket_issued':
+        # Issue all tickets for this line item (qty × tickets_per_package).
+        # `_issue_tickets_for_order_item` is idempotent — it short-circuits
+        # if tickets already exist for the line.
+        _issue_tickets_for_order_item(item)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    item.fulfillment_status = new_status
+    item.status_updated_at = now
+    if new_status in _terminal_statuses():
+        item.fulfilled_at = now
+
+    _log_order_event(order, item, prev, new_status,
+                     message=payload.get('message'),
+                     payload={k: v for k, v in {
+                         'carrier': item.tracking_carrier,
+                         'tracking_number': item.tracking_number,
+                         'tracking_url': item.tracking_url,
+                     }.items() if v} or None)
+
+    _maybe_finalize_order(order)
+    db.session.commit()
+
+    # Per-shipment flows pass _skip_buyer_email=True so they can send one
+    # combined email for the whole package. Without this, packaged transitions
+    # would spam the buyer with N emails per package.
+    if payload.get('_skip_buyer_email'):
+        return
+    # Send buyer email (post-commit so a send failure doesn't roll back status).
+    website = db.session.get(Website, order.website_id)
+    if not order.contact_email:
+        return
+    if not _email_enabled(website.user_id if website else None, ft, new_status):
+        return
+    built = _build_transition_email(order, item, ft, new_status, website)
+    if not built:
+        return
+    subject, html, plain = built
+    server = get_email_server_by_id(None) or get_default_email_server()
+    if not server or not server.is_active:
+        app.logger.warning('[orders] No active email server — skipping transition email.')
+        return
+    try:
+        send_via(server, order.contact_email, subject, html=html, text=plain)
+    except Exception as e:
+        app.logger.warning(f'[orders] transition email failed for order {order.id}: {e}')
+
+    # Parallel SMS if the admin has chosen sms/both for this transition.
+    _sms_status_to_event = {
+        'shipped':           'order.shipped',
+        'out_for_delivery':  'order.out_for_delivery',
+        'delivered':         'order.delivered',
+        'preparing':         'order.preparing',
+        'ready_for_pickup':  'order.ready_for_pickup',
+        'picked_up':         'order.picked_up',
+        'ticket_issued':     'ticket.issued',
+        'file_delivered':    'digital.delivered',
+    }
+    event_key = _sms_status_to_event.get(new_status)
+    if event_key:
+        order_url = _short_order_url(order, website)
+        nice = {
+            'shipped':           f'Order #{order.order_number} shipped.',
+            'out_for_delivery':  f'Order #{order.order_number} out for delivery.',
+            'delivered':         f'Order #{order.order_number} delivered.',
+            'preparing':         f'Order #{order.order_number} being prepared.',
+            'ready_for_pickup':  f'Order #{order.order_number} ready for pickup.',
+            'picked_up':         f'Order #{order.order_number} picked up — thanks!',
+            'ticket_issued':     f'Order #{order.order_number}: your tickets are ready.',
+            'file_delivered':    f'Order #{order.order_number}: your download is ready.',
+        }.get(new_status, f'Order #{order.order_number}: {new_status}.')
+        if item.tracking_url:
+            nice += f' Track: {item.tracking_url}'
+        elif order_url:
+            nice += f' {order_url}'
+        _maybe_sms_for_event(order, event_key, nice + ' Reply STOP to opt out.')
+
+
+def _send_order_received_email(order, website):
+    """Initial 'we got your order' email sent right after payment clears.
+    Includes the tokenized status URL so guests can track without an account."""
+    if not order.contact_email:
+        return
+    server = get_email_server_by_id(None) or get_default_email_server()
+    if not server or not server.is_active:
+        app.logger.warning('[orders] No active email server — order-received not sent.')
+        return
+    track_url = (_site_external_base(website) + url_for('public_order_status', token=order.tracking_token)
+                 if order.tracking_token else None)
+    item_rows = []
+    for it in order.items:
+        item_rows.append(
+            f'<li>{escape(it.product_name)}'
+            f'{" — " + escape(it.variant_options_snapshot) if it.variant_options_snapshot else ""}'
+            f' × {it.quantity} '
+            f'<span style="color:#666;">— ${float(it.line_total):.2f}</span></li>')
+    pickup_block = ''
+    if order.pickup_is_asap or order.pickup_at:
+        when_text = ('As soon as possible' if order.pickup_is_asap else
+                     order.pickup_at.strftime('%A, %B %-d at %-I:%M %p'))
+        pickup_block = (
+            f'<p style="background:rgba(94,238,248,0.1);border:1px solid #5eeef8;'
+            f'border-radius:8px;padding:10px 14px;margin:14px 0;">'
+            f'<strong>Pickup time:</strong> {escape(when_text)}</p>'
+        )
+    html = (
+        f'<p>Hi {escape(order.contact_name or "there")},</p>'
+        f'<p>Thanks for your order! We\'ve received your payment and will start working on it.</p>'
+        f'<p><strong>Order #{escape(order.order_number)}</strong></p>'
+        f'<ul style="padding-left:18px;">{"".join(item_rows)}</ul>'
+        f'{pickup_block}'
+        f'<p><strong>Total: ${float(order.total):.2f}</strong></p>'
+        + (f'<p style="margin:22px 0;text-align:center;">'
+           f'<a href="{escape(track_url)}" '
+           f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+           f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+           f'View order status</a></p>'
+           if track_url else '')
+        + f'<p style="font-size:13px;color:#666;">You\'ll get another email each time we update your order.</p>'
+    )
+    plain = _html_to_plain(html)
+    try:
+        send_via(server, order.contact_email, f'Order #{order.order_number} received', html=html, text=plain)
+    except Exception as e:
+        app.logger.warning(f'[orders] order-received email failed: {e}')
+
+    # Parallel SMS for opted-in buyers — short text, link back to the order.
+    sms_body = (
+        f'Order #{order.order_number} received — thanks!'
+        + (f' Pickup: {order.pickup_at.strftime("%a %-I:%M%p")}.'
+           if order.pickup_at and not order.pickup_is_asap else
+           ' Pickup ASAP.' if order.pickup_is_asap else '')
+        + (f' {_short_order_url(order, website)}' if order.tracking_token else '')
+        + ' Reply STOP to opt out.'
+    )
+    _maybe_sms_for_event(order, 'order.received', sms_body)
+
+
+def _restock_order_items(order, reason='refunded'):
+    """Return inventory to stock for items that are inventory-tracked. When
+    an item was a variant purchase, the variant's inventory is replenished;
+    otherwise the product's. Digital / ticket / service items are skipped.
+
+    Idempotent in practice — callers gate by order state (refunded once)."""
+    if not order or not order.items:
+        return 0
+    restocked = 0
+    # Map the caller's free-form reason to our log buckets.
+    log_reason = 'refund'
+    r = (reason or '').lower()
+    if 'cancel' in r:        log_reason = 'cancellation'
+    elif 'expir' in r:       log_reason = 'expired'
+    elif 'return' in r:      log_reason = 'rma_received'
+    elif 'refund' in r:      log_reason = 'refund'
+    for it in order.items:
+        if (it.fulfillment_type or 'shipping') in ('digital', 'ticket', 'service'):
+            continue
+        if _restock_for_order_item(it, int(it.quantity or 0),
+                                   reason=log_reason,
+                                   source_type='order', source_id=order.id,
+                                   note=reason):
+            restocked += 1
+    if restocked:
+        _log_order_event(order, None, None, order.status or 'refunded',
+                         message=f'Restocked {restocked} inventory line(s) ({reason}).')
+    return restocked
+
+
+# ── Shipments / packages ───────────────────────────────────────────────────
+
+# Fulfillment types eligible for packaging. Digital/ticket/custom items
+# transition individually and don't benefit from being grouped.
+PACKAGEABLE_TYPES = {'shipping', 'local_delivery', 'pickup'}
+
+
+def _next_shipment_sequence(order_id):
+    """1-based per-order package number."""
+    last = (db.session.query(db.func.max(OrderShipment.sequence))
+            .filter(OrderShipment.order_id == order_id).scalar()) or 0
+    return int(last) + 1
+
+
+def _create_shipment_from_items(order, item_ids, initial_status='preparing'):
+    """Bundle the given items into a new OrderShipment and advance them to the
+    initial status as a unit (no per-item emails). All items must share the
+    same fulfillment_type and must currently be packageable.
+
+    Returns (shipment, error). On failure, shipment is None and error is a
+    human-readable string."""
+    if not order or not item_ids:
+        return None, 'No items provided.'
+    items = [it for it in order.items if it.id in set(int(x) for x in item_ids)]
+    if not items:
+        return None, 'None of the selected items belong to this order.'
+    fts = {(it.fulfillment_type or 'shipping') for it in items}
+    if len(fts) > 1:
+        return None, 'All items in a package must share the same fulfillment type.'
+    ft = next(iter(fts))
+    if ft not in PACKAGEABLE_TYPES:
+        return None, f'{ft.replace("_", " ").title()} items are not packaged.'
+    # Items must currently be at 'paid' or 'preparing' to be grouped fresh.
+    pipeline_keys = [k for k, _ in _pipeline_for(ft)]
+    if initial_status not in pipeline_keys:
+        return None, f'Invalid initial status {initial_status!r} for {ft}.'
+    blocked = [it for it in items if it.shipment_id]
+    if blocked:
+        return None, f'{blocked[0].product_name} is already in another package.'
+
+    shipment = OrderShipment(
+        order_id=order.id,
+        sequence=_next_shipment_sequence(order.id),
+        fulfillment_type=ft,
+        status=initial_status,
+        status_updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    db.session.add(shipment)
+    db.session.flush()
+    for it in items:
+        it.shipment_id = shipment.id
+        # Move each item to the same status (silently — the shipment-level
+        # email goes out instead of per-item).
+        if it.fulfillment_status != initial_status:
+            try:
+                advance_item_status(it, initial_status, _skip_buyer_email=True,
+                                    message=f'Packaged into shipment #{shipment.sequence}.')
+            except ValueError:
+                # If the item's pipeline doesn't have this status (mixed types
+                # would have failed earlier — defensive), just stamp directly.
+                it.fulfillment_status = initial_status
+                it.status_updated_at = shipment.status_updated_at
+
+    _log_order_event(order, None, None, f'shipment.{initial_status}',
+                     message=f'Package #{shipment.sequence} created '
+                             f'with {len(items)} item(s).',
+                     payload={'shipment_id': shipment.id, 'sequence': shipment.sequence,
+                              'item_ids': [it.id for it in items]})
+    _send_shipment_email(shipment, initial_status)
+    return shipment, None
+
+
+def _advance_shipment_status(shipment, new_status, payload=None):
+    """Move a shipment + all its items to a new status. Captures shared
+    tracking on the shipment row. Sends one email at the end."""
+    if not shipment:
+        return None, 'No shipment.'
+    payload = payload or {}
+    ft = shipment.fulfillment_type or 'shipping'
+    pipeline_keys = [k for k, _ in _pipeline_for(ft)]
+    if new_status not in pipeline_keys:
+        return None, f'Status {new_status!r} is not valid for {ft}.'
+    # Don't allow moving backwards.
+    try:
+        cur_idx = pipeline_keys.index(shipment.status) if shipment.status in pipeline_keys else -1
+        tgt_idx = pipeline_keys.index(new_status)
+        if tgt_idx <= cur_idx:
+            return None, 'Already at or past that status.'
+    except ValueError:
+        pass
+
+    # Shared tracking — set on the shipment AND mirrored onto each item so the
+    # existing per-item display + return flows keep working.
+    if 'tracking_carrier' in payload:
+        shipment.tracking_carrier = (payload.get('tracking_carrier') or '').strip() or None
+    if 'tracking_number' in payload:
+        shipment.tracking_number = (payload.get('tracking_number') or '').strip() or None
+    if 'tracking_note' in payload:
+        shipment.tracking_note = (payload.get('tracking_note') or '').strip() or None
+    if shipment.tracking_carrier or shipment.tracking_number:
+        shipment.tracking_url = _build_tracking_url(shipment.tracking_carrier,
+                                                    shipment.tracking_number)
+
+    prev = shipment.status
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    shipment.status = new_status
+    shipment.status_updated_at = now
+    if new_status in _terminal_statuses():
+        shipment.fulfilled_at = now
+
+    # Update each item — silently (no per-item email).
+    for it in list(shipment.items):
+        it.tracking_carrier = shipment.tracking_carrier
+        it.tracking_number = shipment.tracking_number
+        it.tracking_url = shipment.tracking_url
+        if shipment.tracking_note:
+            it.tracking_note = shipment.tracking_note
+        try:
+            advance_item_status(it, new_status, _skip_buyer_email=True,
+                                tracking_carrier=shipment.tracking_carrier,
+                                tracking_number=shipment.tracking_number,
+                                tracking_note=shipment.tracking_note,
+                                message=payload.get('message'))
+        except ValueError:
+            # Item pipeline doesn't have this status — leave it where it is.
+            pass
+
+    _log_order_event(shipment.order, None, prev, f'shipment.{new_status}',
+                     message=payload.get('message') or
+                             f'Package #{shipment.sequence} → {new_status.replace("_", " ")}.',
+                     payload={'shipment_id': shipment.id, 'sequence': shipment.sequence,
+                              'tracking_number': shipment.tracking_number})
+    _maybe_finalize_order(shipment.order)
+    _send_shipment_email(shipment, new_status)
+    return shipment, None
+
+
+def _send_shipment_email(shipment, new_status):
+    """Send one buyer email covering all items in a package. Falls back to the
+    per-item template's content for the line items but bundles them under a
+    single subject. Best-effort: failures are logged, not raised."""
+    try:
+        order = shipment.order
+        if not order or not order.contact_email:
+            return
+        website = db.session.get(Website, order.website_id) if order.website_id else None
+        if not _email_enabled(website.user_id if website else None,
+                              shipment.fulfillment_type, new_status):
+            return
+        server = get_email_server_by_id(None) or get_default_email_server()
+        if not server or not server.is_active:
+            return
+
+        ft = shipment.fulfillment_type
+        pkg_label = f'Package #{shipment.sequence}' if (
+            (order.shipments.count() if hasattr(order.shipments, 'count') else
+             len(list(order.shipments))) > 1) else 'Your order'
+
+        # Pretty status label from the pipeline.
+        status_label = next((lbl for k, lbl in _pipeline_for(ft) if k == new_status),
+                            new_status.replace('_', ' ').title())
+        subject = f'{pkg_label}: {status_label} — order #{order.order_number}'
+
+        item_rows = ''.join(
+            f'<li>{escape(it.product_name)}'
+            f'{" — " + escape(it.variant_options_snapshot) if it.variant_options_snapshot else ""}'
+            f' × {it.quantity}</li>'
+            for it in shipment.items)
+        tracking_block = ''
+        if shipment.tracking_number or shipment.tracking_url:
+            tracking_block = (
+                f'<p style="margin:14px 0 6px;"><strong>Tracking:</strong> '
+                f'{escape(shipment.tracking_carrier or "")} '
+                f'{escape(shipment.tracking_number or "")}</p>'
+                + (f'<p style="margin:0 0 14px;">'
+                   f'<a href="{escape(shipment.tracking_url)}" '
+                   f'style="color:#5eeef8;">Track shipment →</a></p>'
+                   if shipment.tracking_url else ''))
+        base = _site_external_base(website) or ''
+        order_url = (base + url_for('public_order_status', token=order.tracking_token)
+                     if order.tracking_token else None)
+
+        html = (
+            f'<p>Hi {escape(order.contact_name or "there")},</p>'
+            f'<p>{escape(pkg_label)} for order <strong>#{escape(order.order_number)}</strong> '
+            f'is now <strong>{escape(status_label.lower())}</strong>.</p>'
+            f'<ul style="padding-left:18px;">{item_rows}</ul>'
+            f'{tracking_block}'
+            + (f'<p style="margin:18px 0;text-align:center;">'
+               f'<a href="{escape(order_url)}" '
+               f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+               f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+               f'View order</a></p>'
+               if order_url else ''))
+        send_via(server, order.contact_email, subject, html=html, text=_html_to_plain(html))
+    except Exception as e:
+        app.logger.warning(f'[shipments] email failed: {e}')
+
+    # Parallel package-level SMS when admin opted SMS for this status.
+    _shp_to_event = {
+        'shipped':           'order.shipped',
+        'out_for_delivery':  'order.out_for_delivery',
+        'delivered':         'order.delivered',
+        'preparing':         'order.preparing',
+        'ready_for_pickup':  'order.ready_for_pickup',
+        'picked_up':         'order.picked_up',
+    }
+    ev = _shp_to_event.get(new_status)
+    if ev:
+        pkg = f'Package #{shipment.sequence}' if (
+            shipment.order.shipments.count() if hasattr(shipment.order.shipments, 'count') else 1) > 1 else ''
+        msg = (f'{pkg + ": " if pkg else ""}Order #{order.order_number} '
+               f'{new_status.replace("_", " ")}.')
+        if shipment.tracking_url:
+            msg += f' Track: {shipment.tracking_url}'
+        else:
+            url = _short_order_url(order, website)
+            if url:
+                msg += f' {url}'
+        _maybe_sms_for_event(order, ev, msg + ' Reply STOP to opt out.')
+
+
+# ── Buyer-initiated cancellation ──────────────────────────────────────────
+
+# Statuses an order item can be at while the order is still cancellable.
+# Once anything has moved past these (shipped/out_for_delivery/etc.), the buyer
+# can't unilaterally cancel — they'd need to use the return flow instead.
+PRE_SHIPMENT_ITEM_STATUSES = {'pending_payment', 'paid', 'preparing', 'pending'}
+
+
+def _can_cancel_order(order):
+    """Return (eligible, reason). Whether a buyer can request cancellation
+    right now. Caller is responsible for any auth/ownership checks."""
+    if not order:
+        return (False, 'Order not found.')
+    if order.status in ('canceled', 'refunded', 'fulfilled'):
+        return (False, f'This order is already {order.status.replace("_", " ")}.')
+    if order.status not in ('paid', 'pending_payment'):
+        return (False, 'This order cannot be canceled in its current state.')
+    if order.cancellation_requested_at and not order.cancellation_resolved_at:
+        return (False, 'A cancellation request is already pending review.')
+    if order.cancellation_decision == 'approved':
+        return (False, 'This order has already been canceled.')
+    # If any item has progressed past preparing, block the buyer self-serve
+    # path. They should use a return instead.
+    for it in (order.items or []):
+        status = (it.fulfillment_status or '').strip()
+        if status and status not in PRE_SHIPMENT_ITEM_STATUSES:
+            return (False, 'Some items have already shipped — request a return instead.')
+    # Same gate for shipments.
+    shipments = list(order.shipments) if hasattr(order, 'shipments') else []
+    for s in shipments:
+        if (s.status or '') not in PRE_SHIPMENT_ITEM_STATUSES:
+            return (False, 'A package has already shipped — request a return instead.')
+    return (True, None)
+
+
+def _finalize_order_cancellation(order, refund_note=None):
+    """Carry out an approved cancellation: full Stripe refund, restock all
+    inventory-tracked items, transition order + items to 'canceled'. Returns
+    (ok, error). Webhook will fire concurrently and is idempotent."""
+    import stripe as _stripe
+    if not order:
+        return (False, 'No order.')
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+
+    # Refund via Stripe if there's a paid charge to refund.
+    refunded_amount = 0
+    payment = (Payment.query
+               .filter_by(source_type='store_order', source_id=order.id, status='paid')
+               .order_by(Payment.id.desc()).first())
+    if payment and payment.stripe_payment_intent_id and website:
+        stripe_settings = get_stripe_settings_for_user(website.user_id)
+        if stripe_settings and _stripe_secret_key(stripe_settings):
+            try:
+                refund = _stripe.Refund.create(
+                    payment_intent=payment.stripe_payment_intent_id,
+                    api_key=_stripe_secret_key(stripe_settings),
+                    reason='requested_by_customer',
+                    metadata={
+                        'order_id': str(order.id),
+                        'order_number': order.order_number or '',
+                        'cancellation': '1',
+                    },
+                )
+                refunded_amount = getattr(refund, 'amount', None) or int(round(float(order.total or 0) * 100))
+                payment.status = 'refunded'
+            except _stripe.error.StripeError as e:
+                return (False, f'Stripe rejected the refund: {e.user_message or str(e)}')
+            except Exception as e:
+                app.logger.exception(f'[cancel] stripe refund failed: {e}')
+                return (False, f'Refund failed: {e}')
+
+    # Restock physical items and mark canceled.
+    _restock_order_items(order, reason='order canceled')
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for it in (order.items or []):
+        it.fulfillment_status = 'canceled'
+        it.status_updated_at = now
+    for s in list(order.shipments) if hasattr(order, 'shipments') else []:
+        s.status = 'canceled'
+        s.status_updated_at = now
+    order.status = 'canceled'
+    order.cancellation_resolved_at = now
+    order.cancellation_decision = 'approved'
+
+    msg = refund_note or (
+        f'Cancellation approved. ${refunded_amount/100:.2f} refunded.'
+        if refunded_amount else 'Cancellation approved.'
+    )
+    _log_order_event(order, None, None, 'canceled', message=msg)
+    return (True, None)
+
+
+# ── Events / tickets ──────────────────────────────────────────────────────
+
+def _parse_iso(value):
+    """Lenient ISO datetime parser used by event-fields persistence. Returns
+    None for empty/invalid input. Strips timezone info to keep DB naive UTC."""
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except ValueError:
+        return None
+
+
+def _generate_ticket_code():
+    """Compact alphanumeric code suitable for emails + QR. Format: TKT-XXXXXXXXXX."""
+    raw = secrets.token_urlsafe(12).replace('-', '').replace('_', '').upper()
+    return f'TKT-{raw[:10]}'
+
+
+def _sync_calendar_event_for_product(product):
+    """Mirror an event product's date/time/location into a CalendarEvent in
+    its target calendar. Creates the event if `event_calendar_event_id` is
+    NULL; otherwise updates the existing row. If the admin clears the
+    calendar link, the existing CalendarEvent is deleted. Safe to call
+    repeatedly."""
+    if not product:
+        return
+    target_cal_id = product.event_calendar_id
+    existing = (db.session.get(CalendarEvent, product.event_calendar_event_id)
+                if product.event_calendar_event_id else None)
+    # No calendar selected — clean up any existing event.
+    if not target_cal_id:
+        if existing:
+            db.session.delete(existing)
+        product.event_calendar_event_id = None
+        return
+    # No start time yet — can't mirror.
+    if not product.event_starts_at:
+        if existing:
+            db.session.delete(existing)
+        product.event_calendar_event_id = None
+        return
+    # Ensure the calendar exists.
+    cal = db.session.get(Calendar, target_cal_id)
+    if not cal:
+        product.event_calendar_event_id = None
+        return
+    if existing is None:
+        existing = CalendarEvent(calendar_id=cal.id, source='local')
+        db.session.add(existing)
+    existing.calendar_id = cal.id
+    existing.title = product.name or 'Event'
+    desc_parts = []
+    if product.event_location:
+        desc_parts.append(f'Location: {product.event_location}')
+    if product.description:
+        desc_parts.append(product.description)
+    existing.description = '\n\n'.join(desc_parts) or None
+    existing.start = product.event_starts_at
+    existing.end = product.event_ends_at
+    existing.all_day = bool(product.event_all_day)
+    existing.source = 'local'
+    db.session.flush()
+    product.event_calendar_event_id = existing.id
+
+
+def _issue_tickets_for_order_item(item):
+    """Create OrderTicket rows for a line item. Multi-ticket packages
+    (variant.tickets_per_package > 1) generate qty × pkg_size tickets.
+    Idempotent: if any tickets already exist for this item, returns them."""
+    if not item:
+        return []
+    try:
+        existing = item.tickets.all()
+    except Exception:
+        existing = list(item.tickets or [])
+    if existing:
+        return existing
+    variant = None
+    if getattr(item, 'variant_id', None):
+        # Use session.get rather than item.variant to be defensive against
+        # missing relationship configurations.
+        variant = db.session.get(StoreProductVariant, item.variant_id)
+    per_pkg = int(variant.tickets_per_package or 1) if variant else 1
+    total = int(item.quantity or 0) * max(1, per_pkg)
+    product = db.session.get(StoreProduct, item.product_id) if item.product_id else None
+    cal_event_id = product.event_calendar_event_id if product else None
+    issued = []
+    for _ in range(total):
+        # Retry on the rare unique collision.
+        for _attempt in range(5):
+            code = _generate_ticket_code()
+            if not OrderTicket.query.filter_by(code=code).first():
+                break
+        ticket = OrderTicket(
+            order_id=item.order_id,
+            order_item_id=item.id,
+            product_id=item.product_id,
+            variant_id=item.variant_id,
+            calendar_event_id=cal_event_id,
+            code=code,
+            event_label=(product.name if product else item.product_name),
+            tier_label=(variant.display_options(product) if variant else None),
+        )
+        db.session.add(ticket)
+        issued.append(ticket)
+    # Mirror the first code onto the legacy ticket_code field for
+    # backwards-compat with anything reading it directly.
+    if issued and not item.ticket_code:
+        item.ticket_code = issued[0].code
+    return issued
+
+
+def _send_cancellation_email(order, kind, admin_note=None):
+    """Buyer email: kind = 'requested' (acknowledge), 'approved', 'denied'."""
+    try:
+        if not order or not order.contact_email:
+            return
+        website = db.session.get(Website, order.website_id) if order.website_id else None
+        server = get_default_email_server()
+        if not server or not server.is_active:
+            return
+        base = _site_external_base(website) or ''
+        order_url = (base + url_for('public_order_status', token=order.tracking_token)
+                     if order.tracking_token else None)
+        if kind == 'requested':
+            subject = f'Cancellation request received — order #{order.order_number}'
+            heading = "We've received your cancellation request."
+            body = "Our team will review and respond shortly. We'll email you with the decision."
+        elif kind == 'approved':
+            subject = f'Order canceled — #{order.order_number}'
+            heading = 'Your cancellation request has been approved.'
+            body = ("Your order has been canceled. A refund has been issued to your original "
+                    "payment method and will appear within 5-10 business days.")
+        elif kind == 'denied':
+            subject = f'Cancellation request declined — order #{order.order_number}'
+            heading = 'Your cancellation request was not approved.'
+            body = (escape(admin_note).replace('\n', '<br>') if admin_note
+                    else "If you have questions, reply to this email.")
+        else:
+            return
+        html = (
+            f'<p>Hi {escape(order.contact_name or "there")},</p>'
+            f'<p><strong>{escape(heading)}</strong></p>'
+            f'<p>{body}</p>'
+            f'<p style="color:#666;font-size:0.92rem;">Order #{escape(order.order_number)}</p>'
+            + (f'<p style="margin:18px 0;"><a href="{escape(order_url)}" '
+               f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+               f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+               f'View order</a></p>' if order_url else ''))
+        send_via(server, order.contact_email, subject,
+                 html=html, text=_html_to_plain(html))
+    except Exception as e:
+        app.logger.warning(f'[cancel] email failed for {kind}: {e}')
+
+
+def _disband_shipment(shipment):
+    """Drop the package grouping and unlink every item from the shipment.
+    Item statuses stay where they are — only the grouping is removed."""
+    if not shipment:
+        return
+    for it in list(shipment.items):
+        it.shipment_id = None
+    order = shipment.order
+    _log_order_event(order, None, shipment.status, f'shipment.{shipment.status}',
+                     message=f'Package #{shipment.sequence} disbanded; '
+                             f'items returned to unpacked state.',
+                     payload={'shipment_id': shipment.id})
+    db.session.delete(shipment)
+
+
+# ── RMA (Return Merchandise Authorization) pipeline ─────────────────────────
+
+# Allowed transitions per state. Buyer-initiated returns start at 'requested';
+# admin-initiated ones can be created already 'approved'. The Stripe refund
+# only fires on the `received → refunded` transition.
+RETURN_PIPELINE = {
+    'requested':        ['approved', 'denied', 'canceled'],
+    'approved':         ['awaiting_shipment', 'received', 'canceled'],
+    'awaiting_shipment':['in_transit', 'received', 'canceled'],
+    'in_transit':       ['received', 'canceled'],
+    'received':         ['refunded', 'canceled'],
+    'refunded':         [],
+    'denied':           [],
+    'canceled':         [],
+}
+
+RETURN_TERMINAL = {'refunded', 'denied', 'canceled'}
+
+RETURN_REASON_CODES = [
+    ('defective',         'Arrived damaged or defective'),
+    ('wrong_item',        'Wrong item shipped'),
+    ('not_as_described',  'Not as described'),
+    ('changed_mind',      'Changed my mind'),
+    ('arrived_late',      'Arrived too late'),
+    ('other',             'Other'),
+]
+
+# Fulfillment types that don't ship physically — they can't be "returned" but
+# can be refunded directly.
+NON_RETURNABLE_TYPES = {'digital', 'ticket', 'service'}
+
+
+def _generate_rma_number():
+    """Short RMA number suitable for emails. Format: RMA-XXXXXXX."""
+    return 'RMA-' + secrets.token_urlsafe(8).replace('-', '').replace('_', '').upper()[:8]
+
+
+def _fulfillment_settings_for(uid):
+    """Return (creating if needed) the per-admin StoreFulfillmentSettings row."""
+    row = StoreFulfillmentSettings.query.filter_by(user_id=uid).first()
+    if not row:
+        row = StoreFulfillmentSettings(user_id=uid, config={})
+        db.session.add(row)
+        db.session.flush()
+    return row
+
+
+def _log_return_event(rma, from_status, to_status, message=None, payload=None,
+                      visible_to_buyer=True):
+    """Log RMA transitions on the parent order's timeline. Prefixed status
+    strings keep them distinguishable from item/order events."""
+    order = rma.order or db.session.get(StoreOrder, rma.order_id)
+    if not order:
+        return
+    actor_id = None
+    try:
+        if current_user.is_authenticated and isinstance(current_user, User):
+            actor_id = current_user.id
+    except Exception:
+        pass
+    db.session.add(OrderStatusEvent(
+        order_id=order.id,
+        item_id=None,
+        from_status=(f'return.{from_status}' if from_status else None),
+        to_status=f'return.{to_status}',
+        message=message,
+        payload=payload,
+        actor_user_id=actor_id,
+        is_visible_to_buyer=visible_to_buyer,
+    ))
+
+
+def _can_buyer_request_return(order, settings=None):
+    """Return (ok, reason). Gates buyer-initiated RMAs on settings, status,
+    and the configured return window."""
+    if not order:
+        return (False, 'Order not found.')
+    if order.status not in ('paid', 'fulfilled'):
+        return (False, 'This order is not eligible for a return.')
+    if not settings:
+        website = db.session.get(Website, order.website_id) if order.website_id else None
+        if website:
+            settings = _fulfillment_settings_for(website.user_id)
+    if not settings or not getattr(settings, 'allow_buyer_returns', True):
+        return (False, 'Self-service returns are not enabled for this store.')
+    window = getattr(settings, 'return_window_days', None)
+    if window:
+        # Anchor the window to the most recent fulfilled_at on the order;
+        # fall back to paid_at, then created_at.
+        anchor = (order.fulfilled_at or order.paid_at or order.created_at)
+        if anchor:
+            cutoff = anchor + timedelta(days=int(window))
+            if datetime.now(timezone.utc).replace(tzinfo=None) > cutoff:
+                return (False, f'The {window}-day return window has closed.')
+    # Are any items even returnable?
+    returnable = [it for it in (order.items or [])
+                  if (it.fulfillment_type or 'shipping') not in NON_RETURNABLE_TYPES]
+    if not returnable:
+        return (False, 'No items on this order are returnable.')
+    return (True, None)
+
+
+def _eligible_remaining_qty(order_item):
+    """How many units of this line can still be added to a new return — total
+    purchased minus quantity already in active (non-terminal/non-denied)
+    returns."""
+    if not order_item:
+        return 0
+    used = (db.session.query(db.func.coalesce(db.func.sum(OrderReturnItem.quantity), 0))
+            .join(OrderReturn, OrderReturn.id == OrderReturnItem.return_id)
+            .filter(OrderReturnItem.order_item_id == order_item.id,
+                    ~OrderReturn.status.in_(['denied', 'canceled']))
+            .scalar() or 0)
+    return max(0, int(order_item.quantity or 0) - int(used))
+
+
+def _create_return_record(order, items_spec, reason_code=None, reason_note=None,
+                          initiated_by='admin', initial_status='requested',
+                          admin_user_id=None):
+    """Build a new OrderReturn + its line items. `items_spec` is a list of
+    (order_item_id, quantity) tuples. Raises ValueError on invalid input."""
+    if not order:
+        raise ValueError('Order is required.')
+    if not items_spec:
+        raise ValueError('At least one item must be selected.')
+
+    item_lookup = {it.id: it for it in (order.items or [])}
+    rma_items = []
+    total_cents = 0
+    for raw_id, raw_qty in items_spec:
+        try:
+            oi_id = int(raw_id)
+            qty = int(raw_qty)
+        except (TypeError, ValueError):
+            raise ValueError('Invalid item selection.')
+        if qty <= 0:
+            continue
+        oi = item_lookup.get(oi_id)
+        if not oi:
+            raise ValueError(f'Item {oi_id} is not on this order.')
+        if (oi.fulfillment_type or 'shipping') in NON_RETURNABLE_TYPES:
+            raise ValueError(f'{oi.product_name} is not returnable (digital/ticket/service item).')
+        remaining = _eligible_remaining_qty(oi)
+        if qty > remaining:
+            raise ValueError(
+                f'Only {remaining} unit(s) of {oi.product_name} can still be returned.')
+        line_unit_cents = int(round(float(oi.unit_price or 0) * 100))
+        line_cents = line_unit_cents * qty
+        rma_items.append(OrderReturnItem(
+            order_item_id=oi.id,
+            quantity=qty,
+            refund_amount_cents=line_cents,
+        ))
+        total_cents += line_cents
+
+    if not rma_items:
+        raise ValueError('Select a quantity of at least one item.')
+
+    rma = OrderReturn(
+        order_id=order.id,
+        rma_number=_generate_rma_number(),
+        status=initial_status,
+        reason_code=(reason_code or None),
+        reason_note=(reason_note or None),
+        refund_amount_cents=total_cents,
+        initiated_by=initiated_by,
+        initiated_by_user_id=admin_user_id,
+        requested_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    if initial_status == 'approved':
+        rma.approved_at = rma.requested_at
+    for it in rma_items:
+        rma.items.append(it)
+    db.session.add(rma)
+    db.session.flush()
+
+    _log_return_event(rma, None, rma.status,
+                      message=f'{rma.rma_number} opened ({initiated_by}).',
+                      payload={'items': len(rma_items),
+                               'refund_planned_cents': total_cents})
+    return rma
+
+
+def _transition_return(rma, new_status, message=None, payload=None):
+    """Guarded state-machine transition. Sets the matching timestamp column
+    and logs the event. Does NOT call Stripe — that's `_finalize_return_refund`."""
+    if not rma:
+        raise ValueError('No return record.')
+    prev = rma.status
+    if new_status == prev:
+        return rma
+    allowed = RETURN_PIPELINE.get(prev, [])
+    if new_status not in allowed:
+        raise ValueError(f'Cannot move return from {prev!r} to {new_status!r}.')
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rma.status = new_status
+    if new_status == 'approved':
+        rma.approved_at = now
+    elif new_status == 'in_transit':
+        rma.shipped_at = now
+    elif new_status == 'received':
+        rma.received_at = now
+    elif new_status in RETURN_TERMINAL:
+        rma.closed_at = now
+        if new_status == 'refunded':
+            rma.refunded_at = now
+    _log_return_event(rma, prev, new_status, message=message, payload=payload)
+    return rma
+
+
+def _restock_return_items(rma, reason='return received'):
+    """Restock just the lines on this RMA (not the whole order)."""
+    if not rma or not rma.items:
+        return 0
+    restocked = 0
+    for ri in rma.items:
+        if ri.restocked:
+            continue
+        oi = ri.order_item or db.session.get(StoreOrderItem, ri.order_item_id)
+        if not oi:
+            continue
+        if (oi.fulfillment_type or 'shipping') in NON_RETURNABLE_TYPES:
+            continue
+        if _restock_for_order_item(oi, int(ri.quantity or 0),
+                                    reason='rma_received',
+                                    source_type='rma', source_id=rma.id,
+                                    note=reason):
+            ri.restocked = True
+            restocked += 1
+    if restocked:
+        rma.restocked = True
+        _log_return_event(rma, rma.status, rma.status,
+                          message=f'Restocked {restocked} line(s) ({reason}).')
+    return restocked
+
+
+def _finalize_return_refund(rma, override_amount_cents=None, note=None):
+    """Call Stripe Refund API for the RMA's planned amount (or an override),
+    move the RMA to `refunded`, and mark the parent payment/order accordingly.
+    Returns (success, error_message_or_None)."""
+    import stripe as _stripe
+    if not rma:
+        return (False, 'No return record.')
+    if rma.status != 'received':
+        return (False, f'Return must be in received state to refund (currently {rma.status}).')
+    order = rma.order or db.session.get(StoreOrder, rma.order_id)
+    if not order:
+        return (False, 'Order not found.')
+    website = db.session.get(Website, order.website_id) if order.website_id else None
+    if not website:
+        return (False, 'Website missing.')
+
+    payment = (Payment.query
+               .filter_by(source_type='store_order', source_id=order.id)
+               .filter(Payment.status.in_(['paid', 'refunded']))
+               .order_by(Payment.id.desc()).first())
+    if not payment or not payment.stripe_payment_intent_id:
+        return (False, 'No paid Stripe charge found for this order.')
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    if not stripe_settings or not _stripe_secret_key(stripe_settings):
+        return (False, 'Stripe is not configured.')
+
+    amount_cents = override_amount_cents if override_amount_cents is not None else rma.refund_amount_cents
+    try:
+        amount_cents = int(amount_cents or 0)
+    except (TypeError, ValueError):
+        return (False, 'Invalid refund amount.')
+    if amount_cents <= 0:
+        return (False, 'Refund amount must be positive.')
+    order_total_cents = int(round(float(order.total or 0) * 100))
+    if amount_cents > order_total_cents:
+        return (False, 'Refund amount exceeds the order total.')
+
+    refund_kwargs = {
+        'payment_intent': payment.stripe_payment_intent_id,
+        'amount': amount_cents,
+        'api_key': _stripe_secret_key(stripe_settings),
+        'metadata': {
+            'order_id': str(order.id),
+            'order_number': order.order_number or '',
+            'rma_number': rma.rma_number,
+        },
+    }
+    try:
+        refund = _stripe.Refund.create(**refund_kwargs)
+    except _stripe.error.StripeError as e:
+        return (False, f'Stripe rejected the refund: {e.user_message or str(e)}')
+    except Exception as e:
+        app.logger.exception(f'[rma] stripe refund failed: {e}')
+        return (False, f'Refund failed: {e}')
+
+    rma.stripe_refund_id = getattr(refund, 'id', None)
+    rma.refund_amount_cents = amount_cents
+    # If the refund covers the entire order, flip both payment and order
+    # status to refunded. Otherwise leave them as-is (partial).
+    if amount_cents >= order_total_cents:
+        payment.status = 'refunded'
+        order.status = 'refunded'
+    _transition_return(rma, 'refunded',
+                       message=(note or
+                                f'Refund of ${amount_cents/100:.2f} issued via Stripe.'),
+                       payload={'stripe_refund_id': rma.stripe_refund_id,
+                                'amount_cents': amount_cents})
+    return (True, None)
+
+
+def _send_return_email(rma, kind, settings=None):
+    """Buyer email for an RMA transition. `kind` is one of:
+    'requested', 'approved', 'denied', 'received', 'refunded'.
+    Best-effort — failures don't break the transition."""
+    try:
+        order = rma.order or db.session.get(StoreOrder, rma.order_id)
+        if not order or not order.contact_email:
+            return
+        website = db.session.get(Website, order.website_id) if order.website_id else None
+        server = get_default_email_server()
+        if not server or not server.is_active:
+            return
+        base = _site_external_base(website) or ''
+        order_url = (base + url_for('public_order_status', token=order.tracking_token)
+                     if order.tracking_token else None)
+
+        if kind == 'requested':
+            subject = f'Return request received — {rma.rma_number}'
+            heading = "We've received your return request."
+            body = ("Our team will review and respond shortly. You'll get another email "
+                    "once the return is approved with instructions on where to ship the items.")
+        elif kind == 'approved':
+            subject = f'Return approved — {rma.rma_number}'
+            heading = 'Your return has been approved.'
+            ret_addr = (getattr(settings, 'returns_address', None) or '').strip() if settings else ''
+            instructions = (getattr(settings, 'returns_instructions', None) or '').strip() if settings else ''
+            body = ('Please ship the item(s) back using the details below. We refund '
+                    'once we have the package in hand.')
+            if ret_addr:
+                body += f'<br><br><strong>Return to:</strong><br>{escape(ret_addr).replace(chr(10), "<br>")}'
+            if instructions:
+                body += f'<br><br>{escape(instructions).replace(chr(10), "<br>")}'
+        elif kind == 'denied':
+            subject = f'Return request declined — {rma.rma_number}'
+            heading = 'Your return request was not approved.'
+            body = ((rma.admin_note or '').strip() or
+                    "If you have questions, reply to this email.")
+            body = escape(body).replace('\n', '<br>')
+        elif kind == 'received':
+            subject = f'Return received — {rma.rma_number}'
+            heading = "We've received your return."
+            body = ("Your refund will be processed shortly. You'll get one more email "
+                    "when the refund hits Stripe.")
+        elif kind == 'refunded':
+            subject = f'Refund issued — {rma.rma_number}'
+            amount = (rma.refund_amount_cents or 0) / 100.0
+            heading = f'A refund of ${amount:.2f} has been issued.'
+            body = ('Funds typically appear on your statement within 5–10 business days.')
+        else:
+            return
+
+        html = (
+            f'<p>Hi {escape(order.contact_name or "there")},</p>'
+            f'<p><strong>{escape(heading)}</strong></p>'
+            f'<p>{body}</p>'
+            f'<p style="color:#666;font-size:0.92rem;">'
+            f'Order #{escape(order.order_number)} · {escape(rma.rma_number)}</p>'
+            + (f'<p style="margin:18px 0;"><a href="{escape(order_url)}" '
+               f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+               f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+               f'View order</a></p>' if order_url else '')
+        )
+        send_via(server, order.contact_email, subject,
+                 html=html, text=_html_to_plain(html))
+    except Exception as e:
+        app.logger.warning(f'[rma] email failed for {kind}: {e}')
+
+
+def _apply_store_order_paid(order, payment):
+    """Mark a StoreOrder as paid and start the fulfillment pipeline for each
+    item. Sends the initial order-received email."""
+    order.status = 'paid'
+    order.paid_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    payment.status = 'paid'
+    payment.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Generate the guest tracking token now so the email can include it.
+    if not order.tracking_token:
+        order.tracking_token = secrets.token_urlsafe(32)[:64]
+
+    # Snapshot each item's fulfillment_type from its product (so the order
+    # remains correct if the product is edited later) and move it to 'paid'.
+    for it in order.items:
+        if not it.fulfillment_type:
+            product = db.session.get(StoreProduct, it.product_id) if it.product_id else None
+            it.fulfillment_type = (product.fulfillment_type if product else 'shipping') or 'shipping'
+        if it.fulfillment_status in (None, '', 'pending_payment'):
+            prev = it.fulfillment_status
+            it.fulfillment_status = 'paid'
+            it.status_updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            _log_order_event(order, it, prev, 'paid',
+                             message='Payment received.')
+    _log_order_event(order, None, None, 'paid', message='Order paid.')
+
+    website = db.session.get(Website, order.website_id)
+    _send_order_received_email(order, website)
+
+    # Auto-fulfill instant-delivery items: tickets get codes issued + emailed,
+    # digital products get their download link emailed. Both are zero-touch
+    # for the admin — buyer pays, buyer immediately has what they bought.
+    # Best-effort: a failure here doesn't roll back the 'paid' state since
+    # advance_item_status commits its own changes.
+    for it in list(order.items):
+        ft = (it.fulfillment_type or '').lower()
+        if ft == 'ticket' and it.fulfillment_status == 'paid':
+            try:
+                advance_item_status(it, 'ticket_issued')
+            except Exception as e:
+                app.logger.warning(f'[orders] auto-issue ticket failed for item {it.id}: {e}')
+        elif ft == 'digital' and it.fulfillment_status == 'paid':
+            try:
+                advance_item_status(it, 'file_delivered')
+            except Exception as e:
+                app.logger.warning(f'[orders] auto-deliver digital failed for item {it.id}: {e}')
+
+
+# ── Stripe webhook + return URLs ────────────────────────────────────────────
+
+def _resolve_payment_target(payment):
+    """Look up the source object (StoreOrder, future TicketOrder, etc.) that a
+    Payment refers to. Centralised so future source_types just add a branch."""
+    if not payment:
+        return None
+    if payment.source_type == 'store_order':
+        return db.session.get(StoreOrder, payment.source_id)
+    return None
+
+
+def _stripe_settings_owning_payment(payment):
+    return get_stripe_settings_for_user(payment.user_id)
+
+
+@app.route('/webhooks/stripe', methods=['POST'])
+def stripe_webhook():
+    """Endpoint Stripe posts to when a payment changes state. Verifies HMAC
+    using the per-admin webhook secret, then updates the matching Payment row.
+
+    Because each admin has their own webhook secret, we look up which admin
+    this event belongs to by matching the session/payment_intent against an
+    existing Payment row. If no match (yet) we try every configured admin's
+    secret — same logic Stripe Connect platforms use."""
+    import stripe as _stripe
+    payload = request.get_data()
+    sig_header = request.headers.get('Stripe-Signature', '')
+
+    # Best-effort fast path: pull the event JSON, find the related Payment by
+    # session/payment_intent id, and verify against that admin's secret.
+    event = None
+    try:
+        body = json.loads(payload.decode('utf-8'))
+    except Exception:
+        return 'bad payload', 400
+    event_id = body.get('id')
+    if not event_id:
+        return 'missing event id', 400
+
+    # Idempotency: skip if we've already processed this event.
+    seen = StripeWebhookEvent.query.filter_by(event_id=event_id).first()
+    if seen:
+        return 'ok', 200
+
+    # Best guess of the owning admin from the embedded session/intent IDs.
+    obj = (body.get('data') or {}).get('object') or {}
+    session_id = obj.get('id') if obj.get('object') == 'checkout.session' else None
+    payment_intent_id = obj.get('payment_intent') if obj.get('object') == 'checkout.session' else (
+        obj.get('id') if obj.get('object') == 'payment_intent' else None
+    )
+
+    payment = None
+    if session_id:
+        payment = Payment.query.filter_by(stripe_session_id=session_id).first()
+    if not payment and payment_intent_id:
+        payment = Payment.query.filter_by(stripe_payment_intent_id=payment_intent_id).first()
+
+    candidate_settings = []
+    if payment:
+        s = _stripe_settings_owning_payment(payment)
+        if s:
+            candidate_settings.append(s)
+    # Fallback: try every configured admin's secret. Lets us catch a webhook
+    # that arrives before our DB knows about the session (rare but possible).
+    if not candidate_settings:
+        candidate_settings = StripeSettings.query.all()
+
+    verify_error = None
+    for settings in candidate_settings:
+        try:
+            event = verify_stripe_webhook(payload, sig_header, settings)
+            break
+        except Exception as e:
+            verify_error = e
+            event = None
+    if event is None:
+        app.logger.warning(f'[stripe] webhook signature verification failed: {verify_error}')
+        return 'bad signature', 400
+
+    db.session.add(StripeWebhookEvent(event_id=event_id, event_type=event.type,
+                                      payment_id=payment.id if payment else None))
+
+    obj = event.data.object
+    # Stripe SDK objects don't honour dict-style .get() — use attribute access.
+    obj_id = getattr(obj, 'id', None)
+    obj_payment_intent = getattr(obj, 'payment_intent', None)
+    customer_details = getattr(obj, 'customer_details', None)
+    obj_email = getattr(customer_details, 'email', None) if customer_details else None
+    last_err = getattr(obj, 'last_payment_error', None)
+    last_err_msg = getattr(last_err, 'message', None) if last_err else None
+
+    if event.type == 'checkout.session.completed':
+        if payment is None and obj_id:
+            payment = Payment.query.filter_by(stripe_session_id=obj_id).first()
+        if payment:
+            payment.stripe_payment_intent_id = obj_payment_intent or payment.stripe_payment_intent_id
+            payment.last_event_id = event_id
+            payment.customer_email = obj_email or payment.customer_email
+            # Stripe Tax may have added tax to the total. Capture both so the
+            # admin and buyer see the final all-in amount, not the pre-tax sum
+            # we stored when the order was created.
+            total_details = getattr(obj, 'total_details', None)
+            amount_tax = getattr(total_details, 'amount_tax', None) if total_details else None
+            amount_shipping = getattr(total_details, 'amount_shipping', None) if total_details else None
+            amount_total = getattr(obj, 'amount_total', None)
+            if amount_total is not None:
+                payment.amount_cents = int(amount_total)
+            target = _resolve_payment_target(payment)
+            if target is not None and isinstance(target, StoreOrder):
+                if amount_tax is not None:
+                    target.tax_total = round(int(amount_tax) / 100.0, 2)
+                if amount_shipping is not None:
+                    target.shipping_cost = round(int(amount_shipping) / 100.0, 2)
+                if amount_total is not None:
+                    target.total = round(int(amount_total) / 100.0, 2)
+                _sync_shipping_method_from_session(target, obj)
+                _apply_store_order_paid(target, payment)
+        db.session.commit()
+        return 'ok', 200
+
+    if event.type == 'checkout.session.expired':
+        if payment is None and obj_id:
+            payment = Payment.query.filter_by(stripe_session_id=obj_id).first()
+        if payment and payment.status == 'pending':
+            payment.status = 'canceled'
+            payment.last_event_id = event_id
+            # If the buyer paid via a different (retry) session, we'll see
+            # the newer Payment row in `paid` status before this expiry fires.
+            # In that case the order has already advanced — only expire when
+            # there's no successful payment for it.
+            target = _resolve_payment_target(payment)
+            if isinstance(target, StoreOrder) and target.status == 'pending_payment':
+                has_paid = (Payment.query
+                            .filter_by(source_type='store_order',
+                                       source_id=target.id, status='paid')
+                            .first())
+                if not has_paid:
+                    _restock_order_items(target, reason='checkout expired')
+                    target.status = 'canceled'
+                    now = datetime.now(timezone.utc).replace(tzinfo=None)
+                    for it in (target.items or []):
+                        if (it.fulfillment_status or '') in ('', 'pending_payment', 'pending'):
+                            it.fulfillment_status = 'canceled'
+                            it.status_updated_at = now
+                    _log_order_event(target, None, 'pending_payment', 'canceled',
+                                     message='Stripe Checkout session expired — '
+                                             'order auto-canceled and inventory restocked.')
+        db.session.commit()
+        return 'ok', 200
+
+    if event.type == 'payment_intent.payment_failed':
+        if payment is None and obj_id:
+            payment = Payment.query.filter_by(stripe_payment_intent_id=obj_id).first()
+        if payment:
+            payment.status = 'failed'
+            payment.last_event_id = event_id
+            payment.error_message = last_err_msg
+        db.session.commit()
+        return 'ok', 200
+
+    if event.type == 'charge.refunded':
+        if payment is None and obj_payment_intent:
+            payment = Payment.query.filter_by(stripe_payment_intent_id=obj_payment_intent).first()
+        if payment:
+            payment.status = 'refunded'
+            payment.last_event_id = event_id
+            target = _resolve_payment_target(payment)
+            if target is not None and isinstance(target, StoreOrder):
+                was_already_refunded = (target.status == 'refunded')
+                target.status = 'refunded'
+                _log_order_event(target, None, None, 'refunded',
+                                 message='Payment refunded.')
+                if not was_already_refunded:
+                    _restock_order_items(target, reason='refund')
+        db.session.commit()
+        return 'ok', 200
+
+    # Other event types: log and ack so Stripe stops retrying.
+    db.session.commit()
+    return 'ok', 200
+
+
+@app.route('/payment/<int:payment_id>/success')
+def payment_success(payment_id):
+    """Stripe success redirect. We don't trust this for state changes (that's
+    the webhook's job), but it gives the buyer a friendly landing."""
+    payment = db.session.get(Payment, payment_id)
+    if not payment:
+        return render_template('newsletter_status.html',
+                               title='Payment',
+                               heading='Payment record not found.',
+                               body=''), 404
+
+    # If the webhook hasn't arrived yet, optimistically poll Stripe so the
+    # buyer's landing page reflects the actual state.
+    if payment.status == 'pending':
+        try:
+            stripe_settings = _stripe_settings_owning_payment(payment)
+            if stripe_settings and payment.stripe_session_id:
+                stripe_mod, api_key = _stripe_client(stripe_settings)
+                sess = stripe_mod.checkout.Session.retrieve(
+                    payment.stripe_session_id, api_key=api_key,
+                    expand=['shipping_cost.shipping_rate'],
+                )
+                if sess and sess.payment_status == 'paid':
+                    payment.stripe_payment_intent_id = sess.payment_intent or payment.stripe_payment_intent_id
+                    target = _resolve_payment_target(payment)
+                    if target is not None and isinstance(target, StoreOrder):
+                        amount_total = getattr(sess, 'amount_total', None)
+                        if amount_total is not None:
+                            target.total = round(int(amount_total) / 100.0, 2)
+                        _sync_shipping_method_from_session(target, sess)
+                        _apply_store_order_paid(target, payment)
+                    db.session.commit()
+        except Exception as e:
+            app.logger.warning(f'[stripe] success-page poll failed: {e}')
+
+    target = _resolve_payment_target(payment)
+    if isinstance(target, StoreOrder):
+        return redirect(url_for('store_order_confirmation', order_id=target.id))
+    return render_template('newsletter_status.html',
+                           title='Payment received',
+                           heading='Thanks for your purchase!',
+                           body='Your payment was received.')
+
+
+@app.route('/admin/payments')
+@login_required
+@require_perm('payments.view')
+def admin_payments_page():
+    website = get_admin_website()
+    settings = get_stripe_settings_for_user(current_user.root_user_id)
+    recent = (Payment.query
+              .filter_by(user_id=current_user.root_user_id)
+              .order_by(Payment.created_at.desc())
+              .limit(50).all())
+    fulfillment_settings = _get_fulfillment_settings(current_user.root_user_id)
+    fulfillment_cfg = (fulfillment_settings.config if fulfillment_settings else None) or {}
+    # Build the list of (type, status, label) triples that have buyer emails.
+    email_toggles = []
+    for ft, pipeline in FULFILLMENT_PIPELINES.items():
+        for status_key, status_label in pipeline:
+            if status_key == 'paid':
+                continue  # 'paid' uses the order-received email, not a transition
+            email_toggles.append({
+                'type': ft,
+                'status': status_key,
+                'label': status_label,
+                'key': f'{ft}.{status_key}',
+                'enabled': fulfillment_cfg.get(f'{ft}.{status_key}', True) is not False,
+            })
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    webhook_url = url_for('stripe_webhook', _external=True)
+    return render_template(
+        'admin_payments.html',
+        settings=settings,
+        recent_payments=recent,
+        email_toggles=email_toggles,
+        webhook_url=webhook_url,
+        website=website,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=None,
+    )
+
+
+# ── SMS admin + webhook routes ─────────────────────────────────────────────
+
+# Event keys the admin can route to email/sms/both/off. Match the existing
+# transition_email events plus a few high-level "moments" that aren't tied to
+# a single fulfillment pipeline step.
+_SMS_CHANNEL_EVENTS = [
+    ('order.received',   'Order received (after payment)'),
+    ('order.preparing',  'Order being prepared'),
+    ('order.shipped',    'Order shipped'),
+    ('order.out_for_delivery', 'Out for delivery'),
+    ('order.delivered',  'Delivered'),
+    ('order.ready_for_pickup', 'Ready for pickup'),
+    ('order.picked_up',  'Picked up'),
+    ('order.refunded',   'Refunded / canceled'),
+    ('ticket.issued',    'Tickets issued'),
+    ('digital.delivered','Digital file delivered'),
+    ('support.reply',    'Customer support reply'),
+]
+
+
+def _sms_admin_perm():
+    """Settings & test sends gate. Mirrors payments.manage scope."""
+    return 'payments.manage'
+
+
+@app.route('/admin/sms')
+@login_required
+@require_perm('payments.view')
+def admin_sms_page():
+    settings = get_sms_settings_for_user(current_user.root_user_id)
+    website = get_admin_website()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    recent_logs = (SmsLog.query
+                   .filter_by(user_id=current_user.root_user_id)
+                   .order_by(SmsLog.created_at.desc())
+                   .limit(40).all())
+    # Roll the spend counter so the displayed value reflects the current month.
+    if settings:
+        _sms_roll_month_if_needed(settings)
+        db.session.commit()
+    # Build provider list for the picker.
+    providers = [
+        {'key': k, 'label': v['label'],
+         'config_fields': v.get('config_fields', [])}
+        for k, v in SMS_PROVIDER_REGISTRY.items()
+    ]
+    # Mask secret values in the rendered config so they aren't echoed back.
+    cfg_render = dict(settings.config or {}) if settings else {}
+    if settings:
+        for f in (next((p['config_fields'] for p in providers
+                        if p['key'] == settings.provider), [])):
+            if f.get('secret') and cfg_render.get(f['key']):
+                cfg_render[f['key']] = '••••••••'
+    inbound_url = url_for('sms_inbound_webhook', provider='twilio', _external=True)
+    return render_template(
+        'admin_sms.html',
+        settings=settings, providers=providers,
+        cfg_render=cfg_render, channel_events=_SMS_CHANNEL_EVENTS,
+        channel_config=(settings.channel_config if settings else None) or {},
+        recent_logs=recent_logs, inbound_url=inbound_url,
+        website=website, current_website=current_website,
+        current_website_pages=current_website_pages, page_id=None,
+    )
+
+
+@app.route('/admin/sms/settings', methods=['POST'])
+@login_required
+@require_perm('payments.manage')
+def admin_sms_save_settings():
+    data = request.get_json() or {}
+    s = get_sms_settings_for_user(current_user.root_user_id)
+    if not s:
+        s = SmsProviderSettings(user_id=current_user.root_user_id)
+        db.session.add(s)
+    provider = (data.get('provider') or 'twilio').strip().lower()
+    if provider not in SMS_PROVIDER_REGISTRY:
+        return _utf8_json({'success': False, 'error': 'Unknown provider.'}, 400)
+    s.provider = provider
+    s.is_active = bool(data.get('is_active', False))
+    s.account_label = (data.get('account_label') or '').strip()[:120] or None
+    s.fallback_to_email = bool(data.get('fallback_to_email', True))
+    try:
+        s.monthly_cap_cents = max(0, int(data.get('monthly_cap_cents') or 0))
+    except (TypeError, ValueError):
+        s.monthly_cap_cents = 500
+    # Per-field config — encrypt declared-secret fields.
+    spec = SMS_PROVIDER_REGISTRY[provider]['config_fields']
+    incoming = data.get('config') or {}
+    new_cfg = dict(s.config or {})
+    for f in spec:
+        key = f['key']
+        val = incoming.get(key)
+        if val is None or (isinstance(val, str) and val.strip() == ''):
+            # Empty submission clears the field unless it's a masked placeholder.
+            new_cfg.pop(key, None)
+            continue
+        if f.get('secret'):
+            if val == '••••••••':
+                continue  # masked — leave existing encrypted value alone
+            new_cfg[key] = encrypt_api_key(val)
+        else:
+            new_cfg[key] = val.strip() if isinstance(val, str) else val
+    s.config = new_cfg
+    # Channel config — only honour known events/values.
+    raw_ch = data.get('channel_config') or {}
+    ch = {}
+    if isinstance(raw_ch, dict):
+        valid_keys = {k for k, _ in _SMS_CHANNEL_EVENTS}
+        for k, v in raw_ch.items():
+            if k in valid_keys and v in ('email', 'sms', 'both', 'off'):
+                ch[k] = v
+    s.channel_config = ch or None
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/sms/test-send', methods=['POST'])
+@login_required
+@require_perm('payments.manage')
+def admin_sms_test_send():
+    data = request.get_json() or {}
+    phone = (data.get('phone') or '').strip()
+    body = (data.get('body') or 'Test message from your store.').strip()
+    if not phone:
+        return _utf8_json({'success': False, 'error': 'Phone is required.'}, 400)
+    channel, err = send_sms(current_user.root_user_id, phone, body)
+    if channel == 'sms':
+        return _utf8_json({'success': True, 'channel': 'sms'})
+    return _utf8_json({'success': False, 'error': err or 'Send failed.'}, 200)
+
+
+@app.route('/webhooks/sms/<string:provider>', methods=['POST'])
+def sms_inbound_webhook(provider):
+    """Twilio (and similar) POST here when a buyer texts our number — used to
+    catch STOP/HELP keywords automatically per US carrier rules. We try every
+    admin's settings since the inbound payload isn't tied to an account id
+    in our DB until we look up the From phone."""
+    provider = (provider or '').strip().lower()
+    if provider not in SMS_PROVIDER_REGISTRY:
+        return 'unknown provider', 404
+    # Twilio sends form-encoded data; other providers may send JSON.
+    form = request.form.to_dict(flat=True) if request.form else (request.get_json(silent=True) or {})
+    from_phone = (form.get('From') or form.get('from') or '').strip()
+    body = (form.get('Body') or form.get('body') or '').strip()
+    if not from_phone or not body:
+        return 'ok', 200  # ignore noise
+
+    keyword = body.strip().upper().split()[0] if body.strip() else ''
+    norm = _normalize_phone(from_phone)
+
+    # STOP / HELP / UNSUBSCRIBE — flip opt-out on any matching public user.
+    if keyword in ('STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'):
+        try:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            users = PublicUser.query.filter_by(phone_number=norm).all() if norm else []
+            for u in users:
+                u.sms_opt_in = False
+                u.sms_opted_out_at = now
+            for s in SmsProviderSettings.query.filter_by(is_active=True).all():
+                db.session.add(SmsLog(user_id=s.user_id, provider=provider,
+                                      direction='inbound', phone=norm or from_phone,
+                                      body=body[:300], status='opt_out'))
+            db.session.commit()
+        except Exception as e:
+            app.logger.warning(f'[sms-in] STOP handling failed: {e}')
+        # Twilio auto-replies; we can stay quiet.
+        return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                200, {'Content-Type': 'text/xml'})
+
+    if keyword in ('HELP', 'INFO'):
+        try:
+            for s in SmsProviderSettings.query.filter_by(is_active=True).all():
+                db.session.add(SmsLog(user_id=s.user_id, provider=provider,
+                                      direction='inbound', phone=norm or from_phone,
+                                      body=body[:300], status='help'))
+            db.session.commit()
+        except Exception:
+            pass
+        reply = 'Reply STOP to unsubscribe. Msg & data rates may apply.'
+        return (f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(reply)}</Message></Response>',
+                200, {'Content-Type': 'text/xml'})
+
+    # Catch-all — log inbound for the admin to read.
+    try:
+        for s in SmsProviderSettings.query.filter_by(is_active=True).all():
+            db.session.add(SmsLog(user_id=s.user_id, provider=provider,
+                                  direction='inbound', phone=norm or from_phone,
+                                  body=body[:300], status='received'))
+        db.session.commit()
+    except Exception:
+        pass
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            200, {'Content-Type': 'text/xml'})
+
+
+@app.route('/admin/orders/email-settings', methods=['POST'])
+@login_required
+@require_perm('payments.manage')
+def admin_orders_save_email_settings():
+    data = request.get_json() or {}
+    disabled = set(data.get('disabled') or [])
+    s = _get_fulfillment_settings(current_user.root_user_id)
+    cfg = dict(s.config or {})
+    # Rebuild: every known transition is either enabled (True) or muted (False).
+    for ft, pipeline in FULFILLMENT_PIPELINES.items():
+        for status_key, _ in pipeline:
+            if status_key == 'paid':
+                continue
+            full_key = f'{ft}.{status_key}'
+            cfg[full_key] = full_key not in disabled
+    s.config = cfg
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/payments/stripe-settings', methods=['POST'])
+@login_required
+@require_perm('payments.manage')
+def admin_payments_save_stripe():
+    data = request.get_json() or {}
+    settings = get_stripe_settings_for_user(current_user.root_user_id)
+    if not settings:
+        settings = StripeSettings(user_id=current_user.root_user_id)
+        db.session.add(settings)
+
+    if 'account_label' in data:
+        settings.account_label = (data.get('account_label') or '').strip() or None
+    if 'publishable_key' in data:
+        settings.publishable_key = (data.get('publishable_key') or '').strip() or None
+    # Secret + webhook secret: only re-encrypt when a new value was provided.
+    raw_secret = (data.get('secret_key') or '').strip()
+    if raw_secret:
+        settings.secret_key = encrypt_api_key(raw_secret)
+    raw_wh = (data.get('webhook_secret') or '').strip()
+    if raw_wh:
+        settings.webhook_secret = encrypt_api_key(raw_wh)
+    if 'currency' in data:
+        settings.currency = (data.get('currency') or 'usd').strip().lower() or 'usd'
+    if 'is_live_mode' in data:
+        settings.is_live_mode = bool(data.get('is_live_mode'))
+    if 'automatic_tax_enabled' in data:
+        settings.automatic_tax_enabled = bool(data.get('automatic_tax_enabled'))
+    if 'allow_promotion_codes' in data:
+        settings.allow_promotion_codes = bool(data.get('allow_promotion_codes'))
+    settings.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/payments/stripe-test', methods=['POST'])
+@login_required
+@require_perm('payments.view')
+def admin_payments_stripe_test():
+    """Ping Stripe with the configured secret to verify it works."""
+    import stripe as _stripe
+    settings = get_stripe_settings_for_user(current_user.root_user_id)
+    if not settings or not _stripe_secret_key(settings):
+        return _utf8_json({'success': False, 'error': 'No secret key saved yet.'}, 400)
+    secret = _stripe_secret_key(settings)
+    try:
+        acct = _stripe.Account.retrieve(api_key=secret)
+    except _stripe.error.AuthenticationError as e:
+        return _utf8_json({'success': False,
+                           'error': f'Stripe rejected the secret key: {e.user_message or str(e)}'}, 200)
+    except _stripe.error.StripeError as e:
+        return _utf8_json({'success': False,
+                           'error': f'Stripe error: {e.user_message or str(e)}'}, 200)
+    except Exception as e:
+        app.logger.exception(f'[stripe] test connection raised: {e}')
+        return _utf8_json({'success': False, 'error': f'Could not reach Stripe: {e}'}, 200)
+    label = getattr(acct, 'email', None)
+    if not label:
+        bp = getattr(acct, 'business_profile', None)
+        if isinstance(bp, dict):
+            label = bp.get('name')
+    if not label:
+        label = getattr(acct, 'id', None) or 'connected'
+    return _utf8_json({'success': True, 'message': f'Connected to Stripe ({label}).'})
+
+
+@app.route('/payment/<int:payment_id>/cancel')
+def payment_cancel(payment_id):
+    payment = db.session.get(Payment, payment_id)
+    if payment and payment.status == 'pending':
+        payment.status = 'canceled'
+        db.session.commit()
+    return render_template('newsletter_status.html',
+                           title='Payment canceled',
+                           heading='Payment canceled.',
+                           body='Your card was not charged. You can try again from the store.')
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Notifications (Discord webhooks, extensible to other providers)
+# ════════════════════════════════════════════════════════════════════════════
+
+NOTIFICATION_EVENT_TYPES = (
+    'post.published',
+    'newsletter.campaign_sent',
+    'calendar.event_upcoming',
+)
+
+# Discord embed colour-coding per event (decimal RGB).
+_NOTIFICATION_COLORS = {
+    'post.published':            0x5EEEF8,   # cyan
+    'newsletter.campaign_sent':  0xC79AFF,   # purple
+    'calendar.event_upcoming':   0xFFD982,   # amber
+}
+
+
+def _site_external_base(website):
+    """Best-effort absolute URL prefix for links in notifications.
+    Uses request context when available (preferred so we use the actual host),
+    falling back to '' so links remain relative if no context."""
+    try:
+        return request.host_url.rstrip('/')
+    except Exception:
+        return ''
+
+
+def _site_link_for_post(post, website):
+    """Public URL for a post."""
+    base = _site_external_base(website)
+    prefix = ('/' + website.url_prefix) if website and website.url_prefix else ''
+    return f'{base}{prefix}/posts/{post.collection.slug}/{post.slug}'
+
+
+def _site_link_for_calendar_event(event, website):
+    """Best-effort URL for a calendar event — point at any page hosting the
+    calendar, otherwise the website root with the anchor."""
+    base = _site_external_base(website)
+    prefix = ('/' + website.url_prefix) if website and website.url_prefix else ''
+    return f'{base}{prefix}/#event-{event.id}'
+
+
+def _site_link_for_newsletter_campaign(campaign):
+    """Public URL where readers can view the campaign. Tries hard to produce a
+    public link:
+      1. The newsletter's pinned host website (preferred).
+      2. The owning admin's primary live website as a fallback.
+      3. Generates and persists a slug on the fly if the campaign was sent
+         before slugs existed.
+    Falls back to the admin edit URL only when no public site exists at all."""
+    nl = campaign.newsletter if hasattr(campaign, 'newsletter') else None
+    if nl is None:
+        nl = db.session.get(Newsletter, campaign.newsletter_id)
+
+    # Lazy slug generation — covers historical campaigns whose slug was never
+    # set (e.g. those created before today's schema change).
+    if nl and not campaign.slug:
+        try:
+            base = _slugify_post(campaign.subject or 'untitled')
+            campaign.slug = _unique_campaign_slug(nl.id, base, exclude_id=campaign.id)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    # Pick a host website: the newsletter's pinned one, or the admin's primary
+    # live site as a sensible fallback.
+    website = None
+    if nl and nl.website_id:
+        website = db.session.get(Website, nl.website_id)
+        if website and website.is_draft:
+            website = None
+    if website is None and nl and nl.user_id:
+        website = (Website.query
+                   .filter_by(user_id=nl.user_id, is_draft=False)
+                   .order_by(Website.id.asc()).first())
+        # Persist the fallback so future dispatches don't have to recompute.
+        if website and nl.website_id is None:
+            try:
+                nl.website_id = website.id
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+    if website and nl and campaign.slug:
+        try:
+            return url_for(
+                'public_newsletter_campaign',
+                prefix=website.url_prefix or None,
+                newsletter_slug=nl.slug,
+                campaign_slug=campaign.slug,
+                _external=True,
+            )
+        except Exception as e:
+            app.logger.warning(f'public_newsletter_campaign url_for failed: {e}')
+
+    # Last-resort admin link if no public path is reachable.
+    try:
+        return url_for('admin_newsletter_campaign_edit',
+                       nid=campaign.newsletter_id, cid=campaign.id,
+                       _external=True)
+    except Exception:
+        return ''
+
+
+def _truncate(s, n):
+    if not s:
+        return ''
+    return s if len(s) <= n else (s[: max(0, n - 1)] + '…')
+
+
+def _strip_html_basic(s):
+    """Very small HTML→text used in embed descriptions."""
+    if not s:
+        return ''
+    return _html_to_plain(s)
+
+
+def _send_to_discord_webhook(webhook_url, payload):
+    """POST a Discord webhook payload. Raises on non-2xx."""
+    import requests as _req
+    r = _req.post(webhook_url, json=payload, timeout=15)
+    if r.status_code >= 300:
+        raise RuntimeError(f'Discord webhook returned {r.status_code}: {r.text[:200]}')
+
+
+def _build_discord_payload(channel, embed, prepend_text=None):
+    """Wrap an embed dict in the Discord webhook envelope, honouring per-channel
+    bot username/avatar overrides if present."""
+    cfg = channel.config or {}
+    out = {'embeds': [embed]}
+    if prepend_text:
+        out['content'] = prepend_text
+    if cfg.get('bot_username'):
+        out['username'] = cfg['bot_username']
+    if cfg.get('bot_avatar_url'):
+        out['avatar_url'] = cfg['bot_avatar_url']
+    # Allow role mentions inside content if user pasted <@&...>
+    out['allowed_mentions'] = {'parse': ['roles', 'users']}
+    return out
+
+
+def _embed_for_post_published(post, website):
+    url = _site_link_for_post(post, website)
+    return {
+        'title': _truncate(f'New post: {post.title}', 256),
+        'description': _truncate(_strip_html_basic(post.excerpt or post.content or ''), 4096),
+        'url': url,
+        'color': _NOTIFICATION_COLORS['post.published'],
+        'timestamp': (post.published_at or datetime.now(timezone.utc).replace(tzinfo=None)).isoformat(),
+        'footer': {'text': website.name if website else 'New post'},
+        **({'image': {'url': post.cover_image_url}} if post.cover_image_url else {}),
+    }
+
+
+def _embed_for_newsletter_campaign(campaign, newsletter, website=None):
+    # If a specific website was supplied (e.g. from a rule's filter), build the
+    # link on that site; otherwise fall back to the newsletter's pinned host
+    # (used as a global canonical URL).
+    if website and campaign.slug:
+        try:
+            url = url_for(
+                'public_newsletter_campaign',
+                prefix=website.url_prefix or None,
+                newsletter_slug=newsletter.slug,
+                campaign_slug=campaign.slug,
+                _external=True,
+            )
+        except Exception:
+            url = _site_link_for_newsletter_campaign(campaign)
+    else:
+        url = _site_link_for_newsletter_campaign(campaign)
+    desc = (f"**Subject:** {_truncate(campaign.subject, 200)}\n"
+            f"**Recipients:** {campaign.recipient_count}\n"
+            f"**Delivered:** {campaign.success_count}"
+            + (f"\n**Failed:** {campaign.fail_count}" if campaign.fail_count else ''))
+    return {
+        'title': _truncate(f'Newsletter sent: {newsletter.name}', 256),
+        'description': desc,
+        'url': url,
+        'color': _NOTIFICATION_COLORS['newsletter.campaign_sent'],
+        'timestamp': (campaign.sent_at or datetime.now(timezone.utc).replace(tzinfo=None)).isoformat(),
+        'footer': {'text': newsletter.name},
+    }
+
+
+def _embed_for_calendar_event_upcoming(event, website, minutes_before):
+    url = _site_link_for_calendar_event(event, website)
+    when = event.start.strftime('%b %-d, %Y · %-I:%M %p') if event.start else 'soon'
+    desc = f"**Starts:** {when}\n**Starting in:** ~{minutes_before} min"
+    if getattr(event, 'description', None):
+        desc += f"\n\n{_truncate(_strip_html_basic(event.description), 1500)}"
+    return {
+        'title': _truncate(f'Upcoming: {event.title or "Event"}', 256),
+        'description': _truncate(desc, 4096),
+        'url': url,
+        'color': _NOTIFICATION_COLORS['calendar.event_upcoming'],
+        'timestamp': event.start.isoformat() if event.start else datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        'footer': {'text': (event.calendar.name if event.calendar else 'Calendar')},
+    }
+
+
+def _matching_rules(event_type, website_id=None, calendar_id=None, collection_id=None):
+    """Return enabled rules whose filters match. Channel must be active."""
+    q = (NotificationRule.query
+         .join(NotificationChannel, NotificationRule.channel_id == NotificationChannel.id)
+         .filter(NotificationRule.event_type == event_type,
+                 NotificationRule.is_enabled.is_(True),
+                 NotificationChannel.is_active.is_(True)))
+    if website_id is not None:
+        q = q.filter(or_(NotificationRule.website_id.is_(None),
+                          NotificationRule.website_id == website_id))
+    if calendar_id is not None:
+        q = q.filter(or_(NotificationRule.calendar_id.is_(None),
+                          NotificationRule.calendar_id == calendar_id))
+    if collection_id is not None:
+        q = q.filter(or_(NotificationRule.collection_id.is_(None),
+                          NotificationRule.collection_id == collection_id))
+    return q.all()
+
+
+def _fire_rule(rule, embed, subject_key):
+    """Send the embed to the rule's channel and record delivery. Idempotent
+    per (rule, subject_key) — duplicate calls are silently skipped."""
+    existing = NotificationDelivery.query.filter_by(
+        rule_id=rule.id, subject_key=subject_key
+    ).first()
+    if existing and existing.success:
+        app.logger.info(
+            f'[notifications] rule {rule.id} subject={subject_key} already delivered; skipping')
+        return
+
+    channel = rule.channel
+    if not channel:
+        app.logger.warning(f'[notifications] rule {rule.id} has no channel; skipping')
+        return
+    if not channel.is_active:
+        app.logger.info(
+            f'[notifications] rule {rule.id} channel={channel.id} is inactive; skipping')
+        return
+    cfg = channel.config or {}
+    webhook_url = decrypt_api_key(cfg.get('webhook_url') or '')
+    if not webhook_url:
+        app.logger.warning(
+            f'[notifications] rule {rule.id} channel={channel.id} has no decryptable webhook URL; skipping')
+        return
+
+    app.logger.info(
+        f'[notifications] firing rule {rule.id} → channel {channel.id} ({channel.label!r}), '
+        f'subject={subject_key}, url={embed.get("url")!r}')
+
+    payload = _build_discord_payload(channel, embed, prepend_text=rule.prepend_text)
+    try:
+        _send_to_discord_webhook(webhook_url, payload)
+        channel.last_used_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if existing:
+            existing.success = True
+            existing.error = None
+            existing.sent_at = channel.last_used_at
+        else:
+            db.session.add(NotificationDelivery(
+                rule_id=rule.id, subject_key=subject_key,
+                success=True
+            ))
+        db.session.commit()
+        app.logger.info(f'[notifications] rule {rule.id} delivered')
+    except Exception as e:
+        db.session.rollback()
+        if existing:
+            existing.success = False
+            existing.error = str(e)[:1000]
+            existing.sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        else:
+            db.session.add(NotificationDelivery(
+                rule_id=rule.id, subject_key=subject_key,
+                success=False, error=str(e)[:1000]
+            ))
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        app.logger.warning(f'[notifications] rule {rule.id} dispatch failed: {e}')
+
+
+def _resolve_rule_website(rule, fallback_user_id=None):
+    """Pick the website to use when building a notification URL for this rule.
+    If the rule has a website_id filter set, use that — the admin asked for
+    notifications about that specific site, so the URL should match. Otherwise
+    fall back to the admin's primary (no-prefix) live website."""
+    if rule.website_id:
+        w = db.session.get(Website, rule.website_id)
+        if w and not w.is_draft:
+            return w
+    if fallback_user_id is None:
+        ch = rule.channel
+        if ch:
+            fallback_user_id = ch.user_id
+    if fallback_user_id:
+        primary = (Website.query
+                   .filter_by(user_id=fallback_user_id, is_draft=False, url_prefix=None)
+                   .first())
+        if primary:
+            return primary
+        return (Website.query
+                .filter_by(user_id=fallback_user_id, is_draft=False)
+                .order_by(Website.id.asc()).first())
+    return None
+
+
+def dispatch_notification(event_type, **ctx):
+    """Single entry point used by every inline hook. ctx is event-specific."""
+    try:
+        if event_type == 'post.published':
+            post = ctx['post']
+            # Collections aren't strictly owned by a single website, so don't
+            # filter by post.website_id when matching rules — let every rule
+            # whose collection filter (or "any collection") applies fire.
+            rules = _matching_rules(event_type, collection_id=post.collection_id)
+            app.logger.info(
+                f'[notifications] post.published id={post.id} matched {len(rules)} rule(s)')
+            if not rules:
+                return
+            for rule in rules:
+                try:
+                    rule_website = _resolve_rule_website(rule)
+                    embed = _embed_for_post_published(post, rule_website)
+                    _fire_rule(rule, embed, subject_key=f'post:{post.id}:r{rule.id}')
+                except Exception as inner:
+                    app.logger.exception(
+                        f'[notifications] rule {rule.id} for post {post.id} failed: {inner}')
+
+        elif event_type == 'newsletter.campaign_sent':
+            campaign = ctx['campaign']
+            newsletter = ctx.get('newsletter') or db.session.get(Newsletter, campaign.newsletter_id)
+            rules = _matching_rules(event_type)
+            app.logger.info(
+                f'[notifications] newsletter.campaign_sent campaign={campaign.id} matched {len(rules)} rule(s)')
+            if not rules:
+                return
+            for rule in rules:
+                try:
+                    rule_website = _resolve_rule_website(rule)
+                    embed = _embed_for_newsletter_campaign(campaign, newsletter, rule_website)
+                    _fire_rule(rule, embed, subject_key=f'campaign:{campaign.id}:r{rule.id}')
+                except Exception as inner:
+                    app.logger.exception(
+                        f'[notifications] rule {rule.id} for campaign {campaign.id} failed: {inner}')
+
+        elif event_type == 'calendar.event_upcoming':
+            event = ctx['event']
+            website = ctx.get('website')
+            minutes_before = int(ctx.get('minutes_before', 30))
+            cal = event.calendar
+            rules = _matching_rules(
+                event_type,
+                website_id=website.id if website else None,
+                calendar_id=cal.id if cal else None,
+            )
+            if not rules:
+                return
+            for rule in rules:
+                try:
+                    rule_website = _resolve_rule_website(rule) or website
+                    embed = _embed_for_calendar_event_upcoming(event, rule_website, minutes_before)
+                    _fire_rule(rule, embed, subject_key=f'calendar_event:{event.id}:r{rule.id}')
+                except Exception as inner:
+                    app.logger.exception(
+                        f'[notifications] rule {rule.id} for event {event.id} failed: {inner}')
+    except Exception as e:
+        app.logger.exception(f'dispatch_notification({event_type}) failed: {e}')
+
+
+# ── Notifications admin routes ──────────────────────────────────────────────
+
+def _get_channel_for_admin(cid):
+    return NotificationChannel.query.filter_by(
+        id=cid, user_id=current_user.root_user_id
+    ).first()
+
+
+def _get_rule_for_admin(rid):
+    """Rule scoped to the current admin's owned channels."""
+    rule = NotificationRule.query.get(rid)
+    if not rule:
+        return None
+    if not _get_channel_for_admin(rule.channel_id):
+        return None
+    return rule
+
+
+@app.route('/admin/notifications')
+@login_required
+@require_perm('notifications.view')
+def admin_notifications_page():
+    website = get_admin_website()
+    channels = NotificationChannel.query.filter_by(
+        user_id=current_user.root_user_id
+    ).order_by(NotificationChannel.created_at.desc()).all()
+    rules_by_channel = {}
+    for ch in channels:
+        rules_by_channel[ch.id] = ch.rules.order_by(NotificationRule.id.desc()).all()
+    live_websites = Website.query.filter_by(
+        user_id=current_user.root_user_id, is_draft=False
+    ).order_by(Website.id).all()
+    calendars = Calendar.query.filter_by(user_id=current_user.root_user_id).order_by(Calendar.name).all()
+    post_collections = PostCollection.query.filter_by(
+        user_id=current_user.root_user_id
+    ).order_by(PostCollection.name).all()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template(
+        'notifications_admin.html',
+        channels=channels,
+        rules_by_channel=rules_by_channel,
+        live_websites=live_websites,
+        calendars=calendars,
+        post_collections=post_collections,
+        event_types=NOTIFICATION_EVENT_TYPES,
+        website=website,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=None,
+    )
+
+
+@app.route('/admin/notifications/channels/create', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_channel_create():
+    data = request.get_json() or {}
+    label = (data.get('label') or '').strip()
+    webhook_url = (data.get('webhook_url') or '').strip()
+    bot_username = (data.get('bot_username') or '').strip() or None
+    bot_avatar_url = (data.get('bot_avatar_url') or '').strip() or None
+    if not label or not webhook_url:
+        return _utf8_json({'success': False, 'error': 'Label and webhook URL are required.'}, 400)
+    if not webhook_url.startswith('https://discord.com/api/webhooks/') \
+            and not webhook_url.startswith('https://discordapp.com/api/webhooks/'):
+        return _utf8_json({'success': False,
+                           'error': 'Webhook URL must start with https://discord.com/api/webhooks/'}, 400)
+    config = {
+        'webhook_url': encrypt_api_key(webhook_url),
+        'bot_username': bot_username,
+        'bot_avatar_url': bot_avatar_url,
+    }
+    ch = NotificationChannel(
+        user_id=current_user.root_user_id,
+        label=label, provider='discord_webhook',
+        config=config,
+    )
+    db.session.add(ch)
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': ch.id})
+
+
+@app.route('/admin/notifications/channels/<int:cid>/update', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_channel_update(cid):
+    ch = _get_channel_for_admin(cid)
+    if not ch:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+    if 'label' in data:
+        label = (data.get('label') or '').strip()
+        if not label:
+            return _utf8_json({'success': False, 'error': 'Label required.'}, 400)
+        ch.label = label
+    cfg = dict(ch.config or {})
+    if 'webhook_url' in data:
+        wh = (data.get('webhook_url') or '').strip()
+        if wh:
+            if not (wh.startswith('https://discord.com/api/webhooks/')
+                    or wh.startswith('https://discordapp.com/api/webhooks/')):
+                return _utf8_json({'success': False,
+                                   'error': 'Webhook URL must start with https://discord.com/api/webhooks/'}, 400)
+            cfg['webhook_url'] = encrypt_api_key(wh)
+    if 'bot_username' in data:
+        cfg['bot_username'] = (data.get('bot_username') or '').strip() or None
+    if 'bot_avatar_url' in data:
+        cfg['bot_avatar_url'] = (data.get('bot_avatar_url') or '').strip() or None
+    ch.config = cfg
+    if 'is_active' in data:
+        ch.is_active = bool(data.get('is_active'))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/notifications/channels/<int:cid>/delete', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_channel_delete(cid):
+    ch = _get_channel_for_admin(cid)
+    if not ch:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    db.session.delete(ch)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/notifications/channels/<int:cid>/test', methods=['POST'])
+@login_required
+@require_perm('notifications.view')
+def admin_notification_channel_test(cid):
+    ch = _get_channel_for_admin(cid)
+    if not ch:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    cfg = ch.config or {}
+    webhook_url = decrypt_api_key(cfg.get('webhook_url') or '')
+    if not webhook_url:
+        return _utf8_json({'success': False, 'error': 'Channel has no webhook URL.'}, 400)
+    embed = {
+        'title': 'Test notification',
+        'description': (f"This is a test message from your Uwebia notifications system.\n"
+                        f"If you see this, the webhook is wired up correctly."),
+        'color': 0x5EEEC8,
+        'timestamp': datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        'footer': {'text': ch.label},
+    }
+    payload = _build_discord_payload(ch, embed)
+    try:
+        _send_to_discord_webhook(webhook_url, payload)
+        ch.last_used_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+        return _utf8_json({'success': True, 'message': 'Test message sent.'})
+    except Exception as e:
+        return _utf8_json({'success': False, 'error': str(e)}, 502)
+
+
+@app.route('/admin/notifications/rules/create', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_rule_create():
+    data = request.get_json() or {}
+    channel_id = data.get('channel_id')
+    event_type = (data.get('event_type') or '').strip()
+    ch = _get_channel_for_admin(int(channel_id)) if channel_id else None
+    if not ch:
+        return _utf8_json({'success': False, 'error': 'Channel not found.'}, 404)
+    if event_type not in NOTIFICATION_EVENT_TYPES:
+        return _utf8_json({'success': False, 'error': 'Unknown event type.'}, 400)
+    website_id = data.get('website_id') or None
+    calendar_id = data.get('calendar_id') or None
+    collection_id = data.get('collection_id') or None
+    config = {}
+    if event_type == 'calendar.event_upcoming':
+        try:
+            mins = int(data.get('minutes_before') or 30)
+        except (TypeError, ValueError):
+            mins = 30
+        config['minutes_before'] = max(1, min(mins, 24 * 60))
+    rule = NotificationRule(
+        channel_id=ch.id, event_type=event_type,
+        website_id=int(website_id) if website_id else None,
+        calendar_id=int(calendar_id) if calendar_id else None,
+        collection_id=int(collection_id) if collection_id else None,
+        prepend_text=(data.get('prepend_text') or '').strip() or None,
+        config=config,
+        is_enabled=True,
+    )
+    db.session.add(rule)
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': rule.id})
+
+
+@app.route('/admin/notifications/rules/<int:rid>/update', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_rule_update(rid):
+    rule = _get_rule_for_admin(rid)
+    if not rule:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+    if 'website_id' in data:
+        rule.website_id = int(data['website_id']) if data['website_id'] else None
+    if 'calendar_id' in data:
+        rule.calendar_id = int(data['calendar_id']) if data['calendar_id'] else None
+    if 'collection_id' in data:
+        rule.collection_id = int(data['collection_id']) if data['collection_id'] else None
+    if 'prepend_text' in data:
+        rule.prepend_text = (data.get('prepend_text') or '').strip() or None
+    if 'is_enabled' in data:
+        rule.is_enabled = bool(data['is_enabled'])
+    if 'minutes_before' in data and rule.event_type == 'calendar.event_upcoming':
+        try:
+            mins = int(data['minutes_before'])
+            mins = max(1, min(mins, 24 * 60))
+        except (TypeError, ValueError):
+            mins = 30
+        cfg = dict(rule.config or {})
+        cfg['minutes_before'] = mins
+        rule.config = cfg
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/notifications/rules/<int:rid>/delete', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_rule_delete(rid):
+    rule = _get_rule_for_admin(rid)
+    if not rule:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    db.session.delete(rule)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Newsletters
 # ════════════════════════════════════════════════════════════════════════════
 
 def _newsletter_token():
     return secrets.token_urlsafe(32)[:64]
+
+
+def _unique_campaign_slug(newsletter_id, base_slug, exclude_id=None):
+    """Return a slug unique within the given newsletter."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = NewsletterCampaign.query.filter_by(newsletter_id=newsletter_id, slug=slug)
+        if exclude_id:
+            q = q.filter(NewsletterCampaign.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+def _ensure_campaign_slug(campaign):
+    """Generate a slug for the campaign if it doesn't already have one."""
+    if campaign.slug:
+        return campaign.slug
+    base = _slugify_post(campaign.subject or 'untitled')
+    campaign.slug = _unique_campaign_slug(campaign.newsletter_id, base, exclude_id=campaign.id)
+    return campaign.slug
 
 
 def _unique_newsletter_slug(user_id, base_slug, exclude_id=None):
@@ -22564,6 +29948,16 @@ def admin_newsletter_update(nid):
     if 'email_server_id' in data:
         sid = data.get('email_server_id')
         nl.email_server_id = int(sid) if sid else None
+    if 'website_id' in data:
+        wid = data.get('website_id')
+        # Validate the admin actually owns this website before assigning.
+        if wid:
+            w = Website.query.filter_by(
+                id=int(wid), user_id=current_user.root_user_id, is_draft=False
+            ).first()
+            nl.website_id = w.id if w else None
+        else:
+            nl.website_id = None
     if 'require_double_optin' in data:
         nl.require_double_optin = bool(data.get('require_double_optin'))
     if 'collect_name' in data:
@@ -22600,6 +29994,9 @@ def admin_newsletter_detail(nid):
     email_servers = EmailServerSettings.query.order_by(
         EmailServerSettings.is_default.desc(), EmailServerSettings.id.asc()
     ).all()
+    live_websites = Website.query.filter_by(
+        user_id=current_user.root_user_id, is_draft=False
+    ).order_by(Website.id).all()
     current_website = website
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id
@@ -22610,6 +30007,7 @@ def admin_newsletter_detail(nid):
         subscribers=subscribers,
         campaigns=campaigns,
         email_servers=email_servers,
+        live_websites=live_websites,
         website=website,
         current_website=current_website,
         current_website_pages=current_website_pages,
@@ -22763,21 +30161,27 @@ def admin_newsletter_campaign_save(nid):
     html = data.get('html_body') or ''
     server_id = data.get('email_server_id')
     cid = data.get('id')
+    subject_slug_base = _slugify_post(subject)
     if cid:
         campaign = NewsletterCampaign.query.filter_by(id=int(cid), newsletter_id=nl.id).first()
         if not campaign:
             return _utf8_json({'success': False, 'error': 'Campaign not found'}, 404)
         if campaign.status == 'sent':
             return _utf8_json({'success': False, 'error': 'Cannot edit a sent campaign'}, 400)
+        subject_changed = (campaign.subject != subject)
         campaign.subject = subject
         campaign.html_body = html
         campaign.plain_body = _html_to_plain(html)
         campaign.email_server_id = int(server_id) if server_id else None
         campaign.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        # Refresh slug when the subject changes on a draft; keep stable once sent.
+        if subject_changed or not campaign.slug:
+            campaign.slug = _unique_campaign_slug(nl.id, subject_slug_base, exclude_id=campaign.id)
     else:
         campaign = NewsletterCampaign(
             newsletter_id=nl.id,
             subject=subject,
+            slug=_unique_campaign_slug(nl.id, subject_slug_base),
             html_body=html,
             plain_body=_html_to_plain(html),
             email_server_id=int(server_id) if server_id else None,
@@ -22786,7 +30190,8 @@ def admin_newsletter_campaign_save(nid):
         db.session.add(campaign)
     db.session.commit()
     return _utf8_json({'success': True, 'campaign': {
-        'id': campaign.id, 'status': campaign.status, 'subject': campaign.subject,
+        'id': campaign.id, 'status': campaign.status,
+        'subject': campaign.subject, 'slug': campaign.slug,
     }})
 
 
@@ -22898,6 +30303,8 @@ def admin_newsletter_campaign_send(nid, cid):
     campaign.sent_at = now
     campaign.updated_at = now
     db.session.commit()
+
+    dispatch_notification('newsletter.campaign_sent', campaign=campaign, newsletter=nl)
 
     return _utf8_json({
         'success': True,
@@ -23066,6 +30473,39 @@ def public_newsletter_resubscribe(token):
                            title='Resubscribed',
                            heading=f'You\'re back on the list for {nl.name}.',
                            body='Welcome back!')
+
+
+@app.route('/newsletter/<string:newsletter_slug>/<string:campaign_slug>')
+@app.route('/<string:prefix>/newsletter/<string:newsletter_slug>/<string:campaign_slug>')
+def public_newsletter_campaign(newsletter_slug, campaign_slug, prefix=None):
+    """Public-facing page for a sent newsletter campaign. The campaign renders
+    in the context of whichever website's URL prefix it was hit from — same
+    way Posts work — so a feed link from a secondary site keeps that site's
+    navbar / styling. The newsletter just has to belong to the same admin who
+    owns the website that's hosting it."""
+    nl = Newsletter.query.filter_by(slug=newsletter_slug).first_or_404()
+
+    incoming_website = get_live_website(url_prefix=prefix or None)
+    if not incoming_website:
+        abort(404)
+    # The newsletter must be owned by the admin who owns this website, otherwise
+    # one tenant could surface another's content.
+    if nl.user_id and incoming_website.user_id and nl.user_id != incoming_website.user_id:
+        abort(404)
+
+    campaign = NewsletterCampaign.query.filter_by(
+        newsletter_id=nl.id, slug=campaign_slug
+    ).first_or_404()
+    if campaign.status not in ('sent', 'partial'):
+        abort(404)
+
+    return render_template(
+        'newsletter_public.html',
+        website=incoming_website,
+        newsletter=nl,
+        campaign=campaign,
+        public_user=_public_user_for_website(incoming_website),
+    )
 
 
 if __name__ == '__main__':

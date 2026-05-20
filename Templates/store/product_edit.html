@@ -156,6 +156,226 @@
                             <span class="plugin-toggle-track"></span>
                         </label>
                     </label>
+
+                    {% if product %}
+                    <div style="margin-top:16px;padding:12px 14px;background:rgba(94,238,248,0.06);border:1px solid rgba(94,238,248,0.18);border-radius:10px;">
+                        <div style="font-size:0.82rem;font-weight:600;margin-bottom:6px;color:#5eeef8;">
+                            <i class="fas fa-clipboard-list"></i> Quick adjustment
+                        </div>
+                        <p style="font-size:0.76rem;color:rgba(255,255,255,0.5);margin:0 0 10px;">
+                            Add or remove inventory with a logged reason (received stock, write-off, recount, etc.). Editing the quantity above does <strong>not</strong> log a movement — use this for an audit trail.
+                        </p>
+                        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+                            <div style="flex:0 0 90px;">
+                                <label style="display:block;font-size:0.72rem;opacity:0.65;margin-bottom:4px;">Delta</label>
+                                <input type="number" id="invAdjustDelta" step="1" placeholder="+10 / -3"
+                                       style="width:100%;padding:7px 10px;border-radius:7px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.86rem;font-family:ui-monospace,Menlo,monospace;box-sizing:border-box;">
+                            </div>
+                            <div style="flex:0 0 160px;">
+                                <label style="display:block;font-size:0.72rem;opacity:0.65;margin-bottom:4px;">Reason</label>
+                                <select id="invAdjustReason"
+                                        style="width:100%;padding:8px 10px;border-radius:7px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.86rem;box-sizing:border-box;">
+                                    <option value="manual_adjustment">Manual adjustment</option>
+                                    <option value="initial">Initial stock</option>
+                                    <option value="import">Imported / bulk</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div style="flex:1;min-width:160px;">
+                                <label style="display:block;font-size:0.72rem;opacity:0.65;margin-bottom:4px;">Note</label>
+                                <input type="text" id="invAdjustNote" placeholder="e.g. received from supplier"
+                                       style="width:100%;padding:7px 10px;border-radius:7px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.86rem;box-sizing:border-box;">
+                            </div>
+                            <button type="button" onclick="submitInvAdjust()"
+                                    style="padding:9px 14px;border-radius:7px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;border:none;font-weight:700;font-size:0.86rem;cursor:pointer;">
+                                <i class="fas fa-plus-minus"></i> Adjust
+                            </button>
+                        </div>
+                        <p id="invAdjustMsg" style="font-size:0.78rem;margin:8px 0 0;min-height:18px;"></p>
+                        <a href="{{ url_for('admin_inventory_log', product_id=product.id) }}"
+                           style="display:inline-block;font-size:0.78rem;color:#5eeef8;text-decoration:none;margin-top:6px;">
+                            View this product's inventory log →
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="store-field" style="margin-top:12px;">
+                    <label>Prep time (minutes) <span class="store-optional">— pickup &amp; delivery</span></label>
+                    <input type="number" id="pPrepMinutes" min="0" max="600" step="1"
+                           value="{{ product.prep_minutes if (product and product.prep_minutes is not none) else '' }}"
+                           placeholder="(uses store default)">
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                        How long this item takes to prepare. Drives the earliest pickup slot offered to the buyer. Leave blank to use the store-wide default.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Variants -->
+            <div class="store-card">
+                <div class="store-card-title">Variants</div>
+                <p style="font-size:0.82rem;opacity:0.55;margin:0 0 12px;">
+                    Variants let one product cover multiple sizes / colors / etc. Each variant has its own SKU, price override, and inventory. Leave empty to sell as a single SKU.
+                </p>
+                <label class="store-toggle-row" style="margin-bottom:10px;">
+                    <span>Share inventory across all variants</span>
+                    <label class="plugin-toggle">
+                        <input type="checkbox" id="pSharedInv"
+                               {{ 'checked' if product and product.variants_share_inventory else '' }}
+                               onchange="onSharedInvToggle()">
+                        <span class="plugin-toggle-track"></span>
+                    </label>
+                </label>
+                <p id="pSharedInvHint" style="font-size:0.78rem;opacity:0.55;margin:-4px 0 12px;">
+                    Use this for events where Adult / Child / Veteran tiers all pull from one venue capacity. Selling any variant decrements the same pool (set above in <strong>Inventory → Quantity in stock</strong>).
+                </p>
+                <div id="optionTypesEditor">
+                    {# Up to 3 option type slots #}
+                    {% for i in range(3) %}
+                    {% set _name = (option_types_list[i] if option_types_list and i < (option_types_list|length) else '') %}
+                    <div class="store-field" style="display:flex;gap:8px;align-items:end;margin-bottom:8px;">
+                        <div style="flex:1;">
+                            <label>Option {{ i + 1 }} name (optional)</label>
+                            <input type="text" class="optionTypeName" data-slot="{{ i }}"
+                                   value="{{ _name }}"
+                                   placeholder="{{ ['Size','Color','Material'][i] }}"
+                                   oninput="rebuildVariantGrid()">
+                        </div>
+                        <div style="flex:2;">
+                            <label>Values <span class="store-optional">(comma-separated)</span></label>
+                            <input type="text" class="optionTypeValues" data-slot="{{ i }}"
+                                   placeholder="{{ ['S, M, L, XL','Red, Blue, Green','Cotton, Wool'][i] }}"
+                                   oninput="rebuildVariantGrid()">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div id="variantGridWrap" style="display:none;margin-top:12px;">
+                    <div style="font-size:0.84rem;font-weight:600;margin-bottom:8px;">
+                        Variants <span style="opacity:0.5;font-weight:400;" id="variantCount"></span>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table id="variantGrid" style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                            <thead id="variantGridHead"></thead>
+                            <tbody id="variantGridBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <p style="font-size:0.78rem;opacity:0.45;margin:8px 0 0;">
+                    Editing existing values preserves SKUs / inventory where the variant slot still matches.
+                    Removing all option names clears all variants on save.
+                </p>
+            </div>
+
+            <script id="existingVariantsData" type="application/json">{{ variants_data | default([]) | tojson }}</script>
+
+            <!-- Tax category -->
+            <div class="store-card">
+                <div class="store-card-title">Tax category</div>
+                <div class="store-field">
+                    <label>How this product should be taxed</label>
+                    <select id="pTaxCode">
+                        {% set _tc = (product.tax_code if product else None) %}
+                        {% for code, label in tax_codes %}
+                        <option value="{{ code }}" {% if _tc == code or (loop.first and not _tc) %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                        Used by Stripe Tax to pick the right rate when automatic tax is enabled.
+                        If automatic tax is off, this is ignored.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Fulfillment -->
+            <div class="store-card">
+                <div class="store-card-title">Fulfillment</div>
+                <div class="store-field">
+                    <label>How will customers receive this?</label>
+                    <select id="pFulfillment" onchange="toggleFulfillmentFields()">
+                        {% set _ft = (product.fulfillment_type if product else 'shipping') or 'shipping' %}
+                        <option value="shipping"       {{ 'selected' if _ft == 'shipping'       else '' }}>Shipping (with tracking #)</option>
+                        <option value="local_delivery" {{ 'selected' if _ft == 'local_delivery' else '' }}>Local delivery</option>
+                        <option value="pickup"         {{ 'selected' if _ft == 'pickup'         else '' }}>In-store / restaurant pickup</option>
+                        <option value="digital"        {{ 'selected' if _ft == 'digital'        else '' }}>Digital download / file</option>
+                        <option value="ticket"         {{ 'selected' if _ft == 'ticket'         else '' }}>Event ticket / code</option>
+                        <option value="custom"         {{ 'selected' if _ft == 'custom'         else '' }}>Custom (open-ended)</option>
+                    </select>
+                </div>
+                <div class="store-field" id="eventFields" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.07);">
+                    <label style="font-weight:700;">Event details</label>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 12px;">
+                        Required for ticket products. Picking a calendar mirrors this as an event there.
+                    </p>
+                    <div class="store-field">
+                        <label>Calendar to tie into <span class="store-optional">(optional)</span></label>
+                        <select id="pEventCalendar">
+                            <option value="">— No calendar —</option>
+                            {% for c in (calendars or []) %}
+                            <option value="{{ c.id }}"
+                                {% if product and product.event_calendar_id == c.id %}selected{% endif %}>
+                                {{ c.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="store-field">
+                            <label>Starts</label>
+                            <input type="datetime-local" id="pEventStartsAt"
+                                value="{{ product.event_starts_at.strftime('%Y-%m-%dT%H:%M') if (product and product.event_starts_at) else '' }}">
+                        </div>
+                        <div class="store-field">
+                            <label>Ends <span class="store-optional">(optional)</span></label>
+                            <input type="datetime-local" id="pEventEndsAt"
+                                value="{{ product.event_ends_at.strftime('%Y-%m-%dT%H:%M') if (product and product.event_ends_at) else '' }}">
+                        </div>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin:6px 0 10px;cursor:pointer;">
+                        <input type="checkbox" id="pEventAllDay"
+                               {% if product and product.event_all_day %}checked{% endif %}>
+                        All-day event
+                    </label>
+                    <div class="store-field">
+                        <label>Location <span class="store-optional">(shown on tickets + emails)</span></label>
+                        <input type="text" id="pEventLocation" maxlength="255"
+                               value="{{ product.event_location or '' }}"
+                               placeholder="e.g. The Riverside Theatre, 123 Main St">
+                    </div>
+                </div>
+
+                <div class="store-field" id="alsoOfferFields">
+                    <label>Also let buyers pick (optional)</label>
+                    <div style="display:flex;flex-direction:column;gap:6px;font-size:0.88rem;">
+                        {% set _alt_label = {'shipping':'Shipping','local_delivery':'Local delivery','pickup':'Pickup','digital':'Digital','ticket':'Event ticket','custom':'Custom'} %}
+                        {% for ft_key in ['shipping','local_delivery','pickup'] %}
+                        {% if ft_key != _ft %}
+                        <label class="alt-ft-row" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" class="pAltFt" value="{{ ft_key }}"
+                                   {% if ft_key in allowed_ft_list %}checked{% endif %}>
+                            {{ _alt_label[ft_key] }}
+                        </label>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                        Customers see a toggle on the cart page when more than one option is allowed
+                        (e.g. <em>pickup (free)</em> vs <em>local delivery (delivery fee)</em>). Shipping &amp;
+                        delivery fees come from your <a href="{{ url_for('admin_shipping_page') }}" style="color:#5eeef8;">shipping rates</a>;
+                        pickup is always free.
+                    </p>
+                </div>
+                <div class="store-field" id="digitalFields" style="display:none;">
+                    <label>Download URL</label>
+                    <input type="text" id="pDigitalUrl"
+                           value="{{ product.digital_file_url if product and product.digital_file_url else '' }}"
+                           placeholder="https://...">
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                        Customers receive a tokenized link that redirects here. Use an asset URL from your library or a private S3 link.
+                    </p>
+                    <label style="margin-top:10px;display:block;">Link expires after (days)</label>
+                    <input type="number" id="pDigitalExpiry" min="1" max="365" step="1"
+                           value="{{ product.digital_expiry_days if product and product.digital_expiry_days else 7 }}">
                 </div>
             </div>
 
@@ -163,7 +383,7 @@
             <div class="store-card">
                 <div class="store-card-title">Category</div>
                 <div class="store-field">
-                    <select id="pCategory">
+                    <select id="pCategory" onchange="onCategoryChange()">
                         <option value="">— None —</option>
                         {% for cat in categories %}
                         <option value="{{ cat.id }}"
@@ -172,8 +392,18 @@
                         </option>
                         {% endfor %}
                     </select>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                        Categories can hold default settings (fulfillment type, tax, inventory). When you change the category, click <em>Apply category defaults</em> to inherit those values.
+                    </p>
+                    <button type="button" id="applyCatDefaultsBtn"
+                            onclick="applyCategoryDefaults()"
+                            style="display:none;margin-top:8px;padding:7px 14px;border-radius:8px;background:rgba(94,238,248,0.14);border:1px solid rgba(94,238,248,0.35);color:#5eeef8;font-size:0.84rem;font-weight:600;cursor:pointer;font-family:inherit;">
+                        <i class="fas fa-magic"></i> Apply category defaults
+                    </button>
                 </div>
             </div>
+
+            <script id="categoryDefaultsData" type="application/json">{{ category_defaults | default({}) | tojson }}</script>
 
             <!-- Save status -->
             <p class="store-save-status" id="saveStatus"></p>
@@ -206,6 +436,218 @@ function toggleInventoryFields() {
     document.getElementById('inventoryFields').style.display = on ? '' : 'none';
 }
 toggleInventoryFields();
+
+// ── Variants ──────────────────────────────────────────────────────────────
+const EXISTING_VARIANTS = (function() {
+    try { return JSON.parse(document.getElementById('existingVariantsData').textContent || '[]'); }
+    catch (e) { return []; }
+})();
+// Track the latest grid state so saveProduct() can serialize it.
+let VARIANT_STATE = [];
+
+function _readOptionTypes() {
+    const slots = [];
+    for (let i = 0; i < 3; i++) {
+        const nameEl = document.querySelector(`.optionTypeName[data-slot="${i}"]`);
+        const valsEl = document.querySelector(`.optionTypeValues[data-slot="${i}"]`);
+        const name = (nameEl ? nameEl.value : '').trim();
+        const vals = (valsEl ? valsEl.value : '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        if (name && vals.length) slots.push({ name, vals });
+        else if (name) slots.push({ name, vals: [] });
+    }
+    return slots;
+}
+
+function _cartesian(arrs) {
+    return arrs.reduce((acc, arr) => acc.flatMap(a => arr.map(b => [...a, b])), [[]]);
+}
+
+function rebuildVariantGrid() {
+    const slots = _readOptionTypes();
+    const wrap = document.getElementById('variantGridWrap');
+    if (slots.length === 0 || slots.every(s => s.vals.length === 0)) {
+        wrap.style.display = 'none';
+        VARIANT_STATE = [];
+        return;
+    }
+    const combos = _cartesian(slots.map(s => s.vals.length ? s.vals : ['']));
+    if (combos.length === 0 || combos[0].every(v => !v)) {
+        wrap.style.display = 'none';
+        VARIANT_STATE = [];
+        return;
+    }
+    wrap.style.display = '';
+    document.getElementById('variantCount').textContent = `(${combos.length})`;
+
+    // Build header
+    const isTicket = document.getElementById('pFulfillment').value === 'ticket';
+    const sharedInv = document.getElementById('pSharedInv') && document.getElementById('pSharedInv').checked;
+    const headRow = slots.map(s => `<th style="text-align:left;padding:8px;font-size:0.74rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.5);font-weight:600;">${escapeHtml(s.name || 'Option')}</th>`).join('') +
+        '<th style="text-align:left;padding:8px;font-size:0.74rem;text-transform:uppercase;color:rgba(255,255,255,0.5);font-weight:600;">SKU</th>' +
+        '<th style="text-align:left;padding:8px;font-size:0.74rem;text-transform:uppercase;color:rgba(255,255,255,0.5);font-weight:600;">Price override</th>' +
+        (sharedInv ? '' : '<th style="text-align:left;padding:8px;font-size:0.74rem;text-transform:uppercase;color:rgba(255,255,255,0.5);font-weight:600;">Inventory</th>') +
+        (isTicket ? '<th style="text-align:left;padding:8px;font-size:0.74rem;text-transform:uppercase;color:rgba(255,255,255,0.5);font-weight:600;">Tickets / pkg</th>' : '') +
+        '<th style="text-align:center;padding:8px;font-size:0.74rem;text-transform:uppercase;color:rgba(255,255,255,0.5);font-weight:600;">Active</th>';
+    document.getElementById('variantGridHead').innerHTML = `<tr>${headRow}</tr>`;
+
+    // Build body — reuse existing variant id when slot values match.
+    const body = document.getElementById('variantGridBody');
+    body.innerHTML = '';
+    VARIANT_STATE = combos.map((combo, idx) => {
+        // Pad combo to 3 slots so option1/option2/option3 mapping is stable.
+        const padded = [combo[0] || '', combo[1] || '', combo[2] || ''];
+        const match = EXISTING_VARIANTS.find(v =>
+            (v.option1 || '') === padded[0] &&
+            (v.option2 || '') === padded[1] &&
+            (v.option3 || '') === padded[2]
+        );
+        return match ? { ...match } : {
+            id: null, option1: padded[0], option2: padded[1], option3: padded[2],
+            sku: '', price_override: null, inventory_qty: 0, is_active: true,
+            image_asset_id: null, sort_order: idx,
+        };
+    });
+
+    VARIANT_STATE.forEach((v, idx) => {
+        const cells = [];
+        slots.forEach((s, i) => {
+            const val = [v.option1, v.option2, v.option3][i] || '';
+            cells.push(`<td style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.06);">${escapeHtml(val)}</td>`);
+        });
+        cells.push(`<td style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"><input type="text" value="${escapeHtml(v.sku || '')}" data-idx="${idx}" data-field="sku" oninput="onVariantFieldChange(event)" style="width:100%;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.85rem;"></td>`);
+        cells.push(`<td style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"><input type="number" step="0.01" min="0" value="${v.price_override === null ? '' : v.price_override}" placeholder="(inherit)" data-idx="${idx}" data-field="price_override" oninput="onVariantFieldChange(event)" style="width:100%;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.85rem;"></td>`);
+        if (!sharedInv) {
+            cells.push(`<td style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"><input type="number" min="0" step="1" value="${v.inventory_qty || 0}" data-idx="${idx}" data-field="inventory_qty" oninput="onVariantFieldChange(event)" style="width:100%;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.85rem;"></td>`);
+        }
+        if (isTicket) {
+            cells.push(`<td style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"><input type="number" min="1" max="100" step="1" value="${v.tickets_per_package || 1}" data-idx="${idx}" data-field="tickets_per_package" oninput="onVariantFieldChange(event)" style="width:100%;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.85rem;"></td>`);
+        }
+        cells.push(`<td style="padding:6px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06);"><input type="checkbox" ${v.is_active ? 'checked' : ''} data-idx="${idx}" data-field="is_active" oninput="onVariantFieldChange(event)"></td>`);
+        body.insertAdjacentHTML('beforeend', `<tr>${cells.join('')}</tr>`);
+    });
+}
+
+function onVariantFieldChange(ev) {
+    const el = ev.target;
+    const idx = parseInt(el.dataset.idx, 10);
+    const field = el.dataset.field;
+    if (isNaN(idx) || !VARIANT_STATE[idx]) return;
+    if (field === 'price_override') {
+        const v = el.value.trim();
+        VARIANT_STATE[idx][field] = (v === '' ? null : Math.max(0, parseFloat(v)));
+    } else if (field === 'inventory_qty') {
+        VARIANT_STATE[idx][field] = Math.max(0, parseInt(el.value || '0', 10));
+    } else if (field === 'tickets_per_package') {
+        VARIANT_STATE[idx][field] = Math.max(1, Math.min(100, parseInt(el.value || '1', 10)));
+    } else if (field === 'is_active') {
+        VARIANT_STATE[idx][field] = el.checked;
+    } else {
+        VARIANT_STATE[idx][field] = el.value;
+    }
+}
+
+function onSharedInvToggle() {
+    // Rebuild grid so the inventory column appears/disappears.
+    rebuildVariantGrid();
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+// Seed the inputs from existing data on first load.
+(function seedOptionTypes() {
+    {% if option_types_list %}
+    const types = {{ option_types_list | tojson }};
+    types.forEach((t, i) => {
+        const nameEl = document.querySelector(`.optionTypeName[data-slot="${i}"]`);
+        if (nameEl) nameEl.value = t;
+    });
+    // Reconstruct values per slot from existing variants.
+    const valsBySlot = [new Set(), new Set(), new Set()];
+    EXISTING_VARIANTS.forEach(v => {
+        if (v.option1) valsBySlot[0].add(v.option1);
+        if (v.option2) valsBySlot[1].add(v.option2);
+        if (v.option3) valsBySlot[2].add(v.option3);
+    });
+    valsBySlot.forEach((set, i) => {
+        const valsEl = document.querySelector(`.optionTypeValues[data-slot="${i}"]`);
+        if (valsEl) valsEl.value = Array.from(set).join(', ');
+    });
+    rebuildVariantGrid();
+    {% endif %}
+})();
+
+function toggleFulfillmentFields() {
+    const ft = document.getElementById('pFulfillment').value;
+    document.getElementById('digitalFields').style.display = (ft === 'digital') ? '' : 'none';
+    const eventEl = document.getElementById('eventFields');
+    if (eventEl) eventEl.style.display = (ft === 'ticket') ? '' : 'none';
+    // "Also let buyers pick" only makes sense for physical/local types.
+    const altWrap = document.getElementById('alsoOfferFields');
+    if (altWrap) {
+        altWrap.style.display = (['shipping', 'local_delivery', 'pickup'].includes(ft)) ? '' : 'none';
+        // Re-render the alternatives list so the primary doesn't appear as an option.
+        const physical = ['shipping', 'local_delivery', 'pickup'];
+        altWrap.querySelectorAll('.alt-ft-row').forEach(row => {
+            const cb = row.querySelector('input.pAltFt');
+            if (!cb) return;
+            row.style.display = (cb.value === ft || !physical.includes(cb.value)) ? 'none' : '';
+            if (cb.value === ft) cb.checked = false;
+        });
+    }
+}
+toggleFulfillmentFields();
+
+// ── Category defaults / inheritance ──────────────────────────────────────────
+const CATEGORY_DEFAULTS = (function() {
+    try { return JSON.parse(document.getElementById('categoryDefaultsData').textContent || '{}'); }
+    catch (e) { return {}; }
+})();
+const PRODUCT_HAS_ID = {{ 'true' if product else 'false' }};
+
+function onCategoryChange() {
+    const id = document.getElementById('pCategory').value;
+    const d = CATEGORY_DEFAULTS[id];
+    const btn = document.getElementById('applyCatDefaultsBtn');
+    // Show the button only if this category actually has any defaults set.
+    const hasDefaults = d && (d.fulfillment_type || (d.allowed_fulfillment_types || []).length ||
+                              d.tax_code || d.track_inventory !== null ||
+                              d.allow_oversell !== null);
+    btn.style.display = hasDefaults ? '' : 'none';
+    // For brand-new products (no PRODUCT_HAS_ID), auto-apply on category pick
+    // so the user doesn't have to click twice.
+    if (!PRODUCT_HAS_ID && hasDefaults) applyCategoryDefaults();
+}
+
+function applyCategoryDefaults() {
+    const id = document.getElementById('pCategory').value;
+    const d = CATEGORY_DEFAULTS[id];
+    if (!d) return;
+    if (d.fulfillment_type) {
+        document.getElementById('pFulfillment').value = d.fulfillment_type;
+        toggleFulfillmentFields();
+    }
+    if (Array.isArray(d.allowed_fulfillment_types)) {
+        document.querySelectorAll('.pAltFt').forEach(cb => {
+            cb.checked = d.allowed_fulfillment_types.includes(cb.value);
+        });
+    }
+    if (d.tax_code) {
+        const tc = document.getElementById('pTaxCode');
+        if (tc) tc.value = d.tax_code;
+    }
+    if (d.track_inventory !== null && d.track_inventory !== undefined) {
+        document.getElementById('pTrack').checked = !!d.track_inventory;
+    }
+    if (d.allow_oversell !== null && d.allow_oversell !== undefined) {
+        const os = document.getElementById('pOversell');
+        if (os) os.checked = !!d.allow_oversell;
+    }
+}
+onCategoryChange();
 
 // ── Images ────────────────────────────────────────────────────────────────────
 
@@ -252,6 +694,31 @@ function getImageIds() {
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
+async function submitInvAdjust() {
+    const msg = document.getElementById('invAdjustMsg');
+    const deltaEl = document.getElementById('invAdjustDelta');
+    const delta = parseInt(deltaEl.value, 10);
+    if (!delta) { msg.style.color = '#ff8a8a'; msg.textContent = 'Enter a non-zero delta.'; return; }
+    if (!PRODUCT_ID) { msg.style.color = '#ff8a8a'; msg.textContent = 'Save the product first.'; return; }
+    const payload = {
+        delta,
+        reason: document.getElementById('invAdjustReason').value,
+        note:   document.getElementById('invAdjustNote').value.trim(),
+    };
+    msg.style.color = 'rgba(255,255,255,0.6)'; msg.textContent = 'Adjusting…';
+    const r = await fetch(`/admin/store/products/${PRODUCT_ID}/inventory-adjust`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
+    document.getElementById('pQty').value = j.quantity_after;
+    deltaEl.value = '';
+    document.getElementById('invAdjustNote').value = '';
+    msg.style.color = '#5eeec8';
+    msg.textContent = `New total: ${j.quantity_after}. Logged.`;
+}
+
 async function saveProduct(activate) {
     const st = document.getElementById('saveStatus');
     st.textContent = 'Saving…'; st.style.color = 'rgba(255,255,255,0.5)';
@@ -270,8 +737,22 @@ async function saveProduct(activate) {
         track_inventory:  document.getElementById('pTrack').checked,
         inventory_qty:    parseInt(document.getElementById('pQty').value) || 0,
         allow_oversell:   document.getElementById('pOversell').checked,
+        prep_minutes:     (document.getElementById('pPrepMinutes').value.trim() === '' ? null : parseInt(document.getElementById('pPrepMinutes').value, 10)),
         is_active:        activate !== undefined ? activate : document.getElementById('pActive').checked,
         image_ids:        getImageIds(),
+        fulfillment_type:    document.getElementById('pFulfillment').value,
+        allowed_fulfillment_types: Array.from(document.querySelectorAll('.pAltFt:checked')).map(el => el.value),
+        digital_file_url:    (document.getElementById('pDigitalUrl').value || '').trim(),
+        digital_expiry_days: parseInt(document.getElementById('pDigitalExpiry').value) || 7,
+        tax_code:            document.getElementById('pTaxCode').value,
+        option_types:        _readOptionTypes().filter(s => s.name).map(s => s.name),
+        variants:            VARIANT_STATE,
+        variants_share_inventory: !!(document.getElementById('pSharedInv') && document.getElementById('pSharedInv').checked),
+        event_calendar_id:   (document.getElementById('pEventCalendar') ? document.getElementById('pEventCalendar').value : ''),
+        event_starts_at:     (document.getElementById('pEventStartsAt') ? document.getElementById('pEventStartsAt').value : ''),
+        event_ends_at:       (document.getElementById('pEventEndsAt') ? document.getElementById('pEventEndsAt').value : ''),
+        event_location:      (document.getElementById('pEventLocation') ? document.getElementById('pEventLocation').value : ''),
+        event_all_day:       (document.getElementById('pEventAllDay') ? document.getElementById('pEventAllDay').checked : false),
     };
 
     const url = PRODUCT_ID

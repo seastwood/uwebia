@@ -3,6 +3,20 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
 
+<style>
+.sc-fulfillment-toggle { display: inline-flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.sc-ft-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    color: inherit; font-size: 0.82rem; cursor: pointer; font-family: inherit;
+    transition: background 0.15s, border-color 0.15s;
+}
+.sc-ft-btn:hover { background: rgba(255,255,255,0.1); }
+.sc-ft-btn.is-active { background: rgba(94,238,248,0.16); border-color: rgba(94,238,248,0.4); color: #5eeef8; }
+.sc-ft-btn i { font-size: 0.85em; }
+</style>
+
 <div class="sp-page">
     <div class="sp-container sp-container--narrow">
 
@@ -16,8 +30,11 @@
         {% if items %}
         <div class="sc-layout">
             <div class="sc-items">
+                {% set _ft_label = {'shipping':'Ship','local_delivery':'Local delivery','pickup':'Pickup','digital':'Digital','ticket':'Ticket','custom':'Custom'} %}
                 {% for item in items %}
                 {% if item.product %}
+                {% set _choices = fulfillment_choices.get(item.id, []) %}
+                {% set _active_ft = resolve_fulfillment(item) %}
                 <div class="sc-item" id="sc-item-{{ item.id }}">
                     <a href="/products/{{ item.product.slug }}" class="sc-item-img">
                         {% if item.product.cover_image_url() %}
@@ -30,10 +47,30 @@
                         <a href="/products/{{ item.product.slug }}" class="sc-item-name">
                             {{ item.product.name }}
                         </a>
-                        {% if item.product.sku %}
-                        <p class="sc-item-sku">SKU: {{ item.product.sku }}</p>
+                        {% if item.variant %}
+                        <p class="sc-item-sku" style="opacity:0.8;font-weight:500;">
+                            {{ item.variant.display_options(item.product) }}
+                        </p>
                         {% endif %}
-                        <p class="sc-item-price">${{ '%.2f' | format(item.product.price) }}</p>
+                        {% set _sku = (item.variant.effective_sku() if item.variant else item.product.sku) %}
+                        {% if _sku %}
+                        <p class="sc-item-sku">SKU: {{ _sku }}</p>
+                        {% endif %}
+                        {% set _price = (item.variant.effective_price() if item.variant else item.product.price | float) %}
+                        <p class="sc-item-price">${{ '%.2f' | format(_price) }}</p>
+                        {% if _choices | length > 1 %}
+                        <div class="sc-fulfillment-toggle" data-item-id="{{ item.id }}">
+                            {% for ft in _choices %}
+                            <button type="button"
+                                    class="sc-ft-btn {% if ft == _active_ft %}is-active{% endif %}"
+                                    data-ft="{{ ft }}"
+                                    onclick="scSetFulfillment({{ item.id }}, '{{ ft }}', this)">
+                                {% if ft == 'pickup' %}<i class="fas fa-store"></i>{% elif ft == 'local_delivery' %}<i class="fas fa-truck"></i>{% elif ft == 'shipping' %}<i class="fas fa-box"></i>{% endif %}
+                                {{ _ft_label.get(ft, ft) }}{% if ft == 'pickup' %} (free){% endif %}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     <div class="sc-item-right">
                         <div class="sp-qty-wrap sc-qty">
@@ -44,7 +81,7 @@
                             <button onclick="scUpdateQty({{ item.id }}, 1)">+</button>
                         </div>
                         <p class="sc-item-total" id="sc-total-{{ item.id }}">
-                            ${{ '%.2f' | format(item.product.price * item.quantity) }}
+                            ${{ '%.2f' | format(_price * item.quantity) }}
                         </p>
                         <button class="sc-remove-btn" onclick="scRemove({{ item.id }})">
                             <i class="fas fa-trash"></i>
@@ -63,16 +100,54 @@
                         <span id="sc-subtotal">${{ '%.2f' | format(subtotal) }}</span>
                     </div>
                     <div class="sc-summary-row sc-summary-row--muted">
-                        <span>Shipping</span>
+                        <span>Shipping / delivery</span>
                         <span>Calculated at checkout</span>
                     </div>
+                    {% if delivery_estimate %}
+                    <p style="font-size:0.82rem;margin:2px 0 8px;color:#5eeec8;">
+                        <i class="fas fa-truck-fast"></i> {{ delivery_estimate.label }}
+                    </p>
+                    {% endif %}
+                    {% if cart_prep_minutes and cart_prep_minutes > 0 %}
+                    <p style="font-size:0.82rem;margin:2px 0 8px;color:#5eeec8;">
+                        <i class="fas fa-clock"></i> Pickup ready in ~{{ cart_prep_minutes }} min
+                    </p>
+                    {% endif %}
                     <div class="sc-summary-divider"></div>
                     <div class="sc-summary-row sc-summary-row--total">
                         <span>Total</span>
                         <span id="sc-total-sum">${{ '%.2f' | format(subtotal) }}</span>
                     </div>
+                    {% if express_available %}
+                    <button type="button" id="expressBtn" onclick="expressCheckout()"
+                            style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;border-radius:10px;background:#000;color:#fff;border:1px solid rgba(255,255,255,0.15);font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px;">
+                        <i class="fas fa-bolt" style="color:#5eeec8;"></i>
+                        Express checkout
+                    </button>
+                    <p id="expressMsg" style="font-size:0.78rem;opacity:0.55;margin:-4px 0 12px;text-align:center;min-height:14px;">
+                        Pays with your default address — wallet (Apple Pay / Google Pay) shown on the next page.
+                    </p>
+                    <script>
+                    async function expressCheckout() {
+                        const btn = document.getElementById('expressBtn');
+                        const msg = document.getElementById('expressMsg');
+                        btn.disabled = true;
+                        msg.style.color = 'rgba(255,255,255,0.7)';
+                        msg.textContent = 'Opening checkout…';
+                        const r = await fetch('/store/express-checkout', {
+                            method: 'POST', headers: {'Content-Type':'application/json'},
+                            body: '{}',
+                        });
+                        const j = await r.json();
+                        if (j.success && j.redirect) { location.href = j.redirect; return; }
+                        btn.disabled = false;
+                        msg.style.color = '#ff8a8a';
+                        msg.textContent = j.error || 'Could not start checkout.';
+                    }
+                    </script>
+                    {% endif %}
                     <a href="/store/checkout" class="sc-checkout-btn">
-                        Checkout <i class="fas fa-arrow-right"></i>
+                        {% if express_available %}Standard checkout{% else %}Checkout{% endif %} <i class="fas fa-arrow-right"></i>
                     </a>
                     <div style="text-align:center;">
                         <a href="/shop" class="sc-continue-link">← Continue shopping</a>
@@ -114,6 +189,22 @@ async function scSetQty(itemId, qty) {
         document.getElementById('sc-total-sum').textContent = '$' + d.subtotal;
         const lineEl = document.getElementById('sc-total-' + itemId);
         if (lineEl) lineEl.textContent = '$' + d.line_total;
+    }
+}
+
+async function scSetFulfillment(itemId, ft, btn) {
+    const r = await fetch('/store/cart/set_fulfillment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId, fulfillment: ft })
+    });
+    const d = await r.json();
+    if (d.success) {
+        // Update visual state of all sibling buttons in this item's toggle.
+        const wrap = btn.closest('.sc-fulfillment-toggle');
+        if (wrap) wrap.querySelectorAll('.sc-ft-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+    } else if (d.error) {
+        alert(d.error);
     }
 }
 

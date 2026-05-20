@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.rmd-page { max-width: 920px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.rmd-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.55); font-size: 0.85rem; text-decoration: none; margin-bottom: 14px; }
+.rmd-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.rmd-title { font-size: 1.55rem; font-weight: 800; margin: 0; }
+.rmd-meta { color: rgba(255,255,255,0.55); font-size: 0.86rem; margin-top: 5px; }
+.rmd-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.rmd-card h2 { margin: 0 0 12px; font-size: 1rem; }
+.rmd-item { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.rmd-item:last-child { border-bottom: none; }
+.rmd-stage { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.rmd-pill { display: inline-flex; padding: 4px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+.rmd-pill.requested { background: rgba(255,206,115,0.16); color:#ffd982; border:1px solid rgba(255,206,115,0.32); }
+.rmd-pill.approved, .rmd-pill.awaiting_shipment, .rmd-pill.in_transit { background: rgba(94,238,248,0.15); color:#5eeef8; border:1px solid rgba(94,238,248,0.32); }
+.rmd-pill.received { background: rgba(199,154,255,0.15); color:#c79aff; border:1px solid rgba(199,154,255,0.32); }
+.rmd-pill.refunded { background: rgba(94,238,200,0.15); color:#5eeec8; border:1px solid rgba(94,238,200,0.32); }
+.rmd-pill.denied, .rmd-pill.canceled { background: rgba(255,80,80,0.12); color:#ff8a8a; border:1px solid rgba(255,80,80,0.25); }
+.rmd-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.rmd-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 0.86rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.rmd-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.rmd-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.12); }
+.rmd-btn-success { background: rgba(94,238,200,0.18); color: #5eeec8; border: 1px solid rgba(94,238,200,0.35); }
+.rmd-btn-danger  { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.rmd-input { width: 100%; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.88rem; box-sizing: border-box; }
+.rmd-label { display: block; font-size: 0.76rem; color: rgba(255,255,255,0.55); margin-bottom: 4px; font-weight: 600; }
+.rmd-step-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; font-size: 0.78rem; }
+.rmd-step { padding: 4px 9px; border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.07); }
+.rmd-step.done { background: rgba(94,238,200,0.13); color: #5eeec8; border-color: rgba(94,238,200,0.32); }
+.rmd-step.active { background: rgba(94,238,248,0.15); color: #5eeef8; border-color: rgba(94,238,248,0.35); }
+.rmd-step.cancel { background: rgba(255,80,80,0.1); color: #ff8a8a; border-color: rgba(255,80,80,0.25); }
+.rmd-tl-event { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.86rem; }
+.rmd-tl-time { font-size: 0.75rem; color: rgba(255,255,255,0.45); }
+.rmd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .rmd-row { grid-template-columns: 1fr; } }
+.rmd-warn { font-size: 0.84rem; color: #ffd982; background: rgba(255,206,115,0.08); border: 1px solid rgba(255,206,115,0.3); padding: 10px 14px; border-radius: 8px; }
+.rmd-msg { font-size: 0.85rem; min-height: 18px; }
+</style>
+
+{% set is_terminal = rma.status in ['refunded','denied','canceled'] %}
+{% set order_steps = [('requested','Requested'),('approved','Approved'),('in_transit','In transit'),('received','Received'),('refunded','Refunded')] %}
+{% set step_keys = order_steps | map(attribute=0) | list %}
+{% set current_idx = step_keys.index(rma.status) if rma.status in step_keys else -1 %}
+
+<div class="rmd-page">
+    <a class="rmd-back" href="{{ url_for('admin_returns') }}"><i class="fas fa-arrow-left"></i> All returns</a>
+
+    <div class="rmd-head">
+        <div>
+            <h1 class="rmd-title">{{ rma.rma_number }}</h1>
+            <p class="rmd-meta">
+                Order <a href="{{ url_for('admin_order_detail', order_id=order.id) }}" style="color:#5eeef8;">#{{ order.order_number }}</a>
+                · {{ order.contact_name }} ({{ order.contact_email }})
+                · opened {{ rma.requested_at.strftime('%b %-d, %Y %I:%M %p') if rma.requested_at else '' }}
+                · by {{ rma.initiated_by }}
+            </p>
+        </div>
+        <span class="rmd-pill {{ rma.status }}">{{ rma.status.replace('_', ' ') }}</span>
+    </div>
+
+    <div class="rmd-card">
+        <div class="rmd-step-bar">
+            {% for key, label in order_steps %}
+                {% set is_done = current_idx >= 0 and loop.index0 < current_idx %}
+                {% set is_active = key == rma.status %}
+                <span class="rmd-step {% if is_done %}done{% elif is_active %}active{% endif %}">{{ label }}</span>
+                {% if not loop.last %}<span style="color:rgba(255,255,255,0.3);">→</span>{% endif %}
+            {% endfor %}
+            {% if rma.status in ['denied','canceled'] %}
+                <span class="rmd-step cancel" style="margin-left:8px;">· {{ rma.status }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="rmd-card">
+        <h2>Items being returned</h2>
+        {% for ri in rma.items %}
+            {% set oi = ri.order_item %}
+            <div class="rmd-item">
+                <div style="font-weight:600;">{{ oi.product_name if oi else 'Item' }} × {{ ri.quantity }}</div>
+                <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);">
+                    {% if oi %}${{ '%.2f' | format(oi.unit_price | float) }} ea{% endif %}
+                    {% if ri.refund_amount_cents %} · refund ${{ '%.2f' | format(ri.refund_amount_cents/100.0) }}{% endif %}
+                    {% if ri.restocked %} · <span style="color:#5eeec8;">restocked</span>{% endif %}
+                </div>
+            </div>
+        {% endfor %}
+        <div style="margin-top:12px;font-size:0.92rem;">
+            <strong>Planned refund:</strong>
+            {% if rma.refund_amount_cents %}${{ '%.2f' | format(rma.refund_amount_cents/100.0) }}{% else %}—{% endif %}
+        </div>
+    </div>
+
+    {% if rma.reason_code or rma.reason_note or rma.admin_note %}
+    <div class="rmd-card">
+        <h2>Reason</h2>
+        {% if rma.reason_code %}
+            <p style="margin:0 0 6px;"><strong>{{ reason_codes.get(rma.reason_code, rma.reason_code) }}</strong></p>
+        {% endif %}
+        {% if rma.reason_note %}
+            <p style="margin:0 0 6px;color:rgba(255,255,255,0.85);white-space:pre-wrap;">{{ rma.reason_note }}</p>
+        {% endif %}
+        {% if rma.admin_note %}
+            <p style="margin:8px 0 0;font-size:0.86rem;color:rgba(255,255,255,0.55);">
+                <strong>Internal:</strong> {{ rma.admin_note }}
+            </p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if rma.return_carrier or rma.return_tracking_number %}
+    <div class="rmd-card">
+        <h2>Return tracking</h2>
+        <p style="margin:0;font-size:0.92rem;">
+            {{ rma.return_carrier or '' }}
+            {% if rma.return_tracking_number %} · {{ rma.return_tracking_number }}{% endif %}
+            {% if rma.return_tracking_url %}
+                · <a href="{{ rma.return_tracking_url }}" target="_blank" style="color:#5eeef8;">Track</a>
+            {% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    {# ─ Action panel — only when not terminal ─────────────────────────── #}
+    {% if not is_terminal and user_has_perm('store.returns') %}
+    <div class="rmd-card">
+        <h2>Next action</h2>
+
+        {% if rma.status == 'requested' %}
+            <p style="font-size:0.88rem;color:rgba(255,255,255,0.7);margin:0 0 14px;">
+                Review the buyer's request. Approve to send return instructions, or deny if it doesn't qualify.
+            </p>
+            <label class="rmd-label">Internal note (optional)</label>
+            <input class="rmd-input" id="actionNote" placeholder="Why this decision…">
+            <div class="rmd-actions" style="margin-top:12px;">
+                <button class="rmd-btn rmd-btn-primary" onclick="doAction('approve')">
+                    <i class="fas fa-check"></i> Approve
+                </button>
+                <button class="rmd-btn rmd-btn-danger" onclick="doAction('deny')">
+                    <i class="fas fa-times"></i> Deny
+                </button>
+            </div>
+
+        {% elif rma.status == 'approved' or rma.status == 'awaiting_shipment' %}
+            <p style="font-size:0.88rem;color:rgba(255,255,255,0.7);margin:0 0 14px;">
+                Buyer is shipping it back. Add their tracking when you get it.
+                When the package arrives, mark it <strong>received</strong>.
+            </p>
+            <div class="rmd-row">
+                <div>
+                    <label class="rmd-label">Carrier</label>
+                    <input class="rmd-input" id="carrier" placeholder="USPS / UPS / FedEx / ...">
+                </div>
+                <div>
+                    <label class="rmd-label">Tracking #</label>
+                    <input class="rmd-input" id="tracking" placeholder="9405511…">
+                </div>
+            </div>
+            <div class="rmd-actions" style="margin-top:12px;">
+                <button class="rmd-btn rmd-btn-secondary" onclick="doAction('mark_shipped')">
+                    <i class="fas fa-shipping-fast"></i> Save tracking + mark in transit
+                </button>
+                <button class="rmd-btn rmd-btn-primary" onclick="doAction('mark_received', true)">
+                    <i class="fas fa-box-open"></i> Mark received
+                </button>
+            </div>
+
+        {% elif rma.status == 'in_transit' %}
+            <p style="font-size:0.88rem;color:rgba(255,255,255,0.7);margin:0 0 14px;">
+                Once the package is in hand, click <strong>Mark received</strong>. We restock at that point — not before.
+            </p>
+            <label class="rmd-label">Note (optional)</label>
+            <input class="rmd-input" id="actionNote" placeholder="e.g. All items present, no damage">
+            <label style="display:flex;gap:8px;align-items:center;font-size:0.85rem;margin-top:8px;">
+                <input type="checkbox" id="restockOnReceive" checked>
+                Restock inventory now
+            </label>
+            <div class="rmd-actions" style="margin-top:12px;">
+                <button class="rmd-btn rmd-btn-primary" onclick="doAction('mark_received')">
+                    <i class="fas fa-box-open"></i> Mark received
+                </button>
+            </div>
+
+        {% elif rma.status == 'received' %}
+            <div class="rmd-warn" style="margin-bottom:12px;">
+                <strong>Final step.</strong> Clicking <em>Finalize refund</em> charges Stripe. This is the only step that touches the buyer's card — make sure you have the goods in hand.
+            </div>
+            <label class="rmd-label">Refund amount ($, leave blank for planned ${{ '%.2f' | format((rma.refund_amount_cents or 0)/100.0) }})</label>
+            <input class="rmd-input" id="refundAmount" type="number" step="0.01" min="0.01">
+            <label class="rmd-label" style="margin-top:10px;">Internal note (optional)</label>
+            <input class="rmd-input" id="actionNote" placeholder="e.g. Refund covers product only, buyer paid return shipping">
+            <div class="rmd-actions" style="margin-top:12px;">
+                <button class="rmd-btn rmd-btn-success" onclick="doAction('refund')">
+                    <i class="fas fa-dollar-sign"></i> Finalize refund
+                </button>
+                <button class="rmd-btn rmd-btn-danger" onclick="doAction('cancel')">Cancel return</button>
+            </div>
+        {% endif %}
+
+        <p class="rmd-msg" id="actionMsg" style="margin-top:10px;"></p>
+    </div>
+    {% endif %}
+
+    <div class="rmd-card">
+        <h2>Timeline</h2>
+        {% if timeline %}
+            {% for e in timeline %}
+            <div class="rmd-tl-event">
+                <div class="rmd-tl-time">{{ e.created_at.strftime('%b %-d, %Y %I:%M %p') if e.created_at else '' }}</div>
+                <div>
+                    {% if e.from_status %}{{ e.from_status.replace('return.', '').replace('_', ' ') }} →{% endif %}
+                    <strong>{{ e.to_status.replace('return.', '').replace('_', ' ') }}</strong>
+                </div>
+                {% if e.message %}<div style="color:rgba(255,255,255,0.75);">{{ e.message }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="color:rgba(255,255,255,0.45);">No events yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+async function doAction(action, alsoRestock) {
+    const msg = document.getElementById('actionMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Processing…';
+    const payload = {};
+    const note = document.getElementById('actionNote');
+    if (note) payload.note = note.value.trim();
+    if (action === 'mark_shipped') {
+        const carrier = document.getElementById('carrier');
+        const tn = document.getElementById('tracking');
+        if (carrier) payload.carrier = carrier.value.trim();
+        if (tn) payload.tracking_number = tn.value.trim();
+    }
+    if (action === 'mark_received') {
+        const cb = document.getElementById('restockOnReceive');
+        payload.restock = cb ? cb.checked : true;
+    }
+    if (action === 'refund') {
+        const amt = document.getElementById('refundAmount');
+        const v = amt ? parseFloat(amt.value) : NaN;
+        if (!isNaN(v) && v > 0) payload.amount = v;
+        if (!confirm('This charges Stripe. You confirm the returned items are in hand?')) {
+            msg.textContent = '';
+            return;
+        }
+    }
+    if (action === 'deny' || action === 'cancel') {
+        if (!confirm('Are you sure?')) { msg.textContent = ''; return; }
+    }
+    const url = `/admin/returns/{{ rma.id }}/${action === 'refund' ? 'refund' : action}`;
+    const r = await fetch(url, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = 'Done.';
+    setTimeout(() => location.reload(), 700);
+}
+</script>
+
+{% endblock %}

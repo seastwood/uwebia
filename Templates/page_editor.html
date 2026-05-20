@@ -7442,6 +7442,10 @@ nts-admin-pagination span {
                                 <i class="fas fa-envelope-open-text"></i>
                                 <span>Newsletter</span>
                             </button>
+                            <button type="button" class="asm-type-tile" data-type="newsletter_feed" onclick="asmSelectType('newsletter_feed')">
+                                <i class="fas fa-list-alt"></i>
+                                <span>Newsletter Feed</span>
+                            </button>
                         </div>
 
                         <!-- Extra options pickers — IDs unchanged -->
@@ -7524,6 +7528,55 @@ nts-admin-pagination span {
                                     <input type="text" id="ns-blurb"
                                            style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;"
                                            placeholder="Short blurb shown under the heading">
+                                </div>
+                            </div>
+
+                            <!-- Newsletter feed picker -->
+                            <div id="newsletter-feed-picker" style="display:none; margin-bottom:14px;">
+                                <div style="margin-bottom:10px;">
+                                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Newsletter</label>
+                                    <select id="nf-newsletter"
+                                            style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                                        <option value="">Loading…</option>
+                                    </select>
+                                    <div id="nf-newsletter-empty" style="display:none;margin-top:8px;font-size:0.82rem;color:rgba(255,255,255,0.5);">
+                                        No newsletters yet.
+                                        <a href="/admin/newsletters" target="_blank" style="color:#5eeef8;">Create one first →</a>
+                                    </div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                                    <div>
+                                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Issues to show</label>
+                                        <select id="nf-limit"
+                                                style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                                            <option value="3">3</option>
+                                            <option value="6" selected>6</option>
+                                            <option value="10">10</option>
+                                            <option value="20">20</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Layout</label>
+                                        <select id="nf-layout"
+                                                style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                                            <option value="list" selected>List</option>
+                                            <option value="cards">Cards</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:14px;flex-wrap:wrap;">
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;">
+                                        <input type="checkbox" id="nf-show-excerpt" checked> Show excerpt
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;">
+                                        <input type="checkbox" id="nf-show-date" checked> Show date
+                                    </label>
+                                </div>
+                                <div style="margin-top:10px;">
+                                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Section title <span style="opacity:0.5;">(optional)</span></label>
+                                    <input type="text" id="nf-title"
+                                           style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;"
+                                           placeholder="e.g. Recent Newsletters">
                                 </div>
                             </div>
 
@@ -10549,6 +10602,89 @@ setTimeout(() => {
                                 }
                             })();
 
+                        } else if (section.section_type === 'newsletter_feed') {
+                            const nf = section.content || {};
+                            sectionContent.innerHTML = `
+        <div class="section-container" style="padding:18px 20px;">
+            <form class="update-section-form"
+                  data-section-id="${section.id}"
+                  data-section-type="newsletter_feed"
+                  data-page-id="${section.page_content_id}">
+                <input type="hidden" name="section_id"   value="${section.id}">
+                <input type="hidden" name="section_type" value="newsletter_feed">
+
+                <div style="margin-bottom:14px;">
+                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Section title <span style="opacity:0.5;">(optional)</span></label>
+                    <input type="text" name="nf_title" value="${(nf.title||'').replace(/"/g,'&quot;')}" maxlength="120"
+                           style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Newsletter</label>
+                    <select name="nf_newsletter_id"
+                            style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                        <option value="">Loading…</option>
+                    </select>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Issues to show</label>
+                        <select name="nf_limit"
+                                style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                            <option value="3"  ${(nf.limit||6)==3  ?'selected':''}>3</option>
+                            <option value="6"  ${(nf.limit||6)==6  ?'selected':''}>6</option>
+                            <option value="10" ${(nf.limit||6)==10 ?'selected':''}>10</option>
+                            <option value="20" ${(nf.limit||6)==20 ?'selected':''}>20</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Layout</label>
+                        <select name="nf_layout"
+                                style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                            <option value="list"  ${(nf.layout||'list')==='list'  ?'selected':''}>List</option>
+                            <option value="cards" ${(nf.layout||'list')==='cards' ?'selected':''}>Cards</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;">
+                        <input type="checkbox" name="nf_show_excerpt" ${nf.show_excerpt!==false?'checked':''}> Show excerpt
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;">
+                        <input type="checkbox" name="nf_show_date" ${nf.show_date!==false?'checked':''}> Show date
+                    </label>
+                </div>
+                <button type="submit" style="padding:8px 18px;background:rgba(94,238,200,0.15);border:1px solid rgba(94,238,200,0.28);border-radius:8px;color:#5eeec8;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                    Save
+                </button>
+                <span style="font-size:0.78rem;margin-left:10px;opacity:0.55;">
+                    <a href="/admin/newsletters" target="_blank" style="color:rgba(94,238,248,0.85);">Manage newsletters →</a>
+                </span>
+            </form>
+        </div>`;
+                            (async () => {
+                                const sel = sectionContent.querySelector('select[name="nf_newsletter_id"]');
+                                if (!sel) return;
+                                try {
+                                    const r = await fetch('/admin/newsletters-list');
+                                    const d = await r.json();
+                                    const list = d.newsletters || [];
+                                    sel.innerHTML = '';
+                                    if (list.length === 0) {
+                                        sel.innerHTML = '<option value="">No newsletters — create one first</option>';
+                                    } else {
+                                        list.forEach(nl => {
+                                            const o = document.createElement('option');
+                                            o.value = nl.id;
+                                            o.textContent = `${nl.name} (${nl.subscriber_count} subs)`;
+                                            if (nl.id == nf.newsletter_id) o.selected = true;
+                                            sel.appendChild(o);
+                                        });
+                                    }
+                                } catch(e) {
+                                    sel.innerHTML = '<option value="">Error loading newsletters</option>';
+                                }
+                            })();
+
                         } else if (section.section_type === 'calendar') {
                             const calendarId = section.content && section.content.calendar_id;
                             const calStyles = (section.content && section.content.styles) || {};
@@ -13005,6 +13141,23 @@ setTimeout(() => {
                 };
             }
 
+            if (sectionType === 'newsletter_feed') {
+                const nfSel = document.getElementById('nf-newsletter');
+                const nfId = nfSel ? parseInt(nfSel.value) : null;
+                if (!nfId) {
+                    alert('Please select a newsletter to list issues from.');
+                    return;
+                }
+                content = {
+                    newsletter_id: nfId,
+                    title:         (document.getElementById('nf-title').value || '').trim(),
+                    limit:         parseInt(document.getElementById('nf-limit').value) || 6,
+                    layout:        document.getElementById('nf-layout').value || 'list',
+                    show_excerpt:  document.getElementById('nf-show-excerpt').checked,
+                    show_date:     document.getElementById('nf-show-date').checked,
+                };
+            }
+
             const data = {
                 section_type: sectionType,
                 order: document.querySelectorAll('.page-section').length,
@@ -13089,16 +13242,45 @@ setTimeout(() => {
             const afPicker  = document.getElementById('article-feed-picker');
             const cbPicker  = document.getElementById('calendar-badges-picker');
             const nsPicker  = document.getElementById('newsletter-picker');
+            const nfPicker  = document.getElementById('newsletter-feed-picker');
             if (calPicker) calPicker.style.display = value === 'calendar'      ? 'block' : 'none';
             if (pgPicker)  pgPicker.style.display  = value === 'product_grid'  ? 'block' : 'none';
             if (afPicker)  afPicker.style.display  = value === 'article_feed'  ? 'block' : 'none';
             if (cbPicker)  cbPicker.style.display  = value === 'calendar_badges' ? 'block' : 'none';
             if (nsPicker)  nsPicker.style.display  = value === 'newsletter_signup' ? 'block' : 'none';
+            if (nfPicker)  nfPicker.style.display  = value === 'newsletter_feed' ? 'block' : 'none';
             if (value === 'calendar')         loadCalendarOptions();
             if (value === 'product_grid')     loadProductGridOptions();
             if (value === 'article_feed')     loadArticleFeedOptions();
             if (value === 'calendar_badges')  loadCalendarBadgesOptions();
             if (value === 'newsletter_signup') loadNewsletterPickerOptions();
+            if (value === 'newsletter_feed')   loadNewsletterFeedOptions();
+        }
+
+        let _nfDataLoaded = false;
+        async function loadNewsletterFeedOptions() {
+            if (_nfDataLoaded) return;
+            try {
+                const r = await fetch('/admin/newsletters-list');
+                const d = await r.json();
+                const sel = document.getElementById('nf-newsletter');
+                const empty = document.getElementById('nf-newsletter-empty');
+                sel.innerHTML = '';
+                const list = d.newsletters || [];
+                if (list.length === 0) {
+                    sel.innerHTML = '<option value="">— No newsletters —</option>';
+                    if (empty) empty.style.display = 'block';
+                } else {
+                    if (empty) empty.style.display = 'none';
+                    list.forEach(nl => {
+                        const o = document.createElement('option');
+                        o.value = nl.id;
+                        o.textContent = `${nl.name} (${nl.subscriber_count} subs)`;
+                        sel.appendChild(o);
+                    });
+                }
+                _nfDataLoaded = true;
+            } catch (e) { console.error('Failed to load newsletters for feed', e); }
         }
 
         let _nsDataLoaded = false;

@@ -323,6 +323,10 @@
 }
 .sco-field textarea { resize: vertical; }
 
+/* Native option panels render white-on-white without explicit colors in dark
+   mode — set both globally for any <select> on a public store page. */
+select option, select optgroup { background-color: #22222a; color: #f0f0f0; }
+
 .sco-order-item {
     display: flex; justify-content: space-between;
     font-size: 0.85rem; margin-bottom: 8px;

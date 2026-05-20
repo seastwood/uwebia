@@ -1,0 +1,781 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+{% set STATUS_LABELS = {
+    'paid': 'Paid',
+    'preparing': 'Preparing',
+    'shipped': 'Shipped',
+    'delivered': 'Delivered',
+    'out_for_delivery': 'Out for delivery',
+    'ready_for_pickup': 'Ready for pickup',
+    'picked_up': 'Picked up',
+    'file_delivered': 'File delivered',
+    'ticket_issued': 'Ticket issued',
+    'fulfilled': 'Fulfilled',
+} %}
+
+<style>
+.aod-page { max-width: 1000px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.aod-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.55); font-size: 0.85rem; text-decoration: none; margin-bottom: 14px; }
+.aod-back:hover { color: rgba(255,255,255,0.9); }
+.aod-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.aod-title { font-size: 1.6rem; font-weight: 800; margin: 0; }
+.aod-meta { color: rgba(255,255,255,0.6); font-size: 0.85rem; margin-top: 4px; }
+
+.aod-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.aod-card h2 { margin: 0 0 12px; font-size: 1rem; }
+
+.aod-item { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; background: rgba(255,255,255,0.02); }
+.aod-item-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+.aod-item-name { font-weight: 700; }
+.aod-item-meta { font-size: 0.78rem; color: rgba(255,255,255,0.55); }
+
+.aod-status-pill { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; }
+.aod-pill-paid           { background: rgba(94,238,200,0.15); color: #5eeec8; border:1px solid rgba(94,238,200,0.32); }
+.aod-pill-preparing       { background: rgba(255,206,115,0.16); color: #ffd982; border:1px solid rgba(255,206,115,0.32); }
+.aod-pill-shipped         { background: rgba(94,238,248,0.15); color: #5eeef8; border:1px solid rgba(94,238,248,0.32); }
+.aod-pill-out_for_delivery { background: rgba(94,238,248,0.15); color: #5eeef8; border:1px solid rgba(94,238,248,0.32); }
+.aod-pill-delivered       { background: rgba(199,154,255,0.15); color: #c79aff; border:1px solid rgba(199,154,255,0.32); }
+.aod-pill-ready_for_pickup { background: rgba(94,238,248,0.15); color: #5eeef8; border:1px solid rgba(94,238,248,0.32); }
+.aod-pill-picked_up        { background: rgba(199,154,255,0.15); color: #c79aff; border:1px solid rgba(199,154,255,0.32); }
+.aod-pill-file_delivered   { background: rgba(199,154,255,0.15); color: #c79aff; border:1px solid rgba(199,154,255,0.32); }
+.aod-pill-ticket_issued    { background: rgba(199,154,255,0.15); color: #c79aff; border:1px solid rgba(199,154,255,0.32); }
+.aod-pill-fulfilled        { background: rgba(199,154,255,0.15); color: #c79aff; border:1px solid rgba(199,154,255,0.32); }
+.aod-pill-default          { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.78); border:1px solid rgba(255,255,255,0.15); }
+.aod-pill-requested        { background: rgba(255,206,115,0.16); color:#ffd982; border:1px solid rgba(255,206,115,0.32); }
+.aod-pill-approved, .aod-pill-awaiting_shipment, .aod-pill-in_transit { background: rgba(94,238,248,0.15); color:#5eeef8; border:1px solid rgba(94,238,248,0.32); }
+.aod-pill-received         { background: rgba(199,154,255,0.15); color:#c79aff; border:1px solid rgba(199,154,255,0.32); }
+.aod-pill-refunded         { background: rgba(94,238,200,0.15); color:#5eeec8; border:1px solid rgba(94,238,200,0.32); }
+.aod-pill-denied, .aod-pill-canceled { background: rgba(255,80,80,0.12); color:#ff8a8a; border:1px solid rgba(255,80,80,0.25); }
+
+.aod-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.aod-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.aod-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.aod-btn-primary:hover { opacity: 0.88; }
+.aod-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.12); }
+.aod-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.aod-btn-danger { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.aod-btn-danger:hover { background: rgba(255,80,80,0.22); }
+
+.aod-input { width: 100%; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.88rem; box-sizing: border-box; font-family: inherit; }
+.aod-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .aod-row { grid-template-columns: 1fr; } }
+.aod-label { display: block; font-size: 0.76rem; color: rgba(255,255,255,0.55); margin-bottom: 4px; font-weight: 600; }
+
+.aod-tl-event { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.86rem; }
+.aod-tl-time { font-size: 0.75rem; color: rgba(255,255,255,0.45); }
+.aod-tl-msg { color: rgba(255,255,255,0.75); }
+.aod-empty { padding: 18px; text-align: center; color: rgba(255,255,255,0.45); }
+
+.aod-public-link {
+    background: rgba(94,238,248,0.08); border: 1px dashed rgba(94,238,248,0.32); border-radius: 8px;
+    padding: 8px 12px; font-size: 0.82rem; color: #5eeef8; font-family: monospace; word-break: break-all; user-select: all;
+}
+</style>
+
+<div class="aod-page">
+    <a class="aod-back" href="{{ url_for('admin_orders_page') }}"><i class="fas fa-arrow-left"></i> All orders</a>
+
+    <div class="aod-head">
+        <div>
+            <h1 class="aod-title">Order #{{ order.order_number }}</h1>
+            <p class="aod-meta">
+                {{ order.contact_name }} · {{ order.contact_email }}
+                {% if order.contact_phone %} · {{ order.contact_phone }}{% endif %}
+                · <strong style="color:#fff;">${{ '%.2f' | format(order.total | float) }}</strong>
+                · placed {{ order.created_at.strftime('%b %-d, %Y %I:%M %p') if order.created_at else '' }}
+            </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="aod-status-pill aod-pill-{{ order.status if order.status in ['paid','fulfilled','preparing'] else 'default' }}">
+                {{ order.status.replace('_', ' ') }}
+            </span>
+            <a class="aod-btn aod-btn-secondary"
+               href="{{ url_for('admin_order_packlist', order_id=order.id) }}" target="_blank">
+                <i class="fas fa-print"></i> Pack list
+            </a>
+            {% set _ticket_items_missing = [] %}
+            {% for it in order.items %}
+                {% if (it.fulfillment_type or '') == 'ticket' %}
+                    {% set _ts = it.tickets.all() if it.tickets else [] %}
+                    {% if not _ts %}{% set _ = _ticket_items_missing.append(it) %}{% endif %}
+                {% endif %}
+            {% endfor %}
+            {% if _ticket_items_missing %}
+            <button class="aod-btn aod-btn-primary" onclick="issueMissingTickets()"
+                    title="Issue tickets for ticket items on this order that don't have codes yet (resends the ticket email).">
+                <i class="fas fa-ticket-alt"></i> Issue tickets ({{ _ticket_items_missing | length }})
+            </button>
+            {% endif %}
+            {% if order.status == 'paid' or order.status == 'fulfilled' %}
+            {% if user_has_perm('store.returns') %}
+            <a class="aod-btn aod-btn-primary"
+               href="{{ url_for('admin_return_new', order_id=order.id) }}">
+                <i class="fas fa-undo-alt"></i> Start return
+            </a>
+            {% endif %}
+            {% if user_has_perm('store.refunds') %}
+            <button class="aod-btn aod-btn-danger" onclick="openRefundModal()"
+                    title="Refunds without requiring the item to be returned. Use for damaged-in-transit, fraud, or lost-shipment cases.">
+                <i class="fas fa-exclamation-triangle"></i> Refund without return
+            </button>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    {# ─ Customer support thread shortcut ─────────────────────────────── #}
+    {% if support_thread %}
+    <div class="aod-card" {% if support_thread.admin_unread_count %}style="border-color:rgba(94,238,248,0.4);background:rgba(94,238,248,0.06);"{% endif %}>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <div>
+                <h2 style="margin:0 0 4px;">
+                    <i class="fas fa-comments" style="color:#5eeef8;"></i> Customer support
+                    {% if support_thread.admin_unread_count %}
+                    <span style="margin-left:8px;background:#ff5757;color:#fff;font-size:0.7rem;font-weight:800;padding:2px 8px;border-radius:999px;">
+                        {{ support_thread.admin_unread_count }} unread
+                    </span>
+                    {% endif %}
+                </h2>
+                <p style="margin:0;font-size:0.86rem;color:rgba(255,255,255,0.6);">
+                    {% set _mc = support_thread.messages | length %}
+                    {{ _mc }} message{{ 's' if _mc != 1 else '' }}
+                    {% if support_thread.last_message_at %}
+                    · last activity {{ support_thread.last_message_at.strftime('%b %-d, %-I:%M %p') }}
+                    {% endif %}
+                    · status: <strong>{{ support_thread.status }}</strong>
+                </p>
+            </div>
+            <a class="aod-btn aod-btn-primary"
+               href="{{ url_for('admin_support_thread', thread_id=support_thread.id) }}">
+                <i class="fas fa-comments"></i> Open thread
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ─ Pending cancellation request banner ─────────────────────────────── #}
+    {% if order.cancellation_requested_at and not order.cancellation_resolved_at %}
+    <div class="aod-card" style="border-color:rgba(255,206,115,0.4);background:rgba(255,206,115,0.1);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+            <div>
+                <h2 style="margin:0 0 8px;color:#ffd982;"><i class="fas fa-clock"></i> Cancellation requested by buyer</h2>
+                <p style="margin:0 0 8px;font-size:0.88rem;opacity:0.85;">
+                    Requested {{ order.cancellation_requested_at.strftime('%b %-d, %Y %I:%M %p') }}
+                </p>
+                {% if order.cancellation_reason %}
+                <p style="margin:8px 0 0;font-size:0.9rem;background:rgba(0,0,0,0.18);padding:10px 12px;border-radius:8px;white-space:pre-wrap;">
+                    <strong>Buyer note:</strong><br>{{ order.cancellation_reason }}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        {% if user_has_perm('store.cancellations') %}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
+            <input class="aod-input" id="cancelDecisionNote" placeholder="Optional internal note (shared with buyer on denial)" style="flex:1;min-width:240px;">
+            <button class="aod-btn aod-btn-primary" onclick="approveCancellation()">
+                <i class="fas fa-check"></i> Approve &amp; refund
+            </button>
+            <button class="aod-btn aod-btn-danger" onclick="denyCancellation()">
+                <i class="fas fa-times"></i> Deny
+            </button>
+            <span id="cancelDecisionMsg" style="font-size:0.85rem;margin-left:auto;min-height:18px;"></span>
+        </div>
+        <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:8px 0 0;">
+            Approving issues a full Stripe refund, restocks inventory, and emails the buyer.
+        </p>
+        {% endif %}
+    </div>
+    {% elif order.cancellation_decision == 'denied' %}
+    <div class="aod-card" style="border-color:rgba(255,80,80,0.25);background:rgba(255,80,80,0.05);">
+        <h2 style="margin:0 0 6px;color:#ff8a8a;font-size:0.95rem;">Cancellation request denied</h2>
+        {% if order.cancellation_admin_note %}
+        <p style="margin:0;font-size:0.85rem;opacity:0.78;white-space:pre-wrap;">{{ order.cancellation_admin_note }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# ─ Returns / RMAs on this order ─────────────────────────────────────── #}
+    {% set _returns = order.returns.all() if order.returns else [] %}
+    {% if _returns %}
+    <div class="aod-card">
+        <h2>Returns</h2>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            {% for rma in _returns %}
+            <a href="{{ url_for('admin_return_detail', return_id=rma.id) }}"
+               style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:10px;text-decoration:none;color:#fff;">
+                <div>
+                    <div style="font-weight:600;">{{ rma.rma_number }}</div>
+                    <div style="font-size:0.82rem;color:rgba(255,255,255,0.55);">
+                        {{ rma.items|length }} item(s)
+                        {% if rma.refund_amount_cents %} · planned refund ${{ '%.2f'|format(rma.refund_amount_cents/100.0) }}{% endif %}
+                        · opened {{ rma.requested_at.strftime('%b %-d, %Y') if rma.requested_at else '' }}
+                    </div>
+                </div>
+                <span class="aod-status-pill aod-pill-{{ rma.status }}">{{ rma.status.replace('_', ' ') }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if public_url %}
+    <div class="aod-card">
+        <h2>Customer order page</h2>
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.55);margin:0 0 8px;">
+            This is the tokenized URL the buyer received in their confirmation email. They can hit it without logging in.
+        </p>
+        <div class="aod-public-link">{{ public_url }}</div>
+    </div>
+    {% endif %}
+
+    <div class="aod-card">
+        <h2>Totals</h2>
+        <div style="font-size:0.9rem;line-height:1.7;">
+            <div style="display:flex;justify-content:space-between;"><span>Subtotal</span><span>${{ '%.2f' | format(order.subtotal | float) }}</span></div>
+            {% if order.shipping_cost and (order.shipping_cost | float) > 0 %}
+            <div style="display:flex;justify-content:space-between;"><span>{{ order.shipping_method_label or 'Shipping' }}</span><span>${{ '%.2f' | format(order.shipping_cost | float) }}</span></div>
+            {% elif order.shipping_method_label %}
+            <div style="display:flex;justify-content:space-between;"><span>{{ order.shipping_method_label }}</span><span>Free</span></div>
+            {% endif %}
+            {% if order.tip_total and (order.tip_total | float) > 0 %}
+            <div style="display:flex;justify-content:space-between;color:#5eeec8;"><span>Tip</span><span>${{ '%.2f' | format(order.tip_total | float) }}</span></div>
+            {% endif %}
+            {% if order.tax_total and (order.tax_total | float) > 0 %}
+            <div style="display:flex;justify-content:space-between;"><span>Tax</span><span>${{ '%.2f' | format(order.tax_total | float) }}</span></div>
+            {% endif %}
+            <div style="display:flex;justify-content:space-between;font-weight:700;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);"><span>Total</span><span>${{ '%.2f' | format(order.total | float) }}</span></div>
+        </div>
+    </div>
+
+    {% if order.pickup_at or order.pickup_is_asap %}
+    <div class="aod-card" style="border-color:rgba(94,238,248,0.32);background:rgba(94,238,248,0.06);">
+        <h2 style="margin:0 0 8px;color:#5eeef8;"><i class="fas fa-store"></i> Pickup</h2>
+        <p style="margin:0;font-size:1rem;font-weight:600;">
+            {% if order.pickup_is_asap %}ASAP — buyer will arrive shortly{% else %}{{ order.pickup_at.strftime('%A, %B %-d at %-I:%M %p') }}{% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    {% if order.address %}
+    <div class="aod-card">
+        <h2>Ship to</h2>
+        <div style="font-size:0.9rem;line-height:1.5;color:rgba(255,255,255,0.8);">
+            {{ order.address.name }}<br>
+            {{ order.address.line1 }}{% if order.address.line2 %}<br>{{ order.address.line2 }}{% endif %}<br>
+            {{ order.address.city }}, {{ order.address.state }} {{ order.address.postal_code }}<br>
+            {{ order.address.country }}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Macro: a single line-item row (without bulk-grouping UI). Used inside
+       shipment cards and for non-packageable items. #}
+    {% macro render_item(it, show_per_item_advance=True) %}
+        {% set ns = next_steps[it.id] %}
+        {% set ft = it.fulfillment_type or 'shipping' %}
+        {% set status_label = STATUS_LABELS.get(it.fulfillment_status, it.fulfillment_status or 'pending') %}
+        <div class="aod-item" id="item-{{ it.id }}">
+            <div class="aod-item-head">
+                <div style="flex:1;">
+                    <div class="aod-item-name">{{ it.product_name }} × {{ it.quantity }}</div>
+                    {% if it.variant_options_snapshot %}
+                    <div style="font-size:0.82rem;color:rgba(94,238,248,0.85);margin-top:2px;">{{ it.variant_options_snapshot }}</div>
+                    {% endif %}
+                    <div class="aod-item-meta">
+                        ${{ '%.2f' | format(it.unit_price | float) }} each · ${{ '%.2f' | format(it.line_total | float) }} total · {{ ft.replace('_', ' ') }}
+                    </div>
+                </div>
+                <span class="aod-status-pill aod-pill-{{ it.fulfillment_status or 'default' }}">{{ status_label }}</span>
+            </div>
+            {% set _it_tickets = it.tickets.all() if it.tickets else [] %}
+            {% if _it_tickets %}
+            <div style="margin-top:10px;padding:10px 12px;background:rgba(94,238,248,0.05);border:1px solid rgba(94,238,248,0.18);border-radius:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <strong style="font-size:0.86rem;">Tickets ({{ _it_tickets | length }})</strong>
+                    <span style="font-size:0.76rem;opacity:0.6;">
+                        {{ _it_tickets | selectattr('redeemed_at') | list | length }} redeemed
+                    </span>
+                </div>
+                {% for tk in _it_tickets %}
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:rgba(0,0,0,0.18);border-radius:6px;margin-bottom:4px;">
+                    <span style="font-family:monospace;font-size:0.82rem;letter-spacing:0.06em;">{{ tk.code }}</span>
+                    {% if tk.redeemed_at %}
+                    <span style="font-size:0.72rem;color:#ff8a8a;font-weight:700;">REDEEMED {{ tk.redeemed_at.strftime('%b %-d %-I:%M %p') }}</span>
+                    {% else %}
+                    <button class="aod-btn aod-btn-secondary" style="padding:3px 9px;font-size:0.76rem;"
+                            onclick="redeemTicket('{{ tk.code }}', this)">Redeem</button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if show_per_item_advance and ns %}
+            <form id="adv-form-{{ it.id }}" onsubmit="return advanceItem(event, {{ it.id }})" style="margin-top:14px;">
+                {% if ns[0] == 'shipped' %}
+                <div class="aod-row" style="margin-bottom:8px;">
+                    <div>
+                        <label class="aod-label">Carrier</label>
+                        <input class="aod-input" name="tracking_carrier" value="{{ it.tracking_carrier or '' }}" placeholder="UPS / USPS / FedEx / DHL / ...">
+                    </div>
+                    <div>
+                        <label class="aod-label">Tracking #</label>
+                        <input class="aod-input" name="tracking_number" value="{{ it.tracking_number or '' }}">
+                    </div>
+                </div>
+                {% endif %}
+                {% if ns[0] in ('ready_for_pickup', 'fulfilled') %}
+                <div style="margin-bottom:8px;">
+                    <label class="aod-label">Note to customer (optional)</label>
+                    <input class="aod-input" name="tracking_note" value="{{ it.tracking_note or '' }}" placeholder="e.g. We close at 7pm tonight">
+                </div>
+                {% endif %}
+                <div class="aod-actions">
+                    <input type="hidden" name="to_status" value="{{ ns[0] }}">
+                    <button type="submit" class="aod-btn aod-btn-primary">
+                        <i class="fas fa-arrow-right"></i> Mark as {{ ns[1] }}
+                    </button>
+                    {% if it.tracking_url %}
+                    <a class="aod-btn aod-btn-secondary" href="{{ it.tracking_url }}" target="_blank">
+                        <i class="fas fa-external-link-alt"></i> Track
+                    </a>
+                    {% endif %}
+                </div>
+            </form>
+            {% elif not ns %}
+            <div class="aod-actions">
+                <span style="font-size:0.85rem;color:rgba(94,238,200,0.85);">
+                    <i class="fas fa-check-circle"></i> Item fulfilled
+                </span>
+                {% if it.tracking_url %}
+                <a class="aod-btn aod-btn-secondary" href="{{ it.tracking_url }}" target="_blank">
+                    <i class="fas fa-external-link-alt"></i> Track
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    {% endmacro %}
+
+    {# ─ Existing packages ───────────────────────────────────────────────── #}
+    {% for s in shipments %}
+        {% set s_ns = shipment_next_steps[s.id] %}
+        {% set s_label = STATUS_LABELS.get(s.status, s.status.replace('_', ' ')) %}
+        <div class="aod-card" id="shipment-{{ s.id }}">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+                <div>
+                    <h2 style="margin:0;">
+                        <i class="fas fa-box" style="color:#5eeec8;margin-right:6px;"></i>
+                        Package #{{ s.sequence }}
+                        <span style="font-weight:400;font-size:0.78rem;opacity:0.55;margin-left:8px;">{{ s.fulfillment_type.replace('_', ' ') }} · {{ s.items | length }} item{{ 's' if (s.items | length) != 1 else '' }}</span>
+                    </h2>
+                </div>
+                <span class="aod-status-pill aod-pill-{{ s.status }}">{{ s_label }}</span>
+            </div>
+
+            {% if s.tracking_carrier or s.tracking_number %}
+            <div style="font-size:0.85rem;color:rgba(255,255,255,0.7);margin-bottom:10px;">
+                <strong>Tracking:</strong> {{ s.tracking_carrier or '' }} {{ s.tracking_number or '' }}
+                {% if s.tracking_url %}· <a href="{{ s.tracking_url }}" target="_blank" style="color:#5eeef8;">Track shipment</a>{% endif %}
+            </div>
+            {% endif %}
+
+            {% for it in s.items %}{{ render_item(it, show_per_item_advance=False) }}{% endfor %}
+
+            {# Action: advance the whole package to its next step #}
+            {% if s_ns %}
+            <form id="ship-form-{{ s.id }}" onsubmit="return advanceShipment(event, {{ s.id }})" style="margin-top:14px;">
+                {% if s_ns[0] == 'shipped' %}
+                <div class="aod-row" style="margin-bottom:8px;">
+                    <div>
+                        <label class="aod-label">Carrier (one for the whole package)</label>
+                        <input class="aod-input" name="tracking_carrier" value="{{ s.tracking_carrier or '' }}" placeholder="UPS / USPS / FedEx / DHL / ...">
+                    </div>
+                    <div>
+                        <label class="aod-label">Tracking #</label>
+                        <input class="aod-input" name="tracking_number" value="{{ s.tracking_number or '' }}">
+                    </div>
+                </div>
+                {% endif %}
+                {% if s_ns[0] in ('ready_for_pickup', 'fulfilled', 'delivered', 'out_for_delivery', 'picked_up') %}
+                <div style="margin-bottom:8px;">
+                    <label class="aod-label">Note to customer (optional)</label>
+                    <input class="aod-input" name="tracking_note" value="{{ s.tracking_note or '' }}" placeholder="e.g. Leave by the front door">
+                </div>
+                {% endif %}
+                <div class="aod-actions">
+                    <input type="hidden" name="to_status" value="{{ s_ns[0] }}">
+                    <button type="submit" class="aod-btn aod-btn-primary">
+                        <i class="fas fa-arrow-right"></i> Mark package as {{ s_ns[1] }}
+                    </button>
+                    <button type="button" class="aod-btn aod-btn-secondary" onclick="disbandShipment({{ s.id }})"
+                            title="Split items back out of this package (status preserved)">
+                        <i class="fas fa-unlink"></i> Disband
+                    </button>
+                </div>
+            </form>
+            {% else %}
+            <div class="aod-actions">
+                <span style="font-size:0.85rem;color:rgba(94,238,200,0.85);">
+                    <i class="fas fa-check-circle"></i> Package fulfilled
+                </span>
+            </div>
+            {% endif %}
+        </div>
+    {% endfor %}
+
+    {# ─ Unpacked items section ─────────────────────────────────────────── #}
+    {% if unpacked_items %}
+    <div class="aod-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+            <h2 style="margin:0;">{% if shipments %}Unpacked items{% else %}Items{% endif %}</h2>
+            {% if packageable_unpacked %}
+            <label style="display:inline-flex;align-items:center;gap:7px;font-size:0.84rem;color:rgba(255,255,255,0.65);cursor:pointer;">
+                <input type="checkbox" id="bulkSelectAll" onchange="toggleSelectAll(this)"> Select all
+            </label>
+            {% endif %}
+        </div>
+
+        {# Group selected as a new package #}
+        {% if packageable_unpacked %}
+        <div id="bulkBar" style="display:none;background:rgba(94,238,248,0.07);border:1px solid rgba(94,238,248,0.28);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                <span style="font-size:0.88rem;color:#5eeef8;font-weight:600;">
+                    <span id="bulkCount">0</span> item(s) selected for a new package
+                </span>
+                <span style="font-size:0.82rem;color:rgba(255,255,255,0.55);">·</span>
+                <span style="font-size:0.82rem;color:rgba(255,255,255,0.55);">All selected must share the same fulfillment type.</span>
+            </div>
+            <div class="aod-actions">
+                <button class="aod-btn aod-btn-primary" onclick="createShipment()">
+                    <i class="fas fa-box"></i> Group as package &amp; mark Preparing
+                </button>
+                <button class="aod-btn aod-btn-secondary" onclick="clearSelections()">Clear</button>
+                <span id="bulkMsg" style="font-size:0.84rem;margin-left:auto;min-height:18px;"></span>
+            </div>
+        </div>
+        {% endif %}
+
+        {% for it in unpacked_items %}
+        {% set ns = next_steps[it.id] %}
+        {% set ft = it.fulfillment_type or 'shipping' %}
+        {% set status_label = STATUS_LABELS.get(it.fulfillment_status, it.fulfillment_status or 'pending') %}
+        {% set _is_pkgable = ft in ['shipping','local_delivery','pickup'] and ns %}
+        <div class="aod-item" id="item-{{ it.id }}">
+            <div class="aod-item-head">
+                <div style="display:flex;align-items:flex-start;gap:10px;flex:1;">
+                    {% if _is_pkgable %}
+                    <input type="checkbox" class="bulk-item-cb" data-item-id="{{ it.id }}"
+                           data-fulfillment="{{ ft }}"
+                           onchange="updateBulkBar()"
+                           style="margin-top:4px;flex:0 0 auto;cursor:pointer;">
+                    {% endif %}
+                    <div>
+                        <div class="aod-item-name">{{ it.product_name }} × {{ it.quantity }}</div>
+                        <div class="aod-item-meta">
+                            ${{ '%.2f' | format(it.unit_price | float) }} each · ${{ '%.2f' | format(it.line_total | float) }} total · {{ ft.replace('_', ' ') }}
+                        </div>
+                    </div>
+                </div>
+                <span class="aod-status-pill aod-pill-{{ it.fulfillment_status or 'default' }}">{{ status_label }}</span>
+            </div>
+
+            {# Per-item advance is shown for non-packageable items (digital,
+               ticket, custom). Packageable items advance via shipment grouping. #}
+            {% if ns and ft not in ['shipping','local_delivery','pickup'] %}
+            <form id="adv-form-{{ it.id }}" onsubmit="return advanceItem(event, {{ it.id }})" style="margin-top:14px;">
+                {% if ns[0] in ('ready_for_pickup', 'fulfilled', 'file_delivered', 'ticket_issued') %}
+                <div style="margin-bottom:8px;">
+                    <label class="aod-label">Note to customer (optional)</label>
+                    <input class="aod-input" name="tracking_note" value="{{ it.tracking_note or '' }}" placeholder="">
+                </div>
+                {% endif %}
+                <div class="aod-actions">
+                    <input type="hidden" name="to_status" value="{{ ns[0] }}">
+                    <button type="submit" class="aod-btn aod-btn-primary">
+                        <i class="fas fa-arrow-right"></i> Mark as {{ ns[1] }}
+                    </button>
+                </div>
+            </form>
+            {% elif not ns %}
+            <div class="aod-actions">
+                <span style="font-size:0.85rem;color:rgba(94,238,200,0.85);">
+                    <i class="fas fa-check-circle"></i> Item fulfilled
+                </span>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="aod-card">
+        <h2>Timeline</h2>
+        {% if events %}
+            {% for e in events %}
+            <div class="aod-tl-event">
+                <div class="aod-tl-time">{{ e.created_at.strftime('%b %-d, %Y %I:%M %p') if e.created_at else '' }}</div>
+                <div>
+                    {% if e.from_status %}{{ e.from_status.replace('_', ' ') }} →{% endif %}
+                    <strong>{{ e.to_status.replace('_', ' ') }}</strong>
+                    {% if e.item_id %}
+                        {% set _itm = (order.items | selectattr('id', 'equalto', e.item_id) | first) %}
+                        {% if _itm %}<span style="color:rgba(255,255,255,0.55);"> · {{ _itm.product_name }}</span>{% endif %}
+                    {% endif %}
+                </div>
+                {% if e.message %}<div class="aod-tl-msg">{{ e.message }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="aod-empty">No events yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Refund modal -->
+<div id="refundOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:18px;" onclick="if(event.target===this)closeRefundModal()">
+    <div style="background:#181820;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:min(440px,100%);max-height:92vh;overflow:auto;color:#fff;">
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-weight:700;">Refund without return · #{{ order.order_number }}</div>
+            <button style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:1.4rem;cursor:pointer;" onclick="closeRefundModal()">&times;</button>
+        </div>
+        <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+            <p style="font-size:0.85rem;color:#ff8a8a;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.3);padding:10px 12px;border-radius:8px;margin:0;">
+                <strong>⚠ The customer keeps the goods.</strong>
+                For most refund cases use <a href="{{ url_for('admin_return_new', order_id=order.id) }}" style="color:#fff;text-decoration:underline;">Start return</a> instead — that waits until you have the item back in hand before charging Stripe.
+                Use this option only for damaged-in-transit, fraud, lost packages, or other reasons where the buyer keeps the product.
+            </p>
+            <div>
+                <label class="aod-label">Refund type</label>
+                <div style="display:flex;gap:10px;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;">
+                        <input type="radio" name="refundType" value="full" checked onchange="toggleAmt()"> Full (${{ '%.2f' | format(order.total | float) }})
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;">
+                        <input type="radio" name="refundType" value="partial" onchange="toggleAmt()"> Partial
+                    </label>
+                </div>
+            </div>
+            <div id="amtRow" style="display:none;">
+                <label class="aod-label">Amount to refund ($)</label>
+                <input class="aod-input" id="refundAmount" type="number" step="0.01" min="0.01" max="{{ '%.2f' | format(order.total | float) }}">
+            </div>
+            <div>
+                <label class="aod-label">Reason <span style="opacity:0.6;font-weight:400;">(optional, for Stripe records)</span></label>
+                <select class="aod-input" id="refundReason">
+                    <option value="">— None —</option>
+                    <option value="requested_by_customer">Requested by customer</option>
+                    <option value="duplicate">Duplicate</option>
+                    <option value="fraudulent">Fraudulent</option>
+                </select>
+            </div>
+            <div>
+                <label class="aod-label">Internal note <span style="opacity:0.6;font-weight:400;">(shown in timeline + email)</span></label>
+                <input class="aod-input" id="refundNote" placeholder="e.g. Out of stock — buyer notified">
+            </div>
+            <p style="font-size:0.8rem;color:rgba(255,206,115,0.85);background:rgba(255,206,115,0.08);border:1px solid rgba(255,206,115,0.25);padding:8px 12px;border-radius:8px;margin:4px 0 0;">
+                Full refunds also restock inventory for shipping / pickup / delivery items.
+                Stripe takes 5–10 business days to return funds to the buyer's card.
+            </p>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.07);display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+            <span id="refundMsg" style="font-size:0.85rem;margin-right:auto;min-height:18px;"></span>
+            <button class="aod-btn aod-btn-secondary" onclick="closeRefundModal()">Cancel</button>
+            <button class="aod-btn aod-btn-danger" onclick="submitRefund()">Refund (no return)</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openRefundModal() {
+    document.getElementById('refundMsg').textContent = '';
+    document.querySelector('input[name="refundType"][value="full"]').checked = true;
+    document.getElementById('refundAmount').value = '';
+    document.getElementById('refundReason').value = '';
+    document.getElementById('refundNote').value = '';
+    toggleAmt();
+    document.getElementById('refundOverlay').style.display = 'flex';
+}
+function closeRefundModal() { document.getElementById('refundOverlay').style.display = 'none'; }
+function toggleAmt() {
+    const partial = document.querySelector('input[name="refundType"]:checked').value === 'partial';
+    document.getElementById('amtRow').style.display = partial ? 'block' : 'none';
+}
+async function submitRefund() {
+    const msg = document.getElementById('refundMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Processing…';
+    const partial = document.querySelector('input[name="refundType"]:checked').value === 'partial';
+    const payload = {};
+    if (partial) {
+        const amt = parseFloat(document.getElementById('refundAmount').value);
+        if (!amt || amt <= 0) { msg.style.color = '#ff8a8a'; msg.textContent = 'Enter a positive amount.'; return; }
+        payload.amount = amt;
+    }
+    const reason = document.getElementById('refundReason').value;
+    if (reason) payload.reason = reason;
+    const note = document.getElementById('refundNote').value.trim();
+    if (note) payload.note = note;
+    const r = await fetch(`/admin/orders/{{ order.id }}/refund`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Refund failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = j.is_partial ? 'Partial refund issued.' : 'Full refund issued.';
+    setTimeout(() => location.reload(), 800);
+}
+
+async function advanceItem(ev, itemId) {
+    ev.preventDefault();
+    const form = document.getElementById(`adv-form-${itemId}`);
+    const payload = {};
+    new FormData(form).forEach((v, k) => payload[k] = v);
+    const r = await fetch(`/admin/orders/{{ order.id }}/items/${itemId}/advance`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Failed.'); return false; }
+    location.reload();
+    return false;
+}
+
+// ─ Manual ticket issuance (recovery) ─────────────────────────────────────
+async function issueMissingTickets() {
+    if (!confirm('Issue tickets for items that are missing them? This will email the buyer.')) return;
+    const r = await fetch(`/admin/orders/{{ order.id }}/issue-tickets`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
+    });
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Failed to issue tickets.'); return; }
+    alert(`Issued ${j.tickets_issued} ticket(s) across ${j.items_touched} item(s).`);
+    location.reload();
+}
+
+// ─ Ticket redemption ─────────────────────────────────────────────────────
+async function redeemTicket(code, btn) {
+    if (!confirm(`Redeem ticket ${code}? This can't be undone.`)) return;
+    btn.disabled = true; btn.textContent = 'Redeeming…';
+    const r = await fetch('/admin/tickets/redeem', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ code }),
+    });
+    const j = await r.json();
+    if (!j.success && !j.already) {
+        alert(j.error || 'Redemption failed.');
+        btn.disabled = false; btn.textContent = 'Redeem';
+        return;
+    }
+    location.reload();
+}
+
+// ─ Cancellation approval ─────────────────────────────────────────────────
+async function _decideCancellation(action) {
+    const msg = document.getElementById('cancelDecisionMsg');
+    const noteEl = document.getElementById('cancelDecisionNote');
+    const note = noteEl ? noteEl.value.trim() : '';
+    if (action === 'approve' &&
+        !confirm('Approve and refund this order in full? Stripe will be charged immediately.')) return;
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Processing…';
+    const r = await fetch(`/admin/orders/{{ order.id }}/cancellation/${action}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ note }),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = action === 'approve' ? 'Refund issued.' : 'Request denied.';
+    setTimeout(() => location.reload(), 700);
+}
+function approveCancellation() { _decideCancellation('approve'); }
+function denyCancellation()    { _decideCancellation('deny'); }
+
+// ─ Selection / "select all" ───────────────────────────────────────────────
+function _selectedCheckboxes() {
+    return Array.from(document.querySelectorAll('.bulk-item-cb:checked'));
+}
+function updateBulkBar() {
+    const sel = _selectedCheckboxes();
+    const bar = document.getElementById('bulkBar');
+    if (!bar) return;
+    document.getElementById('bulkCount').textContent = sel.length;
+    bar.style.display = sel.length > 0 ? 'block' : 'none';
+    const all = document.querySelectorAll('.bulk-item-cb');
+    const sa = document.getElementById('bulkSelectAll');
+    if (sa && all.length) {
+        sa.checked = (sel.length === all.length);
+        sa.indeterminate = (sel.length > 0 && sel.length < all.length);
+    }
+}
+function toggleSelectAll(cb) {
+    document.querySelectorAll('.bulk-item-cb').forEach(el => el.checked = cb.checked);
+    updateBulkBar();
+}
+function clearSelections() {
+    document.querySelectorAll('.bulk-item-cb').forEach(el => el.checked = false);
+    const sa = document.getElementById('bulkSelectAll');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updateBulkBar();
+}
+
+// ─ Group selected items into a new shipment ───────────────────────────────
+async function createShipment() {
+    const sel = _selectedCheckboxes();
+    const msg = document.getElementById('bulkMsg');
+    if (sel.length === 0) {
+        msg.style.color = '#ff8a8a';
+        msg.textContent = 'Nothing selected.';
+        return;
+    }
+    // Client-side: all selected items must share a fulfillment type.
+    const fts = new Set(sel.map(cb => cb.dataset.fulfillment));
+    if (fts.size > 1) {
+        msg.style.color = '#ff8a8a';
+        msg.textContent = 'All items in a package must share the same fulfillment type.';
+        return;
+    }
+    const ids = sel.map(cb => parseInt(cb.dataset.itemId, 10));
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Creating package…';
+    const r = await fetch(`/admin/orders/{{ order.id }}/shipments`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ item_ids: ids, initial_status: 'preparing' }),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
+    location.reload();
+}
+
+// ─ Advance a whole shipment (package) together ───────────────────────────
+async function advanceShipment(ev, shipmentId) {
+    ev.preventDefault();
+    const form = document.getElementById(`ship-form-${shipmentId}`);
+    const payload = {};
+    new FormData(form).forEach((v, k) => payload[k] = v);
+    const r = await fetch(`/admin/orders/{{ order.id }}/shipments/${shipmentId}/advance`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Failed.'); return false; }
+    location.reload();
+    return false;
+}
+
+async function disbandShipment(shipmentId) {
+    if (!confirm('Split this package back into individual items? Item statuses are preserved.')) return;
+    const r = await fetch(`/admin/orders/{{ order.id }}/shipments/${shipmentId}/disband`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({}),
+    });
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Failed.'); return; }
+    location.reload();
+}
+</script>
+
+{% endblock %}

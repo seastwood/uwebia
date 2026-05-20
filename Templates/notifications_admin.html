@@ -1,0 +1,375 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.nf-page { max-width: 980px; margin: 30px auto 60px; padding: 0 20px; color: #fff; }
+.nf-header { margin-bottom: 18px; }
+.nf-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+.nf-title { font-size: 1.8rem; font-weight: 800; margin: 4px 0 0; }
+.nf-help { color: rgba(255,255,255,0.55); font-size: 0.92rem; margin: 6px 0 0; line-height: 1.5; }
+
+.nf-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.nf-card h2 { margin: 0 0 6px; font-size: 1rem; }
+.nf-card-sub { font-size: 0.82rem; color: rgba(255,255,255,0.5); margin: 0 0 14px; }
+
+.nf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .nf-row { grid-template-columns: 1fr; } }
+.nf-field { margin-bottom: 10px; }
+.nf-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 5px; font-weight: 600; }
+.nf-input, .nf-select, .nf-textarea {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; box-sizing: border-box; font-size: 0.9rem; font-family: inherit;
+}
+.nf-textarea { min-height: 60px; resize: vertical; }
+
+.nf-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 8px; font-size: 0.86rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.nf-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.nf-btn-primary:hover { opacity: 0.88; }
+.nf-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.12); }
+.nf-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.nf-btn-danger { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.nf-btn-danger:hover { background: rgba(255,80,80,0.22); }
+
+.nf-channel { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
+.nf-channel-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.nf-channel-icon { width: 36px; height: 36px; border-radius: 9px; background: rgba(123,47,247,0.15); color: #c79aff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.nf-channel-info { flex: 1; min-width: 0; }
+.nf-channel-name { font-weight: 700; }
+.nf-channel-meta { font-size: 0.78rem; color: rgba(255,255,255,0.45); }
+.nf-channel-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.nf-rule { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
+.nf-rule-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.nf-rule-title { font-weight: 700; font-size: 0.92rem; }
+.nf-rule-meta { font-size: 0.78rem; color: rgba(255,255,255,0.5); }
+.nf-rule-actions { display: flex; gap: 6px; }
+.nf-rule-disabled { opacity: 0.45; }
+
+.nf-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.nf-msg { font-size: 0.85rem; min-height: 18px; margin-left: auto; }
+
+.nf-empty { padding: 32px 16px; text-align: center; color: rgba(255,255,255,0.45); }
+
+/* Modal */
+.nf-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 9999; align-items: center; justify-content: center; padding: 18px; }
+.nf-overlay.open { display: flex; }
+.nf-modal { background: #181820; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; width: min(540px, 100%); max-height: 92vh; overflow: auto; }
+.nf-modal-head { padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.07); display: flex; justify-content: space-between; align-items: center; }
+.nf-modal-title { font-weight: 700; }
+.nf-modal-body { padding: 16px 18px; }
+.nf-modal-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.nf-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.4rem; cursor: pointer; }
+</style>
+
+<div class="nf-page">
+    <div class="nf-header">
+        <p class="nf-kicker">Admin</p>
+        <h1 class="nf-title">Notifications</h1>
+        <p class="nf-help">Push activity to external destinations like Discord. Each channel can have one or more rules tied to events (post published, newsletter sent, calendar event upcoming).</p>
+    </div>
+
+    <div class="nf-toolbar" style="margin-bottom:16px;">
+        <button class="nf-btn nf-btn-primary" onclick="openChannelModal()"><i class="fas fa-plus"></i> New Channel</button>
+    </div>
+
+    {% if channels %}
+        {% for ch in channels %}
+        <div class="nf-channel" id="nfChannel-{{ ch.id }}">
+            <div class="nf-channel-head">
+                <div class="nf-channel-icon"><i class="fab fa-discord"></i></div>
+                <div class="nf-channel-info">
+                    <div class="nf-channel-name">{{ ch.label }}{% if not ch.is_active %} <span style="color:#ffd982;font-weight:400;font-size:0.82rem;">(disabled)</span>{% endif %}</div>
+                    <div class="nf-channel-meta">
+                        Discord webhook
+                        {% if ch.last_used_at %} · last used {{ ch.last_used_at.strftime('%b %-d, %Y') }}{% endif %}
+                    </div>
+                </div>
+                <div class="nf-channel-actions">
+                    <button class="nf-btn nf-btn-secondary" onclick="testChannel({{ ch.id }})"><i class="fas fa-paper-plane"></i> Test</button>
+                    <button class="nf-btn nf-btn-secondary" onclick='editChannel({{ ch.id }}, {{ ch.label | tojson }}, {{ (ch.config.get("bot_username") or "") | tojson }}, {{ (ch.config.get("bot_avatar_url") or "") | tojson }}, {{ ch.is_active | tojson }})'>
+                        <i class="fas fa-pen"></i> Edit
+                    </button>
+                    <button class="nf-btn nf-btn-danger" onclick="deleteChannel({{ ch.id }}, '{{ ch.label | replace("'", "\\'") }}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
+
+            <div style="margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,0.08);">
+                <button class="nf-btn nf-btn-secondary" onclick="openRuleModal({{ ch.id }})"><i class="fas fa-plus"></i> Add Rule</button>
+            </div>
+
+            {% for r in rules_by_channel[ch.id] %}
+            <div class="nf-rule {% if not r.is_enabled %}nf-rule-disabled{% endif %}" id="nfRule-{{ r.id }}">
+                <div class="nf-rule-head">
+                    <div>
+                        <div class="nf-rule-title">
+                            {% if r.event_type == 'post.published' %}Post published
+                            {% elif r.event_type == 'newsletter.campaign_sent' %}Newsletter campaign sent
+                            {% elif r.event_type == 'calendar.event_upcoming' %}Calendar event upcoming
+                            {% else %}{{ r.event_type }}{% endif %}
+                            {% if not r.is_enabled %}<span style="color:#ffd982;font-weight:400;">(disabled)</span>{% endif %}
+                        </div>
+                        <div class="nf-rule-meta">
+                            {% set _site = live_websites | selectattr('id', 'equalto', r.website_id) | first if r.website_id else None %}
+                            Scope: {% if _site %}{{ _site.name }}{% else %}all websites{% endif %}
+                            {% if r.event_type == 'calendar.event_upcoming' %}
+                                {% set _cal = calendars | selectattr('id', 'equalto', r.calendar_id) | first if r.calendar_id else None %}
+                                · Calendar: {% if _cal %}{{ _cal.name }}{% else %}any{% endif %}
+                                · Fires {{ r.config.get('minutes_before', 30) }} min before
+                            {% elif r.event_type == 'post.published' %}
+                                {% set _col = post_collections | selectattr('id', 'equalto', r.collection_id) | first if r.collection_id else None %}
+                                · Collection: {% if _col %}{{ _col.name }}{% else %}any{% endif %}
+                            {% endif %}
+                            {% if r.prepend_text %} · pings: <code style="background:rgba(255,255,255,0.05);padding:1px 4px;border-radius:3px;">{{ r.prepend_text }}</code>{% endif %}
+                        </div>
+                    </div>
+                    <div class="nf-rule-actions">
+                        <button class="nf-btn nf-btn-secondary" onclick="toggleRule({{ r.id }}, {{ (not r.is_enabled) | tojson }})">
+                            {% if r.is_enabled %}<i class="fas fa-pause"></i> Disable{% else %}<i class="fas fa-play"></i> Enable{% endif %}
+                        </button>
+                        <button class="nf-btn nf-btn-danger" onclick="deleteRule({{ r.id }})"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="nf-card nf-empty">
+            No notification channels yet. Add one above to start routing activity to Discord.
+        </div>
+    {% endif %}
+</div>
+
+<!-- Channel modal -->
+<div class="nf-overlay" id="channelOverlay" onclick="if(event.target===this)closeChannelModal()">
+    <div class="nf-modal">
+        <div class="nf-modal-head">
+            <div class="nf-modal-title" id="channelModalTitle">New Discord Channel</div>
+            <button class="nf-close" onclick="closeChannelModal()">&times;</button>
+        </div>
+        <div class="nf-modal-body">
+            <input type="hidden" id="chIdInput">
+            <div class="nf-field">
+                <label class="nf-label">Label</label>
+                <input class="nf-input" id="chLabel" placeholder="e.g. #announcements">
+            </div>
+            <div class="nf-field" id="chWebhookWrap">
+                <label class="nf-label">Discord webhook URL</label>
+                <input class="nf-input" id="chWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                    In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.
+                </p>
+            </div>
+            <div class="nf-row">
+                <div class="nf-field">
+                    <label class="nf-label">Bot username override <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                    <input class="nf-input" id="chBotUsername" placeholder="e.g. Site Updates">
+                </div>
+                <div class="nf-field">
+                    <label class="nf-label">Bot avatar URL <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                    <input class="nf-input" id="chBotAvatar" placeholder="https://...">
+                </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-top:8px;" id="chActiveWrap">
+                <input type="checkbox" id="chActive" checked>
+                Channel is active
+            </label>
+        </div>
+        <div class="nf-modal-foot">
+            <span class="nf-msg" id="channelMsg" style="margin-right:auto;"></span>
+            <button class="nf-btn nf-btn-secondary" onclick="closeChannelModal()">Cancel</button>
+            <button class="nf-btn nf-btn-primary" onclick="submitChannel()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Rule modal -->
+<div class="nf-overlay" id="ruleOverlay" onclick="if(event.target===this)closeRuleModal()">
+    <div class="nf-modal">
+        <div class="nf-modal-head">
+            <div class="nf-modal-title">New Rule</div>
+            <button class="nf-close" onclick="closeRuleModal()">&times;</button>
+        </div>
+        <div class="nf-modal-body">
+            <input type="hidden" id="ruleChannelId">
+            <div class="nf-field">
+                <label class="nf-label">Event</label>
+                <select class="nf-select" id="ruleEventType" onchange="onRuleEventChange()">
+                    <option value="post.published">Post published</option>
+                    <option value="newsletter.campaign_sent">Newsletter campaign sent</option>
+                    <option value="calendar.event_upcoming">Calendar event upcoming</option>
+                </select>
+            </div>
+            <div class="nf-field">
+                <label class="nf-label">Website</label>
+                <select class="nf-select" id="ruleWebsiteId">
+                    <option value="">All websites</option>
+                    {% for w in live_websites %}
+                    <option value="{{ w.id }}">{{ w.name }}{% if w.url_prefix %} (/{{ w.url_prefix }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="nf-field" id="ruleCalendarWrap" style="display:none;">
+                <label class="nf-label">Calendar (optional)</label>
+                <select class="nf-select" id="ruleCalendarId">
+                    <option value="">Any calendar</option>
+                    {% for c in calendars %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="nf-field" id="ruleCollectionWrap" style="display:none;">
+                <label class="nf-label">Post collection (optional)</label>
+                <select class="nf-select" id="ruleCollectionId">
+                    <option value="">Any collection</option>
+                    {% for c in post_collections %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="nf-field" id="ruleMinutesWrap" style="display:none;">
+                <label class="nf-label">Minutes before event</label>
+                <input type="number" class="nf-input" id="ruleMinutes" value="30" min="1" max="1440">
+            </div>
+            <div class="nf-field">
+                <label class="nf-label">Prepend text <span style="opacity:0.6;font-weight:400;">(optional — useful for role pings)</span></label>
+                <textarea class="nf-textarea" id="rulePrepend" placeholder="<@&123456789012345678> Heads up:"></textarea>
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                    To ping a Discord role, paste the role mention like <code>&lt;@&amp;ROLE_ID&gt;</code>.
+                </p>
+            </div>
+        </div>
+        <div class="nf-modal-foot">
+            <span class="nf-msg" id="ruleMsg" style="margin-right:auto;"></span>
+            <button class="nf-btn nf-btn-secondary" onclick="closeRuleModal()">Cancel</button>
+            <button class="nf-btn nf-btn-primary" onclick="submitRule()">Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openChannelModal() {
+    document.getElementById('chIdInput').value = '';
+    document.getElementById('chLabel').value = '';
+    document.getElementById('chWebhookUrl').value = '';
+    document.getElementById('chBotUsername').value = '';
+    document.getElementById('chBotAvatar').value = '';
+    document.getElementById('chActive').checked = true;
+    document.getElementById('channelMsg').textContent = '';
+    document.getElementById('channelModalTitle').textContent = 'New Discord Channel';
+    document.getElementById('chWebhookUrl').placeholder = 'https://discord.com/api/webhooks/...';
+    document.getElementById('chActiveWrap').style.display = 'none';
+    document.getElementById('channelOverlay').classList.add('open');
+}
+function editChannel(id, label, botUser, botAvatar, isActive) {
+    document.getElementById('chIdInput').value = id;
+    document.getElementById('chLabel').value = label || '';
+    document.getElementById('chWebhookUrl').value = '';
+    document.getElementById('chWebhookUrl').placeholder = '(leave blank to keep existing)';
+    document.getElementById('chBotUsername').value = botUser || '';
+    document.getElementById('chBotAvatar').value = botAvatar || '';
+    document.getElementById('chActive').checked = !!isActive;
+    document.getElementById('channelMsg').textContent = '';
+    document.getElementById('channelModalTitle').textContent = 'Edit Channel';
+    document.getElementById('chActiveWrap').style.display = 'flex';
+    document.getElementById('channelOverlay').classList.add('open');
+}
+function closeChannelModal() { document.getElementById('channelOverlay').classList.remove('open'); }
+
+async function submitChannel() {
+    const id = document.getElementById('chIdInput').value;
+    const msg = document.getElementById('channelMsg');
+    const payload = {
+        label: document.getElementById('chLabel').value.trim(),
+        webhook_url: document.getElementById('chWebhookUrl').value.trim(),
+        bot_username: document.getElementById('chBotUsername').value.trim(),
+        bot_avatar_url: document.getElementById('chBotAvatar').value.trim(),
+    };
+    if (id) {
+        payload.is_active = document.getElementById('chActive').checked;
+    }
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const url = id ? `/admin/notifications/channels/${id}/update` : '/admin/notifications/channels/create';
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    location.reload();
+}
+
+async function testChannel(id) {
+    const r = await fetch(`/admin/notifications/channels/${id}/test`, {method: 'POST'});
+    const j = await r.json();
+    alert((j.success ? '✓ ' : '✗ ') + (j.message || j.error || ''));
+}
+
+async function deleteChannel(id, label) {
+    if (!confirm(`Delete channel "${label}" and all its rules?`)) return;
+    const r = await fetch(`/admin/notifications/channels/${id}/delete`, {method: 'POST'});
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Delete failed.'); return; }
+    document.getElementById(`nfChannel-${id}`).remove();
+}
+
+function openRuleModal(channelId) {
+    document.getElementById('ruleChannelId').value = channelId;
+    document.getElementById('ruleEventType').value = 'post.published';
+    document.getElementById('ruleWebsiteId').value = '';
+    document.getElementById('ruleCalendarId').value = '';
+    document.getElementById('ruleCollectionId').value = '';
+    document.getElementById('ruleMinutes').value = '30';
+    document.getElementById('rulePrepend').value = '';
+    document.getElementById('ruleMsg').textContent = '';
+    onRuleEventChange();
+    document.getElementById('ruleOverlay').classList.add('open');
+}
+function closeRuleModal() { document.getElementById('ruleOverlay').classList.remove('open'); }
+function onRuleEventChange() {
+    const t = document.getElementById('ruleEventType').value;
+    document.getElementById('ruleCalendarWrap').style.display = (t === 'calendar.event_upcoming') ? 'block' : 'none';
+    document.getElementById('ruleMinutesWrap').style.display = (t === 'calendar.event_upcoming') ? 'block' : 'none';
+    document.getElementById('ruleCollectionWrap').style.display = (t === 'post.published') ? 'block' : 'none';
+}
+
+async function submitRule() {
+    const msg = document.getElementById('ruleMsg');
+    const payload = {
+        channel_id: document.getElementById('ruleChannelId').value,
+        event_type: document.getElementById('ruleEventType').value,
+        website_id: document.getElementById('ruleWebsiteId').value || null,
+        calendar_id: document.getElementById('ruleCalendarId').value || null,
+        collection_id: document.getElementById('ruleCollectionId').value || null,
+        minutes_before: document.getElementById('ruleMinutes').value || 30,
+        prepend_text: document.getElementById('rulePrepend').value,
+    };
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/admin/notifications/rules/create', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    location.reload();
+}
+
+async function toggleRule(id, enable) {
+    const r = await fetch(`/admin/notifications/rules/${id}/update`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({is_enabled: enable})});
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Update failed.'); return; }
+    location.reload();
+}
+
+async function deleteRule(id) {
+    if (!confirm('Delete this rule?')) return;
+    const r = await fetch(`/admin/notifications/rules/${id}/delete`, {method: 'POST'});
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Delete failed.'); return; }
+    document.getElementById(`nfRule-${id}`).remove();
+}
+</script>
+
+{% endblock %}

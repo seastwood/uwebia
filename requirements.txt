@@ -28,3 +28,4 @@ gunicorn
 cryptography
 psycopg2-binary
 smbprotocol
+stripe

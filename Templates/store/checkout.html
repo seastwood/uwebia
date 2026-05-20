@@ -3,6 +3,16 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
 <style>
+.sco-tip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.sco-tip-btn {
+    padding: 7px 14px; border-radius: 999px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.13);
+    color: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: background 0.15s, border-color 0.15s;
+}
+.sco-tip-btn:hover { background: rgba(255,255,255,0.1); }
+.sco-tip-btn.is-active { background: rgba(94,238,200,0.18); border-color: rgba(94,238,200,0.4); color: #5eeec8; }
+
 .sco-gate {
     max-width: 560px;
     margin: 0 auto 36px;
@@ -130,9 +140,39 @@
                         <input type="tel" id="coPhone" placeholder="+1 555 000 0000">
                     </div>
                 </div>
+                {% if sms_enabled_for_buyer %}
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.86rem;opacity:0.85;margin-top:6px;">
+                    <input type="checkbox" id="coSmsOptIn" style="margin-top:2px;">
+                    <span>Text me order updates at this number. Reply STOP at any time to opt out. Msg & data rates may apply.</span>
+                </label>
+                {% endif %}
 
+                {% if needs_address %}
                 <div class="sco-section">
-                    <h3 class="sco-section-title">Shipping Address</h3>
+                    <h3 class="sco-section-title">{% if 'local_delivery' in (fulfillment_choices.values() | sum(start=[])) %}Delivery Address{% else %}Shipping Address{% endif %}</h3>
+
+                    {% if saved_addresses %}
+                    <div class="sco-field" style="margin-bottom:14px;">
+                        <label>Use a saved address</label>
+                        <select id="coSavedAddr" onchange="applySavedAddress()">
+                            <option value="">— Enter a new address —</option>
+                            {% for a in saved_addresses %}
+                            <option value="{{ a.id }}" {% if a.is_default %}selected{% endif %}
+                                    data-name="{{ a.name }}"
+                                    data-line1="{{ a.line1 }}"
+                                    data-line2="{{ a.line2 or '' }}"
+                                    data-city="{{ a.city }}"
+                                    data-state="{{ a.state }}"
+                                    data-postal="{{ a.postal_code }}"
+                                    data-country="{{ a.country }}"
+                                    data-phone="{{ a.phone or '' }}">
+                                {{ a.label or a.line1 }}{% if a.is_default %} (default){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+
                     <div class="sco-field">
                         <label>Address Line 1 *</label>
                         <input type="text" id="coLine1" placeholder="123 Main St">
@@ -162,6 +202,55 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
+
+                {% if needs_pickup_picker and pickup_cfg %}
+                <div class="sco-section">
+                    <h3 class="sco-section-title">Pickup Time</h3>
+                    {% if cart_prep_minutes and cart_prep_minutes > 0 %}
+                    <p style="font-size:0.86rem;margin:0 0 12px;background:rgba(94,238,200,0.08);border:1px solid rgba(94,238,200,0.28);padding:10px 14px;border-radius:8px;color:#5eeec8;">
+                        <i class="fas fa-clock"></i> Estimated prep time: ~{{ cart_prep_minutes }} min — earliest pickup reflects this.
+                    </p>
+                    {% endif %}
+                    {% if pickup_cfg.location_note %}
+                    <p style="font-size:0.86rem;opacity:0.75;margin:0 0 12px;background:rgba(94,238,248,0.08);border:1px solid rgba(94,238,248,0.22);padding:10px 14px;border-radius:8px;white-space:pre-wrap;">
+                        {{ pickup_cfg.location_note }}
+                    </p>
+                    {% endif %}
+                    {% if pickup_cfg.allow_asap %}
+                    <label style="display:flex;align-items:center;gap:8px;font-size:0.92rem;margin-bottom:12px;cursor:pointer;">
+                        <input type="checkbox" id="pickupAsapCb" onchange="onPickupAsapToggle()">
+                        I'll come ASAP (no specific time)
+                    </label>
+                    {% endif %}
+                    <div id="pickupTimePickerWrap">
+                        {% if pickup_days %}
+                        <div class="sco-grid2">
+                            <div class="sco-field">
+                                <label>Day *</label>
+                                <select id="pickupDay" onchange="onPickupDayChange()">
+                                    <option value="">— Pick a day —</option>
+                                    {% for d in pickup_days %}
+                                    <option value="{{ d.date }}">{{ d.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="sco-field">
+                                <label>Time *</label>
+                                <select id="pickupSlot" disabled>
+                                    <option value="">— Pick a day first —</option>
+                                </select>
+                            </div>
+                        </div>
+                        <script id="pickupDaysData" type="application/json">{{ pickup_days | tojson }}</script>
+                        {% else %}
+                        <p style="font-size:0.88rem;color:#ff8a8a;">
+                            No pickup times are currently available. Please contact us to arrange pickup.
+                        </p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
 
                 <div class="sco-section">
                     <h3 class="sco-section-title">Order Notes <span class="sco-optional">(optional)</span></h3>
@@ -196,16 +285,47 @@
                     <div class="sc-summary-divider"></div>
                     <div class="sc-summary-row">
                         <span>Subtotal</span>
-                        <span>${{ '%.2f' | format(subtotal) }}</span>
+                        <span id="coSubtotalLine">${{ '%.2f' | format(subtotal) }}</span>
                     </div>
+                    {% if tips_enabled %}
+                    <div style="margin: 14px 0 6px;">
+                        <div style="font-size:0.84rem;opacity:0.7;margin-bottom:6px;">Add a tip</div>
+                        <div class="sco-tip-row" id="coTipRow">
+                            {% for pct in tip_presets %}
+                            <button type="button" class="sco-tip-btn" data-pct="{{ pct }}"
+                                    onclick="setTip({{ pct }}, this)">{{ pct }}%</button>
+                            {% endfor %}
+                            <button type="button" class="sco-tip-btn" data-pct="custom"
+                                    onclick="setTipCustom(this)">Custom</button>
+                            <button type="button" class="sco-tip-btn is-active" data-pct="0"
+                                    onclick="setTip(0, this)">None</button>
+                        </div>
+                        <div id="coTipCustomWrap" style="display:none;margin-top:8px;">
+                            <input type="number" id="coTipCustom" step="0.01" min="0"
+                                   placeholder="$0.00" oninput="onTipCustomInput()"
+                                   style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);color:inherit;font-size:0.88rem;width:100%;box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div class="sc-summary-row sc-summary-row--muted" id="coTipLineWrap" style="display:none;">
+                        <span>Tip</span>
+                        <span id="coTipLine">$0.00</span>
+                    </div>
+                    {% endif %}
+                    {% if charge_show %}
                     <div class="sc-summary-row sc-summary-row--muted">
-                        <span>Shipping</span>
-                        <span>Free</span>
+                        <span>{{ charge_label }}</span>
+                        <span>Calculated at next step</span>
                     </div>
+                    {% if delivery_estimate %}
+                    <p style="font-size:0.78rem;margin:2px 0 8px;color:#5eeec8;">
+                        <i class="fas fa-truck-fast"></i> {{ delivery_estimate.label }}
+                    </p>
+                    {% endif %}
+                    {% endif %}
                     <div class="sc-summary-divider"></div>
                     <div class="sc-summary-row sc-summary-row--total">
                         <span>Total</span>
-                        <span>${{ '%.2f' | format(subtotal) }}</span>
+                        <span id="coTotalLine">${{ '%.2f' | format(subtotal) }}</span>
                     </div>
                 </div>
             </div>
@@ -225,25 +345,149 @@ function continueAsGuest() {
     document.getElementById('scoFormWrap').style.display = '';
 }
 
+// ─ Saved addresses ────────────────────────────────────────────────────────
+function applySavedAddress() {
+    const sel = document.getElementById('coSavedAddr');
+    if (!sel) return;
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return; // "Enter a new address"
+    function _set(id, v) {
+        const el = document.getElementById(id);
+        if (el) el.value = v || '';
+    }
+    _set('coLine1', opt.dataset.line1);
+    _set('coLine2', opt.dataset.line2);
+    _set('coCity',  opt.dataset.city);
+    _set('coState', opt.dataset.state);
+    _set('coPostal', opt.dataset.postal);
+    _set('coCountry', opt.dataset.country);
+    const nameEl  = document.getElementById('coName');
+    const phoneEl = document.getElementById('coPhone');
+    if (nameEl  && !nameEl.value.trim())  nameEl.value  = opt.dataset.name || '';
+    if (phoneEl && !phoneEl.value.trim()) phoneEl.value = opt.dataset.phone || '';
+}
+// Pre-fill on load if a saved address is preselected (the default).
+if (document.getElementById('coSavedAddr') && document.getElementById('coLine1')) applySavedAddress();
+
+// ─ Tip selector ────────────────────────────────────────────────────────────
+const CO_SUBTOTAL = {{ subtotal | round(2) }};
+let CO_TIP = 0; // dollars
+
+function _coRenderTotals() {
+    const tipLine = document.getElementById('coTipLine');
+    const tipWrap = document.getElementById('coTipLineWrap');
+    if (tipLine) tipLine.textContent = '$' + CO_TIP.toFixed(2);
+    if (tipWrap) tipWrap.style.display = CO_TIP > 0 ? '' : 'none';
+    const totalEl = document.getElementById('coTotalLine');
+    if (totalEl) totalEl.textContent = '$' + (CO_SUBTOTAL + CO_TIP).toFixed(2);
+}
+function _coActivate(btn) {
+    const row = document.getElementById('coTipRow');
+    if (!row || !btn) return;
+    row.querySelectorAll('.sco-tip-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+}
+function setTip(pct, btn) {
+    CO_TIP = Math.round((CO_SUBTOTAL * pct / 100) * 100) / 100;
+    _coActivate(btn);
+    const wrap = document.getElementById('coTipCustomWrap');
+    if (wrap) wrap.style.display = 'none';
+    _coRenderTotals();
+}
+function setTipCustom(btn) {
+    _coActivate(btn);
+    const wrap = document.getElementById('coTipCustomWrap');
+    if (wrap) {
+        wrap.style.display = '';
+        const inp = document.getElementById('coTipCustom');
+        if (inp) inp.focus();
+    }
+    onTipCustomInput();
+}
+function onTipCustomInput() {
+    const inp = document.getElementById('coTipCustom');
+    if (!inp) return;
+    const v = parseFloat(inp.value);
+    CO_TIP = (!isNaN(v) && v > 0) ? Math.round(v * 100) / 100 : 0;
+    _coRenderTotals();
+}
+
+// ─ Pickup picker ─────────────────────────────────────────────────────────
+const PICKUP_DAYS_DATA = (function() {
+    const el = document.getElementById('pickupDaysData');
+    if (!el) return [];
+    try { return JSON.parse(el.textContent || '[]'); } catch (e) { return []; }
+})();
+
+function onPickupDayChange() {
+    const day = document.getElementById('pickupDay').value;
+    const slot = document.getElementById('pickupSlot');
+    if (!day) {
+        slot.innerHTML = '<option value="">— Pick a day first —</option>';
+        slot.disabled = true;
+        return;
+    }
+    const match = PICKUP_DAYS_DATA.find(d => d.date === day);
+    if (!match) { slot.disabled = true; return; }
+    slot.disabled = false;
+    slot.innerHTML = '<option value="">— Choose a time —</option>' +
+        match.slots.map(t => `<option value="${t}">${_fmtTime(t)}</option>`).join('');
+}
+
+function _fmtTime(hm) {
+    const [h, m] = hm.split(':').map(s => parseInt(s, 10));
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = ((h + 11) % 12) + 1;
+    return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+
+function onPickupAsapToggle() {
+    const asap = document.getElementById('pickupAsapCb');
+    const wrap = document.getElementById('pickupTimePickerWrap');
+    if (asap && wrap) wrap.style.display = asap.checked ? 'none' : '';
+}
+
 async function submitCheckout() {
     const btn = document.getElementById('coSubmitBtn');
     const st  = document.getElementById('coStatus');
+
+    const needsAddress = {{ 'true' if needs_address else 'false' }};
+    const needsPickup  = {{ 'true' if needs_pickup_picker else 'false' }};
 
     const payload = {
         contact_name:  document.getElementById('coName').value.trim(),
         contact_email: document.getElementById('coEmail').value.trim(),
         contact_phone: document.getElementById('coPhone').value.trim(),
-        addr_line1:    document.getElementById('coLine1').value.trim(),
-        addr_line2:    document.getElementById('coLine2').value.trim(),
-        addr_city:     document.getElementById('coCity').value.trim(),
-        addr_state:    document.getElementById('coState').value.trim(),
-        addr_postal:   document.getElementById('coPostal').value.trim(),
-        addr_country:  document.getElementById('coCountry').value.trim(),
+        sms_opt_in:    !!(document.getElementById('coSmsOptIn') && document.getElementById('coSmsOptIn').checked),
         notes:         document.getElementById('coNotes').value.trim(),
+        tip:           CO_TIP,
     };
+    if (needsAddress) {
+        payload.addr_line1   = document.getElementById('coLine1').value.trim();
+        payload.addr_line2   = document.getElementById('coLine2').value.trim();
+        payload.addr_city    = document.getElementById('coCity').value.trim();
+        payload.addr_state   = document.getElementById('coState').value.trim();
+        payload.addr_postal  = document.getElementById('coPostal').value.trim();
+        payload.addr_country = document.getElementById('coCountry').value.trim();
+    }
+    if (needsPickup) {
+        const asapCb = document.getElementById('pickupAsapCb');
+        if (asapCb && asapCb.checked) {
+            payload.pickup_asap = true;
+        } else {
+            const day = document.getElementById('pickupDay');
+            const slot = document.getElementById('pickupSlot');
+            if (!day || !slot || !day.value || !slot.value) {
+                st.style.color = '#f88';
+                st.textContent = 'Pick a pickup day and time.';
+                return;
+            }
+            payload.pickup_at = `${day.value}T${slot.value}:00`;
+        }
+    }
 
     // Basic validation
-    const required = ['contact_name','contact_email','addr_line1','addr_city','addr_state','addr_postal','addr_country'];
+    const required = ['contact_name','contact_email'];
+    if (needsAddress) required.push('addr_line1','addr_city','addr_state','addr_postal','addr_country');
     for (const f of required) {
         if (!payload[f]) {
             st.style.color = '#f88';

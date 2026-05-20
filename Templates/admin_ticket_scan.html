@@ -1,0 +1,370 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.scan-page { max-width: 640px; margin: 24px auto 60px; padding: 0 18px; color: #fff; }
+.scan-h { font-size: 1.4rem; font-weight: 800; margin: 0 0 4px; }
+.scan-sub { color: rgba(255,255,255,0.55); font-size: 0.88rem; margin: 0 0 18px; }
+.scan-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+.scan-card-title { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.55; margin: 0 0 8px; }
+.scan-input { width: 100%; padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.98rem; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.06em; }
+.scan-input:focus { outline: none; border-color: rgba(94,238,248,0.5); }
+.scan-event-summary { font-size: 0.82rem; opacity: 0.7; margin-top: 8px; }
+.event-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+.event-link-btn { background: none; border: none; color: #5eeef8; font-size: 0.8rem; font-weight: 600; cursor: pointer; padding: 4px 8px; border-radius: 6px; font-family: inherit; }
+.event-link-btn:hover { background: rgba(94,238,248,0.1); }
+.event-chips { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.event-chip { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
+.event-chip:hover { background: rgba(255,255,255,0.07); }
+.event-chip.is-checked { background: rgba(94,238,248,0.12); border-color: rgba(94,238,248,0.4); }
+.event-chip input { margin: 0; flex-shrink: 0; }
+.event-chip-main { flex: 1; min-width: 0; }
+.event-chip-title { font-weight: 600; }
+.event-chip-meta { font-size: 0.78rem; opacity: 0.55; margin-top: 1px; }
+.event-search { width: 100%; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #fff; font-size: 0.88rem; box-sizing: border-box; margin-bottom: 8px; font-family: inherit; }
+.event-empty { text-align: center; padding: 14px; opacity: 0.5; font-size: 0.86rem; }
+.scan-btn { display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:8px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;border:none;font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit; }
+.scan-btn-secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.13); }
+.scan-video-wrap { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 1/1; }
+.scan-video-wrap video { width: 100%; height: 100%; object-fit: cover; }
+.scan-reticle { position: absolute; inset: 12%; border: 3px solid rgba(94,238,200,0.7); border-radius: 14px; pointer-events: none; box-shadow: 0 0 0 100vmax rgba(0,0,0,0.3); }
+
+.scan-result { padding: 14px 16px; border-radius: 12px; font-size: 0.95rem; line-height: 1.45; margin-bottom: 10px; }
+.scan-result.ok       { background: rgba(94,238,200,0.13); color: #5eeec8; border: 1px solid rgba(94,238,200,0.4); }
+.scan-result.already  { background: rgba(255,206,115,0.13); color: #ffd982; border: 1px solid rgba(255,206,115,0.4); }
+.scan-result.wrong    { background: rgba(255,140,80,0.13); color: #ff9b66; border: 1px solid rgba(255,140,80,0.4); }
+.scan-result.error    { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.32); }
+
+.feed { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; }
+.feed-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; font-size: 0.86rem; }
+.feed-row .pill { padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; flex-shrink: 0; }
+.feed-row .pill.ok       { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.feed-row .pill.already  { background: rgba(255,206,115,0.18); color: #ffd982; }
+.feed-row .pill.wrong    { background: rgba(255,140,80,0.16); color: #ff9b66; }
+.feed-row .pill.error    { background: rgba(255,80,80,0.15); color: #ff8a8a; }
+.feed-row .when { font-size: 0.72rem; opacity: 0.55; min-width: 56px; }
+.feed-row .code { font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem; opacity: 0.75; }
+.feed-row .meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-empty { text-align: center; padding: 18px; opacity: 0.45; font-size: 0.86rem; }
+.feed-counts { display: flex; gap: 14px; font-size: 0.78rem; opacity: 0.7; margin-bottom: 10px; }
+.feed-counts .count-pill { display: inline-flex; gap: 6px; align-items: center; }
+.feed-counts strong { color: #fff; }
+.feed-clear { font-size: 0.78rem; color: rgba(255,255,255,0.55); background: none; border: none; cursor: pointer; padding: 0; }
+.feed-clear:hover { color: #fff; }
+</style>
+
+<div class="scan-page">
+    <h1 class="scan-h">Ticket scanner</h1>
+    <p class="scan-sub">Pick an event, then scan or type ticket codes. Tickets for other events are declined automatically.</p>
+
+    {# Event picker — multi-select chips #}
+    <div class="scan-card">
+        <p class="scan-card-title">Events to scan for</p>
+        <div class="event-toolbar">
+            <button type="button" class="event-link-btn" onclick="selectAllEvents(true)">Select all</button>
+            <button type="button" class="event-link-btn" onclick="selectAllEvents(false)">Clear</button>
+        </div>
+        {% if events and (events | length) > 5 %}
+        <input class="event-search" id="eventSearch" placeholder="Filter events…" oninput="filterEvents()">
+        {% endif %}
+        {% if events %}
+        <div class="event-chips" id="eventChips">
+            {% for e in events %}
+            <label class="event-chip {% if selected_event_id == e.id %}is-checked{% endif %}"
+                   data-name="{{ e.name | lower }}">
+                <input type="checkbox" class="event-cb" value="{{ e.id }}"
+                       {% if selected_event_id == e.id %}checked{% endif %}
+                       onchange="onEventToggle(this)">
+                <div class="event-chip-main">
+                    <div class="event-chip-title">{{ e.name }}</div>
+                    <div class="event-chip-meta">
+                        {% if e.event_starts_at %}
+                            {{ e.event_starts_at.strftime('%a %b %-d, %Y') }}
+                            {% if not e.event_all_day %} · {{ e.event_starts_at.strftime('%-I:%M %p') }}{% endif %}
+                        {% else %}No date set{% endif %}
+                        {% if e.event_location %} · {{ e.event_location }}{% endif %}
+                    </div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="event-empty">No ticket products yet. Create one with fulfillment type "ticket".</div>
+        {% endif %}
+        <div class="scan-event-summary" id="eventSummary"></div>
+    </div>
+
+    {# Code entry #}
+    <div class="scan-card">
+        <p class="scan-card-title">Code</p>
+        <input class="scan-input" id="scanCode" placeholder="TKT-XXXXXXXXXX" autocomplete="off"
+               autocapitalize="characters" spellcheck="false"
+               onkeydown="if(event.key==='Enter') redeemCurrent()"
+               oninput="onCodeInput()">
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+            <button class="scan-btn" onclick="redeemCurrent()">
+                <i class="fas fa-check"></i> Redeem
+            </button>
+            <button class="scan-btn scan-btn-secondary" id="camBtn" onclick="toggleCamera()">
+                <i class="fas fa-camera"></i> Use camera
+            </button>
+        </div>
+    </div>
+
+    {# Camera (hidden until toggled) #}
+    <div class="scan-card" id="camCard" style="display:none;">
+        <div class="scan-video-wrap">
+            <video id="scanVideo" autoplay muted playsinline></video>
+            <div class="scan-reticle"></div>
+        </div>
+        <p style="font-size:0.82rem;opacity:0.55;margin:10px 0 0;text-align:center;">
+            Point at a ticket QR — hold steady, scans run continuously.
+        </p>
+    </div>
+
+    {# Last-scan banner #}
+    <div id="lastResult"></div>
+
+    {# Live history feed #}
+    <div class="scan-card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+            <p class="scan-card-title" style="margin:0;">Scan history</p>
+            <button class="feed-clear" onclick="clearFeed()">Clear</button>
+        </div>
+        <div class="feed-counts">
+            <span class="count-pill"><span class="pill ok">✓</span> <strong id="cOk">0</strong> approved</span>
+            <span class="count-pill"><span class="pill already">⚠</span> <strong id="cAlready">0</strong> already</span>
+            <span class="count-pill"><span class="pill wrong">↯</span> <strong id="cWrong">0</strong> wrong event</span>
+            <span class="count-pill"><span class="pill error">✗</span> <strong id="cError">0</strong> invalid</span>
+        </div>
+        <div class="feed" id="feedList">
+            <div class="feed-empty" id="feedEmpty">No scans yet — pick an event and start scanning.</div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+let stream = null;
+let scanLoop = null;
+const counts = { ok: 0, already: 0, wrong: 0, error: 0 };
+
+function selectedEventIds() {
+    return Array.from(document.querySelectorAll('.event-cb:checked'))
+        .map(cb => parseInt(cb.value, 10))
+        .filter(n => !isNaN(n));
+}
+
+function onEventToggle(cb) {
+    const chip = cb.closest('.event-chip');
+    if (chip) chip.classList.toggle('is-checked', cb.checked);
+    refreshEventSummary();
+}
+
+function selectAllEvents(check) {
+    document.querySelectorAll('.event-cb').forEach(cb => {
+        // Only touch currently-visible chips so a filter narrows the scope.
+        const chip = cb.closest('.event-chip');
+        if (chip && chip.style.display === 'none') return;
+        cb.checked = !!check;
+        if (chip) chip.classList.toggle('is-checked', !!check);
+    });
+    refreshEventSummary();
+}
+
+function filterEvents() {
+    const q = (document.getElementById('eventSearch').value || '').trim().toLowerCase();
+    document.querySelectorAll('.event-chip').forEach(chip => {
+        const name = chip.dataset.name || '';
+        chip.style.display = (!q || name.indexOf(q) !== -1) ? '' : 'none';
+    });
+}
+
+function refreshEventSummary() {
+    const ids = selectedEventIds();
+    const summary = document.getElementById('eventSummary');
+    if (!summary) return;
+    const total = document.querySelectorAll('.event-cb').length;
+    if (ids.length === 0) {
+        summary.innerHTML = '<em>No event selected — every valid ticket will be approved regardless of event. Pick one or more above to scope scanning.</em>';
+    } else if (ids.length === total) {
+        summary.innerHTML = `<i class="fas fa-check-circle"></i> Scanning for <strong>all ${total} event${total === 1 ? '' : 's'}</strong>.`;
+    } else {
+        summary.innerHTML = `<i class="fas fa-check-circle"></i> Scanning for <strong>${ids.length} event${ids.length === 1 ? '' : 's'}</strong> — tickets for any other event will be declined.`;
+    }
+}
+refreshEventSummary();
+
+function onCodeInput() {
+    const v = document.getElementById('scanCode').value;
+    if (v && v !== v.toUpperCase()) document.getElementById('scanCode').value = v.toUpperCase();
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function pillKind(j) {
+    if (j.success) return 'ok';
+    if (j.reason === 'already_redeemed') return 'already';
+    if (j.reason === 'wrong_event') return 'wrong';
+    return 'error';
+}
+function pillLabel(kind) {
+    return { ok: '✓ Approved', already: '⚠ Already', wrong: '↯ Wrong event', error: '✗ Invalid' }[kind] || kind;
+}
+function resultText(j) {
+    if (j.success) return 'Redeemed — entry granted.';
+    return j.error || 'Declined.';
+}
+
+async function redeemCurrent() {
+    const code = (document.getElementById('scanCode').value || '').trim().toUpperCase();
+    if (!code) return;
+    await doRedeem(code);
+    document.getElementById('scanCode').select();
+}
+
+let lastSubmittedCode = null;
+let lastSubmittedAt = 0;
+
+async function doRedeem(code) {
+    const now = Date.now();
+    if (code === lastSubmittedCode && now - lastSubmittedAt < 3000) return;
+    lastSubmittedCode = code; lastSubmittedAt = now;
+
+    const ids = selectedEventIds();
+    const payload = { code };
+    if (ids.length) payload.event_product_ids = ids;
+
+    const r = await fetch('/admin/tickets/redeem', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    const kind = pillKind(j);
+    counts[kind] = (counts[kind] || 0) + 1;
+    updateCounts();
+    showResult(kind, j, code);
+    pushFeed(kind, j, code);
+    beep(kind === 'ok' ? 880 : (kind === 'already' ? 440 : (kind === 'wrong' ? 300 : 180)));
+}
+
+function showResult(kind, j, code) {
+    const evLabel = j.event_label ? escapeHtml(j.event_label) : '';
+    const tier = j.tier_label ? escapeHtml(j.tier_label) : '';
+    const detail = (j.success
+        ? `<strong>✓ ${evLabel || 'Ticket'} — Approved</strong>${tier ? ` <span style="opacity:0.85;">(${tier})</span>` : ''}`
+        : (kind === 'already'
+            ? `<strong>⚠ Already redeemed</strong>${evLabel ? ` — ${evLabel}${tier ? ' (' + tier + ')' : ''}` : ''}<div style="font-size:0.86rem;opacity:0.85;margin-top:2px;">${escapeHtml(j.error || '')}</div>`
+            : (kind === 'wrong'
+                ? `<strong>↯ Wrong event</strong>${evLabel ? ` — ticket is for ${evLabel}` : ''}`
+                : `<strong>✗ ${escapeHtml(j.error || 'Declined.')}</strong>`)));
+    document.getElementById('lastResult').innerHTML =
+        `<div class="scan-result ${kind}">${detail}<div style="font-family:monospace;font-size:0.78rem;opacity:0.65;margin-top:6px;">${escapeHtml(code)}</div></div>`;
+}
+
+function pushFeed(kind, j, code) {
+    const list = document.getElementById('feedList');
+    const empty = document.getElementById('feedEmpty');
+    if (empty) empty.remove();
+    const ts = new Date();
+    const hh = String(ts.getHours()).padStart(2,'0'), mm = String(ts.getMinutes()).padStart(2,'0'), ss = String(ts.getSeconds()).padStart(2,'0');
+    const row = document.createElement('div');
+    row.className = 'feed-row';
+    const ev = j.event_label || '—';
+    const tier = j.tier_label ? ` · ${j.tier_label}` : '';
+    const reason = j.success ? '' : ` — ${j.error || ''}`;
+    row.innerHTML = `<span class="when">${hh}:${mm}:${ss}</span>` +
+        `<span class="pill ${kind}">${pillLabel(kind)}</span>` +
+        `<span class="meta">${escapeHtml(ev)}${escapeHtml(tier)}${escapeHtml(reason)}</span>` +
+        `<span class="code">${escapeHtml(code)}</span>`;
+    list.insertBefore(row, list.firstChild);
+    // Cap at 100 rows so the page doesn't grow unbounded.
+    while (list.children.length > 100) list.removeChild(list.lastChild);
+}
+
+function updateCounts() {
+    document.getElementById('cOk').textContent = counts.ok || 0;
+    document.getElementById('cAlready').textContent = counts.already || 0;
+    document.getElementById('cWrong').textContent = counts.wrong || 0;
+    document.getElementById('cError').textContent = counts.error || 0;
+}
+
+function clearFeed() {
+    if (!confirm('Clear scan history? Tickets stay redeemed — just the local list is cleared.')) return;
+    document.getElementById('feedList').innerHTML = '<div class="feed-empty" id="feedEmpty">No scans yet.</div>';
+    counts.ok = counts.already = counts.wrong = counts.error = 0;
+    updateCounts();
+    document.getElementById('lastResult').innerHTML = '';
+}
+
+function beep(freq) {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(ctx.destination);
+        gain.gain.value = 0.05; osc.start();
+        setTimeout(() => { osc.stop(); ctx.close(); }, 140);
+    } catch (e) {}
+}
+
+async function toggleCamera() {
+    const card = document.getElementById('camCard');
+    const btn = document.getElementById('camBtn');
+    if (stream) {
+        stopCamera();
+        card.style.display = 'none';
+        btn.innerHTML = '<i class="fas fa-camera"></i> Use camera';
+        return;
+    }
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    } catch (e) {
+        document.getElementById('lastResult').innerHTML =
+            `<div class="scan-result error">Could not access camera: ${escapeHtml(e.message || String(e))}</div>`;
+        return;
+    }
+    document.getElementById('scanVideo').srcObject = stream;
+    card.style.display = '';
+    btn.innerHTML = '<i class="fas fa-times"></i> Stop camera';
+    startScanLoop();
+}
+
+function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (scanLoop) { cancelAnimationFrame(scanLoop); scanLoop = null; }
+}
+
+function startScanLoop() {
+    const video = document.getElementById('scanVideo');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    function tick() {
+        if (!stream || video.readyState !== video.HAVE_ENOUGH_DATA) {
+            scanLoop = requestAnimationFrame(tick); return;
+        }
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = (window.jsQR && jsQR(data.data, data.width, data.height, { inversionAttempts: 'dontInvert' })) || null;
+        if (code && code.data) {
+            const m = code.data.match(/\/ticket\/([A-Z0-9-]+)/i);
+            const c = (m ? m[1] : code.data).trim().toUpperCase();
+            if (c.startsWith('TKT-')) {
+                document.getElementById('scanCode').value = c;
+                doRedeem(c);
+            }
+        }
+        scanLoop = requestAnimationFrame(tick);
+    }
+    scanLoop = requestAnimationFrame(tick);
+}
+
+window.addEventListener('beforeunload', stopCamera);
+</script>
+
+{% endblock %}
