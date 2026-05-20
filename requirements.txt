@@ -4,7 +4,7 @@ click==8.1.7
 Flask==3.0.2
 Flask-Mail==0.9.1
 Flask-Migrate==4.0.6
-Flask-SQLAlchemy==3.1.111
+Flask-SQLAlchemy==3.1.1
 greenlet==3.0.3
 icalendar==5.0.12
 itsdangerous==2.1.2
