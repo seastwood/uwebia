@@ -198,6 +198,8 @@
         </a>
     <!-- </div> -->
     {% set _nd = admin_navbar_disabled or [] %}
+    {% set _b = store_nav_badges | default({}) %}
+    {% macro _badge(n) %}{% if n and n > 0 %}<span class="nav-item-badge">{{ n if n < 100 else '99+' }}</span>{% endif %}{% endmacro %}
     <!-- Inline tool shortcuts — only the "responsive" items that collapse into
          the dropdown when there's no horizontal space. Pinned items
          (Drives, AI Agents, Plugins) live only in the dropdown. -->
@@ -211,8 +213,66 @@
         {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
         <a href="{{ url_for('admin_calendars_page') }}" class="nav-link-btn" title="Calendars"><i class="fas fa-calendar-alt"></i></a>
         {% endif %}
-        {% if user_has_perm('store.view') and 'products' not in _nd %}
-        <a href="{{ url_for('store_products') }}" class="nav-link-btn" title="Products"><i class="fas fa-shopping-cart"></i></a>
+        {# Store umbrella — collapses Products / Orders / Shipping / Payments
+           under one icon so the inline bar isn't cluttered. The whole group
+           vanishes when none of its members are visible to this admin. #}
+        {# 'store' in _nd → hide the entire Store dropdown regardless of items. #}
+        {% set _hide_store_all = 'store' in _nd %}
+        {% set _show_store_products = (not _hide_store_all) and user_has_perm('store.view') and 'products' not in _nd %}
+        {% set _show_store_orders   = (not _hide_store_all) and user_has_perm('store.view') and 'orders'   not in _nd %}
+        {% set _show_store_returns  = (not _hide_store_all) and user_has_perm('store.returns') and 'returns' not in _nd %}
+        {% set _show_store_shipping = (not _hide_store_all) and user_has_perm('store.view') and 'shipping' not in _nd %}
+        {% set _show_store_payments = (not _hide_store_all) and user_has_perm('payments.view') and 'payments' not in _nd %}
+        {% set _show_store_sms      = (not _hide_store_all) and user_has_perm('payments.view') and 'sms' not in _nd %}
+        {% set _show_store_sales    = (not _hide_store_all) and user_has_perm('store.analytics') and 'sales' not in _nd %}
+        {% set _show_store_scan     = (not _hide_store_all) and user_has_perm('store.tickets.scan') and 'tickets_scan' not in _nd %}
+        {% set _show_store_support  = (not _hide_store_all) and user_has_perm('store.support') and 'support' not in _nd %}
+        {% set _has_store_group = _show_store_products or _show_store_orders or _show_store_returns or _show_store_shipping or _show_store_payments or _show_store_sales or _show_store_scan or _show_store_support %}
+        {% if _has_store_group %}
+        <div class="store-dropdown">
+            <button type="button" class="nav-link-btn store-dropdown-btn" title="Store">
+                <i class="fas fa-store"></i>
+                {% if store_attention_count and store_attention_count > 0 %}
+                <span class="store-nav-badge" title="{{ store_attention_count }} order{{ 's' if store_attention_count != 1 else '' }} needing attention">
+                    {{ store_attention_count if store_attention_count < 100 else '99+' }}
+                </span>
+                {% endif %}
+            </button>
+            <div class="store-dropdown-content">
+                {% if _show_store_products %}
+                <a href="{{ url_for('store_products') }}"><i class="fas fa-shopping-cart"></i><span>Products</span></a>
+                {% endif %}
+                {% if _show_store_orders %}
+                <a href="{{ url_for('admin_orders_page') }}"><i class="fas fa-receipt"></i><span>Orders</span>{{ _badge(_b.get('orders', 0)) }}</a>
+                {% endif %}
+                {% if _show_store_returns %}
+                <a href="{{ url_for('admin_returns') }}"><i class="fas fa-undo-alt"></i><span>Returns</span>{{ _badge(_b.get('returns', 0)) }}</a>
+                {% endif %}
+                {% if _show_store_shipping %}
+                <a href="{{ url_for('admin_shipping_page') }}"><i class="fas fa-truck"></i><span>Shipping</span></a>
+                {% endif %}
+                {% if _show_store_payments %}
+                <a href="{{ url_for('admin_payments_page') }}"><i class="fas fa-credit-card"></i><span>Payments</span></a>
+                {% endif %}
+                {% if _show_store_sms %}
+                <a href="{{ url_for('admin_sms_page') }}"><i class="fas fa-sms"></i><span>SMS</span></a>
+                {% endif %}
+                {% if _show_store_sales %}
+                <a href="{{ url_for('admin_sales_analytics') }}"><i class="fas fa-chart-line"></i><span>Sales</span></a>
+                {% endif %}
+                {% if _show_store_products %}
+                <a href="{{ url_for('admin_inventory_log') }}"><i class="fas fa-clipboard-list"></i><span>Inventory log</span></a>
+                {% endif %}
+                {% if _show_store_scan %}
+                <a href="{{ url_for('admin_ticket_scan') }}"><i class="fas fa-qrcode"></i><span>Scan tickets</span></a>
+                {% endif %}
+                {% if _show_store_support %}
+                <a href="{{ url_for('admin_support_inbox') }}">
+                    <i class="fas fa-comments"></i><span>Customer support</span>{{ _badge(_b.get('support', 0)) }}
+                </a>
+                {% endif %}
+            </div>
+        </div>
         {% endif %}
         {% if 'palette' not in _nd %}
         <button type="button" class="nav-link-btn" title="Color Palette" onclick="toggleGlobalColorPalette()"><i class="fas fa-palette"></i></button>
@@ -224,6 +284,7 @@
        mode), CSS reveals it again. #}
     {% set _has_pinned_dropdown = (
         (user_has_perm('storage.view') and 'storage' not in _nd)
+        or (user_has_perm('notifications.view') and 'notifications' not in _nd)
         or 'ai_agents' not in _nd
         or 'plugins' not in _nd
     ) %}
@@ -234,10 +295,16 @@
                 <i class="fas fa-bars"></i>
             </button>
             <div class="nav-tools-dropdown-content" id="navToolsDropdownContent">
+                <div class="nav-tools-scroll-cue nav-tools-scroll-cue--top" aria-hidden="true">▲ more above</div>
                 {# ── Pinned items — always present in the dropdown ── #}
                 {% if user_has_perm('storage.view') and 'storage' not in _nd %}
                 <a href="{{ url_for('admin_storage_connections') }}" class="nav-tools-item">
                     <i class="fas fa-cloud"></i><span>External Drives</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('notifications.view') and 'notifications' not in _nd %}
+                <a href="{{ url_for('admin_notifications_page') }}" class="nav-tools-item">
+                    <i class="fas fa-bell"></i><span>Notifications</span>
                 </a>
                 {% endif %}
                 {% if 'ai_agents' not in _nd %}
@@ -268,16 +335,86 @@
                     <i class="fas fa-calendar-alt"></i><span>Calendars</span>
                 </a>
                 {% endif %}
-                {% if user_has_perm('store.view') and 'products' not in _nd %}
-                <a href="{{ url_for('store_products') }}" class="nav-tools-item nav-tools-item--responsive">
-                    <i class="fas fa-shopping-cart"></i><span>Products</span>
-                </a>
+                {# Store group — collapsible nested dropdown inside the hamburger.
+                   Clicking the "Store" row toggles the sub-items. Default
+                   collapsed unless the current page is a store page. #}
+                {% if _has_store_group %}
+                {% set _on_store_page = request.endpoint in ['store_products','store_product_edit','store_product_new','admin_orders_page','admin_order_detail','admin_returns','admin_return_detail','admin_return_new','admin_shipping_page','admin_payments_page','admin_sales_analytics'] %}
+                <div class="nav-tools-subgroup nav-tools-item--responsive{% if _on_store_page %} open{% endif %}" id="navToolsStoreGroup">
+                    <button type="button" class="nav-tools-item nav-tools-subgroup-toggle"
+                            onclick="toggleNavStoreSubgroup(event)">
+                        <i class="fas fa-store"></i>
+                        <span>Store</span>
+                        {% if store_attention_count and store_attention_count > 0 %}
+                        <span class="store-nav-badge store-nav-badge--inline" style="margin-left:auto;">
+                            {{ store_attention_count if store_attention_count < 100 else '99+' }}
+                        </span>
+                        {% endif %}
+                        <i class="fas fa-chevron-down nav-tools-subgroup-chevron" {% if store_attention_count and store_attention_count > 0 %}style="margin-left:6px;"{% else %}style="margin-left:auto;"{% endif %}></i>
+                    </button>
+                    <div class="nav-tools-subgroup-content">
+                        {% if _show_store_products %}
+                        <a href="{{ url_for('store_products') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-shopping-cart"></i><span>Products</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_orders %}
+                        <a href="{{ url_for('admin_orders_page') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-receipt"></i><span>Orders</span>
+                            {{ _badge(_b.get('orders', 0)) }}
+                        </a>
+                        {% endif %}
+                        {% if _show_store_returns %}
+                        <a href="{{ url_for('admin_returns') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-undo-alt"></i><span>Returns</span>
+                            {{ _badge(_b.get('returns', 0)) }}
+                        </a>
+                        {% endif %}
+                        {% if _show_store_shipping %}
+                        <a href="{{ url_for('admin_shipping_page') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-truck"></i><span>Shipping</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_payments %}
+                        <a href="{{ url_for('admin_payments_page') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-credit-card"></i><span>Payments</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_sms %}
+                        <a href="{{ url_for('admin_sms_page') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-sms"></i><span>SMS</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_sales %}
+                        <a href="{{ url_for('admin_sales_analytics') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-chart-line"></i><span>Sales</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_products %}
+                        <a href="{{ url_for('admin_inventory_log') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-clipboard-list"></i><span>Inventory log</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_scan %}
+                        <a href="{{ url_for('admin_ticket_scan') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-qrcode"></i><span>Scan tickets</span>
+                        </a>
+                        {% endif %}
+                        {% if _show_store_support %}
+                        <a href="{{ url_for('admin_support_inbox') }}" class="nav-tools-item nav-tools-subitem">
+                            <i class="fas fa-comments"></i><span>Customer support</span>
+                            {{ _badge(_b.get('support', 0)) }}
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
                 {% endif %}
                 {% if 'palette' not in _nd %}
                 <a href="#" class="nav-tools-item nav-tools-item--responsive" onclick="toggleGlobalColorPalette(); closeNavToolsDropdown(); return false;">
                     <i class="fas fa-palette"></i><span>Color Palette</span>
                 </a>
                 {% endif %}
+                <div class="nav-tools-scroll-cue nav-tools-scroll-cue--bottom" aria-hidden="true">▼ more below</div>
             </div>
         </div>
     </div>

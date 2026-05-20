@@ -429,6 +429,19 @@
                 <div id="perWebsiteTabs" style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:12px;"></div>
                 <div id="perWebsitePanels"></div>
             </div>
+
+            <!-- Per-drive access -->
+            <div id="userStorageAccessArea" style="margin-top:24px;">
+                <div style="margin-bottom:10px;">
+                    <strong style="font-size:0.9rem;">External Drive Access</strong>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.35);margin:4px 0 0;">
+                        Uncheck a drive to block this sub-admin from browsing, importing from, or managing it. The general
+                        <strong style="color:rgba(255,255,255,0.55);">External Drives</strong> permission above still needs to be granted for any access at all.
+                    </p>
+                </div>
+                <div id="userStorageAccessList" data-scope="user"
+                     style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
         </div>
             </form>
         <div class="uw-modal-footer">
@@ -562,6 +575,18 @@
                 <div id="grpPerWebsiteTabs" style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:12px;"></div>
                 <div id="grpPerWebsitePanels"></div>
             </div>
+
+            <!-- Per-drive access for group -->
+            <div style="margin-top:24px;">
+                <div style="margin-bottom:10px;">
+                    <strong style="font-size:0.9rem;">External Drive Access</strong>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.35);margin:4px 0 0;">
+                        Uncheck a drive to block members of this group from browsing or importing from it.
+                    </p>
+                </div>
+                <div id="groupStorageAccessList" data-scope="grp"
+                     style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
         </div>
         <div class="uw-modal-footer">
             <button type="button" class="uw-btn uw-btn-secondary" onclick="closeGroupModal()">Cancel</button>
@@ -589,9 +614,11 @@ const _existingUsers = {
         permissions: {{ (u.permissions or {}) | tojson }},
         permission_group_id: {{ u.permission_group_id | tojson }},
         website_permissions: {{ (u.website_permissions or {}) | tojson }},
+        storage_connection_access: {{ (u.storage_connection_access or {}) | tojson }},
     },
     {% endfor %}
 };
+const _storageConnections = {{ storage_connections | default([]) | tojson }};
 
 const _liveWebsites = {{ live_websites | map(attribute='id') | list | tojson }}.map((id, i) => ({
     id,
@@ -611,6 +638,7 @@ const _existingGroups = {
         description: {{ (g.description or '') | tojson }},
         permissions: {{ (g.permissions or {}) | tojson }},
         website_permissions: {{ (g.website_permissions or {}) | tojson }},
+        storage_connection_access: {{ (g.storage_connection_access or {}) | tojson }},
         allowed_pages:       {{ ((g.permissions or {}).get('pages.allowed_ids')    or []) | tojson }},
         allowed_groups:      {{ ((g.permissions or {}).get('groups.allowed_ids')   or []) | tojson }},
         allowed_sections:    {{ ((g.permissions or {}).get('sections.allowed_ids') or []) | tojson }},
@@ -814,6 +842,11 @@ function openUserModal(userId) {
     const existingWP = (userId && _existingUsers[userId]) ? (_existingUsers[userId].website_permissions || {}) : {};
     _buildPerWebsiteUI(existingWP);
 
+    // Build per-drive ACL UI
+    const existingSCA = (userId && _existingUsers[userId])
+        ? (_existingUsers[userId].storage_connection_access || {}) : {};
+    _buildStorageAccessUI(document.getElementById('userStorageAccessList'), existingSCA);
+
     overlay.classList.add('open');
     document.body.classList.add('uw-modal-open');
     setTimeout(() => document.getElementById('userUsername').focus(), 50);
@@ -933,6 +966,43 @@ function togglePageSections(pageId, state) {
 // ── Per-website permission overrides ─────────────────────────────────────────
 
 const _permSchema = {{ permissions_schema | tojson }};
+
+function _buildStorageAccessUI(container, existingMap) {
+    if (!container) return;
+    if (!_storageConnections || _storageConnections.length === 0) {
+        container.innerHTML = '<p style="font-size:0.8rem;color:rgba(255,255,255,0.4);font-style:italic;margin:0;">No external drives connected yet. Once you add drives in <strong>External Drives</strong>, you can restrict access here.</p>';
+        return;
+    }
+    container.innerHTML = _storageConnections.map(c => {
+        // Default: allowed (true) — explicit false blocks.
+        const allowed = (existingMap && existingMap.hasOwnProperty(String(c.id)))
+            ? !!existingMap[String(c.id)] : true;
+        return `<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;cursor:pointer;">
+            <input type="checkbox" class="sca-cb" data-id="${c.id}" ${allowed ? 'checked' : ''}>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:0.86rem;font-weight:600;">${(c.label||'').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]))}</div>
+                <div style="font-size:0.72rem;color:rgba(255,255,255,0.45);">
+                    ${c.provider}${c.account_identifier ? ' · ' + c.account_identifier.replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch])) : ''}
+                </div>
+            </div>
+            ${!c.is_active ? '<span style="font-size:0.7rem;opacity:0.5;background:rgba(255,255,255,0.06);padding:2px 7px;border-radius:999px;">inactive</span>' : ''}
+        </label>`;
+    }).join('');
+}
+
+function _collectStorageAccess(scope) {
+    const listEl = scope === 'grp'
+        ? document.getElementById('groupStorageAccessList')
+        : document.getElementById('userStorageAccessList');
+    if (!listEl) return {};
+    const out = {};
+    listEl.querySelectorAll('input.sca-cb').forEach(cb => {
+        // Only persist explicit denials — keeps the JSON lean and treats new
+        // drives (added later) as allowed by default.
+        if (!cb.checked) out[cb.dataset.id] = false;
+    });
+    return out;
+}
 
 function _buildPerWebsiteUI(existingWP) {
     const tabsEl   = document.getElementById('perWebsiteTabs');
@@ -1299,6 +1369,7 @@ async function submitUserForm() {
         permissions,
         permission_group_id: groupId ? parseInt(groupId) : null,
         website_permissions: _collectWebsitePermissions(),
+        storage_connection_access: _collectStorageAccess('user'),
     };
 
     if (!userId) {
@@ -1473,6 +1544,11 @@ function openGroupModal(groupId) {
     // Build per-website override UI for group
     const existingGrpWP = (groupId && _existingGroups[groupId]) ? (_existingGroups[groupId].website_permissions || {}) : {};
     _buildGrpPerWebsiteUI(existingGrpWP);
+
+    // Build per-drive ACL UI for group
+    const existingGrpSCA = (groupId && _existingGroups[groupId])
+        ? (_existingGroups[groupId].storage_connection_access || {}) : {};
+    _buildStorageAccessUI(document.getElementById('groupStorageAccessList'), existingGrpSCA);
 
     document.getElementById('groupModalOverlay').classList.add('open');
     document.body.classList.add('uw-modal-open');
@@ -1859,6 +1935,7 @@ async function submitGroupForm() {
         description:        document.getElementById('groupDescription').value.trim(),
         permissions,
         website_permissions: _collectGrpWebsitePermissions(),
+        storage_connection_access: _collectStorageAccess('grp'),
     };
 
     if (!payload.name) { alert('Group name is required'); btn.disabled = false; return; }

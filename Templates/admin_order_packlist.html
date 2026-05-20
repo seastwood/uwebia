@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pack list — Order #{{ order.order_number }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+               background: #fff; color: #111; margin: 0; padding: 28px 32px; }
+        h1 { margin: 0 0 4px; font-size: 1.4rem; }
+        .meta { color: #666; font-size: 0.92rem; margin-bottom: 22px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-bottom: 24px; }
+        .box { border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; }
+        .box h2 { margin: 0 0 8px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #555; font-weight: 700; }
+        .box p { margin: 2px 0; font-size: 0.95rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th { text-align: left; padding: 10px; border-bottom: 2px solid #111; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 12px 10px; border-bottom: 1px solid #ddd; vertical-align: top; }
+        td.qty { font-size: 1.3rem; font-weight: 700; text-align: center; width: 60px; }
+        td.sku { font-family: ui-monospace, Menlo, monospace; color: #555; font-size: 0.85rem; }
+        .checkbox { display: inline-block; width: 18px; height: 18px; border: 2px solid #111; border-radius: 4px; vertical-align: middle; }
+        .footer-notes { margin-top: 28px; padding: 14px 16px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; }
+        .footer-notes h2 { margin: 0 0 6px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #555; }
+        .footer-notes p { margin: 0; white-space: pre-wrap; font-size: 0.9rem; }
+        .print-bar { background: #f4f4f4; padding: 10px 16px; margin: -28px -32px 24px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid #ddd; }
+        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; font: inherit; font-weight: 600; font-size: 0.88rem; color: #111; text-decoration: none; }
+        .btn:hover { background: #e8e8e8; }
+        @media print {
+            .print-bar { display: none; }
+            body { padding: 0; }
+        }
+    </style>
+</head>
+<body>
+<div class="print-bar">
+    <button class="btn" onclick="window.print()">🖨 Print</button>
+    <a class="btn" href="{{ url_for('admin_order_detail', order_id=order.id) }}">← Back to order</a>
+</div>
+
+<h1>Pack list · Order #{{ order.order_number }}</h1>
+<p class="meta">
+    Placed {{ order.created_at.strftime('%b %-d, %Y %I:%M %p') if order.created_at else '' }}
+    · Status: <strong>{{ order.status.replace('_', ' ') }}</strong>
+    {% if website %} · {{ website.name }}{% endif %}
+</p>
+{% if order.pickup_at or order.pickup_is_asap %}
+<p class="meta" style="font-weight:700;color:#000;background:#ffe082;padding:6px 10px;border-radius:6px;display:inline-block;">
+    Pickup: {% if order.pickup_is_asap %}ASAP{% else %}{{ order.pickup_at.strftime('%A, %b %-d at %-I:%M %p') }}{% endif %}
+</p>
+{% endif %}
+
+<div class="grid">
+    <div class="box">
+        <h2>Ship to</h2>
+        {% if order.address %}
+            <p><strong>{{ order.address.name }}</strong></p>
+            <p>{{ order.address.line1 }}</p>
+            {% if order.address.line2 %}<p>{{ order.address.line2 }}</p>{% endif %}
+            <p>{{ order.address.city }}, {{ order.address.state }} {{ order.address.postal_code }}</p>
+            <p>{{ order.address.country }}</p>
+        {% else %}
+            <p style="color:#999;">No ship-to address on file.</p>
+        {% endif %}
+    </div>
+    <div class="box">
+        <h2>Contact</h2>
+        <p><strong>{{ order.contact_name }}</strong></p>
+        <p>{{ order.contact_email }}</p>
+        {% if order.contact_phone %}<p>{{ order.contact_phone }}</p>{% endif %}
+    </div>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width:34px;"></th>
+            <th>Item</th>
+            <th>SKU</th>
+            <th style="width:60px;text-align:center;">Qty</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for it in order.items %}
+        <tr>
+            <td><span class="checkbox"></span></td>
+            <td>
+                <strong>{{ it.product_name }}</strong>
+                {% if it.variant_options_snapshot %}<br><span style="font-size:0.85rem;color:#444;">{{ it.variant_options_snapshot }}</span>{% endif %}
+                {% if it.fulfillment_type %}<br><span style="font-size:0.8rem;color:#777;">{{ it.fulfillment_type.replace('_', ' ') }}</span>{% endif %}
+                {% if it.tracking_note %}<br><span style="font-size:0.82rem;color:#555;font-style:italic;">{{ it.tracking_note }}</span>{% endif %}
+            </td>
+            <td class="sku">{{ it.product_sku or '—' }}</td>
+            <td class="qty">{{ it.quantity }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+{% if order.notes %}
+<div class="footer-notes">
+    <h2>Notes</h2>
+    <p>{{ order.notes }}</p>
+</div>
+{% endif %}
+
+</body>
+</html>

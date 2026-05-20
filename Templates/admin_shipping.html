@@ -1,0 +1,487 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.sh-page { max-width: 1000px; margin: 30px auto 60px; padding: 0 20px; color: #fff; }
+.sh-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+.sh-title { font-size: 1.8rem; font-weight: 800; margin: 4px 0 18px; }
+
+.sh-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.sh-card h2 { margin: 0 0 6px; font-size: 1rem; }
+.sh-card-sub { font-size: 0.82rem; color: rgba(255,255,255,0.5); margin: 0 0 14px; }
+
+.sh-input, .sh-select, .sh-textarea {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; box-sizing: border-box; font-size: 0.9rem; font-family: inherit;
+}
+.sh-textarea { min-height: 110px; resize: vertical; font-family: monospace; font-size: 0.85rem; }
+.sh-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 5px; font-weight: 600; }
+
+.sh-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 0.86rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.sh-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.sh-btn-primary:hover { opacity: 0.88; }
+.sh-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.12); }
+.sh-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.sh-btn-danger { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.sh-btn-danger:hover { background: rgba(255,80,80,0.22); }
+
+.sh-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.sh-msg { font-size: 0.85rem; min-height: 18px; margin-left: auto; }
+
+table.sh-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 12px; }
+table.sh-table th, table.sh-table td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; }
+table.sh-table th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.4); font-weight: 600; }
+table.sh-table tr:hover { background: rgba(255,255,255,0.03); }
+.sh-applies-pill { display: inline-flex; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.78); }
+.sh-applies-pill.sh-applies-shipping        { background: rgba(94,238,248,0.15); color: #5eeef8; }
+.sh-applies-pill.sh-applies-local_delivery  { background: rgba(255,206,115,0.16); color: #ffd982; }
+.sh-applies-pill.sh-applies-both             { background: rgba(199,154,255,0.15); color: #c79aff; }
+
+@media (max-width: 720px) {
+    table.sh-table { display: none; }
+    .sh-list-mobile { display: flex; flex-direction: column; gap: 10px; }
+    .sh-method-card { padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); }
+}
+.sh-list-mobile { display: none; }
+
+.sh-empty { padding: 30px 16px; text-align: center; color: rgba(255,255,255,0.4); }
+</style>
+
+<div class="sh-page">
+    <p class="sh-kicker">Admin</p>
+    <h1 class="sh-title">Shipping &amp; delivery</h1>
+
+    <!-- ── Shipping methods ─────────────────────────────────────────────── -->
+    <div class="sh-card">
+        <h2>Shipping & delivery rates</h2>
+        <p class="sh-card-sub">
+            Define one or more rates customers can pick at checkout. The buyer sees them as a radio list on the Stripe-hosted payment page.
+            Use <strong>"Shipping"</strong> for physical-goods rates, <strong>"Local delivery"</strong> for in-area courier rates, or <strong>"Both"</strong> for a single flat rate that works either way.
+            <br><br>
+            <strong style="color:#5eeec8;">Naming tip:</strong> Local-delivery rates are auto-prefixed with "Delivery — " on Stripe's page so buyers don't see them filed under "Shipping". Stripe's own section header is fixed and reads "Shipping" regardless — that's their UI, not yours.
+        </p>
+
+        {% if methods %}
+        <table class="sh-table">
+            <thead>
+                <tr>
+                    <th>Label</th><th>Amount</th><th>Days</th><th>Applies to</th><th>Free over</th><th>Active</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for m in methods %}
+                <tr id="sh-row-{{ m.id }}">
+                    <td><strong>{{ m.label }}</strong></td>
+                    <td>${{ '%.2f' | format(m.amount_cents / 100) }}</td>
+                    <td>
+                        {% if m.delivery_min_days and m.delivery_max_days %}
+                            {{ m.delivery_min_days }}–{{ m.delivery_max_days }}
+                        {% elif m.delivery_min_days %}
+                            ≥{{ m.delivery_min_days }}
+                        {% elif m.delivery_max_days %}
+                            ≤{{ m.delivery_max_days }}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td><span class="sh-applies-pill sh-applies-{{ m.applies_to }}">{{ m.applies_to.replace('_', ' ') }}</span></td>
+                    <td>
+                        {% if m.free_over_amount_cents %}≥ ${{ '%.2f' | format(m.free_over_amount_cents / 100) }}{% else %}—{% endif %}
+                    </td>
+                    <td>{{ 'Yes' if m.is_active else 'No' }}</td>
+                    <td style="text-align:right;">
+                        <button class="sh-btn sh-btn-secondary" style="padding:4px 10px;"
+                                onclick='editMethod({{ {"id": m.id, "label": m.label, "amount": m.amount_cents/100, "applies_to": m.applies_to, "delivery_min_days": m.delivery_min_days, "delivery_max_days": m.delivery_max_days, "free_over_amount": (m.free_over_amount_cents or 0)/100 if m.free_over_amount_cents else "", "is_active": m.is_active} | tojson }})'>
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="sh-btn sh-btn-danger" style="padding:4px 10px;"
+                                onclick="deleteMethod({{ m.id }}, '{{ m.label | replace("'", "\\'") }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="sh-list-mobile">
+            {% for m in methods %}
+            <div class="sh-method-card" id="sh-rowm-{{ m.id }}">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+                    <strong>{{ m.label }}</strong>
+                    <span>${{ '%.2f' | format(m.amount_cents / 100) }}</span>
+                </div>
+                <div style="font-size:0.78rem;color:rgba(255,255,255,0.55);margin-top:4px;">
+                    <span class="sh-applies-pill sh-applies-{{ m.applies_to }}">{{ m.applies_to.replace('_', ' ') }}</span>
+                    {% if m.delivery_min_days and m.delivery_max_days %} · {{ m.delivery_min_days }}–{{ m.delivery_max_days }} days{% endif %}
+                    {% if m.free_over_amount_cents %} · free over ${{ '%.2f' | format(m.free_over_amount_cents / 100) }}{% endif %}
+                    {% if not m.is_active %} · <span style="color:#ffd982;">disabled</span>{% endif %}
+                </div>
+                <div style="margin-top:8px;display:flex;gap:6px;">
+                    <button class="sh-btn sh-btn-secondary"
+                            onclick='editMethod({{ {"id": m.id, "label": m.label, "amount": m.amount_cents/100, "applies_to": m.applies_to, "delivery_min_days": m.delivery_min_days, "delivery_max_days": m.delivery_max_days, "free_over_amount": (m.free_over_amount_cents or 0)/100 if m.free_over_amount_cents else "", "is_active": m.is_active} | tojson }})'>
+                        Edit
+                    </button>
+                    <button class="sh-btn sh-btn-danger"
+                            onclick="deleteMethod({{ m.id }}, '{{ m.label | replace("'", "\\'") }}')">
+                        Delete
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="sh-empty">No shipping methods yet. Add your first rate below.</div>
+        {% endif %}
+
+        <button class="sh-btn sh-btn-primary" onclick="openMethodModal()"><i class="fas fa-plus"></i> Add rate</button>
+    </div>
+
+    <!-- ── Delivery area ────────────────────────────────────────────────── -->
+    <div class="sh-card">
+        <h2>Local delivery area</h2>
+        <p class="sh-card-sub">
+            Only applies to products with fulfillment type <strong>Local delivery</strong>. Paste the postal / ZIP codes you deliver to (one per line or comma-separated). Buyers outside these codes will see an "outside our delivery area" message at checkout.
+            <br><br>
+            <strong>Leave blank</strong> if you'll deliver anywhere (e.g. you ship and manually reject out-of-range orders).
+        </p>
+        <form id="areaForm">
+            <div class="sh-field">
+                <label class="sh-label">Allowed postal codes</label>
+                <textarea class="sh-textarea" name="allowed_postal_codes" placeholder="94103&#10;94110&#10;94114">{% if area %}{% for c in (area.allowed_postal_codes or []) %}{{ c }}
+{% endfor %}{% endif %}</textarea>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;">
+                <input type="checkbox" id="areaActive" {% if area is none or area.is_active %}checked{% endif %}>
+                Enforce this allowlist
+            </label>
+            <div class="sh-toolbar">
+                <button type="button" class="sh-btn sh-btn-primary" onclick="saveDeliveryArea()"><i class="fas fa-save"></i> Save area</button>
+                <span class="sh-msg" id="areaMsg"></span>
+            </div>
+        </form>
+    </div>
+
+    {# ─ Tip settings ────────────────────────────────────────────────────── #}
+    <div class="sh-card">
+        <h2>Customer tips</h2>
+        <p class="sh-card-sub">
+            Adds a tip selector to the checkout page. Customers can pick a preset or enter a custom amount.
+            Tips are sent to Stripe as a separate line item and are not taxed.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;margin-bottom:14px;">
+            <input type="checkbox" id="tipsEnabled" {% if fulfillment_settings and fulfillment_settings.tips_enabled %}checked{% endif %}>
+            Enable tip selector at checkout
+        </label>
+        <div class="sh-field">
+            <label class="sh-label">Quick-pick percentages (max 4)</label>
+            <input class="sh-input" id="tipPresets" type="text"
+                   value="{% if fulfillment_settings and fulfillment_settings.tip_presets %}{{ fulfillment_settings.tip_presets | join(', ') }}{% else %}15, 20{% endif %}"
+                   placeholder="e.g. 15, 20, 25">
+            <p style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin:4px 0 0;">
+                Comma-separated whole-number percentages. The buyer always has a "Custom" option in addition to these.
+            </p>
+        </div>
+        <div class="sh-toolbar">
+            <button type="button" class="sh-btn sh-btn-primary" onclick="saveTipSettings()">
+                <i class="fas fa-save"></i> Save tip settings
+            </button>
+            <span class="sh-msg" id="tipMsg"></span>
+        </div>
+    </div>
+
+    {# ─ Customer support toggle ─────────────────────────────────────── #}
+    <div class="sh-card">
+        <h2>Customer support chat</h2>
+        <p class="sh-card-sub">
+            When enabled, buyers see a <strong>"Need help?"</strong> live chat on their order pages.
+            You'll get an unread badge in the navbar and an email when a buyer sends a message.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;margin-bottom:10px;">
+            <input type="checkbox" id="supportEnabled"
+                   {% if fulfillment_settings and fulfillment_settings.support_enabled %}checked{% endif %}>
+            Enable customer support chat
+        </label>
+        <div class="sh-toolbar">
+            <button type="button" class="sh-btn sh-btn-primary" onclick="saveSupportToggle()">
+                <i class="fas fa-save"></i> Save
+            </button>
+            <span class="sh-msg" id="supportMsg"></span>
+        </div>
+    </div>
+
+    {# ─ Pickup scheduling ──────────────────────────────────────────────── #}
+    <div class="sh-card">
+        <h2>Pickup hours</h2>
+        <p class="sh-card-sub">
+            When the buyer's cart contains a pickup product, they'll see a day &amp; time picker on checkout limited to these hours.
+            Toggle a day off to mark it closed.
+        </p>
+        {% set _ph = fulfillment_settings.pickup_hours or {
+            'mon': {'enabled': true, 'open': '09:00', 'close': '17:00'},
+            'tue': {'enabled': true, 'open': '09:00', 'close': '17:00'},
+            'wed': {'enabled': true, 'open': '09:00', 'close': '17:00'},
+            'thu': {'enabled': true, 'open': '09:00', 'close': '17:00'},
+            'fri': {'enabled': true, 'open': '09:00', 'close': '17:00'},
+            'sat': {'enabled': false, 'open': '10:00', 'close': '15:00'},
+            'sun': {'enabled': false, 'open': '10:00', 'close': '15:00'},
+        } %}
+        <table style="width:100%;border-collapse:collapse;font-size:0.86rem;margin-bottom:12px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left;padding:6px;color:rgba(255,255,255,0.5);font-size:0.72rem;text-transform:uppercase;">Day</th>
+                    <th style="text-align:left;padding:6px;color:rgba(255,255,255,0.5);font-size:0.72rem;text-transform:uppercase;">Open</th>
+                    <th style="text-align:left;padding:6px;color:rgba(255,255,255,0.5);font-size:0.72rem;text-transform:uppercase;">Close</th>
+                </tr>
+            </thead>
+            <tbody id="pickupHoursBody">
+                {% for code, label in [('mon','Monday'),('tue','Tuesday'),('wed','Wednesday'),
+                                       ('thu','Thursday'),('fri','Friday'),('sat','Saturday'),
+                                       ('sun','Sunday')] %}
+                {% set _row = _ph.get(code) or {'enabled': false, 'open': '09:00', 'close': '17:00'} %}
+                <tr>
+                    <td style="padding:6px;">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" class="phEnabled" data-day="{{ code }}" {% if _row.enabled %}checked{% endif %}>
+                            {{ label }}
+                        </label>
+                    </td>
+                    <td style="padding:6px;"><input type="time" class="phOpen" data-day="{{ code }}" value="{{ _row.open }}" class="sh-input" style="padding:6px 10px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);border-radius:6px;color:#fff;"></td>
+                    <td style="padding:6px;"><input type="time" class="phClose" data-day="{{ code }}" value="{{ _row.close }}" class="sh-input" style="padding:6px 10px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);border-radius:6px;color:#fff;"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px;">
+            <div class="sh-field">
+                <label class="sh-label">Slot interval (minutes)</label>
+                <select id="pickupSlot" class="sh-input">
+                    {% set _sel = fulfillment_settings.pickup_slot_minutes or 30 %}
+                    {% for m in [15, 20, 30, 45, 60, 90, 120] %}
+                    <option value="{{ m }}" {% if _sel == m %}selected{% endif %}>{{ m }} min</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="sh-field">
+                <label class="sh-label">Advance days (how far ahead)</label>
+                <input class="sh-input" id="pickupAdvance" type="number" min="1" max="90"
+                       value="{{ fulfillment_settings.pickup_advance_days or 14 }}">
+            </div>
+            <div class="sh-field">
+                <label class="sh-label">Lead time (minutes)</label>
+                <input class="sh-input" id="pickupLead" type="number" min="0" max="720"
+                       value="{{ fulfillment_settings.pickup_lead_minutes or 30 }}">
+                <div style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin-top:4px;">
+                    Earliest slot is "now + this many minutes".
+                </div>
+            </div>
+            <div class="sh-field">
+                <label class="sh-label">Default prep time (minutes)</label>
+                <input class="sh-input" id="pickupPrep" type="number" min="0" max="600"
+                       value="{{ fulfillment_settings.pickup_prep_minutes or 0 }}">
+                <div style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin-top:4px;">
+                    Default time it takes to prep any order. Buyers see "Ready in ~X min". Products can override.
+                </div>
+            </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;margin-bottom:12px;">
+            <input type="checkbox" id="pickupAsap" {% if fulfillment_settings.pickup_allow_asap %}checked{% endif %}>
+            Let buyers pick "ASAP" instead of a specific time
+        </label>
+        <div class="sh-field">
+            <label class="sh-label">Pickup location note (shown to buyers)</label>
+            <textarea id="pickupLocation" class="sh-input" rows="2"
+                      placeholder="e.g. 123 Main Street — ask for your order at the front counter."
+                      style="resize:vertical;font-family:inherit;">{{ fulfillment_settings.pickup_location_note or '' }}</textarea>
+        </div>
+        <div class="sh-toolbar" style="margin-top:14px;">
+            <button type="button" class="sh-btn sh-btn-primary" onclick="savePickupSettings()">
+                <i class="fas fa-save"></i> Save pickup settings
+            </button>
+            <span class="sh-msg" id="pickupMsg"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Method modal -->
+<div id="methodOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:18px;" onclick="if(event.target===this)closeMethodModal()">
+    <div style="background:#181820;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:min(520px,100%);max-height:92vh;overflow:auto;color:#fff;">
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;">
+            <div id="methodModalTitle" style="font-weight:700;">New rate</div>
+            <button style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:1.4rem;cursor:pointer;" onclick="closeMethodModal()">&times;</button>
+        </div>
+        <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+            <input type="hidden" id="mId">
+            <div><label class="sh-label">Label (shown to buyer)</label>
+                <input class="sh-input" id="mLabel" placeholder="e.g. Standard shipping"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div><label class="sh-label">Amount ($)</label>
+                    <input class="sh-input" id="mAmount" type="number" step="0.01" min="0" placeholder="5.00"></div>
+                <div><label class="sh-label">Free when subtotal ≥ ($)</label>
+                    <input class="sh-input" id="mFreeOver" type="number" step="0.01" min="0" placeholder="(optional)"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div><label class="sh-label">Min delivery days</label>
+                    <input class="sh-input" id="mMinDays" type="number" min="0" step="1" placeholder="(optional)"></div>
+                <div><label class="sh-label">Max delivery days</label>
+                    <input class="sh-input" id="mMaxDays" type="number" min="0" step="1" placeholder="(optional)"></div>
+            </div>
+            <div><label class="sh-label">Applies to</label>
+                <select class="sh-select" id="mApplies">
+                    <option value="shipping">Shipping (physical goods)</option>
+                    <option value="local_delivery">Local delivery only</option>
+                    <option value="both">Both</option>
+                </select></div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;">
+                <input type="checkbox" id="mActive" checked> Active
+            </label>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.07);display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+            <span class="sh-msg" id="methodMsg" style="margin-right:auto;"></span>
+            <button class="sh-btn sh-btn-secondary" onclick="closeMethodModal()">Cancel</button>
+            <button class="sh-btn sh-btn-primary" onclick="submitMethod()">Save rate</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openMethodModal() {
+    document.getElementById('methodModalTitle').textContent = 'New rate';
+    document.getElementById('mId').value = '';
+    document.getElementById('mLabel').value = '';
+    document.getElementById('mAmount').value = '';
+    document.getElementById('mFreeOver').value = '';
+    document.getElementById('mMinDays').value = '';
+    document.getElementById('mMaxDays').value = '';
+    document.getElementById('mApplies').value = 'shipping';
+    document.getElementById('mActive').checked = true;
+    document.getElementById('methodMsg').textContent = '';
+    document.getElementById('methodOverlay').style.display = 'flex';
+}
+function editMethod(m) {
+    document.getElementById('methodModalTitle').textContent = 'Edit rate';
+    document.getElementById('mId').value = m.id;
+    document.getElementById('mLabel').value = m.label || '';
+    document.getElementById('mAmount').value = m.amount;
+    document.getElementById('mFreeOver').value = m.free_over_amount || '';
+    document.getElementById('mMinDays').value = m.delivery_min_days ?? '';
+    document.getElementById('mMaxDays').value = m.delivery_max_days ?? '';
+    document.getElementById('mApplies').value = m.applies_to || 'shipping';
+    document.getElementById('mActive').checked = !!m.is_active;
+    document.getElementById('methodMsg').textContent = '';
+    document.getElementById('methodOverlay').style.display = 'flex';
+}
+function closeMethodModal() { document.getElementById('methodOverlay').style.display = 'none'; }
+
+async function submitMethod() {
+    const id = document.getElementById('mId').value;
+    const payload = {
+        label: document.getElementById('mLabel').value.trim(),
+        amount: parseFloat(document.getElementById('mAmount').value || 0) || 0,
+        free_over_amount: document.getElementById('mFreeOver').value || null,
+        delivery_min_days: document.getElementById('mMinDays').value || null,
+        delivery_max_days: document.getElementById('mMaxDays').value || null,
+        applies_to: document.getElementById('mApplies').value,
+        is_active: document.getElementById('mActive').checked,
+    };
+    const msg = document.getElementById('methodMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const url = id ? `/admin/shipping/methods/${id}/update` : '/admin/shipping/methods';
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    location.reload();
+}
+
+async function deleteMethod(id, label) {
+    if (!confirm(`Delete "${label}"?`)) return;
+    const r = await fetch(`/admin/shipping/methods/${id}/delete`, {method: 'POST'});
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Delete failed.'); return; }
+    location.reload();
+}
+
+async function saveDeliveryArea() {
+    const form = document.getElementById('areaForm');
+    const codes = form.querySelector('textarea').value;
+    const active = document.getElementById('areaActive').checked;
+    const msg = document.getElementById('areaMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/admin/shipping/delivery-area', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({allowed_postal_codes: codes, is_active: active}),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = j.count === 0 ? 'No restriction (delivers anywhere).' : `Saved ${j.count} code${j.count===1?'':'s'}.`;
+}
+
+async function saveSupportToggle() {
+    const en = document.getElementById('supportEnabled').checked;
+    const msg = document.getElementById('supportMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)'; msg.textContent = 'Saving…';
+    const r = await fetch('/admin/shipping/support-toggle', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({support_enabled: en}),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = en ? 'Support chat enabled.' : 'Support chat disabled.';
+    setTimeout(() => msg.textContent = '', 1500);
+}
+
+async function savePickupSettings() {
+    const hours = {};
+    ['mon','tue','wed','thu','fri','sat','sun'].forEach(d => {
+        const en = document.querySelector(`.phEnabled[data-day="${d}"]`);
+        const op = document.querySelector(`.phOpen[data-day="${d}"]`);
+        const cl = document.querySelector(`.phClose[data-day="${d}"]`);
+        hours[d] = {
+            enabled: !!(en && en.checked),
+            open:  op ? op.value : '09:00',
+            close: cl ? cl.value : '17:00',
+        };
+    });
+    const payload = {
+        hours,
+        slot_minutes: parseInt(document.getElementById('pickupSlot').value, 10),
+        advance_days: parseInt(document.getElementById('pickupAdvance').value, 10),
+        lead_minutes: parseInt(document.getElementById('pickupLead').value, 10),
+        prep_minutes: parseInt(document.getElementById('pickupPrep').value || '0', 10),
+        allow_asap: document.getElementById('pickupAsap').checked,
+        location_note: document.getElementById('pickupLocation').value,
+    };
+    const msg = document.getElementById('pickupMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)'; msg.textContent = 'Saving…';
+    const r = await fetch('/admin/shipping/pickup', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8'; msg.textContent = 'Saved.';
+    setTimeout(() => msg.textContent = '', 1500);
+}
+
+async function saveTipSettings() {
+    const enabled = document.getElementById('tipsEnabled').checked;
+    const raw = (document.getElementById('tipPresets').value || '').split(',');
+    const presets = raw.map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= 100);
+    const msg = document.getElementById('tipMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/admin/shipping/tips', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tips_enabled: enabled, tip_presets: presets}),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = enabled ? `Tip selector enabled.` : `Tip selector disabled.`;
+}
+</script>
+
+{% endblock %}

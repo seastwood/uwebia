@@ -1,0 +1,187 @@
+{% extends 'public_base.html' %}
+{% block title %}Saved Addresses — {{ website.name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
+<style>
+.acct-addr-page { width: min(720px, calc(100% - 28px)); margin: 52px auto 100px; }
+.acct-addr-header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 28px; }
+.acct-addr-header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+.acct-addr-header a { margin-left: auto; flex-shrink: 0; padding: 5px 12px; border-radius: 999px; background: rgba(14,12,22,0.45); border: 1px solid rgba(255,255,255,0.13); font-size: 0.78rem; font-weight: 600; color: #e8e8e8; text-decoration: none; }
+.acct-addr-card { padding: 16px 20px; margin-bottom: 10px; background: rgba(14,12,22,0.62); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; }
+.acct-addr-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.55; margin-bottom: 4px; }
+.acct-addr-default-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(94,238,200,0.16); color: #5eeec8; border: 1px solid rgba(94,238,200,0.32); font-size: 0.68rem; font-weight: 700; margin-left: 6px; vertical-align: middle; }
+.acct-addr-lines { font-size: 0.9rem; line-height: 1.55; opacity: 0.88; }
+.acct-addr-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.acct-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 7px; background: rgba(255,255,255,0.06); color: inherit; text-decoration: none; border: 1px solid rgba(255,255,255,0.12); font-size: 0.82rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.acct-btn:hover { background: rgba(255,255,255,0.1); }
+.acct-btn-danger { background: rgba(255,80,80,0.1); color: #ff8a8a; border-color: rgba(255,80,80,0.28); }
+.acct-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; border-color: transparent; }
+.acct-empty { text-align: center; padding: 60px 0; opacity: 0.5; }
+.acct-empty i { font-size: 2.5rem; display: block; margin-bottom: 14px; }
+.acct-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 540px) { .acct-form-grid { grid-template-columns: 1fr; } }
+.acct-field label { display: block; font-size: 0.74rem; font-weight: 600; opacity: 0.55; margin-bottom: 4px; }
+.acct-field input { width: 100%; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: inherit; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; }
+.acct-field input:focus { outline: none; border-color: rgba(94,238,248,0.4); }
+.acct-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: none; align-items: center; justify-content: center; padding: 18px; }
+.acct-modal { background: #181820; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; width: min(560px,100%); max-height: 92vh; overflow:auto; color: #fff; }
+.acct-modal-head { padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.07); display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
+.acct-modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.acct-modal-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="acct-addr-page">
+    <div class="acct-addr-header">
+        <h1>Saved Addresses</h1>
+        <a href="{{ url_for('public_account_settings', prefix=website.url_prefix or none) }}">← Account</a>
+    </div>
+
+    <div style="margin-bottom:14px;">
+        <button class="acct-btn acct-btn-primary" onclick="openAddrModal()">
+            <i class="fas fa-plus"></i> Add address
+        </button>
+    </div>
+
+    {% if addresses %}
+        {% for a in addresses %}
+        <div class="acct-addr-card" id="addr-{{ a.id }}">
+            <div class="acct-addr-label">
+                {{ a.label or 'Address' }}
+                {% if a.is_default %}<span class="acct-addr-default-badge">Default</span>{% endif %}
+            </div>
+            <div class="acct-addr-lines">
+                <strong>{{ a.name }}</strong><br>
+                {{ a.line1 }}{% if a.line2 %}<br>{{ a.line2 }}{% endif %}<br>
+                {{ a.city }}, {{ a.state }} {{ a.postal_code }}<br>
+                {{ a.country }}
+                {% if a.phone %}<br><span style="opacity:0.6;">{{ a.phone }}</span>{% endif %}
+            </div>
+            <div class="acct-addr-actions">
+                <button class="acct-btn" onclick='editAddr({{ a.id }}, {{ {
+                    "label": a.label or "",
+                    "name": a.name,
+                    "line1": a.line1,
+                    "line2": a.line2 or "",
+                    "city": a.city,
+                    "state": a.state,
+                    "postal_code": a.postal_code,
+                    "country": a.country,
+                    "phone": a.phone or "",
+                    "is_default": a.is_default
+                } | tojson }})'><i class="fas fa-pen"></i> Edit</button>
+                {% if not a.is_default %}
+                <button class="acct-btn" onclick="setDefault({{ a.id }})"><i class="fas fa-star"></i> Make default</button>
+                {% endif %}
+                <button class="acct-btn acct-btn-danger" onclick="deleteAddr({{ a.id }})"><i class="fas fa-trash"></i> Delete</button>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="acct-empty">
+            <i class="fas fa-map-marker-alt"></i>
+            <p>No saved addresses yet.</p>
+            <button class="acct-btn acct-btn-primary" onclick="openAddrModal()">Add your first address</button>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Modal -->
+<div class="acct-overlay" id="addrOverlay" onclick="if(event.target===this)closeAddrModal()">
+    <div class="acct-modal">
+        <div class="acct-modal-head">
+            <span id="addrModalTitle">New address</span>
+            <button onclick="closeAddrModal()" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:1.4rem;cursor:pointer;">&times;</button>
+        </div>
+        <div class="acct-modal-body">
+            <input type="hidden" id="addrId" value="">
+            <div class="acct-field"><label>Label (e.g. "Home", "Work")</label><input id="addrLabel" placeholder="Home"></div>
+            <div class="acct-field"><label>Full name</label><input id="addrName" required></div>
+            <div class="acct-field"><label>Address line 1</label><input id="addrLine1" required></div>
+            <div class="acct-field"><label>Address line 2 (optional)</label><input id="addrLine2"></div>
+            <div class="acct-form-grid">
+                <div class="acct-field"><label>City</label><input id="addrCity" required></div>
+                <div class="acct-field"><label>State / region</label><input id="addrState" required></div>
+            </div>
+            <div class="acct-form-grid">
+                <div class="acct-field"><label>Postal / ZIP code</label><input id="addrPostal" required></div>
+                <div class="acct-field"><label>Country</label><input id="addrCountry" required></div>
+            </div>
+            <div class="acct-field"><label>Phone (optional)</label><input id="addrPhone"></div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;">
+                <input type="checkbox" id="addrIsDefault"> Make this my default address
+            </label>
+        </div>
+        <div class="acct-modal-foot">
+            <span id="addrMsg" style="font-size:0.84rem;margin-right:auto;min-height:18px;"></span>
+            <button class="acct-btn" onclick="closeAddrModal()">Cancel</button>
+            <button class="acct-btn acct-btn-primary" onclick="saveAddr()">Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openAddrModal() {
+    document.getElementById('addrId').value = '';
+    document.getElementById('addrModalTitle').textContent = 'New address';
+    ['Label','Name','Line1','Line2','City','State','Postal','Country','Phone'].forEach(f => {
+        document.getElementById('addr' + f).value = '';
+    });
+    document.getElementById('addrIsDefault').checked = false;
+    document.getElementById('addrMsg').textContent = '';
+    document.getElementById('addrOverlay').style.display = 'flex';
+}
+function closeAddrModal() { document.getElementById('addrOverlay').style.display = 'none'; }
+function editAddr(id, a) {
+    document.getElementById('addrId').value = id;
+    document.getElementById('addrModalTitle').textContent = 'Edit address';
+    document.getElementById('addrLabel').value = a.label || '';
+    document.getElementById('addrName').value = a.name || '';
+    document.getElementById('addrLine1').value = a.line1 || '';
+    document.getElementById('addrLine2').value = a.line2 || '';
+    document.getElementById('addrCity').value = a.city || '';
+    document.getElementById('addrState').value = a.state || '';
+    document.getElementById('addrPostal').value = a.postal_code || '';
+    document.getElementById('addrCountry').value = a.country || '';
+    document.getElementById('addrPhone').value = a.phone || '';
+    document.getElementById('addrIsDefault').checked = !!a.is_default;
+    document.getElementById('addrOverlay').style.display = 'flex';
+}
+async function saveAddr() {
+    const msg = document.getElementById('addrMsg');
+    const payload = {
+        id: document.getElementById('addrId').value || null,
+        label: document.getElementById('addrLabel').value.trim(),
+        name: document.getElementById('addrName').value.trim(),
+        line1: document.getElementById('addrLine1').value.trim(),
+        line2: document.getElementById('addrLine2').value.trim(),
+        city: document.getElementById('addrCity').value.trim(),
+        state: document.getElementById('addrState').value.trim(),
+        postal_code: document.getElementById('addrPostal').value.trim(),
+        country: document.getElementById('addrCountry').value.trim(),
+        phone: document.getElementById('addrPhone').value.trim(),
+        is_default: document.getElementById('addrIsDefault').checked,
+    };
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/account/addresses/save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
+    location.reload();
+}
+async function deleteAddr(id) {
+    if (!confirm('Delete this address?')) return;
+    const r = await fetch(`/account/addresses/${id}/delete`, {method: 'POST'});
+    if ((await r.json()).success) location.reload();
+}
+async function setDefault(id) {
+    const r = await fetch(`/account/addresses/${id}/default`, {method: 'POST'});
+    if ((await r.json()).success) location.reload();
+}
+</script>
+{% endblock %}

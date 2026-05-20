@@ -190,7 +190,7 @@
 }
 .store-search { flex: 1; }
 .store-search:focus, .store-filter:focus { border-color: rgba(255,255,255,0.25); }
-.store-filter option { background: #22222a; }
+.store-filter option { background: #22222a; color: #f0f0f0; }
 
 /* ── Table ─────────────────────────────────────────────────────────────────────── */
 
@@ -369,7 +369,8 @@
 .store-field input:focus,
 .store-field select:focus,
 .store-field textarea:focus { border-color: rgba(255,255,255,0.3); }
-.store-field select option { background: #22222a; }
+.store-field select option,
+.store-field select optgroup { background: #22222a; color: #f0f0f0; }
 .store-field textarea { resize: vertical; }
 
 .store-input-lg { font-size: 1rem !important; }

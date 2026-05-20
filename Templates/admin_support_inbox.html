@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.si-page { max-width: 1000px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.si-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.si-title { font-size: 1.6rem; font-weight: 800; margin: 0; }
+.si-sub { color: rgba(255,255,255,0.55); font-size: 0.88rem; margin: 4px 0 0; }
+.si-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; overflow: hidden; }
+.si-row { display: grid; grid-template-columns: 1fr 1.6fr 1fr 80px 60px; gap: 14px; padding: 13px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center; font-size: 0.9rem; text-decoration: none; color: inherit; }
+.si-row:hover { background: rgba(255,255,255,0.04); }
+.si-row.has-unread { background: rgba(94,238,248,0.05); }
+.si-row.has-unread:hover { background: rgba(94,238,248,0.1); }
+.si-customer-name { font-weight: 600; }
+.si-customer-email { font-size: 0.78rem; opacity: 0.55; }
+.si-subject { opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.si-when { font-size: 0.78rem; opacity: 0.6; }
+.si-status { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; text-align: center; }
+.si-status.open { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.si-status.closed { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+.si-unread-pill { background: #ff5757; color: #fff; font-size: 0.7rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; text-align: center; min-width: 22px; }
+.si-empty { padding: 60px 20px; text-align: center; opacity: 0.5; }
+@media (max-width: 720px) {
+    .si-row { grid-template-columns: 1fr 80px; gap: 8px; }
+    .si-row > :nth-child(n+3):not(:last-child) { display: none; }
+}
+</style>
+
+<div class="si-page">
+    <div class="si-head">
+        <div>
+            <h1 class="si-title">Customer support</h1>
+            <p class="si-sub">Buyer-initiated chats from order pages. New messages bubble to the top.</p>
+        </div>
+    </div>
+
+    {% if threads %}
+    <div class="si-card">
+        {% for t in threads %}
+        <a class="si-row {% if t.admin_unread_count %}has-unread{% endif %}"
+           href="{{ url_for('admin_support_thread', thread_id=t.id) }}">
+            <div>
+                <div class="si-customer-name">{{ t.contact_name or t.contact_email or 'Customer' }}</div>
+                <div class="si-customer-email">{{ t.contact_email or '' }}</div>
+            </div>
+            <div class="si-subject">{{ t.subject or '(no subject)' }}</div>
+            <div class="si-when">
+                {% if t.last_message_at %}
+                    {{ t.last_message_at.strftime('%b %-d · %-I:%M %p') }}
+                {% endif %}
+            </div>
+            <span class="si-status {{ t.status }}">{{ t.status }}</span>
+            <div style="text-align:right;">
+                {% if t.admin_unread_count %}
+                <span class="si-unread-pill">{{ t.admin_unread_count }}</span>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="si-card si-empty">
+        No customer messages yet.
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

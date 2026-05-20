@@ -53,6 +53,41 @@ document.addEventListener('DOMContentLoaded', function () {
         toolsBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             toolsDropdown.classList.toggle('open');
+            // After the dropdown opens, sync the scroll-cue indicators so the
+            // top/bottom arrows reflect actual overflow.
+            if (toolsDropdown.classList.contains('open')) {
+                requestAnimationFrame(_syncNavToolsScrollCues);
+            }
+        });
+
+        const content = document.getElementById('navToolsDropdownContent');
+        if (content) {
+            content.addEventListener('scroll', _syncNavToolsScrollCues);
+            // Re-check on resize since max-height is viewport-relative.
+            window.addEventListener('resize', _syncNavToolsScrollCues);
+        }
+    }
+
+    function _syncNavToolsScrollCues() {
+        const el = document.getElementById('navToolsDropdownContent');
+        if (!el) return;
+        const canScrollUp   = el.scrollTop > 4;
+        const canScrollDown = (el.scrollHeight - el.scrollTop - el.clientHeight) > 4;
+        el.classList.toggle('has-overflow-top',    canScrollUp);
+        el.classList.toggle('has-overflow-bottom', canScrollDown);
+        // The CSS uses --nav-mask-top/--nav-mask-bot to fade the edges. 1 = fully
+        // transparent, 0 = fully opaque. Tween via the same toggles so the
+        // mask animates in/out with the indicators.
+        el.style.setProperty('--nav-mask-top', canScrollUp ? '1' : '0');
+        el.style.setProperty('--nav-mask-bot', canScrollDown ? '1' : '0');
+    }
+
+    const storeBtn = document.querySelector('.store-dropdown-btn');
+    const storeDropdown = document.querySelector('.store-dropdown');
+    if (storeBtn && storeDropdown) {
+        storeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            storeDropdown.classList.toggle('open');
         });
     }
 
@@ -65,6 +100,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (toolsDropdown) {
             toolsDropdown.classList.remove('open');
+        }
+        if (storeDropdown) {
+            storeDropdown.classList.remove('open');
         }
         const usersSubDropdown = document.getElementById('usersSubDropdown');
         if (usersSubDropdown) usersSubDropdown.classList.remove('open');
@@ -260,6 +298,12 @@ function closeNavToolsDropdown() {
 function toggleUsersSubdropdown(e) {
     if (e) e.stopPropagation();
     const el = document.getElementById('usersSubDropdown');
+    if (el) el.classList.toggle('open');
+}
+
+function toggleNavStoreSubgroup(e) {
+    if (e) e.stopPropagation();
+    const el = document.getElementById('navToolsStoreGroup');
     if (el) el.classList.toggle('open');
 }
 

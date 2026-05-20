@@ -1,0 +1,335 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.sms-page { max-width: 920px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.sms-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.sms-title { font-size: 1.6rem; font-weight: 800; margin: 0; }
+.sms-sub { color: rgba(255,255,255,0.55); font-size: 0.88rem; margin: 4px 0 0; }
+.sms-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+.sms-card h2 { margin: 0 0 6px; font-size: 1rem; }
+.sms-card-sub { font-size: 0.82rem; color: rgba(255,255,255,0.5); margin: 0 0 14px; }
+.sms-field { margin-bottom: 12px; }
+.sms-label { display: block; font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.65); margin-bottom: 5px; }
+.sms-input, .sms-select { width: 100%; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.9rem; box-sizing: border-box; font-family: inherit; }
+.sms-input:focus, .sms-select:focus { outline: none; border-color: rgba(94,238,248,0.5); }
+.sms-input.code { font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.04em; }
+.sms-hint { font-size: 0.74rem; color: rgba(255,255,255,0.4); margin-top: 4px; }
+.sms-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .sms-row { grid-template-columns: 1fr; } }
+.sms-btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 8px; border: none; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.sms-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.sms-btn-secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.13); }
+.sms-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.sms-msg { font-size: 0.84rem; min-height: 18px; }
+
+.budget-bar-wrap { background: rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; height: 12px; margin: 6px 0 4px; }
+.budget-bar { height: 100%; background: linear-gradient(90deg,#5eeec8,#5eeef8); transition: width 0.2s; }
+.budget-bar.over { background: #ff5757; }
+
+.channel-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.channel-table th, .channel-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.channel-table th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.5); font-weight: 600; }
+.channel-radio-row { display: inline-flex; gap: 4px; }
+.channel-radio { padding: 4px 10px; border-radius: 6px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); font-size: 0.78rem; cursor: pointer; color: rgba(255,255,255,0.75); }
+.channel-radio.is-active.email   { background: rgba(94,238,248,0.18); color:#5eeef8; border-color: rgba(94,238,248,0.4); }
+.channel-radio.is-active.sms     { background: rgba(94,238,200,0.18); color:#5eeec8; border-color: rgba(94,238,200,0.4); }
+.channel-radio.is-active.both    { background: rgba(199,154,255,0.18); color:#c79aff; border-color: rgba(199,154,255,0.4); }
+.channel-radio.is-active.off     { background: rgba(255,80,80,0.16); color:#ff8a8a; border-color: rgba(255,80,80,0.32); }
+
+.log-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.log-table th, .log-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.log-table th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.5); }
+.log-status.sent      { color: #5eeec8; font-weight: 700; }
+.log-status.failed    { color: #ff8a8a; font-weight: 700; }
+.log-status.over_budget { color: #ffd982; font-weight: 700; }
+.log-status.opt_out   { color: #ff9b66; font-weight: 700; }
+.log-status.received, .log-status.help { color: rgba(255,255,255,0.7); }
+.code-pill { display:inline-block;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);font-size:0.7rem;font-family:ui-monospace,Menlo,monospace;font-weight:600;letter-spacing:0.04em; }
+</style>
+
+{% set _is_active = settings and settings.is_active %}
+{% set _cap = settings.monthly_cap_cents if settings and settings.monthly_cap_cents else 0 %}
+{% set _spent = settings.current_month_spend_cents if settings else 0 %}
+{% set _pct = (((_spent / _cap) * 100) if _cap > 0 else 0) | round(0, 'floor') %}
+
+<div class="sms-page">
+    <div class="sms-head">
+        <div>
+            <h1 class="sms-title">SMS / text messaging</h1>
+            <p class="sms-sub">
+                Send order updates, ticket links, support replies, and notifications by text. Add an SMS provider below — buyers must opt in before they receive anything.
+            </p>
+        </div>
+    </div>
+
+    {# ─── Provider config ─────────────────────────────────────────────── #}
+    <div class="sms-card">
+        <h2>Provider</h2>
+        <p class="sms-card-sub">
+            Twilio is supported out of the box. Add more providers by registering them in <code>SMS_PROVIDER_REGISTRY</code>.
+        </p>
+
+        <div class="sms-field">
+            <label class="sms-label">Provider</label>
+            <select class="sms-select" id="smsProvider" onchange="renderProviderFields()">
+                {% for p in providers %}
+                <option value="{{ p.key }}" {% if settings and settings.provider == p.key %}selected{% endif %}>{{ p.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="sms-row">
+            <div class="sms-field">
+                <label class="sms-label">Account label (for your reference)</label>
+                <input class="sms-input" id="smsLabel" placeholder="e.g. Main Twilio account"
+                       value="{{ settings.account_label or '' }}">
+            </div>
+            <div class="sms-field">
+                <label class="sms-label">Status</label>
+                <label style="display:flex;align-items:center;gap:8px;padding:9px 0;">
+                    <input type="checkbox" id="smsActive" {% if _is_active %}checked{% endif %}>
+                    <span>Active — send SMS when buyers opt in</span>
+                </label>
+            </div>
+        </div>
+
+        <div id="smsProviderFields"></div>
+
+        <script id="providersData" type="application/json">{{ providers | tojson }}</script>
+        <script id="cfgData" type="application/json">{{ cfg_render | tojson }}</script>
+
+        <div class="sms-toolbar">
+            <button class="sms-btn sms-btn-primary" onclick="saveSmsSettings()">
+                <i class="fas fa-save"></i> Save provider
+            </button>
+            <span class="sms-msg" id="smsProviderMsg"></span>
+        </div>
+    </div>
+
+    {# ─── Monthly budget ──────────────────────────────────────────────── #}
+    <div class="sms-card">
+        <h2>Monthly budget</h2>
+        <p class="sms-card-sub">
+            Hard cap on what you'll spend on SMS each calendar month. <strong>0 = unlimited.</strong> Resets on the 1st.
+        </p>
+        <div class="sms-row">
+            <div class="sms-field">
+                <label class="sms-label">Cap (cents)</label>
+                <input class="sms-input" id="smsCap" type="number" min="0" step="100"
+                       value="{{ _cap }}">
+                <div class="sms-hint">${{ '%.2f' | format(_cap / 100) }} this month at current setting.</div>
+            </div>
+            <div class="sms-field">
+                <label class="sms-label">Used this month</label>
+                <div style="padding:8px 0;">
+                    <div style="font-size:1rem;font-weight:700;">${{ '%.2f' | format(_spent / 100) }}{% if _cap %} of ${{ '%.2f' | format(_cap / 100) }}{% endif %}</div>
+                    {% if _cap %}
+                    <div class="budget-bar-wrap"><div class="budget-bar {% if _pct >= 100 %}over{% endif %}" style="width:{{ _pct if _pct <= 100 else 100 }}%;"></div></div>
+                    <div class="sms-hint">{{ _pct }}% used</div>
+                    {% else %}
+                    <div class="sms-hint">No cap (unlimited).</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;margin:6px 0 0;">
+            <input type="checkbox" id="smsFallback" {% if not settings or settings.fallback_to_email %}checked{% endif %}>
+            <span>Fall back to email if a send fails or the cap is reached</span>
+        </label>
+    </div>
+
+    {# ─── Channel routing ─────────────────────────────────────────────── #}
+    <div class="sms-card">
+        <h2>What gets sent by SMS</h2>
+        <p class="sms-card-sub">
+            Pick the channel per event. Buyers without an opted-in phone always receive the email version regardless of the toggle.
+        </p>
+        <table class="channel-table">
+            <thead><tr><th>Event</th><th>Channel</th></tr></thead>
+            <tbody>
+            {% for key, label in channel_events %}
+            <tr>
+                <td>{{ label }}<br><span class="code-pill">{{ key }}</span></td>
+                <td>
+                    <div class="channel-radio-row" data-event="{{ key }}">
+                        {% set current = channel_config.get(key, 'email') %}
+                        {% for opt in ['email','sms','both','off'] %}
+                        <button type="button"
+                                class="channel-radio {% if current == opt %}is-active {{ opt }}{% endif %}"
+                                data-channel="{{ opt }}"
+                                onclick="setChannel('{{ key }}', '{{ opt }}', this)">
+                            {{ opt }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="sms-hint" style="margin-top:10px;">Channel choices are saved together with the provider settings — hit <strong>Save provider</strong> at the top after changing them.</p>
+    </div>
+
+    {# ─── Test send ───────────────────────────────────────────────────── #}
+    <div class="sms-card">
+        <h2>Test send</h2>
+        <p class="sms-card-sub">Sends one real SMS through the configured provider. Counts toward this month's spend.</p>
+        <div class="sms-row">
+            <div class="sms-field">
+                <label class="sms-label">Phone (E.164)</label>
+                <input class="sms-input code" id="testPhone" placeholder="+15551234567">
+            </div>
+            <div class="sms-field">
+                <label class="sms-label">Message</label>
+                <input class="sms-input" id="testBody"
+                       value="Test message from your store — reply STOP to opt out.">
+            </div>
+        </div>
+        <div class="sms-toolbar">
+            <button class="sms-btn sms-btn-secondary" onclick="testSend()">
+                <i class="fas fa-paper-plane"></i> Send test
+            </button>
+            <span class="sms-msg" id="testMsg"></span>
+        </div>
+    </div>
+
+    {# ─── Carrier compliance / inbound URL ────────────────────────────── #}
+    <div class="sms-card">
+        <h2>Carrier compliance</h2>
+        <p class="sms-card-sub">
+            US carriers require auto-handling of STOP / HELP keywords and (for high-volume sending) A2P 10DLC registration.
+            Point your provider's inbound webhook at this URL so opt-outs land in our DB automatically.
+        </p>
+        <div class="sms-field">
+            <label class="sms-label">Inbound webhook</label>
+            <input class="sms-input code" readonly value="{{ inbound_url }}"
+                   onclick="this.select()">
+            <div class="sms-hint">In Twilio: <em>Phone Numbers → Active numbers → your number → Messaging → "A message comes in" → Webhook</em>. Method: POST.</div>
+        </div>
+    </div>
+
+    {# ─── Recent log ──────────────────────────────────────────────────── #}
+    <div class="sms-card">
+        <h2>Recent activity</h2>
+        {% if recent_logs %}
+        <table class="log-table">
+            <thead><tr><th>Time</th><th>Dir</th><th>Phone</th><th>Status</th><th>Cost</th><th>Body</th></tr></thead>
+            <tbody>
+            {% for l in recent_logs %}
+            <tr>
+                <td>{{ l.created_at.strftime('%b %-d %-I:%M%p') if l.created_at else '' }}</td>
+                <td style="opacity:0.6;">{{ l.direction }}</td>
+                <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.78rem;opacity:0.85;">{{ l.phone or '—' }}</td>
+                <td class="log-status {{ l.status }}">{{ l.status.replace('_', ' ') }}</td>
+                <td>{% if l.cost_cents %}${{ '%.3f' | format(l.cost_cents / 100) }}{% else %}—{% endif %}</td>
+                <td style="opacity:0.78;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ l.body or '' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="text-align:center;opacity:0.5;padding:18px;">No SMS activity yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+const PROVIDERS = JSON.parse(document.getElementById('providersData').textContent || '[]');
+const SAVED_CFG = JSON.parse(document.getElementById('cfgData').textContent || '{}');
+const CHANNEL_STATE = {};
+
+function renderProviderFields() {
+    const sel = document.getElementById('smsProvider');
+    const wrap = document.getElementById('smsProviderFields');
+    const p = PROVIDERS.find(x => x.key === sel.value);
+    if (!p) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = p.config_fields.map(f => {
+        const val = SAVED_CFG[f.key] || '';
+        const placeholder = f.placeholder || '';
+        const optional = f.optional ? ' <span style="opacity:0.5;font-weight:400;">(optional)</span>' : '';
+        const hint = f.hint ? `<div class="sms-hint">${escapeHtml(f.hint)}</div>` : '';
+        const type = f.secret ? 'password' : 'text';
+        return `<div class="sms-field">
+            <label class="sms-label">${escapeHtml(f.label)}${optional}</label>
+            <input class="sms-input code" type="${type}" id="cfg_${f.key}"
+                   placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(val)}">
+            ${hint}
+        </div>`;
+    }).join('');
+}
+
+function escapeHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function setChannel(event, channel, btn) {
+    CHANNEL_STATE[event] = channel;
+    const row = btn.closest('.channel-radio-row');
+    row.querySelectorAll('.channel-radio').forEach(b => {
+        b.classList.remove('is-active', 'email', 'sms', 'both', 'off');
+        if (b === btn) b.classList.add('is-active', channel);
+    });
+}
+
+// Seed CHANNEL_STATE from rendered defaults.
+document.querySelectorAll('.channel-radio-row').forEach(row => {
+    const event = row.dataset.event;
+    const active = row.querySelector('.channel-radio.is-active');
+    CHANNEL_STATE[event] = active ? active.dataset.channel : 'email';
+});
+
+async function saveSmsSettings() {
+    const provider = document.getElementById('smsProvider').value;
+    const spec = (PROVIDERS.find(p => p.key === provider) || {}).config_fields || [];
+    const config = {};
+    spec.forEach(f => {
+        const el = document.getElementById('cfg_' + f.key);
+        if (el) config[f.key] = el.value;
+    });
+    const payload = {
+        provider,
+        is_active: document.getElementById('smsActive').checked,
+        account_label: document.getElementById('smsLabel').value,
+        monthly_cap_cents: parseInt(document.getElementById('smsCap').value || '0', 10),
+        fallback_to_email: document.getElementById('smsFallback').checked,
+        config,
+        channel_config: CHANNEL_STATE,
+    };
+    const msg = document.getElementById('smsProviderMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)'; msg.textContent = 'Saving…';
+    const r = await fetch('/admin/sms/settings', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = 'Saved.';
+    setTimeout(() => msg.textContent = '', 1500);
+}
+
+async function testSend() {
+    const phone = document.getElementById('testPhone').value.trim();
+    const body = document.getElementById('testBody').value;
+    const msg = document.getElementById('testMsg');
+    if (!phone) { msg.style.color = '#ff8a8a'; msg.textContent = 'Phone required.'; return; }
+    msg.style.color = 'rgba(255,255,255,0.6)'; msg.textContent = 'Sending…';
+    const r = await fetch('/admin/sms/test-send', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ phone, body }),
+    });
+    const j = await r.json();
+    if (j.success) {
+        msg.style.color = '#5eeec8';
+        msg.textContent = 'Sent ✓ — check the recipient phone.';
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        msg.style.color = '#ff8a8a';
+        msg.textContent = j.error || 'Failed.';
+    }
+}
+
+renderProviderFields();
+</script>
+
+{% endblock %}

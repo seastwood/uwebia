@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.il-page { max-width: 1100px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.il-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.il-title { font-size: 1.6rem; font-weight: 800; margin: 0; }
+.il-sub { color: rgba(255,255,255,0.55); font-size: 0.88rem; margin: 4px 0 0; }
+.il-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding: 12px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+.il-filter-label { font-size: 0.74rem; opacity: 0.6; margin-bottom: 4px; }
+.il-input, .il-select { padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.86rem; font-family: inherit; }
+.il-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden; }
+.il-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.il-table th { padding: 10px 12px; text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.il-table td { padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+.il-table tr:hover td { background: rgba(255,255,255,0.03); }
+.il-delta { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 0.92rem; min-width: 50px; text-align: right; }
+.il-delta.positive { color: #5eeec8; }
+.il-delta.negative { color: #ff8a8a; }
+.il-reason-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.il-reason-pill.sale         { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); }
+.il-reason-pill.refund       { background: rgba(255,140,80,0.13);  color: #ff9b66; border: 1px solid rgba(255,140,80,0.3); }
+.il-reason-pill.rma_received { background: rgba(199,154,255,0.13); color: #c79aff; border: 1px solid rgba(199,154,255,0.3); }
+.il-reason-pill.cancellation { background: rgba(255,206,115,0.13); color: #ffd982; border: 1px solid rgba(255,206,115,0.3); }
+.il-reason-pill.expired      { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); }
+.il-reason-pill.manual_adjustment { background: rgba(94,238,248,0.13); color: #5eeef8; border: 1px solid rgba(94,238,248,0.3); }
+.il-reason-pill.initial      { background: rgba(94,238,200,0.13); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.il-empty { padding: 60px 20px; text-align: center; opacity: 0.5; }
+.il-pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 14px; }
+.il-pager a { padding: 7px 14px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 0.86rem; }
+.il-pager a.disabled { opacity: 0.35; pointer-events: none; }
+.il-source { font-size: 0.78rem; opacity: 0.65; }
+.il-note { font-size: 0.78rem; opacity: 0.65; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+</style>
+
+<div class="il-page">
+    <div class="il-head">
+        <div>
+            <h1 class="il-title">Inventory log</h1>
+            <p class="il-sub">Every change to product or variant inventory — sales, refunds, returns, cancellations, and manual adjustments.</p>
+        </div>
+    </div>
+
+    <form class="il-filters" method="GET">
+        <div>
+            <div class="il-filter-label">Product</div>
+            <select class="il-select" name="product_id" onchange="this.form.submit()">
+                <option value="">All products</option>
+                {% for p in products %}
+                <option value="{{ p.id }}" {% if product_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <div class="il-filter-label">Reason</div>
+            <select class="il-select" name="reason" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for r in ['sale','refund','rma_received','cancellation','expired','manual_adjustment','initial','import','other'] %}
+                <option value="{{ r }}" {% if reason == r %}selected{% endif %}>{{ r.replace('_', ' ') }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if product_id or reason %}
+        <div style="display:flex;align-items:flex-end;">
+            <a href="{{ url_for('admin_inventory_log') }}"
+               style="padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.75);text-decoration:none;font-size:0.86rem;border:1px solid rgba(255,255,255,0.1);">Clear</a>
+        </div>
+        {% endif %}
+    </form>
+
+    <div class="il-card">
+        {% if movements %}
+        <table class="il-table">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Product</th>
+                    <th>Variant</th>
+                    <th>Reason</th>
+                    <th style="text-align:right;">Δ</th>
+                    <th style="text-align:right;">After</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for m in movements %}
+            <tr>
+                <td style="white-space:nowrap;">{{ m.created_at.strftime('%b %-d, %Y') if m.created_at else '' }}<br><span style="opacity:0.55;font-size:0.78rem;">{{ m.created_at.strftime('%-I:%M %p') if m.created_at else '' }}</span></td>
+                <td>
+                    {{ m.product_name_snapshot or (m.product.name if m.product else '(deleted product)') }}
+                    {% if m.note %}<div class="il-note">{{ m.note }}</div>{% endif %}
+                </td>
+                <td style="opacity:0.85;">{{ m.variant_label_snapshot or '—' }}</td>
+                <td><span class="il-reason-pill {{ m.reason }}">{{ m.reason.replace('_', ' ') }}</span></td>
+                <td class="il-delta {{ 'positive' if m.delta > 0 else 'negative' }}">{{ '+' if m.delta > 0 else '' }}{{ m.delta }}</td>
+                <td class="il-delta" style="color:#fff;font-weight:600;">{{ m.quantity_after }}</td>
+                <td class="il-source">
+                    {% if m.source_type == 'order' and m.source_id %}
+                        <a href="{{ url_for('admin_order_detail', order_id=m.source_id) }}" style="color:#5eeef8;">Order #{{ m.source_id }}</a>
+                    {% elif m.source_type == 'rma' and m.source_id %}
+                        <a href="{{ url_for('admin_return_detail', return_id=m.source_id) }}" style="color:#5eeef8;">RMA #{{ m.source_id }}</a>
+                    {% elif m.source_type == 'admin' %}
+                        <i class="fas fa-user-shield"></i> Admin
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="il-empty">No movements yet — sell, refund, or adjust some stock to see entries here.</div>
+        {% endif %}
+    </div>
+
+    {% if movements %}
+    <div class="il-pager">
+        <a class="{% if page <= 1 %}disabled{% endif %}"
+           href="{{ url_for('admin_inventory_log', page=page-1, product_id=product_id or none, reason=reason or none) }}">← Newer</a>
+        <span style="opacity:0.55;font-size:0.84rem;">Page {{ page }}</span>
+        <a class="{% if not has_next %}disabled{% endif %}"
+           href="{{ url_for('admin_inventory_log', page=page+1, product_id=product_id or none, reason=reason or none) }}">Older →</a>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

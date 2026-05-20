@@ -564,16 +564,17 @@
         <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar. Disabled items are hidden everywhere.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
             {% set _nd = current_user.admin_navbar_disabled or [] %}
+            {# Top-level (non-store) items. #}
             {% for key, label, icon in [
-                ('posts',       'Posts',           'fa-newspaper'),
-                ('newsletters', 'Newsletters',     'fa-envelope-open-text'),
-                ('forum',       'Forum',           'fa-comments'),
-                ('calendars',   'Calendars',       'fa-calendar-alt'),
-                ('products',    'Products',        'fa-shopping-cart'),
-                ('palette',     'Color Palette',   'fa-palette'),
-                ('storage',     'External Drives', 'fa-cloud'),
-                ('ai_agents',   'AI Agents',       'fa-robot'),
-                ('plugins',     'Plugins',         'fa-puzzle-piece'),
+                ('posts',         'Posts',           'fa-newspaper'),
+                ('newsletters',   'Newsletters',     'fa-envelope-open-text'),
+                ('forum',         'Forum',           'fa-comments'),
+                ('calendars',     'Calendars',       'fa-calendar-alt'),
+                ('palette',       'Color Palette',   'fa-palette'),
+                ('storage',       'External Drives', 'fa-cloud'),
+                ('notifications', 'Notifications',   'fa-bell'),
+                ('ai_agents',     'AI Agents',       'fa-robot'),
+                ('plugins',       'Plugins',         'fa-puzzle-piece'),
             ] %}
             <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);">
                 <input type="checkbox" class="nav-vis-check" data-key="{{ key }}"
@@ -583,10 +584,65 @@
                 {{ label }}
             </label>
             {% endfor %}
+
+            {# Store dropdown — master toggle + per-item under a divider. #}
+            <div style="margin-top:14px;padding:12px 14px;background:rgba(94,238,248,0.05);border:1px solid rgba(94,238,248,0.15);border-radius:10px;">
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);font-weight:600;">
+                    <input type="checkbox" class="nav-vis-check" data-key="store"
+                           {% if 'store' not in _nd %}checked{% endif %}
+                           onchange="onStoreMasterToggle(this)"
+                           style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                    <i class="fas fa-store" style="width:16px;text-align:center;color:#5eeef8;"></i>
+                    Store dropdown
+                    <span style="font-size:0.74rem;font-weight:400;opacity:0.55;margin-left:auto;">master toggle</span>
+                </label>
+                <p style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin:6px 0 10px 28px;">
+                    Unchecking this hides the whole Store dropdown at once. Or fine-tune individual items below.
+                </p>
+                <div id="storeNavSubItems" style="display:flex;flex-direction:column;gap:8px;padding-left:14px;border-left:2px solid rgba(94,238,248,0.2);">
+                    {% for key, label, icon in [
+                        ('products',     'Products',         'fa-shopping-cart'),
+                        ('orders',       'Orders',           'fa-receipt'),
+                        ('returns',      'Returns',          'fa-undo-alt'),
+                        ('shipping',     'Shipping',         'fa-truck'),
+                        ('payments',     'Payments',         'fa-credit-card'),
+                        ('sms',          'SMS',              'fa-sms'),
+                        ('sales',        'Sales analytics',  'fa-chart-line'),
+                        ('tickets_scan', 'Scan tickets',     'fa-qrcode'),
+                        ('support',      'Customer support', 'fa-comments'),
+                    ] %}
+                    <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.86rem;color:rgba(255,255,255,0.75);">
+                        <input type="checkbox" class="nav-vis-check store-sub" data-key="{{ key }}"
+                               {% if key not in _nd %}checked{% endif %}
+                               style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        <i class="fas {{ icon }}" style="width:16px;text-align:center;color:rgba(255,255,255,0.5);"></i>
+                        {{ label }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
         <button class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
         <div id="navVisStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
     </div>
+
+    <script>
+    function onStoreMasterToggle(cb) {
+        // Visually disable the sub-checkboxes when the master is off so it's
+        // obvious that flipping individuals won't do anything until the master
+        // is back on. Their stored state is preserved on the server side.
+        const subs = document.querySelectorAll('.nav-vis-check.store-sub');
+        subs.forEach(s => {
+            s.disabled = !cb.checked;
+            s.parentElement.style.opacity = cb.checked ? '1' : '0.4';
+        });
+    }
+    // Initial sync on page load.
+    document.addEventListener('DOMContentLoaded', () => {
+        const master = document.querySelector('.nav-vis-check[data-key="store"]');
+        if (master) onStoreMasterToggle(master);
+    });
+    </script>
 
     <script>
         async function saveMirrorDisplay(btn) {

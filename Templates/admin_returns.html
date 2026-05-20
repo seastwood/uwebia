@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.rma-page { max-width: 1100px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.rma-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.rma-title { font-size: 1.6rem; font-weight: 800; margin: 0; }
+.rma-meta { color: rgba(255,255,255,0.55); font-size: 0.85rem; margin-top: 4px; }
+.rma-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.rma-filter { padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.1); text-decoration: none; }
+.rma-filter.active { background: rgba(94,238,248,0.15); color: #5eeef8; border-color: rgba(94,238,248,0.32); }
+.rma-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 0; overflow: hidden; }
+.rma-row { display: grid; grid-template-columns: 1.2fr 1fr 1.4fr 1fr 0.8fr; gap: 16px; padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.9rem; align-items: center; }
+.rma-row:hover { background: rgba(255,255,255,0.04); }
+.rma-row:last-child { border-bottom: none; }
+.rma-row a { color: #fff; text-decoration: none; }
+.rma-row a:hover { color: #5eeef8; }
+.rma-head-row { font-size: 0.75rem; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; background: rgba(0,0,0,0.18); }
+.rma-empty { padding: 60px 20px; text-align: center; color: rgba(255,255,255,0.45); }
+.rma-status { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+.rma-status.requested { background: rgba(255,206,115,0.16); color:#ffd982; border:1px solid rgba(255,206,115,0.32); }
+.rma-status.approved, .rma-status.awaiting_shipment, .rma-status.in_transit { background: rgba(94,238,248,0.15); color:#5eeef8; border:1px solid rgba(94,238,248,0.32); }
+.rma-status.received { background: rgba(199,154,255,0.15); color:#c79aff; border:1px solid rgba(199,154,255,0.32); }
+.rma-status.refunded { background: rgba(94,238,200,0.15); color:#5eeec8; border:1px solid rgba(94,238,200,0.32); }
+.rma-status.denied, .rma-status.canceled { background: rgba(255,80,80,0.12); color:#ff8a8a; border:1px solid rgba(255,80,80,0.25); }
+@media (max-width: 720px) {
+    .rma-row { grid-template-columns: 1fr; gap: 4px; padding: 12px 14px; }
+    .rma-head-row { display: none; }
+    .rma-row > div::before { content: attr(data-label); font-size: 0.72rem; color: rgba(255,255,255,0.45); display: inline-block; min-width: 80px; }
+}
+</style>
+
+<div class="rma-page">
+    <div class="rma-head">
+        <div>
+            <h1 class="rma-title">Returns</h1>
+            <p class="rma-meta">RMAs across all orders. Refunds only fire when an admin marks the return received and clicks <em>Finalize</em>.</p>
+        </div>
+        {% if user_has_perm('store.returns') %}
+        <button type="button" onclick="toggleSettings()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;font-size:0.86rem;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.12);cursor:pointer;">
+            <i class="fas fa-cog"></i> Settings
+        </button>
+        {% endif %}
+    </div>
+
+    {% if user_has_perm('payments.manage') %}
+    <div id="rmaSettings" style="display:none;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:14px;padding:18px;margin-bottom:18px;">
+        <h2 style="margin:0 0 12px;font-size:1rem;">Return policy</h2>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-bottom:12px;">
+            <input type="checkbox" id="setAllowBuyer" {% if settings.allow_buyer_returns %}checked{% endif %}>
+            Let buyers request returns from their order page
+        </label>
+        <div style="display:grid;grid-template-columns:200px 1fr;gap:14px;align-items:start;">
+            <div>
+                <label style="display:block;font-size:0.76rem;color:rgba(255,255,255,0.55);margin-bottom:4px;font-weight:600;">Return window (days)</label>
+                <input id="setWindowDays" type="number" min="0"
+                       value="{{ settings.return_window_days if settings.return_window_days is not none else '' }}"
+                       placeholder="30"
+                       style="width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.88rem;box-sizing:border-box;">
+                <div style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin-top:4px;">Counted from fulfillment date. Blank = no limit.</div>
+            </div>
+            <div>
+                <label style="display:block;font-size:0.76rem;color:rgba(255,255,255,0.55);margin-bottom:4px;font-weight:600;">Return address (emailed to buyers on approval)</label>
+                <textarea id="setReturnsAddr" rows="3"
+                          style="width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.88rem;box-sizing:border-box;font-family:inherit;"
+                          placeholder="Your Co.&#10;123 Returns Lane&#10;City, ST 12345">{{ settings.returns_address or '' }}</textarea>
+            </div>
+        </div>
+        <label style="display:block;font-size:0.76rem;color:rgba(255,255,255,0.55);margin:14px 0 4px;font-weight:600;">Buyer-facing instructions (shown on the request-return form)</label>
+        <textarea id="setInstructions" rows="3"
+                  style="width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.88rem;box-sizing:border-box;font-family:inherit;"
+                  placeholder="e.g. Items must be returned in original packaging. Buyer is responsible for return shipping.">{{ settings.returns_instructions or '' }}</textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
+            <span id="setMsg" style="font-size:0.85rem;margin-right:auto;min-height:18px;"></span>
+            <button type="button" onclick="saveSettings()" style="padding:8px 14px;border-radius:8px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;font-weight:600;font-size:0.88rem;border:none;cursor:pointer;">
+                <i class="fas fa-save"></i> Save
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="rma-filters">
+        {% for key, label in [('', 'All'), ('open', 'Open'), ('requested', 'Requested'),
+                              ('approved', 'Approved'), ('awaiting_shipment', 'Awaiting shipment'),
+                              ('in_transit', 'In transit'), ('received', 'Received'),
+                              ('refunded', 'Refunded'), ('denied', 'Denied'),
+                              ('canceled', 'Canceled')] %}
+            <a class="rma-filter {% if status_filter == key %}active{% endif %}"
+               href="{{ url_for('admin_returns', status=key) if key else url_for('admin_returns') }}">{{ label }}</a>
+        {% endfor %}
+    </div>
+
+    <div class="rma-card">
+        <div class="rma-row rma-head-row">
+            <div>RMA</div>
+            <div>Order</div>
+            <div>Customer</div>
+            <div>Planned refund</div>
+            <div>Status</div>
+        </div>
+        {% for rma in rmas %}
+            <div class="rma-row">
+                <div data-label="RMA">
+                    <a href="{{ url_for('admin_return_detail', return_id=rma.id) }}"><strong>{{ rma.rma_number }}</strong></a>
+                    <div style="font-size:0.78rem;color:rgba(255,255,255,0.5);">
+                        {{ rma.requested_at.strftime('%b %-d, %Y') if rma.requested_at else '' }}
+                        · {{ rma.items|length }} item(s)
+                    </div>
+                </div>
+                <div data-label="Order">
+                    <a href="{{ url_for('admin_order_detail', order_id=rma.order_id) }}">#{{ rma.order.order_number if rma.order else rma.order_id }}</a>
+                </div>
+                <div data-label="Customer">
+                    {{ rma.order.contact_name if rma.order else '' }}
+                    <div style="font-size:0.78rem;color:rgba(255,255,255,0.5);">{{ rma.order.contact_email if rma.order else '' }}</div>
+                </div>
+                <div data-label="Refund">
+                    {% if rma.refund_amount_cents %}${{ '%.2f' | format(rma.refund_amount_cents / 100.0) }}{% else %}—{% endif %}
+                </div>
+                <div data-label="Status">
+                    <span class="rma-status {{ rma.status }}">{{ rma.status.replace('_', ' ') }}</span>
+                </div>
+            </div>
+        {% else %}
+            <div class="rma-empty">No returns match this filter.</div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+function toggleSettings() {
+    const el = document.getElementById('rmaSettings');
+    el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+}
+async function saveSettings() {
+    const msg = document.getElementById('setMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const payload = {
+        allow_buyer_returns: document.getElementById('setAllowBuyer').checked,
+        return_window_days: document.getElementById('setWindowDays').value || null,
+        returns_address: document.getElementById('setReturnsAddr').value,
+        returns_instructions: document.getElementById('setInstructions').value,
+    };
+    const r = await fetch('/admin/returns/settings', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8';
+    msg.textContent = 'Saved.';
+    setTimeout(() => msg.textContent = '', 1500);
+}
+</script>
+
+{% endblock %}

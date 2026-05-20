@@ -37,6 +37,10 @@
     {% set navbar_page_offset = 58 + navbar_margin %}
 
     <style>
+        /* Native <select> dropdown panel: needs explicit colors so options aren't
+           rendered white-on-white in dark sites. */
+        select option, select optgroup { background-color: #22222a; color: #f0f0f0; }
+
         html {
             min-height: 100%;
             scroll-behavior: smooth;

@@ -181,7 +181,9 @@
     transition: border-color 0.15s;
 }
 .sshop-sort-select:focus { border-color: rgba(255,255,255,0.28); }
-.sshop-sort-select option { background: #16161e; }
+.sshop-sort-select option { background: #16161e; color: #f0f0f0; }
+/* Catch-all so the popped-open option panel isn't white in dark mode */
+select option, select optgroup { background-color: #22222a; color: #f0f0f0; }
 
 /* ── Results toolbar + view switcher ─────────────────────────────────────── */
 .sshop-view-toolbar {

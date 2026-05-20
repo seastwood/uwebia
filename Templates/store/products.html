@@ -291,7 +291,60 @@
                     <label>Description <span class="store-optional">(optional)</span></label>
                     <textarea id="catDesc" rows="3" placeholder="Short description…"></textarea>
                 </div>
-                <div class="store-cat-form-actions">
+
+                <details style="margin:14px 0 0;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+                    <summary style="cursor:pointer;font-weight:600;font-size:0.88rem;">Default settings for new products</summary>
+                    <p style="font-size:0.78rem;opacity:0.55;margin:8px 0 12px;">
+                        New products created in this category will inherit these. Existing products are unchanged.
+                    </p>
+                    <div class="store-field">
+                        <label>Default fulfillment type</label>
+                        <select id="catDefFt">
+                            <option value="">— No default —</option>
+                            <option value="shipping">Shipping</option>
+                            <option value="local_delivery">Local delivery</option>
+                            <option value="pickup">Pickup</option>
+                            <option value="digital">Digital</option>
+                            <option value="ticket">Ticket</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                    <div class="store-field">
+                        <label>Also offer (optional)</label>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.84rem;">
+                            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="catDefAltFt" value="shipping"> Shipping</label>
+                            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="catDefAltFt" value="local_delivery"> Local delivery</label>
+                            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="catDefAltFt" value="pickup"> Pickup</label>
+                        </div>
+                    </div>
+                    <div class="store-field">
+                        <label>Default tax code</label>
+                        <select id="catDefTaxCode">
+                            <option value="">— No default —</option>
+                            {% for code, label in tax_codes %}
+                            <option value="{{ code }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="store-field">
+                        <label>Default: track inventory</label>
+                        <select id="catDefTrack">
+                            <option value="">— No default —</option>
+                            <option value="true">Yes — track</option>
+                            <option value="false">No — don't track</option>
+                        </select>
+                    </div>
+                    <div class="store-field">
+                        <label>Default: allow oversell</label>
+                        <select id="catDefOversell">
+                            <option value="">— No default —</option>
+                            <option value="true">Yes — allow</option>
+                            <option value="false">No — block</option>
+                        </select>
+                    </div>
+                </details>
+
+                <div class="store-cat-form-actions" style="margin-top:14px;">
                     <button class="store-btn-primary" onclick="saveCat()">Save</button>
                     <button class="store-btn-ghost" onclick="resetCatForm()">Cancel</button>
                 </div>
@@ -364,10 +417,37 @@ async function deleteProduct(id, name) {
 
 // ── Categories ────────────────────────────────────────────────────────────────
 
+// Category defaults — built in Jinja since dict comprehensions aren't
+// supported in this version. When opening for edit, prefill the form.
+{% set _cat_defaults = {} %}
+{% for cat in categories %}
+    {% set _ = _cat_defaults.update({cat.id: {
+        'default_fulfillment_type': cat.default_fulfillment_type,
+        'default_allowed_fulfillment_types': cat.default_allowed_fulfillment_types or [],
+        'default_tax_code': cat.default_tax_code,
+        'default_track_inventory': cat.default_track_inventory,
+        'default_allow_oversell': cat.default_allow_oversell,
+    }}) %}
+{% endfor %}
+const CATEGORY_DEFAULTS_BY_ID = {{ _cat_defaults | tojson }};
+
+function _setCatDefaultSelect(id, val) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (val === null || val === undefined) el.value = '';
+    else if (typeof val === 'boolean') el.value = val ? 'true' : 'false';
+    else el.value = String(val);
+}
+
 function resetCatForm() {
     document.getElementById('editCatId').value = '';
     document.getElementById('catName').value = '';
     document.getElementById('catDesc').value = '';
+    document.getElementById('catDefFt').value = '';
+    document.querySelectorAll('.catDefAltFt').forEach(cb => cb.checked = false);
+    document.getElementById('catDefTaxCode').value = '';
+    document.getElementById('catDefTrack').value = '';
+    document.getElementById('catDefOversell').value = '';
     document.getElementById('catFormTitle').textContent = 'New Category';
     document.getElementById('catStatus').textContent = '';
 }
@@ -380,6 +460,21 @@ function editCat(id, name, desc) {
     document.getElementById('catFormTitle').textContent = 'Edit Category';
     document.querySelectorAll('.store-tab')[1].classList.add('store-tab--active');
     document.querySelectorAll('.store-tab')[0].classList.remove('store-tab--active');
+    const d = CATEGORY_DEFAULTS_BY_ID[id] || {};
+    _setCatDefaultSelect('catDefFt', d.default_fulfillment_type);
+    document.querySelectorAll('.catDefAltFt').forEach(cb => {
+        cb.checked = (d.default_allowed_fulfillment_types || []).includes(cb.value);
+    });
+    _setCatDefaultSelect('catDefTaxCode', d.default_tax_code);
+    _setCatDefaultSelect('catDefTrack', d.default_track_inventory);
+    _setCatDefaultSelect('catDefOversell', d.default_allow_oversell);
+}
+
+function _readTriState(id) {
+    const v = document.getElementById(id).value;
+    if (v === 'true') return true;
+    if (v === 'false') return false;
+    return null;
 }
 
 async function saveCat() {
@@ -388,12 +483,20 @@ async function saveCat() {
     const desc = document.getElementById('catDesc').value.trim();
     const st = document.getElementById('catStatus');
     if (!name) { st.textContent = 'Name is required.'; st.style.color = '#f88'; return; }
-
+    const alts = Array.from(document.querySelectorAll('.catDefAltFt:checked')).map(cb => cb.value);
+    const payload = {
+        name, description: desc,
+        default_fulfillment_type: document.getElementById('catDefFt').value || null,
+        default_allowed_fulfillment_types: alts,
+        default_tax_code: document.getElementById('catDefTaxCode').value || null,
+        default_track_inventory: _readTriState('catDefTrack'),
+        default_allow_oversell: _readTriState('catDefOversell'),
+    };
     const url = id ? `/admin/store/categories/${id}` : '/admin/store/categories';
     const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description: desc })
+        body: JSON.stringify(payload)
     });
     const d = await r.json();
     if (d.success) { location.reload(); }

@@ -1,0 +1,344 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.pay-page { max-width: 980px; margin: 30px auto 60px; padding: 0 20px; color: #fff; }
+.pay-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+.pay-title { font-size: 1.8rem; font-weight: 800; margin: 4px 0 0; }
+.pay-help { color: rgba(255,255,255,0.55); font-size: 0.92rem; margin: 6px 0 18px; line-height: 1.5; }
+
+.pay-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.pay-card h2 { margin: 0 0 6px; font-size: 1rem; }
+.pay-card-sub { font-size: 0.82rem; color: rgba(255,255,255,0.5); margin: 0 0 14px; }
+
+.pay-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .pay-row { grid-template-columns: 1fr; } }
+.pay-field { margin-bottom: 10px; }
+.pay-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 5px; font-weight: 600; }
+.pay-input, .pay-select {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; box-sizing: border-box; font-size: 0.9rem; font-family: inherit;
+}
+.pay-input.pay-mono { font-family: 'Courier New', monospace; font-size: 0.85rem; }
+
+.pay-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 8px; font-size: 0.86rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.pay-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.pay-btn-primary:hover { opacity: 0.88; }
+.pay-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.12); }
+.pay-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+
+.pay-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.pay-msg { font-size: 0.85rem; min-height: 18px; margin-left: auto; }
+
+.pay-status-paid     { color: #5eeec8; }
+.pay-status-pending  { color: rgba(255,255,255,0.55); }
+.pay-status-failed   { color: #ff8a8a; }
+.pay-status-refunded { color: #ffd982; }
+.pay-status-canceled { color: rgba(255,255,255,0.45); }
+
+table.pay-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+table.pay-table th, table.pay-table td { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; }
+table.pay-table th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.4); font-weight: 600; }
+.pay-empty { padding: 24px; text-align: center; color: rgba(255,255,255,0.4); }
+
+/* Mobile: cards instead of table so each payment row stays readable on a phone. */
+.pay-list-mobile { display: none; }
+@media (max-width: 720px) {
+    table.pay-table { display: none; }
+    .pay-list-mobile { display: flex; flex-direction: column; gap: 10px; }
+    .pay-card-mobile {
+        padding: 12px 14px; border-radius: 12px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    }
+    .pay-card-mobile-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .pay-card-mobile-source { font-weight: 700; font-size: 0.94rem; }
+    .pay-card-mobile-amount { font-weight: 700; font-size: 0.94rem; flex-shrink: 0; }
+    .pay-card-mobile-customer { font-size: 0.82rem; color: rgba(255,255,255,0.7); margin-top: 3px; word-break: break-word; }
+    .pay-card-mobile-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; align-items: center; font-size: 0.76rem; color: rgba(255,255,255,0.5); flex-wrap: wrap; }
+    .pay-card-mobile-pill {
+        display: inline-flex; padding: 2px 9px; border-radius: 999px;
+        font-size: 0.72rem; font-weight: 700;
+    }
+    .pay-card-mobile-pill.pay-status-paid     { background: rgba(94,238,200,0.18); color: #5eeec8; }
+    .pay-card-mobile-pill.pay-status-pending  { background: rgba(255,206,115,0.18); color: #ffd982; }
+    .pay-card-mobile-pill.pay-status-failed   { background: rgba(255,80,80,0.18);  color: #ff8a8a; }
+    .pay-card-mobile-pill.pay-status-refunded { background: rgba(255,206,115,0.10); color: #ffd982; }
+    .pay-card-mobile-pill.pay-status-canceled { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); }
+    /* tighten the Stripe form for narrow viewports */
+    .pay-input.pay-mono { font-size: 0.78rem; }
+}
+
+.pay-mode-badge { display: inline-flex; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; margin-left: 6px; }
+.pay-mode-live { background: rgba(94,238,200,0.15); color: #5eeec8; border: 1px solid rgba(94,238,200,0.3); }
+.pay-mode-test { background: rgba(255,206,115,0.16); color: #ffd982; border: 1px solid rgba(255,206,115,0.32); }
+
+.pay-webhook-pill { display: inline-block; padding: 7px 11px; border-radius: 8px; background: rgba(94,238,248,0.08); border: 1px solid rgba(94,238,248,0.22); color: #5eeef8; font-family: monospace; font-size: 0.82rem; word-break: break-all; user-select: all; }
+</style>
+
+<div class="pay-page">
+    <p class="pay-kicker">Admin</p>
+    <h1 class="pay-title">
+        Payments
+        {% if settings and settings.secret_key %}
+            <span class="pay-mode-badge {% if settings.is_live_mode %}pay-mode-live{% else %}pay-mode-test{% endif %}">
+                {{ 'LIVE' if settings.is_live_mode else 'TEST' }}
+            </span>
+        {% endif %}
+    </h1>
+    <p class="pay-help">Stripe Checkout is used for online purchases on your store. Customers pay on Stripe's hosted page and are redirected back to your site when the payment completes.</p>
+
+    <!-- Stripe settings card -->
+    <div class="pay-card">
+        <h2>Stripe connection</h2>
+        <p class="pay-card-sub">
+            Get keys at <a href="https://dashboard.stripe.com/apikeys" target="_blank" style="color:#5eeef8;">dashboard.stripe.com/apikeys</a>.
+            Use <strong>test</strong> keys (sk_test_..., pk_test_...) while you're setting things up; switch to <strong>live</strong> keys when you're ready to take real money.
+        </p>
+
+        <details style="margin-bottom:14px;">
+            <summary style="cursor:pointer;color:rgba(255,255,255,0.65);font-size:0.86rem;">How to set up the webhook ↓</summary>
+            <ol style="margin:10px 0 0;padding-left:20px;font-size:0.86rem;color:rgba(255,255,255,0.6);line-height:1.6;">
+                <li>In Stripe Dashboard go to <strong>Developers → Webhooks → Add endpoint</strong>.</li>
+                <li>Set the endpoint URL to:
+                    <div style="margin:6px 0;"><span class="pay-webhook-pill">{{ webhook_url }}</span></div>
+                </li>
+                <li>Listen for these events:
+                    <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">checkout.session.completed</code>,
+                    <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">checkout.session.expired</code>,
+                    <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">payment_intent.payment_failed</code>,
+                    <code style="background:rgba(255,255,255,0.06);padding:1px 4px;border-radius:3px;">charge.refunded</code>.
+                </li>
+                <li>After saving the endpoint, copy the <strong>Signing secret</strong> (whsec_...) into the field below.</li>
+            </ol>
+        </details>
+
+        <form id="stripeForm">
+            <div class="pay-field">
+                <label class="pay-label">Account label <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                <input class="pay-input" name="account_label" value="{{ settings.account_label or '' if settings else '' }}" placeholder="e.g. My Store">
+            </div>
+            <div class="pay-row">
+                <div class="pay-field">
+                    <label class="pay-label">Publishable key</label>
+                    <input class="pay-input pay-mono" name="publishable_key" value="{{ settings.publishable_key or '' if settings else '' }}" placeholder="pk_test_... or pk_live_...">
+                </div>
+                <div class="pay-field">
+                    <label class="pay-label">Secret key <span style="opacity:0.6;font-weight:400;">{% if settings and settings.secret_key %}(leave blank to keep current){% endif %}</span></label>
+                    <input class="pay-input pay-mono" name="secret_key" type="password" placeholder="sk_test_... or sk_live_...">
+                </div>
+            </div>
+            <div class="pay-row">
+                <div class="pay-field">
+                    <label class="pay-label">Webhook signing secret <span style="opacity:0.6;font-weight:400;">{% if settings and settings.webhook_secret %}(leave blank to keep current){% endif %}</span></label>
+                    <input class="pay-input pay-mono" name="webhook_secret" type="password" placeholder="whsec_...">
+                </div>
+                <div class="pay-field">
+                    <label class="pay-label">Currency</label>
+                    <input class="pay-input" name="currency" value="{{ settings.currency or 'usd' if settings else 'usd' }}" placeholder="usd" maxlength="3" style="text-transform:lowercase;">
+                </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-top:4px;">
+                <input type="checkbox" id="liveMode" {% if settings and settings.is_live_mode %}checked{% endif %}>
+                Live mode (uncheck while using test keys)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-top:6px;">
+                <input type="checkbox" id="autoTax" {% if settings and settings.automatic_tax_enabled %}checked{% endif %}>
+                <span>
+                    Enable automatic sales tax (Stripe Tax)
+                    <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.5);font-weight:400;">
+                        Stripe calculates tax at checkout using the buyer's address and each product's tax category.
+                    </span>
+                </span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-top:6px;">
+                <input type="checkbox" id="allowPromos" {% if settings and settings.allow_promotion_codes %}checked{% endif %}>
+                <span>
+                    Allow promotion codes at checkout
+                    <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.5);font-weight:400;">
+                        Adds a "Have a promo code?" field on the Stripe payment page. Create the actual codes in
+                        <a href="https://dashboard.stripe.com/coupons" target="_blank" style="color:#5eeef8;">Stripe Dashboard → Coupons</a>
+                        (percent off, fixed off, expiry, usage caps, etc.).
+                    </span>
+                </span>
+            </label>
+
+            <details style="margin-top:10px;">
+                <summary style="cursor:pointer;color:rgba(255,255,255,0.65);font-size:0.86rem;">How to set up Stripe Tax ↓</summary>
+                <ol style="margin:10px 0 0;padding-left:20px;font-size:0.86rem;color:rgba(255,255,255,0.6);line-height:1.6;">
+                    <li>
+                        In Stripe Dashboard, go to
+                        <a href="https://dashboard.stripe.com/tax" target="_blank" style="color:#5eeef8;">Tax</a>
+                        and click <strong>Get started</strong>. Fill in your business's origin address (where your business is physically located) and confirm.
+                    </li>
+                    <li>
+                        Add tax registrations in
+                        <a href="https://dashboard.stripe.com/tax/registrations" target="_blank" style="color:#5eeef8;">Tax → Registrations</a>
+                        for every jurisdiction (US state, country) where you've registered to collect tax.
+                        Stripe only collects in jurisdictions you've added here — you must register with each state / country first.
+                    </li>
+                    <li>
+                        Stripe tracks <strong>economic-nexus thresholds</strong> automatically. When you approach a state's threshold,
+                        the
+                        <a href="https://dashboard.stripe.com/tax/monitoring" target="_blank" style="color:#5eeef8;">Monitoring</a>
+                        page flags it so you know to register.
+                    </li>
+                    <li>
+                        Set a <strong>Tax category</strong> on each of your products (in the product editor). Defaults to "General — physical goods" if unset.
+                    </li>
+                    <li>
+                        Check the box above and click Save. From now on every Stripe Checkout Session asks the buyer for a billing address and adds the right tax to the total.
+                    </li>
+                </ol>
+                <p style="margin:10px 0 0;font-size:0.82rem;color:rgba(255,206,115,0.85);background:rgba(255,206,115,0.08);border:1px solid rgba(255,206,115,0.22);padding:8px 12px;border-radius:8px;">
+                    <strong>Heads up:</strong> Stripe Tax bills $0.50 per transaction or 0.5% of order value, whichever is lower. See
+                    <a href="https://stripe.com/tax/pricing" target="_blank" style="color:#ffd982;">stripe.com/tax/pricing</a>.
+                    You are still responsible for registering with each state / country and filing returns; Stripe Tax collects and reports, but doesn't file for you.
+                </p>
+            </details>
+
+            <div class="pay-toolbar">
+                <button type="button" class="pay-btn pay-btn-primary" onclick="saveStripeSettings()"><i class="fas fa-save"></i> Save</button>
+                {% if settings and settings.secret_key %}
+                <button type="button" class="pay-btn pay-btn-secondary" onclick="testStripe()"><i class="fas fa-plug"></i> Test connection</button>
+                {% endif %}
+                <span class="pay-msg" id="stripeMsg"></span>
+            </div>
+        </form>
+    </div>
+
+    <!-- Order status emails -->
+    {% if email_toggles %}
+    <div class="pay-card">
+        <h2>Order status emails</h2>
+        <p class="pay-card-sub">Each box below corresponds to an email sent to the customer when their order item moves into that status. Uncheck to silence individual ones.</p>
+        <form id="emailTogglesForm">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+                {% for t in email_toggles %}
+                <label style="display:flex;align-items:flex-start;gap:8px;padding:9px 12px;border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:0.85rem;background:rgba(255,255,255,0.02);">
+                    <input type="checkbox" class="email-toggle" data-key="{{ t.key }}" {% if t.enabled %}checked{% endif %} style="margin-top:2px;">
+                    <div>
+                        <div>{{ t.label }}</div>
+                        <div style="font-size:0.74rem;color:rgba(255,255,255,0.45);">{{ t.type.replace('_', ' ') }}</div>
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="pay-toolbar">
+                <button type="button" class="pay-btn pay-btn-primary" onclick="saveEmailToggles()"><i class="fas fa-save"></i> Save</button>
+                <span class="pay-msg" id="togglesMsg"></span>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Recent payments -->
+    <div class="pay-card">
+        <h2>Recent payments</h2>
+        {% if recent_payments %}
+        <table class="pay-table">
+            <thead>
+                <tr>
+                    <th>When</th><th>Source</th><th>Customer</th><th>Amount</th><th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for p in recent_payments %}
+                <tr>
+                    <td>{{ p.created_at.strftime('%b %-d, %Y %I:%M %p') if p.created_at else '' }}</td>
+                    <td>
+                        {% if p.source_type == 'store_order' %}Order #{{ p.source_id }}{% else %}{{ p.source_type }} #{{ p.source_id }}{% endif %}
+                    </td>
+                    <td>{{ p.customer_email or '—' }}</td>
+                    <td>{{ '%.2f' | format(p.amount_cents / 100) }} {{ p.currency.upper() }}</td>
+                    <td><span class="pay-status-{{ p.status }}">{{ p.status }}</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="pay-list-mobile">
+            {% for p in recent_payments %}
+            <div class="pay-card-mobile">
+                <div class="pay-card-mobile-top">
+                    <span class="pay-card-mobile-source">
+                        {% if p.source_type == 'store_order' %}Order #{{ p.source_id }}{% else %}{{ p.source_type }} #{{ p.source_id }}{% endif %}
+                    </span>
+                    <span class="pay-card-mobile-amount">${{ '%.2f' | format(p.amount_cents / 100) }} <span style="font-weight:400;font-size:0.78rem;opacity:0.6;">{{ p.currency.upper() }}</span></span>
+                </div>
+                {% if p.customer_email %}
+                <div class="pay-card-mobile-customer">{{ p.customer_email }}</div>
+                {% endif %}
+                <div class="pay-card-mobile-foot">
+                    <span class="pay-card-mobile-pill pay-status-{{ p.status }}">{{ p.status }}</span>
+                    <span>{{ p.created_at.strftime('%b %-d, %Y %I:%M %p') if p.created_at else '' }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="pay-empty">No payments yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+async function saveStripeSettings() {
+    const form = document.getElementById('stripeForm');
+    const get = name => form.querySelector(`[name="${name}"]`).value;
+    const payload = {
+        account_label: get('account_label'),
+        publishable_key: get('publishable_key'),
+        secret_key: get('secret_key'),
+        webhook_secret: get('webhook_secret'),
+        currency: get('currency'),
+        is_live_mode: document.getElementById('liveMode').checked,
+        automatic_tax_enabled: document.getElementById('autoTax').checked,
+        allow_promotion_codes: document.getElementById('allowPromos').checked,
+    };
+    const msg = document.getElementById('stripeMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/admin/payments/stripe-settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8'; msg.textContent = 'Saved.';
+    setTimeout(() => location.reload(), 700);
+}
+
+async function saveEmailToggles() {
+    const disabled = [];
+    document.querySelectorAll('.email-toggle').forEach(cb => {
+        if (!cb.checked) disabled.push(cb.dataset.key);
+    });
+    const msg = document.getElementById('togglesMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/admin/orders/email-settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({disabled}),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8'; msg.textContent = 'Saved.';
+}
+
+async function testStripe() {
+    const msg = document.getElementById('stripeMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Testing…';
+    const r = await fetch('/admin/payments/stripe-test', {method: 'POST'});
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Test failed.'; return; }
+    msg.style.color = '#5eeec8'; msg.textContent = j.message || 'Connected.';
+}
+</script>
+
+{% endblock %}

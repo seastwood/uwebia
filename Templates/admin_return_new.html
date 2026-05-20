@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.rmn-page { max-width: 760px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.rmn-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.55); font-size: 0.85rem; text-decoration: none; margin-bottom: 14px; }
+.rmn-title { font-size: 1.4rem; font-weight: 800; margin: 0 0 4px; }
+.rmn-sub { color: rgba(255,255,255,0.55); font-size: 0.85rem; margin: 0 0 22px; }
+.rmn-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.rmn-card h2 { margin: 0 0 10px; font-size: 1rem; }
+.rmn-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; margin-bottom: 8px; }
+.rmn-item.disabled { opacity: 0.5; }
+.rmn-item-name { flex: 1; }
+.rmn-item-meta { font-size: 0.78rem; color: rgba(255,255,255,0.5); }
+.rmn-qty { width: 70px; padding: 6px 10px; border-radius: 7px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; font-size: 0.88rem; text-align: center; }
+.rmn-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.6); margin-bottom: 5px; font-weight: 600; }
+.rmn-input { width: 100%; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.88rem; box-sizing: border-box; }
+.rmn-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; border: none; cursor: pointer; }
+.rmn-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.rmn-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.12); }
+.rmn-notice { font-size: 0.84rem; color: #ffd982; background: rgba(255,206,115,0.08); border: 1px solid rgba(255,206,115,0.3); padding: 10px 14px; border-radius: 8px; margin-top: 12px; }
+.rmn-msg { font-size: 0.85rem; min-height: 18px; }
+</style>
+
+<div class="rmn-page">
+    <a class="rmn-back" href="{{ url_for('admin_order_detail', order_id=order.id) }}"><i class="fas fa-arrow-left"></i> Back to order</a>
+    <h1 class="rmn-title">Start a return</h1>
+    <p class="rmn-sub">Open an RMA for order #{{ order.order_number }}. The refund happens later, after you mark the goods received.</p>
+
+    <form id="rmaForm" onsubmit="return submitRMA(event)">
+        <div class="rmn-card">
+            <h2>Items to return</h2>
+            {% for it in order.items %}
+                {% set ft = it.fulfillment_type or 'shipping' %}
+                {% set is_returnable = ft not in non_returnable_types %}
+                {% set max_qty = remaining[it.id] %}
+                <div class="rmn-item {% if not is_returnable or max_qty <= 0 %}disabled{% endif %}">
+                    <div class="rmn-item-name">
+                        <div><strong>{{ it.product_name }}</strong></div>
+                        <div class="rmn-item-meta">
+                            ${{ '%.2f' | format(it.unit_price | float) }} ea · purchased {{ it.quantity }} · {{ ft.replace('_', ' ') }}
+                            {% if not is_returnable %} · <em>not returnable</em>{% endif %}
+                            {% if is_returnable and max_qty < it.quantity %} · {{ max_qty }} remaining{% endif %}
+                        </div>
+                    </div>
+                    {% if is_returnable and max_qty > 0 %}
+                        <input class="rmn-qty" type="number" min="0" max="{{ max_qty }}" value="0"
+                               name="qty_{{ it.id }}" id="qty_{{ it.id }}">
+                    {% else %}
+                        <span style="color:rgba(255,255,255,0.4);font-size:0.85rem;">N/A</span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="rmn-card">
+            <h2>Reason</h2>
+            <label class="rmn-label">Reason code (optional)</label>
+            <select class="rmn-input" id="reason_code" name="reason_code">
+                <option value="">— None —</option>
+                {% for code, label in reason_codes %}
+                    <option value="{{ code }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+            <label class="rmn-label" style="margin-top:12px;">Notes from buyer (optional)</label>
+            <textarea class="rmn-input" id="reason_note" name="reason_note" rows="2"
+                      placeholder="What the buyer told you…"></textarea>
+            <label class="rmn-label" style="margin-top:12px;">Internal note (optional)</label>
+            <input class="rmn-input" id="admin_note" name="admin_note" placeholder="e.g. Approved over the phone">
+            <div class="rmn-notice">
+                Since you (an admin) are opening this, the RMA starts in <strong>Approved</strong> status.
+                You can mark items received → finalize the refund from the RMA detail page.
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;">
+            <span class="rmn-msg" id="rmaMsg" style="margin-right:auto;"></span>
+            <a class="rmn-btn rmn-btn-secondary" href="{{ url_for('admin_order_detail', order_id=order.id) }}">Cancel</a>
+            <button type="submit" class="rmn-btn rmn-btn-primary">
+                <i class="fas fa-undo-alt"></i> Open return
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+async function submitRMA(ev) {
+    ev.preventDefault();
+    const msg = document.getElementById('rmaMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Opening…';
+    const items = [];
+    document.querySelectorAll('input.rmn-qty').forEach(el => {
+        const q = parseInt(el.value || '0', 10);
+        if (q > 0) items.push({ order_item_id: el.id.replace('qty_', ''), quantity: q });
+    });
+    if (items.length === 0) {
+        msg.style.color = '#ff8a8a';
+        msg.textContent = 'Pick at least one item to return.';
+        return false;
+    }
+    const payload = {
+        items,
+        reason_code: document.getElementById('reason_code').value,
+        reason_note: document.getElementById('reason_note').value.trim(),
+        admin_note: document.getElementById('admin_note').value.trim(),
+    };
+    const r = await fetch(`{{ url_for('admin_return_new', order_id=order.id) }}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return false; }
+    location.href = j.redirect;
+    return false;
+}
+</script>
+
+{% endblock %}

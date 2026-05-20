@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.st-page { max-width: 820px; margin: 24px auto 60px; padding: 0 20px; color: #fff; }
+.st-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.55); font-size: 0.85rem; text-decoration: none; margin-bottom: 14px; }
+.st-back:hover { color: rgba(255,255,255,0.9); }
+.st-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.st-title { font-size: 1.4rem; font-weight: 800; margin: 0; }
+.st-meta { color: rgba(255,255,255,0.55); font-size: 0.86rem; margin-top: 5px; }
+.st-status { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; }
+.st-status.open { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.st-status.closed { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.55); }
+.st-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+.st-feed { max-height: 460px; overflow-y: auto; padding: 8px; background: rgba(0,0,0,0.18); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.st-input-wrap { display: flex; gap: 8px; align-items: flex-end; }
+.st-input { flex:1; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.92rem; font-family: inherit; resize: vertical; min-height: 60px; }
+.st-btn { padding: 11px 18px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; font-size: 0.9rem; font-family: inherit; }
+.st-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.st-btn-secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.13); }
+</style>
+
+<div class="st-page">
+    <a class="st-back" href="{{ url_for('admin_support_inbox') }}"><i class="fas fa-arrow-left"></i> Support inbox</a>
+
+    <div class="st-head">
+        <div>
+            <h1 class="st-title">{{ thread.subject or 'Conversation' }}</h1>
+            <p class="st-meta">
+                {{ thread.contact_name or '' }}
+                {% if thread.contact_email %} · {{ thread.contact_email }}{% endif %}
+                {% if order %}
+                · <a href="{{ url_for('admin_order_detail', order_id=order.id) }}" style="color:#5eeef8;">Order #{{ order.order_number }}</a>
+                {% endif %}
+            </p>
+        </div>
+        <span class="st-status {{ thread.status }}" id="threadStatus">{{ thread.status }}</span>
+    </div>
+
+    <div class="st-card">
+        <div class="st-feed" id="messages"></div>
+        <div class="st-input-wrap">
+            <textarea id="replyInput" placeholder="Type a reply…"
+                      onkeydown="if(event.key==='Enter' && (event.metaKey||event.ctrlKey)){event.preventDefault();sendReply();}"
+                      class="st-input"></textarea>
+            <button class="st-btn st-btn-primary" id="sendBtn" onclick="sendReply()">Send</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+            <p style="font-size:0.74rem;opacity:0.5;margin:0;">Ctrl/⌘ + Enter to send · Buyer is notified by email.</p>
+            <button class="st-btn st-btn-secondary" onclick="toggleClose()" id="closeBtn">
+                {% if thread.status == 'closed' %}Reopen{% else %}Close thread{% endif %}
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+const THREAD_ID = {{ thread.id }};
+const feed = document.getElementById('messages');
+const status = document.getElementById('threadStatus');
+let lastIds = new Set();
+let pageVisible = true;
+
+function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function renderMessage(m){
+    const mine = m.sender_type === 'admin';
+    const bg = mine ? 'rgba(94,238,200,0.13)' : 'rgba(255,255,255,0.07)';
+    const border = mine ? 'rgba(94,238,200,0.32)' : 'rgba(255,255,255,0.12)';
+    const corner = mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px';
+    return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};max-width:88%;${mine?'align-self:flex-end;':'align-self:flex-start;'}">
+        <div style="background:${bg};border:1px solid ${border};border-radius:${corner};padding:9px 13px;font-size:0.92rem;white-space:pre-wrap;word-wrap:break-word;color:#fff;">${escapeHtml(m.body)}</div>
+        <div style="font-size:0.7rem;opacity:0.55;margin-top:2px;">${escapeHtml(m.sender_name || (mine?'You':'Customer'))} · ${escapeHtml(m.created_label || '')}</div>
+    </div>`;
+}
+
+async function fetchThread(){
+    try {
+        const r = await fetch(`/admin/support/${THREAD_ID}/fetch`);
+        const j = await r.json();
+        if(!j.success) return;
+        status.textContent = j.status;
+        status.className = 'st-status ' + j.status;
+        const seen = new Set(j.messages.map(m => m.id));
+        if(seen.size !== lastIds.size || ![...seen].every(id => lastIds.has(id))){
+            feed.innerHTML = j.messages.map(renderMessage).join('') ||
+                '<div style="opacity:0.5;text-align:center;padding:30px;font-size:0.9rem;">No messages yet.</div>';
+            feed.scrollTop = feed.scrollHeight;
+            lastIds = seen;
+        }
+    } catch(e){}
+}
+
+async function sendReply(){
+    const input = document.getElementById('replyInput');
+    const btn = document.getElementById('sendBtn');
+    const body = (input.value || '').trim();
+    if(!body) return;
+    btn.disabled = true;
+    const r = await fetch(`/admin/support/${THREAD_ID}/send`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ body }),
+    });
+    const j = await r.json();
+    btn.disabled = false;
+    if(!j.success){ alert(j.error || 'Send failed.'); return; }
+    input.value = '';
+    fetchThread();
+}
+
+async function toggleClose(){
+    const r = await fetch(`/admin/support/${THREAD_ID}/close`, {method: 'POST'});
+    const j = await r.json();
+    if(!j.success){ alert(j.error || 'Failed.'); return; }
+    document.getElementById('closeBtn').textContent = j.status === 'closed' ? 'Reopen' : 'Close thread';
+    fetchThread();
+}
+
+document.addEventListener('visibilitychange', () => { pageVisible = !document.hidden; });
+fetchThread();
+setInterval(() => { if(pageVisible) fetchThread(); }, 5000);
+</script>
+
+{% endblock %}

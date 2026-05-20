@@ -1,0 +1,446 @@
+{% extends 'public_base.html' %}
+{% block content %}
+
+{% set STATUS_LABELS = {
+    'paid': 'Paid',
+    'preparing': 'Preparing',
+    'shipped': 'Shipped',
+    'delivered': 'Delivered',
+    'out_for_delivery': 'Out for delivery',
+    'ready_for_pickup': 'Ready for pickup',
+    'picked_up': 'Picked up',
+    'file_delivered': 'File delivered',
+    'ticket_issued': 'Ticket issued',
+    'fulfilled': 'Fulfilled',
+} %}
+
+<style>
+.os-page { max-width: 760px; margin: 0 auto; padding: 28px 22px 80px; color: inherit; }
+.os-kicker { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; opacity: 0.55; margin: 0; }
+.os-title { font-size: 1.7rem; font-weight: 800; margin: 4px 0 18px; }
+.os-meta { font-size: 0.88rem; opacity: 0.65; margin-bottom: 22px; }
+
+.os-card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px; padding: 18px; margin-bottom: 16px;
+}
+.os-card h2 { margin: 0 0 12px; font-size: 1rem; }
+
+.os-item { border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.os-item-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; align-items: center; }
+.os-item-name { font-weight: 700; }
+.os-item-meta { font-size: 0.8rem; opacity: 0.6; }
+
+.os-status-pill { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; }
+.os-pill-paid { background: rgba(94,238,200,0.15); color: #5eeec8; border: 1px solid rgba(94,238,200,0.32); }
+.os-pill-preparing { background: rgba(255,206,115,0.16); color: #ffd982; border: 1px solid rgba(255,206,115,0.32); }
+.os-pill-shipped, .os-pill-out_for_delivery, .os-pill-ready_for_pickup { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.32); }
+.os-pill-delivered, .os-pill-picked_up, .os-pill-file_delivered, .os-pill-ticket_issued, .os-pill-fulfilled { background: rgba(199,154,255,0.15); color: #c79aff; border: 1px solid rgba(199,154,255,0.32); }
+.os-pill-requested { background: rgba(255,206,115,0.16); color:#ffd982; border: 1px solid rgba(255,206,115,0.32); }
+.os-pill-approved, .os-pill-awaiting_shipment, .os-pill-in_transit { background: rgba(94,238,248,0.15); color:#5eeef8; border: 1px solid rgba(94,238,248,0.32); }
+.os-pill-received { background: rgba(199,154,255,0.15); color:#c79aff; border: 1px solid rgba(199,154,255,0.32); }
+.os-pill-refunded { background: rgba(94,238,200,0.15); color:#5eeec8; border: 1px solid rgba(94,238,200,0.32); }
+.os-pill-denied, .os-pill-canceled { background: rgba(255,80,80,0.12); color:#ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+
+.os-item-detail { margin-top: 10px; font-size: 0.86rem; opacity: 0.8; }
+.os-tracking-link {
+    display: inline-block; margin-top: 6px;
+    padding: 7px 14px; border-radius: 8px;
+    background: rgba(94,238,248,0.12); color: #5eeef8;
+    border: 1px solid rgba(94,238,248,0.32);
+    text-decoration: none; font-weight: 600; font-size: 0.82rem;
+}
+.os-tracking-link:hover { background: rgba(94,238,248,0.22); }
+
+.os-timeline-row { padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.86rem; }
+.os-timeline-time { font-size: 0.74rem; opacity: 0.5; }
+</style>
+
+<div class="os-page">
+    <p class="os-kicker">{{ website.name if website else 'Order status' }}</p>
+    <h1 class="os-title">Order #{{ order.order_number }}</h1>
+    <p class="os-meta">
+        Placed {{ order.created_at.strftime('%b %-d, %Y') if order.created_at else '' }}
+        · ${{ '%.2f' | format(order.total | float) }}
+        {% if order.tip_total and (order.tip_total | float) > 0 %}
+            <span style="opacity:0.65;">(incl. ${{ '%.2f' | format(order.tip_total | float) }} tip)</span>
+        {% endif %}
+    </p>
+
+    {% macro render_item_row(it) %}
+    <div class="os-item">
+        <div class="os-item-head">
+            <div>
+                <div class="os-item-name">{{ it.product_name }} × {{ it.quantity }}</div>
+                {% if it.variant_options_snapshot %}
+                <div style="font-size:0.78rem;opacity:0.7;margin-top:1px;">{{ it.variant_options_snapshot }}</div>
+                {% endif %}
+                <div class="os-item-meta">${{ '%.2f' | format(it.line_total | float) }}</div>
+            </div>
+            <span class="os-status-pill os-pill-{{ it.fulfillment_status or 'paid' }}">
+                {{ STATUS_LABELS.get(it.fulfillment_status, it.fulfillment_status or 'pending') }}
+            </span>
+        </div>
+        {% if it.digital_token and it.fulfillment_status == 'file_delivered' %}
+        <div class="os-item-detail">
+            <a class="os-tracking-link" href="{{ url_for('public_digital_download', token=it.digital_token) }}">
+                <i class="fas fa-download"></i> Download file
+            </a>
+            {% if it.digital_expires_at %}
+            <span style="font-size:0.78rem;opacity:0.55;margin-left:8px;">
+                expires {{ it.digital_expires_at.strftime('%b %-d, %Y') }}
+            </span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% set _it_tickets = it.tickets.all() if it.tickets else [] %}
+        {% if _it_tickets %}
+        <div class="os-item-detail">
+            <div style="margin-bottom:6px;font-weight:600;">
+                Tickets ({{ _it_tickets | length }})
+            </div>
+            {% for tk in _it_tickets %}
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:rgba(94,238,248,0.07);border:1px solid rgba(94,238,248,0.22);border-radius:8px;margin-bottom:5px;">
+                <span style="font-family:monospace;letter-spacing:0.08em;font-size:0.86rem;">{{ tk.code }}</span>
+                {% if tk.redeemed_at %}
+                <span style="font-size:0.74rem;color:#ff8a8a;font-weight:700;">REDEEMED</span>
+                {% else %}
+                <a href="/ticket/{{ tk.code }}" style="font-size:0.82rem;color:#5eeef8;text-decoration:none;">Open ticket →</a>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% elif it.ticket_code and it.fulfillment_status == 'ticket_issued' %}
+        <div class="os-item-detail">
+            <strong>Ticket code:</strong>
+            <span style="font-family:monospace;letter-spacing:0.08em;background:rgba(255,255,255,0.07);padding:3px 8px;border-radius:6px;margin-left:4px;">
+                {{ it.ticket_code }}
+            </span>
+        </div>
+        {% endif %}
+    </div>
+    {% endmacro %}
+
+    {% set _shipments = order.shipments.order_by('sequence') | list if order.shipments else [] %}
+    {% set _unpacked = order.items | rejectattr('shipment_id') | list %}
+
+    {% for s in _shipments %}
+    <div class="os-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+            <h2 style="margin:0;">
+                <i class="fas fa-box" style="opacity:0.7;margin-right:6px;"></i>
+                Package {{ s.sequence }}{% if _shipments|length > 1 %} of {{ _shipments|length }}{% endif %}
+                <span style="font-weight:400;font-size:0.78rem;opacity:0.55;margin-left:6px;">{{ s.fulfillment_type.replace('_', ' ') }}</span>
+            </h2>
+            <span class="os-status-pill os-pill-{{ s.status }}">
+                {{ STATUS_LABELS.get(s.status, s.status.replace('_', ' ')) }}
+            </span>
+        </div>
+        {% if s.tracking_carrier or s.tracking_number or s.tracking_url %}
+        <div class="os-item-detail" style="margin-bottom:10px;">
+            {% if s.tracking_carrier %}<strong>Carrier:</strong> {{ s.tracking_carrier }}<br>{% endif %}
+            {% if s.tracking_number %}<strong>Tracking #:</strong> {{ s.tracking_number }}<br>{% endif %}
+            {% if s.tracking_url %}<a class="os-tracking-link" href="{{ s.tracking_url }}" target="_blank">Track shipment →</a>{% endif %}
+        </div>
+        {% endif %}
+        {% if s.tracking_note %}
+        <div class="os-item-detail" style="margin-bottom:10px;"><em>{{ s.tracking_note }}</em></div>
+        {% endif %}
+        {% for it in s.items %}{{ render_item_row(it) }}{% endfor %}
+    </div>
+    {% endfor %}
+
+    {% if order.pickup_at or order.pickup_is_asap %}
+    <div class="os-card" style="border-color:rgba(94,238,248,0.32);background:rgba(94,238,248,0.06);">
+        <h2 style="color:#5eeef8;"><i class="fas fa-store"></i> Pickup time</h2>
+        <p style="margin:0;font-size:1rem;font-weight:600;">
+            {% if order.pickup_is_asap %}As soon as possible{% else %}{{ order.pickup_at.strftime('%A, %B %-d at %-I:%M %p') }}{% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    {% if _unpacked %}
+    <div class="os-card">
+        <h2>{% if _shipments %}Other items{% else %}Items{% endif %}</h2>
+        {% for it in _unpacked %}{{ render_item_row(it) }}{% endfor %}
+    </div>
+    {% endif %}
+
+    {# ─ Pending-payment banner with retry button ─────────────────────── #}
+    {% if order.status == 'pending_payment' %}
+    <div class="os-card" style="border-color:rgba(255,206,115,0.4);background:rgba(255,206,115,0.08);">
+        <h2 style="margin:0 0 6px;color:#ffd982;"><i class="fas fa-credit-card"></i> Payment incomplete</h2>
+        <p style="margin:0 0 12px;font-size:0.92rem;opacity:0.88;">
+            We haven't received payment for this order yet. Click below to complete checkout — your items are still reserved.
+        </p>
+        <button type="button" id="retryPayBtn" onclick="retryPayment()"
+                style="display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:8px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;border:none;font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit;">
+            <i class="fas fa-credit-card"></i> Complete payment
+        </button>
+        <span id="retryPayMsg" style="margin-left:12px;font-size:0.86rem;opacity:0.7;min-height:18px;"></span>
+        <p style="font-size:0.78rem;opacity:0.55;margin:10px 0 0;">
+            If you don't complete payment, this order will be canceled automatically and your items released.
+        </p>
+    </div>
+    <script>
+    async function retryPayment() {
+        const btn = document.getElementById('retryPayBtn');
+        const msg = document.getElementById('retryPayMsg');
+        btn.disabled = true;
+        msg.style.color = 'rgba(255,255,255,0.65)';
+        msg.textContent = 'Opening checkout…';
+        const r = await fetch('/order/{{ order.tracking_token }}/retry-payment', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: '{}',
+        });
+        const j = await r.json();
+        if (j.success && j.redirect) { location.href = j.redirect; return; }
+        btn.disabled = false;
+        msg.style.color = '#ff8a8a';
+        msg.textContent = j.error || 'Could not start payment.';
+    }
+    </script>
+    {% endif %}
+
+    {# ─ Cancellation request status banner ─────────────────────────────── #}
+    {% if order.cancellation_requested_at and not order.cancellation_resolved_at %}
+    <div class="os-card" style="border-color:rgba(255,206,115,0.32);background:rgba(255,206,115,0.08);">
+        <h2 style="color:#ffd982;"><i class="fas fa-clock"></i> Cancellation request pending</h2>
+        <p style="margin:0;font-size:0.92rem;opacity:0.85;">
+            We've received your request and a team member will review it shortly. You'll get an email with the decision.
+        </p>
+    </div>
+    {% elif order.cancellation_decision == 'denied' %}
+    <div class="os-card" style="border-color:rgba(255,80,80,0.25);background:rgba(255,80,80,0.06);">
+        <h2 style="color:#ff8a8a;">Cancellation request declined</h2>
+        {% if order.cancellation_admin_note %}
+        <p style="margin:0;font-size:0.92rem;opacity:0.85;white-space:pre-wrap;">{{ order.cancellation_admin_note }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# ─ Returns section ──────────────────────────────────────────────── #}
+    {% set _order_returns = order.returns.all() if order.returns else [] %}
+    {% if _order_returns %}
+    <div class="os-card">
+        <h2>Returns</h2>
+        {% for rma in _order_returns %}
+            <div class="os-item">
+                <div class="os-item-head">
+                    <div>
+                        <div class="os-item-name">{{ rma.rma_number }}</div>
+                        <div class="os-item-meta">
+                            {{ rma.items|length }} item(s)
+                            · opened {{ rma.requested_at.strftime('%b %-d, %Y') if rma.requested_at else '' }}
+                        </div>
+                    </div>
+                    <span class="os-status-pill os-pill-{{ rma.status }}">{{ rma.status.replace('_', ' ') }}</span>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ─ Buyer actions: cancel / return ──────────────────────────────────── #}
+    {# ─ Customer support chat ──────────────────────────────────────────── #}
+    <div class="os-card" id="supportCard" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+            <h2 style="margin:0;">Need help?</h2>
+            <span style="font-size:0.78rem;opacity:0.55;" id="supportStatus">Loading…</span>
+        </div>
+        <div id="supportMessages"
+             style="max-height:340px;overflow-y:auto;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+            <textarea id="supportInput" rows="2" placeholder="Type a message to our team…"
+                      style="flex:1;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:inherit;font-size:0.92rem;font-family:inherit;resize:vertical;"></textarea>
+            <button id="supportSendBtn" onclick="supportSend()"
+                    style="padding:11px 18px;border-radius:8px;background:linear-gradient(135deg,#5eeef8,#5eeec8);color:#111;border:none;font-size:0.9rem;font-weight:700;cursor:pointer;font-family:inherit;">
+                Send
+            </button>
+        </div>
+        <p style="font-size:0.74rem;opacity:0.5;margin:8px 0 0;">
+            We'll email you when there's a reply. Responses usually take a few hours.
+        </p>
+    </div>
+
+    <script>
+    (function() {
+        const TOKEN = '{{ order.tracking_token }}';
+        const card = document.getElementById('supportCard');
+        const msgs = document.getElementById('supportMessages');
+        const statusEl = document.getElementById('supportStatus');
+        const input = document.getElementById('supportInput');
+        const btn = document.getElementById('supportSendBtn');
+        let lastIds = new Set();
+        let pollTimer = null;
+        let pageVisible = true;
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function renderMessage(m) {
+            const mine = m.sender_type === 'buyer';
+            const align = mine ? 'flex-end' : 'flex-start';
+            const bg = mine ? 'rgba(94,238,200,0.13)' : 'rgba(255,255,255,0.07)';
+            const border = mine ? 'rgba(94,238,200,0.32)' : 'rgba(255,255,255,0.12)';
+            const corner = mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px';
+            return `<div style="display:flex;flex-direction:column;align-items:${align};max-width:88%;${mine ? 'align-self:flex-end;' : 'align-self:flex-start;'}">
+                <div style="background:${bg};border:1px solid ${border};border-radius:${corner};padding:8px 12px;font-size:0.92rem;white-space:pre-wrap;word-wrap:break-word;">${escapeHtml(m.body)}</div>
+                <div style="font-size:0.7rem;opacity:0.55;margin-top:2px;">${escapeHtml(m.sender_name || (mine ? 'You' : 'Admin'))} · ${escapeHtml(m.created_label || '')}</div>
+            </div>`;
+        }
+
+        async function fetchThread() {
+            try {
+                const r = await fetch(`/order/${TOKEN}/support`);
+                const j = await r.json();
+                if (!j.success) {
+                    if (j.enabled === false) { card.style.display = 'none'; return; }
+                    return;
+                }
+                card.style.display = '';
+                statusEl.textContent = j.status === 'closed' ? 'Closed' : 'Open';
+                const seen = new Set(j.messages.map(m => m.id));
+                if (seen.size !== lastIds.size || ![...seen].every(id => lastIds.has(id))) {
+                    msgs.innerHTML = j.messages.map(renderMessage).join('') ||
+                        '<div style="opacity:0.5;text-align:center;padding:20px;font-size:0.88rem;">No messages yet — start the conversation below.</div>';
+                    msgs.scrollTop = msgs.scrollHeight;
+                    lastIds = seen;
+                }
+            } catch (e) {}
+        }
+
+        window.supportSend = async function() {
+            const body = (input.value || '').trim();
+            if (!body) return;
+            btn.disabled = true;
+            const r = await fetch(`/order/${TOKEN}/support/send`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ body }),
+            });
+            const j = await r.json();
+            btn.disabled = false;
+            if (!j.success) { alert(j.error || 'Send failed.'); return; }
+            input.value = '';
+            fetchThread();
+        };
+
+        document.addEventListener('visibilitychange', () => { pageVisible = !document.hidden; });
+        function poll() {
+            if (pageVisible) fetchThread();
+            pollTimer = setTimeout(poll, 6000);
+        }
+        fetchThread();
+        poll();
+    })();
+    </script>
+
+    {% if can_cancel or can_return %}
+    <div class="os-card">
+        <h2>Need to change this order?</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            {% if can_cancel %}
+            <button type="button" onclick="openCancelDialog()"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;background:rgba(255,80,80,0.1);color:#ff8a8a;border:1px solid rgba(255,80,80,0.28);font-size:0.88rem;font-weight:600;cursor:pointer;font-family:inherit;">
+                <i class="fas fa-ban"></i> Request to cancel
+            </button>
+            {% endif %}
+            {% if can_return %}
+            <a href="/order/{{ order.tracking_token }}/return"
+               style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;background:rgba(255,255,255,0.06);color:inherit;text-decoration:none;border:1px solid rgba(255,255,255,0.12);font-size:0.88rem;font-weight:600;">
+                <i class="fas fa-undo-alt"></i> Request a return
+            </a>
+            {% endif %}
+        </div>
+        <p style="font-size:0.8rem;opacity:0.55;margin:10px 0 0;">
+            {% if can_cancel %}Cancellations are reviewed by our team. Once any item ships, returns are the only option.{% endif %}
+            {% if can_cancel and can_return %}<br>{% endif %}
+            {% if can_return %}Returns require items to be sent back before any refund is issued.{% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    {# ─ Cancel-request modal ───────────────────────────────────────────── #}
+    {% if can_cancel %}
+    <div id="cancelOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:18px;" onclick="if(event.target===this)closeCancelDialog()">
+        <div style="background:#181820;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:min(420px,100%);color:#fff;">
+            <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.07);font-weight:700;">
+                Request order cancellation
+            </div>
+            <div style="padding:16px 18px;">
+                <p style="margin:0 0 12px;font-size:0.9rem;opacity:0.8;">
+                    Our team will review your request. If approved, your order will be canceled and a full refund issued to your original payment method.
+                </p>
+                <label style="display:block;font-size:0.78rem;opacity:0.65;margin-bottom:5px;font-weight:600;">Reason (optional)</label>
+                <textarea id="cancelReason" rows="3"
+                          placeholder="Why are you canceling?"
+                          style="width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.88rem;font-family:inherit;box-sizing:border-box;"></textarea>
+            </div>
+            <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.07);display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+                <span id="cancelMsg" style="font-size:0.82rem;margin-right:auto;min-height:18px;"></span>
+                <button onclick="closeCancelDialog()"
+                        style="padding:8px 14px;border-radius:8px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.12);font-size:0.86rem;cursor:pointer;font-family:inherit;">Back</button>
+                <button onclick="submitCancelRequest()"
+                        style="padding:8px 14px;border-radius:8px;background:rgba(255,80,80,0.16);color:#ff8a8a;border:1px solid rgba(255,80,80,0.32);font-size:0.86rem;font-weight:600;cursor:pointer;font-family:inherit;">Submit request</button>
+            </div>
+        </div>
+    </div>
+    <script>
+    function openCancelDialog() { document.getElementById('cancelOverlay').style.display = 'flex'; }
+    function closeCancelDialog() { document.getElementById('cancelOverlay').style.display = 'none'; }
+    async function submitCancelRequest() {
+        const reason = document.getElementById('cancelReason').value.trim();
+        const msg = document.getElementById('cancelMsg');
+        msg.style.color = 'rgba(255,255,255,0.6)';
+        msg.textContent = 'Submitting…';
+        const r = await fetch('/order/{{ order.tracking_token }}/cancel-request', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ reason }),
+        });
+        const j = await r.json();
+        if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
+        msg.style.color = '#5eeec8';
+        msg.textContent = 'Request submitted.';
+        setTimeout(() => location.reload(), 700);
+    }
+    </script>
+    {% endif %}
+
+    {% if order.address %}
+    <div class="os-card">
+        <h2>Ship to</h2>
+        <div style="font-size:0.9rem;opacity:0.85;line-height:1.5;">
+            {{ order.address.name }}<br>
+            {{ order.address.line1 }}{% if order.address.line2 %}<br>{{ order.address.line2 }}{% endif %}<br>
+            {{ order.address.city }}, {{ order.address.state }} {{ order.address.postal_code }}<br>
+            {{ order.address.country }}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="os-card">
+        <h2>Timeline</h2>
+        {% if events %}
+            {% for e in events %}
+            <div class="os-timeline-row">
+                <div class="os-timeline-time">{{ e.created_at.strftime('%b %-d, %Y %I:%M %p') if e.created_at else '' }}</div>
+                <div>
+                    {% if e.from_status %}{{ STATUS_LABELS.get(e.from_status, e.from_status).lower() }} →{% endif %}
+                    <strong>{{ STATUS_LABELS.get(e.to_status, e.to_status) }}</strong>
+                    {% if e.item_id %}
+                        {% set _itm = (order.items | selectattr('id', 'equalto', e.item_id) | first) %}
+                        {% if _itm %}<span style="opacity:0.65;"> · {{ _itm.product_name }}</span>{% endif %}
+                    {% endif %}
+                </div>
+                {% if e.message %}<div style="font-size:0.85rem;opacity:0.7;margin-top:3px;">{{ e.message }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div style="padding:16px;text-align:center;opacity:0.5;">No events yet.</div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

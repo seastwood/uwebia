@@ -1,0 +1,114 @@
+{% extends 'public_base.html' %}
+{% block title %}Ticket — {{ ticket.event_label or 'Event' }}{% endblock %}
+{% block content %}
+
+<style>
+.tk-page { max-width: 460px; margin: 40px auto 60px; padding: 0 18px; color: inherit; }
+.tk-card {
+    background: linear-gradient(135deg, rgba(94,238,248,0.12), rgba(94,238,200,0.1));
+    border: 1px solid rgba(94,238,248,0.4);
+    border-radius: 18px;
+    padding: 26px 24px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+    text-align: center;
+}
+.tk-event { font-size: 1.3rem; font-weight: 800; margin: 0 0 4px; }
+.tk-tier { font-size: 0.9rem; opacity: 0.75; margin: 0 0 16px; }
+.tk-code-wrap {
+    background: #fff;
+    color: #000;
+    padding: 22px 14px;
+    border-radius: 12px;
+    margin-bottom: 14px;
+}
+.tk-code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 1.5rem;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    margin: 0;
+    word-break: break-all;
+}
+.tk-meta { margin: 14px 0; font-size: 0.9rem; opacity: 0.85; line-height: 1.5; }
+.tk-meta strong { color: inherit; opacity: 1; }
+.tk-redeemed {
+    background: rgba(255,80,80,0.12);
+    color: #ff8a8a;
+    border: 1px solid rgba(255,80,80,0.32);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-weight: 700;
+    font-size: 0.92rem;
+    margin: 14px 0 0;
+}
+.tk-status-pill {
+    display: inline-block;
+    background: rgba(94,238,200,0.16);
+    color: #5eeec8;
+    border: 1px solid rgba(94,238,200,0.36);
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 8px;
+}
+.tk-order-link { font-size: 0.85rem; opacity: 0.65; margin-top: 18px; }
+.tk-order-link a { color: inherit; }
+</style>
+
+<div class="tk-page">
+    <div class="tk-card">
+        <h1 class="tk-event">{{ ticket.event_label or 'Event' }}</h1>
+        {% if ticket.tier_label %}<p class="tk-tier">{{ ticket.tier_label }}</p>{% endif %}
+
+        {% if ticket.redeemed_at %}
+        <p class="tk-redeemed"><i class="fas fa-ban"></i> Already redeemed
+            {{ ticket.redeemed_at.strftime('%b %-d, %Y at %-I:%M %p') }}</p>
+        {% else %}
+        <span class="tk-status-pill">Valid</span>
+        {% endif %}
+
+        <div class="tk-code-wrap" style="margin-top:18px;">
+            <img src="/ticket/{{ ticket.code }}/qr.svg"
+                 alt="QR for {{ ticket.code }}"
+                 style="display:block;width:220px;height:220px;margin:0 auto 14px;background:#fff;border-radius:6px;">
+            <p class="tk-code">{{ ticket.code }}</p>
+            <p style="margin:8px 0 0;font-size:0.78rem;color:#555;">
+                Show this code at the door — scan or type it.
+            </p>
+        </div>
+
+        <div class="tk-meta">
+            {% if product and product.event_starts_at %}
+            <div>
+                <strong>
+                    {% if product.event_all_day %}
+                        {{ product.event_starts_at.strftime('%A, %B %-d, %Y') }} (all day)
+                    {% else %}
+                        {{ product.event_starts_at.strftime('%A, %B %-d, %Y') }}<br>
+                        {{ product.event_starts_at.strftime('%-I:%M %p') }}
+                        {% if product.event_ends_at %} – {{ product.event_ends_at.strftime('%-I:%M %p') }}{% endif %}
+                    {% endif %}
+                </strong>
+            </div>
+            {% endif %}
+            {% if product and product.event_location %}
+            <div style="margin-top:6px;"><i class="fas fa-map-marker-alt"></i> {{ product.event_location }}</div>
+            {% endif %}
+            {% if ticket.attendee_name %}
+            <div style="margin-top:8px;">Attendee: <strong>{{ ticket.attendee_name }}</strong></div>
+            {% endif %}
+        </div>
+
+        <p class="tk-order-link">
+            Order #{{ order.order_number }}
+            {% if order.tracking_token %}
+            · <a href="/order/{{ order.tracking_token }}">View order</a>
+            {% endif %}
+        </p>
+    </div>
+</div>
+
+{% endblock %}

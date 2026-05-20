@@ -65,34 +65,81 @@
                 </div>
                 {% endif %}
 
+                {% set _has_variants = product.option_types and (variants_json | length) > 0 %}
                 <div class="sp-price-row">
-                    <span class="sp-price">${{ '%.2f' | format(product.price) }}</span>
+                    <span class="sp-price" id="sp-price">${{ '%.2f' | format(product.price) }}</span>
                     {% if product.compare_at_price %}
                     <span class="sp-compare">${{ '%.2f' | format(product.compare_at_price) }}</span>
                     {% endif %}
                 </div>
 
+                {% if _has_variants %}
+                <p class="sp-stock-badge sp-stock-badge--low" id="sp-stock-msg" style="display:none;"></p>
+                {% else %}
                 {% set in_stock = not product.track_inventory or product.inventory_qty > 0 or product.allow_oversell %}
                 {% if not in_stock %}
                 <p class="sp-stock-badge sp-stock-badge--out">Out of stock</p>
                 {% elif product.track_inventory and product.inventory_qty <= 5 %}
                 <p class="sp-stock-badge sp-stock-badge--low">Only {{ product.inventory_qty }} left</p>
                 {% endif %}
+                {% endif %}
+
+                {% if product.fulfillment_type == 'ticket' and (product.event_starts_at or product.event_location) %}
+                <div style="margin:14px 0;padding:14px 16px;background:rgba(94,238,248,0.08);border:1px solid rgba(94,238,248,0.3);border-radius:10px;">
+                    {% if product.event_starts_at %}
+                    <div style="display:flex;align-items:center;gap:10px;font-weight:600;color:#5eeef8;font-size:1rem;">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span>
+                            {% if product.event_all_day %}
+                                {{ product.event_starts_at.strftime('%A, %B %-d, %Y') }}
+                                {% if product.event_ends_at and product.event_ends_at.date() != product.event_starts_at.date() %}
+                                – {{ product.event_ends_at.strftime('%B %-d, %Y') }}
+                                {% endif %}
+                                <span style="font-weight:400;opacity:0.7;">(all day)</span>
+                            {% else %}
+                                {{ product.event_starts_at.strftime('%A, %B %-d, %Y · %-I:%M %p') }}
+                                {% if product.event_ends_at %} – {{ product.event_ends_at.strftime('%-I:%M %p') }}{% endif %}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% if product.event_location %}
+                    <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;margin-top:6px;">
+                        <i class="fas fa-map-marker-alt" style="color:#5eeef8;"></i>
+                        <span>{{ product.event_location }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
 
                 {% if product.description %}
                 <div class="sp-description">{{ product.description }}</div>
                 {% endif %}
 
-                {% if in_stock and not website.store_in_store_only %}
+                {% if _has_variants %}
+                <div id="sp-variant-pickers" style="margin:14px 0;">
+                    {% for ot in (product.option_types or []) %}
+                    <div style="margin-bottom:10px;">
+                        <label style="display:block;font-size:0.78rem;font-weight:600;opacity:0.65;margin-bottom:5px;">{{ ot }}</label>
+                        <select class="sp-variant-select" data-slot="{{ loop.index0 }}"
+                                onchange="onVariantPick()"
+                                style="padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);color:inherit;font-size:0.92rem;font-family:inherit;min-width:160px;">
+                            <option value="">Choose {{ ot.lower() }}…</option>
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if not website.store_in_store_only %}
                 <div class="sp-add-row">
                     <div class="sp-qty-wrap">
                         <button onclick="spQty(-1)">−</button>
-                        <input type="number" id="spQty" value="1" min="1"
-                               max="{{ product.inventory_qty if product.track_inventory else 999 }}">
+                        <input type="number" id="spQty" value="1" min="1" max="999">
                         <button onclick="spQty(1)">+</button>
                     </div>
                     <button class="sp-add-btn" id="spAddBtn" onclick="spAddToCart({{ product.id }})">
-                        Add to Cart
+                        {% if _has_variants %}Select options{% else %}Add to Cart{% endif %}
                     </button>
                 </div>
                 {% endif %}
@@ -210,6 +257,89 @@
 </div>
 
 <script>
+// ── Variants ──────────────────────────────────────────────────────────────
+const PRODUCT_VARIANTS = {{ variants_json | tojson if variants_json is defined else '[]' }};
+const PRODUCT_HAS_VARIANTS = PRODUCT_VARIANTS.length > 0;
+const PRODUCT_BASE_PRICE = {{ product.price | float | round(2) }};
+const PRODUCT_TRACK_INV = {{ 'true' if product.track_inventory else 'false' }};
+const PRODUCT_ALLOW_OVERSELL = {{ 'true' if product.allow_oversell else 'false' }};
+let SELECTED_VARIANT = null;
+
+function _selectsValues() {
+    return Array.from(document.querySelectorAll('.sp-variant-select')).map(s => s.value || null);
+}
+
+function _matchVariant(slots) {
+    return PRODUCT_VARIANTS.find(v =>
+        (v.option1 || null) === (slots[0] || null) &&
+        (v.option2 || null) === (slots[1] || null) &&
+        (v.option3 || null) === (slots[2] || null)
+    ) || null;
+}
+
+function _populateSelectors() {
+    // For each slot, only show values that are part of at least one ACTIVE variant.
+    const selects = document.querySelectorAll('.sp-variant-select');
+    selects.forEach((sel, slotIdx) => {
+        const current = sel.value;
+        const key = ['option1','option2','option3'][slotIdx];
+        const vals = Array.from(new Set(PRODUCT_VARIANTS.map(v => v[key]).filter(Boolean)));
+        sel.innerHTML = `<option value="">Choose…</option>` +
+            vals.map(v => `<option value="${escapeAttr(v)}" ${current === v ? 'selected' : ''}>${escapeAttr(v)}</option>`).join('');
+    });
+}
+
+function escapeAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+
+function onVariantPick() {
+    const slots = _selectsValues();
+    const all = slots.every(s => s !== null && s !== '');
+    const v = all ? _matchVariant(slots) : null;
+    SELECTED_VARIANT = v;
+    const priceEl = document.getElementById('sp-price');
+    const stockMsgEl = document.getElementById('sp-stock-msg');
+    const btn = document.getElementById('spAddBtn');
+    const qtyEl = document.getElementById('spQty');
+
+    if (v) {
+        priceEl.textContent = '$' + v.price.toFixed(2);
+        const oos = PRODUCT_TRACK_INV && !PRODUCT_ALLOW_OVERSELL && v.inventory_qty <= 0;
+        if (oos) {
+            stockMsgEl.textContent = 'Out of stock';
+            stockMsgEl.classList.remove('sp-stock-badge--low');
+            stockMsgEl.classList.add('sp-stock-badge--out');
+            stockMsgEl.style.display = '';
+            btn.disabled = true;
+            btn.textContent = 'Out of stock';
+        } else {
+            if (PRODUCT_TRACK_INV && v.inventory_qty <= 5 && !PRODUCT_ALLOW_OVERSELL) {
+                stockMsgEl.textContent = `Only ${v.inventory_qty} left`;
+                stockMsgEl.classList.add('sp-stock-badge--low');
+                stockMsgEl.classList.remove('sp-stock-badge--out');
+                stockMsgEl.style.display = '';
+            } else {
+                stockMsgEl.style.display = 'none';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Add to Cart';
+            if (qtyEl) qtyEl.max = (PRODUCT_TRACK_INV && !PRODUCT_ALLOW_OVERSELL) ? v.inventory_qty : 999;
+        }
+    } else if (PRODUCT_HAS_VARIANTS) {
+        priceEl.textContent = '$' + PRODUCT_BASE_PRICE.toFixed(2);
+        stockMsgEl.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = all ? 'Combination unavailable' : 'Select options';
+        if (all) btn.disabled = true;
+    }
+}
+
+if (PRODUCT_HAS_VARIANTS) {
+    _populateSelectors();
+    onVariantPick();
+}
+
 function spSetImage(url, thumb) {
     document.getElementById('spMainImg').src = url;
     document.querySelectorAll('.sp-thumb').forEach(t => t.classList.remove('sp-thumb--active'));
@@ -226,13 +356,20 @@ async function spAddToCart(productId) {
     const btn = document.getElementById('spAddBtn');
     const st  = document.getElementById('spStatus');
     const qty = parseInt(document.getElementById('spQty').value) || 1;
+    if (PRODUCT_HAS_VARIANTS && !SELECTED_VARIANT) {
+        st.style.color = '#f88';
+        st.textContent = 'Please select all options first.';
+        return;
+    }
     btn.disabled = true;
     btn.textContent = 'Adding…';
+    const payload = { product_id: productId, qty };
+    if (SELECTED_VARIANT) payload.variant_id = SELECTED_VARIANT.id;
     try {
         const r = await fetch('/store/cart/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_id: productId, qty })
+            body: JSON.stringify(payload)
         });
         const d = await r.json();
         if (d.success) {

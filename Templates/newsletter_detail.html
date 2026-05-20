@@ -204,6 +204,15 @@ table.nd-table th { font-size: 0.74rem; text-transform: uppercase; letter-spacin
                         </td>
                         <td>{{ (c.updated_at or c.created_at).strftime('%b %-d, %Y') if (c.updated_at or c.created_at) else '' }}</td>
                         <td style="text-align:right;">
+                            {% if c.status in ('sent','partial') and newsletter.website_id and c.slug %}
+                                {% set _host = (live_websites | selectattr('id', 'equalto', newsletter.website_id) | first) %}
+                                {% if _host %}
+                                <a class="nd-btn nd-btn-primary" style="padding:4px 10px;" target="_blank"
+                                   href="{{ url_for('public_newsletter_campaign', prefix=(_host.url_prefix or None), newsletter_slug=newsletter.slug, campaign_slug=c.slug) }}">
+                                    <i class="fas fa-external-link-alt"></i> Public
+                                </a>
+                                {% endif %}
+                            {% endif %}
                             <a class="nd-btn nd-btn-secondary" style="padding:4px 10px;"
                                href="{{ url_for('admin_newsletter_campaign_edit', nid=newsletter.id, cid=c.id) }}">
                                 {% if c.status in ('sent','partial') %}View{% else %}Edit{% endif %}
@@ -266,6 +275,25 @@ table.nd-table th { font-size: 0.74rem; text-transform: uppercase; letter-spacin
                 </div>
                 <label class="nd-check"><input type="checkbox" id="setCollectName" {% if newsletter.collect_name %}checked{% endif %}> Collect a name field on the signup form</label>
                 <label class="nd-check"><input type="checkbox" id="setDoubleOptin" {% if newsletter.require_double_optin %}checked{% endif %}> Require double opt-in (sends a confirmation email)</label>
+            </div>
+
+            <div class="nd-card">
+                <h2>Public site</h2>
+                <p class="nd-help" style="margin:0 0 10px;">
+                    Which website hosts the public page for sent campaigns. Campaign URLs look like
+                    <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px;">/{prefix}/newsletter/{{ newsletter.slug }}/{slug}</code>.
+                </p>
+                <div class="nd-field">
+                    <label class="nd-label">Host website</label>
+                    <select class="nd-select" id="setWebsite">
+                        <option value="">— Not published publicly —</option>
+                        {% for w in (live_websites or []) %}
+                        <option value="{{ w.id }}" {% if newsletter.website_id == w.id %}selected{% endif %}>
+                            {{ w.name }}{% if w.url_prefix %} (/{{ w.url_prefix }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
 
             <div class="nd-card">
@@ -415,6 +443,7 @@ async function saveSettings(e) {
         collect_name: document.getElementById('setCollectName').checked,
         require_double_optin: document.getElementById('setDoubleOptin').checked,
         email_server_id: document.getElementById('setServer').value || null,
+        website_id: document.getElementById('setWebsite') ? (document.getElementById('setWebsite').value || null) : null,
         default_subject_prefix: document.getElementById('setSubjPrefix').value,
         confirmation_subject: document.getElementById('setConfSubject').value.trim(),
         confirmation_intro: document.getElementById('setConfIntro').value,

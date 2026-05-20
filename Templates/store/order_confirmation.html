@@ -3,6 +3,38 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/store_public.css') }}">
 
+<style>
+.sconf-totals { font-size: 0.93rem; line-height: 1.85; }
+.sconf-totals .row { display: flex; justify-content: space-between; }
+.sconf-totals .row--muted { opacity: 0.7; }
+.sconf-totals .row--tip { color: #5eeec8; }
+.sconf-totals .row--total { font-weight: 800; font-size: 1.05rem; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); }
+.sconf-ft-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 9px; border-radius: 999px; margin-left: 6px;
+    background: rgba(94,238,248,0.13); color: #5eeef8;
+    border: 1px solid rgba(94,238,248,0.3);
+    font-size: 0.72rem; font-weight: 600; vertical-align: middle;
+}
+.sconf-ft-badge i { font-size: 0.8em; }
+.sconf-next-list { margin: 8px 0 0; padding-left: 22px; font-size: 0.88rem; opacity: 0.78; }
+.sconf-next-list li { margin-bottom: 4px; }
+.sconf-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 16px; border-radius: 8px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    color: inherit; text-decoration: none; font-size: 0.88rem; font-weight: 600;
+}
+.sconf-link:hover { background: rgba(255,255,255,0.1); }
+</style>
+
+{% set _ft_label = {'shipping': ('Ship', 'box'), 'local_delivery': ('Local delivery', 'truck'),
+                    'pickup': ('Pickup', 'store'), 'digital': ('Digital', 'cloud-download-alt'),
+                    'ticket': ('Ticket', 'ticket-alt'), 'custom': ('Custom', 'tag')} %}
+{% set _has_shipping = (order.shipping_cost and (order.shipping_cost | float) > 0) or order.shipping_method_label %}
+{% set _ft_set = order.items | map(attribute='fulfillment_type') | reject('none') | list | unique | list %}
+{% set _all_pickup = _ft_set == ['pickup'] %}
+
 <div class="sp-page">
     <div class="sp-container sp-container--narrow">
 
@@ -14,6 +46,13 @@
                 Thanks, {{ order.contact_name.split()[0] }}. We've received your order
                 and will be in touch at <strong>{{ order.contact_email }}</strong>.
             </p>
+            {% if order.tracking_token %}
+            <div style="margin-top:14px;">
+                <a class="sconf-link" href="/order/{{ order.tracking_token }}">
+                    <i class="fas fa-receipt"></i> View order status
+                </a>
+            </div>
+            {% endif %}
         </div>
 
         <div class="sconf-layout">
@@ -24,35 +63,110 @@
                 <div class="sconf-item">
                     <span class="sconf-item-name">
                         {{ item.product_name }}
+                        {% if item.variant_options_snapshot %}
+                        <span style="display:block;font-size:0.8rem;opacity:0.7;margin-top:1px;">{{ item.variant_options_snapshot }}</span>
+                        {% endif %}
                         <span class="sco-order-item-qty">× {{ item.quantity }}</span>
+                        {% if item.fulfillment_type and item.fulfillment_type in _ft_label %}
+                            {% set _lbl, _icon = _ft_label[item.fulfillment_type] %}
+                            <span class="sconf-ft-badge"><i class="fas fa-{{ _icon }}"></i> {{ _lbl }}</span>
+                        {% endif %}
                     </span>
                     <span>${{ '%.2f' | format(item.line_total) }}</span>
                 </div>
                 {% endfor %}
                 <div class="sc-summary-divider" style="margin:14px 0"></div>
-                <div class="sconf-item sconf-item--total">
-                    <span>Total</span>
-                    <span>${{ '%.2f' | format(order.total) }}</span>
+
+                <div class="sconf-totals">
+                    <div class="row row--muted">
+                        <span>Subtotal</span>
+                        <span>${{ '%.2f' | format(order.subtotal | float) }}</span>
+                    </div>
+
+                    {% if _has_shipping %}
+                    <div class="row row--muted">
+                        <span>{{ order.shipping_method_label or 'Shipping' }}</span>
+                        <span>${{ '%.2f' | format(order.shipping_cost | float) }}</span>
+                    </div>
+                    {% if delivery_estimate %}
+                    <p style="font-size:0.78rem;margin:2px 0 8px;color:#5eeec8;">
+                        <i class="fas fa-truck-fast"></i> {{ delivery_estimate.label }}
+                        {% if delivery_estimate.date_range %} ({{ delivery_estimate.date_range }}){% endif %}
+                    </p>
+                    {% endif %}
+                    {% elif _all_pickup %}
+                    <div class="row row--muted">
+                        <span>Pickup</span><span>Free</span>
+                    </div>
+                    {% endif %}
+
+                    {% if order.tip_total and (order.tip_total | float) > 0 %}
+                    <div class="row row--tip">
+                        <span>Tip</span>
+                        <span>${{ '%.2f' | format(order.tip_total | float) }}</span>
+                    </div>
+                    {% endif %}
+
+                    {% if order.tax_total and (order.tax_total | float) > 0 %}
+                    <div class="row row--muted">
+                        <span>Tax</span>
+                        <span>${{ '%.2f' | format(order.tax_total | float) }}</span>
+                    </div>
+                    {% endif %}
+
+                    <div class="row row--total">
+                        <span>Total</span>
+                        <span>${{ '%.2f' | format(order.total) }}</span>
+                    </div>
                 </div>
             </div>
 
-            {% if order.address %}
             <div class="sconf-address">
-                <h3>Shipping To</h3>
+                {# Show ship-to only if there's actual shipping/delivery, not pure-pickup #}
+                {% if order.address and not _all_pickup %}
+                <h3>{{ 'Delivery To' if 'local_delivery' in _ft_set else 'Shipping To' }}</h3>
                 <p>{{ order.address.name }}</p>
                 <p>{{ order.address.line1 }}</p>
                 {% if order.address.line2 %}<p>{{ order.address.line2 }}</p>{% endif %}
                 <p>{{ order.address.city }}, {{ order.address.state }} {{ order.address.postal_code }}</p>
                 <p>{{ order.address.country }}</p>
+                {% elif _all_pickup %}
+                <h3>Pickup</h3>
+                {% if order.pickup_at or order.pickup_is_asap %}
+                <p style="margin:0 0 6px;font-weight:600;font-size:1rem;">
+                    {% if order.pickup_is_asap %}As soon as possible{% else %}{{ order.pickup_at.strftime('%A, %B %-d at %-I:%M %p') }}{% endif %}
+                </p>
+                {% endif %}
+                <p style="opacity:0.85;">We'll let you know at <strong>{{ order.contact_email }}</strong> when your order is ready.</p>
+                {% endif %}
+
+                <h3 style="margin-top:22px;">What's next</h3>
+                <ul class="sconf-next-list">
+                    <li>You'll get a confirmation email shortly at {{ order.contact_email }}.</li>
+                    {% if 'shipping' in _ft_set %}
+                    <li>We'll send tracking info once your order ships.</li>
+                    {% endif %}
+                    {% if 'local_delivery' in _ft_set %}
+                    <li>We'll reach out when your delivery is on its way.</li>
+                    {% endif %}
+                    {% if 'pickup' in _ft_set %}
+                    <li>You'll get a "ready for pickup" email when your order is prepared.</li>
+                    {% endif %}
+                    {% if 'digital' in _ft_set %}
+                    <li>Your download links will be emailed once we mark items delivered.</li>
+                    {% endif %}
+                    {% if 'ticket' in _ft_set %}
+                    <li>Your ticket code will be emailed once issued.</li>
+                    {% endif %}
+                </ul>
             </div>
-            {% endif %}
 
         </div>
 
         {% if order.status == 'pending_payment' %}
         <div class="sconf-payment-note">
             <i class="fas fa-info-circle"></i>
-            Payment details will be sent to {{ order.contact_email }}.
+            Payment is still processing. We'll email <strong>{{ order.contact_email }}</strong> once it's complete.
         </div>
         {% endif %}
 

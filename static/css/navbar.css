@@ -329,6 +329,158 @@
     display: none;
 }
 
+/* ── Store umbrella dropdown (inline) ─────────────────────────────────── */
+/* Same visual shell as the hamburger dropdown, but anchored to its own
+   button inside the inline bar. Collapses with .nav-compact since it lives
+   inside .nav-inline-items. */
+.store-dropdown {
+    position: relative;
+}
+.store-dropdown-content {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 180px;
+    background: rgba(30, 30, 30, 0.96);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    z-index: 100001;
+}
+.store-dropdown.open .store-dropdown-content {
+    display: block;
+}
+.store-dropdown-content a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #eaeaea;
+    text-decoration: none;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: background 0.2s ease, color 0.2s ease;
+    white-space: nowrap;
+    font-size: 0.9rem;
+}
+.store-dropdown-content a:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #5eeef8;
+}
+.store-dropdown-content a i {
+    width: 16px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+/* Subheader label inside the hamburger dropdown that groups the Store items. */
+.nav-tools-group-label {
+    padding: 8px 12px 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.35);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Collapsible nested group inside the hamburger dropdown (e.g. Store). */
+.nav-tools-subgroup {
+    display: flex;
+    flex-direction: column;
+}
+.nav-tools-subgroup-toggle {
+    width: 100%;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+.nav-tools-subgroup-chevron {
+    font-size: 0.7rem;
+    opacity: 0.55;
+    transition: transform 0.2s ease;
+}
+.nav-tools-subgroup.open .nav-tools-subgroup-chevron {
+    transform: rotate(180deg);
+}
+.nav-tools-subgroup-content {
+    display: none;
+    flex-direction: column;
+    margin: 2px 0 4px 10px;
+    padding-left: 8px;
+    border-left: 2px solid rgba(94, 238, 248, 0.25);
+}
+.nav-tools-subgroup.open .nav-tools-subgroup-content {
+    display: flex;
+}
+.nav-tools-subitem {
+    font-size: 0.86rem;
+    padding: 8px 12px;
+}
+
+/* Count badge over the Store icon — orders awaiting fulfillment. */
+.store-dropdown-btn { position: relative; }
+.store-nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: #ff5757;
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 800;
+    line-height: 16px;
+    text-align: center;
+    box-shadow: 0 0 0 2px rgba(30,30,30,0.96);
+    pointer-events: none;
+}
+/* Inline variant used inside the hamburger Store subheader (no absolute pos). */
+.store-nav-badge--inline {
+    position: static;
+    box-shadow: none;
+    padding: 1px 7px;
+    height: 17px;
+    line-height: 15px;
+    font-size: 0.68rem;
+}
+/* Per-item badge attached to a dropdown row. Push to the right edge so the
+   icon + label stay left-aligned. */
+.nav-item-badge {
+    margin-left: auto;
+    min-width: 18px;
+    height: 17px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #ff5757;
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    line-height: 17px;
+    text-align: center;
+}
+.nav-item-badge.tone-yellow { background: #f5b731; color: #111; }
+.nav-item-badge.tone-cyan   { background: #5eeef8; color: #111; }
+/* In the inline (hover) Store dropdown rows are styled as <a> with display
+   varies — make sure flex layout lets the badge sit at the right edge. */
+.store-dropdown-content a {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+}
+
 /* ─────────────────────────────────────────────────────────────────────── */
 .nav-tools-dropdown {
     position: relative;
@@ -348,11 +500,57 @@
     padding: 8px;
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
     z-index: 100001;
+    /* Constrain to viewport so the dropdown never extends past the screen.
+       Leave generous breathing room below — keeps the panel from feeling
+       like it touches the bottom edge of the window. */
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.25) transparent;
+    /* Scroll-snap hint cues: top/bottom fade masks indicate more content.
+       --top/--bot are toggled by JS as the user scrolls. */
+    --nav-mask-top: 0;
+    --nav-mask-bot: 0;
+    -webkit-mask-image: linear-gradient(
+        180deg,
+        rgba(0,0,0, calc(1 - var(--nav-mask-top, 0))) 0,
+        #000 24px, #000 calc(100% - 24px),
+        rgba(0,0,0, calc(1 - var(--nav-mask-bot, 0))) 100%
+    );
+            mask-image: linear-gradient(
+        180deg,
+        rgba(0,0,0, calc(1 - var(--nav-mask-top, 0))) 0,
+        #000 24px, #000 calc(100% - 24px),
+        rgba(0,0,0, calc(1 - var(--nav-mask-bot, 0))) 100%
+    );
 }
+.nav-tools-dropdown-content::-webkit-scrollbar { width: 6px; }
+.nav-tools-dropdown-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 999px; }
+.nav-tools-dropdown-content::-webkit-scrollbar-track { background: transparent; }
 
+/* Up/down chevron indicators — placed inside the dropdown itself as sticky
+   pseudo-elements via wrapper spans the JS injects. */
 .nav-tools-dropdown.open .nav-tools-dropdown-content {
     display: block;
+    position: absolute;
 }
+.nav-tools-scroll-cue {
+    position: sticky;
+    left: 0; right: 0;
+    height: 18px;
+    pointer-events: none;
+    display: none;
+    z-index: 2;
+    font-size: 0.7rem;
+    text-align: center;
+    color: rgba(255,255,255,0.55);
+    line-height: 18px;
+}
+.nav-tools-scroll-cue--top    { top: -8px;  background: linear-gradient(180deg, rgba(30,30,30,0.96), transparent); }
+.nav-tools-scroll-cue--bottom { bottom: -8px; background: linear-gradient(0deg, rgba(30,30,30,0.96), transparent); }
+.nav-tools-dropdown-content.has-overflow-top    .nav-tools-scroll-cue--top    { display: block; }
+.nav-tools-dropdown-content.has-overflow-bottom .nav-tools-scroll-cue--bottom { display: block; }
 
 .nav-tools-item {
     display: flex;

@@ -1,0 +1,149 @@
+{% extends 'public_base.html' %}
+{% block content %}
+
+<style>
+.rr-page { max-width: 720px; margin: 0 auto; padding: 28px 22px 80px; color: inherit; }
+.rr-back { display: inline-flex; align-items: center; gap: 7px; color: inherit; font-size: 0.85rem; text-decoration: none; opacity: 0.65; margin-bottom: 14px; }
+.rr-back:hover { opacity: 1; }
+.rr-title { font-size: 1.6rem; font-weight: 800; margin: 4px 0 4px; }
+.rr-sub { font-size: 0.88rem; opacity: 0.65; margin: 0 0 22px; }
+.rr-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.rr-card h2 { margin: 0 0 12px; font-size: 1rem; }
+.rr-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; margin-bottom: 8px; }
+.rr-item.disabled { opacity: 0.5; }
+.rr-item-name { flex: 1; }
+.rr-item-meta { font-size: 0.78rem; opacity: 0.6; }
+.rr-qty { width: 70px; padding: 6px 10px; border-radius: 7px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: inherit; font-size: 0.88rem; text-align: center; }
+.rr-label { display: block; font-size: 0.78rem; opacity: 0.65; margin-bottom: 5px; font-weight: 600; }
+.rr-input { width: 100%; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: inherit; font-size: 0.88rem; box-sizing: border-box; font-family: inherit; }
+.rr-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: 8px; font-size: 0.92rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.rr-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.rr-btn-secondary { background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.12); }
+.rr-msg { font-size: 0.88rem; min-height: 18px; }
+.rr-notice { font-size: 0.85rem; opacity: 0.75; background: rgba(94,238,248,0.07); border: 1px solid rgba(94,238,248,0.22); padding: 10px 14px; border-radius: 8px; }
+.rr-error { font-size: 0.95rem; color: #ff8a8a; background: rgba(255,80,80,0.08); border: 1px solid rgba(255,80,80,0.25); padding: 14px 16px; border-radius: 10px; }
+</style>
+
+<div class="rr-page">
+    <a class="rr-back" href="{{ url_for('public_order_status', token=order.tracking_token) }}"><i class="fas fa-arrow-left"></i> Back to order</a>
+
+    <p style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;opacity:0.55;margin:0;">{{ website.name if website else 'Return request' }}</p>
+    <h1 class="rr-title">Request a return</h1>
+    <p class="rr-sub">Order #{{ order.order_number }}</p>
+
+    {% if not eligible %}
+        <div class="rr-error">{{ ineligible_reason or 'This order cannot be returned right now.' }}</div>
+    {% else %}
+        <div class="rr-notice" style="margin-bottom:16px;">
+            Submit this form to request a return. We'll review it and email you instructions on where to ship the item(s).
+            <strong>Your refund is issued after we receive the package.</strong>
+        </div>
+
+        <form id="rrForm" onsubmit="return submitReturn(event)">
+            <div class="rr-card">
+                <h2>Which item(s)?</h2>
+                {% for it in order.items %}
+                    {% set ft = it.fulfillment_type or 'shipping' %}
+                    {% set is_returnable = ft not in non_returnable_types %}
+                    {% set max_qty = remaining[it.id] %}
+                    <div class="rr-item {% if not is_returnable or max_qty <= 0 %}disabled{% endif %}">
+                        <div class="rr-item-name">
+                            <div><strong>{{ it.product_name }}</strong></div>
+                            <div class="rr-item-meta">
+                                ${{ '%.2f' | format(it.unit_price | float) }} each
+                                · purchased {{ it.quantity }}
+                                {% if not is_returnable %} · not returnable{% endif %}
+                                {% if is_returnable and max_qty == 0 %} · already in a return{% endif %}
+                                {% if is_returnable and 0 < max_qty < it.quantity %} · {{ max_qty }} left to return{% endif %}
+                            </div>
+                        </div>
+                        {% if is_returnable and max_qty > 0 %}
+                            <input class="rr-qty" type="number" min="0" max="{{ max_qty }}" value="0"
+                                   name="qty_{{ it.id }}" id="qty_{{ it.id }}">
+                        {% else %}
+                            <span style="opacity:0.4;font-size:0.85rem;">N/A</span>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="rr-card">
+                <h2>Why?</h2>
+                <label class="rr-label">Reason</label>
+                <select class="rr-input" id="reason_code" name="reason_code" required>
+                    <option value="">— Pick one —</option>
+                    {% for code, label in reason_codes %}
+                        <option value="{{ code }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <label class="rr-label" style="margin-top:12px;">Add any details (optional)</label>
+                <textarea class="rr-input" id="reason_note" name="reason_note" rows="3"
+                          placeholder="What happened with the order?"></textarea>
+            </div>
+
+            {% if settings and settings.returns_instructions %}
+            <div class="rr-card">
+                <h2>How returns work</h2>
+                <p style="margin:0;white-space:pre-wrap;font-size:0.9rem;">{{ settings.returns_instructions }}</p>
+            </div>
+            {% endif %}
+
+            <div style="display:flex;gap:8px;align-items:center;">
+                <span class="rr-msg" id="rrMsg" style="margin-right:auto;"></span>
+                <a class="rr-btn rr-btn-secondary" href="{{ url_for('public_order_status', token=order.tracking_token) }}">Cancel</a>
+                <button type="submit" class="rr-btn rr-btn-primary">Submit request</button>
+            </div>
+        </form>
+    {% endif %}
+</div>
+
+<script>
+async function submitReturn(ev) {
+    ev.preventDefault();
+    const msg = document.getElementById('rrMsg');
+    msg.style.color = '';
+    msg.style.opacity = '0.7';
+    msg.textContent = 'Submitting…';
+    const items = [];
+    document.querySelectorAll('input.rr-qty').forEach(el => {
+        const q = parseInt(el.value || '0', 10);
+        if (q > 0) items.push({ order_item_id: el.id.replace('qty_', ''), quantity: q });
+    });
+    if (items.length === 0) {
+        msg.style.color = '#ff8a8a';
+        msg.style.opacity = '1';
+        msg.textContent = 'Pick at least one item to return.';
+        return false;
+    }
+    const reason = document.getElementById('reason_code').value;
+    if (!reason) {
+        msg.style.color = '#ff8a8a';
+        msg.style.opacity = '1';
+        msg.textContent = 'Please pick a reason.';
+        return false;
+    }
+    const payload = {
+        items,
+        reason_code: reason,
+        reason_note: document.getElementById('reason_note').value.trim(),
+    };
+    const r = await fetch(window.location.pathname, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) {
+        msg.style.color = '#ff8a8a';
+        msg.style.opacity = '1';
+        msg.textContent = j.error || 'Submission failed.';
+        return false;
+    }
+    msg.style.color = '#5eeec8';
+    msg.style.opacity = '1';
+    msg.textContent = 'Request submitted — RMA ' + j.rma_number;
+    setTimeout(() => location.href = j.redirect, 900);
+    return false;
+}
+</script>
+
+{% endblock %}

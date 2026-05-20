@@ -5,6 +5,17 @@ html {
     min-height: 100%;
 }
 
+/* Native <select> dropdowns: browsers render the popped-open panel using
+   `option`'s own color/background, not the parent <select>'s. Without this
+   the panel renders white-on-white in dark mode and you can only see the
+   text you're currently hovering. Apply globally so every admin page works
+   without needing to repeat this rule. */
+select option,
+select optgroup {
+    background-color: #22222a;
+    color: #f0f0f0;
+}
+
 body {
     font-family: 'Roboto', sans-serif;
     display: flex;
