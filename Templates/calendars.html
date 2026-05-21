@@ -225,6 +225,47 @@
                 <label for="eventColor">Color</label>
                 <input type="color" id="eventColor" value="#3b82f6" style="height:38px;padding:2px 6px;cursor:pointer;">
             </div>
+
+            <!-- Recurrence (visible when creating new; read-only summary when editing) -->
+            <div class="uw-field" id="eventRecurrenceRow">
+                <label for="eventRecurFrequency">Repeats</label>
+                <select id="eventRecurFrequency" onchange="onRecurFrequencyChange()">
+                    <option value="">Doesn't repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                </select>
+            </div>
+            <div class="uw-field" id="eventRecurDetails" style="display:none;">
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;">
+                    <label for="eventRecurInterval" style="margin:0;">Every</label>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <input type="number" id="eventRecurInterval" min="1" max="99" value="1" style="width:70px;">
+                        <span id="eventRecurUnitLabel" style="opacity:0.7;">day(s)</span>
+                    </div>
+                    <label style="margin:0;">Ends</label>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label style="display:flex;align-items:center;gap:7px;font-weight:400;font-size:0.88rem;cursor:pointer;margin:0;">
+                            <input type="radio" name="eventRecurEnd" value="count" checked onchange="onRecurEndChange()" style="width:14px;height:14px;cursor:pointer;">
+                            After
+                            <input type="number" id="eventRecurCount" min="1" max="200" value="10" style="width:64px;">
+                            occurrences
+                        </label>
+                        <label style="display:flex;align-items:center;gap:7px;font-weight:400;font-size:0.88rem;cursor:pointer;margin:0;">
+                            <input type="radio" name="eventRecurEnd" value="until" onchange="onRecurEndChange()" style="width:14px;height:14px;cursor:pointer;">
+                            On date
+                            <input type="date" id="eventRecurUntil" disabled>
+                        </label>
+                    </div>
+                </div>
+                <div style="margin-top:6px;opacity:0.5;font-size:0.78rem;">Max 200 occurrences / 2 years per series.</div>
+            </div>
+            <div class="uw-field" id="eventRecurSummary" style="display:none;">
+                <label>Repeats</label>
+                <div id="eventRecurSummaryText" style="opacity:0.75;font-size:0.9rem;padding:6px 0;"></div>
+            </div>
+
             <div class="uw-field">
                 <label for="eventDescription">Description</label>
                 <textarea id="eventDescription" rows="3"></textarea>
@@ -233,6 +274,7 @@
         </div>
         <div class="uw-modal-footer">
             <button type="button" class="uw-btn uw-btn-danger" id="eventDeleteBtn" style="display:none;margin-right:auto;" onclick="deleteCurrentEvent()">Delete</button>
+            <button type="button" class="uw-btn uw-btn-secondary" id="eventCopyBtn" style="display:none;" onclick="copyCurrentEvent()"><i class="fas fa-copy"></i> Copy</button>
             <button type="button" class="uw-btn uw-btn-secondary" onclick="closeEventModal()">Close</button>
             <button type="submit" form="eventModalForm" class="uw-btn uw-btn-primary" id="eventSaveBtn">Save</button>
         </div>
@@ -354,6 +396,10 @@
             editable: true,
             selectable: true,
             dateClick: function (info) {
+                if (_pasteMode) {
+                    _pasteToDate(calendarId, info.dateStr);
+                    return;
+                }
                 openAddEventModal(calendarId, info.dateStr);
             },
             eventClick: function (info) {
@@ -600,12 +646,170 @@
         document.getElementById('eventHideTimeRow').style.display      = '';
         document.getElementById('eventStartDate').required   = true;
         document.getElementById('eventAllDayStart').required = false;
+        document.getElementById('eventRecurFrequency').value = '';
+        document.getElementById('eventRecurDetails').style.display = 'none';
+        document.getElementById('eventRecurSummary').style.display = 'none';
+        document.getElementById('eventRecurInterval').value = 1;
+        document.getElementById('eventRecurCount').value = 10;
+        document.getElementById('eventRecurUntil').value = '';
+        const countRadio = document.querySelector('input[name="eventRecurEnd"][value="count"]');
+        if (countRadio) countRadio.checked = true;
+        onRecurEndChange();
+    }
+
+    function onRecurFrequencyChange() {
+        const freq = document.getElementById('eventRecurFrequency').value;
+        document.getElementById('eventRecurDetails').style.display = freq ? '' : 'none';
+        const unitMap = { daily: 'day(s)', weekly: 'week(s)', monthly: 'month(s)', yearly: 'year(s)' };
+        document.getElementById('eventRecurUnitLabel').textContent = unitMap[freq] || '';
+    }
+
+    function onRecurEndChange() {
+        const mode = document.querySelector('input[name="eventRecurEnd"]:checked');
+        const isUntil = mode && mode.value === 'until';
+        document.getElementById('eventRecurCount').disabled = isUntil;
+        document.getElementById('eventRecurUntil').disabled = !isUntil;
+    }
+
+    function _buildRecurrenceFromForm() {
+        const freq = document.getElementById('eventRecurFrequency').value;
+        if (!freq) return null;
+        const interval = parseInt(document.getElementById('eventRecurInterval').value, 10) || 1;
+        const endMode = document.querySelector('input[name="eventRecurEnd"]:checked');
+        const end_type = endMode ? endMode.value : 'count';
+        const rule = { frequency: freq, interval: interval, end_type: end_type };
+        if (end_type === 'count') {
+            rule.count = parseInt(document.getElementById('eventRecurCount').value, 10) || 1;
+        } else {
+            const u = document.getElementById('eventRecurUntil').value;
+            if (!u) return null;
+            rule.until = u;
+        }
+        return rule;
+    }
+
+    function _describeRecurrence(rule) {
+        if (!rule) return '';
+        const unit = { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[rule.frequency] || rule.frequency;
+        const every = rule.interval > 1 ? `every ${rule.interval} ${unit}s` : `every ${unit}`;
+        if (rule.end_type === 'until' && rule.until) return `Repeats ${every} until ${rule.until}`;
+        if (rule.count) return `Repeats ${every}, ${rule.count} time${rule.count > 1 ? 's' : ''}`;
+        return `Repeats ${every}`;
+    }
+
+    /* ── Copy / paste clipboard (persists across reloads) ── */
+    const CAL_CLIPBOARD_KEY = 'uwebia.calendarClipboard';
+    let _pasteMode = false;
+    let _pasteToastEl = null;
+
+    function _readClipboard() {
+        try { return JSON.parse(localStorage.getItem(CAL_CLIPBOARD_KEY) || 'null'); }
+        catch (_) { return null; }
+    }
+    function _writeClipboard(payload) {
+        try { localStorage.setItem(CAL_CLIPBOARD_KEY, JSON.stringify(payload)); } catch (_) { }
+    }
+    function _clearClipboard() {
+        try { localStorage.removeItem(CAL_CLIPBOARD_KEY); } catch (_) { }
+    }
+
+    function copyCurrentEvent() {
+        // Capture the current modal form state as a clipboard entry.
+        const allDay = document.getElementById('eventAllDay').checked;
+        const payload = {
+            title: document.getElementById('eventTitle').value,
+            description: document.getElementById('eventDescription').value,
+            backgroundColor: document.getElementById('eventColor').value,
+            allDay: allDay,
+            hideTime: document.getElementById('eventHideTime').checked,
+            // Capture duration so we can preserve it when pasting to a new day.
+            durationMs: _eventDurationMs(),
+            // Capture hour/minute for non-all-day events so paste lands at the
+            // same time of day as the source.
+            startHour: allDay ? null : parseInt((document.getElementById('eventStartTime').value || '00:00').split(':')[0], 10),
+            startMinute: allDay ? null : parseInt((document.getElementById('eventStartTime').value || '00:00').split(':')[1], 10),
+        };
+        _writeClipboard(payload);
+        closeEventModal();
+        _enterPasteMode(payload);
+    }
+
+    function _eventDurationMs() {
+        const allDay = document.getElementById('eventAllDay').checked;
+        if (allDay) {
+            const s = document.getElementById('eventAllDayStart').value;
+            const e = document.getElementById('eventAllDayEnd').value;
+            if (!s) return 0;
+            const sd = new Date(s + 'T00:00:00');
+            const ed = e ? new Date(e + 'T00:00:00') : sd;
+            return Math.max(0, ed - sd);
+        }
+        const sd = document.getElementById('eventStartDate').value;
+        const st = document.getElementById('eventStartTime').value || '00:00';
+        const ed = document.getElementById('eventEndDate').value || sd;
+        const et = document.getElementById('eventEndTime').value || st;
+        if (!sd) return 0;
+        return Math.max(0, new Date(`${ed}T${et}`) - new Date(`${sd}T${st}`));
+    }
+
+    function _enterPasteMode(payload) {
+        _pasteMode = true;
+        document.body.classList.add('cal-paste-mode');
+        if (_pasteToastEl) _pasteToastEl.remove();
+        const t = document.createElement('div');
+        t.className = 'cal-paste-toast';
+        t.innerHTML = `<i class="fas fa-clipboard"></i> Copied "<strong>${(payload.title || 'Untitled').replace(/[<>&"']/g, '')}</strong>" — click a day to paste <button type="button" onclick="_exitPasteMode(true)">Cancel</button>`;
+        document.body.appendChild(t);
+        _pasteToastEl = t;
+    }
+    function _exitPasteMode(clear) {
+        _pasteMode = false;
+        document.body.classList.remove('cal-paste-mode');
+        if (_pasteToastEl) { _pasteToastEl.remove(); _pasteToastEl = null; }
+        if (clear) _clearClipboard();
+    }
+
+    async function _pasteToDate(calendarId, dateStr) {
+        const clip = _readClipboard();
+        if (!clip) { _exitPasteMode(true); return; }
+        // Build start/end relative to the clicked date.
+        const baseStart = new Date(dateStr + (clip.allDay ? 'T00:00:00' : `T${String(clip.startHour ?? 0).padStart(2,'0')}:${String(clip.startMinute ?? 0).padStart(2,'0')}:00`));
+        const baseEnd = new Date(baseStart.getTime() + (clip.durationMs || 0));
+        const toISOWall = d => {
+            const pad = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        };
+        const payload = {
+            title: clip.title,
+            description: clip.description,
+            backgroundColor: clip.backgroundColor,
+            allDay: !!clip.allDay,
+            hideTime: !!clip.hideTime,
+            start: clip.allDay ? dateStr : toISOWall(baseStart),
+            end: clip.allDay
+                ? (clip.durationMs ? new Date(baseStart.getTime() + clip.durationMs).toISOString().split('T')[0] : null)
+                : toISOWall(baseEnd),
+        };
+        const r = await fetch(`/admin/calendars/${calendarId}/add_event`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (r.ok) {
+            const fc = fullCalendarInstances[calendarId];
+            if (fc) fc.refetchEvents();
+            _exitPasteMode(false); // keep clipboard for further pastes
+        } else {
+            const data = await r.json().catch(() => ({}));
+            alert(data.error || 'Failed to paste event');
+        }
     }
 
     function openAddEventModal(calendarId, defaultDate) {
         document.getElementById('eventModalTitle').textContent = 'Add Event';
         document.getElementById('eventModalCalendarId').value = calendarId;
         document.getElementById('eventModalEventId').value = '';
+        document.getElementById('eventModalEventId').dataset.seriesId = '';
         document.getElementById('eventTitle').value = '';
         document.getElementById('eventStartDate').value = defaultDate || '';
         document.getElementById('eventStartTime').value = '00:00';
@@ -616,9 +820,13 @@
         document.getElementById('eventColor').value = '#3b82f6';
         document.getElementById('eventDescription').value = '';
         document.getElementById('eventDeleteBtn').style.display = 'none';
+        document.getElementById('eventCopyBtn').style.display = 'none';
         document.getElementById('eventExternalBanner').style.display = 'none';
         document.getElementById('eventSaveBtn').style.display = '';
         _resetEventModal();
+        // Show recurrence form when creating; hide the read-only summary.
+        document.getElementById('eventRecurrenceRow').style.display = '';
+        document.getElementById('eventRecurSummary').style.display = 'none';
         showModal('eventModalOverlay');
     }
 
@@ -663,6 +871,7 @@
 
         document.getElementById('eventExternalBanner').style.display = isExternal ? 'flex' : 'none';
         document.getElementById('eventDeleteBtn').style.display = isExternal ? 'none' : 'block';
+        document.getElementById('eventCopyBtn').style.display = isExternal ? 'none' : '';
         document.getElementById('eventSaveBtn').style.display = isExternal ? 'none' : '';
 
         const fields = document.querySelectorAll('#eventModalForm input, #eventModalForm textarea');
@@ -670,6 +879,21 @@
         document.getElementById('eventAllDay').disabled  = isExternal;
         document.getElementById('eventHideTime').disabled = isExternal;
         document.getElementById('eventColor').disabled = isExternal;
+
+        // Recurrence handling on edit: hide the recurrence form (changing the
+        // rule of an existing series is out of scope for v1) and show a
+        // read-only summary if this event is part of a series.
+        const seriesId = fcEvent.extendedProps.seriesId || '';
+        const recurRule = fcEvent.extendedProps.recurrenceRule || null;
+        document.getElementById('eventModalEventId').dataset.seriesId = seriesId;
+        document.getElementById('eventRecurrenceRow').style.display = 'none';
+        document.getElementById('eventRecurDetails').style.display = 'none';
+        if (seriesId && recurRule) {
+            document.getElementById('eventRecurSummary').style.display = '';
+            document.getElementById('eventRecurSummaryText').textContent = _describeRecurrence(recurRule);
+        } else {
+            document.getElementById('eventRecurSummary').style.display = 'none';
+        }
 
         showModal('eventModalOverlay');
     }
@@ -695,6 +919,13 @@
             endStr   = endDate ? `${endDate}T${endTime}` : null;
         }
 
+        const seriesId = document.getElementById('eventModalEventId').dataset.seriesId || '';
+        let scope = 'this';
+        if (eventId && seriesId) {
+            scope = _promptSeriesScope('save changes to');
+            if (!scope) return; // user cancelled
+        }
+
         const payload = {
             id: eventId || undefined,
             title: document.getElementById('eventTitle').value,
@@ -703,8 +934,16 @@
             end: endStr,
             allDay: allDay,
             hideTime: hideTime,
-            backgroundColor: document.getElementById('eventColor').value
+            backgroundColor: document.getElementById('eventColor').value,
+            scope: scope,
         };
+        // Recurrence is only honored on create. Editing a recurrence rule
+        // (interval/end) on an existing series is intentionally out of scope
+        // for the first version — the user can delete the series and recreate.
+        if (!eventId) {
+            const rule = _buildRecurrenceFromForm();
+            if (rule) payload.recurrence = rule;
+        }
 
         const url = eventId
             ? `/admin/calendars/${calendarId}/update_event`
@@ -726,17 +965,41 @@
         }
     }
 
+    // For a series member, ask which scope the action should apply to.
+    // Returns 'this' | 'future' | 'series', or '' if the user cancels.
+    function _promptSeriesScope(verb) {
+        const choice = prompt(
+            `This event is part of a repeating series. Type a number to ${verb}:\n\n` +
+            `1) Only this event\n` +
+            `2) This and all future events\n` +
+            `3) All events in the series\n\n` +
+            `(or leave blank to cancel)`,
+            '1'
+        );
+        if (choice === null || choice === '') return '';
+        if (choice.trim() === '2') return 'future';
+        if (choice.trim() === '3') return 'series';
+        return 'this';
+    }
+
     async function deleteCurrentEvent() {
         const calendarId = document.getElementById('eventModalCalendarId').value;
         const eventId = document.getElementById('eventModalEventId').value;
         const title = document.getElementById('eventTitle').value;
+        const seriesId = document.getElementById('eventModalEventId').dataset.seriesId || '';
 
-        if (!confirm(`Delete event "${title}"?`)) return;
+        let scope = 'this';
+        if (seriesId) {
+            scope = _promptSeriesScope('delete');
+            if (!scope) return;
+        } else {
+            if (!confirm(`Delete event "${title}"?`)) return;
+        }
 
         const r = await fetch(`/admin/calendars/${calendarId}/delete_event`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: eventId })
+            body: JSON.stringify({ id: eventId, scope: scope })
         });
         const data = await r.json();
         if (r.ok) {

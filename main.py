@@ -1689,6 +1689,12 @@ class CalendarEvent(db.Model):
                            nullable=True)
     source = db.Column(db.String(20), nullable=False, default='local')
     subscription_id = db.Column(db.Integer, db.ForeignKey('calendar_subscription.id'), nullable=True)
+    # Recurring events: every occurrence in a series shares the same series_id
+    # and recurrence_rule (JSON). series_position is the 0-indexed slot within
+    # the series so callers can reason about "this and future" semantics.
+    series_id = db.Column(db.String(40), nullable=True, index=True)
+    series_position = db.Column(db.Integer, nullable=True)
+    recurrence_rule = db.Column(db.Text, nullable=True)
 
     def to_dict(self):
         is_external = (self.source or 'local') != 'local'
@@ -1708,6 +1714,12 @@ class CalendarEvent(db.Model):
             class_names.append('ext-cal-event')
         if hide_time and not all_day:
             class_names.append('fc-hide-time')
+        rule_dict = None
+        if self.recurrence_rule:
+            try:
+                rule_dict = json.loads(self.recurrence_rule)
+            except Exception:
+                rule_dict = None
         return {
             'id': self.id,
             'title': self.title,
@@ -1723,6 +1735,9 @@ class CalendarEvent(db.Model):
                 'source': self.source or 'local',
                 'allDay': all_day,
                 'hideTime': hide_time,
+                'seriesId': self.series_id,
+                'seriesPosition': self.series_position,
+                'recurrenceRule': rule_dict,
             },
         }
 
@@ -15909,7 +15924,7 @@ def _build_calendar_ical_response(calendar_id):
 
     cal.add('X-WR-CALNAME', cal_record.name)
     cal.add('X-WR-CALDESC', cal_record.description or cal_record.name)
-    cal.add('X-WR-TIMEZONE', 'America/Chicago')
+    cal.add('X-WR-TIMEZONE', str(_get_calendar_owner_timezone(cal_record)))
     cal.add('REFRESH-INTERVAL;VALUE=DURATION', 'PT15M')
     cal.add('X-PUBLISHED-TTL', 'PT15M')
 
@@ -15944,13 +15959,149 @@ def _build_calendar_ical_response(calendar_id):
     return response
 
 
-def _parse_event_datetime(dt_str, timezone):
+def _get_calendar_owner_timezone(calendar):
+    """The timezone of the admin who owns this calendar.
+
+    External-facing endpoints (iCal feed, subscription sync) don't have a
+    current_user to ask, so we walk Calendar → Website → User to find the
+    owner and use their selected timezone. get_user_timezone() handles the
+    None case and falls back to the default.
+    """
+    try:
+        website = db.session.get(Website, calendar.website_id) if calendar else None
+        owner = db.session.get(User, website.user_id) if website else None
+        return get_user_timezone(owner)
+    except Exception:
+        return get_user_timezone(None)
+
+
+def _parse_event_datetime(dt_str, tz):
+    """Parse an event datetime into a naive wall-clock value in the user's tz.
+
+    The calendar UI sends naive ISO strings (e.g. '2026-05-20T14:00') that
+    represent the user's local wall clock. CalendarEvent.start/end are naive
+    DateTime columns; we store the wall clock directly and emit it the same
+    way in to_dict(), so FullCalendar renders it as local time without any
+    UTC round-trip.
+
+    For aware inputs (e.g. an ICS subscription feed in UTC) we convert to
+    the user's local tz and drop tzinfo so the stored wall clock is
+    consistent with manually-entered events.
+    """
     if not dt_str:
         return None
     dt = parser.parse(str(dt_str))
     if dt.tzinfo is None:
-        return timezone.localize(dt)
-    return dt.astimezone(timezone)
+        return dt
+    return dt.astimezone(tz).replace(tzinfo=None)
+
+
+# Hard caps on how big a single recurring series can be — keeps the DB and
+# the calendar view from drowning in occurrences if someone picks "daily, 50
+# years". The first cap reached wins.
+RECURRENCE_MAX_OCCURRENCES = 200
+RECURRENCE_MAX_HORIZON_DAYS = 730
+
+
+def _normalize_recurrence_rule(raw):
+    """Validate and normalize an incoming recurrence rule dict.
+
+    Expected shape: {
+        'frequency': 'daily'|'weekly'|'monthly'|'yearly',
+        'interval': int >= 1,
+        'end_type': 'count'|'until',
+        'count': int (when end_type='count'),
+        'until': 'YYYY-MM-DD' (when end_type='until'),
+    }
+    Returns a clean dict or None if the rule is empty/disabled.
+    """
+    if not raw or not isinstance(raw, dict):
+        return None
+    freq = (raw.get('frequency') or '').lower().strip()
+    if freq not in ('daily', 'weekly', 'monthly', 'yearly'):
+        return None
+    try:
+        interval = max(1, int(raw.get('interval') or 1))
+    except (TypeError, ValueError):
+        interval = 1
+    end_type = (raw.get('end_type') or 'count').lower()
+    if end_type not in ('count', 'until'):
+        end_type = 'count'
+    rule = {'frequency': freq, 'interval': interval, 'end_type': end_type}
+    if end_type == 'count':
+        try:
+            rule['count'] = max(1, min(RECURRENCE_MAX_OCCURRENCES, int(raw.get('count') or 1)))
+        except (TypeError, ValueError):
+            rule['count'] = 1
+    else:
+        until_raw = (raw.get('until') or '').strip()
+        if not until_raw:
+            return None
+        rule['until'] = until_raw
+    return rule
+
+
+def _expand_recurrence(start, end, rule):
+    """Given a base (start, end) and a normalized rule, return the list of
+    (start, end) tuples for every occurrence — including the first.
+    Honors RECURRENCE_MAX_OCCURRENCES and RECURRENCE_MAX_HORIZON_DAYS.
+    """
+    if not rule or not start:
+        return [(start, end)]
+
+    freq = rule['frequency']
+    interval = rule['interval']
+    duration = (end - start) if end else None
+
+    if rule['end_type'] == 'until':
+        try:
+            until_dt = datetime.strptime(rule['until'], '%Y-%m-%d').replace(
+                hour=23, minute=59, second=59
+            )
+        except ValueError:
+            return [(start, end)]
+        max_count = RECURRENCE_MAX_OCCURRENCES
+    else:
+        until_dt = None
+        max_count = rule['count']
+
+    horizon = start + timedelta(days=RECURRENCE_MAX_HORIZON_DAYS)
+
+    def _step(dt, n):
+        if freq == 'daily':
+            return dt + timedelta(days=n * interval)
+        if freq == 'weekly':
+            return dt + timedelta(weeks=n * interval)
+        if freq == 'monthly':
+            # Calendar-aware month math: clamp day-of-month when target month
+            # is short (e.g. Jan 31 → Feb 28).
+            total_months = (dt.year * 12 + (dt.month - 1)) + n * interval
+            new_year, new_month = divmod(total_months, 12)
+            new_month += 1
+            import calendar as _cal
+            last_day = _cal.monthrange(new_year, new_month)[1]
+            return dt.replace(year=new_year, month=new_month, day=min(dt.day, last_day))
+        if freq == 'yearly':
+            try:
+                return dt.replace(year=dt.year + n * interval)
+            except ValueError:
+                # Feb 29 → Feb 28 on non-leap years
+                return dt.replace(year=dt.year + n * interval, day=28)
+        return dt
+
+    occurrences = []
+    for i in range(max_count):
+        occ_start = _step(start, i)
+        if occ_start > horizon:
+            break
+        if until_dt is not None and occ_start > until_dt:
+            break
+        occ_end = occ_start + duration if duration else None
+        occurrences.append((occ_start, occ_end))
+        if len(occurrences) >= RECURRENCE_MAX_OCCURRENCES:
+            break
+
+    return occurrences or [(start, end)]
 
 
 def _fetch_and_parse_ical(url):
@@ -15972,7 +16123,11 @@ def sync_subscription(sub):
         db.session.commit()
         return {'synced': 0, 'error': str(e)}
 
-    local_tz = pytz.timezone('America/Chicago')
+    # External iCal datetimes that arrive naive are localized to the calendar
+    # owner's timezone so they round-trip consistently with manually-created
+    # events (which are also stored as naive wall clock in the owner's tz).
+    owner_calendar = db.session.get(Calendar, sub.calendar_id)
+    local_tz = _get_calendar_owner_timezone(owner_calendar)
 
     try:
         CalendarEvent.query.filter_by(subscription_id=sub.id).delete()
@@ -15989,20 +16144,25 @@ def sync_subscription(sub):
             dtend = component.get('dtend')
             end = dtend.dt if dtend else None
 
+            # Normalize to a naive datetime representing the wall clock in
+            # the calendar owner's timezone — same storage convention as
+            # manually-created events. Without stripping tzinfo, psycopg2
+            # would silently convert to UTC and the round-trip display
+            # would be offset by the owner's UTC offset.
             if isinstance(start, date_type) and not isinstance(start, datetime):
-                start = local_tz.localize(datetime.combine(start, datetime.min.time()))
+                start = datetime.combine(start, datetime.min.time())
             elif start.tzinfo is None:
-                start = local_tz.localize(start)
+                pass
             else:
-                start = start.astimezone(local_tz)
+                start = start.astimezone(local_tz).replace(tzinfo=None)
 
             if end is not None:
                 if isinstance(end, date_type) and not isinstance(end, datetime):
-                    end = local_tz.localize(datetime.combine(end, datetime.min.time()))
+                    end = datetime.combine(end, datetime.min.time())
                 elif end.tzinfo is None:
-                    end = local_tz.localize(end)
+                    pass
                 else:
-                    end = end.astimezone(local_tz)
+                    end = end.astimezone(local_tz).replace(tzinfo=None)
 
             db.session.add(CalendarEvent(
                 title=str(component.get('summary', 'Untitled')),
@@ -18005,7 +18165,7 @@ def add_calendar_event(calendar_id):
 
     try:
         data = request.get_json()
-        local_timezone = pytz.timezone('America/Chicago')
+        local_timezone = get_user_timezone(current_user)
 
         start = _parse_event_datetime(data.get('start'), local_timezone)
         end = _parse_event_datetime(data.get('end'), local_timezone)
@@ -18013,19 +18173,37 @@ def add_calendar_event(calendar_id):
         if not start:
             return jsonify({'error': 'Start date is required'}), 400
 
-        event = CalendarEvent(
-            title=data.get('title'),
-            description=data.get('description'),
-            start=start,
-            end=end,
-            background_color=data.get('backgroundColor'),
-            all_day=bool(data.get('allDay', False)),
-            hide_time=bool(data.get('hideTime', False)),
-            calendar_id=calendar_id
-        )
-        db.session.add(event)
+        rule = _normalize_recurrence_rule(data.get('recurrence'))
+        occurrences = _expand_recurrence(start, end, rule)
+        series_id = uuid.uuid4().hex if rule and len(occurrences) > 1 else None
+        rule_json = json.dumps(rule) if (series_id and rule) else None
+
+        created = []
+        for idx, (occ_start, occ_end) in enumerate(occurrences):
+            ev = CalendarEvent(
+                title=data.get('title'),
+                description=data.get('description'),
+                start=occ_start,
+                end=occ_end,
+                background_color=data.get('backgroundColor'),
+                all_day=bool(data.get('allDay', False)),
+                hide_time=bool(data.get('hideTime', False)),
+                calendar_id=calendar_id,
+                series_id=series_id,
+                series_position=idx if series_id else None,
+                recurrence_rule=rule_json,
+            )
+            db.session.add(ev)
+            created.append(ev)
+
         db.session.commit()
-        return jsonify({'message': 'Event added successfully', 'event': event.to_dict()}), 201
+        # Return the first occurrence (lets the modal close cleanly); the
+        # calendar then refetches to pick up the full series.
+        return jsonify({
+            'message': 'Event added successfully',
+            'event': created[0].to_dict(),
+            'series_count': len(created),
+        }), 201
 
     except Exception as e:
         db.session.rollback()
@@ -18051,26 +18229,63 @@ def update_calendar_event(calendar_id):
         if not event:
             return jsonify({'message': 'Event not found'}), 404
 
-        local_timezone = pytz.timezone('America/Chicago')
-        start = _parse_event_datetime(data.get('start'), local_timezone)
-        end = _parse_event_datetime(data.get('end'), local_timezone)
+        local_timezone = get_user_timezone(current_user)
+        new_start = _parse_event_datetime(data.get('start'), local_timezone)
+        new_end = _parse_event_datetime(data.get('end'), local_timezone)
+        # All-day exclusive-end normalization (matches the legacy behavior
+        # below for drag-drop). Done once up front so both 'this' and series
+        # branches use the same value.
+        if new_end and event.all_day and 'allDay' not in data:
+            new_end = new_end - timedelta(days=1)
 
-        event.title = data.get('title', event.title)
-        event.description = data.get('description', event.description)
-        if start:
-            event.start = start
-        # Drag-drop (eventChange) does not send 'allDay'; FullCalendar gives an
-        # exclusive end for all-day events in that case, so subtract one day to
-        # keep the DB convention of inclusive end dates.
-        if end and event.all_day and 'allDay' not in data:
-            end = end - timedelta(days=1)
-        event.end = end
-        event.background_color = data.get('backgroundColor', event.background_color)
-        event.all_day  = bool(data.get('allDay',   event.all_day))
-        event.hide_time = bool(data.get('hideTime', event.hide_time))
+        # Compute the time delta from the original — we apply that delta to
+        # every other occurrence when scope is 'future' or 'series', so users
+        # can drag one occurrence and shift the whole series uniformly.
+        start_delta = (new_start - event.start) if new_start else timedelta(0)
+
+        # Scope only meaningful when the event belongs to a series. For a
+        # non-recurring event 'this' is the only sensible interpretation.
+        scope = (data.get('scope') or 'this').lower()
+        if scope not in ('this', 'future', 'series'):
+            scope = 'this'
+        if not event.series_id:
+            scope = 'this'
+
+        if scope == 'this':
+            targets = [event]
+        else:
+            q = CalendarEvent.query.filter_by(
+                calendar_id=calendar_id,
+                series_id=event.series_id,
+            )
+            if scope == 'future':
+                q = q.filter(
+                    CalendarEvent.series_position >= (event.series_position or 0)
+                )
+            targets = q.all()
+
+        for t in targets:
+            t.title = data.get('title', t.title)
+            t.description = data.get('description', t.description)
+            t.background_color = data.get('backgroundColor', t.background_color)
+            t.all_day = bool(data.get('allDay', t.all_day))
+            t.hide_time = bool(data.get('hideTime', t.hide_time))
+            # Time changes: 'this' overwrites absolute; series shifts by delta.
+            if t.id == event.id:
+                if new_start:
+                    t.start = new_start
+                t.end = new_end
+            elif new_start and start_delta:
+                t.start = t.start + start_delta
+                if t.end:
+                    t.end = t.end + start_delta
 
         db.session.commit()
-        return jsonify({'message': 'Event updated successfully', 'event': event.to_dict()}), 200
+        return jsonify({
+            'message': 'Event updated successfully',
+            'event': event.to_dict(),
+            'affected': len(targets),
+        }), 200
 
     except Exception as e:
         db.session.rollback()
@@ -18093,12 +18308,31 @@ def delete_calendar_event(calendar_id):
             return jsonify({'message': 'Event id is required'}), 400
 
         event = CalendarEvent.query.filter_by(id=event_id, calendar_id=calendar_id).first()
-        if event:
-            db.session.delete(event)
-            db.session.commit()
-            return jsonify({'message': 'Event deleted successfully'}), 200
+        if not event:
+            return jsonify({'message': 'Event not found'}), 404
 
-        return jsonify({'message': 'Event not found'}), 404
+        scope = (data.get('scope') or 'this').lower()
+        if scope not in ('this', 'future', 'series'):
+            scope = 'this'
+        if not event.series_id:
+            scope = 'this'
+
+        if scope == 'this':
+            db.session.delete(event)
+            removed = 1
+        else:
+            q = CalendarEvent.query.filter_by(
+                calendar_id=calendar_id,
+                series_id=event.series_id,
+            )
+            if scope == 'future':
+                q = q.filter(
+                    CalendarEvent.series_position >= (event.series_position or 0)
+                )
+            removed = q.delete(synchronize_session=False)
+
+        db.session.commit()
+        return jsonify({'message': 'Event deleted successfully', 'removed': removed}), 200
 
     except Exception as e:
         db.session.rollback()

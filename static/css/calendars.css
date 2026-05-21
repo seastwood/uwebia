@@ -980,3 +980,46 @@ body {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
 }
+
+/* Paste-mode visual cue + clipboard toast */
+body.cal-paste-mode .fc-daygrid-day,
+body.cal-paste-mode .fc-timegrid-slot {
+    cursor: copy;
+}
+body.cal-paste-mode .fc-daygrid-day:hover {
+    background: rgba(94, 238, 248, 0.08);
+}
+
+.cal-paste-toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 30, 40, 0.97);
+    border: 1px solid rgba(94, 238, 248, 0.35);
+    color: #e7e7e7;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 999999;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.cal-paste-toast i { color: #5eeef8; }
+.cal-paste-toast strong { color: #fff; }
+.cal-paste-toast button {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e7e7e7;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    margin-left: 6px;
+}
+.cal-paste-toast button:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.05);
+}
