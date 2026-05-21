@@ -21,6 +21,14 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 from PIL import Image, ImageOps
+# iPhone (iOS 11+) saves photos as HEIC by default. Register the HEIF opener
+# so Pillow can read them like any other image. Soft-fail if the lib isn't
+# installed — existing JPG/PNG uploads keep working.
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:
+    pass
 import pytz
 from dateutil import parser
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, Response, \
@@ -2111,7 +2119,11 @@ class Asset(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
+    # Owner is the root admin (shared pool key). Sub-admins of the same root
+    # admin all see and contribute to the same library.
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # The specific admin (root or sub-admin) who uploaded this asset. Audit only.
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     folder_id = db.Column(db.Integer, db.ForeignKey('asset_folder.id'), nullable=True)
 
     original_filename = db.Column(db.String(255), nullable=False)
@@ -2149,6 +2161,7 @@ class Asset(db.Model):
             'file_size_label': format_bytes(self.file_size),
             'play_count': self.play_count or 0,
             'last_played_at': self.last_played_at.isoformat() if self.last_played_at else None,
+            'uploaded_by_user_id': self.uploaded_by_user_id,
             'upload_date': self.upload_date.isoformat() if self.upload_date else None
         }
 
@@ -3256,7 +3269,7 @@ DEFAULT_ASSET_LIBRARY_CONFIG = {
     "max_total_storage_mb": 500,
     "max_single_file_mb": 100,
     "allowed_extensions": {
-        "images": ["png", "jpg", "jpeg", "gif", "webp", "svg"],
+        "images": ["png", "jpg", "jpeg", "gif", "webp", "svg", "heic", "heif"],
         "audio": ["mp3", "wav", "ogg", "m4a", "aac"],
         "videos": ["mp4", "webm", "mov", "m4v"],
         "pdfs": ["pdf"],
@@ -3580,6 +3593,18 @@ def asset_library():
 
     assets = assets_query.order_by(Asset.upload_date.desc()).all()
 
+    # Diagnostic — pair with the upload-commit log to verify the row this
+    # session just created is being returned by the list filter.
+    try:
+        app.logger.info(
+            'asset_library list: user_id_filter=%s type=%s folder_id=%s count=%s',
+            current_user.root_user_id, asset_type,
+            current_folder.id if current_folder else None,
+            len(assets)
+        )
+    except Exception:
+        pass
+
     # Count assets per folder for the badge display
     _count_q = db.session.query(Asset.folder_id, db.func.count(Asset.id)).filter_by(user_id=current_user.root_user_id)
     if asset_type != 'all':
@@ -3636,6 +3661,25 @@ def safe_asset_file_path(user_id, filename):
     return path
 
 
+def get_asset_disk_user_id(asset):
+    """The user_id segment under which an asset's files actually live on disk.
+
+    Asset.user_id is the shared-pool owner (root admin). For NEW uploads this
+    matches the disk path. For LEGACY uploads (created before pool semantics
+    existed) the files may still live under the original uploader's id, so we
+    parse the segment out of asset.url. Falls back to asset.user_id.
+    """
+    import re as _re
+    if asset and asset.url:
+        m = _re.search(r'/uploads/(\d+)/assets/', asset.url)
+        if m:
+            try:
+                return int(m.group(1))
+            except (TypeError, ValueError):
+                pass
+    return asset.user_id if asset else None
+
+
 def get_asset_filenames(asset):
     filenames = set()
 
@@ -3653,8 +3697,9 @@ def delete_asset_files_from_disk(asset):
     missing = []
     errors = []
 
+    disk_uid = get_asset_disk_user_id(asset)
     for filename in get_asset_filenames(asset):
-        path = safe_asset_file_path(asset.user_id, filename)
+        path = safe_asset_file_path(disk_uid, filename)
 
         if not path:
             errors.append(f"Unsafe path skipped: {filename}")
@@ -3737,10 +3782,16 @@ def asset_upload():
     if not files:
         return jsonify({'status': 'error', 'error': 'No files selected.'}), 400
 
+    # Asset library is a shared pool keyed on the root admin. Sub-admins of
+    # the same root admin upload INTO this pool — files live under the root
+    # admin's uploads dir and Asset.user_id is the root id. The uploader is
+    # tracked separately in Asset.uploaded_by_user_id for audit.
+    pool_user_id = current_user.root_user_id
+
     config = get_asset_library_config()
     max_single_bytes = mb_to_bytes(config.get('max_single_file_mb', 50))
     max_total_bytes = mb_to_bytes(config.get('max_total_storage_mb', 500))
-    used_bytes = get_user_asset_storage_bytes(current_user.id)
+    used_bytes = get_user_asset_storage_bytes(pool_user_id)
 
     incoming_total = 0
 
@@ -3776,11 +3827,11 @@ def asset_upload():
     if folder_id:
         folder = AssetFolder.query.filter_by(
             id=folder_id,
-            user_id=current_user.id
+            user_id=pool_user_id
         ).first_or_404()
         folder_id = folder.id
 
-    user_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
+    user_folder = os.path.join(uploads_folder, str(pool_user_id), 'assets')
     os.makedirs(user_folder, exist_ok=True)
 
     created_assets = []
@@ -3800,18 +3851,19 @@ def asset_upload():
 
             asset_url = url_for(
                 'static',
-                filename=f'uploads/{current_user.id}/assets/{saved["stored_filename"]}'
+                filename=f'uploads/{pool_user_id}/assets/{saved["stored_filename"]}'
             )
 
             thumbnail_url = None
             if saved.get('thumbnail_filename'):
                 thumbnail_url = url_for(
                     'static',
-                    filename=f'uploads/{current_user.id}/assets/{saved["thumbnail_filename"]}'
+                    filename=f'uploads/{pool_user_id}/assets/{saved["thumbnail_filename"]}'
                 )
 
             asset = Asset(
-                user_id=current_user.id,
+                user_id=pool_user_id,
+                uploaded_by_user_id=current_user.id,
                 folder_id=folder_id,
                 original_filename=saved['original_filename'],
                 stored_filename=saved['stored_filename'],
@@ -3829,11 +3881,20 @@ def asset_upload():
 
         db.session.commit()
 
+        try:
+            for a in created_assets:
+                app.logger.info(
+                    'asset upload committed: id=%s user_id=%s uploaded_by=%s folder_id=%s type=%s ext=%s url=%s',
+                    a.id, a.user_id, a.uploaded_by_user_id, a.folder_id,
+                    a.asset_type, a.extension, a.url
+                )
+        except Exception:
+            pass
 
     except Exception as e:
         db.session.rollback()
         for filename in saved_disk_filenames:
-            path = safe_asset_file_path(current_user.id, filename)
+            path = safe_asset_file_path(pool_user_id, filename)
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
@@ -3848,7 +3909,7 @@ def asset_upload():
         'status': 'success',
         'assets': [asset.to_dict() for asset in created_assets],
         'storage': {
-            'used_label': format_bytes(get_user_asset_storage_bytes(current_user.id)),
+            'used_label': format_bytes(get_user_asset_storage_bytes(pool_user_id)),
             'max_label': format_bytes(max_total_bytes)
         }
     })
@@ -3903,7 +3964,7 @@ def ai_generate_asset():
     ref_image_bytes = None
     ref_image_ext = 'png'
     if ref_asset_id:
-        ref_asset = Asset.query.filter_by(id=ref_asset_id, user_id=current_user.id).first()
+        ref_asset = Asset.query.filter_by(id=ref_asset_id, user_id=current_user.root_user_id).first()
         if ref_asset:
             try:
                 ref_path = os.path.join(uploads_folder, str(current_user.id), 'assets',
@@ -3986,7 +4047,9 @@ def ai_generate_asset():
     else:
         return _utf8_json({'success': False, 'error': 'No image data in API response'}, 502)
 
-    user_folder = os.path.join(uploads_folder, str(current_user.id), 'assets')
+    # AI-generated assets land in the shared library pool (root admin's dir).
+    pool_user_id = current_user.root_user_id
+    user_folder = os.path.join(uploads_folder, str(pool_user_id), 'assets')
     os.makedirs(user_folder, exist_ok=True)
 
     # Log raw response details to help diagnose format issues
@@ -4013,16 +4076,17 @@ def ai_generate_asset():
         orig_ext_detected = 'webp'
     display_original = f"ai_{safe_slug}.{orig_ext_detected}"
 
-    asset_url = url_for('static', filename=f'uploads/{current_user.id}/assets/{saved["public_filename"]}')
-    thumb_url = url_for('static', filename=f'uploads/{current_user.id}/assets/{saved["thumb_filename"]}')
+    asset_url = url_for('static', filename=f'uploads/{pool_user_id}/assets/{saved["public_filename"]}')
+    thumb_url = url_for('static', filename=f'uploads/{pool_user_id}/assets/{saved["thumb_filename"]}')
     file_size = os.path.getsize(os.path.join(user_folder, saved['public_filename']))
 
     if folder_id:
-        folder = AssetFolder.query.filter_by(id=folder_id, user_id=current_user.id).first()
+        folder = AssetFolder.query.filter_by(id=folder_id, user_id=pool_user_id).first()
         folder_id = folder.id if folder else None
 
     asset = Asset(
-        user_id=current_user.id,
+        user_id=pool_user_id,
+        uploaded_by_user_id=current_user.id,
         folder_id=folder_id,
         original_filename=display_original,
         stored_filename=saved['public_filename'],
@@ -4044,10 +4108,12 @@ def ai_generate_asset():
 def download_asset(asset_id):
     asset = Asset.query.filter_by(
         id=asset_id,
-        user_id=current_user.id
+        user_id=current_user.root_user_id
     ).first_or_404()
 
-    user_asset_dir = os.path.join(uploads_folder, str(current_user.id), 'assets')
+    # Disk location is derived from the asset's URL so legacy assets uploaded
+    # under a sub-admin's id still resolve correctly.
+    user_asset_dir = get_user_asset_folder(get_asset_disk_user_id(asset))
 
     # Prefer the preserved original (e.g. PNG/JPEG) over the converted WebP
     serve_filename = asset.stored_filename
@@ -4083,7 +4149,7 @@ def create_asset_folder():
 
     folder = AssetFolder(
         name=name,
-        user_id=current_user.id,
+        user_id=current_user.root_user_id,
         asset_type=asset_type if asset_type != 'all' else None,
         parent_id=parent_id
     )
@@ -4192,13 +4258,13 @@ def move_asset():
 
     asset = Asset.query.filter_by(
         id=asset_id,
-        user_id=current_user.id
+        user_id=current_user.root_user_id
     ).first_or_404()
 
     if folder_id:
         folder = AssetFolder.query.filter_by(
             id=folder_id,
-            user_id=current_user.id
+            user_id=current_user.root_user_id
         ).first_or_404()
 
         asset.folder_id = folder.id
@@ -4216,12 +4282,16 @@ def move_asset():
 def delete_asset(asset_id):
     asset = Asset.query.filter_by(
         id=asset_id,
-        user_id=current_user.id
+        user_id=current_user.root_user_id
     ).first_or_404()
 
     try:
-        # Keep filenames before deleting the DB row.
+        # Keep filenames + url before deleting the DB row. The url is needed
+        # so disk-path resolution still works for legacy assets that live
+        # under the original uploader's directory rather than the root pool.
         files_to_delete = list(get_asset_filenames(asset))
+        captured_url = asset.url
+        pool_user_id = asset.user_id
 
         # Delete DB record first.
         db.session.delete(asset)
@@ -4236,7 +4306,8 @@ def delete_asset(asset_id):
 
         for filename in files_to_delete:
             fake_asset = type("TempAssetRef", (), {
-                "user_id": current_user.id,
+                "user_id": pool_user_id,
+                "url": captured_url,
                 "stored_filename": filename,
                 "thumbnail_url": None
             })()
@@ -21384,6 +21455,43 @@ with app.app_context():
         except Exception as _e:
             db.session.rollback()
             print('[migrate] warning: could not backfill admin mirrors:', _e)
+
+        # Backfill: the asset library used to be scoped per-user, then was
+        # made into a shared pool keyed on the root admin. Any Asset or
+        # AssetFolder rows still owned by a sub-admin get re-pointed to the
+        # sub-admin's root admin, and uploaded_by_user_id captures who
+        # originally uploaded it. Files on disk are NOT moved — their actual
+        # location is recoverable from Asset.url via get_asset_disk_user_id().
+        try:
+            _subadmin_ids = {
+                u.id: u.parent_user_id
+                for u in User.query.filter(User.parent_user_id.isnot(None)).all()
+            }
+            if _subadmin_ids:
+                _af_fixed = 0
+                for _af in AssetFolder.query.filter(
+                    AssetFolder.user_id.in_(list(_subadmin_ids.keys()))
+                ).all():
+                    _af.user_id = _subadmin_ids[_af.user_id]
+                    _af_fixed += 1
+
+                _a_fixed = 0
+                for _a in Asset.query.filter(
+                    Asset.user_id.in_(list(_subadmin_ids.keys()))
+                ).all():
+                    _orig = _a.user_id
+                    _a.user_id = _subadmin_ids[_orig]
+                    if _a.uploaded_by_user_id is None:
+                        _a.uploaded_by_user_id = _orig
+                    _a_fixed += 1
+
+                if _af_fixed or _a_fixed:
+                    db.session.commit()
+                    print(f'[migrate] asset library pool backfill: '
+                          f'folders={_af_fixed} assets={_a_fixed}')
+        except Exception as _e:
+            db.session.rollback()
+            print('[migrate] warning: asset library pool backfill failed:', _e)
 
         # Backfill: every newsletter gets a host website, and every campaign
         # gets a slug so the public route can resolve to it.

@@ -7111,15 +7111,25 @@
                 }
             }
 
-            document.addEventListener('click', function (event) {
-                if (event.target.classList.contains('modal-overlay')) {
-                    closeAllModals();
-                }
-
-                if (event.target.classList.contains('modal')) {
-                    closeAllModals();
-                }
-            });
+            // Backdrop-to-close, but only when the user actually clicked the
+            // backdrop. If the press started on content (e.g. text selection)
+            // and the release happened over the backdrop, a click event's
+            // target resolves to the common ancestor — the backdrop — which
+            // would otherwise close the modal mid-drag and lose the selection.
+            (function () {
+                var pressTarget = null;
+                document.addEventListener('mousedown', function (event) {
+                    pressTarget = event.target;
+                });
+                document.addEventListener('mouseup', function (event) {
+                    var t = event.target;
+                    var isBackdrop = t && (t.classList.contains('modal-overlay') || t.classList.contains('modal'));
+                    if (isBackdrop && pressTarget === t) {
+                        closeAllModals();
+                    }
+                    pressTarget = null;
+                });
+            })();
         </script>
 
         <script>

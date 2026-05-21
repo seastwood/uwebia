@@ -988,7 +988,14 @@
         </button>
         {% endif %}
 
-        <input type="file" id="assetInput" multiple style="display:none" onchange="handleUpload(event)">
+        {# Keep the file input in the layout but off-screen. On Windows + Brave
+           (and some Chromium builds with security extensions hooking the file
+           dialog), `display:none` causes the native file picker to hang in
+           "Not Responding" because it has no layout box to anchor to. The
+           absolute/opacity trick keeps it usable everywhere. #}
+        <input type="file" id="assetInput" multiple onchange="handleUpload(event)"
+               aria-hidden="true" tabindex="-1"
+               style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;">
     </div>
 
     <div style="color:#cfcfcf; font-size:0.9rem;">
@@ -1269,7 +1276,13 @@
     function _saveAndReload() {
         const sidebar = document.getElementById('alSidebar');
         if (sidebar) sessionStorage.setItem('alSidebarScroll', sidebar.scrollTop);
-        location.reload();
+        // iOS Safari occasionally serves the prior page out of its in-memory
+        // cache after a multipart POST even when location.reload() is called,
+        // so newly uploaded assets appear missing until a manual refresh.
+        // Force a fresh GET by appending a cache-buster query param.
+        const url = new URL(window.location.href);
+        url.searchParams.set('_t', Date.now());
+        window.location.href = url.toString();
     }
 
     function navigateToFolder(id) {
@@ -1623,6 +1636,25 @@
             }
         });
 
+        function _showUploadError(msg, statusCode) {
+            // Persistent on-screen banner (alert is easy to miss on mobile,
+            // and Brave/iOS users have reported silent failures). Also logs
+            // to console so devtools-savvy admins can copy/paste.
+            progressFill.style.width = '0%';
+            progressFill.style.background = '#ff5757';
+            progressText.style.color = '#ff8a8a';
+            progressText.textContent = (statusCode ? `[${statusCode}] ` : '') + msg;
+            console.error('[upload]', statusCode || 'network', msg);
+            // Keep the banner visible until the next attempt or page reload.
+            // Auto-fade after 12s so it doesn't linger forever.
+            clearTimeout(window._uploadErrorTimer);
+            window._uploadErrorTimer = setTimeout(() => {
+                progressWrapper.style.display = 'none';
+                progressFill.style.background = '';
+                progressText.style.color = '';
+            }, 12000);
+        }
+
         xhr.onload = function () {
             if (xhr.status >= 200 && xhr.status < 300) {
                 progressFill.style.width = '100%';
@@ -1630,20 +1662,34 @@
                 _saveAndReload();
             } else {
                 let message = 'Upload failed.';
-
                 try {
                     const data = JSON.parse(xhr.responseText);
                     if (data.error) message = data.error;
-                } catch (_) { }
-
-                alert(message);
-                progressWrapper.style.display = 'none';
+                } catch (_) {
+                    // Non-JSON response — server might have returned an HTML
+                    // error page (502/504, or a login redirect). Show the
+                    // status text + the first 200 chars of the body to help
+                    // diagnose Brave shield issues / cookie problems.
+                    const snippet = (xhr.responseText || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+                    if (snippet) message = snippet;
+                    else if (xhr.statusText) message = xhr.statusText;
+                }
+                _showUploadError(message, xhr.status);
             }
         };
 
         xhr.onerror = function () {
-            alert('Upload failed.');
-            progressWrapper.style.display = 'none';
+            // Most commonly: network unreachable, CORS reject, or a tracker-
+            // blocker (Brave Shields) killed the request before it left.
+            _showUploadError(
+                'Network error — request was blocked or could not reach the server. ' +
+                'If you use Brave, lower Shields for this site. If you use a VPN or strict tracker blocker, allow this domain.',
+                0
+            );
+        };
+
+        xhr.ontimeout = function () {
+            _showUploadError('Upload timed out. Try a smaller file or a faster connection.', 0);
         };
 
         xhr.send(formData);
