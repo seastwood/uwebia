@@ -3652,8 +3652,138 @@ min-height: 100dvh;
 .cb-badge-title { font-size: 0.92rem; font-weight: 800; line-height: 1.2; letter-spacing: 0.01em; }
 .cb-badge-date  { font-size: 0.75rem; opacity: 0.82; margin-top: 1px; font-weight: 500; }
 .cb-badge-time  { font-size: 0.72rem; opacity: 0.7; font-weight: 500; }
+.cb-badge-location {
+    margin-top: 4px;
+    font-size: 0.72rem;
+    opacity: 0.82;
+    font-weight: 500;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    line-height: 1.25;
+    word-break: break-word;
+}
+.cb-badge-location i { font-size: 0.65rem; opacity: 0.75; flex-shrink: 0; }
 .cb-badge-desc-icon { position: absolute; top: 11px; right: 14px; font-size: 0.68rem; opacity: 0.55; }
 .cb-empty { opacity: 0.5; font-size: 0.9rem; }
+
+/* The print overlay is invisible on screen — it only exists during the
+   print dialog. It's appended to <body> by printPublicCalendar(). */
+#cal-print-overlay { display: none; }
+
+/* Print mode: hide every direct child of <body> except the overlay, let
+   the cloned calendar fill the landscape page, and force ink-friendly
+   colors. Layout-aware (display:none, not visibility:hidden) so blank
+   pages can't sneak in from the rest of the page's flow. */
+@media print {
+    @page { size: landscape; margin: 8mm; }
+
+    /* Hide everything else on the page entirely. */
+    body.cal-printing > *:not(#cal-print-overlay) { display: none !important; }
+
+    body.cal-printing,
+    body.cal-printing #cal-print-overlay,
+    body.cal-printing #cal-print-overlay * {
+        background: #fff !important;
+        color: #000 !important;
+        box-shadow: none !important;
+        text-shadow: none !important;
+    }
+    body.cal-printing { margin: 0 !important; padding: 0 !important; }
+    body.cal-printing #cal-print-overlay {
+        display: block !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    body.cal-printing #calendar-print-clone {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+    }
+
+    /* Light grid lines, no heavy borders. */
+    body.cal-printing #calendar-print-clone .fc,
+    body.cal-printing #calendar-print-clone .fc * {
+        border-color: #666 !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-theme-standard td,
+    body.cal-printing #calendar-print-clone .fc-theme-standard th,
+    body.cal-printing #calendar-print-clone .fc-theme-standard .fc-scrollgrid {
+        border-color: #666 !important;
+    }
+    /* Days outside the current month: light gray so they don't dominate. */
+    body.cal-printing #calendar-print-clone .fc-day-other,
+    body.cal-printing #calendar-print-clone .fc-day-other * { color: #aaa !important; }
+
+    /* Hide the toolbar's print/today/prev/next buttons — only the month
+       title is useful on paper. */
+    body.cal-printing #calendar-print-clone .fc-toolbar-chunk:nth-child(3),
+    body.cal-printing #calendar-print-clone .fc-button {
+        display: none !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-toolbar {
+        margin-bottom: 6px !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-toolbar-title {
+        font-size: 1.5rem !important;
+        font-weight: 700 !important;
+    }
+
+    /* Event chips: white background with a thin colored left bar instead
+       of a full color fill. Same color-coding, a fraction of the ink. */
+    body.cal-printing #calendar-print-clone .fc-event,
+    body.cal-printing #calendar-print-clone .fc-event-main,
+    body.cal-printing #calendar-print-clone .fc-event-title,
+    body.cal-printing #calendar-print-clone .fc-event-time {
+        background: #fff !important;
+        color: #000 !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-event {
+        /* Default left bar — overwritten per-event by the JS migration
+           step that copies each event's original color into border-left. */
+        border: 1px solid #d0d0d0 !important;
+        border-left-width: 4px !important;
+        margin: 1px 2px !important;
+        padding: 1px 4px !important;
+        font-size: 0.78rem !important;
+        line-height: 1.25 !important;
+    }
+
+    /* Day-cell sizing — let the grid fill the landscape page height. */
+    body.cal-printing #calendar-print-clone .fc-scrollgrid,
+    body.cal-printing #calendar-print-clone .fc-daygrid-body,
+    body.cal-printing #calendar-print-clone .fc-daygrid-body table {
+        width: 100% !important;
+        height: auto !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-daygrid-day-frame {
+        min-height: 90px !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-col-header-cell,
+    body.cal-printing #calendar-print-clone .fc-col-header-cell-cushion {
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+        padding: 4px 2px !important;
+    }
+    body.cal-printing #calendar-print-clone .fc-daygrid-day-number {
+        font-size: 0.82rem !important;
+        padding: 4px 6px !important;
+    }
+
+    /* Honor explicit colors we set (the left-bar accent above). */
+    body.cal-printing #cal-print-overlay,
+    body.cal-printing #cal-print-overlay * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
 </style>
 
 {% set nav_style = website.public_navbar_style or {} %}
@@ -4571,6 +4701,7 @@ box-sizing: border-box;
                                          onclick="cbOpenEventModal(this)"
                                          data-title="{{ event.title | e }}"
                                          data-desc="{{ event.description | e if event.description else '' }}"
+                                         data-location="{{ event.location | e if event.location else '' }}"
                                          data-color="{{ badge_color }}"
                                          data-start="{{ event.start.isoformat() }}"
                                          data-end="{{ event.end.isoformat() if event.end else '' }}"
@@ -4589,6 +4720,12 @@ box-sizing: border-box;
                                         </div>
                                         {% if not event.all_day and not event.hide_time and cb_show_time %}
                                         <div class="cb-badge-time">{{ event.start.strftime('%-I:%M %p') }}</div>
+                                        {% endif %}
+                                        {% if event.location %}
+                                        <div class="cb-badge-location" style="color:{{ text_color }};">
+                                            <i class="fas fa-map-marker-alt"></i>
+                                            <span>{{ event.location }}</span>
+                                        </div>
                                         {% endif %}
                                     </div>
                                     {% endfor %}
@@ -4819,6 +4956,17 @@ box-sizing: border-box;
         position: relative;
         top: 1px;
     }
+    .pem-location-link {
+        color: rgba(255,255,255,0.85);
+        text-decoration: underline;
+        text-decoration-color: rgba(255,255,255,0.25);
+        text-underline-offset: 2px;
+        word-break: break-word;
+    }
+    .pem-location-link:hover {
+        color: #fff;
+        text-decoration-color: rgba(255,255,255,0.6);
+    }
     .pem-desc {
         margin-top: 14px;
         padding-top: 14px;
@@ -4878,6 +5026,42 @@ document.body.style.color = text_color;
 </script> -->
 
     <script>
+        // Shared description renderer — escapes HTML and turns bare http(s)://
+        // URLs into clickable links. Used by both the FullCalendar event-click
+        // modal and the calendar-badge feed's modal. Was previously defined
+        // inside cbOpenEventModal, which made it invisible to eventClick and
+        // crashed the click handler for any event that had a description.
+        window._autolink = function (text) {
+            const esc = String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+            return esc.replace(/(https?:\/\/[^\s<>"']+)/g,
+                '<a href="$1" target="_blank" rel="noopener noreferrer" ' +
+                'style="color:#7ee2cc;word-break:break-all;">$1</a>');
+        };
+
+        // Build a clickable location row for the event-details modal. URLs
+        // (https:// / http:// / mailto: / tel:) link directly; anything else
+        // is treated as a place name and links to a Google Maps search.
+        // Shared by the FullCalendar eventClick handler and the calendar-
+        // badge cbOpenEventModal handler so the two stay consistent.
+        window._locationRow = function (loc) {
+            if (!loc) return '';
+            const trimmed = String(loc).trim();
+            const esc = s => String(s).replace(/[&<>"']/g, c => (
+                {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+            ));
+            const isUrl = /^(https?:\/\/|mailto:|tel:)/i.test(trimmed);
+            const href = isUrl
+                ? trimmed
+                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trimmed)}`;
+            const icon = isUrl ? 'link' : 'map-marker-alt';
+            return `<div class="pem-meta-row"><i class="fas fa-${icon}"></i>`
+                + `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" class="pem-location-link">${esc(trimmed)}</a></div>`;
+        };
+
         function toggleMenu() {
             var navbarMenu = document.getElementById("navbarMenu");
             navbarMenu.classList.toggle("show");
@@ -4968,6 +5152,70 @@ document.body.style.color = text_color;
             }, DURATION + 60);
         }
 
+        // Print just the calendar. Strategy: clone the rendered FullCalendar
+        // element into a top-level overlay, hide every other direct child of
+        // <body> via display:none, then fire window.print(). The clone keeps
+        // the FullCalendar class structure so the print CSS can target it
+        // without depending on the original section's wrapper chain (page
+        // sections can be deeply nested under flex/grid columns that resist
+        // being forced to full width). On afterprint we remove the overlay
+        // and restore visibility. A timer fallback covers mobile browsers
+        // (Safari especially) that don't fire afterprint reliably.
+        function printPublicCalendar(calendarEl) {
+            if (!calendarEl) return;
+            const existing = document.getElementById('cal-print-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'cal-print-overlay';
+            const clone = calendarEl.cloneNode(true);
+            // The clone has the same id as the source, which is harmless on
+            // its own — but FullCalendar scopes its per-section CSS via
+            // `#calendar-{section.id}`. Rename the clone so the dark on-screen
+            // theme doesn't fight the ink-saving print stylesheet below.
+            clone.id = 'calendar-print-clone';
+            // Strip any inline styles that pinned the calendar to a narrow
+            // column on the original page.
+            clone.style.cssText = '';
+            // The cloned event chips carry their category color as an inline
+            // background-color. The print stylesheet overrides background to
+            // white (to save ink), so we migrate the original color onto the
+            // left border first — that keeps color-coding visible as a thin
+            // colored stripe without using a chip-sized fill of ink.
+            clone.querySelectorAll('.fc-event').forEach(ev => {
+                const bg = ev.style.backgroundColor || ev.style.background || '';
+                if (bg && bg !== 'transparent') {
+                    // Mark important so the print stylesheet's
+                    // `border: 1px solid #d0d0d0 !important` shorthand can't
+                    // overwrite the per-event color. All four edges take the
+                    // event's color so each chip reads as a self-contained
+                    // outlined card on paper, with the left as a thicker
+                    // accent stripe.
+                    ev.style.setProperty('border-top-color',    bg, 'important');
+                    ev.style.setProperty('border-right-color',  bg, 'important');
+                    ev.style.setProperty('border-bottom-color', bg, 'important');
+                    ev.style.setProperty('border-left-color',   bg, 'important');
+                }
+                // Wipe the inline fill so the !important white in the print
+                // stylesheet doesn't have to fight it.
+                ev.style.backgroundColor = '';
+                ev.style.background = '';
+            });
+            overlay.appendChild(clone);
+            document.body.appendChild(overlay);
+
+            document.body.classList.add('cal-printing');
+            const cleanup = () => {
+                document.body.classList.remove('cal-printing');
+                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                window.removeEventListener('afterprint', cleanup);
+            };
+            window.addEventListener('afterprint', cleanup);
+            setTimeout(cleanup, 8000);
+            // Tiny delay so the overlay paints before the print dialog opens.
+            setTimeout(() => window.print(), 50);
+        }
+
         // Initialize the calendar
         function initializeCalendar(sectionId, calendarId) {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
@@ -4981,6 +5229,17 @@ document.body.style.color = text_color;
                 expandRows: false,
                 dayMaxEvents: false,
                 fixedWeekCount: false,
+                customButtons: {
+                    printCal: {
+                        text: 'Print',
+                        click: function () { printPublicCalendar(calendarEl); },
+                    },
+                },
+                headerToolbar: {
+                    left: 'title',
+                    center: '',
+                    right: 'printCal today prev,next',
+                },
                 showNonCurrentDates: true,
 
                 events: (info, successCallback, failureCallback) => {
@@ -4997,25 +5256,29 @@ document.body.style.color = text_color;
                         const m = info.el.querySelector('.fc-event-main');
                         if (m) m.style.color = tc;
                     }
-                    // Tooltip: show full title, time, and description on hover
+                    // Tooltip: show full title, time, description, location on hover
                     const title    = info.event.title || '';
                     const desc     = info.event.extendedProps?.description || '';
+                    const location = info.event.extendedProps?.location || '';
                     const hideTime = info.event.extendedProps?.hideTime || false;
                     const time     = hideTime ? '' : _fcFormatTime(info.event);
-                    if (!title && !desc) return;
+                    if (!title && !desc && !location) return;
 
                     // Only attach hover tooltip on devices with a fine pointer (mouse).
                     // Touch devices fire a synthetic mouseenter before click, which
                     // would show the tooltip and the modal simultaneously.
                     if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
 
+                    const _esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
                     let tip = null;
                     info.el.addEventListener('mouseenter', function (e) {
                         tip = document.createElement('div');
                         tip.className = 'fc-event-tooltip';
-                        tip.innerHTML = (title ? `<strong>${title}</strong>` : '')
-                            + (time ? `<div style="margin-top:3px;opacity:0.6;font-size:0.75rem;">${time}</div>` : '')
-                            + (desc ? `<div style="margin-top:5px;opacity:0.75;font-size:0.77rem;">${desc.replace(/\n/g,'<br>')}</div>` : '');
+                        tip.innerHTML = (title ? `<strong>${_esc(title)}</strong>` : '')
+                            + (time ? `<div style="margin-top:3px;opacity:0.6;font-size:0.75rem;">${_esc(time)}</div>` : '')
+                            + (location ? `<div style="margin-top:4px;opacity:0.8;font-size:0.77rem;"><i class="fas fa-map-marker-alt" style="margin-right:5px;opacity:0.7;"></i>${_esc(location)}</div>` : '')
+                            + (desc ? `<div style="margin-top:5px;opacity:0.75;font-size:0.77rem;">${_esc(desc).replace(/\n/g,'<br>')}</div>` : '');
                         document.body.appendChild(tip);
                         _positionFcTooltip(tip, e);
                     });
@@ -5032,6 +5295,7 @@ document.body.style.color = text_color;
                     const hideTime = ev.extendedProps?.hideTime || false;
                     const color    = ev.backgroundColor || '#3b82f6';
                     const desc     = ev.extendedProps?.description || '';
+                    const location = ev.extendedProps?.location || '';
 
                     function fmtDate(d) {
                         return d.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
@@ -5096,6 +5360,8 @@ document.body.style.color = text_color;
                             metaHtml += metaRow('clock', fmtTime(start));
                         }
                     }
+
+                    metaHtml += window._locationRow(location);
 
                     document.getElementById('pemColorStrip').style.background = color;
                     document.getElementById('pemTitle').textContent = ev.title;
@@ -6035,6 +6301,7 @@ async function pgAddToCart(productId, btn) {
 window.cbOpenEventModal = function(badge) {
     const title    = badge.dataset.title    || '';
     const desc     = badge.dataset.desc     || '';
+    const location = badge.dataset.location || '';
     const color    = badge.dataset.color    || '#3b82f6';
     const allDay   = badge.dataset.allday   === 'true';
     const hideTime = badge.dataset.hidetime === 'true';
@@ -6090,16 +6357,7 @@ window.cbOpenEventModal = function(badge) {
         }
     }
 
-    function _autolink(text) {
-        const esc = text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-        return esc.replace(/(https?:\/\/[^\s<>"']+)/g,
-            '<a href="$1" target="_blank" rel="noopener noreferrer" ' +
-            'style="color:#7ee2cc;word-break:break-all;">$1</a>');
-    }
+    metaHtml += window._locationRow(location);
 
     document.getElementById('pemColorStrip').style.background = color;
     document.getElementById('pemTitle').textContent = title;

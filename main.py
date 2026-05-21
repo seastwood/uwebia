@@ -1679,6 +1679,7 @@ class CalendarEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String, nullable=False)
     description = db.Column(db.String)
+    location = db.Column(db.String(500), nullable=True)
     start = db.Column(db.DateTime, nullable=False)
     end = db.Column(db.DateTime)
     background_color = db.Column(db.String)
@@ -1732,6 +1733,7 @@ class CalendarEvent(db.Model):
             'classNames': class_names,
             'extendedProps': {
                 'description': self.description,
+                'location': self.location,
                 'source': self.source or 'local',
                 'allDay': all_day,
                 'hideTime': hide_time,
@@ -15938,6 +15940,9 @@ def _build_calendar_ical_response(calendar_id):
         if event.description:
             event_obj.add('description', event.description)
 
+        if event.location:
+            event_obj.add('location', event.location)
+
         event_obj.add('dtstamp', now)
         event_obj.add('last-modified', now)
         event_obj.add('dtstart', event.start)
@@ -16164,9 +16169,13 @@ def sync_subscription(sub):
                 else:
                     end = end.astimezone(local_tz).replace(tzinfo=None)
 
+            location_raw = component.get('location')
+            location = str(location_raw).strip() if location_raw else None
+
             db.session.add(CalendarEvent(
                 title=str(component.get('summary', 'Untitled')),
                 description=str(component.get('description', '')) or None,
+                location=location or None,
                 start=start,
                 end=end,
                 calendar_id=sub.calendar_id,
@@ -16360,6 +16369,56 @@ def sync_one_subscription(calendar_id, sub_id):
     if result['error']:
         return jsonify({'success': False, 'error': result['error'], 'subscription': sub.to_dict()}), 400
     return jsonify({'success': True, 'synced': result['synced'], 'subscription': sub.to_dict()})
+
+
+@app.route('/admin/calendars/<int:calendar_id>/subscriptions/<int:sub_id>/copy', methods=['POST'])
+@login_required
+@require_perm('calendars.subscriptions')
+def copy_calendar_subscription(calendar_id, sub_id):
+    """Duplicate a subscription onto another (or the same) calendar.
+
+    Useful for moving a feed between calendars or reusing the same external
+    URL on multiple uwebia calendars without re-entering it.
+    """
+    src_sub = CalendarSubscription.query.filter_by(
+        id=sub_id, calendar_id=calendar_id
+    ).first_or_404()
+    if Website.query.get_or_404(src_sub.calendar.website_id).user_id != current_user.root_user_id:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+    data = request.get_json() or {}
+    try:
+        target_calendar_id = int(data.get('target_calendar_id') or 0)
+    except (TypeError, ValueError):
+        target_calendar_id = 0
+    if not target_calendar_id:
+        return jsonify({'success': False, 'error': 'Target calendar is required'}), 400
+
+    target_cal = Calendar.query.get_or_404(target_calendar_id)
+    # Target must belong to the same admin (the pool key).
+    if Website.query.get_or_404(target_cal.website_id).user_id != current_user.root_user_id:
+        return jsonify({'success': False, 'error': 'Target calendar not accessible'}), 403
+
+    # Optional rename on copy (useful when duplicating within the same calendar).
+    new_name = (data.get('name') or '').strip() or src_sub.name
+
+    new_sub = CalendarSubscription(
+        calendar_id=target_cal.id,
+        name=new_name or None,
+        url=src_sub.url,
+    )
+    db.session.add(new_sub)
+    db.session.commit()
+
+    # Sync immediately so the new subscription's events appear without a
+    # second click. Sync errors are surfaced but don't roll back the copy —
+    # the user can retry with the manual Sync button.
+    sync_result = sync_subscription(new_sub)
+    return jsonify({
+        'success': True,
+        'subscription': new_sub.to_dict(),
+        'sync': sync_result,
+    }), 201
 
 
 @app.route('/admin/calendars/<int:calendar_id>/subscriptions/<int:sub_id>/delete', methods=['POST'])
@@ -18178,11 +18237,14 @@ def add_calendar_event(calendar_id):
         series_id = uuid.uuid4().hex if rule and len(occurrences) > 1 else None
         rule_json = json.dumps(rule) if (series_id and rule) else None
 
+        location = (data.get('location') or '').strip() or None
+
         created = []
         for idx, (occ_start, occ_end) in enumerate(occurrences):
             ev = CalendarEvent(
                 title=data.get('title'),
                 description=data.get('description'),
+                location=location,
                 start=occ_start,
                 end=occ_end,
                 background_color=data.get('backgroundColor'),
@@ -18267,6 +18329,9 @@ def update_calendar_event(calendar_id):
         for t in targets:
             t.title = data.get('title', t.title)
             t.description = data.get('description', t.description)
+            if 'location' in data:
+                loc = (data.get('location') or '').strip()
+                t.location = loc or None
             t.background_color = data.get('backgroundColor', t.background_color)
             t.all_day = bool(data.get('allDay', t.all_day))
             t.hide_time = bool(data.get('hideTime', t.hide_time))
