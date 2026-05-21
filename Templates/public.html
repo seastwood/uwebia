@@ -3652,18 +3652,6 @@ min-height: 100dvh;
 .cb-badge-title { font-size: 0.92rem; font-weight: 800; line-height: 1.2; letter-spacing: 0.01em; }
 .cb-badge-date  { font-size: 0.75rem; opacity: 0.82; margin-top: 1px; font-weight: 500; }
 .cb-badge-time  { font-size: 0.72rem; opacity: 0.7; font-weight: 500; }
-.cb-badge-location {
-    margin-top: 4px;
-    font-size: 0.72rem;
-    opacity: 0.82;
-    font-weight: 500;
-    display: flex;
-    align-items: baseline;
-    gap: 5px;
-    line-height: 1.25;
-    word-break: break-word;
-}
-.cb-badge-location i { font-size: 0.65rem; opacity: 0.75; flex-shrink: 0; }
 .cb-badge-desc-icon { position: absolute; top: 11px; right: 14px; font-size: 0.68rem; opacity: 0.55; }
 .cb-empty { opacity: 0.5; font-size: 0.9rem; }
 
@@ -4720,12 +4708,6 @@ box-sizing: border-box;
                                         </div>
                                         {% if not event.all_day and not event.hide_time and cb_show_time %}
                                         <div class="cb-badge-time">{{ event.start.strftime('%-I:%M %p') }}</div>
-                                        {% endif %}
-                                        {% if event.location %}
-                                        <div class="cb-badge-location" style="color:{{ text_color }};">
-                                            <i class="fas fa-map-marker-alt"></i>
-                                            <span>{{ event.location }}</span>
-                                        </div>
                                         {% endif %}
                                     </div>
                                     {% endfor %}
