@@ -14891,9 +14891,11 @@ setTimeout(() => {
 
     <script>
         function defaultImageLayout(sectionType) {
+            // Must match the public renderer (Templates/public.html ~3800):
+            // only the singular 'image' section type defaults to 'single' —
+            // 'images' and 'image_gallery' both default to 'fade_slideshow'.
             if (sectionType === 'image') return 'single';
-            if (sectionType === 'image_gallery') return 'fade_slideshow';
-            return 'single';
+            return 'fade_slideshow';
         }
 
         function applyGroupContainerStyles(groupContainer, group) {

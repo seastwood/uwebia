@@ -109,7 +109,9 @@
     <div class="library-controls" style="margin-bottom: 20px;">
         <button onclick="document.getElementById('fileInput').click()" class="btn-primary">Upload</button>
         <button onclick="createFolder()" class="btn-secondary">New Folder</button>
-        <input type="file" id="fileInput" multiple style="display:none" onchange="handleUpload(event)">
+        <input type="file" id="fileInput" multiple onchange="handleUpload(event)"
+               aria-hidden="true" tabindex="-1"
+               style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;">
     </div>
     <div class="upload-help">
     Max file size: 10 MB per image. Best results: under 2–3 MB.
@@ -253,7 +255,12 @@ async function handleUpload(event) {
         if (xhr.status >= 200 && xhr.status < 300) {
             progressFill.style.width = '100%';
             progressText.textContent = 'Upload complete';
-            location.reload();
+            // iOS Safari can serve the prior page from its in-memory cache
+            // after a multipart POST, so the new picture appears missing
+            // until a manual refresh. Cache-bust to force a fresh GET.
+            const url = new URL(window.location.href);
+            url.searchParams.set('_t', Date.now());
+            window.location.href = url.toString();
         } else {
             let message = 'Upload failed.';
             try {
