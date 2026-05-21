@@ -16333,6 +16333,26 @@ def get_calendar_events_public(calendar_id):
     return jsonify([event.to_dict() for event in events])
 
 
+@app.route('/calendar/<int:calendar_id>/print', methods=['GET'])
+def print_calendar_public(calendar_id):
+    """Dedicated print-only page for a calendar.
+
+    This exists because mobile browsers (iOS Safari especially) snapshot the
+    host page for print/PDF and won't honor iframes, display:none toggles,
+    or @media print rules reliably enough to "print just one section". A
+    purpose-built standalone page has nothing to leak. Open this URL in a
+    new tab from the Print button; the page auto-fires window.print() on
+    load.
+    """
+    cal = Calendar.query.get_or_404(calendar_id)
+    month_param = (request.args.get('month') or '').strip()
+    return render_template(
+        'print_calendar.html',
+        calendar=cal,
+        initial_month=month_param,
+    )
+
+
 @app.route('/admin/calendars/<int:calendar_id>/subscriptions', methods=['POST'])
 @login_required
 @require_perm('calendars.subscriptions')

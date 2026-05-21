@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ calendar.name }} – Print</title>
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
+    <style>
+        @page { size: landscape; margin: 8mm; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        /* Screen-only toolbar — never printed. */
+        .print-toolbar {
+            position: sticky;
+            top: 0;
+            background: #f4f4f4;
+            border-bottom: 1px solid #ddd;
+            padding: 10px 14px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            z-index: 10;
+        }
+        .print-toolbar button {
+            background: #2563eb;
+            color: #fff;
+            border: 0;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .print-toolbar button.secondary {
+            background: #fff;
+            color: #333;
+            border: 1px solid #ccc;
+        }
+        .print-toolbar .toolbar-hint {
+            margin-left: auto;
+            color: #666;
+            font-size: 0.82rem;
+        }
+        @media print {
+            .print-toolbar { display: none !important; }
+        }
+
+        .calendar-wrap { padding: 14px; }
+        #pc-calendar { background: #fff; color: #000; }
+        #pc-calendar, #pc-calendar * {
+            color: #000 !important;
+            background: #fff !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+        /* Grid lines */
+        #pc-calendar .fc,
+        #pc-calendar .fc *,
+        #pc-calendar .fc-theme-standard td,
+        #pc-calendar .fc-theme-standard th,
+        #pc-calendar .fc-theme-standard .fc-scrollgrid {
+            border-color: #666 !important;
+        }
+        #pc-calendar .fc-day-other,
+        #pc-calendar .fc-day-other * { color: #aaa !important; }
+
+        /* Hide the prev/today/next chunk on the printable page — the
+           toolbar above already gives those affordances. */
+        #pc-calendar .fc-toolbar-chunk:nth-child(3),
+        #pc-calendar .fc-button { display: none !important; }
+        #pc-calendar .fc-toolbar { margin-bottom: 6px !important; }
+        #pc-calendar .fc-toolbar-title {
+            font-size: 1.5rem !important;
+            font-weight: 700 !important;
+        }
+
+        /* Event chips: outlined cards in their category color, no fill. */
+        #pc-calendar .fc-event,
+        #pc-calendar .fc-event-main,
+        #pc-calendar .fc-event-title,
+        #pc-calendar .fc-event-time {
+            background: #fff !important;
+            color: #000 !important;
+        }
+        #pc-calendar .fc-event {
+            border: 1px solid #d0d0d0 !important;
+            border-left-width: 4px !important;
+            margin: 1px 2px !important;
+            padding: 1px 4px !important;
+            font-size: 0.78rem !important;
+            line-height: 1.25 !important;
+        }
+
+        #pc-calendar .fc-scrollgrid,
+        #pc-calendar .fc-daygrid-body,
+        #pc-calendar .fc-daygrid-body table {
+            width: 100% !important;
+            height: auto !important;
+        }
+        /* Day-cell height tuned so a 6-row month (the worst case) still
+           fits on a single landscape page: 6 rows × 68px + ~70px for the
+           title/column-header = ~478px, well under landscape Letter's
+           ~750px usable area at 8mm margins. */
+        #pc-calendar .fc-daygrid-day-frame { min-height: 68px !important; }
+        #pc-calendar .fc-col-header-cell,
+        #pc-calendar .fc-col-header-cell-cushion {
+            font-size: 0.78rem !important;
+            font-weight: 600 !important;
+            padding: 3px 2px !important;
+        }
+        #pc-calendar .fc-daygrid-day-number {
+            font-size: 0.82rem !important;
+            padding: 3px 5px !important;
+        }
+        * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        @media print {
+            .calendar-wrap { padding: 0 !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="print-toolbar">
+        <button type="button" onclick="window.print()">Print</button>
+        <button type="button" class="secondary" onclick="window.close(); window.history.back();">Close</button>
+        <span class="toolbar-hint">Tip: in your browser's print dialog choose <strong>Landscape</strong> orientation.</span>
+    </div>
+    <div class="calendar-wrap">
+        <div id="pc-calendar"></div>
+    </div>
+
+    <script>
+    (function () {
+        const calendarId = {{ calendar.id|tojson }};
+        const initialMonth = {{ initial_month|tojson }};
+
+        // initialDate = YYYY-MM-01 if a month was passed; else today.
+        let initialDate = undefined;
+        if (initialMonth && /^\d{4}-\d{2}$/.test(initialMonth)) {
+            initialDate = `${initialMonth}-01`;
+        }
+
+        const calendarEl = document.getElementById('pc-calendar');
+        const calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'dayGridMonth',
+            initialDate: initialDate,
+            eventDisplay: 'block',
+            // height:'auto' makes the calendar size to its content. Day
+            // cells use the min-height set in the print CSS, which is
+            // tuned so even a 6-row month fits one landscape page.
+            height: 'auto',
+            expandRows: false,
+            dayMaxEvents: false,
+            fixedWeekCount: false,
+            showNonCurrentDates: true,
+            headerToolbar: { left: 'title', center: '', right: '' },
+            events: (info, success, failure) => {
+                fetch(`/calendar/${calendarId}/events`)
+                    .then(r => r.json())
+                    .then(success)
+                    .catch(failure);
+            },
+            eventDidMount: function (info) {
+                // Migrate each event's chip color onto all four borders so
+                // we can wipe the fill in the print stylesheet but keep
+                // color-coding visible as outlined cards.
+                const el = info.el;
+                const bg = el.style.backgroundColor || info.event.backgroundColor || '';
+                if (bg && bg !== 'transparent') {
+                    el.style.setProperty('border-top-color',    bg, 'important');
+                    el.style.setProperty('border-right-color',  bg, 'important');
+                    el.style.setProperty('border-bottom-color', bg, 'important');
+                    el.style.setProperty('border-left-color',   bg, 'important');
+                }
+                el.style.backgroundColor = '';
+            },
+        });
+        calendar.render();
+
+        // Auto-fire the browser print dialog once FullCalendar has finished
+        // fetching events and laying out the grid. eventDidMount only runs
+        // for each event, so we listen for loading=false (events done) and
+        // then add a small delay to ensure the layout settled.
+        let printed = false;
+        const autoPrint = () => {
+            if (printed) return;
+            printed = true;
+            setTimeout(() => {
+                window.focus();
+                window.print();
+            }, 400);
+        };
+        calendar.on('loading', isLoading => {
+            if (!isLoading) autoPrint();
+        });
+        // Safety net: if loading never flips (no events), fire after 1.5s.
+        setTimeout(autoPrint, 1500);
+    })();
+    </script>
+</body>
+</html>
