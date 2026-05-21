@@ -81,6 +81,9 @@
                                     <button class="btn-sync-small" onclick="syncSubscription({{ cal.id }}, {{ sub.id }})" id="syncSubBtn-{{ sub.id }}" title="Sync now">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
+                                    <button class="btn-icon" onclick="openCopySubModal({{ cal.id }}, {{ sub.id }}, {{ (sub.name or sub.url) | tojson }})" title="Copy to another calendar">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
                                     <button class="btn-icon btn-danger-icon" onclick="deleteSubscription({{ cal.id }}, {{ sub.id }})" title="Remove">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -160,6 +163,42 @@
     </div>
 </div>
 
+<!-- Copy External Source Modal -->
+<div class="uw-overlay" id="copySubModalOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="copySubModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="copySubModalTitle">Copy External Source</h3>
+            <button class="uw-modal-close" onclick="closeCopySubModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <input type="hidden" id="copySubSourceCalendarId" value="">
+            <input type="hidden" id="copySubSourceSubId" value="">
+            <p style="margin:0 0 14px;opacity:0.75;font-size:0.9rem;" id="copySubSourceLabel"></p>
+
+            <div class="uw-field">
+                <label for="copySubTargetCalendar">Copy to calendar</label>
+                <select id="copySubTargetCalendar">
+                    {% for cal in calendars %}
+                    <option value="{{ cal.id }}">{{ cal.name }}</option>
+                    {% endfor %}
+                </select>
+                <div style="margin-top:6px;opacity:0.55;font-size:0.78rem;">
+                    Pick the same calendar to duplicate the source within it.
+                </div>
+            </div>
+
+            <div class="uw-field">
+                <label for="copySubName">Name <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
+                <input type="text" id="copySubName" placeholder="Leave blank to keep the original name">
+            </div>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeCopySubModal()">Cancel</button>
+            <button type="button" class="uw-btn uw-btn-primary" id="copySubConfirmBtn" onclick="confirmCopySub()">Copy &amp; sync</button>
+        </div>
+    </div>
+</div>
+
 <!-- Add / Edit Event Modal -->
 <div class="uw-overlay" id="eventModalOverlay">
     <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle">
@@ -219,6 +258,11 @@
                     <label for="eventAllDayEnd">End Date <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
                     <input type="date" id="eventAllDayEnd">
                 </div>
+            </div>
+
+            <div class="uw-field">
+                <label for="eventLocation">Location <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
+                <input type="text" id="eventLocation" placeholder="Address, room, video link…">
             </div>
 
             <div class="uw-field">
@@ -304,17 +348,20 @@
     }
 
     function _attachFcTooltip(el, event) {
-        const title = event.title || '';
-        const desc  = event.extendedProps?.description || '';
-        const time  = _fcFormatTime(event);
-        if (!title && !desc) return;
+        const title    = event.title || '';
+        const desc     = event.extendedProps?.description || '';
+        const location = event.extendedProps?.location || '';
+        const time     = _fcFormatTime(event);
+        if (!title && !desc && !location) return;
+        const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         let tip = null;
         el.addEventListener('mouseenter', function (e) {
             tip = document.createElement('div');
             tip.className = 'fc-event-tooltip';
-            tip.innerHTML = (title ? `<strong>${title}</strong>` : '')
-                + (time ? `<div style="margin-top:3px;opacity:0.6;font-size:0.75rem;">${time}</div>` : '')
-                + (desc  ? `<div style="margin-top:5px;opacity:0.75;font-size:0.77rem;">${desc.replace(/\n/g,'<br>')}</div>` : '');
+            tip.innerHTML = (title ? `<strong>${esc(title)}</strong>` : '')
+                + (time ? `<div style="margin-top:3px;opacity:0.6;font-size:0.75rem;">${esc(time)}</div>` : '')
+                + (location ? `<div style="margin-top:4px;opacity:0.8;font-size:0.77rem;"><i class="fas fa-map-marker-alt" style="margin-right:5px;opacity:0.7;"></i>${esc(location)}</div>` : '')
+                + (desc  ? `<div style="margin-top:5px;opacity:0.75;font-size:0.77rem;">${esc(desc).replace(/\n/g,'<br>')}</div>` : '');
             document.body.appendChild(tip);
             _positionFcTooltip(tip, e);
         });
@@ -585,6 +632,42 @@
         }
     }
 
+    function openCopySubModal(calendarId, subId, sourceLabel) {
+        document.getElementById('copySubSourceCalendarId').value = calendarId;
+        document.getElementById('copySubSourceSubId').value = subId;
+        document.getElementById('copySubSourceLabel').textContent = `Source: ${sourceLabel || 'External source'}`;
+        document.getElementById('copySubTargetCalendar').value = String(calendarId);
+        document.getElementById('copySubName').value = '';
+        const btn = document.getElementById('copySubConfirmBtn');
+        if (btn) { btn.disabled = false; btn.textContent = 'Copy & sync'; }
+        showModal('copySubModalOverlay');
+    }
+    function closeCopySubModal() {
+        document.getElementById('copySubModalOverlay').classList.remove('open');
+        document.body.classList.remove('uw-modal-open');
+    }
+    async function confirmCopySub() {
+        const srcCalId = document.getElementById('copySubSourceCalendarId').value;
+        const subId    = document.getElementById('copySubSourceSubId').value;
+        const targetId = document.getElementById('copySubTargetCalendar').value;
+        const name     = document.getElementById('copySubName').value;
+        if (!targetId) return;
+        const btn = document.getElementById('copySubConfirmBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Copying…'; }
+        const r = await fetch(`/admin/calendars/${srcCalId}/subscriptions/${subId}/copy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_calendar_id: parseInt(targetId, 10), name: name })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.success) {
+            location.reload();
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = 'Copy & sync'; }
+            alert(data.error || 'Failed to copy subscription');
+        }
+    }
+
     async function deleteSubscription(calendarId, subId) {
         if (!confirm('Remove this external source and its events?')) return;
         const r = await fetch(`/admin/calendars/${calendarId}/subscriptions/${subId}/delete`, { method: 'POST' });
@@ -719,6 +802,7 @@
         const payload = {
             title: document.getElementById('eventTitle').value,
             description: document.getElementById('eventDescription').value,
+            location: document.getElementById('eventLocation').value,
             backgroundColor: document.getElementById('eventColor').value,
             allDay: allDay,
             hideTime: document.getElementById('eventHideTime').checked,
@@ -782,6 +866,7 @@
         const payload = {
             title: clip.title,
             description: clip.description,
+            location: clip.location,
             backgroundColor: clip.backgroundColor,
             allDay: !!clip.allDay,
             hideTime: !!clip.hideTime,
@@ -819,6 +904,7 @@
         document.getElementById('eventAllDayEnd').value = '';
         document.getElementById('eventColor').value = '#3b82f6';
         document.getElementById('eventDescription').value = '';
+        document.getElementById('eventLocation').value = '';
         document.getElementById('eventDeleteBtn').style.display = 'none';
         document.getElementById('eventCopyBtn').style.display = 'none';
         document.getElementById('eventExternalBanner').style.display = 'none';
@@ -868,6 +954,7 @@
 
         document.getElementById('eventColor').value = fcEvent.backgroundColor || '#3b82f6';
         document.getElementById('eventDescription').value = fcEvent.extendedProps.description || '';
+        document.getElementById('eventLocation').value = fcEvent.extendedProps.location || '';
 
         document.getElementById('eventExternalBanner').style.display = isExternal ? 'flex' : 'none';
         document.getElementById('eventDeleteBtn').style.display = isExternal ? 'none' : 'block';
@@ -930,6 +1017,7 @@
             id: eventId || undefined,
             title: document.getElementById('eventTitle').value,
             description: document.getElementById('eventDescription').value,
+            location: document.getElementById('eventLocation').value,
             start: startStr,
             end: endStr,
             allDay: allDay,
@@ -1042,6 +1130,10 @@
 
     document.getElementById('eventModalOverlay').addEventListener('click', function (e) {
         if (e.target === this) closeEventModal();
+    });
+
+    document.getElementById('copySubModalOverlay').addEventListener('click', function (e) {
+        if (e.target === this) closeCopySubModal();
     });
 
     function showToast(msg) {
