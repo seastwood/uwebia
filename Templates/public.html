@@ -3655,123 +3655,10 @@ min-height: 100dvh;
 .cb-badge-desc-icon { position: absolute; top: 11px; right: 14px; font-size: 0.68rem; opacity: 0.55; }
 .cb-empty { opacity: 0.5; font-size: 0.9rem; }
 
-/* The print overlay is invisible on screen — it only exists during the
-   print dialog. It's appended to <body> by printPublicCalendar(). */
-#cal-print-overlay { display: none; }
-
-/* Print mode: hide every direct child of <body> except the overlay, let
-   the cloned calendar fill the landscape page, and force ink-friendly
-   colors. Layout-aware (display:none, not visibility:hidden) so blank
-   pages can't sneak in from the rest of the page's flow. */
-@media print {
-    @page { size: landscape; margin: 8mm; }
-
-    /* Hide everything else on the page entirely. */
-    body.cal-printing > *:not(#cal-print-overlay) { display: none !important; }
-
-    body.cal-printing,
-    body.cal-printing #cal-print-overlay,
-    body.cal-printing #cal-print-overlay * {
-        background: #fff !important;
-        color: #000 !important;
-        box-shadow: none !important;
-        text-shadow: none !important;
-    }
-    body.cal-printing { margin: 0 !important; padding: 0 !important; }
-    body.cal-printing #cal-print-overlay {
-        display: block !important;
-        width: 100% !important;
-        height: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    body.cal-printing #calendar-print-clone {
-        width: 100% !important;
-        max-width: 100% !important;
-        height: 100vh !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-    }
-
-    /* Light grid lines, no heavy borders. */
-    body.cal-printing #calendar-print-clone .fc,
-    body.cal-printing #calendar-print-clone .fc * {
-        border-color: #666 !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-theme-standard td,
-    body.cal-printing #calendar-print-clone .fc-theme-standard th,
-    body.cal-printing #calendar-print-clone .fc-theme-standard .fc-scrollgrid {
-        border-color: #666 !important;
-    }
-    /* Days outside the current month: light gray so they don't dominate. */
-    body.cal-printing #calendar-print-clone .fc-day-other,
-    body.cal-printing #calendar-print-clone .fc-day-other * { color: #aaa !important; }
-
-    /* Hide the toolbar's print/today/prev/next buttons — only the month
-       title is useful on paper. */
-    body.cal-printing #calendar-print-clone .fc-toolbar-chunk:nth-child(3),
-    body.cal-printing #calendar-print-clone .fc-button {
-        display: none !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-toolbar {
-        margin-bottom: 6px !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-toolbar-title {
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* Event chips: white background with a thin colored left bar instead
-       of a full color fill. Same color-coding, a fraction of the ink. */
-    body.cal-printing #calendar-print-clone .fc-event,
-    body.cal-printing #calendar-print-clone .fc-event-main,
-    body.cal-printing #calendar-print-clone .fc-event-title,
-    body.cal-printing #calendar-print-clone .fc-event-time {
-        background: #fff !important;
-        color: #000 !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-event {
-        /* Default left bar — overwritten per-event by the JS migration
-           step that copies each event's original color into border-left. */
-        border: 1px solid #d0d0d0 !important;
-        border-left-width: 4px !important;
-        margin: 1px 2px !important;
-        padding: 1px 4px !important;
-        font-size: 0.78rem !important;
-        line-height: 1.25 !important;
-    }
-
-    /* Day-cell sizing — let the grid fill the landscape page height. */
-    body.cal-printing #calendar-print-clone .fc-scrollgrid,
-    body.cal-printing #calendar-print-clone .fc-daygrid-body,
-    body.cal-printing #calendar-print-clone .fc-daygrid-body table {
-        width: 100% !important;
-        height: auto !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-daygrid-day-frame {
-        min-height: 90px !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-col-header-cell,
-    body.cal-printing #calendar-print-clone .fc-col-header-cell-cushion {
-        font-size: 0.78rem !important;
-        font-weight: 600 !important;
-        padding: 4px 2px !important;
-    }
-    body.cal-printing #calendar-print-clone .fc-daygrid-day-number {
-        font-size: 0.82rem !important;
-        padding: 4px 6px !important;
-    }
-
-    /* Honor explicit colors we set (the left-bar accent above). */
-    body.cal-printing #cal-print-overlay,
-    body.cal-printing #cal-print-overlay * {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-    }
-}
+/* Calendar print: the entire print stylesheet lives inside the iframe
+   built by printPublicCalendar() in scripts below, so the host page no
+   longer needs any @media print rules for the calendar. The iframe
+   itself is offscreen and not user-visible. */
 </style>
 
 {% set nav_style = website.public_navbar_style or {} %}
@@ -5134,68 +5021,194 @@ document.body.style.color = text_color;
             }, DURATION + 60);
         }
 
-        // Print just the calendar. Strategy: clone the rendered FullCalendar
-        // element into a top-level overlay, hide every other direct child of
-        // <body> via display:none, then fire window.print(). The clone keeps
-        // the FullCalendar class structure so the print CSS can target it
-        // without depending on the original section's wrapper chain (page
-        // sections can be deeply nested under flex/grid columns that resist
-        // being forced to full width). On afterprint we remove the overlay
-        // and restore visibility. A timer fallback covers mobile browsers
-        // (Safari especially) that don't fire afterprint reliably.
+        // Open a dedicated /calendar/<id>/print page in a new tab. That
+        // page is a real top-level document containing nothing but the
+        // calendar — so the browser's print/PDF snapshot can't possibly
+        // include the host site's navbar, sections, or background. The
+        // print page auto-fires window.print() once events have loaded.
+        function openCalendarPrintPage(calendarId, currentDate) {
+            let monthQuery = '';
+            if (currentDate instanceof Date && !isNaN(currentDate)) {
+                const y = currentDate.getFullYear();
+                const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+                monthQuery = `?month=${y}-${m}`;
+            }
+            const url = `/calendar/${calendarId}/print${monthQuery}`;
+            // Try opening in a new tab. iOS Safari sometimes blocks popups
+            // even from click handlers; fall back to in-place navigation
+            // so the user always gets there.
+            const win = window.open(url, '_blank');
+            if (!win || win.closed) {
+                window.location.href = url;
+            }
+        }
+
+        // Legacy single-tab print (kept for desktop fallback if needed).
+        // The print button now uses openCalendarPrintPage() above.
         function printPublicCalendar(calendarEl) {
             if (!calendarEl) return;
-            const existing = document.getElementById('cal-print-overlay');
+
+            // Remove any leftover iframe from a prior interrupted print.
+            const existing = document.getElementById('cal-print-iframe');
             if (existing) existing.remove();
 
-            const overlay = document.createElement('div');
-            overlay.id = 'cal-print-overlay';
+            // Clone the calendar and migrate each event's background color
+            // onto its borders (the print stylesheet wipes the fill so we
+            // save ink, but keep the per-event color as an outlined card).
             const clone = calendarEl.cloneNode(true);
-            // The clone has the same id as the source, which is harmless on
-            // its own — but FullCalendar scopes its per-section CSS via
-            // `#calendar-{section.id}`. Rename the clone so the dark on-screen
-            // theme doesn't fight the ink-saving print stylesheet below.
             clone.id = 'calendar-print-clone';
-            // Strip any inline styles that pinned the calendar to a narrow
-            // column on the original page.
             clone.style.cssText = '';
-            // The cloned event chips carry their category color as an inline
-            // background-color. The print stylesheet overrides background to
-            // white (to save ink), so we migrate the original color onto the
-            // left border first — that keeps color-coding visible as a thin
-            // colored stripe without using a chip-sized fill of ink.
             clone.querySelectorAll('.fc-event').forEach(ev => {
                 const bg = ev.style.backgroundColor || ev.style.background || '';
                 if (bg && bg !== 'transparent') {
-                    // Mark important so the print stylesheet's
-                    // `border: 1px solid #d0d0d0 !important` shorthand can't
-                    // overwrite the per-event color. All four edges take the
-                    // event's color so each chip reads as a self-contained
-                    // outlined card on paper, with the left as a thicker
-                    // accent stripe.
                     ev.style.setProperty('border-top-color',    bg, 'important');
                     ev.style.setProperty('border-right-color',  bg, 'important');
                     ev.style.setProperty('border-bottom-color', bg, 'important');
                     ev.style.setProperty('border-left-color',   bg, 'important');
                 }
-                // Wipe the inline fill so the !important white in the print
-                // stylesheet doesn't have to fight it.
                 ev.style.backgroundColor = '';
                 ev.style.background = '';
             });
-            overlay.appendChild(clone);
-            document.body.appendChild(overlay);
 
-            document.body.classList.add('cal-printing');
-            const cleanup = () => {
-                document.body.classList.remove('cal-printing');
-                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-                window.removeEventListener('afterprint', cleanup);
+            // Helper for embedding a string in the iframe's HTML.
+            const _esc = s => String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+            // Build a complete, self-contained HTML document for the iframe.
+            // We pull in the same FullCalendar CDN stylesheet the host page
+            // uses (so the grid structure renders correctly) and inline an
+            // ink-friendly print stylesheet that completely overrides the
+            // dark on-screen theme.
+            const docHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${_esc(document.title || 'Calendar')}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+@page { size: landscape; margin: 8mm; }
+html, body {
+    margin: 0; padding: 0;
+    background: #fff !important;
+    color: #000 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#calendar-print-clone, #calendar-print-clone * {
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+}
+#calendar-print-clone {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+}
+/* Grid lines */
+#calendar-print-clone .fc,
+#calendar-print-clone .fc *,
+#calendar-print-clone .fc-theme-standard td,
+#calendar-print-clone .fc-theme-standard th,
+#calendar-print-clone .fc-theme-standard .fc-scrollgrid {
+    border-color: #666 !important;
+}
+#calendar-print-clone .fc-day-other,
+#calendar-print-clone .fc-day-other * { color: #aaa !important; }
+/* Hide on-screen toolbar buttons */
+#calendar-print-clone .fc-toolbar-chunk:nth-child(3),
+#calendar-print-clone .fc-button { display: none !important; }
+#calendar-print-clone .fc-toolbar { margin-bottom: 6px !important; }
+#calendar-print-clone .fc-toolbar-title { font-size: 1.5rem !important; font-weight: 700 !important; }
+/* Event chips: outlined cards in their category color */
+#calendar-print-clone .fc-event,
+#calendar-print-clone .fc-event-main,
+#calendar-print-clone .fc-event-title,
+#calendar-print-clone .fc-event-time {
+    background: #fff !important;
+    color: #000 !important;
+}
+#calendar-print-clone .fc-event {
+    border: 1px solid #d0d0d0 !important;
+    border-left-width: 4px !important;
+    margin: 1px 2px !important;
+    padding: 1px 4px !important;
+    font-size: 0.78rem !important;
+    line-height: 1.25 !important;
+}
+/* Grid sizing */
+#calendar-print-clone .fc-scrollgrid,
+#calendar-print-clone .fc-daygrid-body,
+#calendar-print-clone .fc-daygrid-body table {
+    width: 100% !important;
+    height: auto !important;
+}
+#calendar-print-clone .fc-daygrid-day-frame { min-height: 90px !important; }
+#calendar-print-clone .fc-col-header-cell,
+#calendar-print-clone .fc-col-header-cell-cushion {
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    padding: 4px 2px !important;
+}
+#calendar-print-clone .fc-daygrid-day-number {
+    font-size: 0.82rem !important;
+    padding: 4px 6px !important;
+}
+* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+</style>
+</head>
+<body>${clone.outerHTML}</body>
+</html>`;
+
+            // Create the offscreen iframe. We use sandbox= attribute is not
+            // possible since we need to call print() on the contentWindow;
+            // that requires same-origin which a srcdoc iframe satisfies.
+            const iframe = document.createElement('iframe');
+            iframe.id = 'cal-print-iframe';
+            iframe.setAttribute('aria-hidden', 'true');
+            // Render the iframe at a real (large) size but offscreen, so it
+            // lays out properly. Zero-sized iframes don't render their
+            // contents on some browsers, which prevents print() from
+            // capturing anything.
+            iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:900px;border:0;';
+            document.body.appendChild(iframe);
+
+            // Using srcdoc gives us a real same-origin doc whose load event
+            // fires reliably once the linked stylesheets resolve. (We could
+            // use document.write, but srcdoc is cleaner and avoids legacy
+            // quirks on iOS.)
+            const fireprint = () => {
+                try {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                } catch (e) {
+                    // If for some reason printing the iframe fails, fall
+                    // back to printing the host window (whole page) so the
+                    // user gets *something*. Better than a silent failure.
+                    window.print();
+                }
             };
-            window.addEventListener('afterprint', cleanup);
-            setTimeout(cleanup, 8000);
-            // Tiny delay so the overlay paints before the print dialog opens.
-            setTimeout(() => window.print(), 50);
+
+            iframe.addEventListener('load', () => {
+                // Tiny extra delay so the stylesheets have laid out before
+                // the print snapshot is taken.
+                setTimeout(fireprint, 250);
+                // Remove the iframe after the user closes the print sheet,
+                // or as a fallback after 60s (mobile users may take a while
+                // inside the Share Sheet).
+                const remove = () => {
+                    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+                };
+                try {
+                    iframe.contentWindow.addEventListener('afterprint', remove);
+                } catch (_) { /* ignore */ }
+                setTimeout(remove, 60000);
+            });
+
+            iframe.srcdoc = docHtml;
         }
 
         // Initialize the calendar
@@ -5214,7 +5227,12 @@ document.body.style.color = text_color;
                 customButtons: {
                     printCal: {
                         text: 'Print',
-                        click: function () { printPublicCalendar(calendarEl); },
+                        click: function () {
+                            // Open the server-rendered print page in a new
+                            // tab pointed at whatever month is currently
+                            // showing. Works the same on desktop and mobile.
+                            openCalendarPrintPage(calendarId, calendar.getDate());
+                        },
                     },
                 },
                 headerToolbar: {
@@ -5359,6 +5377,17 @@ document.body.style.color = text_color;
                 // Add other options as needed
             });
             calendar.render();
+
+            // Swap the Print button's text for a printer icon. FullCalendar's
+            // customButtons.text only accepts plain text, so we have to do
+            // this after render() puts the button in the DOM. Keep "Print"
+            // as the title/aria-label for accessibility.
+            const _printBtn = calendarEl.querySelector('.fc-printCal-button');
+            if (_printBtn) {
+                _printBtn.innerHTML = '<i class="fas fa-print" aria-hidden="true"></i>';
+                _printBtn.setAttribute('title', 'Print');
+                _printBtn.setAttribute('aria-label', 'Print');
+            }
 
             // Safari: suppress tap highlight on all interactive calendar elements.
             // CSS alone is ignored by Safari for dynamically-created elements;
