@@ -102,6 +102,14 @@
 
         {% elif item.type == 'group' %}
             {% set group_active = namespace(value=false) %}
+            {% set group_url = (item.url or '').strip() %}
+            {% if group_url %}
+                {% set group_has_hash = '#' in group_url %}
+                {% set group_url_no_hash = group_url.split('#')[0] %}
+                {% if not group_has_hash and group_url_no_hash == current_url_no_hash %}
+                    {% set group_active.value = true %}
+                {% endif %}
+            {% endif %}
             {% for child in item.children %}
                 {% set child_has_hash = '#' in child.url %}
                 {% set child_url_no_hash = child.url.split('#')[0] %}
@@ -111,9 +119,17 @@
             {% endfor %}
 
             <div class="public-navbar-dropdown {% if group_active.value %}active-navbar-dropdown{% endif %}">
-                <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
-                    {{ item.name }} ▾
-                </button>
+                {% if group_url %}
+                    {# Group with a URL: label is itself a link. The dropdown
+                       still opens via hover/focus on the parent .public-navbar-dropdown. #}
+                    <a href="{{ group_url }}" class="public-navbar-group-link {% if group_active.value %}active-navbar-link{% endif %}">
+                        {{ item.name }} <span class="public-navbar-group-chevron">▾</span>
+                    </a>
+                {% else %}
+                    <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
+                        {{ item.name }} ▾
+                    </button>
+                {% endif %}
                 <div class="public-navbar-dropdown-menu">
                     <div class="public-navbar-menu-glass">
                         {% for child in item.children %}
@@ -509,8 +525,12 @@
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
     }
 
-    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
-    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
+    /* Direct-child selectors only. A descendant selector here would also
+       match every nested .public-navbar-dropdown-menu inside the hovered
+       dropdown (e.g. a group inside the More overflow), causing the group's
+       submenu to auto-open the moment you hovered the More label. */
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover > .public-navbar-dropdown-menu,
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:focus-within > .public-navbar-dropdown-menu {
         display: block;
     }
 
@@ -634,7 +654,7 @@
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
     }
 
-    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover .public-navbar-dropdown-menu {
+    .public-navbar.dropdown-mode-dropdown .public-navbar-dropdown:hover > .public-navbar-dropdown-menu {
         display: block;
     }
 
@@ -659,8 +679,8 @@
         z-index: 10005;
     }
 
-    .public-navbar .public-navbar-dropdown:hover .public-navbar-dropdown-menu,
-    .public-navbar .public-navbar-dropdown:focus-within .public-navbar-dropdown-menu {
+    .public-navbar .public-navbar-dropdown:hover > .public-navbar-dropdown-menu,
+    .public-navbar .public-navbar-dropdown:focus-within > .public-navbar-dropdown-menu {
         display: block;
     }
 
@@ -1099,16 +1119,25 @@
 
 /* Nested dropdowns inside the generated More menu */
 .public-navbar-overflow-menu .public-navbar-dropdown-menu {
-    position: static;
+    /* relative (not static) so the menu acts as the containing block for
+       its ::before frosted-glass pseudo. With static, ::before resolves up
+       to .public-navbar-dropdown (which wraps the group button too) and
+       its inset:0 background stretched over the group title, hiding it. */
+    position: relative;
     display: none;
     min-width: 100%;
     margin-top: 4px;
     box-shadow: none;
 }
 
+/* Inside the More dropdown, nested groups should NOT open on hover/focus.
+   The global hover rule (.public-navbar .public-navbar-dropdown:hover >
+   .public-navbar-dropdown-menu) would otherwise apply here too. Override
+   to display:none so only an explicit click — via the is-expanded class
+   set in togglePublicNavbarOverflowGroup — opens the nested group. */
 .public-navbar-overflow-menu .public-navbar-dropdown:hover > .public-navbar-dropdown-menu,
 .public-navbar-overflow-menu .public-navbar-dropdown:focus-within > .public-navbar-dropdown-menu {
-    display: block;
+    display: none;
 }
 .public-navbar-overflow-menu .public-navbar-menu-glass {
     width: 100%;
@@ -1126,9 +1155,41 @@
     position: relative;
 }
 
-.public-navbar-overflow-menu .public-navbar-menu-glass > .public-navbar-dropdown > button {
+.public-navbar-overflow-menu .public-navbar-menu-glass > .public-navbar-dropdown > button,
+.public-navbar-overflow-menu .public-navbar-menu-glass > .public-navbar-dropdown > a.public-navbar-group-link {
     width: 100%;
     text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Inside the More dropdown, expand a nested group via explicit click (the
+   .is-expanded class is toggled in JS — see togglePublicNavbarOverflowGroup).
+   We keep the existing hover/focus-within rules above so a desktop user with
+   a fine pointer still gets the instant-on behavior; the class adds touch
+   parity and removes the hover-out-flicker. */
+.public-navbar-overflow-menu .public-navbar-dropdown.is-expanded > .public-navbar-dropdown-menu {
+    display: block;
+}
+.public-navbar-overflow-menu .public-navbar-dropdown.is-expanded > button,
+.public-navbar-overflow-menu .public-navbar-dropdown.is-expanded > a.public-navbar-group-link {
+    background: rgba(255,255,255,0.04);
+}
+
+/* Indent the nested children so they read as belonging to the group rather
+   than sitting next to it at the same level. */
+.public-navbar-overflow-menu .public-navbar-dropdown .public-navbar-dropdown-menu .public-navbar-menu-glass > a {
+    padding-left: 24px;
+    font-size: 0.92em;
+}
+
+/* The chevron on the link-style group label should sit right-aligned, same
+   visual position as the chevron in the button-style label. */
+.public-navbar-group-link .public-navbar-group-chevron {
+    opacity: 0.7;
+    margin-left: 6px;
+    font-size: 0.82em;
 }
 .public-navbar-overflow-dropdown.is-measuring {
     display: block !important;
@@ -1565,4 +1626,44 @@ requestAnimationFrame(() => {
 }
 
 window.addEventListener('DOMContentLoaded', initializePublicNavbarOverflow);
+
+// Touch-friendly expansion for grouped items that ended up inside the More
+// dropdown. Hover-only rules don't work on phones; this lets a tap toggle
+// the nested group's submenu. For a group with a URL, holding shift / using
+// the keyboard still navigates via the link — single tap on a touch device
+// expands instead of navigating to avoid surprising the user.
+window.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('click', function (e) {
+        // Find the trigger (button or anchor) of a group sitting inside the
+        // overflow menu.
+        const trigger = e.target.closest(
+            '.public-navbar-overflow-menu .public-navbar-dropdown > button, ' +
+            '.public-navbar-overflow-menu .public-navbar-dropdown > a.public-navbar-group-link'
+        );
+        if (!trigger) {
+            // Don't collapse if the click happened inside the More menu —
+            // the user might be moving between child items. Only collapse
+            // when the click lands somewhere fully outside the menu.
+            if (e.target.closest('.public-navbar-overflow-menu')) return;
+            document.querySelectorAll(
+                '.public-navbar-overflow-menu .public-navbar-dropdown.is-expanded'
+            ).forEach(g => g.classList.remove('is-expanded'));
+            return;
+        }
+        const group = trigger.closest('.public-navbar-dropdown');
+        if (!group) return;
+        const isLink = trigger.tagName === 'A';
+        const isCollapsed = !group.classList.contains('is-expanded');
+        // First tap on a link-style group expands instead of navigating;
+        // a second tap (now expanded, chevron visible) follows the link.
+        // For button-style groups we just toggle.
+        if (isLink && isCollapsed) {
+            e.preventDefault();
+        }
+        // Collapse siblings so only one nested group is open at a time.
+        const siblings = group.parentNode.querySelectorAll(':scope > .public-navbar-dropdown.is-expanded');
+        siblings.forEach(g => { if (g !== group) g.classList.remove('is-expanded'); });
+        group.classList.toggle('is-expanded');
+    });
+});
 </script>
