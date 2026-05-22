@@ -4,6 +4,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    {# Declare both color schemes so iOS Safari doesn't apply its own dark
+       overlay (which can mask theme-color and paint chrome black). #}
+    <meta name="color-scheme" content="light dark">
+    {# FOUC mask — the head pulls several blocking external assets
+       (Bootstrap/Leaflet/FullCalendar/FontAwesome/Google Fonts), and on
+       refresh the page briefly renders unstyled until they arrive. Hide
+       the body until DOMContentLoaded so unstyled content can't flash;
+       leave <html> visible so its background-color/gradient renders
+       from the first paint — iOS Safari samples that area to tint the
+       URL bar, and hiding html caused the bar to pick up the OS default
+       on initial load and only resolve to the right color after scroll. #}
+    <style id="fouc-mask">html:not(.page-ready) body{visibility:hidden!important;}</style>
+    <script>
+      (function(){
+        function ready(){document.documentElement.classList.add('page-ready');}
+        if(document.readyState==='loading'){
+          document.addEventListener('DOMContentLoaded',ready,{once:true});
+        }else{ready();}
+        // Safety net: never leave the body hidden longer than 2s.
+        setTimeout(ready,2000);
+      })();
+    </script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -44,6 +66,121 @@
     <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
     {% endif %}
     <title>{{ website.name }}</title>
+
+    {# Simple, predictable background system:
+         1. <html> paints the configured background color (solid or gradient).
+            That's the page background — it's always there.
+         2. The image layer (.site-fixed-background) covers the full viewport
+            edge-to-edge. The overlay masks to the image's alpha so the
+            overlay color ONLY tints the image, never the bare background.
+         3. Mobile-browser "borders" (the strips behind the URL bar / home
+            indicator on iOS) are an optional feature toggled by
+            `public_navbar_transparent_chrome`:
+               - toggle ON  → no borders, image fills full height including
+                              behind the URL bar and home indicator.
+               - toggle OFF → two fixed-positioned painter strips cover the
+                              top/bottom safe-area zones with the FIRST and
+                              LAST stops of the gradient (or the solid color
+                              if not a gradient). `theme-color` is also set
+                              so the URL bar itself tints to match.
+    #}
+    {% set _site_bg_raw       = website.background_color or '#ffffff' %}
+    {% set _site_bg_solid_top = _site_bg_raw | solid_color('top') | opaque_hex %}
+    {% set _site_bg_solid_bot = _site_bg_raw | solid_color('bottom') | opaque_hex %}
+    {# Sample the top/bottom rows of the background image (server-side via
+       Pillow + LRU cache) so the borders can blend visually with the
+       image when no explicit background color is set. The filter returns
+       None for remote URLs or read failures, so the gradient/solid color
+       remains the fallback. `_has_explicit_bg` is False when the bg is
+       just the default white — letting the image colors take over. #}
+    {# image_edge_color already returns either a #rrggbb hex or None, so
+       skip the opaque_hex pipe — passing None through opaque_hex would
+       turn it into the fallback '#ffffff' and the `or` below would never
+       fall through to the gradient-stop color. #}
+    {% set _img_edge_top      = (website.background_image_url | image_edge_color('top'))    if website.background_image_url else None %}
+    {% set _img_edge_bot      = (website.background_image_url | image_edge_color('bottom')) if website.background_image_url else None %}
+    {% set _has_explicit_bg   = website.background_color and website.background_color | trim and website.background_color | trim != '#ffffff' %}
+    {% set _border_top        = _site_bg_solid_top if _has_explicit_bg else (_img_edge_top or _site_bg_solid_top) %}
+    {% set _border_bot        = _site_bg_solid_bot if _has_explicit_bg else (_img_edge_bot or _site_bg_solid_bot) %}
+    {% set _borders_on        = not website.public_navbar_transparent_chrome %}
+    {# When mobile-cover is enabled, the user explicitly wants the image
+       to fill the *entire* mobile screen including the URL bar area. The
+       opaque URL bar can't be removed, but suppressing theme-color on
+       small screens lets it fall back to the system default (often
+       translucent in compact/scrolled mode), which is the closest we
+       can get to "image fills everything". On larger screens the bar
+       still tints to the first gradient stop as configured. #}
+    {% if _borders_on %}
+    <meta name="theme-color" content="{{ _border_top }}">
+    <script>
+      (function(){
+        // iOS Safari sometimes paints the URL bar with a stale color on
+        // initial load (bfcache, reload) and only updates after the user
+        // scrolls. Re-set the meta on DOMContentLoaded to force re-read.
+        function tickle(){
+          var m=document.querySelector('meta[name="theme-color"]');
+          if(!m)return;
+          var v=m.getAttribute('content');
+          m.setAttribute('content','#ffffff');
+          requestAnimationFrame(function(){ m.setAttribute('content',v); });
+        }
+        if(document.readyState==='loading'){
+          document.addEventListener('DOMContentLoaded',tickle,{once:true});
+        }else{tickle();}
+      })();
+    </script>
+    {% endif %}
+    <style>
+      :root {
+        --site-bg-color:     {{ _site_bg_raw }};
+        --site-bg-solid-top: {{ _site_bg_solid_top }};
+        --site-bg-solid-bot: {{ _site_bg_solid_bot }};
+      }
+      html {
+        background: var(--site-bg-color) !important;
+        background-color: var(--site-bg-solid-top) !important;
+      }
+      body { background-color: transparent !important; }
+      .site-fixed-background {
+        background: var(--site-bg-color);
+        background-color: var(--site-bg-solid-top);
+      }
+      /* Mobile-browser border painter strips. Rendered only when borders
+         are enabled; one pinned to the top safe-area inset (first stop)
+         and one to the bottom (last stop). Sit above the image+overlay
+         so they cleanly cover whatever's underneath. z-index is below
+         the navbar (which is 100000+). */
+      .site-safe-area-painter {
+        position: fixed;
+        left: 0;
+        right: 0;
+        pointer-events: none;
+        z-index: 5;
+      }
+      {% if website.public_navbar_bottom_border_blend %}
+      /* Soft-fade variant: both borders are gradient strips. Top fades
+         from the border color (at the very top of the screen) down to
+         transparent (where the border meets the page) — and the bottom
+         is the mirror. Painted taller than the bare safe-area (~34px on
+         iPhone) so the fade has room to breathe. Border colors come
+         from `_border_top` / `_border_bot` — sampled from the image
+         edges when no explicit background color is set, otherwise the
+         gradient stops. */
+      .site-safe-area-painter.top {
+        top: 0;
+        height: calc(env(safe-area-inset-top, 0px) + 40px);
+        background: linear-gradient(to top, transparent 0%, {{ _border_top }} 100%);
+      }
+      .site-safe-area-painter.bottom {
+        bottom: 0;
+        height: calc(env(safe-area-inset-bottom, 0px) + 40px);
+        background: linear-gradient(to bottom, transparent 0%, {{ _border_bot }} 100%);
+      }
+      {% else %}
+      .site-safe-area-painter.top    { top: 0;    height: env(safe-area-inset-top, 0px);    background: {{ _border_top }}; }
+      .site-safe-area-painter.bottom { bottom: 0; height: env(safe-area-inset-bottom, 0px); background: {{ _border_bot }}; }
+      {% endif %}
+    </style>
 </head>
 <style>
     html {
@@ -66,8 +203,13 @@
         width: 100%;
         max-width: 100%;
         min-height: 100%;
+        /* `clip` clips overflow WITHOUT creating a scroll container —
+           critical on iOS Safari, where `overflow-x: hidden` on body/html
+           makes position:fixed children scroll with the page (the
+           configured fixed background was visibly drifting as the user
+           scrolled). `hidden` is kept as a fallback for older browsers. */
         overflow-x: hidden;
-        /* Prevent horizontal scrolling */
+        overflow-x: clip;
         font-family: 'Roboto', sans-serif;
         /* background-color: rgb(39, 39, 39); */
         /* Dark background color */
@@ -1754,15 +1896,15 @@ body.public-page-body {
     position: relative;
     min-height: 100svh;
     background: transparent !important;
+    /* See the html,body rule above — clip preserves position:fixed
+       behavior on iOS Safari. */
     overflow-x: hidden;
+    overflow-x: clip;
 }
 
 .site-fixed-background {
     position: fixed;
     inset: 0;
-height: 100lvh;
-min-height: 100dvh;
-
     z-index: 0;
     pointer-events: none;
     transform: translateZ(0);
@@ -3882,14 +4024,6 @@ min-height: 100dvh;
 {% set navbar_anchor_offset = 78 + navbar_margin %}
 {% set navbar_page_offset = 58 + navbar_margin %}
 
-<meta name="theme-color" content="{{ website.background_color or '#ffffff' }}">
-<style>
-  :root { --site-bg-color: {{ website.background_color or '#ffffff' }}; }
-  /* Apply site background to html + body so Safari's safe-area chrome
-     (status bar, home indicator) matches the page instead of going white. */
-  html, body { background-color: var(--site-bg-color); }
-  .site-fixed-background { background: var(--site-bg-color); }
-</style>
 <body class="public-page-body" style="
 --navbar-page-offset: {{ 58 + navbar_margin }}px;
 --navbar-anchor-offset: {{ navbar_anchor_offset }}px;
@@ -3919,7 +4053,15 @@ color: {{ website.text_color or '#000000' }};
         {% else %}
             background-repeat: no-repeat;
             background-position: center center;
-            background-size: {{ bg_zoom }}% auto;
+            {# Previously sized as `<zoom>% auto`, which left bands at the
+               top/bottom on landscape images because the height was
+               auto-scaled to match width. `cover` scales the image to
+               fill the entire viewport (including iOS status-bar /
+               home-indicator safe-areas) with aspect preserved,
+               cropping as needed. The zoom slider is no longer applied
+               in no-repeat mode — it still controls the tile size when
+               either repeat option is on. #}
+            background-size: cover;
         {% endif %}
 
         {% if bg_blur > 0 %}
@@ -3931,11 +4073,57 @@ color: {{ website.text_color or '#000000' }};
 
 {% set overlay_color = website.background_image_overlay_color %}
 {% set overlay_opacity = (website.background_image_overlay_opacity or 0) | int %}
-{% if overlay_color and overlay_opacity > 0 %}
-<div aria-hidden="true" style="
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background: {{ overlay_color }};
+{# Overlay is a feature of the background IMAGE — it should never tint
+   the background color when no image is set or in areas where the
+   image doesn't render. We render it only when an image is configured
+   and constrain it to the image's geometry below. #}
+{% if website.background_image_url and overlay_color and overlay_opacity > 0 %}
+<div aria-hidden="true" class="site-bg-image-overlay" style="
+    position: fixed;
+    inset: 0;
+    z-index: 0; pointer-events: none;
+    background-color: {{ overlay_color }};
     opacity: {{ overlay_opacity / 100 }};
+
+    {# Mask the overlay to the image's alpha — so it only paints where
+       the image is visible. With a full-bleed image this looks identical
+       to before, but if the image is centered/zoomed-out or has any
+       transparent pixels, the solid background color now shows through
+       cleanly in those areas instead of being tinted by the overlay. #}
+    -webkit-mask-image: url('{{ website.background_image_url }}');
+    mask-image: url('{{ website.background_image_url }}');
+    -webkit-mask-mode: alpha;
+    mask-mode: alpha;
+    -webkit-mask-repeat:
+    {% if website.background_image_repeat %}
+        {% if website.background_image_repeat_x %} repeat {% else %} repeat-y {% endif %}
+    {% else %} no-repeat
+    {% endif %};
+    mask-repeat:
+    {% if website.background_image_repeat %}
+        {% if website.background_image_repeat_x %} repeat {% else %} repeat-y {% endif %}
+    {% else %} no-repeat
+    {% endif %};
+    {% set bg_zoom = website.background_image_zoom or 100 %}
+    {% set repeat_zoom_multiplier = 2.0 %}
+    {% if website.background_image_repeat %}
+        {% if website.background_image_repeat_x %}
+            -webkit-mask-position: center top;
+                    mask-position: center top;
+            -webkit-mask-size: {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto;
+                    mask-size: {{ (bg_zoom * repeat_zoom_multiplier)|round|int }}px auto;
+        {% else %}
+            -webkit-mask-position: center top;
+                    mask-position: center top;
+            -webkit-mask-size: 100% auto;
+                    mask-size: 100% auto;
+        {% endif %}
+    {% else %}
+        -webkit-mask-position: center center;
+                mask-position: center center;
+        -webkit-mask-size: {{ bg_zoom }}% auto;
+                mask-size: {{ bg_zoom }}% auto;
+    {% endif %}
 "></div>
 {% endif %}
 {% if website.background_image_url and website.background_image_repeat and website.background_image_mobile_cover %}
@@ -3949,6 +4137,18 @@ color: {{ website.text_color or '#000000' }};
 }
 </style>
 {% endif %}
+
+{# Fixed top + bottom border painter strips. Top = first gradient stop,
+   bottom = last. The bottom strip is independently suppressed via the
+   `no_bottom_border` website-style option so the background image can
+   extend through the home-indicator safe-area. #}
+{% if _borders_on %}
+<div class="site-safe-area-painter top" aria-hidden="true"></div>
+{% if not website.public_navbar_no_bottom_border %}
+<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
+{% endif %}
+{% endif %}
+
     {% include 'components/public_navbar.html' %}
     <!-- {% if content.is_preview %}
     <div class="preview-banner">Preview</div>

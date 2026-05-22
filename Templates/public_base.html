@@ -2,7 +2,27 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    {# `light dark` tells iOS Safari the page handles both color schemes,
+       which prevents Safari from auto-darkening form controls / chrome
+       when the system is in dark mode. Without this, Safari can render
+       its own dark chrome that overrides theme-color in some versions. #}
+    <meta name="color-scheme" content="light dark">
+
+    {# FOUC mask — hide body until DOMContentLoaded, but leave <html>
+       visible so the gradient on it renders from first paint (iOS
+       samples that area for the URL bar tint; hiding html caused the
+       bar to use the wrong color until the user scrolled). #}
+    <style id="fouc-mask">html:not(.page-ready) body{visibility:hidden!important;}</style>
+    <script>
+      (function(){
+        function ready(){document.documentElement.classList.add('page-ready');}
+        if(document.readyState==='loading'){
+          document.addEventListener('DOMContentLoaded',ready,{once:true});
+        }else{ready();}
+        setTimeout(ready,2000);
+      })();
+    </script>
 
     <title>{% block title %}{{ website.name if website else 'Public Page' }}{% endblock %}</title>
 
@@ -36,6 +56,27 @@
     {% set navbar_anchor_offset = 78 + navbar_margin %}
     {% set navbar_page_offset = 58 + navbar_margin %}
 
+    {# See Templates/public.html for the full background-system design.
+       Summary: html paints the bg color/gradient, image+overlay always
+       fill the viewport edge-to-edge, and when the admin opts into
+       mobile borders, two fixed painter strips cover the top/bottom
+       safe-area zones with the first/last gradient stops. #}
+    {% set _pb_bg_raw       = website.background_color or '#ffffff' %}
+    {% set _pb_bg_solid_top = _pb_bg_raw | solid_color('top')    | opaque_hex %}
+    {% set _pb_bg_solid_bot = _pb_bg_raw | solid_color('bottom') | opaque_hex %}
+    {# Image-edge sampling — see Templates/public.html for the rationale
+       behind skipping the `opaque_hex` pipe (it would turn None into white
+       and defeat the fallback chain). #}
+    {% set _pb_img_edge_top = (website.background_image_url | image_edge_color('top'))    if website.background_image_url else None %}
+    {% set _pb_img_edge_bot = (website.background_image_url | image_edge_color('bottom')) if website.background_image_url else None %}
+    {% set _pb_has_explicit_bg = website.background_color and website.background_color | trim and website.background_color | trim != '#ffffff' %}
+    {% set _pb_border_top   = _pb_bg_solid_top if _pb_has_explicit_bg else (_pb_img_edge_top or _pb_bg_solid_top) %}
+    {% set _pb_border_bot   = _pb_bg_solid_bot if _pb_has_explicit_bg else (_pb_img_edge_bot or _pb_bg_solid_bot) %}
+    {% set _pb_borders_on   = not website.public_navbar_transparent_chrome %}
+    {# Aliases kept for downstream rules that read these names. #}
+    {% set _pb_chrome_top   = _pb_border_top %}
+    {% set _pb_chrome_bot   = _pb_border_bot %}
+
     <style>
         /* Native <select> dropdown panel: needs explicit colors so options aren't
            rendered white-on-white in dark sites. */
@@ -45,7 +86,8 @@
             min-height: 100%;
             scroll-behavior: smooth;
             scroll-padding-top: var(--navbar-anchor-offset, 78px);
-            background: {{ website.background_color or '#000000' }} !important;
+            background: {{ _pb_bg_raw }} !important;
+            background-color: {{ _pb_chrome_top }} !important;
         }
 
         body.public-page-body {
@@ -56,7 +98,13 @@
             min-height: 100svh;
 
             position: relative;
+            /* `clip` instead of `hidden` so position:fixed children
+               (the background image, painter strips) stay anchored to
+               the viewport on iOS Safari. With `hidden`, iOS treats
+               them like position:absolute and they scroll with the
+               page. `hidden` first as a fallback for older browsers. */
             overflow-x: hidden;
+            overflow-x: clip;
 
             font-family: 'Roboto', Arial, sans-serif;
 
@@ -68,9 +116,6 @@
         .site-fixed-background {
             position: fixed;
             inset: 0;
-
-            height: 100lvh;
-            min-height: 100dvh;
 
             z-index: 0;
             pointer-events: none;
@@ -98,7 +143,11 @@
                 {% else %}
                     background-repeat: no-repeat;
                     background-position: center center;
-                    background-size: {{ bg_zoom }}% auto;
+                    {# `cover` fills the entire viewport (including iOS
+                       safe-area zones) with aspect preserved. The old
+                       `<zoom>% auto` value left bands at top/bottom for
+                       landscape images. #}
+                    background-size: cover;
                 {% endif %}
 
                 {% if _bg_blur > 0 %}
@@ -125,6 +174,34 @@
             padding-top: var(--navbar-page-offset, 58px);
             box-sizing: border-box;
         }
+
+        /* Mobile-border painter strips — see Templates/public.html. Sit
+           above the image+overlay (z:0) and below the navbar (z:100000+). */
+        .site-safe-area-painter {
+            position: fixed;
+            left: 0;
+            right: 0;
+            pointer-events: none;
+            z-index: 5;
+        }
+        {% if website.public_navbar_bottom_border_blend %}
+        /* Soft-fade variant — both borders are gradient strips fading
+           between the border color (at the screen edge) and transparent
+           (where the border meets the page). See Templates/public.html. */
+        .site-safe-area-painter.top {
+            top: 0;
+            height: calc(env(safe-area-inset-top, 0px) + 40px);
+            background: linear-gradient(to top, transparent 0%, {{ _pb_border_top }} 100%);
+        }
+        .site-safe-area-painter.bottom {
+            bottom: 0;
+            height: calc(env(safe-area-inset-bottom, 0px) + 40px);
+            background: linear-gradient(to bottom, transparent 0%, {{ _pb_border_bot }} 100%);
+        }
+        {% else %}
+        .site-safe-area-painter.top    { top: 0;    height: env(safe-area-inset-top, 0px);    background: {{ _pb_border_top }}; }
+        .site-safe-area-painter.bottom { bottom: 0; height: env(safe-area-inset-bottom, 0px); background: {{ _pb_border_bot }}; }
+        {% endif %}
 
         .public-navbar {
             position: fixed;
@@ -310,6 +387,25 @@
         } catch(e) {}
     })();
     </script>
+
+    {% if not website.public_navbar_transparent_chrome %}
+    <meta name="theme-color" content="{{ _pb_chrome_top }}">
+    <script>
+      (function(){
+        // See Templates/public.html for the iOS URL-bar re-read rationale.
+        function tickle(){
+          var m=document.querySelector('meta[name="theme-color"]');
+          if(!m)return;
+          var v=m.getAttribute('content');
+          m.setAttribute('content','#ffffff');
+          requestAnimationFrame(function(){ m.setAttribute('content',v); });
+        }
+        if(document.readyState==='loading'){
+          document.addEventListener('DOMContentLoaded',tickle,{once:true});
+        }else{tickle();}
+      })();
+    </script>
+    {% endif %}
 </head>
 
 <body class="public-page-body" style="
@@ -321,8 +417,54 @@
     <div class="site-fixed-background" aria-hidden="true"></div>
     {% set _overlay_color = website.background_image_overlay_color %}
     {% set _overlay_opacity = (website.background_image_overlay_opacity or 0)|int %}
-    {% if _overlay_color and _overlay_opacity > 0 %}
-    <div aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;background:{{ _overlay_color }};opacity:{{ _overlay_opacity / 100 }};"></div>
+    {# Overlay only renders when there's a background image to tint, and
+       is masked to the image's alpha so the solid color underneath
+       (and around) the image is never affected. #}
+    {% if website.background_image_url and _overlay_color and _overlay_opacity > 0 %}
+    {% set _bg_zoom = website.background_image_zoom or 100 %}
+    {% set _img_url = website.background_image_url %}
+    {% if website.background_image_repeat %}
+        {% if website.background_image_repeat_x %}
+            {% set _mask_repeat = 'repeat' %}
+            {% set _mask_position = 'center top' %}
+            {% set _mask_size = (_bg_zoom * 2)|round|int ~ 'px auto' %}
+        {% else %}
+            {% set _mask_repeat = 'repeat-y' %}
+            {% set _mask_position = 'center top' %}
+            {% set _mask_size = '100% auto' %}
+        {% endif %}
+    {% else %}
+        {% set _mask_repeat = 'no-repeat' %}
+        {% set _mask_position = 'center center' %}
+        {% set _mask_size = _bg_zoom ~ '% auto' %}
+    {% endif %}
+    <div aria-hidden="true" class="site-bg-image-overlay" style="
+        position:fixed;
+        inset:0;
+        z-index:0;
+        pointer-events:none;
+        background-color:{{ _overlay_color }};
+        opacity:{{ _overlay_opacity / 100 }};
+        -webkit-mask-image: url('{{ _img_url }}');
+                mask-image: url('{{ _img_url }}');
+        -webkit-mask-mode: alpha;
+                mask-mode: alpha;
+        -webkit-mask-repeat: {{ _mask_repeat }};
+                mask-repeat: {{ _mask_repeat }};
+        -webkit-mask-position: {{ _mask_position }};
+                mask-position: {{ _mask_position }};
+        -webkit-mask-size: {{ _mask_size }};
+                mask-size: {{ _mask_size }};
+    "></div>
+    {% endif %}
+
+    {# Fixed top + bottom border painter strips — see Templates/public.html.
+       Bottom is independently skipped when the website-style option is on. #}
+    {% if _pb_borders_on %}
+    <div class="site-safe-area-painter top" aria-hidden="true"></div>
+    {% if not website.public_navbar_no_bottom_border %}
+    <div class="site-safe-area-painter bottom" aria-hidden="true"></div>
+    {% endif %}
     {% endif %}
 
     {% include 'components/public_navbar.html' %}

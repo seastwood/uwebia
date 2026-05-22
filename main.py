@@ -1313,6 +1313,21 @@ class Website(db.Model):
     # left side panel. Visitors can search across all published pages,
     # sections, and posts on this website.
     public_navbar_show_search = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # When true, no <meta name="theme-color"> is emitted, so the mobile
+    # browser's URL/toolbar uses its system default (translucent) instead
+    # of tinting to match the page. Useful when the page background is
+    # already busy or when the admin wants the chrome to feel like part
+    # of the OS rather than the site.
+    public_navbar_transparent_chrome = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # When true, the bottom mobile-border painter strip is suppressed even
+    # if borders are otherwise enabled — letting the background image
+    # extend through the home-indicator safe area on mobile while the top
+    # border still shows.
+    public_navbar_no_bottom_border = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # When true, the bottom border is painted as a transparent-to-color
+    # gradient instead of a solid strip so the background image fades
+    # softly into the border instead of meeting it with a hard seam.
+    public_navbar_bottom_border_blend = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
 
     store_enabled       = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     store_in_store_only       = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
@@ -8689,7 +8704,13 @@ def edit_website_style(website_id):
 
     data = request.get_json()
 
-    website.background_color = data.get('background_color', website.background_color)
+    # `background_color` of None / empty-string clears the column so the
+    # public templates fall back to sampling the background image edges
+    # for the border colors (and theme-color), or to a transparent default
+    # when no image either.
+    if 'background_color' in data:
+        _bg_in = data.get('background_color')
+        website.background_color = _bg_in.strip() if (_bg_in and str(_bg_in).strip()) else None
     website.text_color = data.get('text_color', website.text_color)
 
     website.background_image_url = data.get('background_image_url') or None
@@ -8715,6 +8736,13 @@ def edit_website_style(website_id):
         website.background_image_overlay_opacity = max(0, min(100, int(data.get('background_image_overlay_opacity') or 0)))
     except (ValueError, TypeError):
         website.background_image_overlay_opacity = 0
+
+    if 'public_navbar_bottom_border_blend' in data:
+        website.public_navbar_bottom_border_blend = bool(data.get('public_navbar_bottom_border_blend'))
+    if 'public_navbar_no_bottom_border' in data:
+        website.public_navbar_no_bottom_border = bool(data.get('public_navbar_no_bottom_border'))
+    if 'public_navbar_transparent_chrome' in data:
+        website.public_navbar_transparent_chrome = bool(data.get('public_navbar_transparent_chrome'))
 
     db.session.commit()
 
@@ -15199,6 +15227,8 @@ def edit_public_navbar(website_id):
     website.public_navbar_items = navbar_items
     if 'public_navbar_show_search' in data:
         website.public_navbar_show_search = bool(data.get('public_navbar_show_search'))
+    if 'public_navbar_transparent_chrome' in data:
+        website.public_navbar_transparent_chrome = bool(data.get('public_navbar_transparent_chrome'))
 
     db.session.commit()
 
@@ -21386,6 +21416,263 @@ def profanity_clean_filter(text, website):
     for w in banned:
         result = _re.sub(r'(?i)' + _re.escape(w), '*' * len(w), result)
     return result
+
+
+import functools as _functools
+
+@_functools.lru_cache(maxsize=256)
+def _image_edge_color_cached(disk_path, mtime, edge):
+    """Compute the average color across the top or bottom strip of an
+    image. mtime is in the cache key so the cache invalidates when the
+    image file is replaced. Returns a hex string or None on failure.
+    """
+    try:
+        with Image.open(disk_path) as img:
+            img = img.convert('RGB')
+            w, h = img.size
+            if w <= 0 or h <= 0:
+                return None
+            # Sample a thin strip — top 3% or bottom 3% of the image.
+            strip = max(1, int(h * 0.03))
+            if edge == 'top':
+                crop = img.crop((0, 0, w, strip))
+            else:
+                crop = img.crop((0, h - strip, w, h))
+            # Resize to 1×1 to get the average pixel.
+            crop = crop.resize((1, 1), Image.LANCZOS)
+            r, g, b = crop.getpixel((0, 0))
+            return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+    except Exception:
+        return None
+
+
+@app.template_filter('image_edge_color')
+def image_edge_color_filter(image_url, edge='top'):
+    """Given a site-relative or absolute static URL, return the average
+    hex color across the top or bottom strip of the image. Used for
+    `theme-color` and html safe-area backgrounds so the mobile browser
+    chrome blends with a background image instead of falling back to a
+    solid color the admin may not have set.
+
+    Returns None on any error (remote URL, missing file, decode error)
+    so callers can fall back to a plain solid color.
+    """
+    if not image_url:
+        return None
+    s = str(image_url).strip()
+    if not s:
+        return None
+    # Drop ?query / #fragment so URL → disk-path mapping doesn't fail on
+    # cache-busting suffixes that some templates append.
+    for sep in ('?', '#'):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    # Only handle local static URLs (we have the file on disk). External
+    # URLs would require a network fetch, which we don't want on every
+    # page render.
+    if s.startswith(('http://', 'https://', '//')):
+        return None
+    # Map URL → disk path. The static URL prefix is whatever
+    # url_for('static', filename='') resolves to (usually `/static/`).
+    static_url = app.static_url_path or '/static'
+    if s.startswith(static_url + '/'):
+        rel = s[len(static_url) + 1:]
+    elif s.startswith('/static/'):
+        rel = s[len('/static/'):]
+    else:
+        return None
+    disk_path = os.path.join(app.static_folder, rel)
+    if not os.path.isfile(disk_path):
+        return None
+    try:
+        mtime = os.path.getmtime(disk_path)
+    except OSError:
+        return None
+    return _image_edge_color_cached(disk_path, mtime, 'bottom' if edge == 'bottom' else 'top')
+
+
+@app.template_filter('solid_color')
+def solid_color_filter(value, where_or_fallback='#ffffff', fallback='#ffffff'):
+    """Return a solid CSS color from a background value that may be a
+    gradient. The `where` argument decides which stop to return relative
+    to the gradient's actual rendered direction:
+
+      - `'top'`    → the color appearing at the TOP of the painted page
+      - `'bottom'` → the color appearing at the BOTTOM
+      - `'start'`  → the gradient's literal first color stop
+      - `'end'`    → the gradient's literal last color stop
+
+    For `'top'` / `'bottom'` we parse the gradient direction (keyword
+    forms like `to bottom right`, or `Xdeg` angles) and flip first/last
+    accordingly. `'start'` and `'end'` are direction-agnostic.
+
+    Example: `linear-gradient(to top, red, blue)` returns `red` for
+    `'bottom'` (since "to top" means red sits at the bottom) and `blue`
+    for `'top'`.
+    """
+    # Ergonomic positional: solid_color('top'), solid_color('#abc')
+    if where_or_fallback in ('top', 'bottom', 'start', 'end'):
+        where = where_or_fallback
+    else:
+        where = 'start'
+        fallback = where_or_fallback
+    if value is None:
+        return fallback
+    s = str(value).strip()
+    if not s:
+        return fallback
+    low = s.lower()
+    if not (low.startswith('linear-gradient') or
+            low.startswith('radial-gradient') or
+            low.startswith('conic-gradient')):
+        return s
+
+    # Pull ALL color tokens, in order.
+    matches = re.findall(
+        r'#[0-9a-fA-F]{3,8}\b'
+        r'|rgba?\([^)]+\)'
+        r'|hsla?\([^)]+\)',
+        s
+    )
+    if not matches:
+        return fallback
+
+    # Direction-agnostic path.
+    if where == 'start':
+        return matches[0]
+    if where == 'end':
+        return matches[-1]
+
+    # Direction-aware path: figure out whether the first color renders
+    # at the top or bottom. linear-gradient default direction is
+    # "to bottom" (180deg), which means first = top.
+    direction_top_is_first = True  # default for "to bottom" / 180deg / no direction
+    inside = s[s.index('(') + 1 : s.rfind(')')]
+    head = inside.split(',', 1)[0].strip().lower()
+    # Keyword direction
+    if head.startswith('to '):
+        kw = head[3:].strip()
+        # The keyword names the END of the gradient, so:
+        #   "to top"        → first stop is at bottom → top = LAST
+        #   "to bottom"     → first stop is at top    → top = FIRST
+        #   "to top *"      → first stop near bottom  → top = LAST
+        #   "to bottom *"   → first stop near top     → top = FIRST
+        #   "to left"/"to right" → horizontal — pick FIRST for both (neutral)
+        if 'top' in kw:
+            direction_top_is_first = False
+        elif 'bottom' in kw:
+            direction_top_is_first = True
+        else:
+            direction_top_is_first = True
+    elif head.endswith('deg') or head.endswith('rad') or head.endswith('turn'):
+        # Numeric angle. 0deg = "to top", 180deg = "to bottom".
+        try:
+            if head.endswith('deg'):
+                deg = float(head[:-3])
+            elif head.endswith('rad'):
+                deg = float(head[:-3]) * (180.0 / 3.14159265358979)
+            else:  # turn
+                deg = float(head[:-4]) * 360.0
+            deg = ((deg % 360) + 360) % 360
+        except ValueError:
+            deg = 180.0
+        # Vertical component of the endpoint: positive y = down/bottom.
+        # endpoint_dy = -cos(angle)  → angle=0 ⇒ dy=-1 (up), angle=180 ⇒ dy=+1 (down)
+        import math
+        endpoint_dy = -math.cos(math.radians(deg))
+        # If endpoint points DOWN (dy > 0), last stop is at bottom → top = first.
+        # If endpoint points UP (dy < 0), last stop is at top → top = last.
+        direction_top_is_first = (endpoint_dy >= 0)
+    # else: no direction prefix — falls through with default first-is-top.
+
+    if where == 'top':
+        return matches[0] if direction_top_is_first else matches[-1]
+    # where == 'bottom'
+    return matches[-1] if direction_top_is_first else matches[0]
+
+
+@app.template_filter('opaque_hex')
+def opaque_hex_filter(color, fallback='#ffffff'):
+    """Convert any CSS color string (#rgb, #rrggbb, #rrggbbaa, rgb(), rgba(),
+    hsl(), hsla()) into an opaque `#rrggbb` hex string. Used for meta
+    `theme-color` and html safe-area backgrounds — iOS Safari treats
+    rgba() with alpha < 1 as transparent and falls back to the html
+    element's background, which can make the top URL bar and bottom
+    safe-area both show the same (bottom) color when the gradient has
+    transparent stops. Compositing happens against white so a stop at
+    50% red over white reads as pink, not as the next stop's color.
+    """
+    if not color:
+        return fallback
+    s = str(color).strip()
+    if not s:
+        return fallback
+    try:
+        # Hex form: #rgb, #rgba, #rrggbb, #rrggbbaa
+        if s.startswith('#'):
+            h = s[1:]
+            if len(h) in (3, 4):
+                h = ''.join(c * 2 for c in h)
+            if len(h) == 6:
+                return '#' + h.lower()
+            if len(h) == 8:
+                r = int(h[0:2], 16); g = int(h[2:4], 16); b = int(h[4:6], 16)
+                a = int(h[6:8], 16) / 255.0
+                r = round(r * a + 255 * (1 - a))
+                g = round(g * a + 255 * (1 - a))
+                b = round(b * a + 255 * (1 - a))
+                return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+            return fallback
+        # rgb()/rgba()
+        low = s.lower()
+        if low.startswith('rgb'):
+            inside = s[s.index('(') + 1 : s.rindex(')')]
+            parts = [p.strip() for p in inside.split(',')]
+            if len(parts) < 3:
+                return fallback
+            def _ch(p):
+                p = p.strip()
+                if p.endswith('%'):
+                    return round(float(p[:-1]) * 255 / 100)
+                return int(float(p))
+            r = max(0, min(255, _ch(parts[0])))
+            g = max(0, min(255, _ch(parts[1])))
+            b = max(0, min(255, _ch(parts[2])))
+            a = 1.0
+            if len(parts) >= 4:
+                ap = parts[3].strip()
+                a = float(ap[:-1]) / 100 if ap.endswith('%') else float(ap)
+                a = max(0.0, min(1.0, a))
+            if a < 1.0:
+                r = round(r * a + 255 * (1 - a))
+                g = round(g * a + 255 * (1 - a))
+                b = round(b * a + 255 * (1 - a))
+            return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+        # hsl()/hsla()
+        if low.startswith('hsl'):
+            import colorsys
+            inside = s[s.index('(') + 1 : s.rindex(')')]
+            parts = [p.strip() for p in inside.split(',')]
+            if len(parts) < 3:
+                return fallback
+            hh = float(parts[0].rstrip('deg')) / 360.0
+            ss = float(parts[1].rstrip('%')) / 100.0
+            ll = float(parts[2].rstrip('%')) / 100.0
+            r, g, b = colorsys.hls_to_rgb(hh, ll, ss)
+            r = round(r * 255); g = round(g * 255); b = round(b * 255)
+            a = 1.0
+            if len(parts) >= 4:
+                ap = parts[3].strip()
+                a = float(ap[:-1]) / 100 if ap.endswith('%') else float(ap)
+                a = max(0.0, min(1.0, a))
+            if a < 1.0:
+                r = round(r * a + 255 * (1 - a))
+                g = round(g * a + 255 * (1 - a))
+                b = round(b * a + 255 * (1 - a))
+            return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+    except Exception:
+        return fallback
+    return fallback
 
 
 @app.template_filter('badge_text_color')
