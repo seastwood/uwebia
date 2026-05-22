@@ -4195,11 +4195,13 @@ box-sizing: border-box;
                                     <a href="{{ btn.link }}" class="section-button"
                                        {% if _new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}
                                        style="background:{{ _bg }};color:{{ _tc }};border:{{ _bw }}px solid {{ _bcol }};border-radius:{{ _radius }}px;font-size:{{ _fs }}px;font-weight:{{ _fw }};line-height:1.2;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:{{ _py }}px {{ _px }}px;{% if _ital %}font-style:italic;{% endif %}{% if _upper %}text-transform:uppercase;letter-spacing:0.05em;{% endif %}{% if _circle %}aspect-ratio:1/1;padding:0;width:{{ _fs*2 + _py*2 }}px;height:{{ _fs*2 + _py*2 }}px;{% endif %}{% if _fillw and not _circle %}flex:1 1 auto;min-width:0;{% endif %}{% if _fillh %}align-self:stretch;{% endif %}{% if _shadow == 'soft' %}box-shadow:0 4px 12px rgba(0,0,0,0.18);{% elif _shadow == 'medium' %}box-shadow:0 6px 18px rgba(0,0,0,0.28);{% elif _shadow == 'strong' %}box-shadow:0 10px 28px rgba(0,0,0,0.4);{% endif %}transition:transform 0.15s, box-shadow 0.15s, filter 0.15s;">
+                                        {# Icon can be either a FontAwesome class string (e.g. "fab fa-facebook-f") or raw inline SVG (used for icons that aren't reliable across our FA versions, like X and Threads). #}
+                                        {% set _icon_is_svg = _icon and _icon.lstrip().startswith('<svg') %}
                                         {% if _img and _iconp == 'left' %}<img src="{{ _img }}" alt="" style="width:1.4em;height:1.4em;object-fit:contain;border-radius:4px;">
-                                        {% elif _icon and _iconp == 'left' %}<i class="{{ _icon }}" aria-hidden="true"></i>{% endif %}
+                                        {% elif _icon and _iconp == 'left' %}{% if _icon_is_svg %}{{ _icon | safe }}{% else %}<i class="{{ _icon }}" aria-hidden="true"></i>{% endif %}{% endif %}
                                         {% if btn.text %}<span>{{ btn.text }}</span>{% endif %}
                                         {% if _img and _iconp == 'right' %}<img src="{{ _img }}" alt="" style="width:1.4em;height:1.4em;object-fit:contain;border-radius:4px;">
-                                        {% elif _icon and _iconp == 'right' %}<i class="{{ _icon }}" aria-hidden="true"></i>{% endif %}
+                                        {% elif _icon and _iconp == 'right' %}{% if _icon_is_svg %}{{ _icon | safe }}{% else %}<i class="{{ _icon }}" aria-hidden="true"></i>{% endif %}{% endif %}
                                     </a>
                                     {% endif %}
                                     {% endfor %}

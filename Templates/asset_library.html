@@ -235,7 +235,8 @@
 
 
     .download-btn,
-    .delete-btn {
+    .delete-btn,
+    .copy-btn {
         width: 32px;
         height: 32px;
 
@@ -253,6 +254,17 @@
 
     .download-btn {
         background: rgba(52, 152, 219, 0.88);
+    }
+
+    .copy-btn {
+        background: rgba(94, 238, 200, 0.85);
+        color: #0b1d18;
+        transition: background 0.15s, transform 0.12s;
+    }
+    .copy-btn:hover { background: rgba(94, 238, 200, 1); }
+    .copy-btn.copy-btn-done {
+        background: rgba(94, 238, 200, 0.85);
+        transform: scale(1.05);
     }
 
     .delete-btn {
@@ -1105,6 +1117,13 @@
             </div>
 
             <div class="asset-card-actions">
+                <button type="button" class="copy-btn"
+                        data-asset-url="{{ asset.url }}"
+                        onclick="event.stopPropagation(); copyAssetUrl(this, '{{ asset.url | e }}')"
+                        title="Copy asset URL to clipboard">
+                    <i class="fas fa-copy"></i>
+                </button>
+
                 {% if user_has_perm('assets.download') %}
                 <a class="download-btn" href="{{ url_for('download_asset', asset_id=asset.id) }}"
                     onclick="event.stopPropagation();" title="Download asset">
@@ -1693,6 +1712,56 @@
         };
 
         xhr.send(formData);
+    }
+
+    // Copy an asset's URL to the clipboard so the admin can paste it into
+    // a button link, post body image src, section background, etc. Uses
+    // the modern async Clipboard API when available, falls back to a
+    // hidden textarea + document.execCommand for older browsers (still
+    // common on iPad/iOS) or insecure contexts where the async API is
+    // blocked.
+    async function copyAssetUrl(btn, rawUrl) {
+        // Prefer the absolute URL so the path is portable (works whether
+        // it's pasted into a post on this site, the page editor, or even
+        // an external tool). new URL() resolves relative paths against
+        // the current origin.
+        let toCopy = rawUrl;
+        try {
+            toCopy = new URL(rawUrl, window.location.origin).href;
+        } catch (_) { /* keep raw */ }
+
+        let ok = false;
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(toCopy);
+                ok = true;
+            } catch (_) { /* fall through to legacy path */ }
+        }
+        if (!ok) {
+            const ta = document.createElement('textarea');
+            ta.value = toCopy;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+            document.body.appendChild(ta);
+            ta.select();
+            try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+            document.body.removeChild(ta);
+        }
+
+        if (ok && btn) {
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            btn.classList.add('copy-btn-done');
+            btn.setAttribute('title', 'Copied!');
+            setTimeout(() => {
+                btn.innerHTML = orig;
+                btn.classList.remove('copy-btn-done');
+                btn.setAttribute('title', 'Copy asset URL to clipboard');
+            }, 1600);
+        } else if (!ok) {
+            // Last-ditch: show the URL so the user can copy manually.
+            window.prompt('Copy this asset URL:', toCopy);
+        }
     }
 
     async function deleteAsset(assetId) {
