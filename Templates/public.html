@@ -1297,6 +1297,21 @@
             inset 0 1px 0 rgba(255, 255, 255, 0.10);
     }
 
+    /* The card is an <a>, so browsers paint :visited / :hover / :focus /
+       :active in their default link palette — typically a dark blue or
+       purple, which leaks into the card text because the header/body/
+       footer use color: inherit. Pin every link state to the configured
+       text color so the card never recolors itself based on browser link
+       history. */
+    .uwebia-link-card,
+    .uwebia-link-card:link,
+    .uwebia-link-card:visited,
+    .uwebia-link-card:hover,
+    .uwebia-link-card:focus,
+    .uwebia-link-card:active {
+        color: var(--link-card-text, #ffffff);
+    }
+
     .uwebia-link-card-header {
         position: relative;
         z-index: 1;
@@ -1639,8 +1654,21 @@
 }
 
 .public-section-cell > .uwebia-link-card,
-.public-section-cell > .section-button-wrap {
+.public-section-cell > .section-button-wrap,
+.public-section-cell > .section-link-cards-wrap {
     flex: 0 1 auto;
+}
+
+/* Multi-card wrapper — flex container for one-or-more link cards in a
+   single section. The per-card max-width comes from --link-card-width, but
+   when uniform sizing is on (flex:1 on each card) the wrapper distributes
+   width evenly and the natural max-width still acts as a ceiling. */
+.section-link-cards-wrap { box-sizing: border-box; }
+.section-link-cards-wrap > .uwebia-link-card {
+    /* Inside the multi-card wrapper, drop the auto-centering margins so
+       flex justify-content actually controls placement. */
+    margin-left: 0;
+    margin-right: 0;
 }
 .section-button-wrap {
     display: flex;
@@ -4077,48 +4105,48 @@ box-sizing: border-box;
 
                                 </div>
                                 {% elif section.section_type == 'link_card' %}
-                                {% set card = section.content or {} %}
-                                {% set header = card.get('header', 'Link Card') %}
-                                {% set body = card.get('body', '') %}
-                                {% set footer = card.get('footer', 'Learn more') %}
-                                {% set url = card.get('url', '#') %}
-                                {% set bg_image = card.get('background_image_url', '') %}
-                                {% set bg_color = card.get('background_color', '#1f232b') %}
-                                {% set text_color = card.get('text_color', '#ffffff') %}
-                                {% set overlay_color = card.get('overlay_color', '#000000') %}
-                                {% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
-                                {% set width = card.get('width', 420) %}
-
-                                {% set height = card.get('height', 240) %}
-                                {% set radius = card.get('border_radius', 18) %}
-                                {% set open_new_tab = card.get('open_in_new_tab', True) %}
-
-                                {% set overlay_hex = overlay_color.lstrip('#') %}
-                                {% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-                                {% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-                                {% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
-
-                                <a class="uwebia-link-card" href="{{ url or '#' }}" {% if open_new_tab %}target="_blank"
-                                    rel="noopener noreferrer" {% endif %} style="
-                                    --link-card-width: {{ width }}px;
-                                    --link-card-height: {{ height }}px;
-                                    --link-card-radius: {{ radius }}px;
-                                    --link-card-bg: {{ bg_color }};
-                                    --link-card-text: {{ text_color }};
-                                    --link-card-overlay-rgb: {{ overlay_r }}, {{ overlay_g }}, {{ overlay_b }};
-                                    --link-card-overlay-opacity: {{ overlay_opacity }};
-                                    --link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};
-                            ">
-                                    <div class="uwebia-link-card-header">{{ header }}</div>
-
-                                    {% if body %}
-                                    <div class="uwebia-link-card-body">{{ body }}</div>
-                                    {% endif %}
-
-                                    {% if footer %}
-                                    <div class="uwebia-link-card-footer">{{ footer }}</div>
-                                    {% endif %}
-                                </a>
+                                {% set _lc = section.content or {} %}
+                                {# Multi-card schema (new) vs single-card schema (legacy with header/body/footer/url at the top level). #}
+                                {% if _lc.get('cards') %}
+                                    {% set _cards = _lc.get('cards', []) %}
+                                {% elif _lc.get('header') or _lc.get('body') or _lc.get('url') %}
+                                    {% set _cards = [_lc] %}
+                                {% else %}
+                                    {% set _cards = [] %}
+                                {% endif %}
+                                {% set _lc_container = _lc.get('container') or {} %}
+                                {% set _lc_uniform = _lc_container.get('uniform_size', false) %}
+                                {% set _lc_align = 'stretch' if _lc_uniform else _lc_container.get('align', 'stretch') %}
+                                {% if _cards %}
+                                <div class="section-link-cards-wrap"
+                                     style="display:flex;flex-direction:{{ _lc_container.get('direction','row') }};flex-wrap:{{ 'wrap' if _lc_container.get('wrap', true) else 'nowrap' }};gap:{{ _lc_container.get('gap', 16)|int }}px;justify-content:{{ _lc_container.get('justify','center') }};align-items:{{ _lc_align }};width:100%;">
+                                    {% for card in _cards %}
+                                    {% set header = card.get('header', 'Link Card') %}
+                                    {% set body = card.get('body', '') %}
+                                    {% set footer = card.get('footer', '') %}
+                                    {% set url = card.get('url', '#') %}
+                                    {% set bg_image = card.get('background_image_url', '') %}
+                                    {% set bg_color = card.get('background_color', '#1f232b') %}
+                                    {% set text_color = card.get('text_color', '#ffffff') %}
+                                    {% set overlay_color = card.get('overlay_color', '#000000') %}
+                                    {% set overlay_opacity = card.get('overlay_opacity', 0.25) %}
+                                    {% set width = card.get('width', 420) %}
+                                    {% set height = card.get('height', 240) %}
+                                    {% set radius = card.get('border_radius', 18) %}
+                                    {% set open_new_tab = card.get('open_in_new_tab', True) %}
+                                    {% set overlay_hex = (overlay_color or '').lstrip('#') %}
+                                    {% set overlay_r = overlay_hex[0:2]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                    {% set overlay_g = overlay_hex[2:4]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                    {% set overlay_b = overlay_hex[4:6]|int(base=16) if overlay_hex|length >= 6 else 0 %}
+                                    <a class="uwebia-link-card" href="{{ url or '#' }}" {% if open_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}
+                                       style="--link-card-width: {{ width }}px;--link-card-height: {{ height }}px;--link-card-radius: {{ radius }}px;--link-card-bg: {{ bg_color }};--link-card-text: {{ text_color }};--link-card-overlay-rgb: {{ overlay_r }}, {{ overlay_g }}, {{ overlay_b }};--link-card-overlay-opacity: {{ overlay_opacity }};--link-card-bg-image: {% if bg_image %}url('{{ bg_image }}'){% else %}none{% endif %};{% if _lc_uniform %}flex:1 1 0;min-width:0;{% endif %}">
+                                        <div class="uwebia-link-card-header">{{ header }}</div>
+                                        {% if body %}<div class="uwebia-link-card-body">{{ body }}</div>{% endif %}
+                                        {% if footer %}<div class="uwebia-link-card-footer">{{ footer }}</div>{% endif %}
+                                    </a>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
                                 {% elif section.section_type == 'text' %}
                                 {% set bg = section.content.get('background_color', '#000000') %}
                                 {% set opacity = section.content.get('background_opacity', '0')|float %}
@@ -4167,9 +4195,12 @@ box-sizing: border-box;
                                     {% set _buttons = [] %}
                                 {% endif %}
                                 {% set _container = _bc.get('container') or {} %}
+                                {% set _uniform = _container.get('uniform_size', false) %}
+                                {# When 'Match sizes' is on, force align-items:stretch so every button stretches to the tallest one. Per-button flex:1 is appended below for equal widths. #}
+                                {% set _align = 'stretch' if _uniform else _container.get('align', 'center') %}
                                 {% if _buttons %}
                                 <div class="section-buttons-wrap"
-                                     style="display:flex;flex-direction:{{ _container.get('direction','row') }};flex-wrap:{{ 'wrap' if _container.get('wrap', true) else 'nowrap' }};gap:{{ _container.get('gap', 12)|int }}px;justify-content:{{ _container.get('justify','center') }};align-items:{{ _container.get('align','center') }};width:100%;">
+                                     style="display:flex;flex-direction:{{ _container.get('direction','row') }};flex-wrap:{{ 'wrap' if _container.get('wrap', true) else 'nowrap' }};gap:{{ _container.get('gap', 12)|int }}px;justify-content:{{ _container.get('justify','center') }};align-items:{{ _align }};width:100%;">
                                     {% for btn in _buttons %}
                                     {% if btn.get('text') is not none and btn.get('link') %}
                                     {% set _bg     = btn.get('bg_color',     '#4CAF50') %}
@@ -4194,7 +4225,7 @@ box-sizing: border-box;
                                     {% set _circle = (_shape == 'circle') %}
                                     <a href="{{ btn.link }}" class="section-button"
                                        {% if _new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}
-                                       style="background:{{ _bg }};color:{{ _tc }};border:{{ _bw }}px solid {{ _bcol }};border-radius:{{ _radius }}px;font-size:{{ _fs }}px;font-weight:{{ _fw }};line-height:1.2;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:{{ _py }}px {{ _px }}px;{% if _ital %}font-style:italic;{% endif %}{% if _upper %}text-transform:uppercase;letter-spacing:0.05em;{% endif %}{% if _circle %}aspect-ratio:1/1;padding:0;width:{{ _fs*2 + _py*2 }}px;height:{{ _fs*2 + _py*2 }}px;{% endif %}{% if _fillw and not _circle %}flex:1 1 auto;min-width:0;{% endif %}{% if _fillh %}align-self:stretch;{% endif %}{% if _shadow == 'soft' %}box-shadow:0 4px 12px rgba(0,0,0,0.18);{% elif _shadow == 'medium' %}box-shadow:0 6px 18px rgba(0,0,0,0.28);{% elif _shadow == 'strong' %}box-shadow:0 10px 28px rgba(0,0,0,0.4);{% endif %}transition:transform 0.15s, box-shadow 0.15s, filter 0.15s;">
+                                       style="background:{{ _bg }};color:{{ _tc }};border:{{ _bw }}px solid {{ _bcol }};border-radius:{{ _radius }}px;font-size:{{ _fs }}px;font-weight:{{ _fw }};line-height:1.2;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:{{ _py }}px {{ _px }}px;{% if _ital %}font-style:italic;{% endif %}{% if _upper %}text-transform:uppercase;letter-spacing:0.05em;{% endif %}{% if _circle %}aspect-ratio:1/1;padding:0;width:{{ _fs*2 + _py*2 }}px;height:{{ _fs*2 + _py*2 }}px;{% endif %}{% if _uniform and not _circle %}flex:1 1 0;min-width:0;{% elif _fillw and not _circle %}flex:1 1 auto;min-width:0;{% endif %}{% if _uniform or _fillh %}align-self:stretch;{% endif %}{% if _shadow == 'soft' %}box-shadow:0 4px 12px rgba(0,0,0,0.18);{% elif _shadow == 'medium' %}box-shadow:0 6px 18px rgba(0,0,0,0.28);{% elif _shadow == 'strong' %}box-shadow:0 10px 28px rgba(0,0,0,0.4);{% endif %}transition:transform 0.15s, box-shadow 0.15s, filter 0.15s;">
                                         {# Icon can be either a FontAwesome class string (e.g. "fab fa-facebook-f") or raw inline SVG (used for icons that aren't reliable across our FA versions, like X and Threads). #}
                                         {% set _icon_is_svg = _icon and _icon.lstrip().startswith('<svg') %}
                                         {% if _img and _iconp == 'left' %}<img src="{{ _img }}" alt="" style="width:1.4em;height:1.4em;object-fit:contain;border-radius:4px;">

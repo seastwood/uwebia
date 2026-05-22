@@ -1115,11 +1115,183 @@
     }
 
 
+    /* Compact toolbar in the post-editor style — dark chrome with crisp icons. */
+    .text-editor-wrapper { position: relative; }
     .text-editor-wrapper .ql-toolbar {
-        background: #949494;
-        border: none;
-        border-radius: 10px;
+        background: rgba(22,22,34,0.97);
+        border: 1px solid rgba(255,255,255,0.12) !important;
+        border-radius: 10px 10px 0 0;
+        padding: 6px 8px;
     }
+    .text-editor-wrapper .ql-toolbar.ql-snow { flex-wrap: wrap; }
+    .text-editor-wrapper .ql-snow .ql-stroke    { stroke: rgba(255,255,255,0.75); }
+    .text-editor-wrapper .ql-snow .ql-fill      { fill: rgba(255,255,255,0.75); }
+
+    /* Quill's snow theme defaults picker text to dark gray. Override every
+       picker-related element explicitly so the Font/Size dropdowns are
+       readable on the dark toolbar. Specificity is bumped by qualifying
+       under .ql-toolbar to beat Quill's stock rules. */
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker,
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label,
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label::before {
+        color: rgba(255,255,255,0.88) !important;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label .ql-stroke,
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label .ql-fill { stroke: rgba(255,255,255,0.75); fill: rgba(255,255,255,0.75); }
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-label,
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label:hover { color: #5eeef8 !important; }
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke,
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke { stroke: #5eeef8; }
+    .text-editor-wrapper .ql-snow .ql-picker-options {
+        background: #1e1e2e;
+        border-color: rgba(255,255,255,0.15);
+        color: rgba(255,255,255,0.85);
+    }
+    .text-editor-wrapper .ql-snow .ql-picker-item,
+    .text-editor-wrapper .ql-snow .ql-picker-item::before { color: rgba(255,255,255,0.85); }
+    .text-editor-wrapper .ql-snow .ql-picker-item:hover,
+    .text-editor-wrapper .ql-snow .ql-picker-item:hover::before,
+    .text-editor-wrapper .ql-snow .ql-picker-item.ql-selected,
+    .text-editor-wrapper .ql-snow .ql-picker-item.ql-selected::before { color: #fff; }
+    .text-editor-wrapper .ql-snow.ql-toolbar button:hover .ql-stroke,
+    .text-editor-wrapper .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #5eeef8; }
+    .text-editor-wrapper .ql-snow.ql-toolbar button:hover .ql-fill,
+    .text-editor-wrapper .ql-snow.ql-toolbar button.ql-active .ql-fill   { fill: #5eeef8; }
+    .text-editor-wrapper .ql-snow.ql-toolbar button:hover  i,
+    .text-editor-wrapper .ql-snow.ql-toolbar button.ql-active i,
+    .text-editor-wrapper .ql-snow.ql-toolbar button.is-open i { color: #5eeef8; }
+    .text-editor-wrapper .ql-snow .ql-color-picker .ql-picker-options {
+        width: 152px;
+    }
+
+    /* Lay out the whole toolbar as a wrapping flex row so every button,
+       picker, and group sits on the same baseline (Quill's default uses
+       inline-block + vertical-align: middle, which leaves baseline drift
+       between buttons and pickers). */
+    .text-editor-wrapper .ql-toolbar.ql-snow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-formats {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        margin: 0 6px 0 0;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        margin: 0;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 2px 0 8px;
+    }
+
+    /* Every toolbar button gets the same 28x24 outer box, and the icon
+       inside it (SVG or FontAwesome <i>) is centered at 14px so native
+       Quill icons and our custom ones line up perfectly. */
+    .text-editor-wrapper .ql-toolbar.ql-snow button {
+        width: 28px;
+        height: 24px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow button svg {
+        width: 18px;
+        height: 18px;
+        float: none;
+        display: block;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow button i {
+        font-size: 14px;
+        line-height: 1;
+        color: rgba(255,255,255,0.75);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+    }
+    .text-editor-wrapper .ql-toolbar.ql-snow button.ql-active i,
+    .text-editor-wrapper .ql-toolbar.ql-snow button:hover i,
+    .text-editor-wrapper .ql-toolbar.ql-snow button.is-open i { color: #5eeef8; }
+    /* Font picker label */
+    .text-editor-wrapper .ql-snow .ql-picker.ql-font .ql-picker-label::before { content: 'Font'; }
+    .text-editor-wrapper .ql-snow .ql-picker.ql-size .ql-picker-label::before { content: 'Size'; }
+    /* Pretty size labels */
+    .text-editor-wrapper .ql-snow .ql-picker.ql-size .ql-picker-item[data-value]::before { content: attr(data-value); }
+
+    /* Effects popover */
+    .pe-effects-popover {
+        position: absolute;
+        z-index: 99998;
+        background: #1d1d27;
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 10px;
+        padding: 14px 16px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+        min-width: 280px;
+        max-width: 360px;
+        color: #fff;
+        font-size: 0.85rem;
+    }
+    .pe-effects-popover[hidden] { display: none; }
+    .pe-effects-arrow {
+        position: absolute; top: -6px; left: 24px;
+        width: 12px; height: 12px; transform: rotate(45deg);
+        background: #1d1d27;
+        border-left: 1px solid rgba(255,255,255,0.14);
+        border-top:  1px solid rgba(255,255,255,0.14);
+    }
+    .pe-effects-section + .pe-effects-section { margin-top: 14px; }
+    .pe-effects-title {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(255,255,255,0.55);
+        margin-bottom: 8px;
+    }
+    .pe-effects-row {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .pe-effects-row > label {
+        display: flex; flex-direction: column; gap: 3px;
+        font-size: 0.72rem; color: rgba(255,255,255,0.55);
+    }
+    .pe-effects-row input[type="color"] {
+        width: 38px; height: 28px; padding: 2px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(255,255,255,0.05);
+        cursor: pointer;
+    }
+    .pe-effects-row input[type="range"] { width: 100px; }
+    .pe-effects-btn {
+        padding: 5px 10px;
+        background: rgba(255,255,255,0.07);
+        border: 1px solid rgba(255,255,255,0.15);
+        color: rgba(255,255,255,0.85);
+        border-radius: 6px;
+        font-size: 0.78rem;
+        cursor: pointer;
+    }
+    .pe-effects-btn:hover { background: rgba(255,255,255,0.13); }
+    .pe-effects-btn-primary {
+        background: rgba(94,238,200,0.15);
+        border-color: rgba(94,238,200,0.32);
+        color: #5eeec8;
+    }
+    .pe-effects-btn-primary:hover { background: rgba(94,238,200,0.25); }
 
     /* 
     .text-editor-wrapper .ql-container {
@@ -8511,6 +8683,95 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         GradientTextBlot.blotName = 'gradientText';
         GradientTextBlot.tagName = 'span';
         Quill.register(GradientTextBlot);
+
+        // ── Media blots for text sections (audio / local video) ────────
+        // Mirrors the post editor so users can drop library audio/video
+        // assets directly into a text section and have them embed as a
+        // real <audio>/<video> element on the public page.
+        const _PE_BlockEmbed = Quill.import('blots/block/embed');
+
+        class PeAudioBlot extends _PE_BlockEmbed {
+            static create(url) {
+                const node = super.create();
+                node.setAttribute('src', url);
+                node.setAttribute('controls', 'true');
+                node.style.cssText = 'width:100%;margin:8px 0;display:block;';
+                return node;
+            }
+            static value(node) { return node.getAttribute('src'); }
+        }
+        PeAudioBlot.blotName = 'audio';
+        PeAudioBlot.tagName  = 'AUDIO';
+        Quill.register(PeAudioBlot);
+
+        class PeLocalVideoBlot extends _PE_BlockEmbed {
+            static create(url) {
+                const node = super.create();
+                node.setAttribute('src', url);
+                node.setAttribute('controls', 'true');
+                node.style.cssText = 'width:100%;max-height:480px;margin:8px 0;display:block;';
+                return node;
+            }
+            static value(node) { return node.getAttribute('src'); }
+        }
+        PeLocalVideoBlot.blotName = 'localvideo';
+        PeLocalVideoBlot.tagName  = 'VIDEO';
+        Quill.register(PeLocalVideoBlot);
+
+        // Iframe blot for YouTube / Vimeo embeds.
+        class PeIframeBlot extends _PE_BlockEmbed {
+            static create(value) {
+                const node = super.create();
+                const src = typeof value === 'string' ? value : (value && value.src) || '';
+                node.setAttribute('src', src);
+                node.setAttribute('frameborder', '0');
+                node.setAttribute('allowfullscreen', 'true');
+                node.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+                node.style.cssText = 'width:100%;height:400px;margin:8px 0;display:block;border:0;';
+                return node;
+            }
+            static value(node) { return node.getAttribute('src'); }
+        }
+        PeIframeBlot.blotName = 'iframevideo';
+        PeIframeBlot.tagName  = 'IFRAME';
+        Quill.register(PeIframeBlot);
+
+        // ResizableImage — replaces the default image blot so width-style
+        // set by the resize bar survives editor round-trips. Without this,
+        // Quill strips inline style on re-serialization.
+        const _PE_BaseImage = Quill.import('formats/image');
+        class PeResizableImage extends _PE_BaseImage {
+            static create(value) {
+                const node = super.create(typeof value === 'object' ? value.src : value);
+                if (typeof value === 'object' && value.style) {
+                    node.setAttribute('style', value.style);
+                }
+                return node;
+            }
+            static value(node) {
+                const src   = node.getAttribute('src');
+                const style = node.getAttribute('style');
+                return style ? { src, style } : src;
+            }
+            static formats(node) {
+                const base  = super.formats ? super.formats(node) : {};
+                const style = node.getAttribute('style');
+                if (style) base.style = style;
+                return base;
+            }
+            format(name, value) {
+                if (name === 'style') {
+                    value ? this.domNode.setAttribute('style', value)
+                          : this.domNode.removeAttribute('style');
+                } else {
+                    super.format(name, value);
+                }
+            }
+        }
+        PeResizableImage.blotName = 'image';
+        PeResizableImage.tagName  = 'IMG';
+        Quill.register(PeResizableImage, true);
+
         let currentGroups = [];
 
         function reloadSections(sections, rows, columns, website, groups = []) {
@@ -9381,6 +9642,12 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             </select>
                         </label>
                     </div>
+                    <div class="btns-row">
+                        <label style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;">
+                            <input type="checkbox" data-cfield="uniform_size" style="width:15px;height:15px;cursor:pointer;">
+                            <span>Match sizes (all buttons share equal width &amp; height)</span>
+                        </label>
+                    </div>
                 </fieldset>
 
                 <fieldset class="btns-fieldset">
@@ -9594,17 +9861,31 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                     gap: 12,
                                     justify: 'center',
                                     align: 'center',
+                                    uniform_size: false,
                                 }, _initialContainer),
                             };
                             // Populate the container selects from state.
                             _form.querySelectorAll('[data-cfield]').forEach(el => {
                                 const k = el.dataset.cfield;
                                 const v = _form._buttonsState.container[k];
-                                el.value = (k === 'wrap') ? String(v) : v;
+                                if (el.type === 'checkbox') {
+                                    el.checked = !!v;
+                                } else if (k === 'wrap') {
+                                    el.value = String(!!v);
+                                } else {
+                                    el.value = v == null ? '' : v;
+                                }
                                 el.addEventListener('change', () => {
                                     const cur = _form._buttonsState.container;
-                                    cur[k] = (k === 'wrap') ? (el.value === 'true')
-                                           : (el.type === 'number' ? parseInt(el.value, 10) || 0 : el.value);
+                                    if (el.type === 'checkbox') {
+                                        cur[k] = !!el.checked;
+                                    } else if (k === 'wrap') {
+                                        cur[k] = (el.value === 'true');
+                                    } else if (el.type === 'number') {
+                                        cur[k] = parseInt(el.value, 10) || 0;
+                                    } else {
+                                        cur[k] = el.value;
+                                    }
                                     btnsSyncHidden(section.id);
                                 });
                             });
@@ -9775,148 +10056,229 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             _spSyncHidden(section.id);
                         }
                         else if (section.section_type === 'link_card') {
-                            const content = section.content || {};
+                            // Multi-card editor — mirrors the buttons section pattern.
+                            // Each card is collapsible, draggable in order; layout
+                            // controls live above. Saved as JSON in a hidden input.
+                            const _lc = section.content || {};
+                            const _initialCards = Array.isArray(_lc.cards)
+                                ? _lc.cards
+                                : (_lc.header || _lc.body || _lc.url
+                                    ? [_lc]
+                                    : [lcCardDefaults()]);
+                            const _initialLcContainer = _lc.container || {};
 
                             sectionContent.innerHTML = `
         <div class="section-container link-card-editor-container">
-            <form class="update-section-form link-card-section-form"
+            <form class="update-section-form link-cards-section-form"
                   data-section-id="${section.id}"
                   data-section-type="link_card"
                   data-page-id="${section.page_content_id}">
+                <input type="hidden" name="link_cards_config" id="link_cards_config_${section.id}" value="">
 
-                <div class="link-card-editor-grid">
-
-                    <div class="link-card-editor-panel">
-                        <label>Header Label</label>
-                        <input type="text"
-                               name="link_card_header"
-                               class="dynamic-width"
-                               value="${escapeHtml(content.header || '')}"
-                               placeholder="Example: Featured Resource">
-
-                        <label>Body Text</label>
-                        <textarea name="link_card_body"
-                                  class="dynamic-width"
-                                  rows="3"
-                                  placeholder="Short description">${escapeHtml(content.body || '')}</textarea>
-
-                        <label>Footer Label</label>
-                        <input type="text"
-                               name="link_card_footer"
-                               class="dynamic-width"
-                               value="${escapeHtml(content.footer || '')}"
-                               placeholder="Example: Learn more">
-
-                        <label>Clickable URL</label>
-                        <input type="url"
-                               name="link_card_url"
-                               class="dynamic-width"
-                               value="${escapeHtml(content.url || '')}"
-                               placeholder="https://example.com">
-
-                        <label class="image-toggle-row">
-                            <input type="checkbox"
-                                   name="link_card_open_new_tab"
-                                   ${content.open_in_new_tab !== false ? 'checked' : ''}>
-                            Open in new tab
+                <fieldset class="lc-fieldset">
+                    <legend>Layout</legend>
+                    <div class="lc-row">
+                        <label>Direction
+                            <select data-lccfield="direction">
+                                <option value="row">Row (side by side)</option>
+                                <option value="column">Column (stacked)</option>
+                            </select>
+                        </label>
+                        <label>Wrap to next line
+                            <select data-lccfield="wrap">
+                                <option value="true">Wrap</option>
+                                <option value="false">No wrap</option>
+                            </select>
+                        </label>
+                        <label>Gap (px)
+                            <input type="number" data-lccfield="gap" min="0" max="80" step="1">
                         </label>
                     </div>
-
-                    <div class="link-card-editor-panel">
-                        <label>Background Image</label>
-
-                        <div class="link-card-image-preview ${content.background_image_url ? 'has-image' : ''}"
-                             id="linkCardImagePreview-${section.id}"
-                             style="${content.background_image_url ? `background-image:url('${escapeAttr(content.background_image_url)}')` : ''}">
-                            <span>${content.background_image_url ? '' : 'No image selected'}</span>
-                        </div>
-
-                        <input type="hidden"
-                               id="linkCardBackgroundImage-${section.id}"
-                               name="link_card_background_image_url"
-                               value="${escapeAttr(content.background_image_url || '')}">
-
-                        <div class="link-card-editor-actions">
-                            <button type="button"
-                                    class="btn-secondary"
-                                    onclick="openLinkCardBackgroundLibraryPicker(${section.id})">
-                                <i class="fas fa-images"></i>
-                                Choose from Library
-                            </button>
-
-                            <button type="button"
-                                    class="btn-secondary"
-                                    onclick="clearLinkCardBackgroundImage(${section.id})">
-                                Clear Image
-                            </button>
-                        </div>
-
-                        <div class="link-card-style-grid">
-                            <div>
-                                <label>Background Color</label>
-                                <input type="color"
-                                       name="link_card_background_color"
-                                       value="${content.background_color || '#1f232b'}">
-                            </div>
-
-                            <div>
-                                <label>Text Color</label>
-                                <input type="color"
-                                       name="link_card_text_color"
-                                       value="${content.text_color || '#ffffff'}">
-                            </div>
-
-                            <div>
-                                <label>Overlay Color</label>
-                                <input type="color"
-                                       name="link_card_overlay_color"
-                                       value="${content.overlay_color || '#000000'}">
-                            </div>
-
-                            <div>
-                                <label>Overlay Opacity</label>
-                                <input type="range"
-                                       name="link_card_overlay_opacity"
-                                       min="0"
-                                       max="1"
-                                       step="0.05"
-                                       value="${content.overlay_opacity ?? 0.25}">
-                            </div>
-
-                            <div>
-    <label>Width</label>
-    <input type="number"
-           name="link_card_width"
-           min="120"
-           max="1400"
-           value="${content.width || 420}">
-</div>
-
-                            <div>
-                                <label>Height</label>
-                                <input type="number"
-                                       name="link_card_height"
-                                       min="120"
-                                       max="800"
-                                       value="${content.height || 240}">
-                            </div>
-
-                            <div>
-                                <label>Rounded Corners</label>
-                                <input type="number"
-                                       name="link_card_border_radius"
-                                       min="0"
-                                       max="80"
-                                       value="${content.border_radius || 18}">
-                            </div>
-                        </div>
+                    <div class="lc-row">
+                        <label>Horizontal align
+                            <select data-lccfield="justify">
+                                <option value="flex-start">Start</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">End</option>
+                                <option value="space-between">Space between</option>
+                                <option value="space-around">Space around</option>
+                            </select>
+                        </label>
+                        <label>Vertical align
+                            <select data-lccfield="align">
+                                <option value="flex-start">Start</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">End</option>
+                                <option value="stretch">Stretch (match heights)</option>
+                            </select>
+                        </label>
                     </div>
-                </div>
+                    <div class="lc-row">
+                        <label style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;">
+                            <input type="checkbox" data-lccfield="uniform_size" style="width:15px;height:15px;cursor:pointer;">
+                            <span>Match sizes (all cards share equal width &amp; height)</span>
+                        </label>
+                    </div>
+                </fieldset>
 
-                <button type="submit">Save Link Card</button>
+                <fieldset class="lc-fieldset">
+                    <legend>Cards</legend>
+                    <div id="lc-list-${section.id}" class="lc-list"></div>
+                    <button type="button" class="lc-add" onclick="lcAddCard('${section.id}')">
+                        <i class="fas fa-plus"></i> Add another card
+                    </button>
+                </fieldset>
+
+                <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                    <button type="submit" style="padding:9px 22px;background:rgba(94,238,200,0.18);border:1px solid rgba(94,238,200,0.35);color:#5eeec8;border-radius:8px;font-weight:700;cursor:pointer;">
+                        Save Link Cards
+                    </button>
+                </div>
             </form>
         </div>
-    `;
+        <style>
+            .link-cards-section-form .lc-fieldset {
+                border: 1px solid rgba(255,255,255,0.13);
+                border-radius: 10px;
+                padding: 14px 16px 16px;
+                margin: 0 0 14px;
+            }
+            .link-cards-section-form .lc-fieldset legend {
+                font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 0.07em; opacity: 0.7; padding: 0 6px;
+            }
+            .link-cards-section-form .lc-row {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+                gap: 10px;
+                margin-bottom: 8px;
+            }
+            .link-cards-section-form .lc-row > label,
+            .link-cards-section-form .lc-card label {
+                display: flex; flex-direction: column; gap: 4px;
+                font-size: 0.78rem; color: rgba(255,255,255,0.65);
+            }
+            .link-cards-section-form input[type="text"],
+            .link-cards-section-form input[type="number"],
+            .link-cards-section-form input[type="url"],
+            .link-cards-section-form input[type="range"],
+            .link-cards-section-form textarea,
+            .link-cards-section-form select {
+                padding: 7px 9px; border-radius: 7px;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+                color: #fff; font-size: 0.86rem; font-family: inherit;
+            }
+            .link-cards-section-form textarea { resize: vertical; min-height: 60px; }
+            .link-cards-section-form input[type="color"] {
+                width: 100%; height: 32px; padding: 2px; cursor: pointer;
+                border-radius: 7px;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+            }
+            .link-cards-section-form .lc-card {
+                background: rgba(0,0,0,0.32);
+                border: 1px solid rgba(255,255,255,0.12);
+                border-radius: 10px;
+                padding: 14px;
+                margin-bottom: 10px;
+                position: relative;
+            }
+            .link-cards-section-form .lc-card-header {
+                display: flex; align-items: center; gap: 8px;
+                margin-bottom: 10px;
+                font-size: 0.82rem; font-weight: 700; color: rgba(255,255,255,0.8);
+                cursor: pointer; user-select: none;
+            }
+            .link-cards-section-form .lc-card-chevron { font-size: 0.7rem; opacity: 0.55; transition: transform 0.18s; }
+            .link-cards-section-form .lc-card-summary { flex: 1; min-width: 0; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .link-cards-section-form .lc-card-actions { margin-left: auto; display: flex; gap: 6px; }
+            .link-cards-section-form .lc-card-actions button {
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.14);
+                color: rgba(255,255,255,0.75);
+                width: 28px; height: 28px; border-radius: 6px;
+                cursor: pointer; font-size: 0.74rem;
+            }
+            .link-cards-section-form .lc-card-actions button.danger {
+                color: #ff7878; border-color: rgba(255,140,140,0.3);
+            }
+            .link-cards-section-form .lc-card.lc-collapsed .lc-card-body { display: none; }
+            .link-cards-section-form .lc-card.lc-collapsed .lc-card-header { margin-bottom: 0; }
+            .link-cards-section-form .lc-card.lc-collapsed .lc-card-chevron { transform: rotate(-90deg); }
+            .link-cards-section-form .lc-card-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+                gap: 10px;
+            }
+            .link-cards-section-form .lc-card label.checkbox-row {
+                flex-direction: row; align-items: center; gap: 7px;
+                font-size: 0.8rem; cursor: pointer; user-select: none;
+            }
+            .link-cards-section-form .lc-card label.checkbox-row input { width: 15px; height: 15px; }
+            .link-cards-section-form .lc-card .lc-bg-preview {
+                width: 100%; height: 100px; border-radius: 8px;
+                background-size: cover; background-position: center;
+                background-color: rgba(255,255,255,0.04);
+                border: 1px dashed rgba(255,255,255,0.15);
+                display: flex; align-items: center; justify-content: center;
+                color: rgba(255,255,255,0.4); font-size: 0.78rem;
+                margin-bottom: 8px;
+            }
+            .link-cards-section-form .lc-card .lc-bg-actions {
+                display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+            }
+            .link-cards-section-form .lc-card .lc-bg-actions button {
+                padding: 6px 12px; border-radius: 7px; cursor: pointer;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+                color: #fff; font-size: 0.82rem;
+            }
+            .link-cards-section-form .lc-add {
+                margin-top: 6px;
+                padding: 8px 14px;
+                background: rgba(94,238,200,0.12);
+                border: 1px solid rgba(94,238,200,0.3);
+                color: #5eeec8;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 0.85rem;
+                font-weight: 600;
+            }
+        </style>
+        `;
+
+                            window._lcFormMap = window._lcFormMap || {};
+                            const _lcform = sectionContent.querySelector('form.link-cards-section-form');
+                            window._lcFormMap[section.id] = _lcform;
+                            _lcform._lcState = {
+                                cards: _initialCards.map(c => Object.assign(lcCardDefaults(), c)),
+                                container: Object.assign({
+                                    direction: 'row',
+                                    wrap: true,
+                                    gap: 16,
+                                    justify: 'center',
+                                    align: 'stretch',
+                                    uniform_size: false,
+                                }, _initialLcContainer),
+                            };
+                            _lcform.querySelectorAll('[data-lccfield]').forEach(el => {
+                                const k = el.dataset.lccfield;
+                                const v = _lcform._lcState.container[k];
+                                if (el.type === 'checkbox') el.checked = !!v;
+                                else if (k === 'wrap')     el.value   = String(!!v);
+                                else                       el.value   = v == null ? '' : v;
+                                el.addEventListener('change', () => {
+                                    const cur = _lcform._lcState.container;
+                                    if (el.type === 'checkbox')  cur[k] = !!el.checked;
+                                    else if (k === 'wrap')       cur[k] = (el.value === 'true');
+                                    else if (el.type === 'number') cur[k] = parseInt(el.value, 10) || 0;
+                                    else                          cur[k] = el.value;
+                                    lcSyncHidden(section.id);
+                                });
+                            });
+                            lcRender(section.id);
+                            lcSyncHidden(section.id);
                         }
 
                         else if (section.section_type === 'text') {
@@ -9926,71 +10288,47 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                   data-section-id="${section.id}"
                   data-section-type="${section.section_type}"
                   data-page-id="${section.page_content_id}">
-                  
+
                 <div class="text-editor-wrapper">
-                    <div id="toolbar-${section.id}" class="custom-quill-toolbar">
-                        <select class="ql-font">
-                            <option value="arial">Arial</option>
-                            <option value="georgia">Georgia</option>
-                            <option value="times">Times</option>
-                            <option value="verdana">Verdana</option>
-                            <option value="trebuchet">Trebuchet</option>
-                            <option value="garamond">Garamond</option>
-                            <option value="courier">Courier</option>
-                            <option value="monospace">Monospace</option>
-                        </select>
+                    <!-- Quill builds its own .ql-toolbar from the toolbarOptions
+                         array passed below. We just give it an anchor div with
+                         a known id so we can find the toolbar afterwards to
+                         attach the Effects popover. -->
+                    <div id="toolbar-${section.id}" class="pe-text-toolbar-anchor"></div>
 
-                        <select class="ql-size">
-                            <option value="12px">12</option>
-                            <option value="14px">14</option>
-                            <option value="16px" selected>16</option>
-                            <option value="18px">18</option>
-                            <option value="20px">20</option>
-                            <option value="24px">24</option>
-                            <option value="32px">32</option>
-                            <option value="48px">48</option>
-                            <option value="64px">64</option>
-                        </select>
+                    <!-- Outline / Gradient effects popover, shown on demand by
+                         the custom Effects button on the toolbar. Keeps the
+                         text-color override capability inside one organized
+                         panel so the top toolbar stays compact. -->
+                    <div class="pe-effects-popover" id="effects-pop-${section.id}" hidden>
+                        <div class="pe-effects-arrow"></div>
 
-                        <button type="button" class="ql-bold"></button>
-                        <button type="button" class="ql-italic"></button>
-                        <button type="button" class="ql-underline"></button>
-                        <button type="button" class="ql-strike"></button>
+                        <div class="pe-effects-section">
+                            <div class="pe-effects-title">Outline</div>
+                            <div class="pe-effects-row">
+                                <label>Color
+                                    <input type="color" class="tb-outline-color-picker" value="#000000">
+                                </label>
+                                <label>Width
+                                    <input type="range" class="tb-outline-width-picker" min="0" max="4" step="1" value="0">
+                                </label>
+                                <button type="button" class="pe-effects-btn tb-clear-outline-btn">Clear</button>
+                            </div>
+                        </div>
 
-                        <button type="button" class="ql-align" value=""></button>
-                        <button type="button" class="ql-align" value="center"></button>
-                        <button type="button" class="ql-align" value="right"></button>
-                        <button type="button" class="ql-align" value="justify"></button>
-
-                        <button type="button" class="ql-list" value="ordered"></button>
-                        <button type="button" class="ql-list" value="bullet"></button>
-                        <button type="button" class="ql-link"></button>
-                        <button type="button" class="ql-clean"></button>
-<div class="toolbar-group">
-    <span class="toolbar-label">Text</span>
-<input type="color"
-    class="tb-text-color-picker"
-    value="{{ website.text_color or '#ffffff' }}"
-    title="Solid Text Color"
-    oninput="window.lastSelectedColor=this.value; updateWebsiteTextPreview('{{ website.id }}')">
-    <button type="button" class="tb-clear-text-color-btn" title="Clear text color">✕ Color</button>
-</div>
-
-<div class="toolbar-group">
-    <span class="toolbar-label">Outline</span>
-    <input type="color" class="tb-outline-color-picker" value="#000000" title="Outline Color">
-    <input type="range" class="tb-outline-width-picker" min="0" max="4" step="1" value="0" title="Outline Width">
-    <button type="button" class="tb-clear-outline-btn">Clear</button>
-</div>
-
-<div class="toolbar-group">
-    <span class="toolbar-label">Gradient</span>
-    <input type="color" class="tb-gradient-start-picker" value="#ff00aa" title="Gradient Start">
-    <input type="color" class="tb-gradient-end-picker" value="#00ccff" title="Gradient End">
-    <button type="button" class="tb-apply-gradient-btn">Apply</button>
-    <button type="button" class="tb-clear-gradient-btn">Clear</button>
-</div>
-
+                        <div class="pe-effects-section">
+                            <div class="pe-effects-title">Gradient Text</div>
+                            <div class="pe-effects-row">
+                                <label>Start
+                                    <input type="color" class="tb-gradient-start-picker" value="#ff00aa">
+                                </label>
+                                <label>End
+                                    <input type="color" class="tb-gradient-end-picker" value="#00ccff">
+                                </label>
+                                <button type="button" class="pe-effects-btn pe-effects-btn-primary tb-apply-gradient-btn">Apply</button>
+                                <button type="button" class="pe-effects-btn tb-clear-gradient-btn">Clear</button>
+                            </div>
+                        </div>
                     </div>
 
 <div class="text-style-accordion">
@@ -10197,12 +10535,64 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 input.addEventListener('input', updateRangeLabel);
                                 updateRangeLabel();
                             });
+                            // Register custom Quill icons once (idempotent).
+                            // The CSS below the editor styles `.ql-toolbar button
+                            // i` uniformly so all icons (custom + native SVG)
+                            // render at the same visual size and alignment.
+                            (function () {
+                                const icons = Quill.import('ui/icons');
+                                if (!icons['effects'])     icons['effects']     = '<i class="fas fa-magic"></i>';
+                                if (!icons['insertasset']) icons['insertasset'] = '<i class="fas fa-images"></i>';
+                                if (!icons['embedvideo'])  icons['embedvideo']  = '<i class="fas fa-film"></i>';
+                            })();
+
+                            // Quill's built-in array toolbar — compact, picker
+                            // dropdowns and standard icons. Same style the post
+                            // editor uses.
+                            const _TEXT_FONTS = ['arial', 'georgia', 'times', 'verdana', 'trebuchet', 'garamond', 'courier', 'monospace'];
+                            const _TEXT_SIZES = ['10px','12px','14px','16px','18px','20px','24px','28px','32px','40px','48px','64px','80px','96px'];
+                            const _textToolbarOptions = [
+                                [{ 'font': _TEXT_FONTS }, { 'size': _TEXT_SIZES }],
+                                ['bold', 'italic', 'underline', 'strike',
+                                 { 'color': [] }, { 'background': [] }],
+                                [{ 'align': [] },
+                                 { 'list': 'ordered' }, { 'list': 'bullet' }],
+                                ['link', 'effects', 'insertasset', 'embedvideo', 'clean'],
+                            ];
                             const quill = new Quill(editorEl, {
                                 theme: 'snow',
                                 modules: {
-                                    toolbar: toolbarEl
+                                    toolbar: {
+                                        container: _textToolbarOptions,
+                                        handlers: {
+                                            effects:     () => peTextOpenEffectsPopover(section.id),
+                                            insertasset: () => peTextAssetPickerOpen(quill),
+                                            embedvideo:  () => peTextEmbedVideo(quill),
+                                        }
+                                    }
                                 }
                             });
+
+                            // Quill creates .ql-toolbar BEFORE editorEl; move it
+                            // into the toolbar anchor we declared so the rest of
+                            // the editor layout (popover, accordion below) stays
+                            // grouped together. While we're touching the toolbar
+                            // we also set `title=` on the three custom buttons so
+                            // users can discover what each one does without
+                            // guessing at the icon.
+                            (function () {
+                                const built = editorEl.previousElementSibling;
+                                if (built && built.classList.contains('ql-toolbar')) {
+                                    const effBtn = built.querySelector('.ql-effects');
+                                    if (effBtn) effBtn.title = 'Text effects — outline & gradient';
+                                    const insBtn = built.querySelector('.ql-insertasset');
+                                    if (insBtn) insBtn.title = 'Insert image / audio / video / file from library';
+                                    const vidBtn = built.querySelector('.ql-embedvideo');
+                                    if (vidBtn) vidBtn.title = 'Embed YouTube / Vimeo URL';
+                                    toolbarEl.appendChild(built);
+                                }
+                            })();
+
                             const defaultTextColor = "{{ website.text_color or '#ffffff' }}";
                             quill.format('color', defaultTextColor);
                             quill.root.style.whiteSpace = 'pre-wrap';
@@ -10228,17 +10618,32 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 syncEditor();
                             });
 
-                            const textColorPicker = toolbarEl.querySelector('.tb-text-color-picker');
-                            const clearTextColorBtn = toolbarEl.querySelector('.tb-clear-text-color-btn');
+                            // Click-to-resize on inline images. Use a MutationObserver
+                            // so images inserted later (drag-drop, library pick, paste)
+                            // also get wired without a re-init.
+                            const wireImages = () => {
+                                editorEl.querySelectorAll('.ql-editor img').forEach(img => {
+                                    if (img._peRw) return;
+                                    img._peRw = true;
+                                    img.style.cursor = 'pointer';
+                                    img.addEventListener('click', () => peShowImageResizeBar(img, quill));
+                                });
+                            };
+                            new MutationObserver(wireImages).observe(editorEl, { childList: true, subtree: true });
+                            setTimeout(wireImages, 200);
 
-                            const outlineColorPicker = toolbarEl.querySelector('.tb-outline-color-picker');
-                            const outlineWidthPicker = toolbarEl.querySelector('.tb-outline-width-picker');
-                            const clearOutlineBtn = toolbarEl.querySelector('.tb-clear-outline-btn');
+                            // Solid text color now uses Quill's built-in picker, so
+                            // there's no separate tb-text-color-picker to wire here.
+                            // Outline + Gradient live in the effects popover.
+                            const effectsPopover    = sectionContent.querySelector(`#effects-pop-${section.id}`);
+                            const outlineColorPicker = effectsPopover ? effectsPopover.querySelector('.tb-outline-color-picker') : null;
+                            const outlineWidthPicker = effectsPopover ? effectsPopover.querySelector('.tb-outline-width-picker') : null;
+                            const clearOutlineBtn    = effectsPopover ? effectsPopover.querySelector('.tb-clear-outline-btn') : null;
 
-                            const gradientStartPicker = toolbarEl.querySelector('.tb-gradient-start-picker');
-                            const gradientEndPicker = toolbarEl.querySelector('.tb-gradient-end-picker');
-                            const applyGradientBtn = toolbarEl.querySelector('.tb-apply-gradient-btn');
-                            const clearGradientBtn = toolbarEl.querySelector('.tb-clear-gradient-btn');
+                            const gradientStartPicker = effectsPopover ? effectsPopover.querySelector('.tb-gradient-start-picker') : null;
+                            const gradientEndPicker   = effectsPopover ? effectsPopover.querySelector('.tb-gradient-end-picker') : null;
+                            const applyGradientBtn    = effectsPopover ? effectsPopover.querySelector('.tb-apply-gradient-btn') : null;
+                            const clearGradientBtn    = effectsPopover ? effectsPopover.querySelector('.tb-clear-gradient-btn') : null;
 
                             function getActiveRange(quill) {
                                 const range = quill.getSelection();
@@ -10282,38 +10687,6 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             function clearSolidColorFromSelection(range) {
                                 if (!range) return;
                                 quill.formatText(range.index, range.length, 'color', false);
-                            }
-
-                            if (textColorPicker) textColorPicker.addEventListener('input', function () {
-                                const range = quill.getSelection(true);
-                                const color = this.value;
-
-                                quill.focus();
-
-                                if (!range) return;
-
-                                if (range.length === 0) {
-                                    // This makes future/new typing use this color
-                                    quill.format('gradientText', false);
-                                    quill.format('color', color);
-                                } else {
-                                    // This colors selected existing text
-                                    quill.formatText(range.index, range.length, 'gradientText', false);
-                                    quill.formatText(range.index, range.length, 'color', color);
-                                }
-
-                                syncEditor();
-                            });
-
-                            if (clearTextColorBtn) {
-                                clearTextColorBtn.addEventListener('click', function () {
-                                    const range = getActiveRange(quill);
-                                    if (!range) return;
-
-                                    clearGradientStylesFromSelection(range);
-                                    clearSolidColorFromSelection(range);
-                                    syncEditor();
-                                });
                             }
 
                             function applyOutline() {
@@ -15777,6 +16150,616 @@ setTimeout(() => {
             return `<span style="${style}">${left}${text}${right}</span>`;
         }
 
+        // ── Text section: insert library asset / embed video / image resize
+        // The same capabilities the post editor offers, ported into every
+        // text section's Quill toolbar. Audio/video/iframe/resizable-image
+        // blots were registered globally at the top of the script.
+        //
+        // Asset picker — a tabbed modal (Images / Audio / Video / Files)
+        // built into the page editor so the text section gets the same
+        // browsing UI the post editor uses.
+        const _PE_ASSET_ICONS = {
+            audio: 'fa-music', video: 'fa-film', pdf: 'fa-file-pdf',
+            document: 'fa-file-alt', misc: 'fa-file', image: 'fa-image',
+        };
+        let _peActiveAssetQuill = null;
+        let _peAssetPickerType = 'image';
+
+        function _peEnsureAssetPickerDom() {
+            if (document.getElementById('peTextAssetPickerOverlay')) return;
+            const div = document.createElement('div');
+            div.innerHTML = `
+            <div class="pet-asset-overlay" id="peTextAssetPickerOverlay" onclick="if(event.target===this)peCloseAssetPicker()">
+                <div class="pet-asset-modal">
+                    <div class="pet-asset-header">
+                        <h3>Insert Asset</h3>
+                        <button class="pet-asset-close" onclick="peCloseAssetPicker()">&times;</button>
+                    </div>
+                    <div class="pet-asset-tabs">
+                        <button class="pet-asset-tab active" data-type="image" onclick="peSwitchAssetTab('image')">Images</button>
+                        <button class="pet-asset-tab" data-type="audio" onclick="peSwitchAssetTab('audio')">Audio</button>
+                        <button class="pet-asset-tab" data-type="video" onclick="peSwitchAssetTab('video')">Video</button>
+                        <button class="pet-asset-tab" data-type="pdf,document,misc" onclick="peSwitchAssetTab('pdf,document,misc')">Files</button>
+                    </div>
+                    <div class="pet-asset-body" id="peTextAssetPickerBody">
+                        <div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>
+                    </div>
+                </div>
+            </div>
+            <style>
+                .pet-asset-overlay {
+                    display: none; position: fixed; inset: 0; z-index: 999999;
+                    background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+                    align-items: center; justify-content: center;
+                }
+                .pet-asset-modal {
+                    background: #181820; border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 16px; width: min(760px, 96vw); max-height: 82vh;
+                    display: flex; flex-direction: column; overflow: hidden;
+                }
+                .pet-asset-header {
+                    display: flex; align-items: center; justify-content: space-between;
+                    padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+                }
+                .pet-asset-header h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #fff; }
+                .pet-asset-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.4rem; cursor: pointer; line-height: 1; }
+                .pet-asset-close:hover { color: #fff; }
+                .pet-asset-tabs {
+                    display: flex; gap: 2px; padding: 10px 20px 0;
+                    border-bottom: 1px solid rgba(255,255,255,0.07); flex-shrink: 0;
+                }
+                .pet-asset-tab {
+                    padding: 7px 14px; background: none; border: none;
+                    border-bottom: 2px solid transparent; color: rgba(255,255,255,0.45);
+                    font-size: 0.82rem; font-weight: 600; cursor: pointer; margin-bottom: -1px;
+                }
+                .pet-asset-tab:hover { color: rgba(255,255,255,0.75); }
+                .pet-asset-tab.active { color: #5eeef8; border-bottom-color: #5eeef8; }
+                .pet-asset-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+                .pet-asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+                .pet-asset-list { display: flex; flex-direction: column; gap: 6px; }
+                .pet-asset-item {
+                    cursor: pointer; border-radius: 8px; overflow: hidden; aspect-ratio: 1;
+                    border: 2px solid transparent;
+                    background: rgba(255,255,255,0.05);
+                    display: flex; align-items: center; justify-content: center;
+                }
+                .pet-asset-item:hover { border-color: #5eeef8; }
+                .pet-asset-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+                .pet-asset-file-item {
+                    cursor: pointer; border-radius: 8px; padding: 10px 12px;
+                    border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
+                    display: flex; align-items: center; gap: 10px;
+                }
+                .pet-asset-file-item:hover { background: rgba(94,238,248,0.08); border-color: rgba(94,238,248,0.35); }
+                .pet-asset-file-icon { font-size: 1.2rem; opacity: 0.65; flex-shrink: 0; width: 22px; text-align: center; }
+                .pet-asset-file-name { font-size: 0.82rem; color: rgba(255,255,255,0.75); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .pet-asset-file-meta { font-size: 0.72rem; color: rgba(255,255,255,0.35); margin-top: 1px; }
+                .pet-asset-folders { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+                .pet-folder-btn {
+                    display: inline-flex; align-items: center; gap: 5px;
+                    padding: 5px 10px; border-radius: 7px; font-size: 0.8rem;
+                    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+                    color: rgba(255,255,255,0.7); cursor: pointer;
+                }
+                .pet-folder-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+                .pet-folder-back { margin-bottom: 10px; }
+            </style>`;
+            document.body.appendChild(div);
+        }
+
+        function peTextAssetPickerOpen(quill) {
+            _peActiveAssetQuill = quill;
+            _peEnsureAssetPickerDom();
+            _peAssetPickerType = 'image';
+            document.querySelectorAll('.pet-asset-tab').forEach(t =>
+                t.classList.toggle('active', t.dataset.type === 'image'));
+            document.getElementById('peTextAssetPickerOverlay').style.display = 'flex';
+            peLoadAssetPickerRoot();
+        }
+
+        function peCloseAssetPicker() {
+            const overlay = document.getElementById('peTextAssetPickerOverlay');
+            if (overlay) overlay.style.display = 'none';
+            _peActiveAssetQuill = null;
+        }
+
+        function peSwitchAssetTab(type) {
+            _peAssetPickerType = type;
+            document.querySelectorAll('.pet-asset-tab').forEach(t =>
+                t.classList.toggle('active', t.dataset.type === type));
+            peLoadAssetPickerRoot();
+        }
+
+        async function peLoadAssetPickerRoot() {
+            const body = document.getElementById('peTextAssetPickerBody');
+            if (!body) return;
+            body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
+            try {
+                const types = _peAssetPickerType.split(',');
+                let folders = [], assets = [];
+                for (const t of types) {
+                    const r = await fetch(`/admin/assets/root?type=${t.trim()}`);
+                    const d = await r.json();
+                    (d.folders || []).forEach(f => { if (!folders.find(x => x.id === f.id)) folders.push(f); });
+                    assets = assets.concat(d.assets || []);
+                }
+                _peRenderAssetPicker(folders, assets, null);
+            } catch (e) {
+                body.innerHTML = '<div style="color:#ff6b6b;">Failed to load assets.</div>';
+            }
+        }
+
+        async function peLoadAssetPickerFolder(folderId) {
+            const body = document.getElementById('peTextAssetPickerBody');
+            if (!body) return;
+            body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
+            try {
+                const types = _peAssetPickerType.split(',');
+                let assets = [], folder = null;
+                for (const t of types) {
+                    const r = await fetch(`/admin/assets/folder/${folderId}?type=${t.trim()}`);
+                    const d = await r.json();
+                    assets = assets.concat(d.assets || []);
+                    if (!folder) folder = d.folder;
+                }
+                _peRenderAssetPicker([], assets, folderId, folder);
+            } catch (e) {
+                body.innerHTML = '<div style="color:#ff6b6b;">Failed to load folder.</div>';
+            }
+        }
+
+        function _peRenderAssetPicker(folders, assets, currentFolderId, folder) {
+            const body = document.getElementById('peTextAssetPickerBody');
+            const isImageMode = _peAssetPickerType === 'image';
+            let html = '';
+            if (currentFolderId) {
+                html += `<div class="pet-folder-back">
+                    <button class="pet-folder-btn" onclick="peLoadAssetPickerRoot()">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                    ${folder ? `<span style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin-left:8px;">${_peEsc(folder.name)}</span>` : ''}
+                </div>`;
+            }
+            if (folders.length) {
+                html += '<div class="pet-asset-folders">';
+                folders.forEach(f => {
+                    html += `<button class="pet-folder-btn" onclick="peLoadAssetPickerFolder(${f.id})">
+                        <i class="fas fa-folder"></i> ${_peEsc(f.name)}
+                    </button>`;
+                });
+                html += '</div>';
+            }
+            if (assets.length) {
+                if (isImageMode) {
+                    html += '<div class="pet-asset-grid">';
+                    assets.forEach(a => {
+                        const thumb = a.thumbnail_url || a.url;
+                        html += `<div class="pet-asset-item" title="${_peEsc(a.original_filename || '')}" data-asset='${_peEscAttr(JSON.stringify(a))}'>
+                            <img src="${_peEsc(thumb)}" alt="${_peEsc(a.original_filename || '')}">
+                        </div>`;
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<div class="pet-asset-list">';
+                    assets.forEach(a => {
+                        const icon = _PE_ASSET_ICONS[a.asset_type] || _PE_ASSET_ICONS.misc;
+                        const size = a.file_size_label || '';
+                        html += `<div class="pet-asset-file-item" data-asset='${_peEscAttr(JSON.stringify(a))}'>
+                            <i class="fas ${_peEsc(icon)} pet-asset-file-icon"></i>
+                            <div>
+                                <div class="pet-asset-file-name">${_peEsc(a.original_filename || 'Untitled')}</div>
+                                ${size ? `<div class="pet-asset-file-meta">${_peEsc(size)}</div>` : ''}
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+            } else if (!folders.length) {
+                html += '<p style="color:rgba(255,255,255,0.35);font-size:0.9rem;">No assets found in this folder.</p>';
+            }
+            body.innerHTML = html;
+            // Wire selection clicks. Use dataset rather than inline onclick so
+            // we can JSON-stringify safely without quote-escaping headaches.
+            body.querySelectorAll('[data-asset]').forEach(el => {
+                el.addEventListener('click', () => {
+                    try { _pePickAsset(JSON.parse(el.dataset.asset)); }
+                    catch (_) { /* ignore */ }
+                });
+            });
+        }
+
+        function _peEsc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        function _peEscAttr(s) {
+            return String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+        }
+
+        function _pePickAsset(asset) {
+            const quill = _peActiveAssetQuill;
+            if (!asset || !quill) { peCloseAssetPicker(); return; }
+            quill.focus();
+            const range = quill.getSelection() || { index: Math.max(0, quill.getLength() - 1) };
+            const idx = Math.max(0, range.index);
+            const type = asset.asset_type || 'misc';
+            if (type === 'image') {
+                quill.insertEmbed(idx, 'image', asset.url);
+                quill.setSelection(idx + 1);
+            } else if (type === 'audio') {
+                quill.insertEmbed(idx, 'audio', asset.url);
+                quill.setSelection(idx + 1);
+            } else if (type === 'video') {
+                quill.insertEmbed(idx, 'localvideo', asset.url);
+                quill.setSelection(idx + 1);
+            } else {
+                // PDF, document, misc — insert as a download link.
+                const name = asset.original_filename || 'Download file';
+                quill.insertText(idx, name, 'link', asset.url);
+                quill.setSelection(idx + name.length);
+            }
+            peCloseAssetPicker();
+        }
+
+        // Open the effects popover for the given section, positioned beneath
+        // the Effects toolbar button. Clicking outside or the button again
+        // closes it.
+        function peTextOpenEffectsPopover(sectionId) {
+            const section = document.getElementById(`section-content-${sectionId}`)
+                || document.querySelector(`form.update-section-form[data-section-id="${sectionId}"]`)?.closest('.section-content');
+            if (!section) return;
+            const pop = section.querySelector(`#effects-pop-${sectionId}`);
+            const wrapper = section.querySelector('.text-editor-wrapper');
+            const btn = section.querySelector('.ql-toolbar .ql-effects');
+            if (!pop || !wrapper || !btn) return;
+
+            // Toggle behavior — click the button again to close.
+            if (!pop.hidden) {
+                pop.hidden = true;
+                btn.classList.remove('is-open');
+                document.removeEventListener('click', _peEffectsOutsideClick);
+                return;
+            }
+            pop.hidden = false;
+            btn.classList.add('is-open');
+
+            // Position pop below the Effects button, anchored within the
+            // editor wrapper so it scrolls with the section content.
+            const wRect = wrapper.getBoundingClientRect();
+            const bRect = btn.getBoundingClientRect();
+            const top  = bRect.bottom - wRect.top + 6;
+            const left = Math.max(0, bRect.left   - wRect.left - 12);
+            pop.style.top  = `${top}px`;
+            pop.style.left = `${left}px`;
+
+            // One-shot outside-click listener that closes the popover.
+            setTimeout(() => {
+                _peEffectsOpenFor = { popId: pop.id, btn };
+                document.addEventListener('click', _peEffectsOutsideClick);
+            }, 0);
+        }
+        let _peEffectsOpenFor = null;
+        function _peEffectsOutsideClick(e) {
+            if (!_peEffectsOpenFor) return;
+            const pop = document.getElementById(_peEffectsOpenFor.popId);
+            if (!pop) { _peEffectsOpenFor = null; return; }
+            if (pop.contains(e.target)) return;
+            if (_peEffectsOpenFor.btn && _peEffectsOpenFor.btn.contains(e.target)) return;
+            pop.hidden = true;
+            if (_peEffectsOpenFor.btn) _peEffectsOpenFor.btn.classList.remove('is-open');
+            _peEffectsOpenFor = null;
+            document.removeEventListener('click', _peEffectsOutsideClick);
+        }
+
+        function peTextEmbedVideo(quill) {
+            const raw = prompt('Enter a video URL (YouTube, Vimeo, or direct MP4):');
+            if (!raw) return;
+            let embedUrl = String(raw).trim();
+            // Auto-translate YouTube and Vimeo watch URLs to their embed forms.
+            const yt = embedUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s?]+)/);
+            if (yt) embedUrl = `https://www.youtube.com/embed/${yt[1]}`;
+            const vm = embedUrl.match(/vimeo\.com\/(\d+)/);
+            if (vm) embedUrl = `https://player.vimeo.com/video/${vm[1]}`;
+            quill.focus();
+            const range = quill.getSelection() || { index: Math.max(0, quill.getLength() - 1) };
+            const idx = Math.max(0, range.index);
+            // For direct .mp4 URLs use the localvideo blot so the browser
+            // renders a native <video controls>; otherwise embed as iframe.
+            if (/\.(mp4|webm|ogg)(\?|$)/i.test(embedUrl)) {
+                quill.insertEmbed(idx, 'localvideo', embedUrl);
+            } else {
+                quill.insertEmbed(idx, 'iframevideo', embedUrl);
+            }
+            quill.setSelection(idx + 1);
+        }
+
+        // Image resize bar — appears when an inline image is clicked.
+        let _peResizeBar = null;
+        let _peActiveImg = null;
+        function peShowImageResizeBar(img, quill) {
+            if (_peActiveImg === img && _peResizeBar) return;
+            peDismissResizeBar();
+            _peActiveImg = img;
+            _peResizeBar = document.createElement('div');
+            _peResizeBar.style.cssText = [
+                'position:fixed;z-index:999999;',
+                'background:rgba(18,18,30,0.93);',
+                'border:1px solid rgba(255,255,255,0.18);',
+                'border-radius:8px;padding:5px 8px;',
+                'display:flex;align-items:center;gap:5px;',
+                'box-shadow:0 4px 20px rgba(0,0,0,0.6);',
+                'font-size:0.78rem;color:rgba(255,255,255,0.75);',
+                'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);',
+            ].join('');
+            const rect = img.getBoundingClientRect();
+            _peResizeBar.style.top  = (rect.top + 8) + 'px';
+            _peResizeBar.style.left = Math.max(8, rect.left + 8) + 'px';
+            [['S','25%'],['½','50%'],['¾','75%'],['Full','100%'],['Auto','']].forEach(([label, w]) => {
+                const btn = document.createElement('button');
+                btn.textContent = label;
+                btn.title = w ? `Width ${w}` : 'Natural size';
+                btn.style.cssText = 'background:rgba(255,255,255,0.09);border:1px solid rgba(255,255,255,0.14);color:inherit;padding:3px 8px;border-radius:5px;cursor:pointer;font-size:0.78rem;';
+                btn.onmouseenter = () => btn.style.background = 'rgba(94,238,248,0.2)';
+                btn.onmouseleave = () => btn.style.background = 'rgba(255,255,255,0.09)';
+                btn.onclick = ev => {
+                    ev.stopPropagation();
+                    const target = _peActiveImg;
+                    if (!target || !quill) return;
+                    const blot = Quill.find(target);
+                    if (!blot) return;
+                    const idx = quill.getIndex(blot);
+                    const newStyle = w ? `width:${w};height:auto;` : undefined;
+                    quill.deleteText(idx, 1, 'silent');
+                    quill.insertEmbed(idx, 'image', { src: target.getAttribute('src'), style: newStyle }, 'silent');
+                    quill.setSelection(idx + 1, 0, 'silent');
+                    peDismissResizeBar();
+                };
+                _peResizeBar.appendChild(btn);
+            });
+            const sep = document.createElement('span');
+            sep.style.cssText = 'width:1px;height:16px;background:rgba(255,255,255,0.12);flex-shrink:0;';
+            _peResizeBar.appendChild(sep);
+            const close = document.createElement('button');
+            close.innerHTML = '&times;';
+            close.style.cssText = 'background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:1.1rem;padding:0 3px;line-height:1;';
+            close.onclick = ev => { ev.stopPropagation(); peDismissResizeBar(); };
+            _peResizeBar.appendChild(close);
+            document.body.appendChild(_peResizeBar);
+            setTimeout(() => document.addEventListener('click', _peOutsideResizeClick), 0);
+        }
+        function _peOutsideResizeClick(e) {
+            if (!_peResizeBar) return;
+            if (_peResizeBar.contains(e.target)) return;
+            peDismissResizeBar();
+        }
+        function peDismissResizeBar() {
+            _peActiveImg = null;
+            if (_peResizeBar) { _peResizeBar.remove(); _peResizeBar = null; }
+            document.removeEventListener('click', _peOutsideResizeClick);
+        }
+
+        // ── Link cards (multi) section editor helpers ──────────────────
+        function lcCardDefaults() {
+            return {
+                header: 'Link Card',
+                body: '',
+                footer: 'Learn more',
+                url: '',
+                background_image_url: '',
+                background_color: '#1f232b',
+                text_color: '#ffffff',
+                overlay_color: '#000000',
+                overlay_opacity: 0.25,
+                width: 420,
+                height: 240,
+                border_radius: 18,
+                open_in_new_tab: true,
+            };
+        }
+
+        window._lcFormMap = window._lcFormMap || {};
+        function _lcForm(sectionId) {
+            return window._lcFormMap[sectionId]
+                || document.querySelector(`form.link-cards-section-form[data-section-id="${sectionId}"]`);
+        }
+
+        function lcRender(sectionId) {
+            const form = _lcForm(sectionId);
+            if (!form) return;
+            const listEl = form.querySelector(`[id="lc-list-${sectionId}"]`);
+            if (!listEl) return;
+            const state = form._lcState;
+            listEl.innerHTML = state.cards.map((c, idx) =>
+                _lcCardHtml(sectionId, idx, c)
+            ).join('');
+            // Wire inputs.
+            listEl.querySelectorAll('[data-lcf]').forEach(el => {
+                el.addEventListener('input',  () => _lcApplyField(sectionId, el));
+                el.addEventListener('change', () => _lcApplyField(sectionId, el));
+            });
+            // Card actions.
+            listEl.querySelectorAll('[data-action]').forEach(el => {
+                el.addEventListener('click', e => {
+                    e.preventDefault();
+                    const i = parseInt(el.dataset.idx, 10);
+                    _lcCardAction(sectionId, i, el.dataset.action);
+                });
+            });
+            // Collapse toggle on header.
+            listEl.querySelectorAll('[data-lc-toggle]').forEach(el => {
+                el.addEventListener('click', e => {
+                    if (e.target.closest('.lc-card-actions')) return;
+                    if (e.target.closest('.lc-bg-actions')) return;
+                    const card = el.closest('.lc-card');
+                    if (card) card.classList.toggle('lc-collapsed');
+                });
+            });
+        }
+
+        function _lcApplyField(sectionId, el) {
+            const form = _lcForm(sectionId);
+            if (!form) return;
+            const i = parseInt(el.dataset.idx, 10);
+            const f = el.dataset.lcf;
+            const c = form._lcState.cards[i];
+            if (!c) return;
+            let v;
+            if (el.type === 'checkbox')      v = el.checked;
+            else if (el.type === 'number')   v = parseFloat(el.value) || 0;
+            else                              v = el.value;
+            c[f] = v;
+            // Update card-header summary when key visible fields change.
+            if (f === 'header' || f === 'url') {
+                const summary = form.querySelector(`[data-lc-summary="${i}"]`);
+                if (summary) summary.textContent = c.header || c.url || '(untitled)';
+            }
+            // Update bg preview on bg color / image changes.
+            if (f === 'background_color' || f === 'background_image_url') {
+                const prev = form.querySelector(`[data-lc-bg-preview="${i}"]`);
+                if (prev) {
+                    prev.style.backgroundColor = c.background_color || '#1f232b';
+                    prev.style.backgroundImage = c.background_image_url
+                        ? `url('${c.background_image_url}')` : 'none';
+                    const lbl = prev.querySelector('span');
+                    if (lbl) lbl.textContent = c.background_image_url ? '' : 'No image selected';
+                }
+            }
+            lcSyncHidden(sectionId);
+        }
+
+        function _lcCardAction(sectionId, idx, action) {
+            const form = _lcForm(sectionId);
+            if (!form) return;
+            const cards = form._lcState.cards;
+            if (action === 'delete') {
+                if (cards.length <= 1) { cards[0] = lcCardDefaults(); }
+                else { cards.splice(idx, 1); }
+            } else if (action === 'duplicate') {
+                cards.splice(idx + 1, 0, JSON.parse(JSON.stringify(cards[idx])));
+            } else if (action === 'up' && idx > 0) {
+                [cards[idx - 1], cards[idx]] = [cards[idx], cards[idx - 1]];
+            } else if (action === 'down' && idx < cards.length - 1) {
+                [cards[idx + 1], cards[idx]] = [cards[idx], cards[idx + 1]];
+            } else if (action === 'pick-image') {
+                openLinkCardBackgroundLibraryPicker(sectionId, idx);
+                return;
+            } else if (action === 'clear-image') {
+                cards[idx].background_image_url = '';
+                lcRender(sectionId);
+                _lcExpand(sectionId, idx);
+                lcSyncHidden(sectionId);
+                return;
+            }
+            lcRender(sectionId);
+            lcSyncHidden(sectionId);
+        }
+
+        function lcAddCard(sectionId) {
+            const form = _lcForm(sectionId);
+            if (!form) return;
+            form._lcState.cards.push(lcCardDefaults());
+            lcRender(sectionId);
+            lcSyncHidden(sectionId);
+            _lcExpand(sectionId, form._lcState.cards.length - 1);
+        }
+
+        function _lcExpand(sectionId, idx) {
+            const form = _lcForm(sectionId);
+            if (!form) return;
+            const cards = form.querySelectorAll('.lc-card');
+            cards.forEach(c => c.classList.add('lc-collapsed'));
+            if (cards[idx]) cards[idx].classList.remove('lc-collapsed');
+        }
+
+        function lcSyncHidden(sectionId) {
+            const form = _lcForm(sectionId);
+            if (!form) return;
+            const hidden = form.querySelector(`[id="link_cards_config_${sectionId}"]`);
+            if (hidden) hidden.value = JSON.stringify(form._lcState);
+        }
+
+        function _lcEsc(s) {
+            return String(s == null ? '' : s).replace(/[<>&"']/g, c => (
+                {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]
+            ));
+        }
+
+        function _lcCardHtml(sectionId, idx, c) {
+            const collapsed = idx > 0;
+            const bgStyle = c.background_image_url
+                ? `background-image:url('${_lcEsc(c.background_image_url)}');background-color:${_lcEsc(c.background_color || '#1f232b')};`
+                : `background-color:${_lcEsc(c.background_color || '#1f232b')};`;
+            return `
+            <div class="lc-card ${collapsed ? 'lc-collapsed' : ''}" data-idx="${idx}">
+                <div class="lc-card-header" data-lc-toggle="1">
+                    <i class="fas fa-chevron-down lc-card-chevron" aria-hidden="true"></i>
+                    <span>#${idx + 1}</span>
+                    <span class="lc-card-summary" data-lc-summary="${idx}">${_lcEsc(c.header) || _lcEsc(c.url) || '(untitled)'}</span>
+                    <div class="lc-card-actions">
+                        <button type="button" data-action="up"        data-idx="${idx}" title="Move up">↑</button>
+                        <button type="button" data-action="down"      data-idx="${idx}" title="Move down">↓</button>
+                        <button type="button" data-action="duplicate" data-idx="${idx}" title="Duplicate"><i class="fas fa-copy"></i></button>
+                        <button type="button" data-action="delete"    data-idx="${idx}" class="danger" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="lc-card-body">
+                    <div class="lc-bg-preview" data-lc-bg-preview="${idx}" style="${bgStyle}">
+                        <span>${c.background_image_url ? '' : 'No image selected'}</span>
+                    </div>
+                    <div class="lc-bg-actions">
+                        <button type="button" data-action="pick-image" data-idx="${idx}">
+                            <i class="fas fa-images"></i> Choose from Library
+                        </button>
+                        <button type="button" data-action="clear-image" data-idx="${idx}">Clear image</button>
+                    </div>
+
+                    <div class="lc-card-grid">
+                        <label style="grid-column:1/-1;">Header
+                            <input type="text" data-lcf="header" data-idx="${idx}" value="${_lcEsc(c.header)}" placeholder="Header label">
+                        </label>
+                        <label style="grid-column:1/-1;">Body
+                            <textarea data-lcf="body" data-idx="${idx}" rows="2" placeholder="Short description">${_lcEsc(c.body)}</textarea>
+                        </label>
+                        <label>Footer
+                            <input type="text" data-lcf="footer" data-idx="${idx}" value="${_lcEsc(c.footer)}" placeholder="e.g. Learn more">
+                        </label>
+                        <label>Link URL
+                            <input type="url" data-lcf="url" data-idx="${idx}" value="${_lcEsc(c.url)}" placeholder="https://…">
+                        </label>
+                        <label class="checkbox-row">
+                            <input type="checkbox" data-lcf="open_in_new_tab" data-idx="${idx}" ${c.open_in_new_tab !== false ? 'checked' : ''}>
+                            Open in new tab
+                        </label>
+
+                        <label>Background color
+                            <input type="color" data-lcf="background_color" data-idx="${idx}" value="${_lcEsc(c.background_color || '#1f232b')}">
+                        </label>
+                        <label>Text color
+                            <input type="color" data-lcf="text_color" data-idx="${idx}" value="${_lcEsc(c.text_color || '#ffffff')}">
+                        </label>
+                        <label>Overlay color
+                            <input type="color" data-lcf="overlay_color" data-idx="${idx}" value="${_lcEsc(c.overlay_color || '#000000')}">
+                        </label>
+                        <label>Overlay opacity
+                            <input type="range" data-lcf="overlay_opacity" data-idx="${idx}" min="0" max="1" step="0.05" value="${c.overlay_opacity ?? 0.25}">
+                        </label>
+                        <label>Width (px)
+                            <input type="number" data-lcf="width" data-idx="${idx}" min="120" max="1400" value="${c.width || 420}">
+                        </label>
+                        <label>Height (px)
+                            <input type="number" data-lcf="height" data-idx="${idx}" min="80" max="800" value="${c.height || 240}">
+                        </label>
+                        <label>Rounded corners (px)
+                            <input type="number" data-lcf="border_radius" data-idx="${idx}" min="0" max="80" value="${c.border_radius || 18}">
+                        </label>
+                    </div>
+                </div>
+            </div>`;
+        }
+
         // ── Spacer section editor helpers ──────────────────────────────
         function _spForm(sectionId) {
             return (window._spForms && window._spForms[sectionId])
@@ -16340,7 +17323,7 @@ setTimeout(() => {
             return escapeHtml(value);
         }
 
-        function openLinkCardBackgroundLibraryPicker(sectionId) {
+        function openLinkCardBackgroundLibraryPicker(sectionId, cardIdx) {
             const onConfirm = function (selection) {
                 console.log('Selected link card image:', selection);
 
@@ -16379,6 +17362,20 @@ setTimeout(() => {
                     return;
                 }
 
+                // New multi-card flow: stash the URL into the targeted card
+                // in the form state, re-render to refresh preview + inputs.
+                if (typeof cardIdx === 'number' && window._lcFormMap && window._lcFormMap[sectionId]) {
+                    const form = window._lcFormMap[sectionId];
+                    const card = form._lcState && form._lcState.cards[cardIdx];
+                    if (card) {
+                        card.background_image_url = imageUrl;
+                        if (typeof lcRender === 'function') lcRender(sectionId);
+                        if (typeof _lcExpand === 'function') _lcExpand(sectionId, cardIdx);
+                        if (typeof lcSyncHidden === 'function') lcSyncHidden(sectionId);
+                        return;
+                    }
+                }
+                // Legacy single-card flow.
                 setLinkCardBackgroundImage(sectionId, imageUrl);
             };
 

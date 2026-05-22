@@ -5339,6 +5339,38 @@ def update_row_order_and_groups():
 
 
 def update_link_card_section(section, form_data):
+    """Save a link-cards section.
+
+    Preferred input is `link_cards_config`, a JSON string of:
+        { 'cards': [...per-card dicts...], 'container': {...} }
+    When that's present we persist it verbatim (after light sanitization).
+    Otherwise we fall back to the legacy single-card form fields so old
+    section forms keep working.
+    """
+    import json as _json
+
+    raw_config = (form_data.get('link_cards_config') or '').strip()
+    if raw_config:
+        try:
+            cfg = _json.loads(raw_config)
+        except (TypeError, ValueError):
+            cfg = None
+        if isinstance(cfg, dict) and isinstance(cfg.get('cards'), list):
+            cleaned_cards = []
+            for c in cfg['cards']:
+                if not isinstance(c, dict):
+                    continue
+                # Skip empty placeholders.
+                if not (c.get('header') or c.get('body') or c.get('footer') or c.get('url') or c.get('background_image_url')):
+                    continue
+                cleaned_cards.append(c)
+            container = cfg.get('container') if isinstance(cfg.get('container'), dict) else {}
+            section.content = {
+                'cards': cleaned_cards,
+                'container': container,
+            }
+            return section
+
     def clean(value, fallback=''):
         return (value or fallback).strip()
 

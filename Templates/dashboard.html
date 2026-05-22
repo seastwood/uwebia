@@ -5043,7 +5043,7 @@
                 initializeGroupSorting(websiteId);
             }
 
-            function addNavbarGroup(websiteId, name = 'More', children = []) {
+            function addNavbarGroup(websiteId, name = 'More', children = [], groupUrl = '') {
                 const container = document.getElementById(`navbarItems_${websiteId}`);
                 const groupId = `group_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
@@ -5060,6 +5060,10 @@
                 <i class="fas fa-folder"></i>
                 <input type="text" class="navbar-group-name form-control" value="${escapeHtml(name)}" placeholder="Group Name">
             </div>
+            <input type="text" class="navbar-group-url form-control"
+                   value="${escapeHtml(groupUrl || '')}"
+                   placeholder="Group URL (optional — makes the label itself clickable)"
+                   title="If set, clicking the group label navigates here. The dropdown still opens.">
 
             <button type="button" onclick="addEmptyLinkToGroup('${websiteId}', '${groupId}')">
                 Add Blank Link
@@ -5264,11 +5268,14 @@
 
                     if (el.dataset.type === 'group') {
                         const groupName = el.querySelector('.navbar-group-name').value.trim();
+                        const groupUrlEl = el.querySelector('.navbar-group-url');
+                        const groupUrl = groupUrlEl ? groupUrlEl.value.trim() : '';
                         const childRows = Array.from(el.querySelector('.navbar-group-children').children);
 
                         return {
                             type: 'group',
                             name: groupName,
+                            url: groupUrl,   // empty string = label is not a link
                             children: childRows.map(child => ({
                                 type: 'link',
                                 name: child.querySelector('.navbar-name').value.trim(),
@@ -5280,7 +5287,8 @@
                     if (!item) return false;
                     if (item.type === 'link') return item.name && item.url;
                     if (item.type === 'system') return !!item.key;
-                    if (item.type === 'group') return item.name && item.children.length > 0;
+                    // Group is valid if it has a name AND either children OR its own url.
+                    if (item.type === 'group') return item.name && (item.children.length > 0 || item.url);
                 });
             }
 
@@ -5291,7 +5299,7 @@
                 const topContainer = document.getElementById(`navbarItems_${websiteId}`);
                 items.forEach(item => {
                     if (item.type === 'group') {
-                        addNavbarGroup(websiteId, item.name || 'More', item.children || []);
+                        addNavbarGroup(websiteId, item.name || 'More', item.children || [], item.url || '');
                     } else if (item.type === 'system') {
                         addSystemNavbarItem(websiteId, item.key, item.name || '', topContainer);
                     } else {
