@@ -345,6 +345,14 @@
 
             {% elif item.type == 'group' %}
                 {% set group_active = namespace(value=false) %}
+                {% set group_url = (item.url or '').strip() %}
+                {% if group_url %}
+                    {% set group_has_hash = '#' in group_url %}
+                    {% set group_url_no_hash = group_url.split('#')[0] %}
+                    {% if not group_has_hash and group_url_no_hash == current_url_no_hash %}
+                        {% set group_active.value = true %}
+                    {% endif %}
+                {% endif %}
                 {% for child in item.children %}
                     {% set child_has_hash = '#' in child.url %}
                     {% set child_url_no_hash = child.url.split('#')[0] %}
@@ -355,12 +363,26 @@
 
                 <div class="public-navbar-menu-group {% if group_active.value %}active-navbar-menu-group{% endif %}"
                      data-menu-group>
-                    <button type="button"
-                            class="public-navbar-menu-group-toggle"
-                            onclick="togglePublicNavbarMenuGroup(event, this)">
-                        <span>{{ item.name }}</span>
-                        <span class="public-navbar-menu-group-chevron">▾</span>
-                    </button>
+                    {% if group_url %}
+                        {# Group with a URL — render the toggle as a link.
+                           First tap expands the dropdown (handler in JS
+                           preventDefaults when collapsed), second tap
+                           actually follows the link. Mirrors the behavior
+                           of the right-side dropdown. #}
+                        <a href="{{ group_url }}"
+                           class="public-navbar-menu-group-toggle public-navbar-menu-group-link"
+                           onclick="togglePublicNavbarMenuGroup(event, this)">
+                            <span>{{ item.name }}</span>
+                            <span class="public-navbar-menu-group-chevron">▾</span>
+                        </a>
+                    {% else %}
+                        <button type="button"
+                                class="public-navbar-menu-group-toggle"
+                                onclick="togglePublicNavbarMenuGroup(event, this)">
+                            <span>{{ item.name }}</span>
+                            <span class="public-navbar-menu-group-chevron">▾</span>
+                        </button>
+                    {% endif %}
                     <div class="public-navbar-menu-group-links">
                         {% for child in item.children %}
                             {% set child_has_hash = '#' in child.url %}
@@ -854,6 +876,10 @@
         background: transparent;
         border: none;
         border-radius: 0;
+
+        /* When rendered as an <a> (group with a URL), strip the default
+           link styling so it matches the button variant exactly. */
+        text-decoration: none;
 
         font: inherit;
         font-size: 0.82rem;
@@ -1666,14 +1692,30 @@
         }
     }
 
-    function togglePublicNavbarMenuGroup(event, button) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const group = button.closest('[data-menu-group]');
+    function togglePublicNavbarMenuGroup(event, trigger) {
+        const group = trigger.closest('[data-menu-group]');
         if (!group) return;
 
-        group.classList.toggle('is-open');
+        // If the trigger is an <a> with a URL AND the dropdown is currently
+        // collapsed, swallow the first tap to just expand. Once it's open,
+        // a second tap actually follows the link. Buttons (no URL) and
+        // already-open links just toggle as before.
+        const isLink     = trigger.tagName === 'A' && trigger.getAttribute('href');
+        const isOpenNow  = group.classList.contains('is-open');
+
+        if (isLink && !isOpenNow) {
+            event.preventDefault();
+            event.stopPropagation();
+            group.classList.add('is-open');
+            return;
+        }
+
+        if (!isLink) {
+            event.preventDefault();
+            event.stopPropagation();
+            group.classList.toggle('is-open');
+        }
+        // Else: link is already expanded — let the browser follow href.
     }
 
     function updatePublicNavbarPanelGroupLayout() {
