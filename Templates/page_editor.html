@@ -7482,7 +7482,8 @@ nts-admin-pagination span {
                                             <option value="grid">Grid</option>
                                             <option value="list">List</option>
                                             <option value="compact">Compact (Scrollable List)</option>
-                                        <option value="compact-cards">Compact (Scrollable Cards)</option>
+                                            <option value="compact-cards">Compact (Scrollable Cards)</option>
+                                            <option value="full">Full Articles (inline body)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -7561,6 +7562,7 @@ nts-admin-pagination span {
                                                 style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
                                             <option value="list" selected>List</option>
                                             <option value="cards">Cards</option>
+                                            <option value="full">Full Issues (inline body)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -10496,6 +10498,7 @@ setTimeout(() => {
                             <option value="list"          ${(af.layout||'grid')==='list'          ?'selected':''}>List</option>
                             <option value="compact"       ${(af.layout||'grid')==='compact'       ?'selected':''}>Compact (Scrollable List)</option>
                             <option value="compact-cards" ${(af.layout||'grid')==='compact-cards' ?'selected':''}>Compact (Scrollable Cards)</option>
+                            <option value="full"          ${(af.layout||'grid')==='full'          ?'selected':''}>Full Articles (inline body)</option>
                         </select>
                     </div>
                 </div>
@@ -10642,6 +10645,7 @@ setTimeout(() => {
                                 style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
                             <option value="list"  ${(nf.layout||'list')==='list'  ?'selected':''}>List</option>
                             <option value="cards" ${(nf.layout||'list')==='cards' ?'selected':''}>Cards</option>
+                            <option value="full"  ${(nf.layout||'list')==='full'  ?'selected':''}>Full Issues (inline body)</option>
                         </select>
                     </div>
                 </div>

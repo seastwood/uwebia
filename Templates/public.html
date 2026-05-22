@@ -3499,6 +3499,142 @@ min-height: 100dvh;
     .af-layout-list .af-card-cover { width: 100%; }
 }
 
+/* Full-articles layout — each post's complete body inline, stacked. The
+   body uses the .pd-content class so it renders identically to the
+   standalone post page (same heading/paragraph/code/blockquote styling
+   and any inline formatting authored in the post editor). */
+.af-full {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+}
+.af-full-article {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 26px 28px 28px;
+}
+.af-full-cover {
+    display: block;
+    margin: -26px -28px 22px;
+    border-radius: 14px 14px 0 0;
+    overflow: hidden;
+    aspect-ratio: 16/8;
+}
+.af-full-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.af-full-header { margin-bottom: 18px; }
+.af-full-collection {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.55;
+    margin-bottom: 8px;
+}
+.af-full-title { margin: 0 0 6px; font-size: 1.6rem; font-weight: 800; line-height: 1.2; }
+.af-full-title a { color: inherit; text-decoration: none; }
+.af-full-title a:hover { text-decoration: underline; text-decoration-color: rgba(255,255,255,0.4); }
+.af-full-date { font-size: 0.82rem; opacity: 0.55; }
+.af-full-permalink {
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.88rem;
+    opacity: 0.7;
+}
+.af-full-permalink a { color: inherit; text-decoration: none; font-weight: 600; }
+.af-full-permalink a:hover { opacity: 1; }
+@media (max-width: 600px) {
+    .af-full-article { padding: 18px 18px 22px; }
+    .af-full-cover { margin: -18px -18px 18px; }
+    .af-full-title { font-size: 1.3rem; }
+}
+
+/* Newsletter full-issue layout — same approach as the article full layout:
+   stack each issue's complete HTML body using the .pd-content typography
+   so the inline view matches a single-issue page. */
+.nf-full { display: flex; flex-direction: column; gap: 48px; }
+.nf-full-article {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 26px 28px 28px;
+}
+.nf-full-header { margin-bottom: 18px; }
+.nf-full-title { margin: 0 0 6px; font-size: 1.6rem; font-weight: 800; line-height: 1.2; }
+.nf-full-title a { color: inherit; text-decoration: none; }
+.nf-full-title a:hover { text-decoration: underline; text-decoration-color: rgba(255,255,255,0.4); }
+.nf-full-date { font-size: 0.82rem; opacity: 0.55; }
+.nf-full-permalink {
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.88rem;
+    opacity: 0.7;
+}
+.nf-full-permalink a { color: inherit; text-decoration: none; font-weight: 600; }
+.nf-full-permalink a:hover { opacity: 1; }
+@media (max-width: 600px) {
+    .nf-full-article { padding: 18px 18px 22px; }
+    .nf-full-title { font-size: 1.3rem; }
+}
+
+/* Post body styles — mirrored from Templates/post_detail.html so an
+   article rendered inline in a feed looks the same as on its own page. */
+.pd-content {
+    font-size: 1rem;
+    line-height: 1.78;
+    color: inherit;
+}
+.pd-content h1,
+.pd-content h2,
+.pd-content h3 {
+    margin-top: 1.6em;
+    margin-bottom: 0.5em;
+    font-weight: 700;
+    line-height: 1.25;
+}
+.pd-content p { margin: 0 0 1.1em; }
+.pd-content a {
+    color: #5eeef8;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.pd-content blockquote {
+    border-left: 4px solid rgba(255,255,255,0.2);
+    padding-left: 18px;
+    margin: 1.4em 0;
+    opacity: 0.75;
+    font-style: italic;
+}
+.pd-content pre {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 0.88rem;
+    margin: 1.2em 0;
+}
+.pd-content code {
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-size: 0.88em;
+}
+.pd-content img {
+    max-width: 100%;
+    border-radius: 10px;
+    height: auto;
+    display: inline-block;
+    vertical-align: middle;
+}
+.pd-content iframe {
+    max-width: 100%;
+    border-radius: 10px;
+}
+
 /* Compact scrollable layout */
 .af-compact-wrap {
     background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
@@ -4515,12 +4651,32 @@ box-sizing: border-box;
                                    navbar/styling carries over. The newsletter's pinned host only
                                    matters as the canonical URL used in Discord notifications. #}
                                 {% set nf_target_prefix = (website.url_prefix if website else None) %}
-                                <div class="newsletter-feed-container" style="max-width:760px;margin:0 auto;padding:18px 20px;">
+                                <div class="newsletter-feed-container" style="{% if nf_layout != 'full' %}max-width:760px;margin:0 auto;{% endif %}padding:18px 20px;">
                                     {% if section.content.get('title') %}
                                     <h2 style="margin:0 0 14px;font-size:1.3rem;">{{ section.content.get('title') }}</h2>
                                     {% endif %}
                                     {% if nf_nl and nf_campaigns %}
-                                        {% if nf_layout == 'cards' %}
+                                        {% if nf_layout == 'full' %}
+                                        <div class="nf-full">
+                                            {% for c in nf_campaigns %}
+                                            {% set _url = (url_for('public_newsletter_campaign', prefix=nf_target_prefix, newsletter_slug=nf_nl.slug, campaign_slug=c.slug) if nf_target_prefix else url_for('public_newsletter_campaign', newsletter_slug=nf_nl.slug, campaign_slug=c.slug)) %}
+                                            <article class="nf-full-article">
+                                                <header class="nf-full-header">
+                                                    <h2 class="nf-full-title"><a href="{{ _url }}">{{ c.subject }}</a></h2>
+                                                    {% if nf_show_date and c.sent_at %}
+                                                    <time class="nf-full-date">{{ c.sent_at.strftime('%B %-d, %Y') }}</time>
+                                                    {% endif %}
+                                                </header>
+                                                <div class="pd-content">
+                                                    {{ c.html_body | safe }}
+                                                </div>
+                                                <div class="nf-full-permalink">
+                                                    <a href="{{ _url }}">Open this issue →</a>
+                                                </div>
+                                            </article>
+                                            {% endfor %}
+                                        </div>
+                                        {% elif nf_layout == 'cards' %}
                                         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">
                                             {% for c in nf_campaigns %}
                                             {% set _url = (url_for('public_newsletter_campaign', prefix=nf_target_prefix, newsletter_slug=nf_nl.slug, campaign_slug=c.slug) if nf_target_prefix else url_for('public_newsletter_campaign', newsletter_slug=nf_nl.slug, campaign_slug=c.slug)) %}
@@ -4696,6 +4852,38 @@ box-sizing: border-box;
                                         <button onclick="afCompactPage('{{ section.id }}', 1)" id="af-next-{{ section.id }}" {% if af_total_pages <= 1 %}disabled{% endif %}>Next →</button>
                                     </div>
                                     {% endif %}
+                                </div>
+                                {% elif af_layout == 'full' %}
+                                <div class="af-full">
+                                {% if af %}
+                                    {% for post in af %}
+                                    {% set _post_url = ('/' + website.url_prefix + '/posts/' + post.collection.slug + '/' + post.slug) if website.url_prefix else ('/posts/' + post.collection.slug + '/' + post.slug) %}
+                                    <article class="af-full-article">
+                                        {% if af_show_cover and post.cover_image_url %}
+                                        <a href="{{ _post_url }}" class="af-full-cover">
+                                            <img src="{{ post.cover_image_url }}" alt="{{ post.title }}" loading="lazy">
+                                        </a>
+                                        {% endif %}
+                                        <header class="af-full-header">
+                                            <span class="af-full-collection">{{ post.collection.name }}</span>
+                                            <h2 class="af-full-title">
+                                                <a href="{{ _post_url }}">{{ post.title }}</a>
+                                            </h2>
+                                            {% if af_show_date and post.published_at %}
+                                            <time class="af-full-date">{{ post.published_at.strftime('%B %-d, %Y') }}</time>
+                                            {% endif %}
+                                        </header>
+                                        <div class="pd-content">
+                                            {{ post.content | safe }}
+                                        </div>
+                                        <div class="af-full-permalink">
+                                            <a href="{{ _post_url }}">Open this article →</a>
+                                        </div>
+                                    </article>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="af-empty">No posts to display.</p>
+                                {% endif %}
                                 </div>
                                 {% else %}
                                 <div class="af-feed af-layout-{{ af_layout }}">
