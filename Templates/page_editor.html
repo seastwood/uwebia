@@ -12,6 +12,9 @@
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- FA 6.4.0 loaded after 5.15.4 so rebranded brand icons (X, Threads) resolve
+         while existing 5.x classes elsewhere keep working. -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
@@ -7380,7 +7383,7 @@ nts-admin-pagination span {
                         <div class="asm-type-grid" id="asmTypeGrid">
                             <button type="button" class="asm-type-tile active" data-type="button" onclick="asmSelectType('button')">
                                 <i class="fas fa-hand-pointer"></i>
-                                <span>Button</span>
+                                <span>Buttons</span>
                             </button>
                             <button type="button" class="asm-type-tile" data-type="link_card" onclick="asmSelectType('link_card')">
                                 <i class="fas fa-link"></i>
@@ -7445,6 +7448,10 @@ nts-admin-pagination span {
                             <button type="button" class="asm-type-tile" data-type="newsletter_feed" onclick="asmSelectType('newsletter_feed')">
                                 <i class="fas fa-list-alt"></i>
                                 <span>Newsletter Feed</span>
+                            </button>
+                            <button type="button" class="asm-type-tile" data-type="spacer" onclick="asmSelectType('spacer')">
+                                <i class="fas fa-grip-lines"></i>
+                                <span>Spacer / Divider</span>
                             </button>
                         </div>
 
@@ -9313,20 +9320,459 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                         }
 
                         else if (section.section_type === 'button') {
+                            // Build the buttons section editor — multi-button list with
+                            // per-button color/shape/icon/sizing controls and container
+                            // (direction/gap/alignment) settings. The whole config is
+                            // serialized to JSON in a hidden input on save; the server
+                            // parses it in update_button_section.
+                            const _bc = section.content || {};
+                            // Migrate legacy { text, link, enabled } shape into the new
+                            // buttons array on the fly so existing sections open with
+                            // their content preserved.
+                            const _initialButtons = Array.isArray(_bc.buttons)
+                                ? _bc.buttons
+                                : (_bc.text || _bc.link
+                                    ? [{ text: _bc.text || '', link: _bc.link || '', enabled: _bc.enabled !== false }]
+                                    : [{ text: 'Click me', link: '#', enabled: true }]);
+                            const _initialContainer = _bc.container || {};
+
                             sectionContent.innerHTML = `
         <div class="update-text-container section-container">
-            <form class="update-section-form" data-section-id="${section.id}"
-                data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
-                <label for="button_text">Button Text:</label><br>
-                <textarea id="button_text" name="button_text" rows="1" class="dynamic-width"
-                    style="padding: 10px;">${section.content['text']}</textarea><br><br>
-                <label for="button_link">Button Link:</label><br>
-                <textarea id="button_link" name="button_link" rows="1" class="dynamic-width"
-                    style="padding: 10px;">${section.content['link']}</textarea><br><br>
-                <label for="button_enabled">Enable Button:</label>
-                <input type="checkbox" id="button_enabled" name="button_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+            <form class="update-section-form buttons-section-form" data-section-id="${section.id}"
+                  data-section-type="${section.section_type}" data-page-id="${section.page_content_id}">
+                <input type="hidden" name="button_config" id="button_config_${section.id}" value="">
+
+                <fieldset class="btns-fieldset">
+                    <legend>Layout</legend>
+                    <div class="btns-row">
+                        <label>Direction
+                            <select data-cfield="direction">
+                                <option value="row">Row (side by side)</option>
+                                <option value="column">Column (stacked)</option>
+                            </select>
+                        </label>
+                        <label>Wrap to next line
+                            <select data-cfield="wrap">
+                                <option value="true">Wrap</option>
+                                <option value="false">No wrap</option>
+                            </select>
+                        </label>
+                        <label>Gap (px)
+                            <input type="number" data-cfield="gap" min="0" max="80" step="1">
+                        </label>
+                    </div>
+                    <div class="btns-row">
+                        <label>Horizontal align
+                            <select data-cfield="justify">
+                                <option value="flex-start">Start</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">End</option>
+                                <option value="space-between">Space between</option>
+                                <option value="space-around">Space around</option>
+                                <option value="stretch">Stretch (fill row)</option>
+                            </select>
+                        </label>
+                        <label>Vertical align
+                            <select data-cfield="align">
+                                <option value="flex-start">Start</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">End</option>
+                                <option value="stretch">Stretch (fill height)</option>
+                            </select>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="btns-fieldset">
+                    <legend>Quick add — social media</legend>
+                    <p style="margin:0 0 10px;font-size:0.78rem;opacity:0.6;line-height:1.45;">
+                        Click any platform to add a pre-styled circular button with its brand color
+                        and icon. Edit the URL in the new button's card below.
+                    </p>
+                    <div id="btns-social-${section.id}" class="btns-social-grid"></div>
+                </fieldset>
+
+                <fieldset class="btns-fieldset">
+                    <legend>Buttons</legend>
+                    <div id="btns-list-${section.id}" class="btns-list"></div>
+                    <button type="button" class="btns-add" onclick="btnsAddButton('${section.id}')">
+                        <i class="fas fa-plus"></i> Add blank button
+                    </button>
+                </fieldset>
+
+                <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                    <button type="submit" style="padding:9px 22px;background:rgba(94,238,200,0.18);border:1px solid rgba(94,238,200,0.35);color:#5eeec8;border-radius:8px;font-weight:700;cursor:pointer;">
+                        Save Buttons
+                    </button>
+                </div>
             </form>
-        </div>`;
+        </div>
+        <style>
+            .buttons-section-form .btns-fieldset {
+                border: 1px solid rgba(255,255,255,0.13);
+                border-radius: 10px;
+                padding: 14px 16px 16px;
+                margin: 0 0 14px;
+            }
+            .buttons-section-form .btns-fieldset legend {
+                font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 0.07em; opacity: 0.7; padding: 0 6px;
+            }
+            .buttons-section-form .btns-row {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+                gap: 10px;
+                margin-bottom: 8px;
+            }
+            .buttons-section-form .btns-row > label,
+            .buttons-section-form .btn-card label {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                font-size: 0.78rem;
+                color: rgba(255,255,255,0.65);
+            }
+            .buttons-section-form input[type="text"],
+            .buttons-section-form input[type="number"],
+            .buttons-section-form input[type="url"],
+            .buttons-section-form select {
+                padding: 7px 9px;
+                border-radius: 7px;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+                color: #fff;
+                font-size: 0.86rem;
+                font-family: inherit;
+            }
+            .buttons-section-form input[type="color"] {
+                width: 100%;
+                height: 32px;
+                padding: 2px;
+                border-radius: 7px;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+                cursor: pointer;
+            }
+            .buttons-section-form .btn-card {
+                background: rgba(0,0,0,0.32);
+                border: 1px solid rgba(255,255,255,0.12);
+                border-radius: 10px;
+                padding: 14px;
+                margin-bottom: 10px;
+                position: relative;
+            }
+            .buttons-section-form .btn-card-header {
+                display: flex; align-items: center; gap: 8px;
+                margin-bottom: 10px;
+                font-size: 0.82rem; font-weight: 700; color: rgba(255,255,255,0.8);
+                cursor: pointer;
+                user-select: none;
+            }
+            .buttons-section-form .btn-card-header .btn-handle {
+                font-size: 0.78rem; opacity: 0.5;
+            }
+            .buttons-section-form .btn-card-chevron {
+                font-size: 0.7rem; opacity: 0.55;
+                transition: transform 0.18s ease;
+            }
+            .buttons-section-form .btn-card-summary {
+                flex: 1; min-width: 0;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                opacity: 0.85;
+            }
+            .buttons-section-form .btn-card-mini-preview {
+                display: inline-flex; align-items: center;
+                transform: scale(0.7); transform-origin: right center;
+                margin-right: -10px;
+                opacity: 0.9;
+            }
+            .buttons-section-form .btn-card-mini-preview span {
+                pointer-events: none;
+            }
+            .buttons-section-form .btn-card.btn-card-collapsed .btn-card-body { display: none; }
+            .buttons-section-form .btn-card.btn-card-collapsed .btn-card-header { margin-bottom: 0; }
+            .buttons-section-form .btn-card.btn-card-collapsed .btn-card-chevron { transform: rotate(-90deg); }
+            .buttons-section-form .btn-card-actions {
+                margin-left: auto; display: flex; gap: 6px;
+            }
+            .buttons-section-form .btn-card-actions button {
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.14);
+                color: rgba(255,255,255,0.75);
+                width: 28px; height: 28px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 0.74rem;
+            }
+            .buttons-section-form .btn-card-actions button.danger {
+                color: #ff7878;
+                border-color: rgba(255,140,140,0.3);
+            }
+            .buttons-section-form .btn-card-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 10px;
+            }
+            .buttons-section-form .btn-card label.checkbox-row {
+                flex-direction: row;
+                align-items: center;
+                gap: 7px;
+                font-size: 0.8rem;
+                user-select: none;
+                cursor: pointer;
+            }
+            .buttons-section-form .btn-card label.checkbox-row input { width: 15px; height: 15px; }
+            .buttons-section-form .btn-card .btn-preview {
+                margin-top: 10px;
+                padding: 12px;
+                border-radius: 8px;
+                background: repeating-linear-gradient(45deg, rgba(255,255,255,0.04), rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 16px);
+                text-align: center;
+                min-height: 60px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .buttons-section-form .btns-add {
+                margin-top: 6px;
+                padding: 8px 14px;
+                background: rgba(94,238,200,0.12);
+                border: 1px solid rgba(94,238,200,0.3);
+                color: #5eeec8;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 0.85rem;
+                font-weight: 600;
+            }
+            .buttons-section-form .btns-social-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+                gap: 8px;
+            }
+            .buttons-section-form .btns-social-tile {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
+                padding: 10px 6px;
+                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 10px;
+                cursor: pointer;
+                color: rgba(255,255,255,0.85);
+                font-size: 0.72rem;
+                text-align: center;
+                transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+            }
+            .buttons-section-form .btns-social-tile:hover {
+                background: rgba(255,255,255,0.09);
+                border-color: rgba(255,255,255,0.22);
+                transform: translateY(-1px);
+            }
+            .buttons-section-form .btns-social-tile .btns-social-bubble {
+                width: 36px; height: 36px;
+                border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                color: #fff;
+                font-size: 1rem;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            }
+            .buttons-section-form .btns-social-tile span { line-height: 1.2; }
+        </style>
+        `;
+
+                            // Stash state on the form element so the helpers can find it.
+                            const _form = sectionContent.querySelector('form.buttons-section-form');
+                            // Register the form by sectionId so helpers can find it
+                            // even before the section card is attached to the document.
+                            window._btnsFormMap[section.id] = _form;
+                            _form._buttonsState = {
+                                buttons: _initialButtons.map(b => Object.assign(btnsDefaults(), b)),
+                                container: Object.assign({
+                                    direction: 'row',
+                                    wrap: true,
+                                    gap: 12,
+                                    justify: 'center',
+                                    align: 'center',
+                                }, _initialContainer),
+                            };
+                            // Populate the container selects from state.
+                            _form.querySelectorAll('[data-cfield]').forEach(el => {
+                                const k = el.dataset.cfield;
+                                const v = _form._buttonsState.container[k];
+                                el.value = (k === 'wrap') ? String(v) : v;
+                                el.addEventListener('change', () => {
+                                    const cur = _form._buttonsState.container;
+                                    cur[k] = (k === 'wrap') ? (el.value === 'true')
+                                           : (el.type === 'number' ? parseInt(el.value, 10) || 0 : el.value);
+                                    btnsSyncHidden(section.id);
+                                });
+                            });
+                            btnsRender(section.id);
+                            btnsRenderSocial(section.id);
+                            btnsSyncHidden(section.id);
+                        }
+                        else if (section.section_type === 'spacer') {
+                            // Spacer / divider editor — style picker + per-style
+                            // options that get serialized to a hidden JSON input.
+                            const _sp = Object.assign({
+                                style: 'line',
+                                color: '#ffffff',
+                                color2: '#5eeef8',
+                                width_pct: 100,
+                                thickness: 2,
+                                top_margin: 16,
+                                bottom_margin: 16,
+                                alignment: 'center',
+                                opacity: 1,
+                                symbol: '❖',
+                                height: 40,
+                            }, section.content || {});
+
+                            sectionContent.innerHTML = `
+        <div class="section-container spacer-editor-container">
+            <form class="update-section-form spacer-section-form" data-section-id="${section.id}"
+                  data-section-type="spacer" data-page-id="${section.page_content_id}">
+                <input type="hidden" name="spacer_config" id="spacer_config_${section.id}" value="">
+
+                <div class="sp-row">
+                    <label>Style
+                        <select data-spf="style">
+                            <option value="line">Solid line</option>
+                            <option value="dashed">Dashed line</option>
+                            <option value="dotted">Dotted line</option>
+                            <option value="double">Double line</option>
+                            <option value="thick-pill">Thick pill bar</option>
+                            <option value="gradient">Gradient fade</option>
+                            <option value="gradient-twotone">Two-tone gradient</option>
+                            <option value="wave">Wave</option>
+                            <option value="double-arc">Double arc</option>
+                            <option value="zigzag">Zigzag</option>
+                            <option value="dots-trio">Three dots</option>
+                            <option value="ornament">Ornament (centered glyph)</option>
+                            <option value="space">Empty space</option>
+                        </select>
+                    </label>
+                    <label>Alignment
+                        <select data-spf="alignment">
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="sp-row">
+                    <label>Color
+                        <input type="color" data-spf="color" value="${_sp.color}">
+                    </label>
+                    <label data-spf-only="gradient-twotone,double-arc">Secondary color
+                        <input type="color" data-spf="color2" value="${_sp.color2}">
+                    </label>
+                </div>
+
+                <div class="sp-row">
+                    <label>Width (% of section)
+                        <input type="number" data-spf="width_pct" min="5" max="100" value="${_sp.width_pct}">
+                    </label>
+                    <label data-spf-not="space,ornament,dots-trio">Thickness / weight (px)
+                        <input type="number" data-spf="thickness" min="1" max="40" value="${_sp.thickness}">
+                    </label>
+                </div>
+
+                <div class="sp-row">
+                    <label>Top margin (px)
+                        <input type="number" data-spf="top_margin" min="0" max="200" value="${_sp.top_margin}">
+                    </label>
+                    <label>Bottom margin (px)
+                        <input type="number" data-spf="bottom_margin" min="0" max="200" value="${_sp.bottom_margin}">
+                    </label>
+                    <label>Opacity
+                        <input type="number" data-spf="opacity" min="0.1" max="1" step="0.05" value="${_sp.opacity}">
+                    </label>
+                </div>
+
+                <div class="sp-row" data-spf-only="space">
+                    <label>Empty space height (px)
+                        <input type="number" data-spf="height" min="0" max="600" value="${_sp.height}">
+                    </label>
+                </div>
+
+                <div class="sp-row" data-spf-only="ornament">
+                    <label>Ornament glyph
+                        <input type="text" data-spf="symbol" value="${_sp.symbol}" placeholder="❖ ✦ ❀ ✿ ❉ ✧ ❋ ◆ ★">
+                    </label>
+                </div>
+
+                <div class="sp-preview-wrap">
+                    <div class="sp-preview-label">Preview</div>
+                    <div class="sp-preview" id="sp-preview-${section.id}"></div>
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                    <button type="submit" style="padding:9px 22px;background:rgba(94,238,200,0.18);border:1px solid rgba(94,238,200,0.35);color:#5eeec8;border-radius:8px;font-weight:700;cursor:pointer;">
+                        Save Spacer
+                    </button>
+                </div>
+            </form>
+        </div>
+        <style>
+            .spacer-section-form .sp-row {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            .spacer-section-form .sp-row > label {
+                display: flex; flex-direction: column; gap: 4px;
+                font-size: 0.78rem; color: rgba(255,255,255,0.65);
+            }
+            .spacer-section-form input[type="text"],
+            .spacer-section-form input[type="number"],
+            .spacer-section-form select {
+                padding: 7px 9px; border-radius: 7px;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+                color: #fff; font-size: 0.86rem; font-family: inherit;
+            }
+            .spacer-section-form input[type="color"] {
+                width: 100%; height: 32px; padding: 2px;
+                border-radius: 7px; cursor: pointer;
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.15);
+            }
+            .spacer-section-form .sp-preview-wrap {
+                background: repeating-linear-gradient(45deg, rgba(255,255,255,0.04), rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 16px);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 10px;
+                padding: 16px;
+                margin-bottom: 12px;
+            }
+            .spacer-section-form .sp-preview-label {
+                font-size: 0.7rem; letter-spacing: 0.07em; text-transform: uppercase;
+                opacity: 0.5; margin-bottom: 10px;
+            }
+            .spacer-section-form .sp-preview {
+                width: 100%;
+            }
+        </style>
+        `;
+
+                            window._spForms = window._spForms || {};
+                            const _spform = sectionContent.querySelector('form.spacer-section-form');
+                            window._spForms[section.id] = _spform;
+                            _spform._spState = Object.assign({}, _sp);
+
+                            // Hydrate inputs from state, wire up change → state → preview + hidden.
+                            _spform.querySelectorAll('[data-spf]').forEach(el => {
+                                const k = el.dataset.spf;
+                                el.value = _sp[k] != null ? _sp[k] : '';
+                                el.addEventListener('input',  () => _spApply(section.id, el));
+                                el.addEventListener('change', () => _spApply(section.id, el));
+                            });
+                            _spRefreshConditional(section.id);
+                            _spRenderPreview(section.id);
+                            _spSyncHidden(section.id);
                         }
                         else if (section.section_type === 'link_card') {
                             const content = section.content || {};
@@ -13162,6 +13608,25 @@ setTimeout(() => {
                 };
             }
 
+            if (sectionType === 'spacer') {
+                // Sensible defaults; the user can change everything once the
+                // section is added (per-style options live in the per-section
+                // settings panel rather than the add modal).
+                content = {
+                    style: 'line',
+                    color: '#ffffff',
+                    color2: '#5eeef8',
+                    width_pct: 100,
+                    thickness: 2,
+                    top_margin: 16,
+                    bottom_margin: 16,
+                    alignment: 'center',
+                    opacity: 0.4,
+                    symbol: '❖',
+                    height: 40,
+                };
+            }
+
             const data = {
                 section_type: sectionType,
                 order: document.querySelectorAll('.page-section').length,
@@ -14894,6 +15359,516 @@ setTimeout(() => {
     </script>
 
     <script>
+        // ── Buttons section editor helpers ─────────────────────────────
+        function btnsDefaults() {
+            return {
+                text: 'Click me',
+                link: '#',
+                new_tab: false,
+                bg_color: '#4CAF50',
+                text_color: '#ffffff',
+                border_width: 0,
+                border_color: '#ffffff',
+                shape: 'rounded',          // rounded | square | pill | circle
+                border_radius: 8,
+                font_size: 15,
+                font_weight: '600',
+                italic: false,
+                uppercase: false,
+                padding_x: 20,
+                padding_y: 10,
+                fill_width: false,
+                fill_height: false,
+                icon: '',
+                icon_position: 'left',
+                image_url: '',
+                shadow: 'soft',            // none | soft | medium | strong
+                enabled: true,
+            };
+        }
+
+        // Form-element registry. During populateSections() the section's
+        // form is built inside a detached element (the column hasn't been
+        // appended to the DOM yet), so document.querySelector can't find it
+        // during init. We register the form here when it's created and read
+        // from here first; falls back to document.querySelector for action
+        // callbacks fired later, after the column is in the document.
+        window._btnsFormMap = window._btnsFormMap || {};
+
+        function _btnsForm(sectionId) {
+            return window._btnsFormMap[sectionId]
+                || document.querySelector(
+                    `form.buttons-section-form[data-section-id="${sectionId}"]`
+                );
+        }
+
+        function btnsRender(sectionId) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            // Use the form as the search root so this works even when the
+            // form isn't yet attached to the document (true during initial
+            // populateSections — see comment on window._btnsFormMap above).
+            const listEl = form.querySelector(`[id="btns-list-${sectionId}"]`);
+            if (!listEl) return;
+            const state = form._buttonsState;
+            listEl.innerHTML = state.buttons.map((b, idx) =>
+                _btnCardHtml(sectionId, idx, b)
+            ).join('');
+            // Wire up every input/select/checkbox inside this list to mutate
+            // the matching button entry, then resync hidden JSON + preview.
+            listEl.querySelectorAll('[data-bfield]').forEach(el => {
+                el.addEventListener('input',  () => _btnsApplyField(sectionId, el));
+                el.addEventListener('change', () => _btnsApplyField(sectionId, el));
+            });
+            // Card actions (duplicate, delete, move up/down, collapse toggle).
+            listEl.querySelectorAll('[data-action]').forEach(el => {
+                el.addEventListener('click', e => {
+                    e.preventDefault();
+                    const i = parseInt(el.dataset.idx, 10);
+                    _btnsCardAction(sectionId, i, el.dataset.action);
+                });
+            });
+            // Collapse/expand by clicking the header (avoid the action buttons).
+            listEl.querySelectorAll('[data-btn-card-toggle]').forEach(el => {
+                el.addEventListener('click', e => {
+                    if (e.target.closest('.btn-card-actions')) return;
+                    const card = el.closest('.btn-card');
+                    if (card) card.classList.toggle('btn-card-collapsed');
+                });
+            });
+        }
+
+        function _btnsApplyField(sectionId, el) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            const i = parseInt(el.dataset.idx, 10);
+            const f = el.dataset.bfield;
+            const btn = form._buttonsState.buttons[i];
+            if (!btn) return;
+            let v;
+            if (el.type === 'checkbox') v = el.checked;
+            else if (el.type === 'number') v = parseInt(el.value, 10) || 0;
+            else v = el.value;
+            btn[f] = v;
+            _btnUpdatePreview(sectionId, i);
+            btnsSyncHidden(sectionId);
+        }
+
+        function _btnsCardAction(sectionId, idx, action) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            const bs = form._buttonsState.buttons;
+            if (action === 'delete') {
+                if (bs.length <= 1) { bs[0] = btnsDefaults(); }
+                else { bs.splice(idx, 1); }
+            } else if (action === 'duplicate') {
+                bs.splice(idx + 1, 0, JSON.parse(JSON.stringify(bs[idx])));
+            } else if (action === 'up' && idx > 0) {
+                [bs[idx - 1], bs[idx]] = [bs[idx], bs[idx - 1]];
+            } else if (action === 'down' && idx < bs.length - 1) {
+                [bs[idx + 1], bs[idx]] = [bs[idx], bs[idx + 1]];
+            }
+            btnsRender(sectionId);
+            btnsSyncHidden(sectionId);
+        }
+
+        function btnsAddButton(sectionId) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            form._buttonsState.buttons.push(btnsDefaults());
+            btnsRender(sectionId);
+            btnsSyncHidden(sectionId);
+            _btnsExpandLast(sectionId);
+        }
+
+        function _btnsExpandLast(sectionId) {
+            // Open the most recently appended card so the user can edit it
+            // without having to click to expand. Other cards stay collapsed.
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            const cards = form.querySelectorAll('.btn-card');
+            if (!cards.length) return;
+            cards.forEach(c => c.classList.add('btn-card-collapsed'));
+            cards[cards.length - 1].classList.remove('btn-card-collapsed');
+        }
+
+        // ── Social media quick-add presets ─────────────────────────────────
+        // Each preset sets icon + brand color + sensible defaults so the
+        // user can drop in a circular social button and just fill the URL.
+        // text_color defaults to #fff except on light-bg platforms (Snapchat).
+        const BTN_SOCIAL_PRESETS = [
+            { key: 'facebook',  label: 'Facebook',  icon: 'fab fa-facebook-f',     bg: '#1877F2' },
+            { key: 'instagram', label: 'Instagram', icon: 'fab fa-instagram',      bg: '#E4405F' },
+            { key: 'x',         label: 'X',         icon: 'fab fa-x-twitter',      bg: '#000000' },
+            { key: 'twitter',   label: 'Twitter',   icon: 'fab fa-twitter',        bg: '#1DA1F2' },
+            { key: 'youtube',   label: 'YouTube',   icon: 'fab fa-youtube',        bg: '#FF0000' },
+            { key: 'tiktok',    label: 'TikTok',    icon: 'fab fa-tiktok',         bg: '#000000' },
+            { key: 'linkedin',  label: 'LinkedIn',  icon: 'fab fa-linkedin-in',    bg: '#0A66C2' },
+            { key: 'threads',   label: 'Threads',   icon: 'fab fa-threads',        bg: '#000000' },
+            { key: 'discord',   label: 'Discord',   icon: 'fab fa-discord',        bg: '#5865F2' },
+            { key: 'twitch',    label: 'Twitch',    icon: 'fab fa-twitch',         bg: '#9146FF' },
+            { key: 'whatsapp',  label: 'WhatsApp',  icon: 'fab fa-whatsapp',       bg: '#25D366' },
+            { key: 'telegram',  label: 'Telegram',  icon: 'fab fa-telegram',       bg: '#26A5E4' },
+            { key: 'snapchat',  label: 'Snapchat',  icon: 'fab fa-snapchat',       bg: '#FFFC00', text: '#000000' },
+            { key: 'pinterest', label: 'Pinterest', icon: 'fab fa-pinterest-p',    bg: '#BD081C' },
+            { key: 'reddit',    label: 'Reddit',    icon: 'fab fa-reddit-alien',   bg: '#FF4500' },
+            { key: 'tumblr',    label: 'Tumblr',    icon: 'fab fa-tumblr',         bg: '#36465D' },
+            { key: 'mastodon',  label: 'Mastodon',  icon: 'fab fa-mastodon',       bg: '#6364FF' },
+            { key: 'github',    label: 'GitHub',    icon: 'fab fa-github',         bg: '#181717' },
+            { key: 'spotify',   label: 'Spotify',   icon: 'fab fa-spotify',        bg: '#1ED760' },
+            { key: 'soundcloud',label: 'SoundCloud',icon: 'fab fa-soundcloud',     bg: '#FF7700' },
+            { key: 'vimeo',     label: 'Vimeo',     icon: 'fab fa-vimeo-v',        bg: '#1AB7EA' },
+            { key: 'medium',    label: 'Medium',    icon: 'fab fa-medium',         bg: '#00AB6C' },
+            { key: 'patreon',   label: 'Patreon',   icon: 'fab fa-patreon',        bg: '#FF424D' },
+            { key: 'email',     label: 'Email',     icon: 'fas fa-envelope',       bg: '#555555' },
+            { key: 'phone',     label: 'Phone',     icon: 'fas fa-phone',          bg: '#34B7F1' },
+            { key: 'website',   label: 'Website',   icon: 'fas fa-globe',          bg: '#4A90E2' },
+            { key: 'rss',       label: 'RSS',       icon: 'fas fa-rss',            bg: '#EE802F' },
+        ];
+
+        function btnsRenderSocial(sectionId) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            const grid = form.querySelector(`[id="btns-social-${sectionId}"]`);
+            if (!grid) return;
+            grid.innerHTML = BTN_SOCIAL_PRESETS.map(p => `
+                <button type="button"
+                        class="btns-social-tile"
+                        title="Add ${_esc(p.label)} button"
+                        data-preset="${p.key}">
+                    <span class="btns-social-bubble"
+                          style="background:${p.bg};color:${p.text || '#fff'};">
+                        <i class="${p.icon}"></i>
+                    </span>
+                    <span>${_esc(p.label)}</span>
+                </button>
+            `).join('');
+            grid.querySelectorAll('[data-preset]').forEach(el => {
+                el.addEventListener('click', e => {
+                    e.preventDefault();
+                    btnsAddSocial(sectionId, el.dataset.preset);
+                });
+            });
+        }
+
+        function btnsAddSocial(sectionId, presetKey) {
+            const preset = BTN_SOCIAL_PRESETS.find(p => p.key === presetKey);
+            if (!preset) return;
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            const b = Object.assign(btnsDefaults(), {
+                text: '',              // icon-only by default — user can type a label later
+                link: '',
+                shape: 'circle',
+                icon: preset.icon,
+                bg_color: preset.bg,
+                text_color: preset.text || '#ffffff',
+                border_width: 0,
+                font_size: 18,
+                padding_x: 14,
+                padding_y: 14,
+                shadow: 'soft',
+                new_tab: true,         // social links typically open in a new tab
+            });
+            form._buttonsState.buttons.push(b);
+            btnsRender(sectionId);
+            btnsSyncHidden(sectionId);
+            _btnsExpandLast(sectionId);
+        }
+
+        function btnsSyncHidden(sectionId) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            // Search inside the form so this works on detached trees too.
+            const hidden = form.querySelector(`[id="button_config_${sectionId}"]`);
+            if (hidden) hidden.value = JSON.stringify(form._buttonsState);
+        }
+
+        function _esc(s) {
+            return String(s == null ? '' : s).replace(/[<>&"']/g, c => (
+                {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]
+            ));
+        }
+
+        function _btnCardHtml(sectionId, idx, b) {
+            // Cards are collapsed by default (except the first one) so a
+            // list of many buttons doesn't dominate the editor. Click the
+            // header to expand/collapse.
+            const collapsed = idx > 0;
+            return `
+            <div class="btn-card ${collapsed ? 'btn-card-collapsed' : ''}" data-idx="${idx}">
+                <div class="btn-card-header" data-btn-card-toggle="1">
+                    <i class="fas fa-chevron-down btn-card-chevron" aria-hidden="true"></i>
+                    <span class="btn-handle">#${idx + 1}</span>
+                    <span class="btn-card-summary">${_esc(b.text) || (b.icon ? _esc(b.icon.split(' ').pop()) : '(untitled)')}</span>
+                    <span class="btn-card-mini-preview">${_btnPreviewHtml(b)}</span>
+                    <div class="btn-card-actions">
+                        <button type="button" data-action="up"        data-idx="${idx}" title="Move up">↑</button>
+                        <button type="button" data-action="down"      data-idx="${idx}" title="Move down">↓</button>
+                        <button type="button" data-action="duplicate" data-idx="${idx}" title="Duplicate"><i class="fas fa-copy"></i></button>
+                        <button type="button" data-action="delete"    data-idx="${idx}" class="danger" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="btn-card-body">
+
+                <div class="btn-card-grid">
+                    <label style="grid-column:1/-1;">Text
+                        <input type="text" data-bfield="text" data-idx="${idx}" value="${_esc(b.text)}" placeholder="Button text">
+                    </label>
+                    <label style="grid-column:1/-1;">Link
+                        <input type="url" data-bfield="link" data-idx="${idx}" value="${_esc(b.link)}" placeholder="https://…">
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox" data-bfield="new_tab" data-idx="${idx}" ${b.new_tab ? 'checked' : ''}>
+                        Open in new tab
+                    </label>
+
+                    <label>Background
+                        <input type="color" data-bfield="bg_color" data-idx="${idx}" value="${_esc(b.bg_color)}">
+                    </label>
+                    <label>Text color
+                        <input type="color" data-bfield="text_color" data-idx="${idx}" value="${_esc(b.text_color)}">
+                    </label>
+
+                    <label>Shape
+                        <select data-bfield="shape" data-idx="${idx}">
+                            <option value="rounded" ${b.shape==='rounded'?'selected':''}>Rounded (custom radius)</option>
+                            <option value="square"  ${b.shape==='square' ?'selected':''}>Square</option>
+                            <option value="pill"    ${b.shape==='pill'   ?'selected':''}>Pill</option>
+                            <option value="circle"  ${b.shape==='circle' ?'selected':''}>Circle (icon-only)</option>
+                        </select>
+                    </label>
+                    <label>Border radius (rounded mode)
+                        <input type="number" data-bfield="border_radius" data-idx="${idx}" min="0" max="200" value="${b.border_radius}">
+                    </label>
+
+                    <label>Border width
+                        <input type="number" data-bfield="border_width" data-idx="${idx}" min="0" max="20" value="${b.border_width}">
+                    </label>
+                    <label>Border color
+                        <input type="color" data-bfield="border_color" data-idx="${idx}" value="${_esc(b.border_color)}">
+                    </label>
+
+                    <label>Font size (px)
+                        <input type="number" data-bfield="font_size" data-idx="${idx}" min="8" max="80" value="${b.font_size}">
+                    </label>
+                    <label>Weight
+                        <select data-bfield="font_weight" data-idx="${idx}">
+                            <option value="400" ${b.font_weight==='400'?'selected':''}>Normal</option>
+                            <option value="600" ${b.font_weight==='600'?'selected':''}>Semibold</option>
+                            <option value="700" ${b.font_weight==='700'?'selected':''}>Bold</option>
+                            <option value="900" ${b.font_weight==='900'?'selected':''}>Heavy</option>
+                        </select>
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox" data-bfield="italic" data-idx="${idx}" ${b.italic ? 'checked' : ''}>
+                        Italic
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox" data-bfield="uppercase" data-idx="${idx}" ${b.uppercase ? 'checked' : ''}>
+                        Uppercase
+                    </label>
+
+                    <label>Horizontal padding (px)
+                        <input type="number" data-bfield="padding_x" data-idx="${idx}" min="0" max="80" value="${b.padding_x}">
+                    </label>
+                    <label>Vertical padding (px)
+                        <input type="number" data-bfield="padding_y" data-idx="${idx}" min="0" max="80" value="${b.padding_y}">
+                    </label>
+
+                    <label class="checkbox-row">
+                        <input type="checkbox" data-bfield="fill_width" data-idx="${idx}" ${b.fill_width ? 'checked' : ''}>
+                        Fill width of row
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox" data-bfield="fill_height" data-idx="${idx}" ${b.fill_height ? 'checked' : ''}>
+                        Fill height of row
+                    </label>
+
+                    <label>Icon (FontAwesome class, e.g. "fas fa-rocket")
+                        <input type="text" data-bfield="icon" data-idx="${idx}" value="${_esc(b.icon)}" placeholder="fas fa-rocket">
+                    </label>
+                    <label>Image URL (overrides icon)
+                        <input type="text" data-bfield="image_url" data-idx="${idx}" value="${_esc(b.image_url)}" placeholder="https://…">
+                    </label>
+                    <label>Icon/image position
+                        <select data-bfield="icon_position" data-idx="${idx}">
+                            <option value="left"  ${b.icon_position==='left' ?'selected':''}>Left of text</option>
+                            <option value="right" ${b.icon_position==='right'?'selected':''}>Right of text</option>
+                        </select>
+                    </label>
+
+                    <label>Shadow
+                        <select data-bfield="shadow" data-idx="${idx}">
+                            <option value="none"   ${b.shadow==='none'  ?'selected':''}>None</option>
+                            <option value="soft"   ${b.shadow==='soft'  ?'selected':''}>Soft</option>
+                            <option value="medium" ${b.shadow==='medium'?'selected':''}>Medium</option>
+                            <option value="strong" ${b.shadow==='strong'?'selected':''}>Strong</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="btn-preview" id="btn-preview-${sectionId}-${idx}">
+                    ${_btnPreviewHtml(b)}
+                </div>
+
+                </div><!-- /.btn-card-body -->
+            </div>`;
+        }
+
+        function _btnUpdatePreview(sectionId, idx) {
+            const form = _btnsForm(sectionId);
+            if (!form) return;
+            const b = form._buttonsState.buttons[idx];
+            const el = form.querySelector(`[id="btn-preview-${sectionId}-${idx}"]`);
+            if (el && b) el.innerHTML = _btnPreviewHtml(b);
+        }
+
+        function _btnPreviewHtml(b) {
+            const radius = b.shape === 'pill' ? 999
+                         : b.shape === 'square' ? 0
+                         : b.shape === 'circle' ? 999
+                         : (b.border_radius || 8);
+            const circleSide = (parseInt(b.font_size,10) || 15) * 2 + (parseInt(b.padding_y,10) || 10) * 2;
+            const shadow = b.shadow === 'soft' ? '0 4px 12px rgba(0,0,0,0.18)'
+                         : b.shadow === 'medium' ? '0 6px 18px rgba(0,0,0,0.28)'
+                         : b.shadow === 'strong' ? '0 10px 28px rgba(0,0,0,0.4)'
+                         : 'none';
+            const style = [
+                `background:${b.bg_color}`,
+                `color:${b.text_color}`,
+                `border:${b.border_width}px solid ${b.border_color}`,
+                `border-radius:${radius}px`,
+                `font-size:${b.font_size}px`,
+                `font-weight:${b.font_weight}`,
+                b.italic ? 'font-style:italic' : '',
+                b.uppercase ? 'text-transform:uppercase;letter-spacing:0.05em' : '',
+                `padding:${b.padding_y}px ${b.padding_x}px`,
+                'display:inline-flex;align-items:center;justify-content:center;gap:8px',
+                `box-shadow:${shadow}`,
+                b.shape === 'circle' ? `aspect-ratio:1/1;padding:0;width:${circleSide}px;height:${circleSide}px` : '',
+                'line-height:1.2',
+            ].filter(Boolean).join(';');
+            const iconHtml = b.image_url
+                ? `<img src="${_esc(b.image_url)}" alt="" style="width:1.4em;height:1.4em;object-fit:contain;border-radius:4px;">`
+                : (b.icon ? `<i class="${_esc(b.icon)}"></i>` : '');
+            const left  = b.icon_position === 'left'  ? iconHtml : '';
+            const right = b.icon_position === 'right' ? iconHtml : '';
+            const text = b.text ? `<span>${_esc(b.text)}</span>` : '';
+            return `<span style="${style}">${left}${text}${right}</span>`;
+        }
+
+        // ── Spacer section editor helpers ──────────────────────────────
+        function _spForm(sectionId) {
+            return (window._spForms && window._spForms[sectionId])
+                || document.querySelector(
+                    `form.spacer-section-form[data-section-id="${sectionId}"]`
+                );
+        }
+
+        function _spApply(sectionId, el) {
+            const form = _spForm(sectionId);
+            if (!form) return;
+            const k = el.dataset.spf;
+            let v = el.value;
+            if (el.type === 'number') v = parseFloat(el.value) || 0;
+            form._spState[k] = v;
+            if (k === 'style') _spRefreshConditional(sectionId);
+            _spRenderPreview(sectionId);
+            _spSyncHidden(sectionId);
+        }
+
+        function _spRefreshConditional(sectionId) {
+            // Show/hide rows that only apply to certain styles, via the
+            // data-spf-only / data-spf-not attributes on the wrapper.
+            const form = _spForm(sectionId);
+            if (!form) return;
+            const style = form._spState.style;
+            form.querySelectorAll('[data-spf-only]').forEach(el => {
+                const list = el.dataset.spfOnly.split(',').map(s => s.trim());
+                el.style.display = list.includes(style) ? '' : 'none';
+            });
+            form.querySelectorAll('[data-spf-not]').forEach(el => {
+                const list = el.dataset.spfNot.split(',').map(s => s.trim());
+                el.style.display = list.includes(style) ? 'none' : '';
+            });
+        }
+
+        function _spSyncHidden(sectionId) {
+            const form = _spForm(sectionId);
+            if (!form) return;
+            const hidden = form.querySelector(`[id="spacer_config_${sectionId}"]`);
+            if (hidden) hidden.value = JSON.stringify(form._spState);
+        }
+
+        function _spRenderPreview(sectionId) {
+            const form = _spForm(sectionId);
+            if (!form) return;
+            const target = form.querySelector(`[id="sp-preview-${sectionId}"]`);
+            if (!target) return;
+            target.innerHTML = _spBuildHtml(form._spState);
+        }
+
+        // Mirrors the Jinja branches in public.html so the editor preview
+        // matches the rendered page. Keep them in sync when adding new
+        // styles.
+        function _spBuildHtml(s) {
+            const c1 = s.color  || '#ffffff';
+            const c2 = s.color2 || '#5eeef8';
+            const w  = Math.max(1, parseInt(s.width_pct, 10) || 100);
+            const h  = Math.max(1, parseInt(s.thickness, 10) || 2);
+            const op = parseFloat(s.opacity);
+            const opacity = isNaN(op) ? 1 : Math.max(0.1, Math.min(1, op));
+            const just = s.alignment === 'left' ? 'flex-start'
+                       : s.alignment === 'right' ? 'flex-end' : 'center';
+            const wrap = (inner) =>
+                `<div style="display:flex;justify-content:${just};width:100%;">${inner}</div>`;
+            const style = s.style || 'line';
+            switch (style) {
+                case 'space':
+                    return wrap(`<div style="width:${w}%;height:${Math.max(0, parseInt(s.height,10)||40)}px;border:1px dashed rgba(255,255,255,0.15);background:rgba(255,255,255,0.03);"></div>`);
+                case 'dashed':
+                case 'dotted':
+                case 'double':
+                case 'line': {
+                    const b = style === 'line' ? 'solid' : style;
+                    return wrap(`<hr style="width:${w}%;border:none;border-top:${h}px ${b} ${c1};opacity:${opacity};margin:0;">`);
+                }
+                case 'gradient':
+                    return wrap(`<div style="width:${w}%;height:${h}px;background:linear-gradient(90deg,transparent,${c1} 30%,${c1} 70%,transparent);opacity:${opacity};border-radius:999px;"></div>`);
+                case 'gradient-twotone':
+                    return wrap(`<div style="width:${w}%;height:${h}px;background:linear-gradient(90deg,${c1},${c2});opacity:${opacity};border-radius:999px;"></div>`);
+                case 'thick-pill':
+                    return wrap(`<div style="width:${w}%;height:${h}px;background:${c1};opacity:${opacity};border-radius:999px;"></div>`);
+                case 'wave':
+                    return wrap(`<svg viewBox="0 0 400 40" preserveAspectRatio="none" style="width:${w}%;height:${h*8}px;display:block;opacity:${opacity};">
+                        <path d="M0 20 Q 50 0 100 20 T 200 20 T 300 20 T 400 20" fill="none" stroke="${c1}" stroke-width="${h}" stroke-linecap="round"/></svg>`);
+                case 'zigzag':
+                    return wrap(`<svg viewBox="0 0 400 40" preserveAspectRatio="none" style="width:${w}%;height:${h*8}px;display:block;opacity:${opacity};">
+                        <polyline points="0,20 50,5 100,35 150,5 200,35 250,5 300,35 350,5 400,20" fill="none" stroke="${c1}" stroke-width="${h}" stroke-linecap="round" stroke-linejoin="round"/></svg>`);
+                case 'dots-trio':
+                    return wrap(`<div style="width:${w}%;display:flex;align-items:center;justify-content:center;gap:12px;opacity:${opacity};">
+                        <span style="width:${h*3}px;height:${h*3}px;border-radius:50%;background:${c1};"></span>
+                        <span style="width:${h*3}px;height:${h*3}px;border-radius:50%;background:${c1};"></span>
+                        <span style="width:${h*3}px;height:${h*3}px;border-radius:50%;background:${c1};"></span>
+                    </div>`);
+                case 'ornament':
+                    return wrap(`<div style="width:${w}%;display:flex;align-items:center;gap:14px;opacity:${opacity};color:${c1};">
+                        <div style="flex:1;height:${h}px;background:linear-gradient(90deg,transparent,${c1});border-radius:999px;"></div>
+                        <span style="font-size:${h*7}px;line-height:1;">${s.symbol || '❖'}</span>
+                        <div style="flex:1;height:${h}px;background:linear-gradient(270deg,transparent,${c1});border-radius:999px;"></div>
+                    </div>`);
+                case 'double-arc':
+                    return wrap(`<svg viewBox="0 0 400 40" preserveAspectRatio="none" style="width:${w}%;height:${h*8}px;display:block;opacity:${opacity};">
+                        <path d="M0 24 Q 200 -10 400 24" fill="none" stroke="${c1}" stroke-width="${h}" stroke-linecap="round"/>
+                        <path d="M0 28 Q 200 -6 400 28" fill="none" stroke="${c2}" stroke-width="${Math.max(1, Math.floor(h*0.7))}" stroke-linecap="round" stroke-opacity="0.7"/>
+                    </svg>`);
+                default:
+                    return wrap(`<hr style="width:${w}%;border:none;border-top:${h}px solid ${c1};opacity:${opacity};margin:0;">`);
+            }
+        }
+
         function defaultImageLayout(sectionType) {
             // Must match the public renderer (Templates/public.html ~3800):
             // only the singular 'image' section type defaults to 'single' —

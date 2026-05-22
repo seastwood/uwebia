@@ -9,9 +9,13 @@ Forum Login
             width: min(460px, calc(100% - 28px));
             margin: 110px auto;
             padding: 22px;
-            background: rgba(0,0,0,0.34);
-            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(0,0,0,0.65);
+            border: 1px solid rgba(255,255,255,0.18);
             border-radius: 20px;
+            color: #ffffff;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.38);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
         }
 
         input {
@@ -19,21 +23,22 @@ Forum Login
             box-sizing: border-box;
             margin-bottom: 12px;
             border-radius: 14px;
-            border: 1px solid rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.22);
             padding: 12px;
-            background: rgba(255,255,255,0.1);
-            color: inherit;
+            background: rgba(0,0,0,0.5);
+            color: #ffffff;
             font: inherit;
         }
+        input::placeholder { color: rgba(255,255,255,0.55); }
 
         button,
         a.button {
             display: inline-flex;
             padding: 10px 14px;
             border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.16);
-            background: rgba(255,255,255,0.12);
-            color: inherit;
+            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(0,0,0,0.55);
+            color: #ffffff;
             font-weight: 800;
             text-decoration: none;
             cursor: pointer;
@@ -60,10 +65,10 @@ Forum Login
 
     padding: 10px 12px;
 
-    color: inherit;
-    background: rgba(255, 255, 255, 0.075);
+    color: #ffffff;
+    background: rgba(0, 0, 0, 0.45);
 
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 999px;
 
     text-decoration: none;
@@ -107,10 +112,10 @@ Forum Login
     padding: 10px 14px;
 
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.22);
 
-    background: rgba(255,255,255,0.12);
-    color: inherit;
+    background: rgba(0,0,0,0.55);
+    color: #ffffff;
 
     font: inherit;
     font-weight: 850;
@@ -144,7 +149,7 @@ Forum Login
         </div>
 
         {% if show_captcha %}
-        <div style="margin:14px 0 6px;padding:14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;">
+        <div style="margin:14px 0 6px;padding:14px;background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;">
             <label style="font-size:0.83rem;display:block;margin-bottom:8px;color:rgba(255,255,255,0.7);">
                 <i class="fas fa-shield-alt" style="margin-right:5px;color:rgba(94,238,200,0.7);"></i>
                 Quick check — what is <strong style="color:#fff;">{{ captcha_question }}</strong>?
@@ -152,7 +157,7 @@ Forum Login
             <input type="text" name="captcha" autocomplete="one-time-code" inputmode="numeric"
                    data-lpignore="true" data-1p-ignore="true" data-form-type="other"
                    placeholder="Enter the answer" required
-                   style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#fff;font-size:0.9rem;outline:none;">
+                   style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.5);color:#fff;font-size:0.9rem;outline:none;">
         </div>
         {% endif %}
 

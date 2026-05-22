@@ -164,18 +164,28 @@
         <div class="ce-sidebar-card">
             <p class="ce-sidebar-title">Send Date</p>
             <p class="ce-help" style="margin:0 0 8px;line-height:1.45;">
-                Leave blank to use the time you actually click "Send to All". Set
-                explicitly to backdate or future-date a campaign (handy when importing
-                old newsletters from another platform).
+                Leave blank to use the time you actually click "Send to All". Date alone
+                is fine — time defaults to noon if you don't specify one.
             </p>
-            <input type="datetime-local" id="ceSentAt"
-                   value="{{ campaign.sent_at.strftime('%Y-%m-%dT%H:%M') if campaign and campaign.sent_at else '' }}"
-                   {% if is_sent %}disabled{% endif %}
-                   class="ce-input"
-                   onchange="saveDraft()">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="date" id="ceSentDate"
+                       value="{{ campaign.sent_at.strftime('%Y-%m-%d') if campaign and campaign.sent_at else '' }}"
+                       {% if is_sent %}disabled{% endif %}
+                       class="ce-input"
+                       style="flex:1;min-width:0;"
+                       onchange="saveDraft()">
+                <input type="time" id="ceSentTime"
+                       value="{{ campaign.sent_at.strftime('%H:%M') if campaign and campaign.sent_at and (campaign.sent_at.hour, campaign.sent_at.minute) != (12, 0) else '' }}"
+                       placeholder="12:00"
+                       title="Optional — defaults to noon if left blank"
+                       {% if is_sent %}disabled{% endif %}
+                       class="ce-input"
+                       style="width:110px;"
+                       onchange="saveDraft()">
+            </div>
             {% if campaign and campaign.sent_at and not is_sent %}
             <button type="button"
-                    onclick="document.getElementById('ceSentAt').value=''; saveDraft();"
+                    onclick="document.getElementById('ceSentDate').value=''; document.getElementById('ceSentTime').value=''; saveDraft();"
                     style="margin-top:8px;background:none;border:0;color:rgba(255,255,255,0.55);font-size:0.78rem;cursor:pointer;padding:0;text-decoration:underline;">
                 Clear date
             </button>
@@ -253,8 +263,14 @@ async function saveDraft() {
         subject,
         html_body: _quill.root.innerHTML,
         email_server_id: document.getElementById('ceServer').value || null,
-        // Empty string clears the override; non-empty backdates / future-dates.
-        sent_at: document.getElementById('ceSentAt')?.value || '',
+        // Combine date + optional time. Time defaults to noon when blank so
+        // backdating only needs a date click. Empty date clears the override.
+        sent_at: (function () {
+            const d = (document.getElementById('ceSentDate')?.value || '').trim();
+            if (!d) return '';
+            const t = (document.getElementById('ceSentTime')?.value || '').trim();
+            return `${d}T${t || '12:00'}`;
+        })(),
     };
     const r = await fetch(`/admin/newsletters/${NL_ID}/campaigns/save`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
