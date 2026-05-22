@@ -235,6 +235,28 @@
 <div id="publicNavbarMenu" class="public-navbar-menu">
     <div class="public-navbar-menu-glass">
 
+        {% if website.public_navbar_show_search %}
+        <div class="public-navbar-search" data-search-panel>
+            {% set _search_action = (url_for('public_search_prefixed', prefix=website.url_prefix) if website.url_prefix else url_for('public_search_root')) %}
+            <form class="public-navbar-search-form" onsubmit="return publicNavbarSearchSubmit(event)">
+                <i class="fas fa-search public-navbar-search-icon" aria-hidden="true"></i>
+                <input type="search"
+                       class="public-navbar-search-input"
+                       data-search-input
+                       data-search-url="{{ _search_action }}"
+                       placeholder="Search this site…"
+                       autocomplete="off"
+                       aria-label="Search this site">
+                <button type="button"
+                        class="public-navbar-search-clear"
+                        data-search-clear
+                        title="Clear search"
+                        aria-label="Clear search">&times;</button>
+            </form>
+            <div class="public-navbar-search-results" data-search-results aria-live="polite"></div>
+        </div>
+        {% endif %}
+
         {% if navbar_public_accounts_enabled %}
             <div class="public-navbar-menu-group public-account-menu-group is-open" data-menu-group>
                 <button type="button"
@@ -1418,9 +1440,222 @@
         color 0.18s ease;
     transform-origin: center;
 }
+
+/* ── Public navbar search (side panel only) ──────────────────────────── */
+.public-navbar-search {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 4px;
+}
+.public-navbar-search-form {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.public-navbar-search-icon {
+    position: absolute;
+    left: 12px;
+    color: rgba(255,255,255,0.55);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+.public-navbar-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 36px 9px 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.45);
+    color: #fff;
+    font: inherit;
+    font-size: 0.92rem;
+    outline: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.public-navbar-search-input::placeholder { color: rgba(255,255,255,0.5); }
+.public-navbar-search-input:focus {
+    border-color: rgba(94,238,248,0.55);
+    background: rgba(0,0,0,0.6);
+}
+.public-navbar-search-clear {
+    position: absolute;
+    right: 10px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.55);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.public-navbar-search-clear:hover {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+}
+.public-navbar-search.has-query .public-navbar-search-clear { opacity: 1; }
+
+.public-navbar-search-results {
+    margin-top: 10px;
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.public-navbar-search-result {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #fff;
+    text-decoration: none;
+    transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.public-navbar-search-result:hover {
+    background: rgba(94,238,248,0.08);
+    border-color: rgba(94,238,248,0.32);
+    transform: translateY(-1px);
+}
+.public-navbar-search-result-title {
+    font-size: 0.92rem; font-weight: 700; line-height: 1.2;
+    display: flex; align-items: baseline; gap: 8px;
+}
+.public-navbar-search-result-type {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #5eeef8;
+    opacity: 0.85;
+}
+.public-navbar-search-result-snippet {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.65);
+    margin-top: 3px;
+    line-height: 1.45;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.public-navbar-search-empty,
+.public-navbar-search-loading {
+    padding: 14px 10px;
+    text-align: center;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.85rem;
+}
+.public-navbar-search-results mark {
+    background: rgba(94,238,248,0.32);
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 3px;
+}
 </style>
 
 <script>
+    // ── Public navbar search ─────────────────────────────────────────────
+    // Debounced live search against the per-website /search endpoint.
+    // Renders inline result cards under the input. Submitting the form
+    // (Enter key) jumps straight to the first matching page.
+    (function () {
+        const panel = document.querySelector('[data-search-panel]');
+        if (!panel) return;
+        const input   = panel.querySelector('[data-search-input]');
+        const results = panel.querySelector('[data-search-results]');
+        const clearBtn = panel.querySelector('[data-search-clear]');
+        if (!input || !results) return;
+        const url = input.dataset.searchUrl;
+        let timer = null;
+        let lastQuery = null;
+        let lastResults = [];
+
+        const esc = s => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        function highlight(text, q) {
+            if (!q) return esc(text);
+            const safe = esc(text);
+            // Build a case-insensitive regex from the query, escaping regex meta.
+            const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+            return safe.replace(re, '<mark>$1</mark>');
+        }
+
+        function render(state) {
+            if (state.loading) {
+                results.innerHTML = '<div class="public-navbar-search-loading">Searching…</div>';
+                return;
+            }
+            if (!state.query) { results.innerHTML = ''; return; }
+            if (!state.items || !state.items.length) {
+                results.innerHTML = `<div class="public-navbar-search-empty">No results for &ldquo;${esc(state.query)}&rdquo;.</div>`;
+                return;
+            }
+            const html = state.items.map(r => {
+                const typeLabel = r.type === 'post' ? 'Post' : 'Page';
+                const extra = r.type === 'post' && r.collection
+                    ? ` <span style="opacity:0.55;font-weight:500;font-size:0.74rem;letter-spacing:0;text-transform:none;color:rgba(255,255,255,0.6);">${esc(r.collection)}</span>` : '';
+                return `<a class="public-navbar-search-result" href="${esc(r.url)}">
+                    <div class="public-navbar-search-result-title">
+                        <span class="public-navbar-search-result-type">${typeLabel}</span>
+                        <span>${highlight(r.title || 'Untitled', state.query)}</span>
+                        ${extra}
+                    </div>
+                    ${r.snippet ? `<div class="public-navbar-search-result-snippet">${highlight(r.snippet, state.query)}</div>` : ''}
+                </a>`;
+            }).join('');
+            results.innerHTML = html;
+        }
+
+        async function runSearch(q) {
+            if (q === lastQuery) return;
+            lastQuery = q;
+            if (!q) { render({ query: '' }); return; }
+            render({ loading: true, query: q });
+            try {
+                const r = await fetch(`${url}?q=${encodeURIComponent(q)}`);
+                const d = await r.json();
+                // Discard out-of-order responses if the user has typed more.
+                if (input.value.trim() !== q) return;
+                lastResults = d.results || [];
+                render({ query: q, items: lastResults });
+            } catch (_) {
+                render({ query: q, items: [] });
+            }
+        }
+
+        input.addEventListener('input', () => {
+            const q = input.value.trim();
+            panel.classList.toggle('has-query', !!q);
+            clearTimeout(timer);
+            timer = setTimeout(() => runSearch(q), 220);
+        });
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                input.value = '';
+                lastQuery = null;
+                lastResults = [];
+                panel.classList.remove('has-query');
+                results.innerHTML = '';
+                input.focus();
+            });
+        }
+
+        // Submit: jump to the first result (or do nothing if none).
+        window.publicNavbarSearchSubmit = function (e) {
+            e.preventDefault();
+            if (lastResults.length) {
+                window.location.href = lastResults[0].url;
+            }
+            return false;
+        };
+    })();
+
     function togglePublicNavbarMenu(event) {
         event.stopPropagation();
 

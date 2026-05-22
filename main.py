@@ -1309,6 +1309,10 @@ class Website(db.Model):
 
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
+    # When true, a search input appears at the top of the public navbar's
+    # left side panel. Visitors can search across all published pages,
+    # sections, and posts on this website.
+    public_navbar_show_search = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
 
     store_enabled       = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     store_in_store_only       = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
@@ -15193,6 +15197,8 @@ def edit_public_navbar(website_id):
     navbar_items = data.get('public_navbar_items', [])
 
     website.public_navbar_items = navbar_items
+    if 'public_navbar_show_search' in data:
+        website.public_navbar_show_search = bool(data.get('public_navbar_show_search'))
 
     db.session.commit()
 
@@ -16421,6 +16427,262 @@ def _run_upcoming_event_scan():
                 event=event, website=website,
                 minutes_before=minutes_before,
             )
+
+
+def _public_search_website(website, query, limit=40):
+    """Search every public-facing surface of a website for the given query.
+
+    Surfaces covered:
+      - Pages (name/slug + every section's text content)
+      - Published Posts (title, excerpt, body)
+      - Store products (name, description) — only when store is enabled
+      - Newsletter campaigns that have been sent (subject + plain body)
+
+    Match strategy: case-insensitive substring on every text-bearing
+    field. We pull a ~160-char snippet around the first match so the UI
+    can show context. The result list is capped at `limit`.
+    """
+    if not website or not query:
+        return []
+    q = (query or '').strip()
+    if not q:
+        return []
+    q_low = q.lower()
+    prefix = website.url_prefix or ''
+    base = '/' + prefix if prefix else ''
+
+    # Browser text-fragment directive — supported in Chrome/Edge/Safari and
+    # Firefox 131+. Unsupported browsers ignore it and the page loads
+    # normally, so this is a no-cost enhancement. Encode each query term
+    # individually so spaces become %20 inside the directive's value.
+    from urllib.parse import quote as _url_quote
+    text_directive = ':~:text=' + _url_quote(q, safe='')
+
+    def _snippet(text, max_len=160):
+        if not text:
+            return ''
+        clean = re.sub(r'<[^>]+>', ' ', str(text))
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        if not clean:
+            return ''
+        low = clean.lower()
+        i = low.find(q_low)
+        if i < 0:
+            return clean[:max_len] + ('…' if len(clean) > max_len else '')
+        start = max(0, i - 50)
+        end = min(len(clean), i + len(q) + 80)
+        out = ('…' if start > 0 else '') + clean[start:end] + ('…' if end < len(clean) else '')
+        return out
+
+    def _norm_content(raw):
+        """PageSection.content might come back as a JSON string in
+        edge cases (PostgreSQL migrations). Normalize to a dict."""
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str):
+            try:
+                v = json.loads(raw)
+                return v if isinstance(v, dict) else {}
+            except (TypeError, ValueError):
+                return {}
+        return {}
+
+    def _hit(*texts):
+        for t in texts:
+            if t and q_low in str(t).lower():
+                return t
+        return None
+
+    results = []
+
+    # ── Pages + every section's text ──────────────────────────────────
+    try:
+        pages = (PublicPageContent.query
+                 .filter_by(website_id=website.id)
+                 .order_by(PublicPageContent.sort_order, PublicPageContent.id)
+                 .all())
+    except Exception:
+        pages = []
+    for page in pages:
+        if len(results) >= limit:
+            break
+        page_url = (f'{base}/{page.slug}'
+                    if page.slug and page.slug != 'home'
+                    else (base or '/'))
+        # Header-level hit: page name or slug.
+        name_hit = _hit(page.name, page.slug)
+        section_hit_text = None
+        section_hit_id   = None
+        for section in (page.sections or []):
+            content = _norm_content(section.content)
+            stype = section.section_type or ''
+            candidates = []
+            if stype == 'text':
+                candidates.append(content.get('html') or content.get('text', ''))
+            elif stype == 'button':
+                for b in (content.get('buttons') or []):
+                    if isinstance(b, dict):
+                        candidates.append(b.get('text', ''))
+                candidates.append(content.get('text', ''))
+            elif stype == 'link_card':
+                for c in (content.get('cards') or []):
+                    if isinstance(c, dict):
+                        candidates.extend([c.get('header',''), c.get('body',''),
+                                           c.get('footer',''), c.get('url','')])
+                candidates.extend([content.get('header',''), content.get('body',''),
+                                   content.get('footer',''), content.get('url','')])
+            elif stype in ('image', 'image_gallery', 'images'):
+                candidates.append(content.get('alt_text', ''))
+                candidates.append(content.get('caption', ''))
+            elif stype == 'contact_form':
+                candidates.append(content.get('title', ''))
+            elif stype == 'code':
+                candidates.append(content.get('code', ''))
+            else:
+                # Fallback — any string value in the content dict so
+                # future section types are minimally indexed.
+                for v in content.values():
+                    if isinstance(v, str):
+                        candidates.append(v)
+            for t in candidates:
+                if t and q_low in str(t).lower():
+                    section_hit_text = t
+                    section_hit_id   = section.id
+                    break
+            if section_hit_text:
+                break
+        if name_hit or section_hit_text:
+            # Build a fragment that scrolls AND highlights:
+            #   #section-<id>:~:text=<query>   (when a section matched)
+            #   #:~:text=<query>               (page-name-only match)
+            if section_hit_id:
+                frag = f'#section-{section_hit_id}{text_directive}'
+            elif section_hit_text:
+                frag = '#' + text_directive
+            else:
+                frag = ''
+            results.append({
+                'type': 'page',
+                'title': page.name or page.slug or 'Untitled',
+                'url': page_url + frag,
+                'snippet': _snippet(section_hit_text or page.name or ''),
+            })
+
+    # ── Posts (published only) ────────────────────────────────────────
+    if len(results) < limit:
+        try:
+            posts = (Post.query
+                     .filter(Post.website_id == website.id,
+                             Post.status == 'published')
+                     .order_by(Post.published_at.desc().nullslast(),
+                               Post.id.desc())
+                     .limit(300).all())
+        except Exception:
+            posts = []
+        for post in posts:
+            if len(results) >= limit:
+                break
+            hit_text = _hit(post.title, post.excerpt, post.content)
+            if hit_text is None:
+                continue
+            col = post.collection
+            post_url = (f'{base}/posts/{col.slug}/{post.slug}'
+                        if col else f'{base}/posts/{post.slug}')
+            results.append({
+                'type': 'post',
+                'title': post.title or 'Untitled',
+                'url': post_url + '#' + text_directive,
+                'snippet': _snippet(hit_text),
+                'collection': col.name if col else '',
+            })
+
+    # ── Store products (when the store is enabled) ────────────────────
+    if len(results) < limit and getattr(website, 'store_enabled', False):
+        try:
+            products = (StoreProduct.query
+                        .filter(StoreProduct.website_id == website.id,
+                                StoreProduct.is_active == True)
+                        .order_by(StoreProduct.id.desc()).limit(500).all())
+        except Exception:
+            products = []
+        for product in products:
+            if len(results) >= limit:
+                break
+            hit_text = _hit(product.name, product.description, getattr(product, 'sku', ''))
+            if hit_text is None:
+                continue
+            product_url = f'{base}/products/{product.slug}' if product.slug else f'{base}/store'
+            results.append({
+                'type': 'product',
+                'title': product.name or 'Untitled product',
+                'url': product_url + '#' + text_directive,
+                'snippet': _snippet(hit_text),
+            })
+
+    # ── Newsletter campaigns (sent only) ──────────────────────────────
+    if len(results) < limit:
+        try:
+            # Newsletters owned by this website's admin — campaigns are
+            # rendered in the URL context of whichever website hosts them.
+            newsletter_ids = [n.id for n in Newsletter.query.filter(
+                Newsletter.user_id == website.user_id
+            ).all()]
+        except Exception:
+            newsletter_ids = []
+        if newsletter_ids:
+            try:
+                campaigns = (NewsletterCampaign.query
+                             .filter(NewsletterCampaign.newsletter_id.in_(newsletter_ids),
+                                     NewsletterCampaign.status.in_(['sent', 'partial']))
+                             .order_by(NewsletterCampaign.sent_at.desc().nullslast(),
+                                       NewsletterCampaign.id.desc())
+                             .limit(200).all())
+            except Exception:
+                campaigns = []
+            for c in campaigns:
+                if len(results) >= limit:
+                    break
+                hit_text = _hit(c.subject, c.plain_body, c.html_body)
+                if hit_text is None:
+                    continue
+                if not c.slug:
+                    continue  # no public URL
+                nl = c.newsletter if hasattr(c, 'newsletter') else None
+                if not nl:
+                    nl = db.session.get(Newsletter, c.newsletter_id)
+                if not nl or not nl.slug:
+                    continue
+                campaign_url = f'{base}/newsletter/{nl.slug}/{c.slug}'
+                results.append({
+                    'type': 'newsletter',
+                    'title': c.subject or 'Untitled issue',
+                    'url': campaign_url + '#' + text_directive,
+                    'snippet': _snippet(hit_text),
+                    'collection': nl.name if nl else '',
+                })
+
+    return results
+
+
+@app.route('/search', methods=['GET'])
+def public_search_root():
+    """Public search endpoint for the unprefixed website (single-website)."""
+    return _public_search_handler(request.args.get('q', ''), prefix=None)
+
+
+@app.route('/<string:prefix>/search', methods=['GET'])
+def public_search_prefixed(prefix):
+    return _public_search_handler(request.args.get('q', ''), prefix=prefix)
+
+
+def _public_search_handler(query, prefix):
+    website = get_live_website(url_prefix=prefix or None)
+    if not website:
+        return jsonify({'results': [], 'query': query}), 404
+    if not website.public_navbar_show_search:
+        return jsonify({'results': [], 'query': query, 'disabled': True}), 403
+    results = _public_search_website(website, query, limit=30)
+    return jsonify({'results': results, 'query': query})
 
 
 @app.route('/calendar/<int:calendar_id>/events', methods=['GET'])

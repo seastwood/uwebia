@@ -3897,6 +3897,21 @@
                 <hr>
 
                 <div class="navbar-builder-header">
+                    <p>Search</p>
+                    <small>When enabled, a search bar appears at the top of the left side panel. Visitors can search across all your public pages and posts.</small>
+                </div>
+                <div style="padding:6px 0 14px;">
+                    <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);">
+                        <input type="checkbox"
+                               id="publicNavbarShowSearch_{{ website.id }}"
+                               {% if website.public_navbar_show_search %}checked{% endif %}>
+                        Show search bar in the side panel
+                    </label>
+                </div>
+
+                <hr>
+
+                <div class="navbar-builder-header">
                     <p>Navbar Items</p>
                     <small>Drag items to reorder. Drag links into groups to nest them.</small>
                 </div>
@@ -5314,6 +5329,8 @@
 
             function savePublicNavbar(websiteId) {
                 const navbarItems = collectNavbarItems(websiteId);
+                const showSearchEl = document.getElementById(`publicNavbarShowSearch_${websiteId}`);
+                const showSearch   = showSearchEl ? !!showSearchEl.checked : false;
 
                 fetch(`/edit_public_navbar/${websiteId}`, {
                     method: 'POST',
@@ -5322,7 +5339,8 @@
                         'X-CSRFToken': csrfToken
                     },
                     body: JSON.stringify({
-                        public_navbar_items: navbarItems
+                        public_navbar_items: navbarItems,
+                        public_navbar_show_search: showSearch
                     })
                 })
                     .then(response => response.json())
