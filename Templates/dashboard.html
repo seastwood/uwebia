@@ -1319,6 +1319,20 @@
             color: #5eeef8;
         }
 
+        /* Per-stop opacity slider (transparency). 100% means opaque, 0%
+           fully see-through; the slider sits between the color swatch
+           and the remove button. */
+        .gradient-stop .gs-opacity {
+            width: 90px;
+            cursor: pointer;
+        }
+        .gradient-stop .gs-opacity-val {
+            font-size: 0.78rem;
+            min-width: 38px;
+            text-align: right;
+            color: rgba(255, 255, 255, 0.65);
+        }
+
         .pickr {
             display: flex;
             align-items: center;
@@ -3762,12 +3776,45 @@
                             <button type="button" onclick="addWebsiteColorStop('{{ website.id }}')">
                                 + Add Color
                             </button>
+
+                            <button type="button" onclick="clearWebsiteBackgroundColor('{{ website.id }}')">
+                                Remove
+                            </button>
                         </div>
+                        <small style="display:block;opacity:0.6;margin-top:4px;">Remove the background color and the borders will sample colors from the top/bottom edges of your background image instead.</small>
 
                         <div id="gradientColors_{{ website.id }}"></div>
 
                         <input type="hidden" id="backgroundColor_{{ website.id }}"
                             value="{{ website.background_color or '#ffffff' }}">
+                    </div>
+
+                    <div class="color-option">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox"
+                                   id="websiteTransparentChrome_{{ website.id }}"
+                                   {% if website.public_navbar_transparent_chrome %}checked{% endif %}>
+                            Extend background into top + bottom safe areas
+                        </label>
+                        <small style="display:block;opacity:0.6;margin-top:4px;">When on, both mobile border strips are removed so the background image extends edge-to-edge of the phone screen — into where the URL-bar / home-indicator borders would be. Overrides the per-side options below.</small>
+                    </div>
+                    <div class="color-option">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox"
+                                   id="websiteNoBottomBorder_{{ website.id }}"
+                                   {% if website.public_navbar_no_bottom_border %}checked{% endif %}>
+                            Remove just the bottom mobile border
+                        </label>
+                        <small style="display:block;opacity:0.6;margin-top:4px;">When on, only the bottom border strip is hidden so the background image extends through the home-indicator safe-area. Top border still shows. Ignored if "extend into top + bottom" above is on.</small>
+                    </div>
+                    <div class="color-option">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox"
+                                   id="websiteBottomBorderBlend_{{ website.id }}"
+                                   {% if website.public_navbar_bottom_border_blend %}checked{% endif %}>
+                            Soft-fade background into top + bottom borders
+                        </label>
+                        <small style="display:block;opacity:0.6;margin-top:4px;">When on, both borders fade between transparent (inner edge) and the border color (outer screen edge), so the background image blends in. If no background color is set, the border color is sampled from the matching edge of the background image.</small>
                     </div>
 
                     <div class="color-option">
@@ -5331,7 +5378,6 @@
                 const navbarItems = collectNavbarItems(websiteId);
                 const showSearchEl = document.getElementById(`publicNavbarShowSearch_${websiteId}`);
                 const showSearch   = showSearchEl ? !!showSearchEl.checked : false;
-
                 fetch(`/edit_public_navbar/${websiteId}`, {
                     method: 'POST',
                     headers: {
@@ -5458,6 +5504,23 @@
         </script>
 
         <script>
+            // Wipes every gradient stop and marks the hidden backgroundColor
+            // input as empty so the save endpoint sets the column to NULL.
+            // Used when the admin wants the borders (and theme-color) to
+            // sample from the background image edges instead of being driven
+            // by a configured color.
+            function clearWebsiteBackgroundColor(websiteId) {
+                const container = document.getElementById(`gradientColors_${websiteId}`);
+                const hidden    = document.getElementById(`backgroundColor_${websiteId}`);
+                if (container) container.innerHTML = '';
+                if (hidden) hidden.value = '';
+                updateWebsiteBackgroundPreview(websiteId);
+            }
+
+            // Accepts a hex string, an rgba(...) string, or a {hex, opacity}
+            // object — so it can be called from a fresh "+ Add Color" click
+            // (default), from initializeWebsiteBackground() (which splits a
+            // saved gradient), or programmatically.
             function addWebsiteColorStop(websiteId, color = '#ffffff') {
                 const container = document.getElementById(`gradientColors_${websiteId}`);
 
@@ -5466,21 +5529,40 @@
                     return;
                 }
 
+                let hex     = '#ffffff';
+                let opacity = 100;
+                if (typeof color === 'object' && color !== null) {
+                    hex     = color.hex     || '#ffffff';
+                    opacity = (color.opacity == null) ? 100 : color.opacity;
+                } else {
+                    const parsed = _parseColorStop(String(color));
+                    hex     = parsed.hex;
+                    opacity = parsed.opacity;
+                }
+
                 const stop = document.createElement('div');
                 stop.classList.add('gradient-stop');
 
                 stop.innerHTML = `
-        <input type="color" value="${color}">
-        <button type="button">×</button>
+        <input type="color" class="gs-color" value="${hex}">
+        <input type="range" class="gs-opacity" min="0" max="100" step="1" value="${opacity}" title="Opacity">
+        <span class="gs-opacity-val">${opacity}%</span>
+        <button type="button" class="gs-remove">×</button>
     `;
 
-                const colorInput = stop.querySelector('input');
-                const removeButton = stop.querySelector('button');
+                const colorInput   = stop.querySelector('.gs-color');
+                const opacityInput = stop.querySelector('.gs-opacity');
+                const opacityLabel = stop.querySelector('.gs-opacity-val');
+                const removeButton = stop.querySelector('.gs-remove');
 
-                colorInput.addEventListener('input', function () {
-                    window.lastSelectedColor = this.value;
+                const sync = () => {
+                    opacityLabel.textContent = `${opacityInput.value}%`;
+                    window.lastSelectedColor = colorInput.value;
                     updateWebsiteBackgroundPreview(websiteId);
-                });
+                };
+
+                colorInput.addEventListener('input', sync);
+                opacityInput.addEventListener('input', sync);
 
                 removeButton.addEventListener('click', function () {
                     stop.remove();
@@ -5491,6 +5573,66 @@
                 updateWebsiteBackgroundPreview(websiteId);
                 enableColorPickerDropTargets();
                 enableDraggingFromColorInputs();
+            }
+
+            // Combine a hex + opacity (0-100) into a CSS color string. Pure
+            // hex when opacity is 100, rgba() otherwise so the alpha
+            // survives a round trip through the saved gradient string.
+            function _stopToCss(hex, opacity) {
+                if (opacity >= 100) return hex;
+                let h = (hex || '#ffffff').replace('#', '');
+                if (h.length === 3) h = h.split('').map(c => c + c).join('');
+                const r = parseInt(h.slice(0, 2), 16) || 0;
+                const g = parseInt(h.slice(2, 4), 16) || 0;
+                const b = parseInt(h.slice(4, 6), 16) || 0;
+                const a = Math.max(0, Math.min(100, opacity)) / 100;
+                return `rgba(${r}, ${g}, ${b}, ${a})`;
+            }
+
+            // Parse a saved color stop (hex, hex8, rgb(), or rgba()) back
+            // into the {hex, opacity} shape the picker UI uses.
+            function _parseColorStop(raw) {
+                const s = String(raw).trim();
+                if (s.startsWith('#')) {
+                    const hex = s.length === 9
+                        ? s.slice(0, 7)
+                        : (s.length === 5 ? '#' + s.slice(1, 4).split('').map(c => c + c).join('') : s);
+                    let opacity = 100;
+                    if (s.length === 9) opacity = Math.round((parseInt(s.slice(7, 9), 16) / 255) * 100);
+                    return { hex: hex.length === 4
+                                ? '#' + hex.slice(1).split('').map(c => c + c).join('')
+                                : hex,
+                             opacity };
+                }
+                const rgba = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+                if (rgba) {
+                    const toHex = n => Number(n).toString(16).padStart(2, '0');
+                    const hex = '#' + toHex(rgba[1]) + toHex(rgba[2]) + toHex(rgba[3]);
+                    const opacity = rgba[4] != null ? Math.round(parseFloat(rgba[4]) * 100) : 100;
+                    return { hex, opacity };
+                }
+                return { hex: '#ffffff', opacity: 100 };
+            }
+
+            // Split a saved gradient body into stop tokens, respecting
+            // commas inside rgba(...)/hsla(...) function calls so we don't
+            // shatter those.
+            function _splitGradientStops(body) {
+                const out = [];
+                let depth = 0;
+                let buf = '';
+                for (const ch of body) {
+                    if (ch === '(') depth++;
+                    else if (ch === ')') depth--;
+                    if (ch === ',' && depth === 0) {
+                        if (buf.trim()) out.push(buf.trim());
+                        buf = '';
+                    } else {
+                        buf += ch;
+                    }
+                }
+                if (buf.trim()) out.push(buf.trim());
+                return out;
             }
 
             function updateWebsiteBackgroundPreview(websiteId) {
@@ -5508,15 +5650,27 @@
                 const zoomInput = document.getElementById(`websiteBackgroundZoom_${websiteId}`);
                 const zoomValue = document.getElementById(`websiteBackgroundZoomValue_${websiteId}`);
 
-                const colorInputs = document.querySelectorAll(`#gradientColors_${websiteId} input[type="color"]`);
-                const colors = Array.from(colorInputs).map(input => input.value);
+                const stopEls = document.querySelectorAll(`#gradientColors_${websiteId} .gradient-stop`);
+                const stops = Array.from(stopEls).map(el => {
+                    const colorInput   = el.querySelector('.gs-color');
+                    const opacityInput = el.querySelector('.gs-opacity');
+                    const hex     = colorInput ? colorInput.value : '#ffffff';
+                    const opacity = opacityInput ? parseInt(opacityInput.value, 10) : 100;
+                    return _stopToCss(hex, opacity);
+                });
 
-                let background = backgroundInput?.value || '#ffffff';
-
-                if (colors.length === 1) {
-                    background = colors[0];
-                } else if (colors.length > 1 && directionSelect) {
-                    background = `linear-gradient(${directionSelect.value}, ${colors.join(', ')})`;
+                // If the admin clicked "Remove" we want the hidden input to
+                // stay empty so the save endpoint clears the column. Don't
+                // backfill a default color here.
+                let background;
+                if (stops.length === 0) {
+                    background = '';
+                } else if (stops.length === 1) {
+                    background = stops[0];
+                } else if (directionSelect) {
+                    background = `linear-gradient(${directionSelect.value}, ${stops.join(', ')})`;
+                } else {
+                    background = stops[0];
                 }
 
                 if (backgroundInput) {
@@ -5675,26 +5829,41 @@
                 }
 
                 gradientContainer.innerHTML = '';
-                backgroundInput.value = savedBackground || '#ffffff';
+                // Preserve a cleared (null / "") bg-color across modal opens
+                // so the borders keep falling back to image-edge sampling
+                // instead of getting silently backfilled with white.
+                backgroundInput.value = savedBackground || '';
                 textInput.value = savedTextColor || '#000000';
 
-                if (savedBackground && savedBackground.startsWith('linear-gradient')) {
-                    const directionMatch = savedBackground.match(/linear-gradient\((.*?),/);
-                    const direction = directionMatch ? directionMatch[1].trim() : 'to right';
+                if (!savedBackground) {
+                    // No stops — leave the picker empty so "Remove" stays in effect.
+                } else if (savedBackground.startsWith('linear-gradient')) {
+                    // Pull out the body inside linear-gradient( ... ).
+                    const open = savedBackground.indexOf('(');
+                    const close = savedBackground.lastIndexOf(')');
+                    const body = (open >= 0 && close > open)
+                        ? savedBackground.slice(open + 1, close)
+                        : '';
 
+                    // Comma-respecting split (rgba(...)/hsla(...) calls
+                    // contain commas internally — naive split breaks them).
+                    const parts = _splitGradientStops(body);
+
+                    // First part may be the direction ("to right",
+                    // "135deg") or it may already be a color stop.
+                    let direction = 'to right';
+                    let colorParts = parts;
+                    if (parts.length && /^(to\s|[0-9.]+\s*(deg|rad|turn|grad)$)/i.test(parts[0])) {
+                        direction = parts[0];
+                        colorParts = parts.slice(1);
+                    }
                     directionSelect.value = direction;
 
-                    const colorsPart = savedBackground
-                        .replace(/^linear-gradient\((.*?),/, '')
-                        .replace(/\)$/, '');
-
-                    const colors = colorsPart.split(',').map(color => color.trim());
-
-                    colors.forEach(color => {
+                    colorParts.forEach(color => {
                         addWebsiteColorStop(websiteId, color);
                     });
                 } else {
-                    addWebsiteColorStop(websiteId, savedBackground || '#ffffff');
+                    addWebsiteColorStop(websiteId, savedBackground);
                 }
 
                 directionSelect.addEventListener('change', function () {
@@ -5717,6 +5886,12 @@
                 const backgroundImageBlur = document.getElementById(`websiteBackgroundBlur_${websiteId}`)?.value || 0;
                 const backgroundImageOverlayColor = document.getElementById(`websiteBackgroundOverlayColor_${websiteId}`)?.value || '#000000';
                 const backgroundImageOverlayOpacity = document.getElementById(`websiteBackgroundOverlayOpacity_${websiteId}`)?.value || 0;
+                const bottomBorderBlendEl = document.getElementById(`websiteBottomBorderBlend_${websiteId}`);
+                const bottomBorderBlend   = bottomBorderBlendEl ? !!bottomBorderBlendEl.checked : false;
+                const noBottomBorderEl    = document.getElementById(`websiteNoBottomBorder_${websiteId}`);
+                const noBottomBorder      = noBottomBorderEl ? !!noBottomBorderEl.checked : false;
+                const transparentChromeEl = document.getElementById(`websiteTransparentChrome_${websiteId}`);
+                const transparentChrome   = transparentChromeEl ? !!transparentChromeEl.checked : false;
 
                 fetch(`/edit_website_style/${websiteId}`, {
                     method: 'POST',
@@ -5734,7 +5909,10 @@
                         background_image_zoom: backgroundImageZoom,
                         background_image_blur: backgroundImageBlur,
                         background_image_overlay_color: backgroundImageOverlayColor,
-                        background_image_overlay_opacity: backgroundImageOverlayOpacity
+                        background_image_overlay_opacity: backgroundImageOverlayOpacity,
+                        public_navbar_bottom_border_blend: bottomBorderBlend,
+                        public_navbar_no_bottom_border: noBottomBorder,
+                        public_navbar_transparent_chrome: transparentChrome
                     })
                 })
                     .then(response => response.json())

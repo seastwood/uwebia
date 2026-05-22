@@ -1179,6 +1179,39 @@
         align-items: center;
         gap: 2px;
         margin: 0 6px 0 0;
+        flex-wrap: wrap;
+    }
+
+    /* Mobile: tighten the toolbar so every control fits and wraps cleanly
+       inside the section-content container's overflow-x: hidden box.
+       Smaller padding/gaps, narrower font/size pickers, and reduced
+       button width — without this, the wider Quill pickers push the
+       right-side icons (link / effects / asset / video / clean) off
+       the visible area and they appear "missing". */
+    @media (max-width: 760px) {
+        .text-editor-wrapper .ql-toolbar {
+            padding: 6px 4px !important;
+        }
+        .text-editor-wrapper .ql-toolbar.ql-snow {
+            gap: 2px;
+        }
+        .text-editor-wrapper .ql-toolbar.ql-snow .ql-formats {
+            margin: 0 2px 0 0;
+            gap: 0;
+        }
+        .text-editor-wrapper .ql-toolbar.ql-snow button {
+            width: 26px;
+        }
+        .text-editor-wrapper .ql-snow .ql-picker.ql-font {
+            width: 64px;
+        }
+        .text-editor-wrapper .ql-snow .ql-picker.ql-size {
+            width: 58px;
+        }
+        .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label {
+            padding: 0 2px 0 4px;
+            font-size: 11px;
+        }
     }
     .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker {
         display: inline-flex;
