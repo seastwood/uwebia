@@ -14074,9 +14074,12 @@ def render_public_page(website, page, is_preview=False):
             continue
         cfg = section.content or {}
         cid = cfg.get('collection_id')
-        is_compact = cfg.get('layout') in ('compact', 'compact-cards')
+        # Layouts that paginate client-side need more rows fetched up front
+        # so the JS has a deeper pool to page through. 'full' joined the
+        # compact layouts on this — limit becomes "per page" not "total".
+        is_paginated = cfg.get('layout') in ('compact', 'compact-cards', 'full')
         per_page   = max(1, min(int(cfg.get('limit') or 6), 50))
-        db_limit   = 100 if is_compact else per_page
+        db_limit   = 100 if is_paginated else per_page
         if cid:
             _af_posts = (Post.query
                          .filter_by(collection_id=int(cid), status='published')
@@ -14181,13 +14184,18 @@ def render_public_page(website, page, is_preview=False):
         if not nid:
             campaigns_by_section[s.id] = []
             continue
-        limit = max(1, min(int(s.content.get('limit') or 6), 50))
+        per_page = max(1, min(int(s.content.get('limit') or 6), 50))
+        # 'full' layout paginates client-side just like the article feed —
+        # fetch a deeper pool so JS has more issues to page through. List
+        # and Cards layouts still cap at the per-page count.
+        is_paginated = s.content.get('layout') == 'full'
+        db_limit = 100 if is_paginated else per_page
         campaigns_by_section[s.id] = (NewsletterCampaign.query
                                       .filter(NewsletterCampaign.newsletter_id == nid,
                                               NewsletterCampaign.status.in_(['sent', 'partial']))
                                       .order_by(NewsletterCampaign.sent_at.desc().nullslast(),
                                                 NewsletterCampaign.id.desc())
-                                      .limit(limit).all())
+                                      .limit(db_limit).all())
 
     public_page_content = {
         'page_id': page.id,
@@ -14958,15 +14966,72 @@ def update_text_section(section, form_data):
 #     return section
 
 
+def update_spacer_section(section, form_data):
+    """Save a Spacer / Divider section.
+
+    Receives a single JSON blob `spacer_config` describing the divider
+    style and per-style options. We keep this loose — the editor sends
+    whatever fields the chosen style needs and we persist the whole dict
+    so adding new styles later doesn't need a migration.
+    """
+    raw = (form_data.get('spacer_config') or '').strip()
+    cfg = None
+    if raw:
+        try:
+            cfg = json.loads(raw)
+        except (TypeError, ValueError):
+            cfg = None
+    if not isinstance(cfg, dict):
+        cfg = {}
+    # Default to a simple line if nothing came through.
+    cfg.setdefault('style', 'line')
+    section.content = cfg
+    return section
+
+
 def update_button_section(section, form_data):
+    """Save a buttons section.
+
+    Preferred input is `button_config`, a JSON string of:
+        { 'buttons': [...], 'container': {...} }
+    Each button entry is a dict of styling fields (text, link, bg_color,
+    border_radius, padding_x/y, icon, fill_width, etc.). Unknown fields are
+    persisted as-is so we can extend the schema without a migration.
+
+    For backwards compatibility, when no `button_config` is present we
+    accept the legacy form keys (`button_text`, `button_link`,
+    `button_enabled`) and persist them as a single-button entry.
+    """
+    raw_config = (form_data.get('button_config') or '').strip()
+    if raw_config:
+        try:
+            cfg = json.loads(raw_config)
+        except (TypeError, ValueError):
+            cfg = None
+        if isinstance(cfg, dict) and isinstance(cfg.get('buttons'), list):
+            # Sanitize: only keep entries with at least one of (text, link, image).
+            cleaned_buttons = []
+            for b in cfg['buttons']:
+                if not isinstance(b, dict):
+                    continue
+                if not (b.get('text') or b.get('link') or b.get('image_url') or b.get('icon')):
+                    continue
+                cleaned_buttons.append(b)
+            container = cfg.get('container') if isinstance(cfg.get('container'), dict) else {}
+            section.content = {
+                'buttons': cleaned_buttons,
+                'container': container,
+            }
+            return section
+
+    # Legacy single-button fallback.
     button_text = form_data.get('button_text')
     button_link = form_data.get('button_link')
     button_enabled = form_data.get('button_enabled') == 'on'
-
     section.content = {
         'text': button_text,
         'link': button_link,
-        'enabled': button_enabled
+        'enabled': button_enabled,
     }
     return section
 
@@ -15416,6 +15481,8 @@ def update_section():
         section = update_newsletter_signup_section(section, form_data)
     elif section_type == 'newsletter_feed':
         section = update_newsletter_feed_section(section, form_data)
+    elif section_type == 'spacer':
+        section = update_spacer_section(section, form_data)
     else:
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 

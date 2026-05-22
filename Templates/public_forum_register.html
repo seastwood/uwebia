@@ -10,9 +10,13 @@ Create Forum Account
             width: min(460px, calc(100% - 28px));
             margin: 110px auto;
             padding: 22px;
-            background: rgba(0,0,0,0.34);
-            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(0,0,0,0.65);
+            border: 1px solid rgba(255,255,255,0.18);
             border-radius: 20px;
+            color: #ffffff;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.38);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
         }
 
         input {
@@ -20,19 +24,20 @@ Create Forum Account
             box-sizing: border-box;
             margin-bottom: 12px;
             border-radius: 14px;
-            border: 1px solid rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.22);
             padding: 12px;
-            background: rgba(255,255,255,0.1);
-            color: inherit;
+            background: rgba(0,0,0,0.5);
+            color: #ffffff;
             font: inherit;
         }
+        input::placeholder { color: rgba(255,255,255,0.55); }
 
         button {
             padding: 10px 14px;
             border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.16);
-            background: rgba(255,255,255,0.12);
-            color: inherit;
+            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(0,0,0,0.55);
+            color: #ffffff;
             font-weight: 800;
             cursor: pointer;
         }

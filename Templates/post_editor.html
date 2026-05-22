@@ -334,16 +334,24 @@
         <div class="pe-sidebar-card">
             <p class="pe-sidebar-title">Publish Date</p>
             <p style="font-size:0.78rem;opacity:0.55;margin:0 0 8px;line-height:1.45;">
-                Leave blank to use the time this post is published. Set explicitly to
-                backdate (e.g. when importing older content from another site).
+                Leave blank to use the time this post is published. Date alone is fine —
+                time defaults to noon if you don't specify one. Useful when backdating.
             </p>
-            <input type="datetime-local" id="pePublishedAt"
-                   value="{{ post.published_at.strftime('%Y-%m-%dT%H:%M') if post and post.published_at else '' }}"
-                   style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;font-family:inherit;font-size:0.9rem;box-sizing:border-box;"
-                   onchange="saveDraft()">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="date" id="pePublishedDate"
+                       value="{{ post.published_at.strftime('%Y-%m-%d') if post and post.published_at else '' }}"
+                       style="flex:1;min-width:0;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;font-family:inherit;font-size:0.9rem;box-sizing:border-box;"
+                       onchange="saveDraft()">
+                <input type="time" id="pePublishedTime"
+                       value="{{ post.published_at.strftime('%H:%M') if post and post.published_at and (post.published_at.hour, post.published_at.minute) != (12, 0) else '' }}"
+                       placeholder="12:00"
+                       title="Optional — defaults to noon if left blank"
+                       style="width:110px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;font-family:inherit;font-size:0.9rem;box-sizing:border-box;"
+                       onchange="saveDraft()">
+            </div>
             {% if post and post.published_at %}
             <button type="button"
-                    onclick="document.getElementById('pePublishedAt').value=''; saveDraft();"
+                    onclick="document.getElementById('pePublishedDate').value=''; document.getElementById('pePublishedTime').value=''; saveDraft();"
                     style="margin-top:8px;background:none;border:0;color:rgba(255,255,255,0.55);font-size:0.78rem;cursor:pointer;padding:0;text-decoration:underline;">
                 Clear date
             </button>
@@ -896,8 +904,16 @@ function getPostData() {
         comments_enabled: document.getElementById('peCommentsEnabled')?.checked || false,
         comments_require_login: document.getElementById('peCommentsRequireLogin')?.checked || false,
         comments_moderation:    document.getElementById('peCommentsModeration')?.checked    || false,
-        // Empty string means "clear / let the publish action decide".
-        published_at:     document.getElementById('pePublishedAt')?.value || '',
+        // Combine the date + optional time inputs into a single ISO string.
+        // Empty string clears the override; date alone gets noon appended so
+        // the user doesn't have to fiddle with a time picker when they just
+        // want to backdate a post.
+        published_at:     (function () {
+            const d = (document.getElementById('pePublishedDate')?.value || '').trim();
+            if (!d) return '';
+            const t = (document.getElementById('pePublishedTime')?.value || '').trim();
+            return `${d}T${t || '12:00'}`;
+        })(),
     };
 }
 
