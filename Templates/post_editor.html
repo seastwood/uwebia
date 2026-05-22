@@ -330,6 +330,25 @@
             <div id="peCommentsList" style="margin-top:14px;"></div>
             {% endif %}
         </div>
+
+        <div class="pe-sidebar-card">
+            <p class="pe-sidebar-title">Publish Date</p>
+            <p style="font-size:0.78rem;opacity:0.55;margin:0 0 8px;line-height:1.45;">
+                Leave blank to use the time this post is published. Set explicitly to
+                backdate (e.g. when importing older content from another site).
+            </p>
+            <input type="datetime-local" id="pePublishedAt"
+                   value="{{ post.published_at.strftime('%Y-%m-%dT%H:%M') if post and post.published_at else '' }}"
+                   style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;font-family:inherit;font-size:0.9rem;box-sizing:border-box;"
+                   onchange="saveDraft()">
+            {% if post and post.published_at %}
+            <button type="button"
+                    onclick="document.getElementById('pePublishedAt').value=''; saveDraft();"
+                    style="margin-top:8px;background:none;border:0;color:rgba(255,255,255,0.55);font-size:0.78rem;cursor:pointer;padding:0;text-decoration:underline;">
+                Clear date
+            </button>
+            {% endif %}
+        </div>
     </div>
 </div>
 
@@ -877,6 +896,8 @@ function getPostData() {
         comments_enabled: document.getElementById('peCommentsEnabled')?.checked || false,
         comments_require_login: document.getElementById('peCommentsRequireLogin')?.checked || false,
         comments_moderation:    document.getElementById('peCommentsModeration')?.checked    || false,
+        // Empty string means "clear / let the publish action decide".
+        published_at:     document.getElementById('pePublishedAt')?.value || '',
     };
 }
 

@@ -160,6 +160,27 @@
             <p class="ce-help" style="margin-top:8px;">Subscribers ready to receive: <strong>{{ newsletter.subscriber_count }}</strong></p>
             {% endif %}
         </div>
+
+        <div class="ce-sidebar-card">
+            <p class="ce-sidebar-title">Send Date</p>
+            <p class="ce-help" style="margin:0 0 8px;line-height:1.45;">
+                Leave blank to use the time you actually click "Send to All". Set
+                explicitly to backdate or future-date a campaign (handy when importing
+                old newsletters from another platform).
+            </p>
+            <input type="datetime-local" id="ceSentAt"
+                   value="{{ campaign.sent_at.strftime('%Y-%m-%dT%H:%M') if campaign and campaign.sent_at else '' }}"
+                   {% if is_sent %}disabled{% endif %}
+                   class="ce-input"
+                   onchange="saveDraft()">
+            {% if campaign and campaign.sent_at and not is_sent %}
+            <button type="button"
+                    onclick="document.getElementById('ceSentAt').value=''; saveDraft();"
+                    style="margin-top:8px;background:none;border:0;color:rgba(255,255,255,0.55);font-size:0.78rem;cursor:pointer;padding:0;text-decoration:underline;">
+                Clear date
+            </button>
+            {% endif %}
+        </div>
     </div>
 </div>
 
@@ -232,6 +253,8 @@ async function saveDraft() {
         subject,
         html_body: _quill.root.innerHTML,
         email_server_id: document.getElementById('ceServer').value || null,
+        // Empty string clears the override; non-empty backdates / future-dates.
+        sent_at: document.getElementById('ceSentAt')?.value || '',
     };
     const r = await fetch(`/admin/newsletters/${NL_ID}/campaigns/save`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},

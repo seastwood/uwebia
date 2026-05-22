@@ -25605,6 +25605,26 @@ def admin_post_save(cid):
     comments_require_login = bool(data.get('comments_require_login', False))
     comments_moderation    = bool(data.get('comments_moderation', False))
 
+    # Optional override for published_at — lets admins backdate posts when
+    # importing older content. Empty string clears the override (i.e. defers
+    # to the publish action). Always stored naive, in the admin's local tz,
+    # matching the rest of the codebase's datetime convention.
+    raw_pub = (data.get('published_at') or '').strip()
+    published_at_override = None
+    clear_published_at = False
+    if 'published_at' in data:
+        if raw_pub:
+            try:
+                published_at_override = datetime.fromisoformat(raw_pub)
+                # Drop tz if the browser sent one (datetime-local doesn't,
+                # but be defensive against future client changes).
+                if published_at_override.tzinfo is not None:
+                    published_at_override = published_at_override.replace(tzinfo=None)
+            except ValueError:
+                return _utf8_json({'success': False, 'error': 'Invalid publish date'}, 400)
+        else:
+            clear_published_at = True
+
     pid = data.get('id')
     if pid:
         post = Post.query.filter_by(id=int(pid), collection_id=cid).first_or_404()
@@ -25621,6 +25641,13 @@ def admin_post_save(cid):
         post.comments_require_login = comments_require_login
         post.comments_moderation    = comments_moderation
         post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        # Apply the publish-date override last so it survives any of the
+        # field assignments above. A set value backdates (or future-dates) a
+        # draft as well — clearing reverts to "publish action will set it".
+        if published_at_override is not None:
+            post.published_at = published_at_override
+        elif clear_published_at:
+            post.published_at = None
     else:
         raw_slug = (data.get('slug') or '').strip()
         base_slug = _slugify_post(raw_slug if raw_slug else title)
@@ -25636,6 +25663,7 @@ def admin_post_save(cid):
             comments_enabled=comments_enabled,
             comments_require_login=comments_require_login,
             comments_moderation=comments_moderation,
+            published_at=published_at_override,
             status='draft',
         )
         db.session.add(post)
@@ -30589,6 +30617,23 @@ def admin_newsletter_campaign_save(nid):
     server_id = data.get('email_server_id')
     cid = data.get('id')
     subject_slug_base = _slugify_post(subject)
+
+    # Optional sent_at override — backdate (or future-date) a campaign.
+    # Stored naive in the admin's local tz, matching the rest of the schema.
+    raw_sent = (data.get('sent_at') or '').strip()
+    sent_at_override = None
+    clear_sent_at = False
+    if 'sent_at' in data:
+        if raw_sent:
+            try:
+                sent_at_override = datetime.fromisoformat(raw_sent)
+                if sent_at_override.tzinfo is not None:
+                    sent_at_override = sent_at_override.replace(tzinfo=None)
+            except ValueError:
+                return _utf8_json({'success': False, 'error': 'Invalid send date'}, 400)
+        else:
+            clear_sent_at = True
+
     if cid:
         campaign = NewsletterCampaign.query.filter_by(id=int(cid), newsletter_id=nl.id).first()
         if not campaign:
@@ -30601,6 +30646,10 @@ def admin_newsletter_campaign_save(nid):
         campaign.plain_body = _html_to_plain(html)
         campaign.email_server_id = int(server_id) if server_id else None
         campaign.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if sent_at_override is not None:
+            campaign.sent_at = sent_at_override
+        elif clear_sent_at:
+            campaign.sent_at = None
         # Refresh slug when the subject changes on a draft; keep stable once sent.
         if subject_changed or not campaign.slug:
             campaign.slug = _unique_campaign_slug(nl.id, subject_slug_base, exclude_id=campaign.id)
@@ -30612,6 +30661,7 @@ def admin_newsletter_campaign_save(nid):
             html_body=html,
             plain_body=_html_to_plain(html),
             email_server_id=int(server_id) if server_id else None,
+            sent_at=sent_at_override,
             status='draft',
         )
         db.session.add(campaign)
@@ -30727,7 +30777,10 @@ def admin_newsletter_campaign_send(nid, cid):
     campaign.status = 'sent' if fail == 0 else 'partial'
     campaign.success_count = success
     campaign.fail_count = fail
-    campaign.sent_at = now
+    # Preserve a manually-set sent_at (backdated import). Only stamp now
+    # when the user hasn't picked their own date.
+    if not campaign.sent_at:
+        campaign.sent_at = now
     campaign.updated_at = now
     db.session.commit()
 
