@@ -12474,7 +12474,7 @@ def _serialize_backup(uid):
         NewsletterCampaign.newsletter_id.in_(newsletter_ids)
     ).all() if newsletter_ids else []
     storage_connections = StorageConnection.query.filter_by(user_id=uid).all()
-    oauth_app_creds = OAuthAppCredentials.query.all()
+    # oauth_app_creds: query moved into the "complete backup" block below.
 
     return {
         'meta': {
@@ -13061,11 +13061,9 @@ def _serialize_backup(uid):
                                  'created_at': sc.created_at.isoformat() if sc.created_at else None,
                                  'last_used_at': sc.last_used_at.isoformat() if sc.last_used_at else None,
                                  } for sc in storage_connections],
-        'oauth_app_credentials': [{'id': o.id, 'provider': o.provider,
-                                   'client_id': o.client_id, 'client_secret': o.client_secret,
-                                   'extra': o.extra,
-                                   'updated_at': o.updated_at.isoformat() if o.updated_at else None,
-                                   } for o in oauth_app_creds],
+        # (oauth_app_credentials is serialized earlier — see the new upsert
+        # block. The old entry here used to include the encrypted
+        # `client_secret`, which can't be decrypted on a different deploy.)
     }
 
 
@@ -14606,13 +14604,10 @@ def import_backup():
                     is_active=sd.get('is_active', True),
                     created_at=datetime.fromisoformat(sd['created_at']) if sd.get('created_at') else None,
                     last_used_at=datetime.fromisoformat(sd['last_used_at']) if sd.get('last_used_at') else None))
-            for od in data.get('oauth_app_credentials', []):
-                db.session.add(OAuthAppCredentials(
-                    provider=od['provider'],
-                    client_id=od.get('client_id'),
-                    client_secret=od.get('client_secret'),
-                    extra=od.get('extra'),
-                    updated_at=datetime.fromisoformat(od['updated_at']) if od.get('updated_at') else None))
+            # OAuthAppCredentials restore is now an upsert handled earlier
+            # in the function — see the "OAuthAppCredentials" block in the
+            # complete-backup additions. The old blind INSERT here caused
+            # UniqueViolations when the provider row already existed.
 
             db.session.commit()
 
