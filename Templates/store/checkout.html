@@ -260,6 +260,32 @@
                     </div>
                 </div>
 
+                {% if manual_payment_enabled %}
+                <div class="sco-section">
+                    <h3 class="sco-section-title">Payment</h3>
+                    <div class="sco-field" style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid rgba(255,255,255,0.14);border-radius:10px;cursor:pointer;background:rgba(255,255,255,0.03);">
+                            <input type="radio" name="paymentMethod" value="stripe" checked
+                                   onchange="onPaymentMethodChange()" style="margin-top:3px;">
+                            <div>
+                                <div style="font-weight:600;">Pay online (card)</div>
+                                <div style="font-size:0.78rem;opacity:0.6;">You'll be redirected to a secure Stripe checkout to complete payment.</div>
+                            </div>
+                        </label>
+                        <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid rgba(255,255,255,0.14);border-radius:10px;cursor:pointer;background:rgba(255,255,255,0.03);">
+                            <input type="radio" name="paymentMethod" value="manual"
+                                   onchange="onPaymentMethodChange()" style="margin-top:3px;">
+                            <div>
+                                <div style="font-weight:600;">{{ manual_payment_label }}</div>
+                                <div style="font-size:0.78rem;opacity:0.6;">Reserve the order now and pay at fulfillment. Your items are held until paid.</div>
+                            </div>
+                        </label>
+                    </div>
+                    <div id="manualInstructionsBox"
+                         style="display:none;margin-top:10px;padding:12px 14px;border-radius:10px;background:rgba(94,238,200,0.08);border:1px solid rgba(94,238,200,0.3);font-size:0.86rem;line-height:1.5;white-space:pre-line;">{{ manual_payment_instructions or '' }}</div>
+                </div>
+                {% endif %}
+
                 <p class="sco-status" id="coStatus"></p>
                 <button class="sc-checkout-btn" id="coSubmitBtn" onclick="submitCheckout()">
                     Place Order <i class="fas fa-arrow-right"></i>
@@ -446,6 +472,21 @@ function onPickupAsapToggle() {
     if (asap && wrap) wrap.style.display = asap.checked ? 'none' : '';
 }
 
+function onPaymentMethodChange() {
+    // Toggle the manual-payment instructions panel + button label so the
+    // buyer knows what's about to happen when they click Place Order.
+    const pm  = document.querySelector('input[name="paymentMethod"]:checked');
+    const box = document.getElementById('manualInstructionsBox');
+    const btn = document.getElementById('coSubmitBtn');
+    const isManual = pm && pm.value === 'manual';
+    if (box) box.style.display = isManual ? 'block' : 'none';
+    if (btn && !btn.disabled) {
+        btn.innerHTML = isManual
+            ? 'Reserve Order <i class="fas fa-arrow-right"></i>'
+            : 'Place Order <i class="fas fa-arrow-right"></i>';
+    }
+}
+
 async function submitCheckout() {
     const btn = document.getElementById('coSubmitBtn');
     const st  = document.getElementById('coStatus');
@@ -495,6 +536,10 @@ async function submitCheckout() {
             return;
         }
     }
+
+    // Payment method (only present when the admin offers manual payment).
+    const pmEl = document.querySelector('input[name="paymentMethod"]:checked');
+    payload.payment_method = pmEl ? pmEl.value : 'stripe';
 
     btn.disabled = true;
     btn.innerHTML = 'Placing order… <i class="fas fa-spinner fa-spin"></i>';

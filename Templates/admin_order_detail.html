@@ -108,6 +108,14 @@
                 <i class="fas fa-ticket-alt"></i> Issue tickets ({{ _ticket_items_missing | length }})
             </button>
             {% endif %}
+            {# Manual-payment "Mark as paid" — only shown for orders the buyer
+               chose to pay offline that are still awaiting payment. #}
+            {% if order.payment_method == 'manual' and order.status == 'pending_payment' and user_has_perm('payments.manage') %}
+            <button class="aod-btn aod-btn-primary" onclick="markOrderPaid()"
+                    title="Stamp this order as paid (use after you've received the cash / Zelle / check). Sends the standard order-received email and opens up the fulfillment pipeline.">
+                <i class="fas fa-check-circle"></i> Mark as paid
+            </button>
+            {% endif %}
             {% if order.status == 'paid' or order.status == 'fulfilled' %}
             {% if user_has_perm('store.returns') %}
             <a class="aod-btn aod-btn-primary"
@@ -644,6 +652,25 @@ async function advanceItem(ev, itemId) {
 }
 
 // ─ Manual ticket issuance (recovery) ─────────────────────────────────────
+async function markOrderPaid() {
+    const note = prompt(
+        'Mark this order as paid?\n\nOptional note (e.g. "$5 cash received", "Zelle txn ABC-123") — leave blank to skip.',
+        ''
+    );
+    if (note === null) return;   // user hit Cancel
+    const r = await fetch('{{ url_for("admin_order_mark_paid", order_id=order.id) }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: note }),
+    });
+    const j = await r.json();
+    if (!j.success) {
+        alert(j.error || 'Failed to mark paid.');
+        return;
+    }
+    location.reload();
+}
+
 async function issueMissingTickets() {
     if (!confirm('Issue tickets for items that are missing them? This will email the buyer.')) return;
     const r = await fetch(`/admin/orders/{{ order.id }}/issue-tickets`, {

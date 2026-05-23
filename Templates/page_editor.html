@@ -7619,6 +7619,10 @@ nts-admin-pagination span {
                                 <i class="fas fa-align-left"></i>
                                 <span>Text</span>
                             </button>
+                            <button type="button" class="asm-type-tile" data-type="markdown" onclick="asmSelectType('markdown')">
+                                <i class="fab fa-markdown"></i>
+                                <span>Markdown</span>
+                            </button>
                             <button type="button" class="asm-type-tile" data-type="code" onclick="asmSelectType('code')">
                                 <i class="fas fa-code"></i>
                                 <span>Code</span>
@@ -8714,6 +8718,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         function getPrettySectionType(sectionType) {
             const labels = {
                 text: 'Text',
+                markdown: 'Markdown',
                 images: 'Images',
                 image: 'Image',
                 image_gallery: 'Images',
@@ -10798,6 +10803,109 @@ document.getElementById("refreshButton").addEventListener("click", function () {
 
                             if (applyGradientBtn) applyGradientBtn.addEventListener('click', applyGradient);
                             if (clearGradientBtn) clearGradientBtn.addEventListener('click', clearGradient);
+
+                        } else if (section.section_type === 'markdown') {
+                            const _md = (section.content && section.content.markdown) || '';
+                            sectionContent.innerHTML = `
+        <div class="page-body-container section-container">
+            <form class="update-section-form"
+                  data-section-id="${section.id}"
+                  data-section-type="${section.section_type}"
+                  data-page-id="${section.page_content_id}">
+
+                <div class="markdown-editor-wrapper" style="display:flex;flex-direction:column;gap:10px;">
+                    <textarea name="markdown"
+                              id="md-source-${section.id}"
+                              rows="18"
+                              spellcheck="false"
+                              style="width:100%;min-height:300px;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#1d1d27;color:#e8e8ee;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;line-height:1.5;resize:vertical;"
+                              placeholder="# Heading
+
+Paste or write **Markdown** here.
+
+- Lists work
+- Tables work
+- \`Inline code\`
+
+\`\`\`python
+print('hello')
+\`\`\`
+">${_md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+                    <div style="font-size:0.78rem;color:rgba(255,255,255,0.55);">
+                        Markdown is rendered server-side on the public page. Supports headings, lists, tables,
+                        fenced code blocks, links, images, and inline formatting (GitHub-ish flavor).
+                    </div>
+                </div>
+
+                <div class="text-style-toggle-wrap">
+                    <button type="button" class="text-style-toggle" aria-expanded="false">
+                        <span>Background / Container Style</span>
+                        <span class="text-style-chevron"><i class="fas fa-chevron-down"></i></span>
+                    </button>
+
+                    <div class="text-style-panel">
+                        <div class="text-style-group">
+                            <label>Background Color</label>
+                            <input type="color" name="background_color" value="${section.content['background_color'] || '#000000'}">
+                        </div>
+                        <div class="text-style-group">
+                            <label>Opacity</label>
+                            <input type="range" name="background_opacity" min="0" max="1" step="0.05"
+                                value="${section.content['background_opacity'] || '0'}">
+                            <span class="range-value">${section.content['background_opacity'] || '0'}</span>
+                        </div>
+                        <div class="text-style-group">
+                            <label>Padding</label>
+                            <input type="range" name="padding" min="0" max="60" step="2"
+                                value="${section.content['padding'] || '20'}">
+                            <span class="range-value">${section.content['padding'] || '20'}px</span>
+                        </div>
+                        <div class="text-style-group">
+                            <label>Radius</label>
+                            <input type="range" name="border_radius" min="0" max="40" step="2"
+                                value="${section.content['border_radius'] || '10'}">
+                            <span class="range-value">${section.content['border_radius'] || '10'}px</span>
+                        </div>
+                        <div class="text-style-group">
+                            <label>Shadow</label>
+                            <select name="box_shadow">
+                                <option value="none"   ${section.content['box_shadow'] === 'none'   || !section.content['box_shadow'] ? 'selected' : ''}>None</option>
+                                <option value="light"  ${section.content['box_shadow'] === 'light'  ? 'selected' : ''}>Light</option>
+                                <option value="medium" ${section.content['box_shadow'] === 'medium' ? 'selected' : ''}>Medium</option>
+                                <option value="heavy"  ${section.content['box_shadow'] === 'heavy'  ? 'selected' : ''}>Heavy</option>
+                            </select>
+                        </div>
+                        <div class="text-style-group">
+                            <label>Max Width <span style="font-weight:normal; color:#aaa; font-size:11px;">(slide left for none)</span></label>
+                            <input type="range" name="text_max_width" min="0" max="1800" step="20"
+                                value="${section.content['text_max_width'] || '0'}">
+                            <span class="range-value">${section.content['text_max_width'] && section.content['text_max_width'] != '0' ? section.content['text_max_width'] + 'px' : 'None'}</span>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>`;
+
+                            // Range-value labels live-update like other sections.
+                            sectionContent.querySelectorAll('.text-style-group input[type="range"]').forEach(input => {
+                                input.addEventListener('input', () => {
+                                    const span = input.nextElementSibling;
+                                    if (!span) return;
+                                    if (input.name === 'padding')        span.textContent = input.value + 'px';
+                                    else if (input.name === 'border_radius') span.textContent = input.value + 'px';
+                                    else if (input.name === 'text_max_width') span.textContent = input.value === '0' ? 'None' : input.value + 'px';
+                                    else                                  span.textContent = input.value;
+                                });
+                            });
+                            // Style-panel collapse/expand toggle.
+                            const _mdToggle = sectionContent.querySelector('.text-style-toggle');
+                            if (_mdToggle) {
+                                _mdToggle.addEventListener('click', () => {
+                                    const expanded = _mdToggle.getAttribute('aria-expanded') === 'true';
+                                    _mdToggle.setAttribute('aria-expanded', !expanded);
+                                    _mdToggle.closest('.text-style-toggle-wrap').classList.toggle('open', !expanded);
+                                });
+                            }
 
                         } else if (section.section_type === 'map') {
                             sectionContent.innerHTML = `

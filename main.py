@@ -33,7 +33,7 @@ import pytz
 from dateutil import parser
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, Response, \
     flash, make_response, abort
-from markupsafe import escape
+from markupsafe import escape, Markup
 from flask_login import LoginManager, login_user, logout_user, login_required
 from flask_login import current_user, UserMixin
 from flask_mail import Mail, Message
@@ -2328,6 +2328,13 @@ class StoreProduct(db.Model):
     # one venue capacity — selling any tier decrements the same pool.
     variants_share_inventory = db.Column(db.Boolean, nullable=False, default=False,
                                          server_default=_sa_false())
+    # Optional per-product override for the order-confirmation email body.
+    # When set, replaces the generic "Thanks for your order — we'll start
+    # working on it" line so donations / services / digital-only products
+    # can use wording that actually matches what the buyer just bought.
+    # If multiple items in an order have overrides, all are included.
+    email_message_override = db.Column(db.Text, nullable=True)
+
     # For digital products only:
     digital_file_url     = db.Column(db.String(700), nullable=True)
     digital_expiry_days  = db.Column(db.Integer, nullable=False, default=7, server_default='7')
@@ -2421,6 +2428,17 @@ class StoreOrder(db.Model):
     total                    = db.Column(db.Numeric(10, 2), nullable=False)
     notes                    = db.Column(db.Text, nullable=True)
     stripe_payment_intent_id = db.Column(db.String(200), nullable=True)
+    # How the buyer chose to pay. 'stripe' for card/Apple-Pay/etc., 'paypal'
+    # for the PayPal Smart Buttons flow, 'manual' for pay-at-pickup / cash /
+    # Zelle / check. Defaults to 'stripe' so existing rows keep working.
+    payment_method           = db.Column(db.String(20), nullable=False,
+                                         server_default=db.text("'stripe'"), default='stripe')
+    # For manual orders only: free-form note the admin writes when marking
+    # the order paid ("$5 cash, gave $5 change", "Zelle txn ABC-123", etc).
+    manual_payment_note      = db.Column(db.Text, nullable=True)
+    # ID of the admin user who clicked "Mark as paid" — audit trail.
+    manual_paid_by_user_id   = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                                         nullable=True)
     # Random token in the order-status URL emailed to the buyer. Lets guests
     # check status without an account.
     tracking_token           = db.Column(db.String(64), nullable=True, index=True)
@@ -3077,6 +3095,21 @@ class StripeSettings(db.Model):
     # discounts, expiry, usage caps, and per-customer rules.
     allow_promotion_codes = db.Column(db.Boolean, nullable=False, default=False,
                                       server_default=_sa_false())
+    # ── Manual (offline) payment option ────────────────────────────────────
+    # Lets the buyer pick "pay at pickup / cash / Zelle / check / etc." at
+    # checkout, skipping Stripe entirely. The order is created in
+    # pending_payment and an admin marks it paid once funds arrive.
+    # Only offered to carts whose items are pickup / local_delivery / custom
+    # — shipping a physical good on the promise of future payment is risky,
+    # so we hide the option for shippable items.
+    manual_payment_enabled      = db.Column(db.Boolean, nullable=False, default=False,
+                                            server_default=_sa_false())
+    # Short label shown on the checkout button. Defaults to "Pay at pickup".
+    manual_payment_label        = db.Column(db.String(80), nullable=True)
+    # Free-form text (markdown OK) shown after the buyer picks this option
+    # and on the confirmation email — "Pay $X via Zelle to seth@…", "Cash
+    # at pickup", "Mail a check to …", etc.
+    manual_payment_instructions = db.Column(db.Text, nullable=True)
     updated_at = db.Column(db.DateTime, nullable=True)
 
 
@@ -15030,6 +15063,25 @@ def update_text_section(section, form_data):
     return section
 
 
+def update_markdown_section(section, form_data):
+    """Markdown section — stores raw markdown source as the source of truth.
+    Public templates render to HTML via the `render_markdown` Jinja filter.
+    Same container-style controls as the text section (bg, padding, etc.)."""
+    md_source = form_data.get('markdown', '')
+
+    section.content = {
+        'markdown':           md_source,
+        'background_color':   form_data.get('background_color',   '#000000'),
+        'background_opacity': form_data.get('background_opacity', '0'),
+        'padding':            form_data.get('padding',            '20'),
+        'border_radius':      form_data.get('border_radius',      '10'),
+        'box_shadow':         form_data.get('box_shadow',         'medium'),
+        'text_max_width':     form_data.get('text_max_width',     '0'),
+    }
+
+    return section
+
+
 # def update_code_section(section, form_data):
 #     text_content = form_data.get('text')
 #     section.content = {'text': text_content}
@@ -15523,6 +15575,8 @@ def update_section():
         section = update_images_section(section, form_data)
     elif section_type == 'text':
         section = update_text_section(section, form_data)
+    elif section_type == 'markdown':
+        section = update_markdown_section(section, form_data)
     elif section_type == 'button':
         section = update_button_section(section, form_data)
     elif section_type == 'contact_form':
@@ -21681,6 +21735,34 @@ def opaque_hex_filter(color, fallback='#ffffff'):
     return fallback
 
 
+@app.template_filter('render_markdown')
+def render_markdown_filter(text):
+    """Render raw markdown to HTML for the markdown section type.
+
+    Extensions enabled: `extra` (tables, fenced code, definition lists, etc.),
+    `sane_lists` (consistent list parsing), `nl2br` (single newlines become
+    <br> the way GitHub does), `toc` (heading IDs for anchor linking).
+    Result is wrapped in Markup() so the template renders it as HTML rather
+    than escaping it. Admin-authored content is trusted — same trust model
+    as the rich-text section's stored HTML.
+    """
+    if not text:
+        return Markup('')
+    try:
+        import markdown as _md
+        html = _md.markdown(
+            str(text),
+            extensions=['extra', 'sane_lists', 'nl2br', 'toc'],
+            output_format='html5',
+        )
+        return Markup(html)
+    except Exception as exc:
+        app.logger.warning('render_markdown failed: %s', exc)
+        # Fall back to escaped text in a <pre> so the page still renders.
+        from html import escape as _h
+        return Markup('<pre>{}</pre>'.format(_h(str(text))))
+
+
 @app.template_filter('badge_text_color')
 def badge_text_color_filter(hex_color):
     """Return '#fff' or '#000' using the same YIQ formula FullCalendar uses."""
@@ -23072,6 +23154,27 @@ def store_checkout():
     # would actually fire even if they ticked it.
     sms_provider = get_sms_settings_for_user(website.user_id)
     sms_enabled_for_buyer = bool(sms_provider and sms_provider.is_active)
+    # Manual / offline payment eligibility. Only offered when:
+    #   • the admin enabled it on the payment settings page, AND
+    #   • EVERY item in the cart has a fulfillment type compatible with
+    #     offline payment (pickup / local_delivery / custom). Mixing in
+    #     a shippable item would mean we'd have to ship before payment is
+    #     collected, which we don't allow.
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    _manual_allowed_ft = {'pickup', 'local_delivery', 'custom'}
+    manual_payment_enabled = bool(
+        stripe_settings
+        and stripe_settings.manual_payment_enabled
+        and cart_ft_set
+        and cart_ft_set.issubset(_manual_allowed_ft)
+    )
+    manual_payment_label = (
+        (stripe_settings.manual_payment_label if stripe_settings else None)
+        or 'Pay at pickup'
+    )
+    manual_payment_instructions = (
+        stripe_settings.manual_payment_instructions if stripe_settings else None
+    )
     return render_template('store/checkout.html',
                            website=website, cart=cart, items=items,
                            subtotal=subtotal, public_user=public_user,
@@ -23088,6 +23191,9 @@ def store_checkout():
                            cart_prep_minutes=cart_prep,
                            delivery_estimate=delivery_estimate,
                            sms_enabled_for_buyer=sms_enabled_for_buyer,
+                           manual_payment_enabled=manual_payment_enabled,
+                           manual_payment_label=manual_payment_label,
+                           manual_payment_instructions=manual_payment_instructions,
                            resolve_fulfillment=_resolve_item_fulfillment)
 
 
@@ -23252,6 +23358,39 @@ def store_checkout_submit():
             order.pickup_at = when
             order.pickup_is_asap = False
 
+    # ── Manual / offline payment branch ──────────────────────────────────
+    # The buyer chose to pay outside Stripe (cash, Zelle, check, etc.).
+    # We only honor this when the admin has it enabled AND every item in
+    # the cart is in-person fulfillment — otherwise it could ship before
+    # payment is received. Same safety check the GET handler uses to
+    # decide whether to show the option.
+    stripe_settings = get_stripe_settings_for_user(website.user_id)
+    requested_method = (data.get('payment_method') or 'stripe').strip().lower()
+    if requested_method == 'manual':
+        _allowed_ft = {'pickup', 'local_delivery', 'custom'}
+        if not (stripe_settings
+                and stripe_settings.manual_payment_enabled
+                and cart_ft and cart_ft.issubset(_allowed_ft)):
+            # Roll back the order we partially built and refuse.
+            db.session.rollback()
+            return _utf8_json({'error': 'Manual payment is not available for this cart.'}, 400)
+        order.payment_method = 'manual'
+        # Stay in pending_payment until the admin marks it paid. Clear the
+        # cart and email the buyer the merchant's payment instructions.
+        for item in list(cart.items):
+            db.session.delete(item)
+        db.session.commit()
+        try:
+            _send_order_manual_payment_pending_email(order, website,
+                                                    stripe_settings.manual_payment_instructions)
+        except Exception as e:
+            app.logger.warning(f'[orders] manual-payment-pending email failed: {e}')
+        return _utf8_json({
+            'success': True,
+            'order_id': order.id,
+            'redirect': url_for('store_order_confirmation', order_id=order.id),
+        })
+
     # Clear cart
     for item in list(cart.items):
         db.session.delete(item)
@@ -23262,7 +23401,6 @@ def store_checkout_submit():
     # redirect the buyer there. Otherwise fall through to the existing
     # confirmation page so the store still works without payments (the order
     # stays in pending_payment until a future Stripe configuration).
-    stripe_settings = get_stripe_settings_for_user(website.user_id)
     if stripe_settings and _stripe_secret_key(stripe_settings):
         try:
             session, _payment = create_stripe_checkout_session_for_store_order(order)
@@ -24407,6 +24545,54 @@ def admin_order_detail(order_id):
     )
 
 
+@app.route('/admin/orders/<int:order_id>/mark-paid', methods=['POST'])
+@login_required
+@require_perm('payments.manage')
+def admin_order_mark_paid(order_id):
+    """Admin clicks 'Mark as paid' on a manual-payment order — the order
+    moves to paid, the standard order-received email fires, and the
+    fulfillment pipeline opens up exactly as if Stripe had succeeded."""
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        abort(403)
+    if order.payment_method != 'manual':
+        return _utf8_json({'error': 'Only manual-payment orders can be marked paid here.'}, 400)
+    if order.status not in ('pending_payment',):
+        return _utf8_json({'error': f'Order is already in status "{order.status}".'}, 400)
+
+    data = request.get_json(silent=True) or {}
+    note = (data.get('note') or '').strip()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    order.status = 'paid'
+    order.paid_at = now
+    order.manual_payment_note = note or None
+    order.manual_paid_by_user_id = current_user.root_user_id
+    # Initialize each item's fulfillment pipeline at the first step (which
+    # is `paid` for every pipeline — see FULFILLMENT_PIPELINES). Same place
+    # Stripe-paid orders land via the webhook handler.
+    for it in order.items:
+        if not it.fulfillment_status:
+            pipeline = _pipeline_for(it.fulfillment_type or 'shipping')
+            it.fulfillment_status = pipeline[0][0] if pipeline else 'paid'
+            it.status_updated_at = now
+    db.session.add(OrderStatusEvent(
+        order_id=order.id,
+        from_status='pending_payment', to_status='paid',
+        actor_user_id=current_user.root_user_id,
+        message=(f'Marked paid manually. {note}' if note else 'Marked paid manually.'),
+        created_at=now,
+    ))
+    db.session.commit()
+
+    try:
+        _send_order_received_email(order, website)
+    except Exception as e:
+        app.logger.warning(f'[orders] order-received (post-manual-mark) email failed: {e}')
+
+    return _utf8_json({'success': True, 'redirect': url_for('admin_order_detail', order_id=order.id)})
+
+
 @app.route('/admin/orders/<int:order_id>/packlist')
 @login_required
 @require_perm('store.view')
@@ -25334,6 +25520,7 @@ def store_product_create():
         digital_file_url    = (data.get('digital_file_url') or '').strip() or None,
         digital_expiry_days = max(1, min(int(data.get('digital_expiry_days') or 7), 365)),
         tax_code            = _validate_tax_code(data.get('tax_code')),
+        email_message_override = ((data.get('email_message_override') or '').strip() or None),
     )
     db.session.add(product)
     db.session.flush()
@@ -25546,6 +25733,9 @@ def store_product_update(product_id):
                 product.prep_minutes = max(0, min(600, int(v)))
             except (TypeError, ValueError):
                 product.prep_minutes = None
+    if 'email_message_override' in data:
+        _msg = (data.get('email_message_override') or '').strip()
+        product.email_message_override = _msg or None
     if 'digital_file_url' in data:
         product.digital_file_url = (data.get('digital_file_url') or '').strip() or None
     if 'digital_expiry_days' in data:
@@ -28739,6 +28929,59 @@ def advance_item_status(item, new_status, **payload):
         _maybe_sms_for_event(order, event_key, nice + ' Reply STOP to opt out.')
 
 
+def _send_order_manual_payment_pending_email(order, website, instructions):
+    """Sent for manual / offline payment orders. The order is reserved but
+    no payment has been received yet — this email tells the buyer exactly
+    how to pay (admin-configured instructions) and includes the tracking
+    link so they can see their order's status."""
+    if not order.contact_email:
+        return
+    server = get_email_server_by_id(None) or get_default_email_server()
+    if not server or not server.is_active:
+        app.logger.warning('[orders] No active email server — manual-pending not sent.')
+        return
+    track_url = (_site_external_base(website) + url_for('public_order_status', token=order.tracking_token)
+                 if order.tracking_token else None)
+    item_rows = []
+    for it in order.items:
+        item_rows.append(
+            f'<li>{escape(it.product_name)}'
+            f'{" — " + escape(it.variant_options_snapshot) if it.variant_options_snapshot else ""}'
+            f' × {it.quantity} '
+            f'<span style="color:#666;">— ${float(it.line_total):.2f}</span></li>')
+    instructions_html = ''
+    if instructions:
+        instructions_html = (
+            f'<div style="background:rgba(94,238,200,0.08);border:1px solid rgba(94,238,200,0.3);'
+            f'border-radius:8px;padding:12px 14px;margin:14px 0;white-space:pre-line;">'
+            f'{escape(instructions)}</div>'
+        )
+    html = (
+        f'<p>Hi {escape(order.contact_name or "there")},</p>'
+        f'<p>Your order has been reserved. We&rsquo;ll start working on it as soon as payment is received.</p>'
+        f'<p><strong>Order #{escape(order.order_number)}</strong></p>'
+        f'<ul style="padding-left:18px;">{"".join(item_rows)}</ul>'
+        f'<p><strong>Total due: ${float(order.total):.2f}</strong></p>'
+        f'{instructions_html}'
+        + (f'<p style="margin:22px 0;text-align:center;">'
+           f'<a href="{escape(track_url)}" '
+           f'style="display:inline-block;padding:11px 22px;background:#5eeef8;'
+           f'color:#111;border-radius:8px;text-decoration:none;font-weight:600;">'
+           f'View order status</a></p>'
+           if track_url else '')
+        + '<p style="font-size:13px;color:#666;">'
+          'You&rsquo;ll get a payment-confirmation email once we&rsquo;ve marked your payment received.'
+          '</p>'
+    )
+    plain = _html_to_plain(html)
+    try:
+        send_via(server, order.contact_email,
+                 f'Order #{order.order_number} reserved — payment pending',
+                 html=html, text=plain)
+    except Exception as e:
+        app.logger.warning(f'[orders] manual-pending email failed: {e}')
+
+
 def _send_order_received_email(order, website):
     """Initial 'we got your order' email sent right after payment clears.
     Includes the tokenized status URL so guests can track without an account."""
@@ -28766,10 +29009,39 @@ def _send_order_received_email(order, website):
             f'border-radius:8px;padding:10px 14px;margin:14px 0;">'
             f'<strong>Pickup time:</strong> {escape(when_text)}</p>'
         )
+    # Build the opening line(s). Per-product `email_message_override` lets
+    # certain products (donations, services, digital goods) replace the
+    # generic "we'll start working on it" copy with something accurate.
+    # Rules:
+    #   • If every item in the order has an override → use only those.
+    #   • If some items have one → default line first, then each override.
+    #   • If none → just the default line.
+    intro_lines = []
+    override_msgs = []
+    seen_overrides = set()
+    for it in order.items:
+        prod = getattr(it, 'product', None)
+        msg = (prod.email_message_override or '').strip() if prod else ''
+        if msg and msg not in seen_overrides:
+            override_msgs.append((escape(it.product_name), msg))
+            seen_overrides.add(msg)
+    items_count = len(order.items)
+    if override_msgs and len(override_msgs) >= items_count:
+        # All items have an override — skip the generic line entirely.
+        for name, msg in override_msgs:
+            intro_lines.append(f'<p>{escape(msg)}</p>')
+    else:
+        intro_lines.append(
+            '<p>Thanks for your order! We\'ve received your payment and will start working on it.</p>'
+        )
+        for name, msg in override_msgs:
+            intro_lines.append(
+                f'<p><strong>{name}:</strong> {escape(msg)}</p>'
+            )
     html = (
         f'<p>Hi {escape(order.contact_name or "there")},</p>'
-        f'<p>Thanks for your order! We\'ve received your payment and will start working on it.</p>'
-        f'<p><strong>Order #{escape(order.order_number)}</strong></p>'
+        + ''.join(intro_lines)
+        + f'<p><strong>Order #{escape(order.order_number)}</strong></p>'
         f'<ul style="padding-left:18px;">{"".join(item_rows)}</ul>'
         f'{pickup_block}'
         f'<p><strong>Total: ${float(order.total):.2f}</strong></p>'
@@ -30263,6 +30535,14 @@ def admin_payments_save_stripe():
         settings.automatic_tax_enabled = bool(data.get('automatic_tax_enabled'))
     if 'allow_promotion_codes' in data:
         settings.allow_promotion_codes = bool(data.get('allow_promotion_codes'))
+    if 'manual_payment_enabled' in data:
+        settings.manual_payment_enabled = bool(data.get('manual_payment_enabled'))
+    if 'manual_payment_label' in data:
+        _lbl = (data.get('manual_payment_label') or '').strip()
+        settings.manual_payment_label = _lbl[:80] or None
+    if 'manual_payment_instructions' in data:
+        _ins = (data.get('manual_payment_instructions') or '').strip()
+        settings.manual_payment_instructions = _ins or None
     settings.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return _utf8_json({'success': True})

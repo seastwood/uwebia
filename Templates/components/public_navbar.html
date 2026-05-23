@@ -1574,6 +1574,24 @@
     color: rgba(255,255,255,0.5);
     font-size: 0.85rem;
 }
+/* Search hit highlight on the destination page. Brief pulse + persistent
+   yellow background so the user sees exactly which text matched their
+   query. Self-removes from the DOM after 5s (see navbar JS). */
+.uwebia-search-hit {
+    background: #ffe566;
+    color: #111;
+    padding: 0 2px;
+    border-radius: 3px;
+    box-shadow: 0 0 0 4px rgba(255, 229, 102, 0.45);
+    animation: uwebia-search-pulse 1.4s ease-out;
+    scroll-margin-top: var(--navbar-anchor-offset, 78px);
+}
+@keyframes uwebia-search-pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(255, 229, 102, 0.0); background: #fff7c2; }
+    25%  { box-shadow: 0 0 0 14px rgba(255, 229, 102, 0.55); background: #fff066; }
+    100% { box-shadow: 0 0 0 4px  rgba(255, 229, 102, 0.45); background: #ffe566; }
+}
+
 .public-navbar-search-results mark {
     background: rgba(94,238,248,0.32);
     color: inherit;
@@ -1676,10 +1694,142 @@
         window.publicNavbarSearchSubmit = function (e) {
             e.preventDefault();
             if (lastResults.length) {
-                window.location.href = lastResults[0].url;
+                _gotoSearchResult(lastResults[0].url);
             }
             return false;
         };
+
+        // Intercept clicks on inline result cards. The browser's native
+        // text-fragment (`:~:text=…`) scroll has two problems for us:
+        //   • Same-page: it doesn't fire at all (hash change without nav).
+        //   • Cross-page: it scrolls to center the match, which with a
+        //     fixed navbar pushes the match behind the bar.
+        // We do our own DOM walk for the query, wrap it in a highlight,
+        // and scroll the highlight to `block: 'start'` (which respects
+        // the page's scroll-padding-top, so it lands below the navbar).
+        results.addEventListener('click', function (e) {
+            const a = e.target.closest('.public-navbar-search-result');
+            if (!a) return;
+            const href = a.getAttribute('href');
+            if (!href) return;
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+            e.preventDefault();
+            _gotoSearchResult(href);
+        });
+
+        function _extractQuery(rawHash) {
+            // Hash looks like "#section-X:~:text=hello%20world" — pull the
+            // text directive out and URL-decode it.
+            const m = (rawHash || '').match(/:~:text=([^&]+)/);
+            if (!m) return '';
+            try { return decodeURIComponent(m[1].replace(/\+/g, ' ')); }
+            catch (_) { return ''; }
+        }
+
+        function _gotoSearchResult(href) {
+            const url = new URL(href, window.location.origin);
+            const rawHash = url.hash || '';
+            const query   = _extractQuery(rawHash);
+            const samePage = url.pathname === window.location.pathname
+                          && url.search === window.location.search;
+
+            // Close the side panel (if open) so the destination is visible.
+            const sidePanel = document.getElementById('publicNavbarMenu');
+            if (sidePanel) sidePanel.classList.remove('show');
+
+            if (samePage) {
+                history.replaceState(null, '', url.pathname + url.search + url.hash);
+                requestAnimationFrame(() => _highlightAndScroll(query));
+                return;
+            }
+            // Cross-page → stash the query so the destination can locate
+            // and highlight it after its own load settles.
+            if (query) {
+                try { sessionStorage.setItem('uwebia:search:query', query); } catch (_) {}
+            }
+            window.location.href = href;
+        }
+
+        // Walk the DOM for the first text-node match. Skip the navbar
+        // itself and any non-visible / non-content containers so we don't
+        // highlight the search input or sidebar contents.
+        function _findMatchRange(query) {
+            if (!query) return null;
+            const needle = query.toLowerCase();
+            const walker = document.createTreeWalker(
+                document.body, NodeFilter.SHOW_TEXT, {
+                    acceptNode: (node) => {
+                        if (!node.nodeValue || !node.parentElement) return NodeFilter.FILTER_REJECT;
+                        const p = node.parentElement;
+                        const tag = p.tagName;
+                        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+                        if (p.closest('.public-navbar, .public-navbar-menu, .public-navbar-dropdown-menu, [data-search-results]'))
+                            return NodeFilter.FILTER_REJECT;
+                        return node.nodeValue.toLowerCase().includes(needle)
+                            ? NodeFilter.FILTER_ACCEPT
+                            : NodeFilter.FILTER_SKIP;
+                    }
+                }
+            );
+            const node = walker.nextNode();
+            if (!node) return null;
+            const idx = node.nodeValue.toLowerCase().indexOf(needle);
+            if (idx < 0) return null;
+            const range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + query.length);
+            return range;
+        }
+
+        function _highlightAndScroll(query) {
+            const range = _findMatchRange(query);
+            if (!range) return;
+            const mark = document.createElement('mark');
+            mark.className = 'uwebia-search-hit';
+            try {
+                range.surroundContents(mark);
+            } catch (_) {
+                // surroundContents fails when the range crosses element
+                // boundaries — fall back to a raw scroll on the range's
+                // bounding rect.
+                const rect = range.getBoundingClientRect();
+                const navOffset = parseInt(getComputedStyle(document.documentElement)
+                                  .getPropertyValue('--navbar-anchor-offset')) || 78;
+                window.scrollTo({
+                    top: window.scrollY + rect.top - navOffset - 12,
+                    behavior: 'smooth'
+                });
+                return;
+            }
+            // `scroll-padding-top` on <html> keeps the mark below the navbar.
+            mark.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Auto-remove the highlight after a few seconds so it doesn't
+            // permanently mutate the DOM if the user navigates back.
+            setTimeout(() => {
+                const parent = mark.parentNode;
+                if (!parent) return;
+                while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+                parent.removeChild(mark);
+                parent.normalize();
+            }, 5000);
+        }
+
+        // On cross-page nav, the destination reads the stored query and
+        // runs the same highlight-and-scroll once its DOM is ready.
+        try {
+            const q = sessionStorage.getItem('uwebia:search:query');
+            if (q) {
+                sessionStorage.removeItem('uwebia:search:query');
+                const fire = () => _highlightAndScroll(q);
+                if (document.readyState === 'complete') {
+                    // Wait one frame so any browser text-fragment scroll
+                    // has fired; we overwrite it.
+                    requestAnimationFrame(fire);
+                } else {
+                    window.addEventListener('load', () => setTimeout(fire, 60), { once: true });
+                }
+            }
+        } catch (_) {}
     })();
 
     function togglePublicNavbarMenu(event) {
