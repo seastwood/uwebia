@@ -12215,10 +12215,10 @@ def admin_set_mirror_display_name():
 
 # ── Backup / Restore ──────────────────────────────────────────────────────────
 
-BACKUP_VERSION = 2
+BACKUP_VERSION = 3
 # Backup versions the restore endpoint will accept. Old v1 backups remain
 # importable; fields added after v1 are simply blank on the restored side.
-BACKUP_ACCEPTED_VERSIONS = {1, 2}
+BACKUP_ACCEPTED_VERSIONS = {1, 2, 3}
 
 
 def _serialize_backup(uid):
@@ -12345,6 +12345,112 @@ def _serialize_backup(uid):
     # the destination after restore.
     stripe_settings_row = StripeSettings.query.filter_by(user_id=uid).first()
 
+    # ── Additional tables added in the "complete backup" pass ──────────
+    # All queries scope to this admin's data via user_id or one of the
+    # already-collected ID lists (websites / orders / products / etc.).
+
+    # Tag system (page + website tags).
+    website_tags = WebsiteTag.query.filter(WebsiteTag.website_id.in_(website_ids)).all() if website_ids else []
+    page_tags    = PageTag.query.filter(PageTag.page_id.in_(page_ids)).all() if page_ids else []
+    _tag_ids     = list({wt.tag_id for wt in website_tags} | {pt.tag_id for pt in page_tags})
+    tags         = Tag.query.filter(Tag.id.in_(_tag_ids)).all() if _tag_ids else []
+
+    # Public-user roles (and the M2M between PublicUser ↔ PublicUserRole).
+    public_user_roles = PublicUserRole.query.filter(
+        PublicUserRole.website_id.in_(website_ids)).all() if website_ids else []
+    public_user_role_assignments = []
+    if public_users:
+        for pu in public_users:
+            try:
+                for r in (pu.roles or []):
+                    public_user_role_assignments.append((pu.id, r.id))
+            except Exception:
+                pass
+
+    # PublicUserAddress.
+    _pub_user_ids = [pu.id for pu in public_users]
+    public_user_addresses = (
+        PublicUserAddress.query.filter(PublicUserAddress.public_user_id.in_(_pub_user_ids)).all()
+        if _pub_user_ids else []
+    )
+
+    # Store: variants, inventory log, shipments, status events, tickets, returns.
+    store_product_variants = (
+        StoreProductVariant.query.filter(StoreProductVariant.product_id.in_(store_prod_ids)).all()
+        if store_prod_ids else []
+    )
+    inventory_movements = InventoryMovement.query.filter_by(user_id=uid).all()
+    order_shipments = (
+        OrderShipment.query.filter(OrderShipment.order_id.in_(store_order_ids)).all()
+        if store_order_ids else []
+    )
+    order_status_events = (
+        OrderStatusEvent.query.filter(OrderStatusEvent.order_id.in_(store_order_ids)).all()
+        if store_order_ids else []
+    )
+    order_tickets = (
+        OrderTicket.query.filter(OrderTicket.order_id.in_(store_order_ids)).all()
+        if store_order_ids else []
+    )
+    order_returns = (
+        OrderReturn.query.filter(OrderReturn.order_id.in_(store_order_ids)).all()
+        if store_order_ids else []
+    )
+    _return_ids = [r.id for r in order_returns]
+    order_return_items = (
+        OrderReturnItem.query.filter(OrderReturnItem.return_id.in_(_return_ids)).all()
+        if _return_ids else []
+    )
+
+    # Store admin config.
+    shipping_methods = ShippingMethod.query.filter_by(user_id=uid).all()
+    delivery_areas = DeliveryArea.query.filter_by(user_id=uid).all()
+    store_fulfillment_settings = StoreFulfillmentSettings.query.filter_by(user_id=uid).all()
+
+    # Support threads + messages (anchored to this admin's orders/websites).
+    support_threads = (
+        SupportThread.query.filter(SupportThread.website_id.in_(website_ids)).all()
+        if website_ids else []
+    )
+    _thread_ids = [t.id for t in support_threads]
+    support_messages = (
+        SupportMessage.query.filter(SupportMessage.thread_id.in_(_thread_ids)).all()
+        if _thread_ids else []
+    )
+
+    # Payment records.
+    payments = Payment.query.filter_by(user_id=uid).all()
+    _payment_ids = [p.id for p in payments]
+
+    # Stripe webhook events (only those that reference our payments).
+    stripe_webhook_events = (
+        StripeWebhookEvent.query.filter(StripeWebhookEvent.payment_id.in_(_payment_ids)).all()
+        if _payment_ids else []
+    )
+
+    # Notifications.
+    notification_channels = NotificationChannel.query.filter_by(user_id=uid).all()
+    _channel_ids = [c.id for c in notification_channels]
+    notification_rules = (
+        NotificationRule.query.filter(NotificationRule.channel_id.in_(_channel_ids)).all()
+        if _channel_ids else []
+    )
+    _rule_ids = [r.id for r in notification_rules]
+    notification_deliveries = (
+        NotificationDelivery.query.filter(NotificationDelivery.rule_id.in_(_rule_ids)).all()
+        if _rule_ids else []
+    )
+
+    # SMS (encrypted secrets in config are stripped on serialize).
+    sms_provider_settings_row = SmsProviderSettings.query.filter_by(user_id=uid).first()
+    sms_logs = SmsLog.query.filter_by(user_id=uid).all()
+
+    # OAuth app credentials (global, single-tenant friendly).
+    oauth_app_credentials = OAuthAppCredentials.query.all()
+
+    # Admin chat (this admin's messages).
+    admin_chat_messages = AdminChatMessage.query.filter_by(user_id=uid).all()
+
     email_server_settings = EmailServerSettings.query.all()
 
     analytics_settings = AnalyticsSettings.query.filter_by(user_id=uid).all()
@@ -12379,6 +12485,11 @@ def _serialize_backup(uid):
         },
         'websites': [{'id': w.id, 'name': w.name, 'description': w.description,
                       'is_draft': w.is_draft,
+                      'is_live':   w.is_live,
+                      # NULL = primary website (served at root). Without
+                      # this, restored secondary websites all collapse to
+                      # primary and stop being deletable.
+                      'url_prefix': w.url_prefix,
                       'background_color': w.background_color, 'text_color': w.text_color,
                       'background_image_url': w.background_image_url,
                       'background_image_repeat': w.background_image_repeat,
@@ -12612,9 +12723,23 @@ def _serialize_backup(uid):
                           } for o in store_orders],
         'store_order_items': [{'id': i.id, 'order_id': i.order_id, 'product_id': i.product_id,
                                'product_name': i.product_name, 'product_sku': i.product_sku,
+                               'variant_id': i.variant_id,
+                               'variant_options_snapshot': i.variant_options_snapshot,
                                'quantity': i.quantity,
                                'unit_price': str(i.unit_price) if i.unit_price is not None else None,
                                'line_total': str(i.line_total) if i.line_total is not None else None,
+                               'fulfillment_type': i.fulfillment_type,
+                               'fulfillment_status': i.fulfillment_status,
+                               'tracking_carrier': i.tracking_carrier,
+                               'tracking_number':  i.tracking_number,
+                               'tracking_url':     i.tracking_url,
+                               'tracking_note':    i.tracking_note,
+                               'digital_token': i.digital_token,
+                               'digital_expires_at': i.digital_expires_at.isoformat() if i.digital_expires_at else None,
+                               'ticket_code': i.ticket_code,
+                               'status_updated_at': i.status_updated_at.isoformat() if i.status_updated_at else None,
+                               'fulfilled_at':      i.fulfilled_at.isoformat() if i.fulfilled_at else None,
+                               'shipment_id':       i.shipment_id,
                                } for i in store_order_items],
         'store_order_addresses': [{'id': a.id, 'order_id': a.order_id, 'name': a.name,
                                    'line1': a.line1, 'line2': a.line2, 'city': a.city,
@@ -12649,6 +12774,207 @@ def _serialize_backup(uid):
             'manual_payment_instructions': stripe_settings_row.manual_payment_instructions,
             'updated_at':                  stripe_settings_row.updated_at.isoformat() if stripe_settings_row.updated_at else None,
         } if stripe_settings_row else None),
+        # ── "Complete backup" additions ────────────────────────────────────
+        'tags': [{'id': t.id, 'name': t.name} for t in tags],
+        'website_tags': [{'website_id': w.website_id, 'tag_id': w.tag_id} for w in website_tags],
+        'page_tags':    [{'page_id': p.page_id,       'tag_id': p.tag_id}    for p in page_tags],
+        'public_user_roles': [{'id': r.id, 'website_id': r.website_id,
+                               'name': r.name, 'color': r.color,
+                               'created_at': r.created_at.isoformat() if r.created_at else None,
+                               } for r in public_user_roles],
+        'public_user_role_assignments': [
+            {'public_user_id': pu_id, 'role_id': r_id}
+            for (pu_id, r_id) in public_user_role_assignments
+        ],
+        'public_user_addresses': [{'id': a.id, 'public_user_id': a.public_user_id,
+                                   'label': a.label, 'name': a.name,
+                                   'line1': a.line1, 'line2': a.line2,
+                                   'city': a.city, 'state': a.state,
+                                   'postal_code': a.postal_code, 'country': a.country,
+                                   'phone': a.phone, 'is_default': a.is_default,
+                                   'created_at': a.created_at.isoformat() if a.created_at else None,
+                                   } for a in public_user_addresses],
+        'store_product_variants': [{'id': v.id, 'product_id': v.product_id,
+                                    'sku': v.sku,
+                                    'option1': v.option1, 'option2': v.option2, 'option3': v.option3,
+                                    'price_override': str(v.price_override) if v.price_override is not None else None,
+                                    'inventory_qty': v.inventory_qty, 'is_active': v.is_active,
+                                    'image_asset_id': v.image_asset_id,
+                                    'sort_order': v.sort_order,
+                                    'tickets_per_package': v.tickets_per_package,
+                                    'created_at': v.created_at.isoformat() if v.created_at else None,
+                                    } for v in store_product_variants],
+        'inventory_movements': [{'id': m.id, 'user_id': m.user_id,
+                                 'product_id': m.product_id, 'variant_id': m.variant_id,
+                                 'product_name_snapshot': m.product_name_snapshot,
+                                 'variant_label_snapshot': m.variant_label_snapshot,
+                                 'delta': m.delta, 'quantity_after': m.quantity_after,
+                                 'reason': m.reason,
+                                 'source_type': m.source_type, 'source_id': m.source_id,
+                                 'actor_user_id': m.actor_user_id, 'note': m.note,
+                                 'created_at': m.created_at.isoformat() if m.created_at else None,
+                                 } for m in inventory_movements],
+        'order_shipments': [{'id': s.id, 'order_id': s.order_id,
+                             'sequence': s.sequence,
+                             'fulfillment_type': s.fulfillment_type, 'status': s.status,
+                             'tracking_carrier': s.tracking_carrier,
+                             'tracking_number':  s.tracking_number,
+                             'tracking_url':     s.tracking_url,
+                             'tracking_note':    s.tracking_note,
+                             'status_updated_at': s.status_updated_at.isoformat() if s.status_updated_at else None,
+                             'fulfilled_at':      s.fulfilled_at.isoformat() if s.fulfilled_at else None,
+                             'created_at':        s.created_at.isoformat() if s.created_at else None,
+                             } for s in order_shipments],
+        'order_status_events': [{'id': e.id, 'order_id': e.order_id, 'item_id': e.item_id,
+                                 'from_status': e.from_status, 'to_status': e.to_status,
+                                 'message': e.message, 'payload': e.payload,
+                                 'actor_user_id': e.actor_user_id,
+                                 'is_visible_to_buyer': e.is_visible_to_buyer,
+                                 'created_at': e.created_at.isoformat() if e.created_at else None,
+                                 } for e in order_status_events],
+        'order_tickets': [{'id': t.id, 'order_id': t.order_id, 'order_item_id': t.order_item_id,
+                           'product_id': t.product_id, 'variant_id': t.variant_id,
+                           'calendar_event_id': t.calendar_event_id,
+                           'code': t.code, 'event_label': t.event_label,
+                           'tier_label': t.tier_label, 'attendee_name': t.attendee_name,
+                           'redeemed_at': t.redeemed_at.isoformat() if t.redeemed_at else None,
+                           'redeemed_by_user_id': t.redeemed_by_user_id,
+                           'created_at': t.created_at.isoformat() if t.created_at else None,
+                           } for t in order_tickets],
+        'order_returns': [{'id': r.id, 'order_id': r.order_id,
+                           'rma_number': r.rma_number, 'status': r.status,
+                           'reason_code': r.reason_code, 'reason_note': r.reason_note,
+                           'admin_note': r.admin_note,
+                           'return_carrier': r.return_carrier,
+                           'return_tracking_number': r.return_tracking_number,
+                           'return_tracking_url': r.return_tracking_url,
+                           'refund_amount_cents': r.refund_amount_cents,
+                           'refund_includes_shipping': r.refund_includes_shipping,
+                           'stripe_refund_id': r.stripe_refund_id,
+                           'restocked': r.restocked,
+                           'initiated_by': r.initiated_by,
+                           'initiated_by_user_id': r.initiated_by_user_id,
+                           'requested_at': r.requested_at.isoformat() if r.requested_at else None,
+                           'approved_at': r.approved_at.isoformat() if r.approved_at else None,
+                           'shipped_at': r.shipped_at.isoformat() if r.shipped_at else None,
+                           'received_at': r.received_at.isoformat() if r.received_at else None,
+                           'refunded_at': r.refunded_at.isoformat() if r.refunded_at else None,
+                           'closed_at':   r.closed_at.isoformat()   if r.closed_at   else None,
+                           } for r in order_returns],
+        'order_return_items': [{'id': i.id, 'return_id': i.return_id,
+                                'order_item_id': i.order_item_id, 'quantity': i.quantity,
+                                'refund_amount_cents': i.refund_amount_cents,
+                                'restocked': i.restocked,
+                                } for i in order_return_items],
+        'shipping_methods': [{'id': s.id, 'label': s.label, 'amount_cents': s.amount_cents,
+                              'currency': s.currency,
+                              'delivery_min_days': s.delivery_min_days,
+                              'delivery_max_days': s.delivery_max_days,
+                              'applies_to': s.applies_to,
+                              'free_over_amount_cents': s.free_over_amount_cents,
+                              'sort_order': s.sort_order, 'is_active': s.is_active,
+                              'created_at': s.created_at.isoformat() if s.created_at else None,
+                              } for s in shipping_methods],
+        'delivery_areas': [{'id': d.id, 'allowed_postal_codes': d.allowed_postal_codes,
+                            'is_active': d.is_active,
+                            'updated_at': d.updated_at.isoformat() if d.updated_at else None,
+                            } for d in delivery_areas],
+        'store_fulfillment_settings': [{
+            'config': s.config,
+            'allow_buyer_returns':  s.allow_buyer_returns,
+            'return_window_days':   s.return_window_days,
+            'returns_address':      s.returns_address,
+            'returns_instructions': s.returns_instructions,
+            'tips_enabled':         s.tips_enabled,
+            'tip_presets':          s.tip_presets,
+            'pickup_hours':         s.pickup_hours,
+            'pickup_slot_minutes':  s.pickup_slot_minutes,
+            'pickup_allow_asap':    s.pickup_allow_asap,
+            'pickup_advance_days':  s.pickup_advance_days,
+            'pickup_lead_minutes':  s.pickup_lead_minutes,
+            'pickup_prep_minutes':  s.pickup_prep_minutes,
+            'pickup_location_note': s.pickup_location_note,
+            'support_enabled':      s.support_enabled,
+            'updated_at': s.updated_at.isoformat() if s.updated_at else None,
+        } for s in store_fulfillment_settings],
+        'support_threads': [{'id': t.id, 'website_id': t.website_id,
+                             'order_id': t.order_id, 'public_user_id': t.public_user_id,
+                             'contact_name': t.contact_name, 'contact_email': t.contact_email,
+                             'subject': t.subject, 'status': t.status,
+                             'created_at': t.created_at.isoformat() if t.created_at else None,
+                             'last_message_at': t.last_message_at.isoformat() if t.last_message_at else None,
+                             'admin_unread_count': t.admin_unread_count,
+                             'buyer_unread_count': t.buyer_unread_count,
+                             } for t in support_threads],
+        'support_messages': [{'id': m.id, 'thread_id': m.thread_id,
+                              'sender_type': m.sender_type,
+                              'sender_public_user_id': m.sender_public_user_id,
+                              'sender_name': m.sender_name, 'body': m.body,
+                              'created_at': m.created_at.isoformat() if m.created_at else None,
+                              } for m in support_messages],
+        'payments': [{'id': p.id, 'source_type': p.source_type, 'source_id': p.source_id,
+                      'amount_cents': p.amount_cents, 'currency': p.currency,
+                      'status': p.status,
+                      'stripe_session_id': p.stripe_session_id,
+                      'stripe_payment_intent_id': p.stripe_payment_intent_id,
+                      'stripe_charge_id': p.stripe_charge_id,
+                      'customer_email': p.customer_email,
+                      'last_event_id': p.last_event_id, 'error_message': p.error_message,
+                      'created_at': p.created_at.isoformat() if p.created_at else None,
+                      'completed_at': p.completed_at.isoformat() if p.completed_at else None,
+                      } for p in payments],
+        'stripe_webhook_events': [{'id': e.id, 'event_id': e.event_id,
+                                   'event_type': e.event_type, 'payment_id': e.payment_id,
+                                   'received_at': e.received_at.isoformat() if e.received_at else None,
+                                   } for e in stripe_webhook_events],
+        'notification_channels': [{'id': c.id, 'label': c.label, 'provider': c.provider,
+                                   # Provider config may contain encrypted secrets that
+                                   # depend on the source's Fernet key — drop on serialize.
+                                   'config': None,
+                                   'is_active': c.is_active,
+                                   'created_at': c.created_at.isoformat() if c.created_at else None,
+                                   'last_used_at': c.last_used_at.isoformat() if c.last_used_at else None,
+                                   } for c in notification_channels],
+        'notification_rules': [{'id': r.id, 'channel_id': r.channel_id,
+                                'event_type': r.event_type, 'website_id': r.website_id,
+                                'calendar_id': r.calendar_id, 'collection_id': r.collection_id,
+                                'prepend_text': r.prepend_text, 'config': r.config,
+                                'is_enabled': r.is_enabled,
+                                'created_at': r.created_at.isoformat() if r.created_at else None,
+                                } for r in notification_rules],
+        'notification_deliveries': [{'id': d.id, 'rule_id': d.rule_id,
+                                     'subject_key': d.subject_key,
+                                     'sent_at': d.sent_at.isoformat() if d.sent_at else None,
+                                     'success': d.success, 'error': d.error,
+                                     } for d in notification_deliveries],
+        # SMS provider config: secrets in `config` are encrypted with the source's
+        # Fernet key — strip on serialize. Non-secret operational settings ride along.
+        'sms_provider_settings': ({
+            'provider': sms_provider_settings_row.provider,
+            'is_active': sms_provider_settings_row.is_active,
+            'account_label': sms_provider_settings_row.account_label,
+            'monthly_cap_cents': sms_provider_settings_row.monthly_cap_cents,
+            'fallback_to_email': sms_provider_settings_row.fallback_to_email,
+            'channel_config': sms_provider_settings_row.channel_config,
+        } if sms_provider_settings_row else None),
+        'sms_logs': [{'id': l.id, 'provider': l.provider, 'direction': l.direction,
+                      'phone': l.phone, 'body': l.body, 'status': l.status,
+                      'cost_cents': l.cost_cents,
+                      'provider_message_id': l.provider_message_id,
+                      'error_message': l.error_message,
+                      'created_at': l.created_at.isoformat() if l.created_at else None,
+                      } for l in sms_logs],
+        # OAuth app credentials: secrets (client_secret) are NOT encrypted in
+        # the DB but they ARE deploy-specific (each install has its own OAuth
+        # apps registered with the provider). Skip on serialize.
+        'oauth_app_credentials': [{'provider': o.provider,
+                                   'client_id': o.client_id,
+                                   'extra': o.extra,
+                                   'updated_at': o.updated_at.isoformat() if o.updated_at else None,
+                                   } for o in oauth_app_credentials],
+        'admin_chat_messages': [{'message': m.message,
+                                 'created_at': m.created_at.isoformat() if m.created_at else None,
+                                 } for m in admin_chat_messages],
         'email_server_settings': [{'id': e.id,
                                    'label': e.label, 'is_default': e.is_default,
                                    'smtp_host': e.smtp_host,
@@ -12860,6 +13186,8 @@ def import_backup():
             for wd in data.get('websites', []):
                 w = Website(user_id=uid, name=wd['name'], description=wd.get('description'),
                             is_draft=wd.get('is_draft', False),
+                            is_live=wd.get('is_live', True),
+                            url_prefix=(wd.get('url_prefix') or None),
                             background_color=wd.get('background_color', '#ffffff'),
                             text_color=wd.get('text_color', '#000000'),
                             background_image_url=wd.get('background_image_url'),
@@ -13558,18 +13886,47 @@ def import_backup():
                 store_order_map[od['id']] = so.id
 
             # ── StoreOrderItem ────────────────────────────────────────────────
+            # Map kept so downstream tables (OrderTicket, OrderReturnItem,
+            # OrderShipment.shipment_id) can resolve to the new IDs. The
+            # variant_id / shipment_id FKs are filled in a second pass below
+            # since StoreProductVariant and OrderShipment haven't been
+            # restored yet at this point.
+            order_item_map = {}
+            order_item_pending_variant = {}   # new_item_id → source variant_id
+            order_item_pending_shipment = {}  # new_item_id → source shipment_id
             for id_ in data.get('store_order_items', []):
                 new_oid = store_order_map.get(id_['order_id'])
                 if not new_oid:
                     continue
                 from decimal import Decimal as _Decimal
-                db.session.add(StoreOrderItem(
+                soi = StoreOrderItem(
                     order_id=new_oid,
                     product_id=store_prod_map.get(id_['product_id']) if id_.get('product_id') else None,
                     product_name=id_.get('product_name'), product_sku=id_.get('product_sku'),
+                    variant_options_snapshot=id_.get('variant_options_snapshot'),
                     quantity=id_.get('quantity', 1),
                     unit_price=_Decimal(str(id_['unit_price'])) if id_.get('unit_price') is not None else None,
-                    line_total=_Decimal(str(id_['line_total'])) if id_.get('line_total') is not None else None))
+                    line_total=_Decimal(str(id_['line_total'])) if id_.get('line_total') is not None else None,
+                    fulfillment_type=id_.get('fulfillment_type'),
+                    fulfillment_status=id_.get('fulfillment_status'),
+                    tracking_carrier=id_.get('tracking_carrier'),
+                    tracking_number=id_.get('tracking_number'),
+                    tracking_url=id_.get('tracking_url'),
+                    tracking_note=id_.get('tracking_note'),
+                    digital_token=id_.get('digital_token'),
+                    digital_expires_at=datetime.fromisoformat(id_['digital_expires_at']) if id_.get('digital_expires_at') else None,
+                    ticket_code=id_.get('ticket_code'),
+                    status_updated_at=datetime.fromisoformat(id_['status_updated_at']) if id_.get('status_updated_at') else None,
+                    fulfilled_at=datetime.fromisoformat(id_['fulfilled_at']) if id_.get('fulfilled_at') else None,
+                )
+                db.session.add(soi)
+                db.session.flush()
+                if id_.get('id'):
+                    order_item_map[id_['id']] = soi.id
+                if id_.get('variant_id'):
+                    order_item_pending_variant[soi.id] = id_['variant_id']
+                if id_.get('shipment_id'):
+                    order_item_pending_shipment[soi.id] = id_['shipment_id']
 
             # ── StoreOrderAddress ─────────────────────────────────────────────
             for ad in data.get('store_order_addresses', []):
@@ -13580,6 +13937,29 @@ def import_backup():
                     order_id=new_oid, name=ad.get('name'), line1=ad.get('line1'),
                     line2=ad.get('line2'), city=ad.get('city'), state=ad.get('state'),
                     postal_code=ad.get('postal_code'), country=ad.get('country')))
+
+            # ── StoreProductVariant ───────────────────────────────────────────
+            variant_map = {}
+            from decimal import Decimal as _Decimal
+            for vd in data.get('store_product_variants', []):
+                new_pid = store_prod_map.get(vd.get('product_id'))
+                if not new_pid:
+                    continue
+                spv = StoreProductVariant(
+                    product_id=new_pid, sku=vd.get('sku'),
+                    option1=vd.get('option1'), option2=vd.get('option2'), option3=vd.get('option3'),
+                    price_override=_Decimal(str(vd['price_override'])) if vd.get('price_override') is not None else None,
+                    inventory_qty=vd.get('inventory_qty', 0),
+                    is_active=vd.get('is_active', True),
+                    image_asset_id=asset_map.get(vd['image_asset_id']) if vd.get('image_asset_id') else None,
+                    sort_order=vd.get('sort_order', 0),
+                    tickets_per_package=vd.get('tickets_per_package', 1),
+                    created_at=datetime.fromisoformat(vd['created_at']) if vd.get('created_at') else None,
+                )
+                db.session.add(spv)
+                db.session.flush()
+                if vd.get('id'):
+                    variant_map[vd['id']] = spv.id
 
             # ── ProductReview ─────────────────────────────────────────────────
             for rd in data.get('product_reviews', []):
@@ -13592,6 +13972,436 @@ def import_backup():
                     public_user_id=pub_user_map.get(rd['public_user_id']) if rd.get('public_user_id') else None,
                     rating=rd.get('rating'), title=rd.get('title'), body=rd.get('body'),
                     created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None))
+
+            # ── Tag system ────────────────────────────────────────────────────
+            tag_map = {}
+            for td in data.get('tags', []):
+                # Tag.name is globally unique. Reuse existing rows by name
+                # instead of duplicating.
+                existing = Tag.query.filter_by(name=td.get('name')).first()
+                if existing is None:
+                    existing = Tag(name=td['name'])
+                    db.session.add(existing)
+                    db.session.flush()
+                if td.get('id'):
+                    tag_map[td['id']] = existing.id
+            for wt in data.get('website_tags', []):
+                new_wid = website_map.get(wt.get('website_id'))
+                new_tid = tag_map.get(wt.get('tag_id'))
+                if not new_wid or not new_tid:
+                    continue
+                if not WebsiteTag.query.filter_by(website_id=new_wid, tag_id=new_tid).first():
+                    db.session.add(WebsiteTag(website_id=new_wid, tag_id=new_tid))
+            for pt in data.get('page_tags', []):
+                new_pid = page_map.get(pt.get('page_id'))
+                new_tid = tag_map.get(pt.get('tag_id'))
+                if not new_pid or not new_tid:
+                    continue
+                if not PageTag.query.filter_by(page_id=new_pid, tag_id=new_tid).first():
+                    db.session.add(PageTag(page_id=new_pid, tag_id=new_tid))
+
+            # ── PublicUserRole + assignments ──────────────────────────────────
+            public_role_map = {}
+            for rd in data.get('public_user_roles', []):
+                new_wid = website_map.get(rd.get('website_id'))
+                if not new_wid:
+                    continue
+                pur = PublicUserRole(
+                    website_id=new_wid, name=rd.get('name', 'Role'),
+                    color=rd.get('color') or '#5eeef8',
+                    created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
+                )
+                db.session.add(pur)
+                db.session.flush()
+                if rd.get('id'):
+                    public_role_map[rd['id']] = pur.id
+            for ra in data.get('public_user_role_assignments', []):
+                new_pu = pub_user_map.get(ra.get('public_user_id'))
+                new_r  = public_role_map.get(ra.get('role_id'))
+                if not new_pu or not new_r:
+                    continue
+                pu = db.session.get(PublicUser, new_pu)
+                pr = db.session.get(PublicUserRole, new_r)
+                if pu and pr and pr not in pu.roles:
+                    pu.roles.append(pr)
+
+            # ── PublicUserAddress ─────────────────────────────────────────────
+            for ad in data.get('public_user_addresses', []):
+                new_pu = pub_user_map.get(ad.get('public_user_id'))
+                if not new_pu:
+                    continue
+                db.session.add(PublicUserAddress(
+                    public_user_id=new_pu, label=ad.get('label'),
+                    name=ad.get('name'), line1=ad.get('line1'), line2=ad.get('line2'),
+                    city=ad.get('city'), state=ad.get('state'),
+                    postal_code=ad.get('postal_code'), country=ad.get('country'),
+                    phone=ad.get('phone'), is_default=bool(ad.get('is_default')),
+                    created_at=datetime.fromisoformat(ad['created_at']) if ad.get('created_at') else None,
+                ))
+
+            # ── InventoryMovement ─────────────────────────────────────────────
+            for m in data.get('inventory_movements', []):
+                db.session.add(InventoryMovement(
+                    user_id=uid,
+                    product_id=store_prod_map.get(m.get('product_id')) if m.get('product_id') else None,
+                    variant_id=variant_map.get(m.get('variant_id')) if m.get('variant_id') else None,
+                    product_name_snapshot=m.get('product_name_snapshot'),
+                    variant_label_snapshot=m.get('variant_label_snapshot'),
+                    delta=m.get('delta', 0),
+                    quantity_after=m.get('quantity_after', 0),
+                    reason=m.get('reason') or 'other',
+                    source_type=m.get('source_type'), source_id=m.get('source_id'),
+                    actor_user_id=None,  # cross-deploy admin IDs aren't portable
+                    note=m.get('note'),
+                    created_at=datetime.fromisoformat(m['created_at']) if m.get('created_at') else None,
+                ))
+
+            # ── OrderShipment ─────────────────────────────────────────────────
+            shipment_map = {}
+            for sd in data.get('order_shipments', []):
+                new_oid = store_order_map.get(sd.get('order_id'))
+                if not new_oid:
+                    continue
+                os = OrderShipment(
+                    order_id=new_oid, sequence=sd.get('sequence', 1),
+                    fulfillment_type=sd.get('fulfillment_type') or 'shipping',
+                    status=sd.get('status') or 'preparing',
+                    tracking_carrier=sd.get('tracking_carrier'),
+                    tracking_number=sd.get('tracking_number'),
+                    tracking_url=sd.get('tracking_url'),
+                    tracking_note=sd.get('tracking_note'),
+                    status_updated_at=datetime.fromisoformat(sd['status_updated_at']) if sd.get('status_updated_at') else None,
+                    fulfilled_at=datetime.fromisoformat(sd['fulfilled_at']) if sd.get('fulfilled_at') else None,
+                    created_at=datetime.fromisoformat(sd['created_at']) if sd.get('created_at') else None,
+                )
+                db.session.add(os)
+                db.session.flush()
+                if sd.get('id'):
+                    shipment_map[sd['id']] = os.id
+
+            # ── Backfill StoreOrderItem.variant_id / shipment_id ──────────────
+            # Variants and shipments are restored AFTER items (FKs go the
+            # other direction), so we deferred these two FKs and resolve
+            # them here.
+            for new_item_id, src_vid in order_item_pending_variant.items():
+                new_vid = variant_map.get(src_vid)
+                if new_vid:
+                    item = db.session.get(StoreOrderItem, new_item_id)
+                    if item:
+                        item.variant_id = new_vid
+            for new_item_id, src_sid in order_item_pending_shipment.items():
+                new_sid = shipment_map.get(src_sid)
+                if new_sid:
+                    item = db.session.get(StoreOrderItem, new_item_id)
+                    if item:
+                        item.shipment_id = new_sid
+
+            # ── OrderStatusEvent ──────────────────────────────────────────────
+            for ed in data.get('order_status_events', []):
+                new_oid = store_order_map.get(ed.get('order_id'))
+                if not new_oid:
+                    continue
+                db.session.add(OrderStatusEvent(
+                    order_id=new_oid,
+                    item_id=order_item_map.get(ed.get('item_id')) if ed.get('item_id') else None,
+                    from_status=ed.get('from_status'), to_status=ed.get('to_status') or 'unknown',
+                    message=ed.get('message'), payload=ed.get('payload'),
+                    actor_user_id=None,  # cross-deploy admin IDs unsafe to copy
+                    is_visible_to_buyer=bool(ed.get('is_visible_to_buyer', True)),
+                    created_at=datetime.fromisoformat(ed['created_at']) if ed.get('created_at') else None,
+                ))
+
+            # ── OrderTicket ───────────────────────────────────────────────────
+            for td in data.get('order_tickets', []):
+                new_oid = store_order_map.get(td.get('order_id'))
+                new_oiid = order_item_map.get(td.get('order_item_id'))
+                if not new_oid or not new_oiid:
+                    continue
+                # Skip duplicates — `code` is globally unique.
+                if td.get('code') and OrderTicket.query.filter_by(code=td['code']).first():
+                    continue
+                db.session.add(OrderTicket(
+                    order_id=new_oid, order_item_id=new_oiid,
+                    product_id=store_prod_map.get(td.get('product_id')) if td.get('product_id') else None,
+                    variant_id=variant_map.get(td.get('variant_id')) if td.get('variant_id') else None,
+                    # CalendarEvent IDs aren't currently remapped during
+                    # restore — the event_label snapshot on the ticket keeps
+                    # buyer-visible context, so leave the FK null.
+                    calendar_event_id=None,
+                    code=td.get('code'),
+                    event_label=td.get('event_label'), tier_label=td.get('tier_label'),
+                    attendee_name=td.get('attendee_name'),
+                    redeemed_at=datetime.fromisoformat(td['redeemed_at']) if td.get('redeemed_at') else None,
+                    redeemed_by_user_id=None,
+                    created_at=datetime.fromisoformat(td['created_at']) if td.get('created_at') else None,
+                ))
+
+            # ── OrderReturn + OrderReturnItem ─────────────────────────────────
+            return_map = {}
+            for rd in data.get('order_returns', []):
+                new_oid = store_order_map.get(rd.get('order_id'))
+                if not new_oid:
+                    continue
+                if rd.get('rma_number') and OrderReturn.query.filter_by(rma_number=rd['rma_number']).first():
+                    continue
+                ret = OrderReturn(
+                    order_id=new_oid, rma_number=rd.get('rma_number'),
+                    status=rd.get('status') or 'requested',
+                    reason_code=rd.get('reason_code'), reason_note=rd.get('reason_note'),
+                    admin_note=rd.get('admin_note'),
+                    return_carrier=rd.get('return_carrier'),
+                    return_tracking_number=rd.get('return_tracking_number'),
+                    return_tracking_url=rd.get('return_tracking_url'),
+                    refund_amount_cents=rd.get('refund_amount_cents'),
+                    refund_includes_shipping=bool(rd.get('refund_includes_shipping')),
+                    stripe_refund_id=rd.get('stripe_refund_id'),
+                    restocked=bool(rd.get('restocked')),
+                    initiated_by=rd.get('initiated_by') or 'admin',
+                    initiated_by_user_id=None,
+                    requested_at=datetime.fromisoformat(rd['requested_at']) if rd.get('requested_at') else None,
+                    approved_at=datetime.fromisoformat(rd['approved_at']) if rd.get('approved_at') else None,
+                    shipped_at=datetime.fromisoformat(rd['shipped_at']) if rd.get('shipped_at') else None,
+                    received_at=datetime.fromisoformat(rd['received_at']) if rd.get('received_at') else None,
+                    refunded_at=datetime.fromisoformat(rd['refunded_at']) if rd.get('refunded_at') else None,
+                    closed_at=datetime.fromisoformat(rd['closed_at']) if rd.get('closed_at') else None,
+                )
+                db.session.add(ret)
+                db.session.flush()
+                if rd.get('id'):
+                    return_map[rd['id']] = ret.id
+            for ri in data.get('order_return_items', []):
+                new_rid = return_map.get(ri.get('return_id'))
+                new_oiid = order_item_map.get(ri.get('order_item_id'))
+                if not new_rid or not new_oiid:
+                    continue
+                db.session.add(OrderReturnItem(
+                    return_id=new_rid, order_item_id=new_oiid,
+                    quantity=ri.get('quantity', 1),
+                    refund_amount_cents=ri.get('refund_amount_cents'),
+                    restocked=bool(ri.get('restocked')),
+                ))
+
+            # ── ShippingMethod / DeliveryArea / StoreFulfillmentSettings ──────
+            for sm in data.get('shipping_methods', []):
+                db.session.add(ShippingMethod(
+                    user_id=uid, label=sm.get('label') or 'Shipping',
+                    amount_cents=sm.get('amount_cents', 0),
+                    currency=sm.get('currency') or 'usd',
+                    delivery_min_days=sm.get('delivery_min_days'),
+                    delivery_max_days=sm.get('delivery_max_days'),
+                    applies_to=sm.get('applies_to') or 'shipping',
+                    free_over_amount_cents=sm.get('free_over_amount_cents'),
+                    sort_order=sm.get('sort_order', 0),
+                    is_active=bool(sm.get('is_active', True)),
+                    created_at=datetime.fromisoformat(sm['created_at']) if sm.get('created_at') else None,
+                ))
+            for da in data.get('delivery_areas', []):
+                existing_da = DeliveryArea.query.filter_by(user_id=uid).first()
+                if existing_da is None:
+                    existing_da = DeliveryArea(user_id=uid, allowed_postal_codes=[])
+                    db.session.add(existing_da)
+                existing_da.allowed_postal_codes = da.get('allowed_postal_codes') or []
+                existing_da.is_active = bool(da.get('is_active', True))
+                if da.get('updated_at'):
+                    try:
+                        existing_da.updated_at = datetime.fromisoformat(da['updated_at'])
+                    except (TypeError, ValueError):
+                        pass
+            for sd in data.get('store_fulfillment_settings', []):
+                existing_sd = StoreFulfillmentSettings.query.filter_by(user_id=uid).first()
+                if existing_sd is None:
+                    existing_sd = StoreFulfillmentSettings(user_id=uid, config={})
+                    db.session.add(existing_sd)
+                for k in ('config', 'allow_buyer_returns', 'return_window_days',
+                          'returns_address', 'returns_instructions',
+                          'tips_enabled', 'tip_presets',
+                          'pickup_hours', 'pickup_slot_minutes', 'pickup_allow_asap',
+                          'pickup_advance_days', 'pickup_lead_minutes', 'pickup_prep_minutes',
+                          'pickup_location_note', 'support_enabled'):
+                    if k in sd:
+                        setattr(existing_sd, k, sd[k])
+                if sd.get('updated_at'):
+                    try:
+                        existing_sd.updated_at = datetime.fromisoformat(sd['updated_at'])
+                    except (TypeError, ValueError):
+                        pass
+
+            # ── Support threads + messages ────────────────────────────────────
+            thread_map = {}
+            for td in data.get('support_threads', []):
+                new_wid = website_map.get(td.get('website_id'))
+                if not new_wid:
+                    continue
+                st = SupportThread(
+                    website_id=new_wid,
+                    order_id=store_order_map.get(td.get('order_id')) if td.get('order_id') else None,
+                    public_user_id=pub_user_map.get(td.get('public_user_id')) if td.get('public_user_id') else None,
+                    contact_name=td.get('contact_name'),
+                    contact_email=td.get('contact_email'),
+                    subject=td.get('subject'),
+                    status=td.get('status') or 'open',
+                    created_at=datetime.fromisoformat(td['created_at']) if td.get('created_at') else None,
+                    last_message_at=datetime.fromisoformat(td['last_message_at']) if td.get('last_message_at') else None,
+                    admin_unread_count=td.get('admin_unread_count', 0),
+                    buyer_unread_count=td.get('buyer_unread_count', 0),
+                )
+                db.session.add(st)
+                db.session.flush()
+                if td.get('id'):
+                    thread_map[td['id']] = st.id
+            for md in data.get('support_messages', []):
+                new_tid = thread_map.get(md.get('thread_id'))
+                if not new_tid:
+                    continue
+                db.session.add(SupportMessage(
+                    thread_id=new_tid,
+                    sender_type=md.get('sender_type') or 'buyer',
+                    sender_user_id=None,  # admin IDs aren't portable cross-deploy
+                    sender_public_user_id=pub_user_map.get(md.get('sender_public_user_id')) if md.get('sender_public_user_id') else None,
+                    sender_name=md.get('sender_name'),
+                    body=md.get('body') or '',
+                    created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None,
+                ))
+
+            # ── Payment + StripeWebhookEvent ──────────────────────────────────
+            payment_map = {}
+            for pd in data.get('payments', []):
+                # Remap source_id when the source is a store_order we know.
+                source_type = pd.get('source_type') or 'store_order'
+                source_id = pd.get('source_id')
+                if source_type == 'store_order' and source_id in store_order_map:
+                    source_id = store_order_map[source_id]
+                elif source_type == 'store_order':
+                    # Order didn't get restored — skip the orphan payment.
+                    continue
+                pm = Payment(
+                    user_id=uid, source_type=source_type, source_id=source_id,
+                    amount_cents=pd.get('amount_cents', 0),
+                    currency=pd.get('currency') or 'usd',
+                    status=pd.get('status') or 'pending',
+                    stripe_session_id=pd.get('stripe_session_id'),
+                    stripe_payment_intent_id=pd.get('stripe_payment_intent_id'),
+                    stripe_charge_id=pd.get('stripe_charge_id'),
+                    customer_email=pd.get('customer_email'),
+                    last_event_id=pd.get('last_event_id'),
+                    error_message=pd.get('error_message'),
+                    created_at=datetime.fromisoformat(pd['created_at']) if pd.get('created_at') else None,
+                    completed_at=datetime.fromisoformat(pd['completed_at']) if pd.get('completed_at') else None,
+                )
+                db.session.add(pm)
+                db.session.flush()
+                if pd.get('id'):
+                    payment_map[pd['id']] = pm.id
+            for ed in data.get('stripe_webhook_events', []):
+                if ed.get('event_id') and StripeWebhookEvent.query.filter_by(event_id=ed['event_id']).first():
+                    continue
+                db.session.add(StripeWebhookEvent(
+                    event_id=ed.get('event_id'),
+                    event_type=ed.get('event_type') or 'unknown',
+                    payment_id=payment_map.get(ed.get('payment_id')) if ed.get('payment_id') else None,
+                    received_at=datetime.fromisoformat(ed['received_at']) if ed.get('received_at') else None,
+                ))
+
+            # ── Notifications ─────────────────────────────────────────────────
+            channel_map = {}
+            for cd in data.get('notification_channels', []):
+                nc = NotificationChannel(
+                    user_id=uid, label=cd.get('label') or 'Channel',
+                    provider=cd.get('provider') or 'discord_webhook',
+                    config={},  # Secrets were stripped on serialize; admin re-enters.
+                    is_active=bool(cd.get('is_active', True)),
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None,
+                    last_used_at=datetime.fromisoformat(cd['last_used_at']) if cd.get('last_used_at') else None,
+                )
+                db.session.add(nc)
+                db.session.flush()
+                if cd.get('id'):
+                    channel_map[cd['id']] = nc.id
+            rule_map = {}
+            for rd in data.get('notification_rules', []):
+                new_ch = channel_map.get(rd.get('channel_id'))
+                if not new_ch:
+                    continue
+                nr = NotificationRule(
+                    channel_id=new_ch,
+                    event_type=rd.get('event_type') or 'unknown',
+                    website_id=website_map.get(rd.get('website_id')) if rd.get('website_id') else None,
+                    calendar_id=cal_map.get(rd.get('calendar_id')) if rd.get('calendar_id') else None,
+                    collection_id=post_col_map.get(rd.get('collection_id')) if rd.get('collection_id') else None,
+                    prepend_text=rd.get('prepend_text'),
+                    config=rd.get('config') or {},
+                    is_enabled=bool(rd.get('is_enabled', True)),
+                    created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
+                )
+                db.session.add(nr)
+                db.session.flush()
+                if rd.get('id'):
+                    rule_map[rd['id']] = nr.id
+            for dd in data.get('notification_deliveries', []):
+                new_r = rule_map.get(dd.get('rule_id'))
+                if not new_r:
+                    continue
+                db.session.add(NotificationDelivery(
+                    rule_id=new_r,
+                    subject_key=dd.get('subject_key') or 'unknown',
+                    sent_at=datetime.fromisoformat(dd['sent_at']) if dd.get('sent_at') else None,
+                    success=bool(dd.get('success', True)),
+                    error=dd.get('error'),
+                ))
+
+            # ── SMS ───────────────────────────────────────────────────────────
+            sps = data.get('sms_provider_settings')
+            if sps:
+                existing_sps = SmsProviderSettings.query.filter_by(user_id=uid).first()
+                if existing_sps is None:
+                    existing_sps = SmsProviderSettings(user_id=uid, config={})
+                    db.session.add(existing_sps)
+                existing_sps.provider          = sps.get('provider') or 'twilio'
+                existing_sps.is_active         = bool(sps.get('is_active'))
+                existing_sps.account_label     = sps.get('account_label')
+                existing_sps.monthly_cap_cents = sps.get('monthly_cap_cents', 500)
+                existing_sps.fallback_to_email = bool(sps.get('fallback_to_email', True))
+                existing_sps.channel_config    = sps.get('channel_config')
+                # `config` (Twilio credentials etc.) intentionally not restored —
+                # encrypted with source's Fernet key. Admin re-enters.
+            for ld in data.get('sms_logs', []):
+                db.session.add(SmsLog(
+                    user_id=uid, provider=ld.get('provider'),
+                    direction=ld.get('direction') or 'outbound',
+                    phone=ld.get('phone'), body=ld.get('body'),
+                    status=ld.get('status') or 'sent',
+                    cost_cents=ld.get('cost_cents', 0),
+                    provider_message_id=ld.get('provider_message_id'),
+                    error_message=ld.get('error_message'),
+                    created_at=datetime.fromisoformat(ld['created_at']) if ld.get('created_at') else None,
+                ))
+
+            # ── OAuthAppCredentials ───────────────────────────────────────────
+            # `client_secret` is NOT in the backup (each install registers its
+            # own OAuth apps). Restored row has client_id + extra; admin
+            # re-enters the secret if they want OAuth to work again.
+            for od in data.get('oauth_app_credentials', []):
+                prov = od.get('provider')
+                if not prov:
+                    continue
+                existing_oa = OAuthAppCredentials.query.filter_by(provider=prov).first()
+                if existing_oa is None:
+                    existing_oa = OAuthAppCredentials(provider=prov)
+                    db.session.add(existing_oa)
+                existing_oa.client_id = od.get('client_id')
+                existing_oa.extra     = od.get('extra')
+                if od.get('updated_at'):
+                    try:
+                        existing_oa.updated_at = datetime.fromisoformat(od['updated_at'])
+                    except (TypeError, ValueError):
+                        pass
+
+            # ── AdminChatMessage ──────────────────────────────────────────────
+            for md in data.get('admin_chat_messages', []):
+                db.session.add(AdminChatMessage(
+                    user_id=uid, message=md.get('message') or '',
+                    created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None,
+                ))
 
             # ── CalendarFeedSubscriber ────────────────────────────────────────
             for sd in data.get('calendar_feed_subscribers', []):
