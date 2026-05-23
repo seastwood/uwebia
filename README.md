@@ -2,6 +2,8 @@
 
 A self-hosted content managaement system — Flask + PostgreSQL, with a drag-and-drop page editor, public navbar, posts, calendar, store, forum and much more.
 
+Visit <https://www.uwebia.com> for more information.
+
 You can run it three ways:
 
 1. **Docker Compose with the prebuilt image** — fastest, no build step.
