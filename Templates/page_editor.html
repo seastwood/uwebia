@@ -1183,11 +1183,7 @@
     }
 
     /* Mobile: tighten the toolbar so every control fits and wraps cleanly
-       inside the section-content container's overflow-x: hidden box.
-       Smaller padding/gaps, narrower font/size pickers, and reduced
-       button width — without this, the wider Quill pickers push the
-       right-side icons (link / effects / asset / video / clean) off
-       the visible area and they appear "missing". */
+       inside the section-content container's overflow-x: hidden box. */
     @media (max-width: 760px) {
         .text-editor-wrapper .ql-toolbar {
             padding: 6px 4px !important;
@@ -1199,18 +1195,39 @@
             margin: 0 2px 0 0;
             gap: 0;
         }
-        .text-editor-wrapper .ql-toolbar.ql-snow button {
+        /* Plain buttons (bold / italic / link / etc) are 26px. */
+        .text-editor-wrapper .ql-toolbar.ql-snow button:not(.ql-picker-label) {
             width: 26px;
         }
-        .text-editor-wrapper .ql-snow .ql-picker.ql-font {
-            width: 64px;
-        }
-        .text-editor-wrapper .ql-snow .ql-picker.ql-size {
-            width: 58px;
-        }
+        /* Font/size dropdowns — capped narrower than Quill's defaults
+           (108/98 px) so the rest of the toolbar fits next to them. */
+        .text-editor-wrapper .ql-snow .ql-picker.ql-font { width: 64px; }
+        .text-editor-wrapper .ql-snow .ql-picker.ql-size { width: 58px; }
         .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker-label {
             padding: 0 2px 0 4px;
             font-size: 11px;
+        }
+        /* Color, background, and align are *icon* pickers — render as a
+           small button-sized wrapper with a tap-to-open dropdown. My
+           generic `button { width: 26px }` rule above doesn't apply to
+           them (their internal element is .ql-picker-label, not a plain
+           button), so without an explicit min-width these were collapsing
+           to whatever Quill's default styling left them with, which on
+           a narrow toolbar could effectively be zero. Force a visible
+           tappable size. */
+        .text-editor-wrapper .ql-snow .ql-picker.ql-color-picker,
+        .text-editor-wrapper .ql-snow .ql-picker.ql-icon-picker {
+            width: 28px;
+            min-width: 28px;
+        }
+        .text-editor-wrapper .ql-snow .ql-picker.ql-color-picker .ql-picker-label,
+        .text-editor-wrapper .ql-snow .ql-picker.ql-icon-picker .ql-picker-label {
+            width: 28px;
+            min-width: 28px;
+            padding: 0;
+            display: inline-flex !important;
+            align-items: center;
+            justify-content: center;
         }
     }
     .text-editor-wrapper .ql-toolbar.ql-snow .ql-picker {

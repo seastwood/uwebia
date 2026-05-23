@@ -1,0 +1,24 @@
+# Caddy v2 config. The site address comes from $SITE_ADDRESS in compose:
+#   • A real domain (e.g. `example.com`)  → Caddy auto-provisions a
+#     Let's Encrypt cert; set $ACME_EMAIL too.
+#   • `:80`  → Caddy serves plain HTTP on port 80 (local dev).
+#   • Multiple comma-separated domains → all share the same upstream.
+{$SITE_ADDRESS} {
+    encode zstd gzip
+
+    # Forward everything to the gunicorn container. `app` is the compose
+    # service name; 5772 is the port gunicorn binds to (see Dockerfile).
+    reverse_proxy app:5772 {
+        # Pass the real client IP / scheme through so Flask sees them.
+        header_up X-Real-IP        {remote}
+        header_up X-Forwarded-For  {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Cache hashed static assets aggressively. Uploads go through the
+    # same path but Flask handles them so no special handling needed.
+    @static path /static/* /icons/*
+    header @static Cache-Control "public, max-age=2592000, immutable"
+
+    # Caddy logs to stdout by default; nothing extra needed for compose.
+}

@@ -1,18 +1,75 @@
-version: '3.8'
-
 services:
-  web:
-    build: .
-    ports:
-      - "5777:5777"
-    volumes:
-      - .:/app
-    environment:
-      - FLASK_APP=main.py
-    depends_on:
-      - db
-
   db:
-    image: nouchka/sqlite3
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-uwebia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB:       ${POSTGRES_DB:-uwebia}
     volumes:
-      - ./instance:/var/lib/sqlite
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uwebia} -d ${POSTGRES_DB:-uwebia}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # SQLAlchemy connection string. The app reads DATABASE_URL when
+      # db_config.json is absent (which it will be on a fresh volume).
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-uwebia}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-uwebia}
+      # Flask session / CSRF secret. MUST be set in .env for production.
+      SECRET_KEY:   ${SECRET_KEY:?set SECRET_KEY in .env}
+      # Optional: tune gunicorn from .env without rebuilding.
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+    volumes:
+      # User uploads persist across container rebuilds.
+      - uploads_data:/app/static/uploads
+      # The app rewrites config/server.json and config/db_config.json at
+      # runtime, so they need a volume too — otherwise admin-UI changes
+      # are lost on rebuild.
+      - config_data:/app/config
+    # Publish the app port to the host. pfSense HAProxy (or any other
+    # upstream proxy) can then reach the container at <docker-host>:5772.
+    # Override the public-facing port via APP_HOST_PORT in .env if 5772
+    # is taken on the host. Bind to 127.0.0.1 (LISTEN_ADDR=127.0.0.1) if
+    # the proxy lives on the SAME host and shouldn't be reachable from
+    # the LAN; bind to 0.0.0.0 (default) if pfSense is a separate box.
+    ports:
+      - "${LISTEN_ADDR:-0.0.0.0}:${APP_HOST_PORT:-5772}:5772"
+
+  # ── Optional Caddy reverse proxy ───────────────────────────────────────
+  # Disabled by default. Enable with `docker compose --profile caddy up`.
+  # Skip it entirely when fronting the app with pfSense HAProxy, Nginx,
+  # Cloudflare, etc. — they reach the app on the published port above.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      ACME_EMAIL:   ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  uploads_data:
+  config_data:
+  caddy_data:
+  caddy_config:

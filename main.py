@@ -4650,6 +4650,10 @@ def capture_webpage():
 
 def delete_associated_section_images(section_id):
     try:
+        # SectionAsset rows reference section_id with a non-cascading FK,
+        # so they must be deleted explicitly before the section itself —
+        # otherwise the section delete fails with a FK violation.
+        SectionAsset.query.filter_by(section_id=section_id).delete()
         links = SectionImage.query.filter_by(section_id=section_id).all()
         for link in links:
             db.session.delete(link)
@@ -4741,6 +4745,7 @@ def delete_column(column_id):
 
 def delete_associated_pictures(section_id):
     try:
+        SectionAsset.query.filter_by(section_id=section_id).delete()
         links = SectionImage.query.filter_by(section_id=section_id).all()
         for link in links:
             db.session.delete(link)
@@ -5183,6 +5188,7 @@ def delete_section_group(group_id):
                 section = column.section
 
                 if section:
+                    SectionAsset.query.filter_by(section_id=section.id).delete()
                     SectionImage.query.filter_by(section_id=section.id).delete()
                     CalendarEvent.query.filter(
                         CalendarEvent.section_id == section.id,
