@@ -15,7 +15,11 @@ services:
       retries: 10
 
   app:
-    build: .
+    # Default: pull the prebuilt image published by GitHub Actions on
+    # every push to `main`. To build locally instead (when modifying the
+    # source), comment out `image:` and uncomment `build: .`.
+    image: setheastwood/uwebia:latest
+    # build: .
     restart: unless-stopped
     depends_on:
       db:

@@ -35,17 +35,7 @@ ls -a
 #    Generate a SECRET_KEY:
 python3 -c 'import secrets; print(secrets.token_hex(32))'
 
-# 3. Tell compose to use the published image instead of building locally.
-#    Either edit docker-compose.yml to change `build: .` → `image: setheastwood/uwebia:latest`,
-#    or drop in this one-line override:
-cat > docker-compose.override.yml <<'EOF'
-services:
-  app:
-    image: setheastwood/uwebia:latest
-    build: !reset null
-EOF
-
-# 4. Start it.
+# 3. Start it.
 docker compose pull
 docker compose up -d
 docker compose logs -f app    # ctrl-C when you see "Listening at: http://0.0.0.0:5772"
@@ -122,6 +112,19 @@ git clone https://github.com/seastwood/uwebia.git
 cd uwebia
 cp .env.example .env
 # edit .env: POSTGRES_PASSWORD, SECRET_KEY, etc.
+```
+
+Then in `docker-compose.yml`, swap the default `image:` line for `build:` under the `app` service:
+
+```yaml
+  app:
+    # image: setheastwood/uwebia:latest    ← comment this out
+    build: .                                # ← uncomment this
+```
+
+And run:
+
+```bash
 docker compose up -d --build
 docker compose logs -f app
 ```
