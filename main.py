@@ -12671,7 +12671,9 @@ def _serialize_backup(uid):
                                  'created_at': s.created_at.isoformat() if s.created_at else None,
                                  'updated_at': s.updated_at.isoformat() if s.updated_at else None,
                                  } for s in analytics_settings],
-        'plugins': [{'slug': pl.slug, 'enabled': pl.enabled, 'config': pl.config,
+        'plugins': [{'slug': pl.slug, 'name': pl.name, 'description': pl.description,
+                     'version': pl.version, 'icon': pl.icon,
+                     'enabled': pl.enabled, 'config': pl.config,
                      } for pl in plugins],
         'page_visits': [{'id': v.id, 'website_id': v.website_id, 'page_id': v.page_id,
                          'visitor_id': v.visitor_id, 'path': v.path, 'referrer': v.referrer,
@@ -13677,13 +13679,28 @@ def import_backup():
 
             # ── Plugin (upsert by slug) ───────────────────────────────────────
             for pld in data.get('plugins', []):
-                existing = Plugin.query.filter_by(slug=pld['slug']).first()
+                slug = pld.get('slug')
+                if not slug:
+                    continue
+                existing = Plugin.query.filter_by(slug=slug).first()
                 if existing:
+                    if pld.get('name'):        existing.name        = pld['name']
+                    if pld.get('description'): existing.description = pld['description']
+                    if pld.get('version'):     existing.version     = pld['version']
+                    if pld.get('icon'):        existing.icon        = pld['icon']
                     existing.enabled = pld.get('enabled', existing.enabled)
-                    existing.config = pld.get('config', existing.config)
+                    existing.config  = pld.get('config', existing.config)
                 else:
+                    # Plugin.name is NOT NULL. Older backups (and the legacy
+                    # built-in `store` row) don't carry it — fall back to a
+                    # titled version of the slug so the row still inserts.
                     db.session.add(Plugin(
-                        slug=pld['slug'], enabled=pld.get('enabled', False),
+                        slug=slug,
+                        name=pld.get('name') or slug.replace('_', ' ').replace('-', ' ').title(),
+                        description=pld.get('description'),
+                        version=pld.get('version'),
+                        icon=pld.get('icon'),
+                        enabled=pld.get('enabled', False),
                         config=pld.get('config')))
 
             # ── PageVisit ─────────────────────────────────────────────────────
