@@ -212,6 +212,48 @@ table.pay-table th { font-size: 0.74rem; text-transform: uppercase; letter-spaci
         </form>
     </div>
 
+    <!-- Manual / offline payment -->
+    <div class="pay-card">
+        <h2>Manual payment (cash / Zelle / pickup)</h2>
+        <p class="pay-card-sub">
+            Let buyers check out without paying online — they reserve the order and pay you in person (or via Zelle / check / etc.) at fulfillment.
+            Only shown at checkout for carts whose items are <strong>pickup</strong>, <strong>local delivery</strong>, or <strong>custom</strong> fulfillment.
+            You'll get a "Mark as paid" button on the order detail page once funds arrive.
+        </p>
+        <form id="manualForm">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-top:4px;">
+                <input type="checkbox" id="manualEnabled" {% if settings and settings.manual_payment_enabled %}checked{% endif %}>
+                <span>Offer manual / offline payment at checkout</span>
+            </label>
+
+            <div class="pay-field" style="margin-top:14px;">
+                <label class="pay-label">Button label</label>
+                <input type="text" id="manualLabel" name="manual_payment_label"
+                       value="{{ settings.manual_payment_label if settings and settings.manual_payment_label else '' }}"
+                       maxlength="80"
+                       placeholder="Pay at pickup">
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.5);margin:6px 0 0;">
+                    Defaults to "Pay at pickup" when blank.
+                </p>
+            </div>
+
+            <div class="pay-field" style="margin-top:14px;">
+                <label class="pay-label">Payment instructions</label>
+                <textarea id="manualInstructions" name="manual_payment_instructions"
+                          rows="4"
+                          placeholder="e.g. Send the total via Zelle to seth@example.com, or pay in cash at pickup. Your order is held for 7 days.">{{ settings.manual_payment_instructions if settings and settings.manual_payment_instructions else '' }}</textarea>
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.5);margin:6px 0 0;">
+                    Shown to the buyer after they pick this option, and included in the order-confirmation email.
+                </p>
+            </div>
+
+            <div class="pay-toolbar">
+                <button type="button" class="pay-btn pay-btn-primary" onclick="saveManualSettings()"><i class="fas fa-save"></i> Save</button>
+                <span class="pay-msg" id="manualMsg"></span>
+            </div>
+        </form>
+    </div>
+
     <!-- Order status emails -->
     {% if email_toggles %}
     <div class="pay-card">
@@ -287,6 +329,24 @@ table.pay-table th { font-size: 0.74rem; text-transform: uppercase; letter-spaci
 </div>
 
 <script>
+async function saveManualSettings() {
+    const payload = {
+        manual_payment_enabled:      document.getElementById('manualEnabled').checked,
+        manual_payment_label:        document.getElementById('manualLabel').value,
+        manual_payment_instructions: document.getElementById('manualInstructions').value,
+    };
+    const msg = document.getElementById('manualMsg');
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Saving…';
+    const r = await fetch('/admin/payments/stripe-settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Save failed.'; return; }
+    msg.style.color = '#5eeec8'; msg.textContent = 'Saved.';
+}
+
 async function saveStripeSettings() {
     const form = document.getElementById('stripeForm');
     const get = name => form.querySelector(`[name="${name}"]`).value;
