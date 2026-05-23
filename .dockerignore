@@ -1,0 +1,56 @@
+# Keep the build context small and prevent secrets from being baked in.
+
+# Local virtualenv & cache
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Editor / OS junk
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Node tooling (used for linters; not needed in the Python image)
+node_modules/
+package-lock.json
+
+# Local DB files (we use Postgres in compose; don't ship sqlite blobs)
+database/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local runtime state that should NOT bake into the image — these are
+# mounted as named volumes by compose so they persist across rebuilds.
+static/uploads/
+config/server.json
+config/db_config.json
+
+# Logs / temp
+*.log
+logs/
+tmp/
+.tmp/
+
+# Dev artifacts
+.env
+.env.local
+*.bu
+requirements.txt.bu
+command-line-commands.txt
+README.md
+
+# Already-built docker artifacts (avoid recursion)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
