@@ -29,6 +29,7 @@ curl -fsSLO https://raw.githubusercontent.com/seastwood/uwebia/main/docker-compo
 curl -fsSLO https://raw.githubusercontent.com/seastwood/uwebia/main/.env.example
 curl -fsSLO https://raw.githubusercontent.com/seastwood/uwebia/main/Caddyfile
 mv .env.example .env
+ls -a
 
 # 2. Edit .env — at minimum set POSTGRES_PASSWORD and SECRET_KEY.
 #    Generate a SECRET_KEY:
