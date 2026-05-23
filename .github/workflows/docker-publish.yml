@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - changing-to-single-user-single-website
+      - development
     tags:
       - 'v*.*.*'
   # Lets you trigger a build manually from the Actions tab.
