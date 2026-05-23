@@ -12337,6 +12337,14 @@ def _serialize_backup(uid):
 
     saved_colors = SavedColor.query.filter_by(user_id=uid).all()
 
+    # StripeSettings: per-admin payment configuration. Encrypted secrets
+    # (secret_key, webhook_secret) and publishable_key are intentionally
+    # left out of the backup — the encryption key lives in the app's env
+    # and won't match across deploys, so restoring secrets would just
+    # produce un-decryptable ciphertext. Re-enter Stripe credentials on
+    # the destination after restore.
+    stripe_settings_row = StripeSettings.query.filter_by(user_id=uid).first()
+
     email_server_settings = EmailServerSettings.query.all()
 
     analytics_settings = AnalyticsSettings.query.filter_by(user_id=uid).all()
@@ -12379,6 +12387,10 @@ def _serialize_backup(uid):
                       'background_image_zoom': w.background_image_zoom,
                       'public_navbar_items': w.public_navbar_items,
                       'public_navbar_style': w.public_navbar_style,
+                      'public_navbar_show_search': w.public_navbar_show_search,
+                      'public_navbar_transparent_chrome': w.public_navbar_transparent_chrome,
+                      'public_navbar_no_bottom_border': w.public_navbar_no_bottom_border,
+                      'public_navbar_bottom_border_blend': w.public_navbar_bottom_border_blend,
                       'store_enabled': w.store_enabled,
                       'store_in_store_only': w.store_in_store_only,
                       'store_in_store_only_label': w.store_in_store_only_label,
@@ -12573,6 +12585,7 @@ def _serialize_backup(uid):
                             'sku': p.sku, 'inventory_qty': p.inventory_qty,
                             'track_inventory': p.track_inventory,
                             'allow_oversell': p.allow_oversell, 'is_active': p.is_active,
+                            'email_message_override': p.email_message_override,
                             'created_at': p.created_at.isoformat() if p.created_at else None,
                             'updated_at': p.updated_at.isoformat() if p.updated_at else None,
                             } for p in store_products],
@@ -12590,6 +12603,10 @@ def _serialize_backup(uid):
                           'total': str(o.total) if o.total is not None else None,
                           'notes': o.notes,
                           'stripe_payment_intent_id': o.stripe_payment_intent_id,
+                          'payment_method': o.payment_method,
+                          'manual_payment_note': o.manual_payment_note,
+                          'manual_paid_by_user_id': o.manual_paid_by_user_id,
+                          'paid_at': o.paid_at.isoformat() if o.paid_at else None,
                           'created_at': o.created_at.isoformat() if o.created_at else None,
                           'updated_at': o.updated_at.isoformat() if o.updated_at else None,
                           } for o in store_orders],
@@ -12620,6 +12637,18 @@ def _serialize_backup(uid):
         'saved_colors': [{'id': c.id, 'user_id': c.user_id, 'color': c.color,
                           'created_at': c.created_at.isoformat() if c.created_at else None,
                           } for c in saved_colors],
+        # See _serialize_backup notes: secrets intentionally excluded.
+        'stripe_settings': ({
+            'account_label':               stripe_settings_row.account_label,
+            'currency':                    stripe_settings_row.currency,
+            'is_live_mode':                stripe_settings_row.is_live_mode,
+            'automatic_tax_enabled':       stripe_settings_row.automatic_tax_enabled,
+            'allow_promotion_codes':       stripe_settings_row.allow_promotion_codes,
+            'manual_payment_enabled':      stripe_settings_row.manual_payment_enabled,
+            'manual_payment_label':        stripe_settings_row.manual_payment_label,
+            'manual_payment_instructions': stripe_settings_row.manual_payment_instructions,
+            'updated_at':                  stripe_settings_row.updated_at.isoformat() if stripe_settings_row.updated_at else None,
+        } if stripe_settings_row else None),
         'email_server_settings': [{'id': e.id,
                                    'label': e.label, 'is_default': e.is_default,
                                    'smtp_host': e.smtp_host,
@@ -12838,6 +12867,10 @@ def import_backup():
                             background_image_zoom=wd.get('background_image_zoom', 100),
                             public_navbar_items=wd.get('public_navbar_items') or [],
                             public_navbar_style=wd.get('public_navbar_style') or {},
+                            public_navbar_show_search=wd.get('public_navbar_show_search', False),
+                            public_navbar_transparent_chrome=wd.get('public_navbar_transparent_chrome', False),
+                            public_navbar_no_bottom_border=wd.get('public_navbar_no_bottom_border', False),
+                            public_navbar_bottom_border_blend=wd.get('public_navbar_bottom_border_blend', False),
                             store_enabled=wd.get('store_enabled', True),
                             store_in_store_only=wd.get('store_in_store_only', False),
                             store_in_store_only_label=wd.get('store_in_store_only_label'),
@@ -13256,9 +13289,39 @@ def import_backup():
                 new_wid = website_map.get(pod['website_id'])
                 if not new_wid:
                     continue
+                # Post.collection_id is NOT NULL. If the source backup has
+                # an orphan post (no collection or one we couldn't map),
+                # auto-attach it to (or create) a fallback "Uncategorized"
+                # collection for the destination website so the post still
+                # gets restored instead of failing the entire import.
+                src_cid = pod.get('collection_id')
+                new_cid = post_col_map.get(src_cid) if src_cid else None
+                if not new_cid:
+                    if 'fallback_collection_map' not in locals():
+                        fallback_collection_map = {}
+                    fb = fallback_collection_map.get(new_wid)
+                    if not fb:
+                        fb_owner = Website.query.get(new_wid)
+                        owner_uid = fb_owner.user_id if fb_owner else uid
+                        existing = PostCollection.query.filter_by(
+                            user_id=owner_uid, slug='uncategorized').first()
+                        if existing:
+                            fb = existing.id
+                        else:
+                            uncat = PostCollection(
+                                user_id=owner_uid,
+                                name='Uncategorized',
+                                slug='uncategorized',
+                                description='Auto-created during restore for orphan posts.',
+                            )
+                            db.session.add(uncat)
+                            db.session.flush()
+                            fb = uncat.id
+                        fallback_collection_map[new_wid] = fb
+                    new_cid = fb
                 po = Post(
                     website_id=new_wid,
-                    collection_id=post_col_map.get(pod['collection_id']) if pod.get('collection_id') else None,
+                    collection_id=new_cid,
                     title=pod['title'], slug=pod.get('slug'), excerpt=pod.get('excerpt'),
                     content=pod.get('content'), cover_image_url=pod.get('cover_image_url'),
                     status=pod.get('status', 'draft'),
@@ -13443,6 +13506,7 @@ def import_backup():
                     track_inventory=pd.get('track_inventory', False),
                     allow_oversell=pd.get('allow_oversell', False),
                     is_active=pd.get('is_active', True),
+                    email_message_override=pd.get('email_message_override'),
                     created_at=datetime.fromisoformat(pd['created_at']) if pd.get('created_at') else None,
                     updated_at=datetime.fromisoformat(pd['updated_at']) if pd.get('updated_at') else None)
                 db.session.add(sp)
@@ -13477,6 +13541,14 @@ def import_backup():
                     total=_Decimal(str(od['total'])) if od.get('total') is not None else None,
                     notes=od.get('notes'),
                     stripe_payment_intent_id=od.get('stripe_payment_intent_id'),
+                    payment_method=od.get('payment_method') or 'stripe',
+                    manual_payment_note=od.get('manual_payment_note'),
+                    # manual_paid_by_user_id intentionally NOT restored — the
+                    # ID points at a row in `user` on the source DB which may
+                    # not exist (or may map to a different person) on the
+                    # destination. The audit trail in OrderStatusEvent
+                    # preserves intent without a dangling FK.
+                    paid_at=datetime.fromisoformat(od['paid_at']) if od.get('paid_at') else None,
                     created_at=datetime.fromisoformat(od['created_at']) if od.get('created_at') else None,
                     updated_at=datetime.fromisoformat(od['updated_at']) if od.get('updated_at') else None)
                 db.session.add(so)
@@ -13538,6 +13610,32 @@ def import_backup():
                 db.session.add(SavedColor(
                     user_id=uid, color=cd['color'],
                     created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None))
+
+            # ── StripeSettings (non-secret payment config) ────────────────────
+            # Secrets (API keys, webhook secret) are NOT in the backup — they
+            # were encrypted with a Fernet key tied to the source deploy. The
+            # admin has to re-enter Stripe credentials after restore; the
+            # rest (currency, manual-payment toggle/label/instructions, etc.)
+            # restores cleanly.
+            ss = data.get('stripe_settings')
+            if ss:
+                existing_ss = StripeSettings.query.filter_by(user_id=uid).first()
+                if existing_ss is None:
+                    existing_ss = StripeSettings(user_id=uid)
+                    db.session.add(existing_ss)
+                existing_ss.account_label               = ss.get('account_label')
+                existing_ss.currency                    = ss.get('currency') or 'usd'
+                existing_ss.is_live_mode                = bool(ss.get('is_live_mode'))
+                existing_ss.automatic_tax_enabled       = bool(ss.get('automatic_tax_enabled'))
+                existing_ss.allow_promotion_codes       = bool(ss.get('allow_promotion_codes'))
+                existing_ss.manual_payment_enabled      = bool(ss.get('manual_payment_enabled'))
+                existing_ss.manual_payment_label        = ss.get('manual_payment_label')
+                existing_ss.manual_payment_instructions = ss.get('manual_payment_instructions')
+                if ss.get('updated_at'):
+                    try:
+                        existing_ss.updated_at = datetime.fromisoformat(ss['updated_at'])
+                    except (TypeError, ValueError):
+                        pass
 
             # ── EmailServerSettings ───────────────────────────────────────────
             email_server_id_map = {}
