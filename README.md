@@ -1,6 +1,6 @@
 # Uwebia
 
-A self-hosted content managaement system — Flask + PostgreSQL, with a drag-and-drop page editor, public navbar, posts, calendar, store, and forum.
+A self-hosted content managaement system — Flask + PostgreSQL, with a drag-and-drop page editor, public navbar, posts, calendar, store, forum amd much more.
 
 You can run it three ways:
 
