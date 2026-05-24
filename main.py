@@ -21346,6 +21346,12 @@ def public_account_order_detail(order_number, prefix=None):
         public_user_id=public_user.id,
         order_number=order_number
     ).first_or_404()
+    # Unpaid orders are created without a tracking token (it is normally
+    # generated at payment time). Backfill it here so the cancel/support/
+    # retry/return links on this page resolve instead of pointing at
+    # /order/None/... and 404ing.
+    if not order.tracking_token:
+        order.tracking_token = secrets.token_urlsafe(32)[:64]
     events = (OrderStatusEvent.query
               .filter_by(order_id=order.id, is_visible_to_buyer=True)
               .order_by(OrderStatusEvent.created_at.desc()).all())
@@ -24001,6 +24007,7 @@ def store_express_checkout():
         contact_phone=default_addr.phone,
         subtotal=subtotal, shipping_cost=0.0, tip_total=0.0,
         total=subtotal,
+        tracking_token=secrets.token_urlsafe(32)[:64],
     )
     db.session.add(order)
     db.session.flush()
