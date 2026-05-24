@@ -25470,9 +25470,11 @@ def admin_order_detail(order_id):
     support_thread = (SupportThread.query
                       .filter_by(order_id=order.id)
                       .order_by(SupportThread.last_message_at.desc()).first())
+    can_cancel, _cancel_reason = _can_cancel_order(order)
     return render_template(
         'admin_order_detail.html',
         order=order, events=events, next_steps=next_steps,
+        can_cancel=can_cancel,
         shipments=shipments, shipment_next_steps=shipment_next_steps,
         unpacked_items=unpacked_items, packageable_unpacked=packageable_unpacked,
         support_thread=support_thread,
@@ -26243,6 +26245,36 @@ def admin_order_cancellation_deny(order_id):
     db.session.commit()
     _send_cancellation_email(order, 'denied', admin_note=note)
     return _utf8_json({'success': True})
+
+
+@app.route('/admin/orders/<int:order_id>/cancel', methods=['POST'])
+@login_required
+@require_perm('store.cancellations')
+def admin_order_cancel(order_id):
+    """Admin-initiated cancellation (no buyer request required). Cancels the
+    order directly: refunds via Stripe only if a payment was captured,
+    restocks inventory, and emails the buyer."""
+    order = StoreOrder.query.get_or_404(order_id)
+    website = db.session.get(Website, order.website_id)
+    if not website or website.user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    ok, reason = _can_cancel_order(order)
+    if not ok:
+        return _utf8_json({'success': False, 'error': reason}, 400)
+    data = request.get_json() or {}
+    note = (data.get('note') or '').strip() or None
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if not order.cancellation_requested_at:
+        order.cancellation_requested_at = now
+        order.cancellation_reason = note
+    ok, err = _finalize_order_cancellation(order, refund_note=note)
+    if not ok:
+        return _utf8_json({'success': False, 'error': err}, 200)
+    if note:
+        order.cancellation_admin_note = note
+    db.session.commit()
+    _send_cancellation_email(order, 'approved')
+    return _utf8_json({'success': True, 'status': order.status})
 
 
 # ── Shipments / packages ──────────────────────────────────────────────────
