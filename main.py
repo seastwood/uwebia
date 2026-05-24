@@ -14060,7 +14060,7 @@ def import_backup():
                 new_oid = store_order_map.get(sd.get('order_id'))
                 if not new_oid:
                     continue
-                os = OrderShipment(
+                shipment = OrderShipment(
                     order_id=new_oid, sequence=sd.get('sequence', 1),
                     fulfillment_type=sd.get('fulfillment_type') or 'shipping',
                     status=sd.get('status') or 'preparing',
@@ -14072,10 +14072,10 @@ def import_backup():
                     fulfilled_at=datetime.fromisoformat(sd['fulfilled_at']) if sd.get('fulfilled_at') else None,
                     created_at=datetime.fromisoformat(sd['created_at']) if sd.get('created_at') else None,
                 )
-                db.session.add(os)
+                db.session.add(shipment)
                 db.session.flush()
                 if sd.get('id'):
-                    shipment_map[sd['id']] = os.id
+                    shipment_map[sd['id']] = shipment.id
 
             # ── Backfill StoreOrderItem.variant_id / shipment_id ──────────────
             # Variants and shipments are restored AFTER items (FKs go the
