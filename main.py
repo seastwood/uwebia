@@ -9789,6 +9789,10 @@ def _delete_website_all(website):
     PageComment.query.filter_by(website_id=wid).delete(synchronize_session=False)
     ContactMessage.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PublicUser.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    # PublicUserRole FKs website.id but has no ondelete=CASCADE at the DB level,
+    # so it must be deleted explicitly before the website row. The M2M
+    # public_user_role_assignment rows cascade via their own ondelete=CASCADE.
+    PublicUserRole.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PageVisit.query.filter_by(website_id=wid).delete(synchronize_session=False)
 
     # Website-tag association table (no ORM class)
