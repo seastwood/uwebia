@@ -14378,14 +14378,20 @@ def import_backup():
             # `client_secret` is NOT in the backup (each install registers its
             # own OAuth apps). Restored row has client_id + extra; admin
             # re-enters the secret if they want OAuth to work again.
+            # Dedupe by provider: older backups (pre unique-constraint) can
+            # contain multiple rows for the same provider — keep the last.
+            oauth_by_provider = {}
             for od in data.get('oauth_app_credentials', []):
                 prov = od.get('provider')
                 if not prov:
                     continue
+                oauth_by_provider[prov] = od
+            for prov, od in oauth_by_provider.items():
                 existing_oa = OAuthAppCredentials.query.filter_by(provider=prov).first()
                 if existing_oa is None:
                     existing_oa = OAuthAppCredentials(provider=prov)
                     db.session.add(existing_oa)
+                    db.session.flush()
                 existing_oa.client_id = od.get('client_id')
                 existing_oa.extra     = od.get('extra')
                 if od.get('updated_at'):
