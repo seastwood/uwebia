@@ -130,6 +130,14 @@
             </button>
             {% endif %}
             {% endif %}
+            {# Admin-initiated cancellation — available whenever the order is
+               cancelable and no buyer request is already pending review. #}
+            {% if can_cancel and user_has_perm('store.cancellations') %}
+            <button class="aod-btn aod-btn-danger" onclick="cancelOrder()"
+                    title="Cancel this order. Restocks inventory and emails the buyer. Refunds via Stripe only if a payment was captured.">
+                <i class="fas fa-ban"></i> Cancel order
+            </button>
+            {% endif %}
         </div>
     </div>
 
@@ -183,7 +191,11 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
             <input class="aod-input" id="cancelDecisionNote" placeholder="Optional internal note (shared with buyer on denial)" style="flex:1;min-width:240px;">
             <button class="aod-btn aod-btn-primary" onclick="approveCancellation()">
+                {% if order.status == 'pending_payment' %}
+                <i class="fas fa-check"></i> Approve cancellation
+                {% else %}
                 <i class="fas fa-check"></i> Approve &amp; refund
+                {% endif %}
             </button>
             <button class="aod-btn aod-btn-danger" onclick="denyCancellation()">
                 <i class="fas fa-times"></i> Deny
@@ -191,7 +203,11 @@
             <span id="cancelDecisionMsg" style="font-size:0.85rem;margin-left:auto;min-height:18px;"></span>
         </div>
         <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:8px 0 0;">
+            {% if order.status == 'pending_payment' %}
+            This order hasn't been paid, so no refund is issued. Approving restocks inventory, cancels the order, and emails the buyer.
+            {% else %}
             Approving issues a full Stripe refund, restocks inventory, and emails the buyer.
+            {% endif %}
         </p>
         {% endif %}
     </div>
@@ -704,8 +720,12 @@ async function _decideCancellation(action) {
     const msg = document.getElementById('cancelDecisionMsg');
     const noteEl = document.getElementById('cancelDecisionNote');
     const note = noteEl ? noteEl.value.trim() : '';
-    if (action === 'approve' &&
-        !confirm('Approve and refund this order in full? Stripe will be charged immediately.')) return;
+    {% if order.status == 'pending_payment' %}
+    const approveConfirm = 'Approve this cancellation? The order is unpaid, so no refund is needed — inventory will be restocked and the buyer notified.';
+    {% else %}
+    const approveConfirm = 'Approve and cancel this order? A full refund will be issued to the buyer via Stripe.';
+    {% endif %}
+    if (action === 'approve' && !confirm(approveConfirm)) return;
     msg.style.color = 'rgba(255,255,255,0.6)';
     msg.textContent = 'Processing…';
     const r = await fetch(`/admin/orders/{{ order.id }}/cancellation/${action}`, {
@@ -715,11 +735,34 @@ async function _decideCancellation(action) {
     const j = await r.json();
     if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Failed.'; return; }
     msg.style.color = '#5eeec8';
+    {% if order.status == 'pending_payment' %}
+    msg.textContent = action === 'approve' ? 'Order canceled.' : 'Request denied.';
+    {% else %}
     msg.textContent = action === 'approve' ? 'Refund issued.' : 'Request denied.';
+    {% endif %}
     setTimeout(() => location.reload(), 700);
 }
 function approveCancellation() { _decideCancellation('approve'); }
 function denyCancellation()    { _decideCancellation('deny'); }
+
+// ─ Admin-initiated cancellation (no buyer request) ───────────────────────
+async function cancelOrder() {
+    {% if order.status == 'pending_payment' %}
+    const confirmMsg = 'Cancel this order? It is unpaid, so no refund is needed — inventory will be restocked and the buyer notified.';
+    {% else %}
+    const confirmMsg = 'Cancel this order? A full refund will be issued to the buyer via Stripe, inventory restocked, and the buyer notified.';
+    {% endif %}
+    if (!confirm(confirmMsg)) return;
+    const note = prompt('Optional note for the buyer / your records (leave blank to skip):', '');
+    if (note === null) return;   // user hit Cancel
+    const r = await fetch('/admin/orders/{{ order.id }}/cancel', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ note: note.trim() }),
+    });
+    const j = await r.json();
+    if (!j.success) { alert(j.error || 'Failed to cancel order.'); return; }
+    location.reload();
+}
 
 // ─ Selection / "select all" ───────────────────────────────────────────────
 function _selectedCheckboxes() {

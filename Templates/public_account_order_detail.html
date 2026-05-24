@@ -311,7 +311,11 @@
         <div style="background:#181820;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:min(420px,100%);color:#fff;">
             <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.07);font-weight:700;">Request order cancellation</div>
             <div style="padding:16px 18px;">
+                {% if order.status == 'pending_payment' %}
+                <p style="margin:0 0 12px;font-size:0.9rem;opacity:0.8;">Our team will review your request. If approved, your order will be canceled. Since payment hasn't been completed, you won't be charged.</p>
+                {% else %}
                 <p style="margin:0 0 12px;font-size:0.9rem;opacity:0.8;">Our team will review your request. If approved, your order will be canceled and a full refund issued.</p>
+                {% endif %}
                 <label style="display:block;font-size:0.78rem;opacity:0.65;margin-bottom:5px;font-weight:600;">Reason (optional)</label>
                 <textarea id="cancelReason" rows="3" placeholder="Why are you canceling?"
                           style="width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.88rem;font-family:inherit;box-sizing:border-box;"></textarea>
