@@ -207,6 +207,12 @@
         {% if user_has_perm('posts.view') and 'posts' not in _nd %}
         <a href="{{ url_for('admin_posts_page') }}" class="nav-link-btn" title="Posts"><i class="fas fa-newspaper"></i></a>
         {% endif %}
+        {% if user_has_perm('guides.view') and 'guides' not in _nd %}
+        <a href="{{ url_for('admin_guides_page') }}" class="nav-link-btn" title="Guides"><i class="fas fa-book-open"></i></a>
+        {% endif %}
+        {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
+        <a href="{{ url_for('admin_quizzes_page') }}" class="nav-link-btn" title="Quizzes"><i class="fas fa-clipboard-check"></i></a>
+        {% endif %}
         {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
         <a href="{{ url_for('admin_newsletters_page') }}" class="nav-link-btn" title="Newsletters"><i class="fas fa-envelope-open-text"></i></a>
         {% endif %}
@@ -323,6 +329,16 @@
                 {% if user_has_perm('posts.view') and 'posts' not in _nd %}
                 <a href="{{ url_for('admin_posts_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-newspaper"></i><span>Posts</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('guides.view') and 'guides' not in _nd %}
+                <a href="{{ url_for('admin_guides_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-book-open"></i><span>Guides</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
+                <a href="{{ url_for('admin_quizzes_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-clipboard-check"></i><span>Quizzes</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}

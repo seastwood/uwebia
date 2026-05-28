@@ -1,0 +1,276 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.pa-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+.pa-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 12px; }
+.pa-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
+.pa-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.pa-btn-new {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px;
+    background: linear-gradient(135deg, #5eeef8, #5eeec8);
+    color: #111; font-weight: 700; font-size: 0.9rem;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.pa-btn-new:hover { opacity: 0.88; }
+
+.pa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+.pa-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.pa-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.pa-card-name { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; }
+.pa-card-desc { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin: 0; line-height: 1.5; }
+.pa-card-meta { font-size: 0.78rem; color: rgba(255,255,255,0.35); }
+.pa-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+.pa-status--published { background: rgba(94,238,200,0.15); color: #5eeec8; }
+.pa-status--draft { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+.pa-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.pa-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 13px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.pa-btn-primary { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.pa-btn-primary:hover { background: rgba(94,238,248,0.25); }
+.pa-btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.pa-btn-secondary:hover { background: rgba(255,255,255,0.12); }
+.pa-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.pa-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.pa-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+</style>
+
+<div class="pa-page">
+    <div class="pa-header">
+        <div>
+            <p class="pa-kicker">Admin</p>
+            <h1 class="pa-title">Guides</h1>
+        </div>
+        {% if user_has_perm('guides.manage') %}
+        <button class="pa-btn-new" onclick="openGuideModal()">
+            <i class="fas fa-plus"></i> New Guide
+        </button>
+        {% endif %}
+    </div>
+
+    {% if guides %}
+    <div class="pa-grid" id="guideGrid">
+        {% for g in guides %}
+        <div class="pa-card" id="guideCard-{{ g.id }}">
+            <div class="pa-card-top">
+                <h2 class="pa-card-name">{{ g.title }}</h2>
+                <span class="pa-status pa-status--{{ g.status }}">{{ g.status }}</span>
+            </div>
+            {% if g.description %}
+            <p class="pa-card-desc">{{ g.description }}</p>
+            {% endif %}
+            <p class="pa-card-meta">{{ g.nodes.count() }} node{{ 's' if g.nodes.count() != 1 else '' }}</p>
+            <div class="pa-card-actions">
+                {% if user_has_perm('guides.view') %}
+                <a href="{{ url_for('admin_guide_editor', gid=g.id) }}" class="pa-btn pa-btn-primary">
+                    <i class="fas fa-sitemap"></i> Edit Content
+                </a>
+                {% endif %}
+                {% if user_has_perm('guides.publish') %}
+                {% if g.status == 'published' %}
+                <button class="pa-btn pa-btn-secondary" onclick="setGuideStatus({{ g.id }}, false)">
+                    <i class="fas fa-eye-slash"></i> Unpublish
+                </button>
+                {% else %}
+                <button class="pa-btn pa-btn-secondary" onclick="setGuideStatus({{ g.id }}, true)">
+                    <i class="fas fa-globe"></i> Publish
+                </button>
+                {% endif %}
+                {% endif %}
+                {% if user_has_perm('guides.manage') %}
+                <button class="pa-btn pa-btn-secondary"
+                        onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }})'>
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button class="pa-btn pa-btn-danger"
+                        onclick='confirmGuideDelete({{ g.id }}, {{ g.title | tojson }})'>
+                    <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="pa-empty" id="guideGrid">
+        <p>No guides yet. Create your first one to start building training modules.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Guide modal -->
+<div class="uw-overlay" id="guideModalOverlay" style="display:none;" onclick="if(event.target===this)closeGuideModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="guideModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="guideModalTitle">New Guide</h3>
+            <button class="uw-modal-close" onclick="closeGuideModal()" aria-label="Close">&times;</button>
+        </div>
+        <form id="guideModalForm" onsubmit="submitGuideModal(event)">
+            <input type="hidden" id="guideModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field">
+                    <label for="guideModalTitleInput">Title <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="guideModalTitleInput" required placeholder="e.g. Onboarding, Safety Training">
+                </div>
+                <div class="uw-field">
+                    <label for="guideModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
+                    <textarea id="guideModalDesc" rows="3" placeholder="What this guide covers"></textarea>
+                </div>
+                <div class="uw-field" id="guideModalExtraFields" style="display:none;">
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                        <input type="checkbox" id="guideModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        Require public user login to view this guide
+                    </label>
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;margin-top:10px;">
+                        <input type="checkbox" id="guideModalTrackProgress" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        Track reader progress
+                    </label>
+                </div>
+            </div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeGuideModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="guideModalSubmitBtn">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="uw-overlay" id="gdelModalOverlay" style="display:none;" onclick="if(event.target===this)closeGdelModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:400px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Delete Guide</h3>
+            <button class="uw-modal-close" onclick="closeGdelModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p id="gdelModalMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeGdelModal()">Cancel</button>
+            <button class="uw-btn" id="gdelModalConfirmBtn"
+                    style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let _gdelId = null;
+
+function openGuideModal() {
+    document.getElementById('guideModalId').value = '';
+    document.getElementById('guideModalTitleInput').value = '';
+    document.getElementById('guideModalDesc').value = '';
+    document.getElementById('guideModalExtraFields').style.display = 'none';
+    document.getElementById('guideModalTitle').textContent = 'New Guide';
+    document.getElementById('guideModalSubmitBtn').textContent = 'Create';
+    document.getElementById('guideModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('guideModalTitleInput').focus(), 60);
+}
+
+function openGuideEdit(id, title, desc, requireLogin, trackProgress) {
+    document.getElementById('guideModalId').value = id;
+    document.getElementById('guideModalTitleInput').value = title;
+    document.getElementById('guideModalDesc').value = desc;
+    document.getElementById('guideModalRequireLogin').checked = !!requireLogin;
+    document.getElementById('guideModalTrackProgress').checked = !!trackProgress;
+    document.getElementById('guideModalExtraFields').style.display = 'block';
+    document.getElementById('guideModalTitle').textContent = 'Guide Settings';
+    document.getElementById('guideModalSubmitBtn').textContent = 'Save';
+    document.getElementById('guideModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('guideModalTitleInput').focus(), 60);
+}
+
+function closeGuideModal() {
+    document.getElementById('guideModalOverlay').style.display = 'none';
+}
+
+async function submitGuideModal(e) {
+    e.preventDefault();
+    const id    = document.getElementById('guideModalId').value;
+    const title = document.getElementById('guideModalTitleInput').value.trim();
+    const desc  = document.getElementById('guideModalDesc').value.trim();
+    if (!title) return;
+    const btn = document.getElementById('guideModalSubmitBtn');
+    btn.disabled = true;
+
+    const body = { title, description: desc };
+    if (id) {
+        body.require_login_to_view = document.getElementById('guideModalRequireLogin').checked;
+        body.track_progress = document.getElementById('guideModalTrackProgress').checked;
+    }
+    const url = id ? `/admin/guides/${id}/update` : '/admin/guides/create';
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) {
+            // Jump straight into the content editor for a brand-new guide.
+            if (!id && d.guide) { window.location = `/admin/guides/${d.guide.id}/edit`; return; }
+            location.reload();
+        } else {
+            alert(d.error || 'Failed to save guide');
+        }
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function setGuideStatus(id, publish) {
+    try {
+        const r = await fetch(`/admin/guides/${id}/${publish ? 'publish' : 'unpublish'}`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) location.reload();
+        else alert(d.error || 'Failed');
+    } catch (err) { alert('Request failed'); }
+}
+
+function confirmGuideDelete(id, title) {
+    _gdelId = id;
+    document.getElementById('gdelModalMsg').textContent =
+        `Delete "${title}" and all its chapters and lessons? This cannot be undone.`;
+    document.getElementById('gdelModalConfirmBtn').onclick = doGuideDelete;
+    document.getElementById('gdelModalOverlay').style.display = 'flex';
+}
+
+function closeGdelModal() {
+    document.getElementById('gdelModalOverlay').style.display = 'none';
+    _gdelId = null;
+}
+
+async function doGuideDelete() {
+    if (!_gdelId) return;
+    const btn = document.getElementById('gdelModalConfirmBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/guides/${_gdelId}/delete`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) { closeGdelModal(); location.reload(); }
+        else alert(d.error || 'Failed to delete');
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,321 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+<style>
+.qe-page { display: grid; grid-template-columns: 300px 1fr; gap: 24px; max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; align-items: start; }
+@media (max-width: 820px) { .qe-page { grid-template-columns: 1fr; } }
+
+.qe-subnav { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; margin-bottom: 4px; flex-wrap: wrap; }
+.qe-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.qe-back:hover { color: rgba(255,255,255,0.85); }
+.qe-title { font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0; }
+
+.qe-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 16px; }
+.qe-panel-title { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.4); margin: 0 0 12px; }
+
+.qe-add { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.qe-mini-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: 1px solid rgba(255,255,255,0.13); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8); }
+.qe-mini-btn:hover { background: rgba(255,255,255,0.12); }
+
+.qe-qlist { list-style: none; margin: 0; padding: 0; }
+.qe-qitem { display: flex; align-items: center; gap: 8px; padding: 9px 10px; margin: 4px 0; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); cursor: pointer; }
+.qe-qitem:hover { background: rgba(255,255,255,0.08); }
+.qe-qitem.is-selected { border-color: rgba(94,238,248,0.5); background: rgba(94,238,248,0.1); }
+.qe-handle { cursor: grab; color: rgba(255,255,255,0.3); font-size: 0.8rem; }
+.qe-qtype { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #5eeec8; flex-shrink: 0; }
+.qe-qprompt { flex: 1; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qe-empty { font-size: 0.82rem; color: rgba(255,255,255,0.3); padding: 18px 6px; text-align: center; }
+
+.qe-field { margin-bottom: 14px; }
+.qe-label { display: block; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.4); margin-bottom: 6px; }
+.qe-input, .qe-textarea, .qe-select { width: 100%; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.92rem; outline: none; box-sizing: border-box; font-family: inherit; }
+.qe-input:focus, .qe-textarea:focus, .qe-select:focus { border-color: rgba(94,238,248,0.4); }
+.qe-textarea { resize: vertical; min-height: 70px; }
+.qe-select option { background: #16161f; }
+
+.qe-opt-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.qe-opt-correct { width: 18px; height: 18px; accent-color: #5eeec8; flex-shrink: 0; cursor: pointer; }
+.qe-opt-text { flex: 1; }
+.qe-opt-remove { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.22); border-radius: 7px; width: 32px; height: 36px; cursor: pointer; flex-shrink: 0; }
+.qe-opt-remove:hover { background: rgba(255,80,80,0.22); }
+.qe-correct-hint { font-size: 0.72rem; color: rgba(94,238,200,0.7); margin: -2px 0 10px; }
+
+.qe-actions { display: flex; gap: 10px; margin-top: 18px; }
+.qe-btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 9px; font-size: 0.88rem; font-weight: 700; border: none; cursor: pointer; }
+.qe-btn-primary { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.qe-btn-primary:hover { opacity: 0.88; }
+.qe-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.qe-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.qe-placeholder { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+.qe-check-row { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; color: rgba(255,255,255,0.8); }
+.qe-check-row input { width: 16px; height: 16px; accent-color: #5eeef8; }
+</style>
+
+<div class="qe-page">
+    <div class="qe-subnav">
+        <a href="{{ url_for('admin_quizzes_page') }}" class="qe-back"><i class="fas fa-arrow-left"></i> Quizzes</a>
+        <h1 class="qe-title">{{ quiz.title }}</h1>
+    </div>
+
+    <!-- Question list -->
+    <div class="qe-card">
+        <p class="qe-panel-title">Questions</p>
+        <div class="qe-add">
+            <button class="qe-mini-btn" onclick="newQuestion('single_choice')"><i class="fas fa-dot-circle"></i> Single</button>
+            <button class="qe-mini-btn" onclick="newQuestion('multi_choice')"><i class="fas fa-check-square"></i> Multi</button>
+            <button class="qe-mini-btn" onclick="newQuestion('true_false')"><i class="fas fa-toggle-on"></i> T/F</button>
+            <button class="qe-mini-btn" onclick="newQuestion('short_text')"><i class="fas fa-keyboard"></i> Text</button>
+        </div>
+        <ul class="qe-qlist" id="qList"></ul>
+        <div class="qe-empty" id="qEmpty" style="display:none;">No questions yet. Add one above.</div>
+    </div>
+
+    <!-- Editor -->
+    <div class="qe-card">
+        <div class="qe-placeholder" id="qPlaceholder">
+            Select a question on the left, or add one to begin.
+        </div>
+        <div id="qForm" style="display:none;">
+            <input type="hidden" id="qId">
+            <input type="hidden" id="qType">
+            <div class="qe-field">
+                <label class="qe-label" id="qTypeLabel"></label>
+                <textarea id="qPrompt" class="qe-textarea" placeholder="Write the question…"></textarea>
+            </div>
+            <div id="qBody"></div>
+            <div class="qe-field" style="max-width:140px;">
+                <label class="qe-label">Points</label>
+                <input type="number" id="qPoints" class="qe-input" min="1" value="1">
+            </div>
+            <div class="qe-actions">
+                <button class="qe-btn qe-btn-primary" onclick="saveQuestion()"><i class="fas fa-check"></i> Save question</button>
+                <button class="qe-btn qe-btn-danger" id="qDeleteBtn" onclick="deleteQuestion()" style="display:none;"><i class="fas fa-trash"></i> Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const QUIZ_ID = {{ quiz.id }};
+let QUESTIONS = {{ questions | tojson }};
+let _editing = null;       // current question object in the form (may be unsaved)
+let _sortable = null;
+
+const TYPE_LABELS = {
+    single_choice: 'Single choice',
+    multi_choice:  'Multiple choice',
+    true_false:    'True / False',
+    short_text:    'Short text answer',
+};
+
+document.addEventListener('DOMContentLoaded', renderList);
+
+function renderList() {
+    const ul = document.getElementById('qList');
+    ul.innerHTML = '';
+    QUESTIONS.forEach(q => ul.appendChild(qItemEl(q)));
+    document.getElementById('qEmpty').style.display = QUESTIONS.length ? 'none' : 'block';
+    if (_sortable) _sortable.destroy();
+    _sortable = Sortable.create(ul, { handle: '.qe-handle', animation: 150, onEnd: persistOrder });
+}
+
+function qItemEl(q) {
+    const li = document.createElement('li');
+    li.className = 'qe-qitem' + (_editing && _editing.id === q.id ? ' is-selected' : '');
+    li.dataset.id = q.id;
+    li.innerHTML =
+        `<i class="fas fa-grip-vertical qe-handle"></i>` +
+        `<span class="qe-qtype">${shortType(q.question_type)}</span>` +
+        `<span class="qe-qprompt"></span>`;
+    li.querySelector('.qe-qprompt').textContent = q.prompt || '(no prompt)';
+    li.addEventListener('click', e => { if (!e.target.classList.contains('qe-handle')) editQuestion(q.id); });
+    return li;
+}
+
+function shortType(t) {
+    return { single_choice: 'Single', multi_choice: 'Multi', true_false: 'T/F', short_text: 'Text' }[t] || t;
+}
+
+function persistOrder() {
+    const items = Array.from(document.querySelectorAll('#qList .qe-qitem'))
+        .map((li, idx) => ({ id: parseInt(li.dataset.id), sort_order: idx }));
+    // Reflect new order locally too
+    items.forEach(it => { const q = QUESTIONS.find(x => x.id === it.id); if (q) q.sort_order = it.sort_order; });
+    QUESTIONS.sort((a, b) => a.sort_order - b.sort_order);
+    fetch(`/admin/quizzes/${QUIZ_ID}/questions/reorder`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+    }).catch(() => alert('Failed to save order'));
+}
+
+function blankConfig(type) {
+    if (type === 'true_false') {
+        return { options: [{ id: 1, text: 'True', correct: true }, { id: 2, text: 'False', correct: false }] };
+    }
+    if (type === 'short_text') return { accepted: [''], case_sensitive: false };
+    return { options: [{ id: 1, text: '', correct: true }, { id: 2, text: '', correct: false }] };
+}
+
+function newQuestion(type) {
+    _editing = { id: null, question_type: type, prompt: '', points: 1, config: blankConfig(type) };
+    showForm();
+    document.querySelectorAll('#qList .qe-qitem').forEach(li => li.classList.remove('is-selected'));
+}
+
+function editQuestion(id) {
+    const q = QUESTIONS.find(x => x.id === id);
+    if (!q) return;
+    _editing = JSON.parse(JSON.stringify(q));   // edit a copy
+    showForm();
+    renderList();
+}
+
+function showForm() {
+    document.getElementById('qPlaceholder').style.display = 'none';
+    document.getElementById('qForm').style.display = 'block';
+    document.getElementById('qId').value = _editing.id || '';
+    document.getElementById('qType').value = _editing.question_type;
+    document.getElementById('qTypeLabel').textContent = TYPE_LABELS[_editing.question_type] + ' — prompt';
+    document.getElementById('qPrompt').value = _editing.prompt || '';
+    document.getElementById('qPoints').value = _editing.points || 1;
+    document.getElementById('qDeleteBtn').style.display = _editing.id ? 'inline-flex' : 'none';
+    renderBody();
+}
+
+function renderBody() {
+    const body = document.getElementById('qBody');
+    const t = _editing.question_type;
+    const cfg = _editing.config || blankConfig(t);
+    _editing.config = cfg;
+
+    if (t === 'short_text') {
+        let html = '<div class="qe-field"><label class="qe-label">Accepted answers</label>';
+        html += '<p class="qe-correct-hint">A response matching any of these (trimmed) counts as correct.</p>';
+        html += '<div id="qAccepted">';
+        (cfg.accepted || ['']).forEach((a, i) => {
+            html += acceptedRow(a, i);
+        });
+        html += '</div>';
+        html += '<button type="button" class="qe-mini-btn" onclick="addAccepted()" style="margin-top:4px;"><i class="fas fa-plus"></i> Add answer</button>';
+        html += '</div>';
+        html += `<label class="qe-check-row" style="margin-top:8px;"><input type="checkbox" id="qCaseSensitive" ${cfg.case_sensitive ? 'checked' : ''}> Case sensitive</label>`;
+        body.innerHTML = html;
+        return;
+    }
+
+    // choice types
+    const isMulti = (t === 'multi_choice');
+    const isTF = (t === 'true_false');
+    let html = '<div class="qe-field"><label class="qe-label">Options</label>';
+    html += `<p class="qe-correct-hint">${isMulti ? 'Tick every correct option.' : 'Tick the one correct option.'}</p>`;
+    html += '<div id="qOptions">';
+    (cfg.options || []).forEach((o, i) => { html += optionRow(o, i, isMulti, isTF); });
+    html += '</div>';
+    if (!isTF) html += '<button type="button" class="qe-mini-btn" onclick="addOption()" style="margin-top:4px;"><i class="fas fa-plus"></i> Add option</button>';
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+function optionRow(o, i, isMulti, isTF) {
+    const inputType = isMulti ? 'checkbox' : 'radio';
+    return `<div class="qe-opt-row" data-idx="${i}">
+        <input class="qe-opt-correct" type="${inputType}" name="qcorrect" ${o.correct ? 'checked' : ''} onchange="onCorrectChange(${i}, ${isMulti})">
+        <input class="qe-input qe-opt-text" type="text" value="${escAttr(o.text || '')}" placeholder="Option text" oninput="onOptionText(${i}, this.value)" ${isTF ? 'readonly' : ''}>
+        ${isTF ? '' : `<button type="button" class="qe-opt-remove" onclick="removeOption(${i})">&times;</button>`}
+    </div>`;
+}
+
+function acceptedRow(val, i) {
+    return `<div class="qe-opt-row" data-idx="${i}">
+        <input class="qe-input qe-opt-text" type="text" value="${escAttr(val || '')}" placeholder="Accepted answer" oninput="onAccepted(${i}, this.value)">
+        <button type="button" class="qe-opt-remove" onclick="removeAccepted(${i})">&times;</button>
+    </div>`;
+}
+
+function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+function onCorrectChange(i, isMulti) {
+    const opts = _editing.config.options;
+    if (isMulti) {
+        opts[i].correct = !opts[i].correct;
+    } else {
+        opts.forEach((o, j) => o.correct = (j === i));
+    }
+}
+function onOptionText(i, v) { _editing.config.options[i].text = v; }
+function addOption() {
+    const opts = _editing.config.options;
+    opts.push({ id: opts.length + 1, text: '', correct: false });
+    renderBody();
+}
+function removeOption(i) {
+    const opts = _editing.config.options;
+    if (opts.length <= 2) { alert('Keep at least two options.'); return; }
+    opts.splice(i, 1);
+    opts.forEach((o, j) => o.id = j + 1);
+    renderBody();
+}
+function onAccepted(i, v) { _editing.config.accepted[i] = v; }
+function addAccepted() { _editing.config.accepted.push(''); renderBody(); }
+function removeAccepted(i) {
+    if (_editing.config.accepted.length <= 1) { alert('Keep at least one accepted answer.'); return; }
+    _editing.config.accepted.splice(i, 1);
+    renderBody();
+}
+
+async function saveQuestion() {
+    const prompt = document.getElementById('qPrompt').value.trim();
+    if (!prompt) { alert('Question prompt is required'); return; }
+    const t = _editing.question_type;
+    let config;
+    if (t === 'short_text') {
+        const accepted = (_editing.config.accepted || []).map(a => (a || '').trim()).filter(Boolean);
+        if (!accepted.length) { alert('Add at least one accepted answer.'); return; }
+        config = { accepted, case_sensitive: document.getElementById('qCaseSensitive').checked };
+    } else {
+        const opts = (_editing.config.options || [])
+            .map((o, i) => ({ id: i + 1, text: (o.text || '').trim(), correct: !!o.correct }))
+            .filter(o => o.text);
+        if (opts.length < 2) { alert('Add at least two options.'); return; }
+        const correctCount = opts.filter(o => o.correct).length;
+        if (t !== 'multi_choice' && correctCount !== 1) { alert('Pick exactly one correct option.'); return; }
+        if (t === 'multi_choice' && correctCount < 1) { alert('Mark at least one option correct.'); return; }
+        config = { options: opts };
+    }
+    const body = {
+        id: _editing.id, question_type: t, prompt, config,
+        points: parseInt(document.getElementById('qPoints').value) || 1,
+    };
+    const r = await fetch(`/admin/quizzes/${QUIZ_ID}/questions/save`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Failed to save'); return; }
+    const q = d.question;
+    const idx = QUESTIONS.findIndex(x => x.id === q.id);
+    if (idx >= 0) QUESTIONS[idx] = q; else QUESTIONS.push(q);
+    QUESTIONS.sort((a, b) => a.sort_order - b.sort_order);
+    _editing = JSON.parse(JSON.stringify(q));
+    renderList();
+    showForm();
+}
+
+async function deleteQuestion() {
+    if (!_editing || !_editing.id) return;
+    if (!confirm('Delete this question?')) return;
+    const r = await fetch(`/admin/quizzes/${QUIZ_ID}/questions/${_editing.id}/delete`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Failed to delete'); return; }
+    QUESTIONS = QUESTIONS.filter(x => x.id !== _editing.id);
+    _editing = null;
+    document.getElementById('qForm').style.display = 'none';
+    document.getElementById('qPlaceholder').style.display = 'block';
+    renderList();
+}
+</script>
+{% endblock %}

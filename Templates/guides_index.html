@@ -1,0 +1,55 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Guides — {{ website.name if website else 'Guides' }}{% endblock %}
+
+{% block head %}
+<style>
+.gi-wrap { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; }
+.gi-heading { font-size: 2rem; font-weight: 800; margin: 0 0 6px; }
+.gi-sub { opacity: 0.55; font-size: 0.95rem; margin: 0 0 32px; }
+.gi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px; }
+.gi-card {
+    display: flex; flex-direction: column;
+    border-radius: 16px; overflow: hidden;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    text-decoration: none; color: inherit;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.gi-card:hover { transform: translateY(-3px); border-color: rgba(94,238,248,0.4); }
+.gi-cover { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
+.gi-cover-empty { width: 100%; aspect-ratio: 16 / 9; background: linear-gradient(135deg, rgba(94,238,248,0.15), rgba(94,238,200,0.1)); display: flex; align-items: center; justify-content: center; font-size: 2rem; opacity: 0.5; }
+.gi-body { padding: 16px 18px 20px; }
+.gi-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 6px; }
+.gi-desc { font-size: 0.88rem; opacity: 0.6; line-height: 1.5; margin: 0; }
+.gi-empty { opacity: 0.45; text-align: center; padding: 80px 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gi-wrap">
+    <h1 class="gi-heading">Guides</h1>
+    <p class="gi-sub">Browse training modules and reference material.</p>
+
+    {% if guides %}
+    <div class="gi-grid">
+        {% for g in guides %}
+        {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
+        <a class="gi-card" href="{{ _gurl }}">
+            {% if g.cover_image_url %}
+            <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
+            {% else %}
+            <div class="gi-cover-empty"><i class="fas fa-book-open"></i></div>
+            {% endif %}
+            <div class="gi-body">
+                <h2 class="gi-title">{{ g.title }}</h2>
+                {% if g.description %}<p class="gi-desc">{{ g.description }}</p>{% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="gi-empty"><p>No guides published yet.</p></div>
+    {% endif %}
+</div>
+{% endblock %}

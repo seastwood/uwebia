@@ -1898,6 +1898,183 @@ class PostCommentLike(db.Model):
     )
 
 
+# ── Guides / training modules ───────────────────────────────────────────────
+# A Guide is the "book": an ordered tree of GuideNodes. Each node is either a
+# 'chapter' (grouping, no body) or a 'lesson' (Quill HTML body). Quizzes and
+# progress tracking attach to nodes in later phases — see [[project-overview]].
+
+class Guide(db.Model):
+    __tablename__ = 'guide'
+    id              = db.Column(db.Integer, primary_key=True)
+    website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    title           = db.Column(db.String(200), nullable=False)
+    slug            = db.Column(db.String(200), nullable=False)
+    description     = db.Column(db.Text, nullable=True)
+    cover_image_url = db.Column(db.String(500), nullable=True)
+    status          = db.Column(db.String(20), nullable=False, default='draft',
+                                server_default="'draft'")
+    require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
+    # Opt-in anonymous + logged-in progress tracking (wired in Phase 3).
+    track_progress  = db.Column(db.Boolean, nullable=False, default=True,
+                                server_default=_sa_true())
+    sort_order      = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at      = db.Column(db.DateTime, nullable=True)
+    published_at    = db.Column(db.DateTime, nullable=True)
+    nodes           = db.relationship('GuideNode', backref='guide', lazy='dynamic',
+                                      cascade='all, delete-orphan',
+                                      order_by='GuideNode.sort_order')
+    __table_args__  = (db.UniqueConstraint('website_id', 'slug', name='uq_guide_site_slug'),)
+
+
+class GuideNode(db.Model):
+    __tablename__ = 'guide_node'
+    id           = db.Column(db.Integer, primary_key=True)
+    guide_id     = db.Column(db.Integer, db.ForeignKey('guide.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    # Self-referential tree: NULL parent = top level. Arbitrary nesting depth.
+    parent_id    = db.Column(db.Integer, db.ForeignKey('guide_node.id', ondelete='CASCADE'),
+                             nullable=True, index=True)
+    website_id   = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    node_type    = db.Column(db.String(20), nullable=False, default='lesson',
+                             server_default="'lesson'")  # 'chapter' | 'lesson'
+    title        = db.Column(db.String(300), nullable=False)
+    slug         = db.Column(db.String(300), nullable=False)
+    content      = db.Column(db.Text, nullable=True)  # Quill HTML; lessons only
+    sort_order   = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    is_published = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    created_at   = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at   = db.Column(db.DateTime, nullable=True)
+    children     = db.relationship('GuideNode',
+                                   backref=db.backref('parent', remote_side=[id]),
+                                   lazy='dynamic', cascade='all, delete-orphan',
+                                   order_by='GuideNode.sort_order')
+    __table_args__ = (db.UniqueConstraint('guide_id', 'slug', name='uq_guide_node_slug'),)
+
+
+# ── Quizzes ─────────────────────────────────────────────────────────────────
+# A Quiz is a standalone, reusable asset (website-scoped, referenced by id). It
+# can be embedded inside a lesson's Quill HTML via a `quiz` blot and — later —
+# dropped into a page-builder section. Questions are graded server-side; the
+# public payload (`to_public_dict`) NEVER exposes which answers are correct.
+
+class Quiz(db.Model):
+    __tablename__ = 'quiz'
+    id                = db.Column(db.Integer, primary_key=True)
+    website_id        = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                  nullable=False, index=True)
+    title             = db.Column(db.String(300), nullable=False)
+    description       = db.Column(db.Text, nullable=True)
+    shuffle_questions = db.Column(db.Boolean, nullable=False, default=False,
+                                  server_default=_sa_false())
+    created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at        = db.Column(db.DateTime, nullable=True)
+    questions         = db.relationship('QuizQuestion', backref='quiz', lazy='dynamic',
+                                        cascade='all, delete-orphan',
+                                        order_by='QuizQuestion.sort_order')
+
+
+class QuizQuestion(db.Model):
+    __tablename__ = 'quiz_question'
+    id            = db.Column(db.Integer, primary_key=True)
+    quiz_id       = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    # 'single_choice' | 'multi_choice' | 'true_false' | 'short_text'
+    question_type = db.Column(db.String(20), nullable=False, default='single_choice',
+                              server_default="'single_choice'")
+    prompt        = db.Column(db.Text, nullable=False)
+    # Choice types: {"options": [{"id": 1, "text": "...", "correct": true}, ...]}
+    # short_text:   {"accepted": ["..."], "case_sensitive": false}
+    config        = db.Column(db.JSON, nullable=True)
+    points        = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    sort_order    = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+
+    def _config(self):
+        c = self.config
+        if isinstance(c, str):
+            try:
+                c = json.loads(c)
+            except (ValueError, TypeError):
+                c = {}
+        return c or {}
+
+    def to_admin_dict(self):
+        """Full payload for the admin builder — includes correct answers."""
+        return {
+            'id': self.id,
+            'question_type': self.question_type,
+            'prompt': self.prompt,
+            'config': self._config(),
+            'points': self.points,
+            'sort_order': self.sort_order,
+        }
+
+    def to_public_dict(self):
+        """Public payload — STRIPS every hint of which answer is correct."""
+        cfg = self._config()
+        out = {
+            'id': self.id,
+            'question_type': self.question_type,
+            'prompt': self.prompt,
+            'points': self.points,
+        }
+        if self.question_type in ('single_choice', 'multi_choice', 'true_false'):
+            out['options'] = [
+                {'id': o.get('id'), 'text': o.get('text', '')}
+                for o in (cfg.get('options') or [])
+            ]
+        # short_text exposes nothing beyond the prompt itself.
+        return out
+
+
+class QuizAttempt(db.Model):
+    """Append-only record of a public submission. Best score is derived by
+    query (max(score) for an identity); we never overwrite history. Dual-keyed
+    like AssetPlay so anonymous + logged-in readers are both tracked."""
+    __tablename__ = 'quiz_attempt'
+    id              = db.Column(db.Integer, primary_key=True)
+    quiz_id         = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    # Where it was taken (a lesson), when embedded. Null for standalone/section.
+    guide_node_id   = db.Column(db.Integer, db.ForeignKey('guide_node.id', ondelete='SET NULL'),
+                                nullable=True, index=True)
+    public_user_id  = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='SET NULL'),
+                                nullable=True, index=True)
+    visitor_id_hash = db.Column(db.String(64), nullable=True, index=True)
+    score           = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    max_score       = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    answers         = db.Column(db.JSON, nullable=True)  # raw submission, for review
+    created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class GuideProgress(db.Model):
+    """One row per lesson per device. Auto-created when a reader opens a lesson
+    (completion = visited). Keyed on (node, visitor_id_hash) exactly like
+    AssetPlay; public_user_id is stamped when logged in so progress aggregates
+    across that user's devices."""
+    __tablename__ = 'guide_progress'
+    id              = db.Column(db.Integer, primary_key=True)
+    guide_id        = db.Column(db.Integer, db.ForeignKey('guide.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    guide_node_id   = db.Column(db.Integer, db.ForeignKey('guide_node.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    visitor_id_hash = db.Column(db.String(64), nullable=False, index=True)
+    public_user_id  = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='SET NULL'),
+                                nullable=True, index=True)
+    first_viewed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    last_viewed_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    completed_at    = db.Column(db.DateTime, nullable=True)
+    __table_args__  = (db.UniqueConstraint('guide_node_id', 'visitor_id_hash',
+                                           name='uq_guide_progress_node_visitor'),)
+
+
 class Newsletter(db.Model):
     __tablename__ = 'newsletter'
     id = db.Column(db.Integer, primary_key=True)
@@ -5714,7 +5891,7 @@ _RESERVED_URL_PREFIXES = frozenset({
     'login', 'logout', 'register', 'account', '2fa',
     'forgot-password', 'reset-password', 'verify-email', 'resend-verification',
     # Public content
-    'posts', 'products', 'shop', 'store', 'forum', 'calendar',
+    'posts', 'products', 'shop', 'store', 'forum', 'calendar', 'guides', 'quizzes',
     'page', 'section', 'comment', 'upload', 'asset',
     'preview-page', 'preview-navbar', 'preview_page', 'preview_navbar',
     # Admin CRUD prefixes (top-level)
@@ -7632,7 +7809,7 @@ def admin_switch_website(website_id):
 @login_required
 def save_navbar_visibility():
     data = request.get_json() or {}
-    valid = {'posts', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins'}
+    valid = {'posts', 'guides', 'quizzes', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins'}
     disabled = [k for k in data.get('disabled', []) if k in valid]
     current_user.admin_navbar_disabled = disabled
     db.session.commit()
@@ -17957,6 +18134,17 @@ ADMIN_PERMISSIONS = {
         'moderate': 'Approve & delete post comments',
         'settings': 'Edit profanity filter settings for posts',
     }},
+    'guides': {'label': 'Guides', 'actions': {
+        'view': 'View guides list & open the guide editor',
+        'manage': 'Create, edit settings for & delete guides',
+        'edit': 'Edit guide content (chapters & lessons)',
+        'publish': 'Publish & unpublish guides',
+    }},
+    'quizzes': {'label': 'Quizzes', 'actions': {
+        'view': 'View quizzes list & open the quiz builder',
+        'manage': 'Create & delete quizzes',
+        'edit': 'Edit quiz questions & answers',
+    }},
     'newsletters': {'label': 'Newsletters', 'actions': {
         'view': 'View newsletters, subscribers & campaigns',
         'manage': 'Create / edit newsletters, manage subscribers & draft campaigns',
@@ -27689,6 +27877,826 @@ def admin_posts_profanity_settings():
         w.post_profanity_action = action
     db.session.commit()
     return _utf8_json({'success': True})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Guides / training modules  (Phase 1: content backbone)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _unique_guide_slug(website_id, base_slug, exclude_id=None):
+    """Return a slug unique among this website's guides."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = Guide.query.filter_by(website_id=website_id, slug=slug)
+        if exclude_id:
+            q = q.filter(Guide.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+def _unique_guide_node_slug(guide_id, base_slug, exclude_id=None):
+    """Return a slug unique among one guide's nodes."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = GuideNode.query.filter_by(guide_id=guide_id, slug=slug)
+        if exclude_id:
+            q = q.filter(GuideNode.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+def _serialize_guide_node(node, include_content=False):
+    d = {
+        'id': node.id,
+        'parent_id': node.parent_id,
+        'node_type': node.node_type,
+        'title': node.title,
+        'slug': node.slug,
+        'sort_order': node.sort_order,
+        'is_published': node.is_published,
+        'children': [_serialize_guide_node(c, include_content)
+                     for c in node.children.order_by(GuideNode.sort_order)],
+    }
+    if include_content:
+        d['content'] = node.content or ''
+    return d
+
+
+def _guide_tree(guide, include_content=False):
+    """Nested list of this guide's nodes, ordered by sort_order at each level."""
+    roots = guide.nodes.filter_by(parent_id=None).order_by(GuideNode.sort_order).all()
+    return [_serialize_guide_node(n, include_content) for n in roots]
+
+
+def _guide_published_tree(guide):
+    """TOC tree of published nodes only (drops unpublished branches entirely)."""
+    def walk(parent_id):
+        out = []
+        for n in guide.nodes.filter_by(parent_id=parent_id, is_published=True).order_by(GuideNode.sort_order):
+            out.append({
+                'id': n.id, 'title': n.title, 'slug': n.slug,
+                'node_type': n.node_type, 'children': walk(n.id),
+            })
+        return out
+    return walk(None)
+
+
+def _guide_reading_order(guide):
+    """Depth-first list of published lesson nodes — used for prev/next nav."""
+    result = []
+    def walk(parent_id):
+        for n in guide.nodes.filter_by(parent_id=parent_id, is_published=True).order_by(GuideNode.sort_order):
+            if n.node_type == 'lesson':
+                result.append(n)
+            walk(n.id)
+    walk(None)
+    return result
+
+
+@app.route('/admin/guides')
+@login_required
+@require_perm('guides.view')
+def admin_guides_page():
+    website = get_admin_website()
+    guides = []
+    if website:
+        guides = Guide.query.filter_by(website_id=website.id).order_by(
+            Guide.sort_order, Guide.created_at.desc()).all()
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template(
+        'guides_admin.html',
+        guides=guides,
+        website=website,
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=None,
+    )
+
+
+@app.route('/admin/guides/create', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guides_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    slug = _unique_guide_slug(website.id, _slugify_post(title))
+    guide = Guide(
+        website_id=website.id,
+        title=title,
+        slug=slug,
+        description=(data.get('description') or '').strip() or None,
+    )
+    db.session.add(guide)
+    db.session.commit()
+    return _utf8_json({'success': True, 'guide': {
+        'id': guide.id, 'title': guide.title, 'slug': guide.slug,
+    }}, 201)
+
+
+@app.route('/admin/guides/<int:gid>/update', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guides_update(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    guide.title = title
+    guide.description = (data.get('description') or '').strip() or None
+    if 'cover_image_url' in data:
+        guide.cover_image_url = (data.get('cover_image_url') or '').strip() or None
+    if 'require_login_to_view' in data:
+        guide.require_login_to_view = bool(data['require_login_to_view'])
+    if 'track_progress' in data:
+        guide.track_progress = bool(data['track_progress'])
+    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'guide': {
+        'id': guide.id, 'title': guide.title, 'slug': guide.slug,
+        'description': guide.description or '',
+        'cover_image_url': guide.cover_image_url or '',
+        'require_login_to_view': guide.require_login_to_view,
+        'track_progress': guide.track_progress,
+    }})
+
+
+@app.route('/admin/guides/<int:gid>/delete', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guides_delete(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    db.session.delete(guide)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/guides/<int:gid>/publish', methods=['POST'])
+@login_required
+@require_perm('guides.publish')
+def admin_guides_publish(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    guide.status = 'published'
+    if not guide.published_at:
+        guide.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': guide.status, 'slug': guide.slug})
+
+
+@app.route('/admin/guides/<int:gid>/unpublish', methods=['POST'])
+@login_required
+@require_perm('guides.publish')
+def admin_guides_unpublish(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    guide.status = 'draft'
+    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': guide.status})
+
+
+@app.route('/admin/guides/<int:gid>/edit')
+@login_required
+@require_perm('guides.view')
+def admin_guide_editor(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        abort(403)
+    current_website = website
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all()
+    return render_template(
+        'guide_editor.html',
+        guide=guide,
+        tree=_guide_tree(guide),
+        current_website=current_website,
+        current_website_pages=current_website_pages,
+        page_id=None,
+    )
+
+
+@app.route('/admin/guides/<int:gid>/tree')
+@login_required
+@require_perm('guides.view')
+def admin_guide_tree(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    return _utf8_json({'success': True, 'tree': _guide_tree(guide)})
+
+
+@app.route('/admin/guides/<int:gid>/nodes/<int:nid>')
+@login_required
+@require_perm('guides.view')
+def admin_guide_node_get(gid, nid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    node = GuideNode.query.filter_by(id=nid, guide_id=gid).first_or_404()
+    return _utf8_json({'success': True, 'node': _serialize_guide_node(node, include_content=True)})
+
+
+@app.route('/admin/guides/<int:gid>/nodes/save', methods=['POST'])
+@login_required
+@require_perm('guides.edit')
+def admin_guide_node_save(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    node_type = data.get('node_type') if data.get('node_type') in ('chapter', 'lesson') else 'lesson'
+
+    # Validate parent belongs to this guide (and isn't the node itself).
+    parent_id = data.get('parent_id')
+    if parent_id in ('', None):
+        parent_id = None
+    else:
+        parent_id = int(parent_id)
+        parent = GuideNode.query.filter_by(id=parent_id, guide_id=gid).first()
+        if not parent:
+            return _utf8_json({'success': False, 'error': 'Invalid parent'}, 400)
+
+    nid = data.get('id')
+    if nid:
+        node = GuideNode.query.filter_by(id=int(nid), guide_id=gid).first_or_404()
+        if parent_id == node.id:
+            return _utf8_json({'success': False, 'error': 'A node cannot be its own parent'}, 400)
+        raw_slug = (data.get('slug') or '').strip()
+        if raw_slug:
+            node.slug = _unique_guide_node_slug(gid, _slugify_post(raw_slug), exclude_id=node.id)
+        node.title = title
+        node.node_type = node_type
+        if 'parent_id' in data:
+            node.parent_id = parent_id
+        if node_type == 'lesson' and 'content' in data:
+            node.content = data.get('content') or None
+        if node_type == 'chapter':
+            node.content = None
+        if 'is_published' in data:
+            node.is_published = bool(data['is_published'])
+        node.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    else:
+        raw_slug = (data.get('slug') or '').strip()
+        base = _slugify_post(raw_slug if raw_slug else title)
+        # New nodes append to the end of their sibling group.
+        max_sort = db.session.query(db.func.max(GuideNode.sort_order)).filter_by(
+            guide_id=gid, parent_id=parent_id).scalar()
+        node = GuideNode(
+            guide_id=gid,
+            website_id=website.id,
+            parent_id=parent_id,
+            node_type=node_type,
+            title=title,
+            slug=_unique_guide_node_slug(gid, base),
+            content=(data.get('content') or None) if node_type == 'lesson' else None,
+            sort_order=(max_sort or 0) + 1,
+        )
+        db.session.add(node)
+    db.session.commit()
+    return _utf8_json({'success': True, 'node': _serialize_guide_node(node, include_content=True)})
+
+
+@app.route('/admin/guides/<int:gid>/nodes/<int:nid>/delete', methods=['POST'])
+@login_required
+@require_perm('guides.edit')
+def admin_guide_node_delete(gid, nid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    node = GuideNode.query.filter_by(id=nid, guide_id=gid).first_or_404()
+    db.session.delete(node)  # cascades to descendants
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/guides/<int:gid>/nodes/reorder', methods=['POST'])
+@login_required
+@require_perm('guides.edit')
+def admin_guide_nodes_reorder(gid):
+    """Apply a flat list of {id, parent_id, sort_order} produced by the
+    drag-and-drop tree. Only touches nodes belonging to this guide."""
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    items = data.get('items') or []
+    by_id = {n.id: n for n in guide.nodes.all()}
+    for it in items:
+        node = by_id.get(int(it.get('id')))
+        if not node:
+            continue
+        pid = it.get('parent_id')
+        node.parent_id = int(pid) if pid not in ('', None) else None
+        node.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ── Public guide pages ──────────────────────────────────────────────────────
+
+@app.route('/guides')
+@app.route('/<string:prefix>/guides')
+def public_guides_index(prefix=None):
+    website = get_live_website(url_prefix=prefix) if prefix else get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    if not website.is_live:
+        return render_template('site_offline.html', website=website), 503
+    guides = Guide.query.filter_by(website_id=website.id, status='published').order_by(
+        Guide.sort_order, Guide.published_at.desc()).all()
+    public_user = _public_user_for_website(website)
+    return render_template('guides_index.html', website=website, guides=guides,
+                           public_user=public_user)
+
+
+def _resolve_public_guide(guide_slug, prefix):
+    """Shared loader for the two guide view routes. Returns (website, guide) or
+    a Response to short-circuit (404 / offline / login redirect)."""
+    website = get_live_website(url_prefix=prefix) if prefix else get_live_website()
+    if not website:
+        return None, None, (render_template('no_site_found.html'), 404)
+    if not website.is_live:
+        return None, None, (render_template('site_offline.html', website=website), 503)
+    guide = Guide.query.filter_by(website_id=website.id, slug=guide_slug,
+                                  status='published').first_or_404()
+    public_user = _public_user_for_website(website)
+    if guide.require_login_to_view and not public_user:
+        return None, None, redirect(url_for('public_login',
+                                            website_prefix=website.url_prefix, next=request.url))
+    return website, guide, None
+
+
+@app.route('/guides/<string:guide_slug>')
+@app.route('/<string:prefix>/guides/<string:guide_slug>')
+def public_guide_view(guide_slug, prefix=None):
+    website, guide, short = _resolve_public_guide(guide_slug, prefix)
+    if short is not None:
+        return short
+    public_user = _public_user_for_website(website)
+    order = _guide_reading_order(guide)
+    return render_template('guide_view.html', website=website, guide=guide,
+                           toc=_guide_published_tree(guide), node=None,
+                           start_node=(order[0] if order else None),
+                           prev_node=None, next_node=None, public_user=public_user)
+
+
+@app.route('/guides/<string:guide_slug>/<string:node_slug>')
+@app.route('/<string:prefix>/guides/<string:guide_slug>/<string:node_slug>')
+def public_guide_node(guide_slug, node_slug, prefix=None):
+    website, guide, short = _resolve_public_guide(guide_slug, prefix)
+    if short is not None:
+        return short
+    node = GuideNode.query.filter_by(guide_id=guide.id, slug=node_slug,
+                                     is_published=True).first_or_404()
+    # Prev/next walk only lesson nodes (chapters are headings).
+    order = _guide_reading_order(guide)
+    prev_node = next_node = None
+    ids = [n.id for n in order]
+    if node.id in ids:
+        i = ids.index(node.id)
+        prev_node = order[i - 1] if i > 0 else None
+        next_node = order[i + 1] if i < len(order) - 1 else None
+    public_user = _public_user_for_website(website)
+    return render_template('guide_view.html', website=website, guide=guide,
+                           toc=_guide_published_tree(guide), node=node, start_node=None,
+                           prev_node=prev_node, next_node=next_node, public_user=public_user)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Quizzes — reusable assessment assets (embed in lessons / sections)
+# ════════════════════════════════════════════════════════════════════════════
+
+_QUIZ_QUESTION_TYPES = ('single_choice', 'multi_choice', 'true_false', 'short_text')
+
+
+def _normalize_quiz_config(question_type, config):
+    """Validate + normalize one question's config JSON. Returns (config, error)."""
+    config = config or {}
+    if question_type in ('single_choice', 'multi_choice', 'true_false'):
+        options = []
+        for i, o in enumerate(config.get('options') or []):
+            text = (o.get('text') or '').strip()
+            if not text:
+                continue
+            options.append({
+                'id': o['id'] if isinstance(o.get('id'), int) else i + 1,
+                'text': text,
+                'correct': bool(o.get('correct')),
+            })
+        if len(options) < 2:
+            return None, 'Add at least two options.'
+        correct_count = sum(1 for o in options if o['correct'])
+        if question_type == 'single_choice' and correct_count != 1:
+            return None, 'Single-choice questions need exactly one correct option.'
+        if question_type == 'true_false' and (len(options) != 2 or correct_count != 1):
+            return None, 'True/False needs exactly two options with one correct.'
+        if question_type == 'multi_choice' and correct_count < 1:
+            return None, 'Mark at least one option correct.'
+        return {'options': options}, None
+    # short_text
+    accepted = [a.strip() for a in (config.get('accepted') or []) if a and a.strip()]
+    if not accepted:
+        return None, 'Add at least one accepted answer.'
+    return {'accepted': accepted, 'case_sensitive': bool(config.get('case_sensitive'))}, None
+
+
+def _quiz_owned_or_403(qid):
+    """Return (website, quiz) for an admin request, or a (response, None) tuple to
+    short-circuit. Mirrors the ownership guard used by the guide routes."""
+    quiz = Quiz.query.get_or_404(qid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or quiz.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, quiz
+
+
+@app.route('/admin/quizzes')
+@login_required
+@require_perm('quizzes.view')
+def admin_quizzes_page():
+    website = get_admin_website()
+    quizzes = []
+    if website:
+        quizzes = Quiz.query.filter_by(website_id=website.id).order_by(
+            Quiz.created_at.desc()).all()
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id).all() if website else []
+    return render_template('quizzes_admin.html', quizzes=quizzes, website=website,
+                           current_website=website,
+                           current_website_pages=current_website_pages, page_id=None)
+
+
+@app.route('/admin/quizzes/list')
+@login_required
+@require_perm('quizzes.view')
+def admin_quizzes_list():
+    website = get_admin_website()
+    quizzes = Quiz.query.filter_by(website_id=website.id).order_by(Quiz.title).all() if website else []
+    return _utf8_json({'success': True, 'quizzes': [
+        {'id': q.id, 'title': q.title, 'question_count': q.questions.count()} for q in quizzes]})
+
+
+@app.route('/admin/quizzes/create', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quizzes_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    quiz = Quiz(website_id=website.id, title=title,
+                description=(data.get('description') or '').strip() or None)
+    db.session.add(quiz)
+    db.session.commit()
+    return _utf8_json({'success': True, 'quiz': {'id': quiz.id, 'title': quiz.title}}, 201)
+
+
+@app.route('/admin/quizzes/<int:qid>/update', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quizzes_update(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    quiz.title = title
+    quiz.description = (data.get('description') or '').strip() or None
+    if 'shuffle_questions' in data:
+        quiz.shuffle_questions = bool(data['shuffle_questions'])
+    quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'quiz': {
+        'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
+        'shuffle_questions': quiz.shuffle_questions}})
+
+
+@app.route('/admin/quizzes/<int:qid>/delete', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quizzes_delete(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    db.session.delete(quiz)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/quizzes/<int:qid>/edit')
+@login_required
+@require_perm('quizzes.view')
+def admin_quiz_editor(qid):
+    quiz = Quiz.query.get_or_404(qid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or quiz.website_id != website.id:
+        abort(403)
+    questions = [q.to_admin_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id).all()
+    return render_template('quiz_editor.html', quiz=quiz, questions=questions,
+                           website=website, current_website=website,
+                           current_website_pages=current_website_pages, page_id=None)
+
+
+@app.route('/admin/quizzes/<int:qid>')
+@login_required
+@require_perm('quizzes.view')
+def admin_quiz_get(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    return _utf8_json({'success': True, 'quiz': {
+        'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
+        'shuffle_questions': quiz.shuffle_questions,
+        'questions': [q.to_admin_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]}})
+
+
+@app.route('/admin/quizzes/<int:qid>/questions/save', methods=['POST'])
+@login_required
+@require_perm('quizzes.edit')
+def admin_quiz_question_save(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    data = request.get_json() or {}
+    qtype = data.get('question_type')
+    if qtype not in _QUIZ_QUESTION_TYPES:
+        return _utf8_json({'success': False, 'error': 'Invalid question type'}, 400)
+    prompt = (data.get('prompt') or '').strip()
+    if not prompt:
+        return _utf8_json({'success': False, 'error': 'Question prompt is required'}, 400)
+    cfg, err = _normalize_quiz_config(qtype, data.get('config'))
+    if err:
+        return _utf8_json({'success': False, 'error': err}, 400)
+    try:
+        points = max(1, int(data.get('points') or 1))
+    except (ValueError, TypeError):
+        points = 1
+    qq_id = data.get('id')
+    if qq_id:
+        qq = QuizQuestion.query.filter_by(id=int(qq_id), quiz_id=qid).first_or_404()
+        qq.question_type = qtype
+        qq.prompt = prompt
+        qq.config = cfg
+        qq.points = points
+    else:
+        max_sort = db.session.query(db.func.max(QuizQuestion.sort_order)).filter_by(quiz_id=qid).scalar()
+        qq = QuizQuestion(quiz_id=qid, question_type=qtype, prompt=prompt, config=cfg,
+                          points=points, sort_order=(max_sort or 0) + 1)
+        db.session.add(qq)
+    quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'question': qq.to_admin_dict()})
+
+
+@app.route('/admin/quizzes/<int:qid>/questions/<int:question_id>/delete', methods=['POST'])
+@login_required
+@require_perm('quizzes.edit')
+def admin_quiz_question_delete(qid, question_id):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    qq = QuizQuestion.query.filter_by(id=question_id, quiz_id=qid).first_or_404()
+    db.session.delete(qq)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/quizzes/<int:qid>/questions/reorder', methods=['POST'])
+@login_required
+@require_perm('quizzes.edit')
+def admin_quiz_questions_reorder(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    data = request.get_json() or {}
+    by_id = {q.id: q for q in quiz.questions.all()}
+    for it in (data.get('items') or []):
+        q = by_id.get(int(it.get('id')))
+        if q:
+            q.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ── Public quiz + progress API ──────────────────────────────────────────────
+
+def _set_visitor_cookie(resp, visitor_id):
+    resp.set_cookie('uwebia_asset_visitor_id', visitor_id,
+                    max_age=60 * 60 * 24 * 365, httponly=True, samesite='Lax')
+    return resp
+
+
+def _grade_quiz(quiz, submitted):
+    """Grade a submission server-side. `submitted` maps question id -> answer
+    (option id for single/true_false, list of ids for multi, string for
+    short_text). Returns (score, max_score, results)."""
+    score = max_score = 0
+    results = []
+    for q in quiz.questions.order_by(QuizQuestion.sort_order):
+        max_score += q.points
+        cfg = q._config()
+        ans = submitted.get(str(q.id), submitted.get(q.id))
+        detail = {'question_id': q.id}
+        correct = False
+        if q.question_type in ('single_choice', 'true_false'):
+            correct_ids = [o['id'] for o in cfg.get('options', []) if o.get('correct')]
+            try:
+                sel = int(ans) if ans not in (None, '') else None
+            except (ValueError, TypeError):
+                sel = None
+            correct = sel is not None and sel in correct_ids
+            detail['correct_option_ids'] = correct_ids
+        elif q.question_type == 'multi_choice':
+            correct_ids = set(o['id'] for o in cfg.get('options', []) if o.get('correct'))
+            try:
+                sel = set(int(x) for x in (ans or []))
+            except (ValueError, TypeError):
+                sel = set()
+            correct = bool(correct_ids) and sel == correct_ids
+            detail['correct_option_ids'] = list(correct_ids)
+        else:  # short_text
+            accepted = cfg.get('accepted', [])
+            cs = cfg.get('case_sensitive')
+            val = ans.strip() if isinstance(ans, str) else ''
+            needle = val if cs else val.lower()
+            haystack = accepted if cs else [a.lower() for a in accepted]
+            correct = needle != '' and needle in haystack
+            detail['accepted'] = accepted
+        if correct:
+            score += q.points
+        detail['correct'] = correct
+        results.append(detail)
+    return score, max_score, results
+
+
+def _quiz_best_score(quiz_id, public_user, visitor_hash):
+    q = QuizAttempt.query.filter_by(quiz_id=quiz_id)
+    if public_user:
+        q = q.filter(db.or_(QuizAttempt.public_user_id == public_user.id,
+                            QuizAttempt.visitor_id_hash == visitor_hash))
+    else:
+        q = q.filter(QuizAttempt.visitor_id_hash == visitor_hash)
+    best = q.order_by(QuizAttempt.score.desc()).first()
+    return best.score if best else 0
+
+
+def _live_website_for(model_obj):
+    """Resolve the live Website that owns a quiz/guide, or abort 404. Avoids
+    URL-prefix ambiguity — the owning site is derived from the object itself."""
+    website = Website.query.get(model_obj.website_id)
+    if not website or not website.is_live:
+        abort(404)
+    return website
+
+
+@app.route('/api/quizzes/<int:qid>')
+def public_quiz_get(qid):
+    quiz = Quiz.query.get_or_404(qid)
+    _live_website_for(quiz)
+    questions = [q.to_public_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
+    if quiz.shuffle_questions:
+        import random as _random
+        _random.shuffle(questions)
+    return _utf8_json({'success': True, 'quiz': {
+        'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
+        'questions': questions}})
+
+
+@app.route('/api/quizzes/<int:qid>/submit', methods=['POST'])
+def public_quiz_submit(qid):
+    quiz = Quiz.query.get_or_404(qid)
+    website = _live_website_for(quiz)
+    data = request.get_json() or {}
+    submitted = data.get('answers') or {}
+    try:
+        node_id = int(data.get('guide_node_id')) if data.get('guide_node_id') not in (None, '', 0) else None
+    except (ValueError, TypeError):
+        node_id = None
+    score, max_score, results = _grade_quiz(quiz, submitted)
+
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    db.session.add(QuizAttempt(
+        quiz_id=quiz.id, website_id=website.id, guide_node_id=node_id,
+        public_user_id=public_user.id if public_user else None,
+        visitor_id_hash=visitor_hash, score=score, max_score=max_score, answers=submitted))
+    db.session.commit()
+
+    resp = _utf8_json({'success': True, 'score': score, 'max_score': max_score,
+                       'results': results,
+                       'best_score': _quiz_best_score(quiz.id, public_user, visitor_hash)})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+def _guide_progress_summary(guide, public_user, visitor_hash):
+    lessons = _guide_reading_order(guide)
+    lesson_ids = {n.id for n in lessons}
+    total = len(lesson_ids)
+    q = GuideProgress.query.filter(GuideProgress.guide_id == guide.id,
+                                   GuideProgress.completed_at.isnot(None))
+    if public_user:
+        q = q.filter(db.or_(GuideProgress.public_user_id == public_user.id,
+                            GuideProgress.visitor_id_hash == visitor_hash))
+    else:
+        q = q.filter(GuideProgress.visitor_id_hash == visitor_hash)
+    completed = {r.guide_node_id for r in q.all()} & lesson_ids
+    return {'completed_node_ids': list(completed), 'total': total,
+            'completed': len(completed),
+            'percent': round(100 * len(completed) / total) if total else 0}
+
+
+def _resolve_published_guide_or_404(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = _live_website_for(guide)
+    if guide.status != 'published':
+        abort(404)
+    return guide, website
+
+
+@app.route('/api/guides/<int:gid>/nodes/<int:nid>/progress', methods=['POST'])
+def public_guide_progress_mark(gid, nid):
+    guide, website = _resolve_published_guide_or_404(gid)
+    if not guide.track_progress:
+        return _utf8_json({'success': True, 'tracking': False})
+    GuideNode.query.filter_by(id=nid, guide_id=gid, is_published=True).first_or_404()
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rec = GuideProgress.query.filter_by(guide_node_id=nid, visitor_id_hash=visitor_hash).first()
+    if rec:
+        rec.last_viewed_at = now
+        if not rec.completed_at:
+            rec.completed_at = now
+        if public_user and not rec.public_user_id:
+            rec.public_user_id = public_user.id
+    else:
+        db.session.add(GuideProgress(
+            guide_id=gid, guide_node_id=nid, website_id=website.id,
+            visitor_id_hash=visitor_hash,
+            public_user_id=public_user.id if public_user else None,
+            first_viewed_at=now, last_viewed_at=now, completed_at=now))
+    db.session.commit()
+    resp = _utf8_json({'success': True, 'tracking': True,
+                       **_guide_progress_summary(guide, public_user, visitor_hash)})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+@app.route('/api/guides/<int:gid>/progress')
+def public_guide_progress_get(gid):
+    guide, website = _resolve_published_guide_or_404(gid)
+    if not guide.track_progress:
+        return _utf8_json({'success': True, 'tracking': False})
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    resp = _utf8_json({'success': True, 'tracking': True,
+                       **_guide_progress_summary(guide, public_user, visitor_hash)})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
 
 @app.route('/admin/settings/profanity', methods=['POST'])
