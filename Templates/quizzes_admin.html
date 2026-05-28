@@ -1,0 +1,243 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.pa-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+.pa-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 12px; }
+.pa-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
+.pa-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.pa-sub { font-size: 0.85rem; color: rgba(255,255,255,0.45); margin: 6px 0 0; }
+.pa-btn-new {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px;
+    background: linear-gradient(135deg, #5eeef8, #5eeec8);
+    color: #111; font-weight: 700; font-size: 0.9rem;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.pa-btn-new:hover { opacity: 0.88; }
+
+.pa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+.pa-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.pa-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.pa-card-name { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; }
+.pa-card-desc { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin: 0; line-height: 1.5; }
+.pa-card-meta { font-size: 0.78rem; color: rgba(255,255,255,0.35); }
+.pa-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.pa-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 13px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none;
+}
+.pa-btn-primary { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.pa-btn-primary:hover { background: rgba(94,238,248,0.25); }
+.pa-btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.pa-btn-secondary:hover { background: rgba(255,255,255,0.12); }
+.pa-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.pa-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.pa-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+</style>
+
+<div class="pa-page">
+    <div class="pa-header">
+        <div>
+            <p class="pa-kicker">Admin</p>
+            <h1 class="pa-title">Quizzes</h1>
+            <p class="pa-sub">Reusable quizzes you can embed in lessons (and, later, page sections).</p>
+        </div>
+        {% if user_has_perm('quizzes.manage') %}
+        <button class="pa-btn-new" onclick="openQuizModal()">
+            <i class="fas fa-plus"></i> New Quiz
+        </button>
+        {% endif %}
+    </div>
+
+    {% if quizzes %}
+    <div class="pa-grid" id="quizGrid">
+        {% for q in quizzes %}
+        <div class="pa-card" id="quizCard-{{ q.id }}">
+            <div class="pa-card-top">
+                <h2 class="pa-card-name">{{ q.title }}</h2>
+            </div>
+            {% if q.description %}<p class="pa-card-desc">{{ q.description }}</p>{% endif %}
+            <p class="pa-card-meta">{{ q.questions.count() }} question{{ 's' if q.questions.count() != 1 else '' }}</p>
+            <div class="pa-card-actions">
+                {% if user_has_perm('quizzes.view') %}
+                <a href="{{ url_for('admin_quiz_editor', qid=q.id) }}" class="pa-btn pa-btn-primary">
+                    <i class="fas fa-tasks"></i> Edit Questions
+                </a>
+                {% endif %}
+                {% if user_has_perm('quizzes.manage') %}
+                <button class="pa-btn pa-btn-secondary"
+                        onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }})'>
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button class="pa-btn pa-btn-danger"
+                        onclick='confirmQuizDelete({{ q.id }}, {{ q.title | tojson }})'>
+                    <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="pa-empty" id="quizGrid">
+        <p>No quizzes yet. Create one, then insert it into any lesson.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Quiz modal -->
+<div class="uw-overlay" id="quizModalOverlay" style="display:none;" onclick="if(event.target===this)closeQuizModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="quizModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="quizModalTitle">New Quiz</h3>
+            <button class="uw-modal-close" onclick="closeQuizModal()" aria-label="Close">&times;</button>
+        </div>
+        <form id="quizModalForm" onsubmit="submitQuizModal(event)">
+            <input type="hidden" id="quizModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field">
+                    <label for="quizModalTitleInput">Title <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="quizModalTitleInput" required placeholder="e.g. Module 1 Knowledge Check">
+                </div>
+                <div class="uw-field">
+                    <label for="quizModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
+                    <textarea id="quizModalDesc" rows="3" placeholder="Shown above the quiz to readers"></textarea>
+                </div>
+                <div class="uw-field" id="quizModalExtraFields" style="display:none;">
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                        <input type="checkbox" id="quizModalShuffle" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        Shuffle question order for each reader
+                    </label>
+                </div>
+            </div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeQuizModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="quizModalSubmitBtn">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="uw-overlay" id="qdelModalOverlay" style="display:none;" onclick="if(event.target===this)closeQdelModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:400px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Delete Quiz</h3>
+            <button class="uw-modal-close" onclick="closeQdelModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p id="qdelModalMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeQdelModal()">Cancel</button>
+            <button class="uw-btn" id="qdelModalConfirmBtn"
+                    style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let _qdelId = null;
+
+function openQuizModal() {
+    document.getElementById('quizModalId').value = '';
+    document.getElementById('quizModalTitleInput').value = '';
+    document.getElementById('quizModalDesc').value = '';
+    document.getElementById('quizModalExtraFields').style.display = 'none';
+    document.getElementById('quizModalTitle').textContent = 'New Quiz';
+    document.getElementById('quizModalSubmitBtn').textContent = 'Create';
+    document.getElementById('quizModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
+}
+
+function openQuizEdit(id, title, desc, shuffle) {
+    document.getElementById('quizModalId').value = id;
+    document.getElementById('quizModalTitleInput').value = title;
+    document.getElementById('quizModalDesc').value = desc;
+    document.getElementById('quizModalShuffle').checked = !!shuffle;
+    document.getElementById('quizModalExtraFields').style.display = 'block';
+    document.getElementById('quizModalTitle').textContent = 'Quiz Settings';
+    document.getElementById('quizModalSubmitBtn').textContent = 'Save';
+    document.getElementById('quizModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
+}
+
+function closeQuizModal() {
+    document.getElementById('quizModalOverlay').style.display = 'none';
+}
+
+async function submitQuizModal(e) {
+    e.preventDefault();
+    const id    = document.getElementById('quizModalId').value;
+    const title = document.getElementById('quizModalTitleInput').value.trim();
+    const desc  = document.getElementById('quizModalDesc').value.trim();
+    if (!title) return;
+    const btn = document.getElementById('quizModalSubmitBtn');
+    btn.disabled = true;
+
+    const body = { title, description: desc };
+    if (id) body.shuffle_questions = document.getElementById('quizModalShuffle').checked;
+    const url = id ? `/admin/quizzes/${id}/update` : '/admin/quizzes/create';
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) {
+            if (!id && d.quiz) { window.location = `/admin/quizzes/${d.quiz.id}/edit`; return; }
+            location.reload();
+        } else {
+            alert(d.error || 'Failed to save quiz');
+        }
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function confirmQuizDelete(id, title) {
+    _qdelId = id;
+    document.getElementById('qdelModalMsg').textContent =
+        `Delete "${title}" and all its questions? This cannot be undone.`;
+    document.getElementById('qdelModalConfirmBtn').onclick = doQuizDelete;
+    document.getElementById('qdelModalOverlay').style.display = 'flex';
+}
+
+function closeQdelModal() {
+    document.getElementById('qdelModalOverlay').style.display = 'none';
+    _qdelId = null;
+}
+
+async function doQuizDelete() {
+    if (!_qdelId) return;
+    const btn = document.getElementById('qdelModalConfirmBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/quizzes/${_qdelId}/delete`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) { closeQdelModal(); location.reload(); }
+        else alert(d.error || 'Failed to delete');
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}
