@@ -12986,6 +12986,7 @@ def _serialize_backup(uid):
                           } for u in public_users],
         'post_collections': [{'id': pc.id, 'website_id': pc.website_id, 'name': pc.name,
                                'slug': pc.slug, 'description': pc.description,
+                               'require_login': pc.require_login,
                                'created_at': pc.created_at.isoformat() if pc.created_at else None,
                                } for pc in post_collections],
         'posts': [{'id': po.id, 'collection_id': po.collection_id, 'website_id': po.website_id,
@@ -14155,13 +14156,30 @@ def import_backup():
             # website_id was NULL and never set user_id — so user-scoped
             # collections silently vanished and posts fell back to
             # "Uncategorized". Keep all collections; map website_id only if set.
+            #
+            # The website wipe only NULLs a collection's website_id (collections
+            # are user-scoped, not deleted), so a row with the same
+            # (user_id, slug) can survive. Reuse it instead of inserting a
+            # duplicate, which would violate uq_post_collection_user_slug.
             for pcd in data.get('post_collections', []):
                 src_wid = pcd.get('website_id')
                 new_wid = website_map.get(src_wid) if src_wid else None
+                slug = pcd.get('slug')
+                existing = (PostCollection.query.filter_by(user_id=uid, slug=slug).first()
+                            if slug else None)
+                if existing:
+                    existing.website_id = new_wid
+                    existing.name = pcd['name']
+                    existing.description = pcd.get('description')
+                    if 'require_login' in pcd:
+                        existing.require_login = bool(pcd.get('require_login'))
+                    post_col_map[pcd['id']] = existing.id
+                    continue
                 pc = PostCollection(
                     user_id=uid, website_id=new_wid,
-                    name=pcd['name'], slug=pcd.get('slug'),
+                    name=pcd['name'], slug=slug,
                     description=pcd.get('description'),
+                    require_login=bool(pcd.get('require_login', False)),
                     created_at=datetime.fromisoformat(pcd['created_at']) if pcd.get('created_at') else None)
                 db.session.add(pc)
                 db.session.flush()
