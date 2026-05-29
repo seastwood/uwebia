@@ -2,6 +2,65 @@
 {% block content %}
 {% include 'components/navbar.html' %}
 
+{# Guide Access restriction picker, shared by the user and group modals.
+   `cb` = guide checkbox class, `catcb` = category checkbox class,
+   `clearfn` = name of the JS function that clears all its checkboxes. #}
+{% macro guide_access_picker(cb, catcb, clearfn) %}
+<details style="margin-bottom:16px;">
+    <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+        <i class="fas fa-book" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+        Guide Access
+        <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow all guides</span>
+    </summary>
+    <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+        <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+            Check a <strong>category</strong> to grant full control of every guide in it (current &amp; future), or check individual <strong>guides</strong>.
+            If nothing is checked, all guides are accessible (subject to the Guides permissions above).
+        </p>
+        {% if not guide_catalog %}
+        <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No guides found yet.</div>
+        {% else %}
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="{{ clearfn }}()">Clear all</button>
+        </div>
+        {% for site in guide_catalog %}
+        <div style="margin-bottom:10px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.35);margin:6px 0 4px;">{{ site.website_name }}</div>
+            {% for cat in site.categories %}
+            <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+                <input type="checkbox" class="{{ catcb }}" data-cat-id="{{ cat.id }}" value="{{ cat.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-folder" style="color:rgba(255,200,80,0.5);font-size:0.85rem;flex-shrink:0;"></i>
+                <span style="font-size:0.82rem;font-weight:700;">{{ cat.name }}</span>
+                <span style="font-size:0.72rem;color:rgba(255,255,255,0.3);">· category</span>
+            </label>
+            {% for g in cat.guides %}
+            <label class="perm-item" style="padding:5px 10px;margin:0 0 4px 22px;border:1px solid rgba(255,255,255,0.04);border-radius:7px;">
+                <input type="checkbox" class="{{ cb }}" data-guide-id="{{ g.id }}" value="{{ g.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-book" style="color:rgba(94,238,248,0.5);font-size:0.8rem;flex-shrink:0;"></i>
+                <span style="font-size:0.8rem;">{{ g.title }}</span>
+            </label>
+            {% endfor %}
+            {% endfor %}
+            {% if site.uncategorized %}
+            <div style="font-size:0.72rem;color:rgba(255,255,255,0.25);margin:4px 0;">Uncategorized</div>
+            {% for g in site.uncategorized %}
+            <label class="perm-item" style="padding:5px 10px;margin:0 0 4px 22px;border:1px solid rgba(255,255,255,0.04);border-radius:7px;">
+                <input type="checkbox" class="{{ cb }}" data-guide-id="{{ g.id }}" value="{{ g.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-book" style="color:rgba(94,238,248,0.5);font-size:0.8rem;flex-shrink:0;"></i>
+                <span style="font-size:0.8rem;">{{ g.title }}</span>
+            </label>
+            {% endfor %}
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+</details>
+{% endmacro %}
+
 <style>
 .au-page {
     width: min(1000px, calc(100% - 32px));
@@ -226,7 +285,7 @@
             <div class="au-avatar">{{ u.username[0].upper() }}</div>
             <div class="au-info">
                 <div class="au-name">
-                    {{ u.username }}
+                    {% if u.full_name %}{{ u.full_name }} <span style="opacity:0.5;font-weight:400;">· {{ u.username }}</span>{% else %}{{ u.username }}{% endif %}
                     {% if u.permission_group %}
                     <span class="au-group-badge" title="Permission group">{{ u.permission_group.name }}</span>
                     {% endif %}
@@ -281,6 +340,17 @@
         <div class="uw-modal-body">
             <form onsubmit="submitUserForm(); return false;" autocomplete="off">
             <input type="hidden" id="userModalId" value="">
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="uw-field">
+                    <label>First Name <span style="color:rgba(255,255,255,0.35);font-weight:400;">(optional)</span></label>
+                    <input type="text" id="userFirstName" placeholder="Jane" autocomplete="off">
+                </div>
+                <div class="uw-field">
+                    <label>Last Name <span style="color:rgba(255,255,255,0.35);font-weight:400;">(optional)</span></label>
+                    <input type="text" id="userLastName" placeholder="Smith" autocomplete="off">
+                </div>
+            </div>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                 <div class="uw-field">
@@ -374,6 +444,8 @@
                     {% endif %}
                 </div>
             </details>
+
+            {{ guide_access_picker('guide-access-cb', 'guide-cat-cb', 'clearAllGuides') }}
 
             <div id="permissionsContainer" class="perm-columns">
                 {% for section_key, section in permissions_schema.items() %}
@@ -567,6 +639,8 @@
                 </div>
             </details>
 
+            {{ guide_access_picker('grp-guide-access-cb', 'grp-guide-cat-cb', 'clearAllGrpGuides') }}
+
             <!-- Per-website permission overrides for group -->
             <div style="margin-top:24px;">
                 <div style="margin-bottom:10px;">
@@ -615,6 +689,8 @@ const _existingUsers = {
     {{ u.id }}: {
         username: {{ u.username | tojson }},
         email: {{ u.email | tojson }},
+        first_name: {{ (u.first_name or '') | tojson }},
+        last_name: {{ (u.last_name or '') | tojson }},
         active: {{ 'true' if u._is_active else 'false' }},
         permissions: {{ (u.permissions or {}) | tojson }},
         permission_group_id: {{ u.permission_group_id | tojson }},
@@ -648,6 +724,8 @@ const _existingGroups = {
         allowed_groups:      {{ ((g.permissions or {}).get('groups.allowed_ids')   or []) | tojson }},
         allowed_sections:    {{ ((g.permissions or {}).get('sections.allowed_ids') or []) | tojson }},
         allowed_folders:     {{ ((g.permissions or {}).get('assets.allowed_folder_ids') or []) | tojson }},
+        allowed_guide_cats:  {{ ((g.permissions or {}).get('guides.allowed_category_ids') or []) | tojson }},
+        allowed_guide_ids:   {{ ((g.permissions or {}).get('guides.allowed_guide_ids') or []) | tojson }},
         page_folder_perms:   {{ ((g.permissions or {}).get('page_folder_perms') or {}) | tojson }},
     },
     {% endfor %}
@@ -804,6 +882,9 @@ function openUserModal(userId) {
         if (label) { label.style.opacity = ''; label.style.cursor = ''; }
     });
 
+    // Reset guide access checkboxes
+    document.querySelectorAll('.guide-access-cb, .guide-cat-cb').forEach(cb => cb.checked = false);
+
     // Reset group selector
     const groupSel = document.getElementById('userGroupId');
     if (groupSel) groupSel.value = '';
@@ -812,6 +893,8 @@ function openUserModal(userId) {
     if (userId && _existingUsers[userId]) {
         const u = _existingUsers[userId];
         document.getElementById('userEmail').value = u.email;
+        document.getElementById('userFirstName').value = u.first_name || '';
+        document.getElementById('userLastName').value = u.last_name || '';
         document.getElementById('userPassword').value = '';
         document.getElementById('userActive').value = u.active ? 'true' : 'false';
         document.getElementById('userUsername').value = u.username;
@@ -824,7 +907,7 @@ function openUserModal(userId) {
         } else {
             // Restore individual permissions
             Object.entries(u.permissions || {}).forEach(([key, val]) => {
-                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms') {
+                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids') {
                     const cb = document.querySelector(`#permissionsContainer input[data-key="${key}"], #permissionsContainerWebsite input[data-key="${key}"]`);
                     if (cb) cb.checked = true;
                 }
@@ -836,8 +919,19 @@ function openUserModal(userId) {
             const cb = document.querySelector(`.folder-access-cb[data-folder-id="${fid}"]`);
             if (cb) cb.checked = true;
         });
+        // Restore guide access (categories + individual guides)
+        (u.permissions?.['guides.allowed_category_ids'] || []).forEach(cid => {
+            const cb = document.querySelector(`.guide-cat-cb[data-cat-id="${cid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (u.permissions?.['guides.allowed_guide_ids'] || []).forEach(gid => {
+            const cb = document.querySelector(`.guide-access-cb[data-guide-id="${gid}"]`);
+            if (cb) cb.checked = true;
+        });
     } else {
         document.getElementById('userEmail').value = '';
+        document.getElementById('userFirstName').value = '';
+        document.getElementById('userLastName').value = '';
         document.getElementById('userPassword').value = '';
         document.getElementById('userUsername').value = '';
         document.getElementById('userUsername').disabled = false;
@@ -925,6 +1019,14 @@ function toggleAllPagesSections(state) {
             _lockPageChildren(cb.dataset.pageId, true);
         });
     }
+}
+
+function clearAllGuides() {
+    document.querySelectorAll('.guide-access-cb, .guide-cat-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllGrpGuides() {
+    document.querySelectorAll('.grp-guide-access-cb, .grp-guide-cat-cb').forEach(cb => cb.checked = false);
 }
 
 function toggleAllFolders(state) {
@@ -1365,11 +1467,18 @@ async function submitUserForm() {
     const allowedFolders  = Array.from(document.querySelectorAll('.folder-access-cb:checked')).map(cb => parseInt(cb.value));
     permissions['assets.allowed_folder_ids']  = allowedFolders.length  ? allowedFolders  : null;
 
+    const allowedGuideCats = Array.from(document.querySelectorAll('.guide-cat-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedGuideIds  = Array.from(document.querySelectorAll('.guide-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['guides.allowed_category_ids'] = allowedGuideCats.length ? allowedGuideCats : null;
+    permissions['guides.allowed_guide_ids']    = allowedGuideIds.length  ? allowedGuideIds  : null;
+
     const groupSel = document.getElementById('userGroupId');
     const groupId  = groupSel ? (groupSel.value || null) : null;
 
     const payload = {
         email:               document.getElementById('userEmail').value.trim(),
+        first_name:          document.getElementById('userFirstName').value.trim(),
+        last_name:           document.getElementById('userLastName').value.trim(),
         password:            document.getElementById('userPassword').value,
         permissions,
         permission_group_id: groupId ? parseInt(groupId) : null,
@@ -1538,12 +1647,15 @@ function openGroupModal(groupId) {
         if (label) { label.style.opacity = ''; label.style.cursor = ''; }
     });
 
+    // Reset guide access checkboxes
+    document.querySelectorAll('.grp-guide-access-cb, .grp-guide-cat-cb').forEach(cb => cb.checked = false);
+
     if (groupId && _existingGroups[groupId]) {
         const g = _existingGroups[groupId];
         document.getElementById('groupName').value = g.name;
         document.getElementById('groupDescription').value = g.description;
         Object.entries(g.permissions || {}).forEach(([key, val]) => {
-            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms') {
+            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids') {
                 const cb = document.querySelector(`#groupPermissionsContainer input[data-key="${key}"], #groupPermissionsContainerWebsite input[data-key="${key}"]`);
                 if (cb) cb.checked = true;
             }
@@ -1551,6 +1663,15 @@ function openGroupModal(groupId) {
         // Restore asset library folder access
         (g.allowed_folders || []).forEach(fid => {
             const cb = document.querySelector(`.grp-folder-access-cb[data-folder-id="${fid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore guide access (categories + individual guides)
+        (g.allowed_guide_cats || []).forEach(cid => {
+            const cb = document.querySelector(`.grp-guide-cat-cb[data-cat-id="${cid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (g.allowed_guide_ids || []).forEach(gid => {
+            const cb = document.querySelector(`.grp-guide-access-cb[data-guide-id="${gid}"]`);
             if (cb) cb.checked = true;
         });
     } else {
@@ -1946,6 +2067,12 @@ async function submitGroupForm() {
     // Collect asset library folder restrictions
     const allowedFolders  = Array.from(document.querySelectorAll('.grp-folder-access-cb:checked')).map(cb => parseInt(cb.value));
     permissions['assets.allowed_folder_ids'] = allowedFolders.length  ? allowedFolders  : null;
+
+    // Collect guide access restrictions
+    const allowedGuideCats = Array.from(document.querySelectorAll('.grp-guide-cat-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedGuideIds  = Array.from(document.querySelectorAll('.grp-guide-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['guides.allowed_category_ids'] = allowedGuideCats.length ? allowedGuideCats : null;
+    permissions['guides.allowed_guide_ids']    = allowedGuideIds.length  ? allowedGuideIds  : null;
 
     const payload = {
         name:               document.getElementById('groupName').value.trim(),

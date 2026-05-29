@@ -383,6 +383,16 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
     <div class="pu-modal">
         <h3 class="pu-modal-title">Edit User</h3>
         <div class="pu-modal-error" id="editError"></div>
+        <div style="display:flex;gap:10px;">
+            <div class="pu-field" style="flex:1;">
+                <label class="pu-label">First Name <span style="opacity:0.5;">(optional)</span></label>
+                <input class="pu-input" id="editFirstName" type="text" autocomplete="off">
+            </div>
+            <div class="pu-field" style="flex:1;">
+                <label class="pu-label">Last Name <span style="opacity:0.5;">(optional)</span></label>
+                <input class="pu-input" id="editLastName" type="text" autocomplete="off">
+            </div>
+        </div>
         <div class="pu-field">
             <label class="pu-label">Username</label>
             <input class="pu-input" id="editUsername" type="text" autocomplete="off">
@@ -591,7 +601,7 @@ function buildUserRow(websiteId, u) {
             ? `<button class="pu-btn pu-btn-unban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-unlock"></i> Unban</button>`
             : `<button class="pu-btn pu-btn-ban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-ban"></i> Ban</button>`;
         deleteBtn = `<button class="pu-btn pu-btn-delete" onclick='confirmDelete(${u.id}, ${JSON.stringify(u.username)})'><i class="fas fa-trash"></i></button>`;
-        editBtn   = `<button class="pu-btn pu-btn-edit" onclick='openEdit(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)})'><i class="fas fa-pencil-alt"></i> Edit</button>`;
+        editBtn   = `<button class="pu-btn pu-btn-edit" onclick='openEdit(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)}, ${JSON.stringify(u.first_name || "")}, ${JSON.stringify(u.last_name || "")})'><i class="fas fa-pencil-alt"></i> Edit</button>`;
         roleBtn   = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
                 <button class="pu-btn pu-btn-edit" onclick="toggleRoleDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-tag"></i> Roles</button>
                 <div class="pu-role-dropdown-menu" id="roleMenu-${u.id}"></div>
@@ -608,6 +618,7 @@ function buildUserRow(websiteId, u) {
     tr.innerHTML = `
         <td>
             <div class="pu-username" id="uname-${u.id}">${escapeHtml(u.username)} ${adminBadge}</div>
+            <div class="pu-fullname" id="ufull-${u.id}" style="color:rgba(255,255,255,0.7);font-size:0.8rem;${u.full_name ? '' : 'display:none;'}">${escapeHtml(u.full_name || '')}</div>
             <div class="pu-email" id="uemail-${u.id}">${escapeHtml(u.email)}</div>
             <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;" id="userRoles-${u.id}">${roleBadges}</div>
         </td>
@@ -685,14 +696,16 @@ function pageNumberList(current, total) {
 }
 
 /* Edit */
-function openEdit(userId, username, email) {
+function openEdit(userId, username, email, firstName, lastName) {
     _editUserId = userId;
     document.getElementById('editUsername').value = username;
     document.getElementById('editEmail').value = email;
+    document.getElementById('editFirstName').value = firstName || '';
+    document.getElementById('editLastName').value = lastName || '';
     document.getElementById('editPassword').value = '';
     document.getElementById('editError').style.display = 'none';
     document.getElementById('editOverlay').classList.add('show');
-    document.getElementById('editUsername').focus();
+    document.getElementById('editFirstName').focus();
 }
 
 function closeEdit() {
@@ -804,9 +817,11 @@ async function saveEdit() {
     const errEl = document.getElementById('editError');
     errEl.style.display = 'none';
     const payload = {
-        username: document.getElementById('editUsername').value.trim(),
-        email:    document.getElementById('editEmail').value.trim(),
-        password: document.getElementById('editPassword').value,
+        username:   document.getElementById('editUsername').value.trim(),
+        email:      document.getElementById('editEmail').value.trim(),
+        first_name: document.getElementById('editFirstName').value.trim(),
+        last_name:  document.getElementById('editLastName').value.trim(),
+        password:   document.getElementById('editPassword').value,
     };
     try {
         const r = await fetch(`/admin/users/public/${_editUserId}/update`, {
@@ -822,8 +837,13 @@ async function saveEdit() {
         }
         const unameEl = document.getElementById('uname-' + _editUserId);
         const emailEl = document.getElementById('uemail-' + _editUserId);
+        const fullEl  = document.getElementById('ufull-' + _editUserId);
         if (unameEl) unameEl.textContent = d.username;
         if (emailEl) emailEl.textContent = d.email;
+        if (fullEl) {
+            fullEl.textContent = d.full_name || '';
+            fullEl.style.display = d.full_name ? '' : 'none';
+        }
         closeEdit();
     } catch (e) {
         errEl.textContent = 'Request failed.';

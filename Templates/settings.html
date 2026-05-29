@@ -310,6 +310,28 @@
     <h2 class="settings-section-title">Account</h2>
 
     <div class="settings-field">
+        <label for="account_first_name">First Name <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
+        <input
+            id="account_first_name"
+            name="account_first_name"
+            type="text"
+            value="{{ account_first_name }}"
+            autocomplete="given-name"
+        >
+    </div>
+
+    <div class="settings-field">
+        <label for="account_last_name">Last Name <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
+        <input
+            id="account_last_name"
+            name="account_last_name"
+            type="text"
+            value="{{ account_last_name }}"
+            autocomplete="family-name"
+        >
+    </div>
+
+    <div class="settings-field">
         <label for="account_username">Username</label>
         <input
             id="account_username"
