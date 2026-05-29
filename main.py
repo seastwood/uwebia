@@ -18305,6 +18305,7 @@ ADMIN_PERMISSIONS = {
         'edit': 'Edit admin users & permissions',
         'delete': 'Delete admin users',
         'promote': 'Promote a public user to a sub-admin & assign their permission group',
+        'demote': 'Demote a sub-admin back to a regular public user',
     }},
 }
 
@@ -18375,6 +18376,7 @@ def admin_users_page():
                            website_data=website_data,
                            storage_connections=storage_conns_data,
                            pf_actions=_PF_ACTIONS,
+                           can_demote_staff=((not current_user.is_sub_admin) or current_user.has_permission('admin_users.demote')),
                            now=datetime.now(timezone.utc).replace(tzinfo=None))
 
 
@@ -18875,6 +18877,14 @@ def _promote_can():
     return current_user.has_permission('admin_users.promote')
 
 
+def _demote_can():
+    """Demotion is the inverse of promotion; gated on its own explicit action.
+    Main admins always pass."""
+    if not current_user.is_sub_admin:
+        return True
+    return current_user.has_permission('admin_users.demote')
+
+
 @app.route('/admin/users/public/<int:user_id>/promote/preview')
 @login_required
 def admin_public_user_promote_preview(user_id):
@@ -19007,6 +19017,80 @@ def admin_public_user_promote(user_id):
             'badge_label': pu.staff_badge_label,
         },
         'renamed_conflicts': renamed,
+    })
+
+
+@app.route('/admin/users/<int:user_id>/demote', methods=['POST'])
+@login_required
+def admin_user_demote(user_id):
+    """Inverse of promotion: turn a sub-admin back into a regular public user.
+
+    One of the sub-admin's public mirrors survives as a real public user (login
+    username is globally unique, so exactly one) — preferably on the site the
+    admin is currently managing. Its password hash is restored from the admin
+    row so the person keeps the credentials they already log in with. The admin
+    User row and every other mirror are then deleted."""
+    if not _demote_can():
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+
+    root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
+    sub = User.query.get_or_404(user_id)
+
+    # Only a sub-admin under this same root may be demoted — never a root admin.
+    if sub.parent_user_id != root_id or not sub.is_sub_admin:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    # Block self-demotion so an admin can't drop their own access mid-request.
+    if sub.id == current_user.id:
+        return _utf8_json({'success': False, 'error': "You can't demote your own account."}, 400)
+
+    mirrors = PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).all()
+
+    # Pick the mirror that survives as the real public user: the current admin
+    # site if it has one, else the lowest-id mirror.
+    current_site = get_admin_website()
+    survivor = None
+    if current_site:
+        survivor = next((m for m in mirrors if m.website_id == current_site.id), None)
+    if survivor is None and mirrors:
+        survivor = min(mirrors, key=lambda m: m.website_id)
+
+    username, email, pw_hash = sub.username, sub.email, sub.password_hash
+
+    if survivor is not None:
+        # Detach the survivor FIRST so deleting the admin can't cascade-delete
+        # it, and restore its password so they can sign in as before.
+        survivor.mirrored_admin_user_id = None
+        survivor.password_hash = pw_hash
+        survivor.email_verified = True
+        survivor.is_active_public = True
+        survivor.is_banned = False
+        db.session.flush()
+    else:
+        # No mirror existed (unusual) — create a fresh public user on the
+        # current site so the account isn't lost.
+        if not current_site:
+            return _utf8_json({'success': False,
+                'error': 'No website available to host the demoted user.'}, 400)
+        survivor = PublicUser(
+            website_id=current_site.id, username=username, email=email,
+            password_hash=pw_hash, email_verified=True, is_active_public=True,
+        )
+        db.session.add(survivor)
+        db.session.flush()
+
+    survivor_id, survivor_website_id = survivor.id, survivor.website_id
+
+    # Remove the remaining mirrors (other sites) and the admin row itself.
+    PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
+    db.session.delete(sub)
+    db.session.commit()
+
+    return _utf8_json({
+        'success': True,
+        'public_user': {
+            'id': survivor_id, 'username': username,
+            'email': email, 'website_id': survivor_website_id,
+        },
     })
 
 

@@ -250,6 +250,11 @@
                 <button class="uw-btn uw-btn-secondary" onclick="openUserModal({{ u.id }})" title="Edit">
                     <i class="fas fa-pen"></i>
                 </button>
+                {% if can_demote_staff and u.id != current_user.id %}
+                <button class="uw-btn uw-btn-secondary" onclick="demoteUser({{ u.id }}, '{{ u.username | e }}')" title="Demote to public user">
+                    <i class="fas fa-user-minus"></i>
+                </button>
+                {% endif %}
                 <button class="uw-btn uw-btn-danger" onclick="deleteUser({{ u.id }}, '{{ u.username | e }}')" title="Delete">
                     <i class="fas fa-trash"></i>
                 </button>
@@ -1399,6 +1404,18 @@ async function deleteUser(userId, username) {
     const d = await r.json();
     if (d.success) document.getElementById(`auCard-${userId}`)?.remove();
     else alert(d.error || 'Failed');
+}
+
+async function demoteUser(userId, username) {
+    if (!confirm(`Demote "${username}" to a regular public user?\n\nThey'll lose all admin access but keep their account — same username and password — as a public user on one of your sites.`)) return;
+    const r = await fetch(`/admin/users/${userId}/demote`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+        document.getElementById(`auCard-${userId}`)?.remove();
+        alert(`"${username}" is now a regular public user.`);
+    } else {
+        alert(d.error || 'Failed to demote');
+    }
 }
 
 // ── Group permission area helpers ─────────────────────────────────────────────
