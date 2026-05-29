@@ -648,6 +648,23 @@ def is_owner(website):
     return website.user_id == current_user.root_user_id
 
 
+def owns_calendar(calendar):
+    """True if the current user (or their root admin) owns this calendar.
+    Calendars are user-scoped, so check user_id directly and tolerate a NULL
+    website_id — external/user-scoped calendars, or ones whose owning website
+    was deleted, keep user_id but have no website. Routing ownership through
+    Website.query.get_or_404(calendar.website_id) 404s on those, which makes
+    calendar actions (delete, add/edit event, sync) silently fail in the UI."""
+    if calendar is None:
+        return False
+    if calendar.user_id is not None:
+        return calendar.user_id == current_user.root_user_id
+    if calendar.website_id is not None:
+        w = Website.query.get(calendar.website_id)
+        return w is not None and w.user_id == current_user.root_user_id
+    return False
+
+
 def _effective_perms(website_id=None):
     """Return the permissions dict governing the current sub-admin.
     When website_id is given, per-website restriction overrides
@@ -13568,6 +13585,18 @@ def import_backup():
             SavedColor.query.filter_by(user_id=uid).delete(synchronize_session=False)
             EmailServerSettings.query.delete(synchronize_session=False)
             AnalyticsSettings.query.filter_by(user_id=uid).delete(synchronize_session=False)
+            # Calendars / AI agents / shipping are user-scoped and website-
+            # independent. _delete_website_all only NULLs their website_id (never
+            # deletes them), and the restore recreates them — so without an
+            # explicit wipe each import ADDS a second copy: doubled calendars and
+            # events (and the external subscription, which then double-syncs),
+            # duplicate AI agents, and duplicate shipping methods. Delete
+            # calendars via the ORM so their events/subscriptions/subscribers
+            # cascade (all, delete-orphan).
+            for cal in Calendar.query.filter_by(user_id=uid).all():
+                db.session.delete(cal)
+            AIAgent.query.filter_by(user_id=uid).delete(synchronize_session=False)
+            ShippingMethod.query.filter_by(user_id=uid).delete(synchronize_session=False)
             # v2 additions
             for nl in Newsletter.query.filter_by(user_id=uid).all():
                 db.session.delete(nl)
@@ -17524,9 +17553,7 @@ def get_calendar_active_subscriber_count(calendar_id, days=30):
 @login_required
 def calendar_subscriber_count(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
-    website = Website.query.get_or_404(calendar.website_id)
-
-    if not is_owner(website):
+    if not owns_calendar(calendar):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     active_7_days = get_calendar_active_subscriber_count(calendar_id, days=7)
@@ -18345,7 +18372,7 @@ def print_calendar_public(calendar_id):
 @require_perm('calendars.subscriptions')
 def add_calendar_subscription(calendar_id):
     cal = Calendar.query.get_or_404(calendar_id)
-    if Website.query.get_or_404(cal.website_id).user_id != current_user.root_user_id:
+    if not owns_calendar(cal):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     data = request.get_json()
@@ -18446,7 +18473,7 @@ def delete_calendar_subscription(calendar_id, sub_id):
 @login_required
 def sync_calendar_now(calendar_id):
     cal = Calendar.query.get_or_404(calendar_id)
-    if Website.query.get_or_404(cal.website_id).user_id != current_user.root_user_id:
+    if not owns_calendar(cal):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     results = []
@@ -20565,8 +20592,7 @@ def create_calendar():
 @require_perm('calendars.edit')
 def update_calendar(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
-    website = Website.query.get_or_404(calendar.website_id)
-    if not is_owner(website):
+    if not owns_calendar(calendar):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
     data = request.get_json()
@@ -20585,11 +20611,16 @@ def update_calendar(calendar_id):
 @login_required
 def delete_calendar_route(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
-    website = Website.query.get_or_404(calendar.website_id)
-    if not is_owner(website):
+    if not owns_calendar(calendar):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
 
-    db.session.delete(calendar)
+    # Bulk-delete children first so a large (e.g. externally-synced) calendar
+    # deletes quickly instead of ORM-cascading row-by-row and timing out.
+    # Events must go before subscriptions (events FK subscription_id).
+    CalendarEvent.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
+    CalendarFeedSubscriber.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
+    CalendarSubscription.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
+    Calendar.query.filter_by(id=calendar_id).delete(synchronize_session=False)
     db.session.commit()
     return jsonify({'success': True})
 
@@ -20599,8 +20630,7 @@ def delete_calendar_route(calendar_id):
 @require_perm('calendars.events')
 def add_calendar_event(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
-    website = Website.query.get_or_404(calendar.website_id)
-    if not is_owner(website):
+    if not owns_calendar(calendar):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
@@ -20658,8 +20688,7 @@ def add_calendar_event(calendar_id):
 @require_perm('calendars.events')
 def update_calendar_event(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
-    website = Website.query.get_or_404(calendar.website_id)
-    if not is_owner(website):
+    if not owns_calendar(calendar):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
@@ -20743,8 +20772,7 @@ def update_calendar_event(calendar_id):
 @require_perm('calendars.events')
 def delete_calendar_event(calendar_id):
     calendar = Calendar.query.get_or_404(calendar_id)
-    website = Website.query.get_or_404(calendar.website_id)
-    if not is_owner(website):
+    if not owns_calendar(calendar):
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
