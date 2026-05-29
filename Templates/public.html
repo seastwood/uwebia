@@ -1699,12 +1699,36 @@
     .calendar .fc-toolbar-title {
         color: #ffffff;
         font-weight: 900;
+        /* Allow the month/year title to wrap rather than forcing one long line
+           that pushes the nav arrows off the right edge on mobile. */
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 
-    /* Keep the toolbar button cluster (Print, Today, prev/next) on one line so
-       the navigation arrows stay in place instead of wrapping. */
-    .calendar .fc-toolbar-chunk {
+    /* Let the whole toolbar wrap so a long month title can drop the button
+       cluster onto its own line instead of pushing the nav arrows off-screen. */
+    .calendar .fc-toolbar.fc-header-toolbar {
+        flex-wrap: wrap;
+        gap: 8px 10px;
+    }
+    /* But keep the button cluster (Print, Today, prev/next) together on one
+       line so the arrows never split or wrap among themselves. */
+    .calendar .fc-toolbar-chunk:last-child {
         white-space: nowrap;
+    }
+
+    /* Print button: show only the printer icon, never the "Print" text — even
+       after FullCalendar rebuilds the toolbar on navigation. Pure CSS, so it's
+       immune to FC re-renders (unlike a one-off JS DOM swap). */
+    .calendar .fc-printCal-button {
+        font-size: 0 !important;
+    }
+    .calendar .fc-printCal-button::before {
+        font-family: "Font Awesome 5 Free", "Font Awesome 6 Free";
+        font-weight: 900;
+        content: "\f02f"; /* fa-print */
+        font-size: 0.95rem;
+        line-height: 1;
     }
 
     .calendar .fc-button {
@@ -5935,18 +5959,13 @@ html, body {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
             if (!calendarEl) return;
 
-            // Swap the Print button's text for a printer icon. FullCalendar's
-            // customButtons.text only accepts plain text, and FC rebuilds the
-            // toolbar buttons on every navigation — which would restore the
-            // "Print" text (widening the button and wrapping the toolbar so the
-            // nav arrows shift). So this must be idempotent and re-run after each
-            // toolbar render, not just once. Keep "Print" as the title/aria-label.
+            // The printer icon itself is drawn purely in CSS (see
+            // .fc-printCal-button::before) so it survives FullCalendar rebuilding
+            // the toolbar on navigation. Here we only keep the accessible name in
+            // sync, since the visible "Print" label is hidden via font-size:0.
             function applyPrintIcon() {
                 const btn = calendarEl.querySelector('.fc-printCal-button');
                 if (!btn) return;
-                if (!btn.querySelector('i.fa-print')) {
-                    btn.innerHTML = '<i class="fas fa-print" aria-hidden="true"></i>';
-                }
                 btn.setAttribute('title', 'Print');
                 btn.setAttribute('aria-label', 'Print');
             }
