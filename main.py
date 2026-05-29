@@ -10114,6 +10114,19 @@ def _delete_website_all(website):
     ForumReply.query.filter_by(website_id=wid).delete(synchronize_session=False)
     ForumThread.query.filter_by(website_id=wid).delete(synchronize_session=False)
 
+    # Guides / Quizzes — children before parents, and before PublicUser below
+    # since quiz_attempt/guide_progress FK public_user. quiz_question has no
+    # website_id, so target it via its quizzes' ids.
+    GuideProgress.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    QuizAttempt.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    _q_ids = [qid for (qid,) in db.session.query(Quiz.id).filter_by(website_id=wid).all()]
+    if _q_ids:
+        QuizQuestion.query.filter(QuizQuestion.quiz_id.in_(_q_ids)).delete(synchronize_session=False)
+    Quiz.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    GuideNode.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    Guide.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    GuideCategory.query.filter_by(website_id=wid).delete(synchronize_session=False)
+
     # Comments / messages / users / visits
     PageCommentLike.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PageComment.query.filter_by(website_id=wid).delete(synchronize_session=False)
@@ -12677,6 +12690,25 @@ def _serialize_backup(uid):
 
     saved_colors = SavedColor.query.filter_by(user_id=uid).all()
 
+    # ── Guides / Quizzes ──────────────────────────────────────────────────────
+    # Book/wiki/training content plus reader progress & quiz attempts. All
+    # website-scoped; guide_nodes form a self-referential tree (parent_id).
+    guide_categories = GuideCategory.query.filter(
+        GuideCategory.website_id.in_(website_ids)).all() if website_ids else []
+    guides = Guide.query.filter(
+        Guide.website_id.in_(website_ids)).all() if website_ids else []
+    guide_nodes = GuideNode.query.filter(
+        GuideNode.website_id.in_(website_ids)).all() if website_ids else []
+    quizzes = Quiz.query.filter(
+        Quiz.website_id.in_(website_ids)).all() if website_ids else []
+    _quiz_ids = [q.id for q in quizzes]
+    quiz_questions = QuizQuestion.query.filter(
+        QuizQuestion.quiz_id.in_(_quiz_ids)).all() if _quiz_ids else []
+    quiz_attempts = QuizAttempt.query.filter(
+        QuizAttempt.website_id.in_(website_ids)).all() if website_ids else []
+    guide_progress = GuideProgress.query.filter(
+        GuideProgress.website_id.in_(website_ids)).all() if website_ids else []
+
     # StripeSettings: per-admin payment configuration. Encrypted secrets
     # (secret_key, webhook_secret) and publishable_key are intentionally
     # left out of the backup — the encryption key lives in the app's env
@@ -13406,6 +13438,57 @@ def _serialize_backup(uid):
         # (oauth_app_credentials is serialized earlier — see the new upsert
         # block. The old entry here used to include the encrypted
         # `client_secret`, which can't be decrypted on a different deploy.)
+        # ── Guides / Quizzes ──────────────────────────────────────────────────
+        'guide_categories': [{'id': c.id, 'website_id': c.website_id,
+                              'name': c.name, 'slug': c.slug,
+                              'description': c.description, 'color': c.color,
+                              'icon': c.icon, 'sort_order': c.sort_order,
+                              'created_at': c.created_at.isoformat() if c.created_at else None,
+                              } for c in guide_categories],
+        'guides': [{'id': g.id, 'website_id': g.website_id, 'category_id': g.category_id,
+                    'title': g.title, 'slug': g.slug, 'description': g.description,
+                    'cover_image_url': g.cover_image_url, 'status': g.status,
+                    'require_login_to_view': g.require_login_to_view,
+                    'track_progress': g.track_progress, 'sort_order': g.sort_order,
+                    'created_at': g.created_at.isoformat() if g.created_at else None,
+                    'updated_at': g.updated_at.isoformat() if g.updated_at else None,
+                    'published_at': g.published_at.isoformat() if g.published_at else None,
+                    } for g in guides],
+        'guide_nodes': [{'id': n.id, 'guide_id': n.guide_id, 'parent_id': n.parent_id,
+                         'website_id': n.website_id, 'node_type': n.node_type,
+                         'title': n.title, 'slug': n.slug, 'content': n.content,
+                         'sort_order': n.sort_order, 'is_published': n.is_published,
+                         'created_at': n.created_at.isoformat() if n.created_at else None,
+                         'updated_at': n.updated_at.isoformat() if n.updated_at else None,
+                         } for n in guide_nodes],
+        'quizzes': [{'id': q.id, 'website_id': q.website_id, 'title': q.title,
+                     'description': q.description,
+                     'shuffle_questions': q.shuffle_questions,
+                     'pass_threshold': q.pass_threshold,
+                     'created_at': q.created_at.isoformat() if q.created_at else None,
+                     'updated_at': q.updated_at.isoformat() if q.updated_at else None,
+                     } for q in quizzes],
+        'quiz_questions': [{'id': q.id, 'quiz_id': q.quiz_id,
+                            'question_type': q.question_type, 'prompt': q.prompt,
+                            'config': q.config, 'points': q.points,
+                            'sort_order': q.sort_order,
+                            } for q in quiz_questions],
+        'quiz_attempts': [{'id': a.id, 'quiz_id': a.quiz_id, 'website_id': a.website_id,
+                           'guide_node_id': a.guide_node_id,
+                           'public_user_id': a.public_user_id,
+                           'visitor_id_hash': a.visitor_id_hash,
+                           'score': a.score, 'max_score': a.max_score,
+                           'answers': a.answers,
+                           'created_at': a.created_at.isoformat() if a.created_at else None,
+                           } for a in quiz_attempts],
+        'guide_progress': [{'id': p.id, 'guide_id': p.guide_id,
+                            'guide_node_id': p.guide_node_id, 'website_id': p.website_id,
+                            'visitor_id_hash': p.visitor_id_hash,
+                            'public_user_id': p.public_user_id,
+                            'first_viewed_at': p.first_viewed_at.isoformat() if p.first_viewed_at else None,
+                            'last_viewed_at': p.last_viewed_at.isoformat() if p.last_viewed_at else None,
+                            'completed_at': p.completed_at.isoformat() if p.completed_at else None,
+                            } for p in guide_progress],
     }
 
 
@@ -13942,6 +14025,129 @@ def import_backup():
                 db.session.add(pu)
                 db.session.flush()
                 pub_user_map[ud['id']] = pu.id
+
+            # ── Guides / Quizzes ──────────────────────────────────────────────
+            # Restored after public_users so quiz_attempts / guide_progress can
+            # remap public_user_id. guide_nodes are inserted in two passes so the
+            # self-referential parent_id resolves through the freshly-built map.
+            guide_cat_map = {}
+            guide_map = {}
+            guide_node_map = {}
+            quiz_map = {}
+
+            for cd in data.get('guide_categories', []):
+                new_wid = website_map.get(cd['website_id'])
+                if not new_wid:
+                    continue
+                gc = GuideCategory(
+                    website_id=new_wid, name=cd['name'], slug=cd['slug'],
+                    description=cd.get('description'), color=cd.get('color'),
+                    icon=cd.get('icon'), sort_order=cd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None)
+                db.session.add(gc)
+                db.session.flush()
+                guide_cat_map[cd['id']] = gc.id
+
+            for gd in data.get('guides', []):
+                new_wid = website_map.get(gd['website_id'])
+                if not new_wid:
+                    continue
+                g = Guide(
+                    website_id=new_wid,
+                    category_id=guide_cat_map.get(gd['category_id']) if gd.get('category_id') else None,
+                    title=gd['title'], slug=gd['slug'], description=gd.get('description'),
+                    cover_image_url=gd.get('cover_image_url'),
+                    status=gd.get('status', 'draft'),
+                    require_login_to_view=gd.get('require_login_to_view', False),
+                    track_progress=gd.get('track_progress', True),
+                    sort_order=gd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(gd['created_at']) if gd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(gd['updated_at']) if gd.get('updated_at') else None,
+                    published_at=datetime.fromisoformat(gd['published_at']) if gd.get('published_at') else None)
+                db.session.add(g)
+                db.session.flush()
+                guide_map[gd['id']] = g.id
+
+            for nd in data.get('guide_nodes', []):
+                new_gid = guide_map.get(nd['guide_id'])
+                new_wid = website_map.get(nd['website_id'])
+                if not new_gid or not new_wid:
+                    continue
+                n = GuideNode(
+                    guide_id=new_gid, parent_id=None, website_id=new_wid,
+                    node_type=nd.get('node_type', 'lesson'),
+                    title=nd['title'], slug=nd['slug'], content=nd.get('content'),
+                    sort_order=nd.get('sort_order', 0),
+                    is_published=nd.get('is_published', True),
+                    created_at=datetime.fromisoformat(nd['created_at']) if nd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(nd['updated_at']) if nd.get('updated_at') else None)
+                db.session.add(n)
+                db.session.flush()
+                guide_node_map[nd['id']] = n.id
+
+            # Second pass: link the self-referential parent now that every node
+            # exists and has a new id.
+            for nd in data.get('guide_nodes', []):
+                if not nd.get('parent_id'):
+                    continue
+                new_id = guide_node_map.get(nd['id'])
+                new_parent = guide_node_map.get(nd['parent_id'])
+                if new_id and new_parent:
+                    GuideNode.query.filter_by(id=new_id).update(
+                        {'parent_id': new_parent}, synchronize_session=False)
+
+            for qd in data.get('quizzes', []):
+                new_wid = website_map.get(qd['website_id'])
+                if not new_wid:
+                    continue
+                q = Quiz(
+                    website_id=new_wid, title=qd['title'],
+                    description=qd.get('description'),
+                    shuffle_questions=qd.get('shuffle_questions', False),
+                    pass_threshold=qd.get('pass_threshold', 0.9),
+                    created_at=datetime.fromisoformat(qd['created_at']) if qd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(qd['updated_at']) if qd.get('updated_at') else None)
+                db.session.add(q)
+                db.session.flush()
+                quiz_map[qd['id']] = q.id
+
+            for qd in data.get('quiz_questions', []):
+                new_qid = quiz_map.get(qd['quiz_id'])
+                if not new_qid:
+                    continue
+                db.session.add(QuizQuestion(
+                    quiz_id=new_qid,
+                    question_type=qd.get('question_type', 'single_choice'),
+                    prompt=qd['prompt'], config=qd.get('config'),
+                    points=qd.get('points', 1), sort_order=qd.get('sort_order', 0)))
+
+            for ad in data.get('quiz_attempts', []):
+                new_qid = quiz_map.get(ad['quiz_id'])
+                new_wid = website_map.get(ad['website_id'])
+                if not new_qid or not new_wid:
+                    continue
+                db.session.add(QuizAttempt(
+                    quiz_id=new_qid, website_id=new_wid,
+                    guide_node_id=guide_node_map.get(ad['guide_node_id']) if ad.get('guide_node_id') else None,
+                    public_user_id=pub_user_map.get(ad['public_user_id']) if ad.get('public_user_id') else None,
+                    visitor_id_hash=ad.get('visitor_id_hash'),
+                    score=ad.get('score', 0), max_score=ad.get('max_score', 0),
+                    answers=ad.get('answers'),
+                    created_at=datetime.fromisoformat(ad['created_at']) if ad.get('created_at') else None))
+
+            for prd in data.get('guide_progress', []):
+                new_gid = guide_map.get(prd['guide_id'])
+                new_nid = guide_node_map.get(prd['guide_node_id'])
+                new_wid = website_map.get(prd['website_id'])
+                if not new_gid or not new_nid or not new_wid:
+                    continue
+                db.session.add(GuideProgress(
+                    guide_id=new_gid, guide_node_id=new_nid, website_id=new_wid,
+                    visitor_id_hash=prd['visitor_id_hash'],
+                    public_user_id=pub_user_map.get(prd['public_user_id']) if prd.get('public_user_id') else None,
+                    first_viewed_at=datetime.fromisoformat(prd['first_viewed_at']) if prd.get('first_viewed_at') else None,
+                    last_viewed_at=datetime.fromisoformat(prd['last_viewed_at']) if prd.get('last_viewed_at') else None,
+                    completed_at=datetime.fromisoformat(prd['completed_at']) if prd.get('completed_at') else None))
 
             # ── PostCollection ────────────────────────────────────────────────
             for pcd in data.get('post_collections', []):
