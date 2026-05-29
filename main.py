@@ -12932,11 +12932,13 @@ def _serialize_backup(uid):
         'permission_groups': [{'id': g.id, 'name': g.name, 'description': g.description,
                                'permissions': g.permissions} for g in perm_groups],
         'sub_admins': [{'id': u.id, 'username': u.username, 'email': u.email,
+                        'first_name': u.first_name, 'last_name': u.last_name,
                         'password_hash': u.password_hash,
                         'permission_group_id': u.permission_group_id,
                         'permissions': u.permissions, '_is_active': u._is_active} for u in sub_admins],
         'public_users': [{'id': u.id, 'website_id': u.website_id, 'username': u.username,
                           'display_username': u.display_username,
+                          'first_name': u.first_name, 'last_name': u.last_name,
                           'mirrored_admin_user_id': u.mirrored_admin_user_id,
                           'email': u.email, 'password_hash': u.password_hash,
                           'email_verified': u.email_verified,
@@ -13802,6 +13804,7 @@ def import_backup():
             # ── Sub-admins ─────────────────────────────────────────────────────
             for ud in data.get('sub_admins', []):
                 sub = User(username=ud['username'], email=ud['email'],
+                           first_name=ud.get('first_name'), last_name=ud.get('last_name'),
                            password_hash=ud['password_hash'],
                            parent_user_id=uid,
                            permission_group_id=pg_map.get(ud['permission_group_id']) if ud.get(
@@ -13921,6 +13924,7 @@ def import_backup():
                 pu = PublicUser(
                     website_id=new_wid, username=ud['username'],
                     display_username=ud.get('display_username'),
+                    first_name=ud.get('first_name'), last_name=ud.get('last_name'),
                     mirrored_admin_user_id=_new_admin_id,
                     email=ud['email'],
                     password_hash=ud.get('password_hash'),
