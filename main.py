@@ -300,6 +300,10 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.Text, nullable=False)
+    # Optional real name — collected at signup, editable later. Used for
+    # administration and (eventually) social surfaces. Never lowercased.
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name  = db.Column(db.String(100), nullable=True)
     # Sub-admin support: if set, this user belongs to the parent admin
     parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     permission_group_id = db.Column(db.Integer, db.ForeignKey('permission_group.id'), nullable=True)
@@ -347,6 +351,16 @@ class User(UserMixin, db.Model):
     @validates('email')
     def normalize_email(self, key, value):
         return value.strip().lower()
+
+    @validates('first_name', 'last_name')
+    def normalize_name(self, key, value):
+        v = (value or '').strip()
+        return v or None
+
+    @property
+    def full_name(self):
+        """First + last, omitting blanks; None when neither is set."""
+        return ' '.join(p for p in (self.first_name, self.last_name) if p) or None
 
     def get_id(self):
         return str(self.id)
@@ -777,6 +791,52 @@ def can_access_folder(folder_id):
     return False
 
 
+def _guide_restrictions():
+    """(allowed_category_ids, allowed_guide_ids) governing the current sub-admin.
+    Each is either None (no restriction → all) or a list of ids. Stored globally
+    in the permissions dict, like assets.allowed_folder_ids."""
+    perms = _effective_perms()
+    return (perms.get('guides.allowed_category_ids'),
+            perms.get('guides.allowed_guide_ids'))
+
+
+def _guide_unrestricted():
+    """True when no guide-level restriction applies (both lists absent)."""
+    cats, guides = _guide_restrictions()
+    return cats is None and guides is None
+
+
+def can_access_guide(guide_or_id):
+    """Sub-admins may be restricted to specific guide categories and/or guides.
+    A category grant covers every guide in it (current + future). No restriction
+    at all (both lists None) means all guides are accessible."""
+    if not current_user.is_sub_admin:
+        return True
+    cats, guides = _guide_restrictions()
+    if cats is None and guides is None:
+        return True
+    guide = guide_or_id if isinstance(guide_or_id, Guide) else db.session.get(Guide, guide_or_id)
+    if not guide:
+        return False
+    if guides is not None and guide.id in guides:
+        return True
+    if cats is not None and guide.category_id is not None and guide.category_id in cats:
+        return True
+    return False
+
+
+def can_access_guide_category(category_id):
+    """True if the current sub-admin may manage a specific guide category (and
+    create / delete guides within it). Unrestricted users pass for any category;
+    restricted users only pass for categories explicitly granted to them."""
+    if not current_user.is_sub_admin:
+        return True
+    cats, guides = _guide_restrictions()
+    if cats is None and guides is None:
+        return True
+    return cats is not None and category_id is not None and category_id in cats
+
+
 class PublicUser(UserMixin, db.Model):
     __tablename__ = 'public_user'
 
@@ -789,6 +849,10 @@ class PublicUser(UserMixin, db.Model):
     # the site. Lets users keep their login username private without changing
     # how authentication works. Falls back to `username` when NULL.
     display_username = db.Column(db.String(80), nullable=True, index=True)
+    # Optional real name — collected at signup, editable later. For
+    # administration and (eventually) social surfaces. Never lowercased.
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name  = db.Column(db.String(100), nullable=True)
     email = db.Column(db.String(255), nullable=False)
     # Nullable because admin mirrors don't hold their own password — they
     # auth via the admin User row instead. Real public users always have one.
@@ -861,6 +925,11 @@ class PublicUser(UserMixin, db.Model):
         return self.display_username or self.username
 
     @property
+    def full_name(self):
+        """First + last, omitting blanks; None when neither is set."""
+        return ' '.join(p for p in (self.first_name, self.last_name) if p) or None
+
+    @property
     def staff_badge_label(self):
         """The badge text shown next to this user's name in public surfaces
         (forum posts, navbar greeting, …). Returns the linked admin's
@@ -889,6 +958,11 @@ class PublicUser(UserMixin, db.Model):
         if not self.password_hash:
             return False
         return check_password_hash(self.password_hash, password)
+
+    @validates('first_name', 'last_name')
+    def normalize_public_name(self, key, value):
+        v = (value or '').strip()
+        return v or None
 
     @validates('username')
     def normalize_public_username(self, key, value):
@@ -5900,6 +5974,8 @@ def register():
         username = request.form['username']
         email = request.form['email']
         password = request.form['password']
+        first_name = request.form.get('first_name', '')
+        last_name = request.form.get('last_name', '')
 
         if not username or not email or not password:
             flash('Please fill out all fields', 'error')
@@ -5912,7 +5988,9 @@ def register():
 
         new_user = User(
             username=username,
-            email=email
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
         )
         new_user.set_password(password)
         db.session.add(new_user)
@@ -12342,6 +12420,8 @@ def settings_page():
 
         account_username = request.form.get('account_username', '').strip().lower()
         account_email = request.form.get('account_email', '').strip().lower()
+        account_first_name = request.form.get('account_first_name', '')
+        account_last_name = request.form.get('account_last_name', '')
         current_password = request.form.get('current_password', '')
         new_password = request.form.get('new_password', '')
         confirm_new_password = request.form.get('confirm_new_password', '')
@@ -12380,6 +12460,8 @@ def settings_page():
 
         current_user.username = account_username
         current_user.email = account_email
+        current_user.first_name = account_first_name
+        current_user.last_name = account_last_name
 
         db.session.commit()
         sync_admin_mirrors_for_user(current_user)
@@ -12438,6 +12520,8 @@ def settings_page():
         email_settings=get_email_settings(),
         account_username=current_user.username,
         account_email=current_user.email,
+        account_first_name=current_user.first_name or '',
+        account_last_name=current_user.last_name or '',
         db_info=_db_info,
         website=get_admin_website(),
         admin_mirrors=admin_mirrors,
@@ -18366,6 +18450,28 @@ def admin_users_page():
          'account_identifier': c.account_identifier or ''}
         for c in storage_conns
     ]
+
+    # Guide categories + guides per website, for the "Guide Access" restriction
+    # picker. Granting a category covers all guides in it; granting a guide
+    # covers just that one. Stored as guides.allowed_category_ids /
+    # guides.allowed_guide_ids (like assets.allowed_folder_ids).
+    guide_catalog = []
+    for w in live_websites:
+        w_cats = GuideCategory.query.filter_by(website_id=w.id).order_by(
+            GuideCategory.sort_order, GuideCategory.name).all()
+        w_guides = Guide.query.filter_by(website_id=w.id).order_by(
+            Guide.sort_order, Guide.title).all()
+        cat_entries = [{
+            'id': c.id, 'name': c.name,
+            'guides': [{'id': g.id, 'title': g.title} for g in w_guides if g.category_id == c.id],
+        } for c in w_cats]
+        uncategorized = [{'id': g.id, 'title': g.title} for g in w_guides if g.category_id is None]
+        if cat_entries or uncategorized:
+            guide_catalog.append({
+                'website_id': w.id, 'website_name': w.name or 'Website',
+                'categories': cat_entries, 'uncategorized': uncategorized,
+            })
+
     return render_template('admin_users.html',
                            sub_admins=sub_admins,
                            permissions_schema=ADMIN_PERMISSIONS,
@@ -18377,6 +18483,7 @@ def admin_users_page():
                            storage_connections=storage_conns_data,
                            pf_actions=_PF_ACTIONS,
                            can_demote_staff=((not current_user.is_sub_admin) or current_user.has_permission('admin_users.demote')),
+                           guide_catalog=guide_catalog,
                            now=datetime.now(timezone.utc).replace(tzinfo=None))
 
 
@@ -18517,7 +18624,9 @@ def admin_public_users_list():
     if search:
         like = f'%{search}%'
         q = q.filter(or_(PublicUser.username.like(like),
-                         PublicUser.email.like(like)))
+                         PublicUser.email.like(like),
+                         PublicUser.first_name.ilike(like),
+                         PublicUser.last_name.ilike(like)))
 
     if status_filter == 'active':
         q = q.filter(PublicUser.is_active_public == True,
@@ -18565,6 +18674,9 @@ def admin_public_users_list():
             'id': u.id,
             'username': u.username,
             'email': u.email,
+            'first_name': u.first_name or '',
+            'last_name': u.last_name or '',
+            'full_name': u.full_name or '',
             'email_verified': bool(u.email_verified),
             'is_banned': bool(u.is_banned),
             'is_active_public': bool(u.is_active_public),
@@ -18671,6 +18783,10 @@ def admin_public_user_update(user_id):
     username = (data.get('username') or '').strip().lower()
     email = (data.get('email') or '').strip().lower()
     new_password = (data.get('password') or '').strip()
+    if 'first_name' in data:
+        u.first_name = data.get('first_name') or ''
+    if 'last_name' in data:
+        u.last_name = data.get('last_name') or ''
     if username and username != u.username:
         # Login usernames are globally unique across every website (+ admins).
         conflict = public_username_taken_anywhere(username, exclude_public_user_id=u.id)
@@ -18689,7 +18805,9 @@ def admin_public_user_update(user_id):
             return _utf8_json({'error': 'Password must be at least 8 characters.'}, 400)
         u.set_password(new_password)
     db.session.commit()
-    return _utf8_json({'success': True, 'username': u.username, 'email': u.email})
+    return _utf8_json({'success': True, 'username': u.username, 'email': u.email,
+                       'first_name': u.first_name or '', 'last_name': u.last_name or '',
+                       'full_name': u.full_name or ''})
 
 
 @app.route('/admin/users/public/<int:user_id>/delete', methods=['POST'])
@@ -18981,6 +19099,8 @@ def admin_public_user_promote(user_id):
     new_admin = User(
         username=pu.username,
         email=pu.email,
+        first_name=pu.first_name,
+        last_name=pu.last_name,
         password_hash=pu.password_hash,
         parent_user_id=root_id,
         permission_group_id=group_id,
@@ -19055,12 +19175,15 @@ def admin_user_demote(user_id):
         survivor = min(mirrors, key=lambda m: m.website_id)
 
     username, email, pw_hash = sub.username, sub.email, sub.password_hash
+    first_name, last_name = sub.first_name, sub.last_name
 
     if survivor is not None:
         # Detach the survivor FIRST so deleting the admin can't cascade-delete
-        # it, and restore its password so they can sign in as before.
+        # it, and restore its password + name so they keep their identity.
         survivor.mirrored_admin_user_id = None
         survivor.password_hash = pw_hash
+        survivor.first_name = first_name
+        survivor.last_name = last_name
         survivor.email_verified = True
         survivor.is_active_public = True
         survivor.is_banned = False
@@ -19073,6 +19196,7 @@ def admin_user_demote(user_id):
                 'error': 'No website available to host the demoted user.'}, 400)
         survivor = PublicUser(
             website_id=current_site.id, username=username, email=email,
+            first_name=first_name, last_name=last_name,
             password_hash=pw_hash, email_verified=True, is_active_public=True,
         )
         db.session.add(survivor)
@@ -19120,6 +19244,8 @@ def create_admin_user():
     sub = User(
         username=username,
         email=email,
+        first_name=(data.get('first_name') or ''),
+        last_name=(data.get('last_name') or ''),
         password_hash=generate_password_hash(password),
         parent_user_id=current_user.root_user_id,
         permission_group_id=group_id,
@@ -19149,6 +19275,10 @@ def update_admin_user(user_id):
     perms = data.get('permissions')
     active = data.get('active')
     group_id_raw = data.get('permission_group_id', '__unset__')
+    if 'first_name' in data:
+        sub.first_name = data.get('first_name') or ''
+    if 'last_name' in data:
+        sub.last_name = data.get('last_name') or ''
     if email and email != sub.email:
         conflict = admin_or_public_username_taken(
             name=None, email=email, exclude_admin_user_id=sub.id
@@ -20630,6 +20760,8 @@ def public_register():
         username = (request.form.get('username') or '').strip().lower()
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
+        first_name = request.form.get('first_name', '')
+        last_name = request.form.get('last_name', '')
 
         if not username or not email or not password:
             flash('Please fill out all fields.', 'error')
@@ -20664,6 +20796,8 @@ def public_register():
             website_id=website.id,
             username=username,
             email=email,
+            first_name=first_name,
+            last_name=last_name,
             email_verified=email_verified
         )
         public_user.set_password(password)
@@ -22141,6 +22275,37 @@ def public_account_set_display_name(prefix=None):
     return _utf8_json({'success': True, 'display_username': public_user.display_username})
 
 
+@app.route('/<string:prefix>/account/name', methods=['POST'])
+@app.route('/account/name', methods=['POST'], defaults={'prefix': None})
+def public_account_set_name(prefix=None):
+    """Public users edit their own first / last name. Admin mirrors edit theirs
+    from the admin settings page, not here."""
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Not logged in'}, 401)
+    website = public_user.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+    if public_user.is_admin_mirror:
+        return _utf8_json({'error': 'Admin mirrors are managed from admin settings.'}, 400)
+
+    body = request.get_json(silent=True) or {}
+    first_name = (request.form.get('first_name') or body.get('first_name') or '')
+    last_name = (request.form.get('last_name') or body.get('last_name') or '')
+    if len(first_name.strip()) > 100 or len(last_name.strip()) > 100:
+        return _utf8_json({'error': 'Name is too long (max 100 chars each).'}, 400)
+
+    public_user.first_name = first_name
+    public_user.last_name = last_name
+    db.session.commit()
+    return _utf8_json({
+        'success': True,
+        'first_name': public_user.first_name or '',
+        'last_name': public_user.last_name or '',
+        'full_name': public_user.full_name or '',
+    })
+
+
 @app.route('/<string:prefix>/account/delete', methods=['POST'])
 @app.route('/account/delete', methods=['POST'], defaults={'prefix': None})
 def public_account_delete(prefix=None):
@@ -22748,6 +22913,10 @@ def ensure_admin_public_mirror(user, website):
         if pu.email != user.email:
             pu.email = user.email
             changed = True
+        if pu.first_name != user.first_name or pu.last_name != user.last_name:
+            pu.first_name = user.first_name
+            pu.last_name = user.last_name
+            changed = True
         if pu.is_banned or not pu.is_active_public or not pu.email_verified:
             pu.is_banned = False
             pu.is_active_public = True
@@ -22778,6 +22947,8 @@ def ensure_admin_public_mirror(user, website):
         mirrored_admin_user_id=user.id,
         username=user.username,
         email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
         password_hash=None,
         email_verified=True,
         email_verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
@@ -22808,6 +22979,10 @@ def sync_admin_mirrors_for_user(user):
             changed = True
         if pu.email != user.email:
             pu.email = user.email
+            changed = True
+        if pu.first_name != user.first_name or pu.last_name != user.last_name:
+            pu.first_name = user.first_name
+            pu.last_name = user.last_name
             changed = True
     if changed:
         try:
@@ -28554,6 +28729,9 @@ def admin_guide_categories_create():
     website = get_admin_website()
     if not website:
         return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    if not _guide_unrestricted():
+        return _utf8_json({'success': False,
+            'error': "You can only edit specific guides/categories and can't create new categories."}, 403)
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     if not name:
@@ -28590,6 +28768,8 @@ def admin_guide_categories_update(cid):
     website, cat = _admin_guide_category_or_403(cid)
     if cat is None:
         return website
+    if not can_access_guide_category(cid):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide category."}, 403)
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     if not name:
@@ -28615,6 +28795,8 @@ def admin_guide_categories_delete(cid):
     website, cat = _admin_guide_category_or_403(cid)
     if cat is None:
         return website
+    if not can_access_guide_category(cid):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide category."}, 403)
     # Guides under this category get their category_id NULLed by the FK's
     # ondelete=SET NULL — they survive as Uncategorized.
     db.session.delete(cat)
@@ -28629,6 +28811,8 @@ def admin_guide_categories_reorder():
     website = get_admin_website()
     if not website:
         return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    if not _guide_unrestricted():
+        return _utf8_json({'success': False, 'error': "You can't reorder guide categories."}, 403)
     data = request.get_json() or {}
     by_id = {c.id: c for c in GuideCategory.query.filter_by(website_id=website.id).all()}
     for it in (data.get('items') or []):
@@ -28659,6 +28843,16 @@ def admin_guides_page():
         uncategorized = [g for g in guides if g.category_id is None]
         if uncategorized:
             grouped_guides.append({'category': None, 'guides': uncategorized})
+    # "Show but locked" gating for restricted sub-admins. None = unrestricted
+    # (everything editable). When restricted, the template disables actions on
+    # guides/categories not in these sets.
+    guides_restricted = current_user.is_sub_admin and not _guide_unrestricted()
+    accessible_guide_ids = None
+    accessible_category_ids = None
+    if guides_restricted:
+        accessible_guide_ids = {g.id for g in guides if can_access_guide(g)}
+        accessible_category_ids = {c.id for c in categories if can_access_guide_category(c.id)}
+
     current_website = website
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id
@@ -28668,6 +28862,9 @@ def admin_guides_page():
         guides=guides,
         categories=categories,
         grouped_guides=grouped_guides,
+        guides_restricted=guides_restricted,
+        accessible_guide_ids=accessible_guide_ids,
+        accessible_category_ids=accessible_category_ids,
         website=website,
         current_website=current_website,
         current_website_pages=current_website_pages,
@@ -28692,6 +28889,12 @@ def admin_guides_create():
         cat = GuideCategory.query.filter_by(id=int(cat_id), website_id=website.id).first()
         if not cat:
             cat_id = None
+    # Restricted sub-admins may only create guides inside a category they've been
+    # granted (which gives them full control of that category's guides).
+    if not _guide_unrestricted():
+        if cat_id is None or not can_access_guide_category(int(cat_id)):
+            return _utf8_json({'success': False,
+                'error': 'You can only create guides inside a category you have access to.'}, 403)
     guide = Guide(
         website_id=website.id,
         title=title,
@@ -28715,6 +28918,8 @@ def admin_guides_update(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     data = request.get_json() or {}
     title = (data.get('title') or '').strip()
     if not title:
@@ -28730,9 +28935,19 @@ def admin_guides_update(gid):
     if 'category_id' in data:
         raw = data.get('category_id')
         if raw in (None, '', 0):
+            # Clearing the category would move the guide to "Uncategorized".
+            # A restricted user may only do that if they hold a direct grant on
+            # this guide (otherwise they'd lose access to / orphan it).
+            _, allowed_guides = _guide_restrictions()
+            if not _guide_unrestricted() and not (allowed_guides is not None and guide.id in allowed_guides):
+                return _utf8_json({'success': False,
+                    'error': 'You can only move this guide into a category you have access to.'}, 403)
             guide.category_id = None
         else:
             cat = GuideCategory.query.filter_by(id=int(raw), website_id=website.id).first()
+            if cat and not can_access_guide_category(cat.id):
+                return _utf8_json({'success': False,
+                    'error': 'You can only move this guide into a category you have access to.'}, 403)
             guide.category_id = cat.id if cat else None
     guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
@@ -28754,6 +28969,8 @@ def admin_guides_delete(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     db.session.delete(guide)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -28767,6 +28984,8 @@ def admin_guides_publish(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     guide.status = 'published'
     if not guide.published_at:
         guide.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -28783,6 +29002,8 @@ def admin_guides_unpublish(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     guide.status = 'draft'
     guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
@@ -28796,6 +29017,8 @@ def admin_guide_editor(gid):
     guide = Guide.query.get_or_404(gid)
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
+        abort(403)
+    if not can_access_guide(guide):
         abort(403)
     current_website = website
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
@@ -28822,6 +29045,8 @@ def admin_guide_completions(gid):
     guide = Guide.query.get_or_404(gid)
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
+        abort(403)
+    if not can_access_guide(guide):
         abort(403)
     lessons = _guide_reading_order(guide)
     lesson_ids = [n.id for n in lessons]
@@ -28898,6 +29123,8 @@ def admin_guide_tree(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     return _utf8_json({'success': True, 'tree': _guide_tree(guide)})
 
 
@@ -28909,6 +29136,8 @@ def admin_guide_node_get(gid, nid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     node = GuideNode.query.filter_by(id=nid, guide_id=gid).first_or_404()
     return _utf8_json({'success': True, 'node': _serialize_guide_node(node, include_content=True)})
 
@@ -28921,6 +29150,8 @@ def admin_guide_node_save(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     data = request.get_json() or {}
     title = (data.get('title') or '').strip()
     if not title:
@@ -28985,6 +29216,8 @@ def admin_guide_node_delete(gid, nid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     node = GuideNode.query.filter_by(id=nid, guide_id=gid).first_or_404()
     db.session.delete(node)  # cascades to descendants
     db.session.commit()
@@ -29001,6 +29234,8 @@ def admin_guide_nodes_reorder(gid):
     website = get_admin_website()
     if not website or not is_owner(website) or guide.website_id != website.id:
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if not can_access_guide(guide):
+        return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     data = request.get_json() or {}
     items = data.get('items') or []
     by_id = {n.id: n for n in guide.nodes.all()}

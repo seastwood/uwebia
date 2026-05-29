@@ -69,7 +69,7 @@
             <p class="pa-kicker">Admin</p>
             <h1 class="pa-title">Guides</h1>
         </div>
-        {% if user_has_perm('guides.manage') %}
+        {% if user_has_perm('guides.manage') and (not guides_restricted or accessible_category_ids) %}
         <button class="pa-btn-new" onclick="openGuideModal()">
             <i class="fas fa-plus"></i> New Guide
         </button>
@@ -81,7 +81,7 @@
     <div class="ga-cats">
         <div class="ga-cats-header">
             <h3 class="ga-cats-title">Categories</h3>
-            {% if user_has_perm('guides.manage') %}
+            {% if user_has_perm('guides.manage') and not guides_restricted %}
             <button class="pa-btn pa-btn-secondary" onclick="openCategoryModal()">
                 <i class="fas fa-plus"></i> Add category
             </button>
@@ -94,7 +94,7 @@
                 {% if c.icon %}<i class="fas {{ c.icon }}" style="{% if c.color %}color:{{ c.color }};{% endif %}"></i>{% endif %}
                 <span>{{ c.name }}</span>
                 <span class="ga-cat-count">{{ c.guides.count() }}</span>
-                {% if user_has_perm('guides.manage') %}
+                {% if user_has_perm('guides.manage') and (not guides_restricted or c.id in accessible_category_ids) %}
                 <button class="ga-cat-edit" title="Edit"
                         onclick='openCategoryModal({{ c.id }}, {{ c.name | tojson }}, {{ (c.description or "") | tojson }}, {{ (c.color or "") | tojson }}, {{ (c.icon or "") | tojson }})'>
                     <i class="fas fa-pencil-alt"></i>
@@ -103,6 +103,8 @@
                         onclick='confirmCategoryDelete({{ c.id }}, {{ c.name | tojson }})'>
                     <i class="fas fa-times"></i>
                 </button>
+                {% elif guides_restricted %}
+                <i class="fas fa-lock" title="You don't have access to this category" style="opacity:0.4;font-size:0.75rem;margin-left:4px;"></i>
                 {% endif %}
             </div>
             {% endfor %}
@@ -135,7 +137,13 @@
                     </div>
                     {% if g.description %}<p class="pa-card-desc">{{ g.description }}</p>{% endif %}
                     <p class="pa-card-meta">{{ g.nodes.count() }} node{{ 's' if g.nodes.count() != 1 else '' }}</p>
+                    {% set _guide_locked = guides_restricted and g.id not in accessible_guide_ids %}
                     <div class="pa-card-actions">
+                        {% if _guide_locked %}
+                        <span style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;color:rgba(255,255,255,0.4);">
+                            <i class="fas fa-lock"></i> No access to this guide
+                        </span>
+                        {% else %}
                         {% if user_has_perm('guides.view') %}
                         <a href="{{ url_for('admin_guide_editor', gid=g.id) }}" class="pa-btn pa-btn-primary">
                             <i class="fas fa-sitemap"></i> Edit Content
@@ -164,6 +172,7 @@
                                 onclick='confirmGuideDelete({{ g.id }}, {{ g.title | tojson }})'>
                             <i class="fas fa-trash"></i>
                         </button>
+                        {% endif %}
                         {% endif %}
                     </div>
                 </div>

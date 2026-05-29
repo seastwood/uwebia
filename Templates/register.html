@@ -79,6 +79,12 @@
     <div class="register-container">
     <h1>Create a uwebia account:</h1>
     <form method="POST" action="{{ url_for('register') }}">
+        <label for="first_name">First name <span style="opacity:0.6;font-weight:400;">(optional)</span>:</label>
+        <input type="text" id="first_name" name="first_name" autocomplete="given-name">
+        <br>
+        <label for="last_name">Last name <span style="opacity:0.6;font-weight:400;">(optional)</span>:</label>
+        <input type="text" id="last_name" name="last_name" autocomplete="family-name">
+        <br>
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required>
         <br>

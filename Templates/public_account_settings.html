@@ -227,6 +227,27 @@
     {% endif %}
 
     <div class="settings-card">
+        <h2>Your Name</h2>
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.55);margin:0 0 12px;">
+            Optional. Used by the site owner for administration. Leave blank if you'd rather not share it.
+        </p>
+        <form id="nameForm" onsubmit="saveName(event)" style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <input type="text" id="firstNameInput" placeholder="First name" maxlength="100"
+                       value="{{ public_user.first_name or '' }}"
+                       style="flex:1;min-width:140px;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;box-sizing:border-box;">
+                <input type="text" id="lastNameInput" placeholder="Last name" maxlength="100"
+                       value="{{ public_user.last_name or '' }}"
+                       style="flex:1;min-width:140px;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;box-sizing:border-box;">
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <button type="submit" class="btn btn-primary">Save Name</button>
+                <span id="nameStatus" style="font-size:0.82rem;min-height:18px;"></span>
+            </div>
+        </form>
+    </div>
+
+    <div class="settings-card">
         <h2>Display Name</h2>
         <p style="font-size:0.85rem;color:rgba(255,255,255,0.55);margin:0 0 12px;">
             Shown everywhere your activity appears on this site (comments, forum posts, reviews).
@@ -289,6 +310,32 @@
 </div>
 
 <script>
+async function saveName(e) {
+    e.preventDefault();
+    const status = document.getElementById('nameStatus');
+    const fd = new FormData();
+    fd.append('first_name', document.getElementById('firstNameInput').value.trim());
+    fd.append('last_name', document.getElementById('lastNameInput').value.trim());
+    status.textContent = 'Saving…';
+    status.style.color = 'rgba(255,255,255,0.6)';
+    try {
+        const r = await fetch("{{ url_for('public_account_set_name', prefix=website.url_prefix or none) }}", {
+            method: 'POST', body: fd,
+        });
+        const j = await r.json();
+        if (!r.ok || j.error) {
+            status.textContent = j.error || 'Save failed.';
+            status.style.color = '#ff8a8a';
+            return;
+        }
+        status.textContent = j.full_name ? 'Saved.' : 'Cleared.';
+        status.style.color = '#5eeec8';
+    } catch (err) {
+        status.textContent = 'Network error.';
+        status.style.color = '#ff8a8a';
+    }
+}
+
 async function saveDisplayName(e) {
     e.preventDefault();
     const status = document.getElementById('displayNameStatus');
