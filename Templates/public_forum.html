@@ -418,7 +418,7 @@
         <div class="forum-meta">
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
                 <span>Posted by {{ thread.author.effective_display_name if thread.author else 'Guest' }}</span>
-                {% if thread.author and thread.author.mirrored_admin_user_id %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Site owner">Admin</span>{% endif %}
+                {% if thread.author and thread.author.staff_badge_label %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Staff">{{ thread.author.staff_badge_label }}</span>{% endif %}
                 {% if thread.author %}{% for role in thread.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
             </div>
             <span>{{ thread.created_at.strftime('%b %d, %Y') }} · {{ thread.reply_count or 0 }} replies{% if thread.is_locked %} · Locked{% endif %}</span>

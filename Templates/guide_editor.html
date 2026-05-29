@@ -168,7 +168,7 @@
 </div>
 
 <!-- Asset picker modal -->
-<div class="pe-asset-overlay" id="assetPickerOverlay" onclick="if(event.target===this)closeAssetPicker()">
+<div class="pe-asset-overlay" id="assetPickerOverlay" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeAssetPicker)">
     <div class="pe-asset-modal">
         <div class="pe-asset-header">
             <h3>Insert Asset</h3>
@@ -185,7 +185,7 @@
 </div>
 
 <!-- Quiz picker modal -->
-<div class="pe-asset-overlay" id="quizPickerOverlay" onclick="if(event.target===this)closeQuizPicker()">
+<div class="pe-asset-overlay" id="quizPickerOverlay" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeQuizPicker)">
     <div class="pe-asset-modal">
         <div class="pe-asset-header">
             <h3>Insert Quiz</h3>

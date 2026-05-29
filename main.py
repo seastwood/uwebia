@@ -828,12 +828,26 @@ class PublicUser(UserMixin, db.Model):
     website = db.relationship('Website', backref=db.backref('public_users', lazy=True, cascade='all, delete-orphan'))
     roles   = db.relationship('PublicUserRole', secondary='public_user_role_assignment',
                                lazy='select', backref=db.backref('members', lazy=True))
+    # The admin User this row mirrors, when this is a staff mirror. Lets
+    # `staff_badge_label` resolve the linked admin's permission-group name
+    # straight from a template without an extra query each time.
+    mirrored_admin = db.relationship('User', foreign_keys=[mirrored_admin_user_id], lazy='select')
 
     __table_args__ = (
         db.UniqueConstraint('website_id', 'username', name='uq_public_user_username_per_website'),
         db.UniqueConstraint('website_id', 'email', name='uq_public_user_email_per_website'),
         db.UniqueConstraint('website_id', 'mirrored_admin_user_id',
                             name='uq_public_user_admin_mirror_per_website'),
+        # Login usernames are globally unique across every website so a single
+        # identity can't be claimed twice (groundwork for cross-website
+        # accounts). Admin mirrors are exempt — they all represent the same
+        # global admin and repeat by design on each site, so the partial index
+        # only covers real public users (mirrored_admin_user_id IS NULL).
+        db.Index(
+            'uq_public_user_username_global', 'username', unique=True,
+            sqlite_where=db.text('mirrored_admin_user_id IS NULL'),
+            postgresql_where=db.text('mirrored_admin_user_id IS NULL'),
+        ),
     )
 
     @property
@@ -845,6 +859,27 @@ class PublicUser(UserMixin, db.Model):
         """The label rendered everywhere public. Falls back to the login
         username when the user hasn't set a separate display name."""
         return self.display_username or self.username
+
+    @property
+    def staff_badge_label(self):
+        """The badge text shown next to this user's name in public surfaces
+        (forum posts, navbar greeting, …). Returns the linked admin's
+        permission-group name when this is a sub-admin mirror with a group
+        assigned, 'Admin' for everyone else who's a mirror, and None for
+        ordinary public users. Lets a site owner promote a public user to,
+        say, "Student" or "Moderator" and have that wording — not "Admin" —
+        show up wherever they post."""
+        if not self.mirrored_admin_user_id:
+            return None
+        admin = self.mirrored_admin
+        if not admin:
+            return None
+        # Sub-admin with a permission group → use the group's name as the badge.
+        if admin.is_sub_admin and admin.permission_group_id:
+            grp = admin.permission_group
+            if grp and (grp.name or '').strip():
+                return grp.name.strip()
+        return 'Admin'
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -1902,6 +1937,33 @@ class PostCommentLike(db.Model):
 # A Guide is the "book": an ordered tree of GuideNodes. Each node is either a
 # 'chapter' (grouping, no body) or a 'lesson' (Quill HTML body). Quizzes and
 # progress tracking attach to nodes in later phases — see [[project-overview]].
+#
+# A GuideCategory is the cross-guide grouping ("departments" — Onboarding,
+# Safety, HR, …). Website-scoped, nullable on Guide so existing guides fall
+# under "Uncategorized" automatically.
+
+class GuideCategory(db.Model):
+    __tablename__ = 'guide_category'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(150), nullable=False)
+    slug        = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color       = db.Column(db.String(20), nullable=True)
+    icon        = db.Column(db.String(60), nullable=True)  # FA class, e.g. 'fa-graduation-cap'
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_guide_category_site_slug'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'name': self.name, 'slug': self.slug,
+            'description': self.description or '',
+            'color': self.color or '', 'icon': self.icon or '',
+            'sort_order': self.sort_order,
+        }
+
 
 class Guide(db.Model):
     __tablename__ = 'guide'
@@ -1920,12 +1982,18 @@ class Guide(db.Model):
     track_progress  = db.Column(db.Boolean, nullable=False, default=True,
                                 server_default=_sa_true())
     sort_order      = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Optional category grouping ("department"). ondelete=SET NULL so removing
+    # a category just orphans its guides — they fall back to "Uncategorized".
+    category_id     = db.Column(db.Integer, db.ForeignKey('guide_category.id', ondelete='SET NULL'),
+                                nullable=True, index=True)
     created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at      = db.Column(db.DateTime, nullable=True)
     published_at    = db.Column(db.DateTime, nullable=True)
     nodes           = db.relationship('GuideNode', backref='guide', lazy='dynamic',
                                       cascade='all, delete-orphan',
                                       order_by='GuideNode.sort_order')
+    category        = db.relationship('GuideCategory',
+                                      backref=db.backref('guides', lazy='dynamic'))
     __table_args__  = (db.UniqueConstraint('website_id', 'slug', name='uq_guide_site_slug'),)
 
 
@@ -1970,6 +2038,10 @@ class Quiz(db.Model):
     description       = db.Column(db.Text, nullable=True)
     shuffle_questions = db.Column(db.Boolean, nullable=False, default=False,
                                   server_default=_sa_false())
+    # Fraction of max_score a reader must hit to be considered passing. Used to
+    # gate lesson completion when this quiz is embedded in a lesson. 0.9 = 90%.
+    pass_threshold    = db.Column(db.Float, nullable=False, default=0.9,
+                                  server_default='0.9')
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
     questions         = db.relationship('QuizQuestion', backref='quiz', lazy='dynamic',
@@ -7809,7 +7881,10 @@ def admin_switch_website(website_id):
 @login_required
 def save_navbar_visibility():
     data = request.get_json() or {}
-    valid = {'posts', 'guides', 'quizzes', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins'}
+    valid = {'posts', 'guides', 'quizzes', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
+             # Store dropdown master + the items that weren't in this set before,
+             # so they can actually be toggled off (the navbar already honors them).
+             'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support'}
     disabled = [k for k in data.get('disabled', []) if k in valid]
     current_user.admin_navbar_disabled = disabled
     db.session.commit()
@@ -18229,6 +18304,7 @@ ADMIN_PERMISSIONS = {
         'create': 'Create admin users',
         'edit': 'Edit admin users & permissions',
         'delete': 'Delete admin users',
+        'promote': 'Promote a public user to a sub-admin & assign their permission group',
     }},
 }
 
@@ -18332,12 +18408,20 @@ def admin_public_users_page():
         for w_id, roles in roles_by_website.items()
     }
     selected_website_id = request.args.get('website_id', type=int) or (live_websites[0].id if live_websites else None)
+    # Promotion (sub-admin from a public user) — list the root admin's own
+    # permission groups so the modal can pick one. `can_promote_staff` mirrors
+    # the same gate used by the server route.
+    permission_groups = PermissionGroup.query.filter_by(owner_user_id=root_id).order_by(PermissionGroup.name).all()
+    permission_groups_dicts = [g.to_dict() for g in permission_groups]
+    can_promote_staff = (not current_user.is_sub_admin) or current_user.has_permission('admin_users.promote')
     return render_template('admin_public_users.html',
                            live_websites=live_websites,
                            user_counts_by_website=user_counts_by_website,
                            roles_by_website=roles_by_website,
                            roles_by_website_dicts=roles_by_website_dicts,
-                           selected_website_id=selected_website_id)
+                           selected_website_id=selected_website_id,
+                           permission_groups_dicts=permission_groups_dicts,
+                           can_promote_staff=can_promote_staff)
 
 
 _PUBLIC_USERS_LIST_SORTS = {
@@ -18586,11 +18670,10 @@ def admin_public_user_update(user_id):
     email = (data.get('email') or '').strip().lower()
     new_password = (data.get('password') or '').strip()
     if username and username != u.username:
-        conflict = PublicUser.query.filter_by(website_id=u.website_id, username=username).first()
+        # Login usernames are globally unique across every website (+ admins).
+        conflict = public_username_taken_anywhere(username, exclude_public_user_id=u.id)
         if conflict:
-            return _utf8_json({'error': 'That username is already taken.'}, 400)
-        if User.query.filter(User.username == username).first():
-            return _utf8_json({'error': 'An admin account already uses that username.'}, 400)
+            return _utf8_json({'error': conflict}, 400)
         u.username = username
     if email and email != u.email:
         conflict = PublicUser.query.filter_by(website_id=u.website_id, email=email).first()
@@ -18700,6 +18783,231 @@ def admin_public_user_set_roles(user_id):
     u.roles = roles
     db.session.commit()
     return _utf8_json({'success': True, 'roles': [r.to_dict() for r in u.roles]})
+
+
+# ── Promote a public user to a sub-admin ───────────────────────────────────
+# Creates a User row owned by the current root admin (a sub-admin), copies
+# the public user's password hash so they sign in with the credentials they
+# already know, turns the source PublicUser into the admin mirror on its own
+# website, and creates mirrors on every other website. The new sub-admin gets
+# whatever permission group / per-permission overrides the promoter chose,
+# and their forum/navbar badge reads the permission group name (via
+# `PublicUser.staff_badge_label`) instead of "Admin".
+
+def _promote_conflict_websites(public_user, exclude_admin_user_id=None):
+    """Return cross-website conflicts that would block creating an admin mirror
+    for `public_user` everywhere. A conflict is any other PublicUser, on a
+    different website that the same root admin owns, whose username or email
+    matches `public_user`. The source row itself is always excluded."""
+    root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
+    owned_website_ids = {w.id for w in Website.query.filter_by(user_id=root_id, is_draft=False).all()}
+    if not owned_website_ids:
+        return []
+    q = PublicUser.query.filter(
+        PublicUser.id != public_user.id,
+        PublicUser.website_id.in_(owned_website_ids),
+        or_(PublicUser.username == public_user.username,
+            PublicUser.email == public_user.email),
+    )
+    if exclude_admin_user_id:
+        q = q.filter(or_(
+            PublicUser.mirrored_admin_user_id.is_(None),
+            PublicUser.mirrored_admin_user_id != exclude_admin_user_id,
+        ))
+    else:
+        q = q.filter(PublicUser.mirrored_admin_user_id.is_(None))
+    return q.all()
+
+
+def _resolve_promote_conflicts(conflicts, promoting):
+    """For each conflicting PublicUser, rename the field(s) that actually
+    match `promoting` (the user being promoted) so the about-to-be-created
+    admin mirror can take that name/email on the conflict's website.
+
+    A conflict either matched on username OR email (the `or_` in
+    `_promote_conflict_websites`) — we only need to rename what matched.
+    Returns a list of dicts describing every change."""
+    renamed = []
+    for pu in conflicts:
+        old_username, old_email = pu.username, pu.email
+
+        if pu.username == promoting.username:
+            base = pu.username
+            n = 2
+            while True:
+                cand = f"{base}-promoted-{n}"
+                if not PublicUser.query.filter(
+                        PublicUser.website_id == pu.website_id,
+                        PublicUser.username == cand,
+                        PublicUser.id != pu.id).first():
+                    pu.username = cand
+                    break
+                n += 1
+
+        if pu.email == promoting.email and '@' in pu.email:
+            local, _, domain = pu.email.partition('@')
+            n = 2
+            while True:
+                cand = f"{local}+promoted{n}@{domain}"
+                if not PublicUser.query.filter(
+                        PublicUser.website_id == pu.website_id,
+                        PublicUser.email == cand,
+                        PublicUser.id != pu.id).first():
+                    pu.email = cand
+                    break
+                n += 1
+
+        renamed.append({
+            'public_user_id': pu.id, 'website_id': pu.website_id,
+            'old_username': old_username, 'old_email': old_email,
+            'new_username': pu.username, 'new_email': pu.email,
+        })
+    if renamed:
+        db.session.commit()
+    return renamed
+
+
+def _promote_can():
+    """The promote permission is the user-create permission plus the explicit
+    'promote' action. Main admins always pass."""
+    if not current_user.is_sub_admin:
+        return True
+    return current_user.has_permission('admin_users.promote')
+
+
+@app.route('/admin/users/public/<int:user_id>/promote/preview')
+@login_required
+def admin_public_user_promote_preview(user_id):
+    """List cross-website conflicts so the UI can warn before posting the
+    actual promotion. Read-only."""
+    if not _promote_can():
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    pu = _get_owned_public_user(user_id)
+    if pu.is_admin_mirror:
+        return _utf8_json({'error': 'This user is already a staff mirror.'}, 400)
+    conflicts = _promote_conflict_websites(pu)
+    website_ids = {c.website_id for c in conflicts}
+    websites = {w.id: w for w in Website.query.filter(Website.id.in_(website_ids)).all()} if website_ids else {}
+    return _utf8_json({
+        'success': True,
+        'username': pu.username,
+        'email': pu.email,
+        'conflicts': [{
+            'public_user_id': c.id,
+            'website_id': c.website_id,
+            'website_name': (websites.get(c.website_id).name if websites.get(c.website_id) else ''),
+            'website_prefix': (websites.get(c.website_id).url_prefix or '') if websites.get(c.website_id) else '',
+            'username': c.username,
+            'email': c.email,
+        } for c in conflicts],
+    })
+
+
+@app.route('/admin/users/public/<int:user_id>/promote', methods=['POST'])
+@login_required
+def admin_public_user_promote(user_id):
+    if not _promote_can():
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    pu = _get_owned_public_user(user_id)
+    if pu.is_admin_mirror:
+        return _utf8_json({'success': False, 'error': 'This user is already a staff mirror.'}, 400)
+    if not pu.password_hash:
+        return _utf8_json({'success': False, 'error': "This account has no password set, so it can't be promoted."}, 400)
+
+    data = request.get_json() or {}
+    perms = data.get('permissions') or {}
+    group_id = data.get('permission_group_id') or None
+    website_perms = data.get('website_permissions') or {}
+    resolve_conflicts = bool(data.get('resolve_conflicts'))
+
+    root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
+
+    # The permission group MUST belong to the same root admin doing the
+    # promotion — otherwise a sub-admin under one tenant could attach a
+    # foreign group. Mirrors the same check used by /admin/users/create.
+    if group_id:
+        grp = db.session.get(PermissionGroup, group_id)
+        if not grp or grp.owner_user_id != root_id:
+            return _utf8_json({'success': False, 'error': "That permission group doesn't belong to you."}, 400)
+
+    # Admin-User namespace check first — these can't be auto-resolved (an
+    # actual admin already owns the name).
+    admin_clash = User.query.filter(or_(
+        User.username == pu.username, User.email == pu.email)).first()
+    if admin_clash:
+        return _utf8_json({'success': False,
+            'error': 'An admin account already uses that username or email.'}, 400)
+
+    # Cross-website public-user collisions — those are auto-resolvable.
+    conflicts = _promote_conflict_websites(pu)
+    if conflicts and not resolve_conflicts:
+        website_ids = {c.website_id for c in conflicts}
+        websites = {w.id: w for w in Website.query.filter(Website.id.in_(website_ids)).all()} if website_ids else {}
+        return _utf8_json({
+            'success': False,
+            'needs_conflict_resolution': True,
+            'error': 'Public users on other websites share this username or email.',
+            'conflicts': [{
+                'public_user_id': c.id,
+                'website_id': c.website_id,
+                'website_name': (websites.get(c.website_id).name if websites.get(c.website_id) else ''),
+                'username': c.username,
+                'email': c.email,
+            } for c in conflicts],
+        }, 409)
+    renamed = _resolve_promote_conflicts(conflicts, pu) if conflicts else []
+
+    # After rename, double-check the global PublicUser namespace is clear
+    # (paranoid guard for concurrent inserts mid-flow).
+    leftover_clash = admin_or_public_username_taken(
+        pu.username, pu.email,
+        exclude_public_user_ids=[pu.id] + [c.id for c in conflicts])
+    if leftover_clash:
+        return _utf8_json({'success': False, 'error': leftover_clash}, 400)
+
+    # Create the sub-admin User row. Copy the public user's password hash so
+    # they sign in with the same password they already use; reset it on the
+    # source PublicUser so it's no longer authenticatable directly.
+    new_admin = User(
+        username=pu.username,
+        email=pu.email,
+        password_hash=pu.password_hash,
+        parent_user_id=root_id,
+        permission_group_id=group_id,
+        permissions=perms if not group_id else {},
+        website_permissions={str(k): v for k, v in website_perms.items()} if website_perms else {},
+        _is_active=True,
+    )
+    db.session.add(new_admin)
+    db.session.flush()  # need the id for mirror wiring
+
+    # Reassign the source PublicUser as the admin mirror on its own website.
+    source_website_id = pu.website_id
+    pu.mirrored_admin_user_id = new_admin.id
+    pu.password_hash = None
+    pu.email_verified = True
+    pu.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    pu.is_active_public = True
+    pu.is_banned = False
+    db.session.commit()
+
+    # Create mirrors on every other website the root admin owns. Conflicts on
+    # those sites have already been renamed above, so creation will succeed.
+    other_sites = Website.query.filter(
+        Website.user_id == root_id, Website.is_draft == False,
+        Website.id != source_website_id).all()
+    for w in other_sites:
+        ensure_admin_public_mirror(new_admin, w)
+
+    return _utf8_json({
+        'success': True,
+        'new_admin': {
+            'id': new_admin.id, 'username': new_admin.username,
+            'email': new_admin.email, 'permission_group_id': group_id,
+            'badge_label': pu.staff_badge_label,
+        },
+        'renamed_conflicts': renamed,
+    })
 
 
 @app.route('/admin/users/create', methods=['POST'])
@@ -20247,25 +20555,24 @@ def public_register():
             flash('Password must be at least 8 characters.', 'error')
             return _register_redirect()
 
-        existing = PublicUser.query.filter(
-            PublicUser.website_id == website.id,
-            or_(
-                PublicUser.username == username,
-                PublicUser.email == email
-            )
-        ).first()
-
-        if existing:
-            flash('That username or email is already in use.', 'error')
+        # Login usernames are unique across the whole platform (every website +
+        # the admin namespace) so a single identity can't be claimed twice.
+        username_conflict = public_username_taken_anywhere(username)
+        if username_conflict:
+            flash(username_conflict, 'error')
             return _register_redirect()
 
-        # Block names/emails owned by an admin so admin mirrors never collide
-        # with a real public account.
-        admin_conflict = User.query.filter(
-            or_(User.username == username, User.email == email)
-        ).first()
-        if admin_conflict:
-            flash('That username or email is already in use.', 'error')
+        # Email stays unique per-website: this site's public users, plus the
+        # admin namespace (so admin mirrors never collide with a real account).
+        email_taken = (
+            PublicUser.query.filter(
+                PublicUser.website_id == website.id,
+                PublicUser.email == email,
+            ).first()
+            or User.query.filter(User.email == email).first()
+        )
+        if email_taken:
+            flash('That email is already in use.', 'error')
             return _register_redirect()
 
         email_verified = not getattr(website, 'public_email_verification_enabled', False)
@@ -20378,16 +20685,56 @@ def public_login():
                 User.email == login_value,
             )).first()
             if admin and admin.check_password(password):
-                # 2FA-protected admins go through the admin login flow.
+                # 2FA-protected admins run the same code-email flow that
+                # `/admin/login` uses, but stay on the public site — we redirect
+                # to `public_admin_2fa` instead of `two_factor_login`, and on
+                # success we land on the requested public URL rather than the
+                # admin dashboard.
                 _needs_2fa = bool(admin.two_factor_enabled)
-                if not _needs_2fa and admin.is_sub_admin:
+                _two_fa_email = None
+                if admin.two_factor_enabled:
+                    _two_fa_email = admin.two_factor_email or admin.email
+                elif admin.is_sub_admin:
                     _parent = db.session.get(User, admin.parent_user_id)
-                    _needs_2fa = bool(_parent and _parent.two_factor_enabled)
+                    if _parent and _parent.two_factor_enabled:
+                        _needs_2fa = True
+                        _two_fa_email = admin.email  # sub-admin's own address
                 if _needs_2fa:
                     next_q = request.args.get('next') or _website_default_url(website)
-                    flash('Your admin account requires two-factor verification. '
-                          'Please use the admin login page.', 'error')
-                    return redirect(url_for('login', next=next_q))
+                    if not _two_fa_email:
+                        # Defensive fallback — shouldn't normally happen.
+                        flash('Your admin account requires two-factor verification, '
+                              'but no 2FA email is configured. Use the admin '
+                              'login page.', 'error')
+                        return redirect(url_for('login', next=next_q))
+
+                    session['pre_2fa_user_id'] = admin.id
+                    session['pre_2fa_public_next_url'] = next_q
+                    session['pre_2fa_public_website_prefix'] = website_prefix or ''
+                    # Clear out any stale admin-login admin_key so the success
+                    # branch in `public_admin_2fa` doesn't think this came from
+                    # /admin/login.
+                    session.pop('pre_2fa_admin_key', None)
+
+                    # Suppress resends when a code was just sent (matches the
+                    # admin login behavior on double-submit).
+                    if not _2fa_recently_sent(admin.id):
+                        code = generate_two_factor_code()
+                        set_pending_two_factor_code(admin.id, code, 'login')
+                        try:
+                            send_two_factor_email(_two_fa_email, code, purpose='login')
+                        except Exception as e:
+                            clear_pending_two_factor_code()
+                            session.pop('pre_2fa_user_id', None)
+                            session.pop('pre_2fa_public_next_url', None)
+                            session.pop('pre_2fa_public_website_prefix', None)
+                            flash(f'Could not send 2FA login code: {e}', 'error')
+                            return _login_redirect()
+
+                    # Password was correct — clear the failure counter for this
+                    # IP/identifier combo before sending them through 2FA.
+                    _rl_record(ip, login_value, success=True)
+                    return redirect(url_for('public_admin_2fa'))
 
                 login_user(admin)
                 _stamp_login(admin)
@@ -21753,6 +22100,109 @@ def public_2fa():
     return render_template('public_2fa.html', website=website, public_user=None)
 
 
+def _clear_public_admin_2fa_session():
+    clear_pending_two_factor_code()
+    session.pop('pre_2fa_user_id', None)
+    session.pop('pre_2fa_public_next_url', None)
+    session.pop('pre_2fa_public_website_prefix', None)
+
+
+def _admin_two_fa_email(user):
+    """Resolve which mailbox the admin's 2FA code should be sent to. Mirrors
+    the rules in /admin/login: main admins use `two_factor_email` (or their
+    primary email); sub-admins under a 2FA-enabled parent get the code at
+    their own account email."""
+    if user.two_factor_enabled:
+        return user.two_factor_email or user.email
+    if user.is_sub_admin:
+        parent = db.session.get(User, user.parent_user_id)
+        if parent and parent.two_factor_enabled:
+            return user.email
+    return None
+
+
+@app.route('/2fa/admin', methods=['GET', 'POST'])
+def public_admin_2fa():
+    """Admin 2FA challenge reached via the public login form. The code-email
+    flow is identical to /admin/login -> /admin/2fa; the difference is that
+    on success we log the admin in, stamp the public mirror, and land on the
+    requested public URL instead of the admin dashboard."""
+    user_id = session.get('pre_2fa_user_id')
+    next_url = session.get('pre_2fa_public_next_url')
+    website_prefix = session.get('pre_2fa_public_website_prefix') or ''
+
+    if not user_id or not next_url:
+        return redirect(url_for('public_login',
+                                website_prefix=(website_prefix or None)))
+
+    user = db.session.get(User, user_id)
+    if not user:
+        _clear_public_admin_2fa_session()
+        return redirect(url_for('public_login',
+                                website_prefix=(website_prefix or None)))
+
+    website = get_live_website(url_prefix=website_prefix or None)
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    if request.method == 'POST':
+        code = (request.form.get('code') or '').strip()
+        pending_error = get_pending_two_factor_error(user.id, 'login')
+        if pending_error:
+            _clear_public_admin_2fa_session()
+            flash(pending_error, 'error')
+            return redirect(url_for('public_login',
+                                    website_prefix=(website_prefix or None)))
+        expected_hash = session.get('pending_2fa_code_hash')
+        if not expected_hash or not check_password_hash(expected_hash, code):
+            flash('Invalid verification code.', 'error')
+            return redirect(url_for('public_admin_2fa'))
+
+        login_user(user)
+        if admin_url_key_required_for_user(user):
+            session['admin_path_verified'] = True
+        _stamp_login(user)
+        _clear_public_admin_2fa_session()
+
+        # Mirror the post-password success path from public_login so the
+        # public side recognises the admin as a signed-in member too.
+        mirror = ensure_admin_public_mirror(user, website)
+        if mirror:
+            public_user_login(mirror)
+        return redirect(next_url)
+
+    return render_template(
+        'public_2fa.html',
+        website=website, public_user=None,
+        submit_url=url_for('public_admin_2fa'),
+        resend_url=url_for('public_admin_2fa_resend'),
+        back_url=url_for('public_login',
+                         website_prefix=(website_prefix or None)),
+    )
+
+
+@app.route('/2fa/admin/resend', methods=['POST'])
+def public_admin_2fa_resend():
+    user_id = session.get('pre_2fa_user_id')
+    if not user_id or not session.get('pre_2fa_public_next_url'):
+        return _utf8_json({'error': 'No pending 2FA session.'}, 400)
+    user = db.session.get(User, user_id)
+    if not user:
+        return _utf8_json({'error': 'User not found.'}, 400)
+    if _2fa_recently_sent(user_id, cooldown_seconds=10):
+        return _utf8_json({'error': 'Please wait before requesting a new code.'}, 429)
+    two_fa_email = _admin_two_fa_email(user)
+    if not two_fa_email:
+        return _utf8_json({'error': '2FA is not configured for this account.'}, 400)
+    code = generate_two_factor_code()
+    set_pending_two_factor_code(user.id, code, 'login')
+    try:
+        send_two_factor_email(two_fa_email, code, purpose='login')
+    except Exception as e:
+        return _utf8_json({'error': f'Could not send code: {e}'}, 500)
+    return _utf8_json({'success': True})
+
+
 @app.route('/2fa/resend', methods=['POST'])
 def public_2fa_resend():
     pending_user_id = session.get('pub_2fa_user_id')
@@ -22123,6 +22573,33 @@ def admin_or_public_username_taken(name, email=None, exclude_admin_user_id=None,
     if email:
         if pu_q.filter(PublicUser.email == email).first():
             return 'A public user already uses that email.'
+    return None
+
+
+def public_username_taken_anywhere(name, exclude_public_user_id=None):
+    """Return a human-readable reason if `name` is already in use as a login
+    username anywhere on the platform — by any admin (admins share one global
+    namespace) or by any *real* public user on any website. Admin mirrors are
+    skipped on purpose: they all stand in for the same global admin and repeat
+    on every site by design, and the admin User row above already guards that
+    name.
+
+    This keeps public login usernames globally unique across websites (it does
+    NOT touch email, which stays unique per-website). Case-insensitive — both
+    models normalise via @validates."""
+    name = (name or '').strip().lower()
+    if not name:
+        return None
+    if User.query.filter(User.username == name).first():
+        return 'An admin account already uses that username.'
+    pu_q = PublicUser.query.filter(
+        PublicUser.username == name,
+        PublicUser.mirrored_admin_user_id.is_(None),
+    )
+    if exclude_public_user_id:
+        pu_q = pu_q.filter(PublicUser.id != exclude_public_user_id)
+    if pu_q.first():
+        return 'That username is already taken on another site.'
     return None
 
 
@@ -27897,6 +28374,20 @@ def _unique_guide_slug(website_id, base_slug, exclude_id=None):
         counter += 1
 
 
+def _unique_guide_category_slug(website_id, base_slug, exclude_id=None):
+    """Return a slug unique among this website's guide categories."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = GuideCategory.query.filter_by(website_id=website_id, slug=slug)
+        if exclude_id:
+            q = q.filter(GuideCategory.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
 def _unique_guide_node_slug(guide_id, base_slug, exclude_id=None):
     """Return a slug unique among one guide's nodes."""
     slug = base_slug
@@ -27959,15 +28450,131 @@ def _guide_reading_order(guide):
     return result
 
 
+# ── Guide categories (cross-guide grouping) ────────────────────────────────
+
+@app.route('/admin/guides/categories')
+@login_required
+@require_perm('guides.view')
+def admin_guide_categories_list():
+    website = get_admin_website()
+    cats = (GuideCategory.query.filter_by(website_id=website.id)
+            .order_by(GuideCategory.sort_order, GuideCategory.name).all()
+            if website else [])
+    return _utf8_json({'success': True, 'categories': [c.to_dict() for c in cats]})
+
+
+@app.route('/admin/guides/categories/create', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guide_categories_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    slug_base = _slugify_post((data.get('slug') or '').strip() or name)
+    max_sort = db.session.query(db.func.max(GuideCategory.sort_order)).filter_by(
+        website_id=website.id).scalar()
+    cat = GuideCategory(
+        website_id=website.id,
+        name=name,
+        slug=_unique_guide_category_slug(website.id, slug_base),
+        description=(data.get('description') or '').strip() or None,
+        color=(data.get('color') or '').strip() or None,
+        icon=(data.get('icon') or '').strip() or None,
+        sort_order=(max_sort or 0) + 1,
+    )
+    db.session.add(cat)
+    db.session.commit()
+    return _utf8_json({'success': True, 'category': cat.to_dict()}, 201)
+
+
+def _admin_guide_category_or_403(cid):
+    cat = GuideCategory.query.get_or_404(cid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or cat.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, cat
+
+
+@app.route('/admin/guides/categories/<int:cid>/update', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guide_categories_update(cid):
+    website, cat = _admin_guide_category_or_403(cid)
+    if cat is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    cat.name = name
+    cat.description = (data.get('description') or '').strip() or None
+    if 'color' in data:
+        cat.color = (data.get('color') or '').strip() or None
+    if 'icon' in data:
+        cat.icon = (data.get('icon') or '').strip() or None
+    raw_slug = (data.get('slug') or '').strip()
+    if raw_slug:
+        cat.slug = _unique_guide_category_slug(
+            website.id, _slugify_post(raw_slug), exclude_id=cat.id)
+    db.session.commit()
+    return _utf8_json({'success': True, 'category': cat.to_dict()})
+
+
+@app.route('/admin/guides/categories/<int:cid>/delete', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guide_categories_delete(cid):
+    website, cat = _admin_guide_category_or_403(cid)
+    if cat is None:
+        return website
+    # Guides under this category get their category_id NULLed by the FK's
+    # ondelete=SET NULL — they survive as Uncategorized.
+    db.session.delete(cat)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/guides/categories/reorder', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guide_categories_reorder():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    by_id = {c.id: c for c in GuideCategory.query.filter_by(website_id=website.id).all()}
+    for it in (data.get('items') or []):
+        c = by_id.get(int(it.get('id')))
+        if c:
+            c.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 @app.route('/admin/guides')
 @login_required
 @require_perm('guides.view')
 def admin_guides_page():
     website = get_admin_website()
     guides = []
+    categories = []
+    grouped_guides = []
     if website:
         guides = Guide.query.filter_by(website_id=website.id).order_by(
             Guide.sort_order, Guide.created_at.desc()).all()
+        categories = GuideCategory.query.filter_by(website_id=website.id).order_by(
+            GuideCategory.sort_order, GuideCategory.name).all()
+        for c in categories:
+            in_cat = [g for g in guides if g.category_id == c.id]
+            if in_cat:
+                grouped_guides.append({'category': c, 'guides': in_cat})
+        uncategorized = [g for g in guides if g.category_id is None]
+        if uncategorized:
+            grouped_guides.append({'category': None, 'guides': uncategorized})
     current_website = website
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id
@@ -27975,6 +28582,8 @@ def admin_guides_page():
     return render_template(
         'guides_admin.html',
         guides=guides,
+        categories=categories,
+        grouped_guides=grouped_guides,
         website=website,
         current_website=current_website,
         current_website_pages=current_website_pages,
@@ -27994,16 +28603,23 @@ def admin_guides_create():
     if not title:
         return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
     slug = _unique_guide_slug(website.id, _slugify_post(title))
+    cat_id = data.get('category_id') or None
+    if cat_id:
+        cat = GuideCategory.query.filter_by(id=int(cat_id), website_id=website.id).first()
+        if not cat:
+            cat_id = None
     guide = Guide(
         website_id=website.id,
         title=title,
         slug=slug,
         description=(data.get('description') or '').strip() or None,
+        category_id=cat_id,
     )
     db.session.add(guide)
     db.session.commit()
     return _utf8_json({'success': True, 'guide': {
         'id': guide.id, 'title': guide.title, 'slug': guide.slug,
+        'category_id': guide.category_id,
     }}, 201)
 
 
@@ -28027,6 +28643,13 @@ def admin_guides_update(gid):
         guide.require_login_to_view = bool(data['require_login_to_view'])
     if 'track_progress' in data:
         guide.track_progress = bool(data['track_progress'])
+    if 'category_id' in data:
+        raw = data.get('category_id')
+        if raw in (None, '', 0):
+            guide.category_id = None
+        else:
+            cat = GuideCategory.query.filter_by(id=int(raw), website_id=website.id).first()
+            guide.category_id = cat.id if cat else None
     guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return _utf8_json({'success': True, 'guide': {
@@ -28035,6 +28658,7 @@ def admin_guides_update(gid):
         'cover_image_url': guide.cover_image_url or '',
         'require_login_to_view': guide.require_login_to_view,
         'track_progress': guide.track_progress,
+        'category_id': guide.category_id,
     }})
 
 
@@ -28100,6 +28724,85 @@ def admin_guide_editor(gid):
         current_website=current_website,
         current_website_pages=current_website_pages,
         page_id=None,
+    )
+
+
+@app.route('/admin/guides/<int:gid>/completions')
+@login_required
+@require_perm('guides.view')
+def admin_guide_completions(gid):
+    """List public users who have made progress on this guide, with how many
+    published lessons they've completed and whether they've finished it.
+    Anonymous device completions are surfaced as an aggregate count only —
+    they have no identity to display."""
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        abort(403)
+    lessons = _guide_reading_order(guide)
+    lesson_ids = [n.id for n in lessons]
+    total = len(lesson_ids)
+
+    rows = []
+    anon_completions = 0
+    if total:
+        completed_filter = (
+            GuideProgress.guide_id == guide.id,
+            GuideProgress.completed_at.isnot(None),
+            GuideProgress.guide_node_id.in_(lesson_ids),
+        )
+        user_agg = db.session.query(
+            GuideProgress.public_user_id,
+            db.func.count(db.func.distinct(GuideProgress.guide_node_id)).label('completed'),
+            db.func.max(GuideProgress.last_viewed_at).label('last_at'),
+            db.func.max(GuideProgress.completed_at).label('latest_completion'),
+        ).filter(*completed_filter, GuideProgress.public_user_id.isnot(None)) \
+         .group_by(GuideProgress.public_user_id).all()
+
+        users_by_id = {}
+        if user_agg:
+            ids = [r.public_user_id for r in user_agg]
+            users_by_id = {u.id: u for u in PublicUser.query.filter(PublicUser.id.in_(ids)).all()}
+
+        for r in user_agg:
+            u = users_by_id.get(r.public_user_id)
+            if not u:
+                continue
+            done = r.completed >= total
+            rows.append({
+                'user': u,
+                'completed': r.completed,
+                'total': total,
+                'percent': round(100 * r.completed / total),
+                'is_done': done,
+                'last_at': r.last_at,
+                'finished_at': r.latest_completion if done else None,
+            })
+
+        # Sort: finished first, then highest progress, then most recent activity.
+        rows.sort(key=lambda x: (
+            0 if x['is_done'] else 1,
+            -x['percent'],
+            -(x['last_at'].timestamp() if x['last_at'] else 0),
+        ))
+
+        anon_agg = db.session.query(
+            GuideProgress.visitor_id_hash,
+            db.func.count(db.func.distinct(GuideProgress.guide_node_id)).label('completed'),
+        ).filter(*completed_filter, GuideProgress.public_user_id.is_(None)) \
+         .group_by(GuideProgress.visitor_id_hash).all()
+        anon_completions = sum(1 for r in anon_agg if r.completed >= total)
+
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id).all()
+    return render_template(
+        'guide_completions.html',
+        guide=guide, rows=rows, total=total,
+        finished_count=sum(1 for r in rows if r['is_done']),
+        in_progress_count=sum(1 for r in rows if not r['is_done']),
+        anon_completions=anon_completions,
+        website=website, current_website=website,
+        current_website_pages=current_website_pages, page_id=None,
     )
 
 
@@ -28241,8 +28944,32 @@ def public_guides_index(prefix=None):
     guides = Guide.query.filter_by(website_id=website.id, status='published').order_by(
         Guide.sort_order, Guide.published_at.desc()).all()
     public_user = _public_user_for_website(website)
-    return render_template('guides_index.html', website=website, guides=guides,
-                           public_user=public_user)
+    # Per-guide completion summary keyed by guide id. None when the guide has
+    # progress tracking disabled — the template skips rendering a badge then.
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    completion_by_guide = {
+        g.id: (_guide_progress_summary(g, public_user, visitor_hash) if g.track_progress else None)
+        for g in guides
+    }
+    # Group guides by category for the index page. Categories are ordered by
+    # their own sort_order/name; guides without a category fall into a trailing
+    # "Uncategorized" bucket so they stay visible.
+    categories = GuideCategory.query.filter_by(website_id=website.id).order_by(
+        GuideCategory.sort_order, GuideCategory.name).all()
+    grouped_guides = []
+    for c in categories:
+        in_cat = [g for g in guides if g.category_id == c.id]
+        if in_cat:
+            grouped_guides.append({'category': c, 'guides': in_cat})
+    uncategorized = [g for g in guides if g.category_id is None]
+    if uncategorized:
+        grouped_guides.append({'category': None, 'guides': uncategorized})
+    resp = make_response(render_template(
+        'guides_index.html', website=website, guides=guides,
+        grouped_guides=grouped_guides,
+        public_user=public_user, completion_by_guide=completion_by_guide))
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
 
 def _resolve_public_guide(guide_slug, prefix):
@@ -28405,11 +29132,19 @@ def admin_quizzes_update(qid):
     quiz.description = (data.get('description') or '').strip() or None
     if 'shuffle_questions' in data:
         quiz.shuffle_questions = bool(data['shuffle_questions'])
+    if 'pass_threshold' in data:
+        try:
+            pt = float(data['pass_threshold'])
+        except (ValueError, TypeError):
+            pt = 0.9
+        # Clamp to [0, 1]; the UI sends a fraction.
+        quiz.pass_threshold = max(0.0, min(1.0, pt))
     quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
-        'shuffle_questions': quiz.shuffle_questions}})
+        'shuffle_questions': quiz.shuffle_questions,
+        'pass_threshold': quiz.pass_threshold}})
 
 
 @app.route('/admin/quizzes/<int:qid>/delete', methods=['POST'])
@@ -28450,6 +29185,7 @@ def admin_quiz_get(qid):
     return _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
         'shuffle_questions': quiz.shuffle_questions,
+        'pass_threshold': quiz.pass_threshold,
         'questions': [q.to_admin_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]}})
 
 
@@ -28605,6 +29341,73 @@ def public_quiz_get(qid):
         'questions': questions}})
 
 
+# Match `data-quiz-id="123"` (single or double quoted) in a lesson's HTML body.
+_QUIZ_EMBED_RE = re.compile(r'''data-quiz-id=["'](\d+)["']''')
+
+
+def _lesson_quiz_ids(node):
+    """Return the list of quiz ids embedded in a lesson's body, in document
+    order. Empty list when the lesson has no quiz embed."""
+    if not node or not node.content:
+        return []
+    return [int(m) for m in _QUIZ_EMBED_RE.findall(node.content)]
+
+
+def _quiz_passed(quiz, score, max_score):
+    """True iff `score` clears this quiz's pass_threshold * max_score."""
+    if not max_score:
+        return False
+    thresh = quiz.pass_threshold if quiz.pass_threshold is not None else 0.9
+    return (score / max_score) >= thresh
+
+
+def _strip_answers_from_results(results):
+    """When a reader hasn't passed, the per-question right/wrong flag stays
+    (so they know which they got wrong) but the actual correct answers are
+    removed — no `correct_option_ids`, no `accepted` short-text list."""
+    return [{'question_id': r['question_id'], 'correct': r['correct']} for r in results]
+
+
+def _mark_lesson_complete_if_passed(node, public_user, visitor_hash):
+    """If `node` is a quiz-gated lesson and every embedded quiz has a passing
+    best score for this identity, stamp completed_at on its GuideProgress row
+    (creating the row if missing). Idempotent. Returns True iff just marked."""
+    if not node or node.node_type != 'lesson':
+        return False
+    quiz_ids = _lesson_quiz_ids(node)
+    if not quiz_ids:
+        return False
+    for qid in quiz_ids:
+        quiz = Quiz.query.get(qid)
+        if not quiz:
+            return False  # missing quiz can't be passed
+        questions = quiz.questions.all()
+        max_score = sum(q.points for q in questions)
+        if not max_score:
+            return False
+        best = _quiz_best_score(qid, public_user, visitor_hash)
+        if not _quiz_passed(quiz, best, max_score):
+            return False
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rec = GuideProgress.query.filter_by(guide_node_id=node.id,
+                                        visitor_id_hash=visitor_hash).first()
+    if rec:
+        if rec.completed_at:
+            return False
+        rec.completed_at = now
+        rec.last_viewed_at = now
+        if public_user and not rec.public_user_id:
+            rec.public_user_id = public_user.id
+    else:
+        db.session.add(GuideProgress(
+            guide_id=node.guide_id, guide_node_id=node.id, website_id=node.website_id,
+            visitor_id_hash=visitor_hash,
+            public_user_id=public_user.id if public_user else None,
+            first_viewed_at=now, last_viewed_at=now, completed_at=now))
+    db.session.commit()
+    return True
+
+
 @app.route('/api/quizzes/<int:qid>/submit', methods=['POST'])
 def public_quiz_submit(qid):
     quiz = Quiz.query.get_or_404(qid)
@@ -28616,6 +29419,7 @@ def public_quiz_submit(qid):
     except (ValueError, TypeError):
         node_id = None
     score, max_score, results = _grade_quiz(quiz, submitted)
+    this_attempt_passed = _quiz_passed(quiz, score, max_score)
 
     public_user = _public_user_for_website(website)
     visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
@@ -28626,9 +29430,30 @@ def public_quiz_submit(qid):
         visitor_id_hash=visitor_hash, score=score, max_score=max_score, answers=submitted))
     db.session.commit()
 
-    resp = _utf8_json({'success': True, 'score': score, 'max_score': max_score,
-                       'results': results,
-                       'best_score': _quiz_best_score(quiz.id, public_user, visitor_hash)})
+    # If this quiz is embedded in a lesson, see whether the lesson is now done.
+    # Done = every embedded quiz has a passing best-score for this identity.
+    progress_summary = None
+    if node_id is not None:
+        node = GuideNode.query.get(node_id)
+        if node and node.node_type == 'lesson':
+            _mark_lesson_complete_if_passed(node, public_user, visitor_hash)
+            guide = Guide.query.get(node.guide_id)
+            if guide and guide.track_progress:
+                progress_summary = _guide_progress_summary(guide, public_user, visitor_hash)
+
+    # On a failing attempt, hide which options/text were correct — only the
+    # per-question right/wrong stays. (Best score may still be passing if the
+    # reader previously cleared the bar.)
+    visible_results = results if this_attempt_passed else _strip_answers_from_results(results)
+
+    body = {'success': True, 'score': score, 'max_score': max_score,
+            'results': visible_results,
+            'best_score': _quiz_best_score(quiz.id, public_user, visitor_hash),
+            'passed': this_attempt_passed,
+            'pass_threshold': quiz.pass_threshold if quiz.pass_threshold is not None else 0.9}
+    if progress_summary is not None:
+        body['progress'] = progress_summary
+    resp = _utf8_json(body)
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
 
@@ -28662,15 +29487,18 @@ def public_guide_progress_mark(gid, nid):
     guide, website = _resolve_published_guide_or_404(gid)
     if not guide.track_progress:
         return _utf8_json({'success': True, 'tracking': False})
-    GuideNode.query.filter_by(id=nid, guide_id=gid, is_published=True).first_or_404()
+    node = GuideNode.query.filter_by(id=nid, guide_id=gid, is_published=True).first_or_404()
     public_user = _public_user_for_website(website)
     visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
     visitor_hash = hash_asset_visitor_id(visitor_id)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Lessons with an embedded quiz only complete on a passing attempt — not
+    # on open. Record the visit either way.
+    quiz_gated = bool(_lesson_quiz_ids(node))
     rec = GuideProgress.query.filter_by(guide_node_id=nid, visitor_id_hash=visitor_hash).first()
     if rec:
         rec.last_viewed_at = now
-        if not rec.completed_at:
+        if not rec.completed_at and not quiz_gated:
             rec.completed_at = now
         if public_user and not rec.public_user_id:
             rec.public_user_id = public_user.id
@@ -28679,9 +29507,11 @@ def public_guide_progress_mark(gid, nid):
             guide_id=gid, guide_node_id=nid, website_id=website.id,
             visitor_id_hash=visitor_hash,
             public_user_id=public_user.id if public_user else None,
-            first_viewed_at=now, last_viewed_at=now, completed_at=now))
+            first_viewed_at=now, last_viewed_at=now,
+            completed_at=None if quiz_gated else now))
     db.session.commit()
     resp = _utf8_json({'success': True, 'tracking': True,
+                       'lesson_requires_quiz': quiz_gated,
                        **_guide_progress_summary(guide, public_user, visitor_hash)})
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 

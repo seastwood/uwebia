@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.gc-page { max-width: 1040px; margin: 0 auto; padding: 28px 20px 60px; }
+.gc-subnav { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+.gc-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.gc-back:hover { color: rgba(255,255,255,0.85); }
+.gc-kicker { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0; }
+.gc-title { font-size: 1.7rem; font-weight: 800; color: #fff; margin: 2px 0 0; }
+.gc-sub { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin: 4px 0 0; }
+
+.gc-summary { display: flex; gap: 14px; flex-wrap: wrap; margin: 22px 0 26px; }
+.gc-stat { flex: 1 1 160px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09); border-radius: 12px; padding: 14px 16px; }
+.gc-stat-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.4); margin: 0; }
+.gc-stat-value { font-size: 1.4rem; font-weight: 800; color: #fff; margin: 4px 0 0; }
+.gc-stat-value .gc-accent { color: #5eeec8; }
+
+.gc-table-wrap { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; overflow: hidden; }
+.gc-controls { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); gap: 12px; flex-wrap: wrap; }
+.gc-filter { display: inline-flex; gap: 4px; }
+.gc-filter button { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.65); padding: 6px 12px; border-radius: 7px; cursor: pointer; font-size: 0.8rem; }
+.gc-filter button.is-active { background: rgba(94,238,248,0.16); color: #5eeef8; border-color: rgba(94,238,248,0.32); }
+.gc-search { padding: 7px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: #fff; font-size: 0.85rem; outline: none; min-width: 220px; }
+.gc-search:focus { border-color: rgba(94,238,248,0.35); }
+table.gc-table { width: 100%; border-collapse: collapse; }
+.gc-table th, .gc-table td { padding: 12px 16px; text-align: left; font-size: 0.86rem; vertical-align: middle; }
+.gc-table thead th { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.42); border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
+.gc-table tbody tr { border-top: 1px solid rgba(255,255,255,0.05); }
+.gc-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+.gc-name { font-weight: 700; color: #fff; }
+.gc-email { color: rgba(255,255,255,0.5); font-size: 0.78rem; margin-top: 1px; }
+.gc-bar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 99px; overflow: hidden; min-width: 130px; }
+.gc-bar-fill { height: 100%; background: linear-gradient(90deg, #5eeef8, #5eeec8); border-radius: 99px; }
+.gc-pct { display: inline-block; min-width: 40px; font-weight: 600; color: rgba(255,255,255,0.75); }
+.gc-status { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.gc-status.is-done { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.gc-status.is-progress { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.55); }
+.gc-when { color: rgba(255,255,255,0.55); font-size: 0.78rem; white-space: nowrap; }
+.gc-empty { padding: 36px 20px; text-align: center; color: rgba(255,255,255,0.4); font-size: 0.9rem; }
+</style>
+
+<div class="gc-page">
+    <div class="gc-subnav">
+        <a href="{{ url_for('admin_guides_page') }}" class="gc-back"><i class="fas fa-arrow-left"></i> Guides</a>
+        <div>
+            <p class="gc-kicker">Guide completions</p>
+            <h1 class="gc-title">{{ guide.title }}</h1>
+        </div>
+    </div>
+
+    {% if total == 0 %}
+    <p class="gc-sub">This guide has no published lessons yet — there's nothing to complete.</p>
+    {% else %}
+    <p class="gc-sub">{{ total }} published lesson{{ 's' if total != 1 else '' }} · readers must finish every lesson (and pass any embedded quizzes) for the guide to count as complete.</p>
+
+    <div class="gc-summary">
+        <div class="gc-stat">
+            <p class="gc-stat-label">Users finished</p>
+            <p class="gc-stat-value"><span class="gc-accent">{{ finished_count }}</span></p>
+        </div>
+        <div class="gc-stat">
+            <p class="gc-stat-label">Users in progress</p>
+            <p class="gc-stat-value">{{ in_progress_count }}</p>
+        </div>
+        <div class="gc-stat">
+            <p class="gc-stat-label">Anonymous device completions</p>
+            <p class="gc-stat-value">{{ anon_completions }}</p>
+        </div>
+    </div>
+
+    <div class="gc-table-wrap">
+        <div class="gc-controls">
+            <div class="gc-filter">
+                <button data-filter="all" class="is-active" onclick="gcFilter('all', this)">All ({{ rows|length }})</button>
+                <button data-filter="done" onclick="gcFilter('done', this)">Completed ({{ finished_count }})</button>
+                <button data-filter="progress" onclick="gcFilter('progress', this)">In progress ({{ in_progress_count }})</button>
+            </div>
+            <input type="text" class="gc-search" id="gcSearch" placeholder="Filter by username or email…" oninput="gcSearch(this.value)">
+        </div>
+
+        {% if rows %}
+        <table class="gc-table" id="gcTable">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Progress</th>
+                    <th>Status</th>
+                    <th>Finished</th>
+                    <th>Last activity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr data-state="{{ 'done' if r.is_done else 'progress' }}"
+                    data-search="{{ (r.user.effective_display_name + ' ' + (r.user.email or '')) | lower }}">
+                    <td>
+                        <div class="gc-name">{{ r.user.effective_display_name }}</div>
+                        {% if r.user.email %}<div class="gc-email">{{ r.user.email }}</div>{% endif %}
+                    </td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div class="gc-bar"><div class="gc-bar-fill" style="width:{{ r.percent }}%;"></div></div>
+                            <span class="gc-pct">{{ r.completed }}/{{ r.total }}</span>
+                        </div>
+                    </td>
+                    <td>
+                        {% if r.is_done %}
+                        <span class="gc-status is-done"><i class="fas fa-check"></i> Completed</span>
+                        {% else %}
+                        <span class="gc-status is-progress">{{ r.percent }}%</span>
+                        {% endif %}
+                    </td>
+                    <td class="gc-when">{{ r.finished_at.strftime('%Y-%m-%d') if r.finished_at else '—' }}</td>
+                    <td class="gc-when">{{ r.last_at.strftime('%Y-%m-%d %H:%M') if r.last_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p id="gcNoMatch" class="gc-empty" style="display:none;">No users match those filters.</p>
+        {% else %}
+        <p class="gc-empty">Nobody has started this guide yet.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+let _gcFilter = 'all';
+let _gcQuery = '';
+
+function gcFilter(name, btn) {
+    _gcFilter = name;
+    document.querySelectorAll('.gc-filter button').forEach(b => b.classList.toggle('is-active', b === btn));
+    _gcApply();
+}
+function gcSearch(q) { _gcQuery = (q || '').trim().toLowerCase(); _gcApply(); }
+
+function _gcApply() {
+    let shown = 0;
+    document.querySelectorAll('#gcTable tbody tr').forEach(tr => {
+        const stateOk = (_gcFilter === 'all') || (tr.dataset.state === _gcFilter);
+        const queryOk = (!_gcQuery) || (tr.dataset.search || '').indexOf(_gcQuery) >= 0;
+        const visible = stateOk && queryOk;
+        tr.style.display = visible ? '' : 'none';
+        if (visible) shown++;
+    });
+    const empty = document.getElementById('gcNoMatch');
+    if (empty) empty.style.display = (shown === 0) ? 'block' : 'none';
+}
+</script>
+{% endblock %}

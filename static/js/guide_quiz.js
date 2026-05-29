@@ -41,10 +41,14 @@
 .uwq-fb { margin-top:8px; font-size:0.84rem; opacity:0.85; }
 .uwq-ok { color:#5eeec8; font-weight:700; }
 .uwq-no { color:#ff7676; font-weight:700; }
-.uwq-actions { display:flex; align-items:center; gap:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); }
+.uwq-actions { display:flex; align-items:center; gap:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; }
 .uwq-submit { padding:9px 22px; border-radius:9px; border:none; cursor:pointer; font-weight:700; background:linear-gradient(135deg,#5eeef8,#5eeec8); color:#111; }
 .uwq-submit:disabled { opacity:0.6; cursor:default; }
 .uwq-score { font-size:0.9rem; font-weight:600; opacity:0.85; }
+.uwq-status { padding:3px 12px; border-radius:99px; font-size:0.74rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; }
+.uwq-status.is-pass { background:rgba(94,238,200,0.18); color:#5eeec8; }
+.uwq-status.is-fail { background:rgba(255,90,90,0.18); color:#ff8c8c; }
+.uwq-hint { font-size:0.78rem; opacity:0.55; flex-basis:100%; margin:4px 0 0; }
 .uwq-err { padding:14px; border-radius:10px; background:rgba(255,90,90,0.1); color:#ff9b9b; font-size:0.9rem; }
 .uwq-loading { padding:14px; opacity:0.5; font-size:0.9rem; }
 `;
@@ -131,13 +135,26 @@
             if (!qEl || !r) return;
             qEl.classList.remove('is-correct', 'is-wrong');
             qEl.classList.add(r.correct ? 'is-correct' : 'is-wrong');
-            const correctIds = r.correct_option_ids || [];
+            // Two modes:
+            //   reveal — server included correct_option_ids (passing attempt).
+            //            Highlight every correct option green, and any chosen
+            //            non-correct one red.
+            //   hidden — answers are withheld (failing attempt). Only colour
+            //            the reader's own selection, driven by r.correct, so
+            //            correct picks get ✓ and wrong picks get ✕ without
+            //            leaking which un-chosen options would have been right.
+            const correctIds = r.correct_option_ids;
+            const reveal = Array.isArray(correctIds);
             qEl.querySelectorAll('.uwq-opt').forEach(opt => {
                 const inp = opt.querySelector('input');
                 const val = parseInt(inp.value);
                 opt.classList.remove('opt-correct', 'opt-chosen-wrong');
-                if (correctIds.indexOf(val) >= 0) opt.classList.add('opt-correct');
-                if (inp.checked && correctIds.indexOf(val) < 0) opt.classList.add('opt-chosen-wrong');
+                if (reveal) {
+                    if (correctIds.indexOf(val) >= 0) opt.classList.add('opt-correct');
+                    if (inp.checked && correctIds.indexOf(val) < 0) opt.classList.add('opt-chosen-wrong');
+                } else if (inp.checked) {
+                    opt.classList.add(r.correct ? 'opt-correct' : 'opt-chosen-wrong');
+                }
             });
             const fb = qEl.querySelector('.uwq-fb');
             if (fb) {
@@ -153,11 +170,42 @@
         let s = 'Score: ' + data.score + ' / ' + data.max_score;
         if (data.best_score != null) s += ' · Best: ' + data.best_score;
         scoreEl.textContent = s;
+
+        // Pass / fail pill + a hint when the lesson is still gated.
+        const actions = el.querySelector('.uwq-actions');
+        let pill = actions.querySelector('.uwq-status');
+        if (!pill) {
+            pill = document.createElement('span');
+            pill.className = 'uwq-status';
+            actions.insertBefore(pill, scoreEl);
+        }
+        const passed = !!data.passed;
+        pill.classList.toggle('is-pass', passed);
+        pill.classList.toggle('is-fail', !passed);
+        pill.textContent = passed ? 'Passed' : 'Failed';
+        let hint = actions.querySelector('.uwq-hint');
+        if (!passed) {
+            if (!hint) {
+                hint = document.createElement('p'); hint.className = 'uwq-hint';
+                actions.appendChild(hint);
+            }
+            const need = Math.round((data.pass_threshold || 0.9) * 100);
+            hint.textContent = 'You need at least ' + need + '% to complete this lesson — try again.';
+        } else if (hint) {
+            hint.remove();
+        }
+
         const btn = el.querySelector('.uwq-submit');
         btn.disabled = false;
         btn.textContent = 'Retake';
         btn.type = 'button';
         btn.onclick = () => renderQuiz(el, quiz);
+
+        // Let the guide page update its progress bar / TOC checks without
+        // a refetch when the server reports a fresh progress summary.
+        if (data.progress) {
+            document.dispatchEvent(new CustomEvent('uwq-progress', { detail: data.progress }));
+        }
     }
 
     function init() {
