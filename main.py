@@ -15180,6 +15180,43 @@ def _migrate_data(src_url: str, dst_url: str) -> tuple[bool, str]:
                                     row_dict[sc] = row_dict[sc][:max_len]
                         batch.append(row_dict)
 
+                    # Dedup guard: legacy data (created before login usernames
+                    # became globally unique) may hold the same REAL public
+                    # username on two different websites. The destination now
+                    # carries a partial unique index on public_user.username
+                    # WHERE mirrored_admin_user_id IS NULL, which would reject
+                    # the copy. Rename the colliding non-mirror rows in-memory
+                    # (the source DB is left untouched) so the insert succeeds.
+                    # Mirrors are exempt from the index, so they're skipped.
+                    if tname == 'public_user':
+                        _seen = set()        # lowercased non-mirror usernames kept
+                        _per_site = {}       # website_id -> {all usernames on that site}
+                        for _rd in batch:
+                            _per_site.setdefault(_rd.get('website_id'), set()).add(
+                                (_rd.get('username') or '').lower())
+                        for _rd in batch:
+                            if _rd.get('mirrored_admin_user_id') is not None:
+                                continue
+                            _uname = _rd.get('username') or ''
+                            _key = _uname.lower()
+                            if _key not in _seen:
+                                _seen.add(_key)
+                                continue
+                            _site = _per_site.setdefault(_rd.get('website_id'), set())
+                            _n = 2
+                            while True:
+                                _cand = f'{_uname}-{_n}'
+                                _ck = _cand.lower()
+                                if _ck not in _seen and _ck not in _site:
+                                    break
+                                _n += 1
+                            app.logger.warning(
+                                f'[db-migrate] public_user: duplicate username '
+                                f'{_uname!r} (id={_rd.get("id")}) -> {_cand!r}')
+                            _rd['username'] = _cand
+                            _seen.add(_ck)
+                            _site.add(_ck)
+
                     dst_conn.execute(stmt, batch)
                     app.logger.info(f'[db-migrate] {tname}: {len(batch)} rows')
 
