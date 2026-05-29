@@ -127,7 +127,7 @@
                     </a>
                 {% else %}
                     <button type="button" class="{% if group_active.value %}active-navbar-link{% endif %}">
-                        {{ item.name }} ▾
+                        {{ item.name }} <span class="public-navbar-group-chevron">▾</span>
                     </button>
                 {% endif %}
                 <div class="public-navbar-dropdown-menu">
@@ -668,7 +668,7 @@
         position: absolute;
 
         left: 12px;
-        right: 18px;
+        right: 12px;
         bottom: 6px;
 
         height: 1.5px;
@@ -1232,9 +1232,9 @@
     font-size: 0.92em;
 }
 
-/* The chevron on the link-style group label should sit right-aligned, same
-   visual position as the chevron in the button-style label. */
-.public-navbar-group-link .public-navbar-group-chevron {
+/* Group chevron — shared by both the link-style (<a>) and button-style
+   (<button>) group labels so the two render identically. */
+.public-navbar-group-chevron {
     opacity: 0.7;
     margin-left: 6px;
     font-size: 0.82em;
