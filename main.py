@@ -14150,12 +14150,17 @@ def import_backup():
                     completed_at=datetime.fromisoformat(prd['completed_at']) if prd.get('completed_at') else None))
 
             # ── PostCollection ────────────────────────────────────────────────
+            # PostCollection is user-scoped (unique on user_id+slug); website_id
+            # is nullable. The old code skipped every collection whose
+            # website_id was NULL and never set user_id — so user-scoped
+            # collections silently vanished and posts fell back to
+            # "Uncategorized". Keep all collections; map website_id only if set.
             for pcd in data.get('post_collections', []):
-                new_wid = website_map.get(pcd['website_id'])
-                if not new_wid:
-                    continue
+                src_wid = pcd.get('website_id')
+                new_wid = website_map.get(src_wid) if src_wid else None
                 pc = PostCollection(
-                    website_id=new_wid, name=pcd['name'], slug=pcd.get('slug'),
+                    user_id=uid, website_id=new_wid,
+                    name=pcd['name'], slug=pcd.get('slug'),
                     description=pcd.get('description'),
                     created_at=datetime.fromisoformat(pcd['created_at']) if pcd.get('created_at') else None)
                 db.session.add(pc)
