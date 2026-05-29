@@ -77,7 +77,7 @@
                 {% endif %}
                 {% if user_has_perm('quizzes.manage') %}
                 <button class="pa-btn pa-btn-secondary"
-                        onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }})'>
+                        onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }})'>
                     <i class="fas fa-cog"></i>
                 </button>
                 <button class="pa-btn pa-btn-danger"
@@ -119,6 +119,13 @@
                         <input type="checkbox" id="quizModalShuffle" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
                         Shuffle question order for each reader
                     </label>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:0.9rem;font-weight:normal;">
+                        <span style="flex:1;">Pass threshold</span>
+                        <input type="number" id="quizModalPass" min="1" max="100" step="1" value="90"
+                               style="width:84px;padding:7px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);color:inherit;">
+                        <span style="opacity:0.55;font-size:0.85rem;">%</span>
+                    </label>
+                    <p style="margin:8px 0 0;font-size:0.78rem;color:rgba(255,255,255,0.45);">When this quiz is embedded in a lesson, the reader must reach at least this score for the lesson to count as complete.</p>
                 </div>
             </div>
             <div class="uw-modal-footer">
@@ -163,11 +170,12 @@ function openQuizModal() {
     setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
 }
 
-function openQuizEdit(id, title, desc, shuffle) {
+function openQuizEdit(id, title, desc, shuffle, passThreshold) {
     document.getElementById('quizModalId').value = id;
     document.getElementById('quizModalTitleInput').value = title;
     document.getElementById('quizModalDesc').value = desc;
     document.getElementById('quizModalShuffle').checked = !!shuffle;
+    document.getElementById('quizModalPass').value = Math.round((passThreshold == null ? 0.9 : passThreshold) * 100);
     document.getElementById('quizModalExtraFields').style.display = 'block';
     document.getElementById('quizModalTitle').textContent = 'Quiz Settings';
     document.getElementById('quizModalSubmitBtn').textContent = 'Save';
@@ -189,7 +197,11 @@ async function submitQuizModal(e) {
     btn.disabled = true;
 
     const body = { title, description: desc };
-    if (id) body.shuffle_questions = document.getElementById('quizModalShuffle').checked;
+    if (id) {
+        body.shuffle_questions = document.getElementById('quizModalShuffle').checked;
+        const pct = parseInt(document.getElementById('quizModalPass').value, 10);
+        body.pass_threshold = isNaN(pct) ? 0.9 : Math.max(0, Math.min(100, pct)) / 100;
+    }
     const url = id ? `/admin/quizzes/${id}/update` : '/admin/quizzes/create';
     try {
         const r = await fetch(url, {

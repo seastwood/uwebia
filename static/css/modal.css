@@ -57,6 +57,20 @@ body.uw-modal-open { overflow: hidden; }
     margin: auto;
 }
 
+/* When a <form> wraps the body + footer (e.g. the guide / category modals),
+   it sits between .uw-modal (the flex column) and the body/footer, which would
+   otherwise break the flex sizing — the body wouldn't scroll and a tall form
+   would push the footer (Save button) past max-height where overflow:hidden
+   clips it. Making the form itself the filling flex column restores scrolling
+   and keeps the footer pinned and visible. */
+.uw-modal > form {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
 /* Wide variant */
 .uw-modal.uw-modal--wide  { max-width: 720px; }
 /* Narrow variant */
@@ -110,6 +124,7 @@ body.uw-modal-open { overflow: hidden; }
     padding: 20px 24px;
     overflow-y: auto;
     flex: 1 1 auto;
+    min-height: 0; /* allow the body to shrink so it scrolls instead of pushing the footer out */
     -webkit-overflow-scrolling: touch;
 }
 

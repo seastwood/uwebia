@@ -558,8 +558,66 @@
     </div>
     {% endif %}
 
-    <!-- Admin Navbar Visibility -->
+    <!-- Site Features -->
     <div class="settings-card">
+        <h2 class="settings-section-title">Site Features</h2>
+        <p class="settings-subtitle" style="margin-bottom:16px;">Turn site-wide features on or off for public visitors. Existing data (products, orders, threads, …) is preserved either way — these toggles only control what visitors can see and use.</p>
+        {% if website %}
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.95rem;color:rgba(255,255,255,0.85);padding:6px 0;">
+            <input type="checkbox" id="publicStoreEnabled"
+                   {% if website.store_enabled %}checked{% endif %}
+                   onchange="togglePublicStore(this)"
+                   style="width:18px;height:18px;cursor:pointer;accent-color:#5eeef8;">
+            <i class="fas fa-store" style="color:#5eeef8;width:16px;text-align:center;"></i>
+            <span style="flex:1;">
+                <span style="display:block;font-weight:600;">Public store</span>
+                <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.5);margin-top:2px;">When off, visitors can't browse products, open the cart, or check out. The public shop link is removed too.</span>
+            </span>
+            <span id="publicStoreStatus" style="font-size:0.74rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;{% if website.store_enabled %}color:#5eeec8;{% else %}color:#ff8c8c;{% endif %}">
+                {% if website.store_enabled %}On{% else %}Off{% endif %}
+            </span>
+        </label>
+        <div id="siteFeaturesStatus" style="margin-top:6px;font-size:0.82rem;min-height:1em;"></div>
+        {% else %}
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.5);">No website found.</p>
+        {% endif %}
+    </div>
+
+    <script>
+    async function togglePublicStore(cb) {
+        const status = document.getElementById('publicStoreStatus');
+        const msg = document.getElementById('siteFeaturesStatus');
+        cb.disabled = true;
+        try {
+            const r = await fetch('/admin/store/toggle-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const d = await r.json();
+            if (typeof d.store_enabled !== 'undefined') {
+                cb.checked = d.store_enabled;
+                status.textContent = d.store_enabled ? 'On' : 'Off';
+                status.style.color = d.store_enabled ? '#5eeec8' : '#ff8c8c';
+                msg.textContent = 'Saved.';
+                msg.style.color = '#5eeec8';
+                setTimeout(() => { msg.textContent = ''; }, 2500);
+            } else {
+                cb.checked = !cb.checked;
+                msg.textContent = d.error || 'Save failed.';
+                msg.style.color = '#ff8c8c';
+            }
+        } catch (e) {
+            cb.checked = !cb.checked;
+            msg.textContent = 'Network error.';
+            msg.style.color = '#ff8c8c';
+        } finally {
+            cb.disabled = false;
+        }
+    }
+    </script>
+
+    <!-- Admin Navbar Visibility -->
+    <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Admin Navbar</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar. Disabled items are hidden everywhere.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
@@ -597,7 +655,7 @@
                     <span style="font-size:0.74rem;font-weight:400;opacity:0.55;margin-left:auto;">master toggle</span>
                 </label>
                 <p style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin:6px 0 10px 28px;">
-                    Unchecking this hides the whole Store dropdown at once. Or fine-tune individual items below.
+                    Hides the whole Store dropdown from your admin navbar at once, or fine-tune individual items below. To disable the public store for visitors, use <strong>Site Features → Public store</strong> above.
                 </p>
                 <div id="storeNavSubItems" style="display:flex;flex-direction:column;gap:8px;padding-left:14px;border-left:2px solid rgba(94,238,248,0.2);">
                     {% for key, label, icon in [

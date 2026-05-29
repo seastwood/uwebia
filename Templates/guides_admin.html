@@ -46,6 +46,21 @@
 .pa-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
 .pa-btn-danger:hover { background: rgba(255,80,80,0.22); }
 .pa-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+
+.ga-cats { margin-bottom: 28px; padding: 16px 18px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.03); }
+.ga-cats-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; }
+.ga-cats-title { margin: 0; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); }
+.ga-cats-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.ga-cat-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 99px; border: 1px solid rgba(255,255,255,0.13); background: rgba(255,255,255,0.05); font-size: 0.86rem; color: #fff; }
+.ga-cat-count { font-size: 0.72rem; opacity: 0.55; padding: 1px 7px; border-radius: 99px; background: rgba(255,255,255,0.08); }
+.ga-cat-edit { background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 2px 4px; font-size: 0.75rem; }
+.ga-cat-edit:hover { color: #fff; }
+.ga-cat-delete:hover { color: #ff6b6b; }
+.ga-cats-empty { font-size: 0.84rem; color: rgba(255,255,255,0.4); margin: 0; }
+
+.ga-group { margin-bottom: 32px; }
+.ga-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); }
+.ga-group-count { font-size: 0.72rem; opacity: 0.5; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.07); font-weight: 600; }
 </style>
 
 <div class="pa-page">
@@ -61,45 +76,98 @@
         {% endif %}
     </div>
 
-    {% if guides %}
-    <div class="pa-grid" id="guideGrid">
-        {% for g in guides %}
-        <div class="pa-card" id="guideCard-{{ g.id }}">
-            <div class="pa-card-top">
-                <h2 class="pa-card-name">{{ g.title }}</h2>
-                <span class="pa-status pa-status--{{ g.status }}">{{ g.status }}</span>
-            </div>
-            {% if g.description %}
-            <p class="pa-card-desc">{{ g.description }}</p>
+    {# ─── Categories strip ─────────────────────────────────────────────── #}
+    {% if user_has_perm('guides.manage') or categories %}
+    <div class="ga-cats">
+        <div class="ga-cats-header">
+            <h3 class="ga-cats-title">Categories</h3>
+            {% if user_has_perm('guides.manage') %}
+            <button class="pa-btn pa-btn-secondary" onclick="openCategoryModal()">
+                <i class="fas fa-plus"></i> Add category
+            </button>
             {% endif %}
-            <p class="pa-card-meta">{{ g.nodes.count() }} node{{ 's' if g.nodes.count() != 1 else '' }}</p>
-            <div class="pa-card-actions">
-                {% if user_has_perm('guides.view') %}
-                <a href="{{ url_for('admin_guide_editor', gid=g.id) }}" class="pa-btn pa-btn-primary">
-                    <i class="fas fa-sitemap"></i> Edit Content
-                </a>
-                {% endif %}
-                {% if user_has_perm('guides.publish') %}
-                {% if g.status == 'published' %}
-                <button class="pa-btn pa-btn-secondary" onclick="setGuideStatus({{ g.id }}, false)">
-                    <i class="fas fa-eye-slash"></i> Unpublish
-                </button>
-                {% else %}
-                <button class="pa-btn pa-btn-secondary" onclick="setGuideStatus({{ g.id }}, true)">
-                    <i class="fas fa-globe"></i> Publish
-                </button>
-                {% endif %}
-                {% endif %}
+        </div>
+        {% if categories %}
+        <div class="ga-cats-list" id="categoriesList">
+            {% for c in categories %}
+            <div class="ga-cat-chip" id="catChip-{{ c.id }}" style="{% if c.color %}border-color:{{ c.color }};background:{{ c.color }}1a;{% endif %}">
+                {% if c.icon %}<i class="fas {{ c.icon }}" style="{% if c.color %}color:{{ c.color }};{% endif %}"></i>{% endif %}
+                <span>{{ c.name }}</span>
+                <span class="ga-cat-count">{{ c.guides.count() }}</span>
                 {% if user_has_perm('guides.manage') %}
-                <button class="pa-btn pa-btn-secondary"
-                        onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }})'>
-                    <i class="fas fa-cog"></i>
+                <button class="ga-cat-edit" title="Edit"
+                        onclick='openCategoryModal({{ c.id }}, {{ c.name | tojson }}, {{ (c.description or "") | tojson }}, {{ (c.color or "") | tojson }}, {{ (c.icon or "") | tojson }})'>
+                    <i class="fas fa-pencil-alt"></i>
                 </button>
-                <button class="pa-btn pa-btn-danger"
-                        onclick='confirmGuideDelete({{ g.id }}, {{ g.title | tojson }})'>
-                    <i class="fas fa-trash"></i>
+                <button class="ga-cat-edit ga-cat-delete" title="Delete"
+                        onclick='confirmCategoryDelete({{ c.id }}, {{ c.name | tojson }})'>
+                    <i class="fas fa-times"></i>
                 </button>
                 {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="ga-cats-empty">No categories yet — use these to group guides into departments like Onboarding, Safety, HR, etc.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if guides %}
+    <div id="guideGrid">
+        {% for grp in grouped_guides %}
+        <div class="ga-group">
+            <h3 class="ga-group-title">
+                {% if grp.category %}
+                {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
+                {{ grp.category.name }}
+                {% else %}
+                <span style="opacity:0.6;">Uncategorized</span>
+                {% endif %}
+                <span class="ga-group-count">{{ grp.guides|length }}</span>
+            </h3>
+            <div class="pa-grid">
+                {% for g in grp.guides %}
+                <div class="pa-card" id="guideCard-{{ g.id }}">
+                    <div class="pa-card-top">
+                        <h2 class="pa-card-name">{{ g.title }}</h2>
+                        <span class="pa-status pa-status--{{ g.status }}">{{ g.status }}</span>
+                    </div>
+                    {% if g.description %}<p class="pa-card-desc">{{ g.description }}</p>{% endif %}
+                    <p class="pa-card-meta">{{ g.nodes.count() }} node{{ 's' if g.nodes.count() != 1 else '' }}</p>
+                    <div class="pa-card-actions">
+                        {% if user_has_perm('guides.view') %}
+                        <a href="{{ url_for('admin_guide_editor', gid=g.id) }}" class="pa-btn pa-btn-primary">
+                            <i class="fas fa-sitemap"></i> Edit Content
+                        </a>
+                        <a href="{{ url_for('admin_guide_completions', gid=g.id) }}" class="pa-btn pa-btn-secondary" title="View completions">
+                            <i class="fas fa-user-check"></i> Completions
+                        </a>
+                        {% endif %}
+                        {% if user_has_perm('guides.publish') %}
+                        {% if g.status == 'published' %}
+                        <button class="pa-btn pa-btn-secondary" onclick="setGuideStatus({{ g.id }}, false)">
+                            <i class="fas fa-eye-slash"></i> Unpublish
+                        </button>
+                        {% else %}
+                        <button class="pa-btn pa-btn-secondary" onclick="setGuideStatus({{ g.id }}, true)">
+                            <i class="fas fa-globe"></i> Publish
+                        </button>
+                        {% endif %}
+                        {% endif %}
+                        {% if user_has_perm('guides.manage') %}
+                        <button class="pa-btn pa-btn-secondary"
+                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }})'>
+                            <i class="fas fa-cog"></i>
+                        </button>
+                        <button class="pa-btn pa-btn-danger"
+                                onclick='confirmGuideDelete({{ g.id }}, {{ g.title | tojson }})'>
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endfor %}
@@ -112,7 +180,7 @@
 </div>
 
 <!-- Guide modal -->
-<div class="uw-overlay" id="guideModalOverlay" style="display:none;" onclick="if(event.target===this)closeGuideModal()">
+<div class="uw-overlay" id="guideModalOverlay" style="display:none;" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeGuideModal)">
     <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="guideModalTitle">
         <div class="uw-modal-header">
             <h3 class="uw-modal-title" id="guideModalTitle">New Guide</h3>
@@ -130,6 +198,26 @@
                     <textarea id="guideModalDesc" rows="3" placeholder="What this guide covers"></textarea>
                 </div>
                 <div class="uw-field" id="guideModalExtraFields" style="display:none;">
+                    <label style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Category</label>
+                    <select id="guideModalCategory" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.92rem;outline:none;margin-bottom:14px;">
+                        <option value="">— Uncategorized —</option>
+                        {% for c in (categories or []) %}
+                        <option value="{{ c.id }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <label style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Cover image</label>
+                    <div id="guideModalCoverPreview" style="display:none;margin-bottom:8px;">
+                        <img id="guideModalCoverImg" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;display:block;">
+                    </div>
+                    <div style="display:flex;gap:8px;margin-bottom:14px;">
+                        <button type="button" class="pa-btn pa-btn-secondary" onclick="gpOpenCoverPicker()">
+                            <i class="fas fa-images"></i> Pick from Library
+                        </button>
+                        <button type="button" class="pa-btn pa-btn-danger" id="gpClearCoverBtn" onclick="gpClearCover()" style="display:none;">
+                            <i class="fas fa-times"></i> Clear
+                        </button>
+                    </div>
+                    <input type="hidden" id="guideModalCoverUrl">
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
                         <input type="checkbox" id="guideModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
                         Require public user login to view this guide
@@ -149,7 +237,7 @@
 </div>
 
 <!-- Delete confirm modal -->
-<div class="uw-overlay" id="gdelModalOverlay" style="display:none;" onclick="if(event.target===this)closeGdelModal()">
+<div class="uw-overlay" id="gdelModalOverlay" style="display:none;" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeGdelModal)">
     <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:400px;">
         <div class="uw-modal-header">
             <h3 class="uw-modal-title">Delete Guide</h3>
@@ -168,8 +256,184 @@
     </div>
 </div>
 
+<style>
+.cat-icon-preview {
+    width:40px; height:40px; flex:0 0 auto;
+    display:inline-flex; align-items:center; justify-content:center;
+    border-radius:10px; font-size:1.1rem; color:rgba(255,255,255,0.3);
+    background:rgba(94,238,248,0.08); border:1px solid rgba(94,238,248,0.2);
+}
+.cat-icon-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(40px,1fr)); gap:6px;
+    max-height:200px; overflow-y:auto; padding:8px;
+    background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:10px;
+}
+.cat-icon-btn {
+    display:flex; align-items:center; justify-content:center; height:38px;
+    border-radius:8px; background:rgba(255,255,255,0.04); border:1px solid transparent;
+    color:rgba(255,255,255,0.7); cursor:pointer; font-size:1rem; transition:all .12s;
+}
+.cat-icon-btn:hover { background:rgba(94,238,248,0.12); color:#fff; }
+.cat-icon-btn.selected { background:rgba(94,238,248,0.2); border-color:#5eeef8; color:#5eeef8; }
+.cat-icon-empty { grid-column:1/-1; text-align:center; color:rgba(255,255,255,0.35); font-size:0.8rem; padding:14px; }
+</style>
+
+<!-- Category create/edit modal -->
+<div class="uw-overlay" id="catModalOverlay" style="display:none;" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeCategoryModal)">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="catModalTitle">New Category</h3>
+            <button class="uw-modal-close" onclick="closeCategoryModal()">&times;</button>
+        </div>
+        <form id="catModalForm" onsubmit="submitCategoryModal(event)">
+            <input type="hidden" id="catModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field">
+                    <label for="catModalName">Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="catModalName" required placeholder="e.g. Onboarding, HR, Safety">
+                </div>
+                <div class="uw-field">
+                    <label for="catModalDesc">Description <span style="opacity:0.5;">(optional)</span></label>
+                    <textarea id="catModalDesc" rows="2" placeholder="What kinds of guides live here"></textarea>
+                </div>
+                <div class="uw-field" style="display:flex;gap:12px;align-items:flex-end;">
+                    <div style="flex:1;">
+                        <label for="catModalIcon">Icon <span style="opacity:0.5;">(optional)</span></label>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <span id="catModalIconPreview" class="cat-icon-preview" aria-hidden="true"><i class="fas fa-icons"></i></span>
+                            <input type="text" id="catModalIcon" placeholder="fa-graduation-cap" oninput="onIconInput()" style="flex:1;">
+                        </div>
+                        <p style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin:4px 0 0;">Pick one below, or type any Font Awesome class — e.g. <code>fa-graduation-cap</code>.</p>
+                    </div>
+                    <div style="width:90px;">
+                        <label for="catModalColor">Color</label>
+                        <input type="color" id="catModalColor" value="#5eeef8" oninput="updateIconPreview()" style="width:100%;height:40px;border:none;background:transparent;cursor:pointer;">
+                    </div>
+                </div>
+                <div class="uw-field">
+                    <input type="text" id="catIconSearch" placeholder="Search icons…" oninput="renderIconGrid(this.value)" autocomplete="off">
+                    <div id="catIconGrid" class="cat-icon-grid" style="margin-top:8px;"></div>
+                </div>
+            </div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="catModalSubmitBtn">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Category delete-confirm modal -->
+<div class="uw-overlay" id="catDelOverlay" style="display:none;" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeCategoryDelete)">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:400px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Delete Category</h3>
+            <button class="uw-modal-close" onclick="closeCategoryDelete()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p id="catDelMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p>
+            <p style="color:rgba(255,255,255,0.55);margin:8px 0 0;font-size:0.85rem;">Guides in this category will become <strong>Uncategorized</strong>; they're not deleted.</p>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeCategoryDelete()">Cancel</button>
+            <button class="uw-btn" id="catDelConfirmBtn"
+                    style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Image-only asset picker for the guide cover -->
+<style>
+/* Sits above .uw-overlay (z-index: 200000 from static/css/modal.css) so the
+   picker opens on top of the Guide Settings modal, not behind it. */
+.gp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 200001; }
+.gp-modal { width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column; background: #16161f; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; overflow: hidden; }
+.gp-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.gp-header h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #fff; }
+.gp-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.4rem; cursor: pointer; }
+.gp-close:hover { color: #fff; }
+.gp-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.gp-folders { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.gp-folder-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; font-size: 0.82rem; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); cursor: pointer; }
+.gp-folder-btn:hover { background: rgba(255,255,255,0.1); }
+.gp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.gp-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: rgba(255,255,255,0.05); }
+.gp-item:hover { border-color: #5eeef8; }
+.gp-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gp-back { margin-bottom: 12px; }
+</style>
+<div class="gp-overlay" id="gpPickerOverlay" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, gpClosePicker)">
+    <div class="gp-modal">
+        <div class="gp-header">
+            <h3>Pick Cover Image</h3>
+            <button class="gp-close" onclick="gpClosePicker()">&times;</button>
+        </div>
+        <div class="gp-body" id="gpPickerBody"></div>
+    </div>
+</div>
+
 <script>
 let _gdelId = null;
+
+// ── Cover picker (image-only asset picker) ────────────────────────────────
+function gpEsc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function _gpSetCover(url) {
+    document.getElementById('guideModalCoverUrl').value = url || '';
+    const wrap = document.getElementById('guideModalCoverPreview');
+    const clearBtn = document.getElementById('gpClearCoverBtn');
+    if (url) {
+        wrap.style.display = 'block';
+        document.getElementById('guideModalCoverImg').src = url;
+        clearBtn.style.display = 'inline-flex';
+    } else {
+        wrap.style.display = 'none';
+        clearBtn.style.display = 'none';
+    }
+}
+function gpClearCover() { _gpSetCover(''); }
+function gpOpenCoverPicker() {
+    document.getElementById('gpPickerOverlay').style.display = 'flex';
+    gpLoadPicker(null);
+}
+function gpClosePicker() { document.getElementById('gpPickerOverlay').style.display = 'none'; }
+async function gpLoadPicker(folderId) {
+    const body = document.getElementById('gpPickerBody');
+    body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
+    const url = folderId ? `/admin/assets/folder/${folderId}?type=image` : '/admin/assets/root?type=image';
+    try {
+        const d = await (await fetch(url)).json();
+        gpRenderPicker(d.folders || [], d.assets || [], folderId, d.folder);
+    } catch (e) {
+        body.innerHTML = '<div style="color:#ff6b6b;">Failed to load assets.</div>';
+    }
+}
+function gpRenderPicker(folders, assets, folderId, folder) {
+    const body = document.getElementById('gpPickerBody');
+    let html = '';
+    if (folderId) {
+        html += `<div class="gp-back"><button class="gp-folder-btn" onclick="gpLoadPicker(null)"><i class="fas fa-arrow-left"></i> Back</button>${folder ? ` <span style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin-left:8px;">${gpEsc(folder.name)}</span>` : ''}</div>`;
+    }
+    if (folders.length) {
+        html += '<div class="gp-folders">';
+        folders.forEach(f => { html += `<button class="gp-folder-btn" onclick="gpLoadPicker(${f.id})"><i class="fas fa-folder"></i> ${gpEsc(f.name)}</button>`; });
+        html += '</div>';
+    }
+    if (assets.length) {
+        html += '<div class="gp-grid">';
+        assets.forEach(a => {
+            const thumb = a.thumbnail_url || a.url;
+            html += `<div class="gp-item" onclick='gpPickCover(${JSON.stringify(a.url)})'><img src="${gpEsc(thumb)}" alt=""></div>`;
+        });
+        html += '</div>';
+    } else if (!folders.length) {
+        html += '<p style="color:rgba(255,255,255,0.35);font-size:0.9rem;">No images found.</p>';
+    }
+    body.innerHTML = html;
+}
+function gpPickCover(url) { _gpSetCover(url); gpClosePicker(); }
 
 function openGuideModal() {
     document.getElementById('guideModalId').value = '';
@@ -182,12 +446,14 @@ function openGuideModal() {
     setTimeout(() => document.getElementById('guideModalTitleInput').focus(), 60);
 }
 
-function openGuideEdit(id, title, desc, requireLogin, trackProgress) {
+function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId) {
     document.getElementById('guideModalId').value = id;
     document.getElementById('guideModalTitleInput').value = title;
     document.getElementById('guideModalDesc').value = desc;
     document.getElementById('guideModalRequireLogin').checked = !!requireLogin;
     document.getElementById('guideModalTrackProgress').checked = !!trackProgress;
+    document.getElementById('guideModalCategory').value = categoryId ? String(categoryId) : '';
+    _gpSetCover(coverUrl || '');
     document.getElementById('guideModalExtraFields').style.display = 'block';
     document.getElementById('guideModalTitle').textContent = 'Guide Settings';
     document.getElementById('guideModalSubmitBtn').textContent = 'Save';
@@ -209,9 +475,14 @@ async function submitGuideModal(e) {
     btn.disabled = true;
 
     const body = { title, description: desc };
+    // Category is allowed on create too — a new guide can land directly in
+    // a department from the modal.
+    const _catVal = document.getElementById('guideModalCategory');
+    if (_catVal) body.category_id = _catVal.value || null;
     if (id) {
         body.require_login_to_view = document.getElementById('guideModalRequireLogin').checked;
         body.track_progress = document.getElementById('guideModalTrackProgress').checked;
+        body.cover_image_url = document.getElementById('guideModalCoverUrl').value || '';
     }
     const url = id ? `/admin/guides/${id}/update` : '/admin/guides/create';
     try {
@@ -265,6 +536,158 @@ async function doGuideDelete() {
         const r = await fetch(`/admin/guides/${_gdelId}/delete`, { method: 'POST' });
         const d = await r.json();
         if (d.success) { closeGdelModal(); location.reload(); }
+        else alert(d.error || 'Failed to delete');
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── Category management ────────────────────────────────────────────────────
+let _catDelId = null;
+
+// Curated Font Awesome 6 (free, solid) icon names — no `fa-` prefix here; it's
+// added when rendering and when storing the value. The text input remains a
+// fallback for anything not in this list.
+const GUIDE_ICON_LIST = [
+    'graduation-cap','book','book-open','bookmark','chalkboard','chalkboard-user','school','user-graduate',
+    'pen','pen-nib','pencil','pen-to-square','highlighter','eraser','note-sticky','clipboard','clipboard-list','clipboard-check',
+    'user','users','user-tie','user-shield','user-gear','user-group','user-plus','user-lock','user-secret','person','people-group','handshake','hands-holding','hand-holding-heart',
+    'shield','shield-halved','lock','lock-open','key','fingerprint','eye','eye-slash','user-doctor','id-card','id-badge',
+    'heart','star','thumbs-up','thumbs-down','face-smile','flag','bell','bullhorn','comment','comments','comment-dots','envelope','paper-plane','phone','headset','life-ring',
+    'circle-question','circle-info','circle-check','circle-xmark','circle-exclamation','triangle-exclamation','check','check-double','xmark','plus','minus',
+    'clock','calendar','calendar-days','calendar-check','hourglass-half','stopwatch','business-time',
+    'chart-line','chart-bar','chart-pie','chart-area','chart-column','table','table-cells','table-list','table-columns','list','list-ul','list-ol','list-check','tasks',
+    'gear','gears','wrench','screwdriver-wrench','hammer','toolbox','sliders','filter','magnifying-glass','arrows-rotate','rotate-left','rotate-right','clock-rotate-left',
+    'folder','folder-open','file','file-lines','file-pdf','file-word','file-excel','file-image','file-code','file-zipper','copy','floppy-disk','download','upload',
+    'cloud','cloud-arrow-up','cloud-arrow-down','database','server','hard-drive','network-wired','sitemap','diagram-project','code','terminal','bug','microchip','robot',
+    'laptop','desktop','mobile-screen','tablet','keyboard','computer-mouse','print','camera','video','image','images','film','music','headphones','microphone','volume-high','play','pause','stop',
+    'globe','map','map-location-dot','location-dot','location-arrow','compass','route','road','car','truck','plane','ship','train','bicycle','person-walking','person-running',
+    'lightbulb','fire','bolt','wand-magic-sparkles','gem','trophy','medal','award','crown','gift','certificate',
+    'cart-shopping','bag-shopping','cart-plus','credit-card','money-bill','money-bill-wave','dollar-sign','coins','wallet','receipt','tags','tag','percent','scale-balanced',
+    'heart-pulse','stethoscope','pills','prescription','syringe','notes-medical','hospital','truck-medical','briefcase-medical','kit-medical',
+    'leaf','tree','seedling','recycle','sun','moon','cloud-sun','snowflake','droplet','mountain','paw','feather',
+    'utensils','mug-hot','wine-glass','pizza-slice','apple-whole','carrot','bottle-water',
+    'puzzle-piece','gamepad','dice','chess','futbol','basketball','dumbbell',
+    'palette','paintbrush','crop','ruler','ruler-combined','draw-polygon','vector-square','shapes','object-group',
+    'house','building','building-columns','industry','warehouse','store','briefcase','landmark','gavel','box','boxes-stacked','box-archive','inbox','layer-group',
+    'link','link-slash','share-nodes','arrow-up-right-from-square','qrcode','barcode','wifi','signal','rss','tower-broadcast','satellite-dish',
+    'anchor','atom','flask','microscope','dna','brain','infinity','language','earth-americas','book-bookmark',
+    'ban','trash','trash-can','arrow-up','arrow-down','arrow-left','arrow-right','chevron-up','chevron-down','chevron-left','chevron-right',
+];
+
+function _iconCurrentName() {
+    return (document.getElementById('catModalIcon').value || '').trim();
+}
+
+function updateIconPreview() {
+    const v = _iconCurrentName();
+    const color = document.getElementById('catModalColor').value || '#5eeef8';
+    const prev = document.getElementById('catModalIconPreview');
+    prev.innerHTML = '<i class="fas ' + (v || 'fa-icons') + '"></i>';
+    prev.style.color = v ? color : 'rgba(255,255,255,0.3)';
+}
+
+function renderIconGrid(filter) {
+    const grid = document.getElementById('catIconGrid');
+    if (!grid) return;
+    const cur = _iconCurrentName();
+    const f = (filter || '').trim().toLowerCase().replace(/^fa-/, '');
+    const list = f ? GUIDE_ICON_LIST.filter(n => n.includes(f)) : GUIDE_ICON_LIST;
+    if (!list.length) {
+        grid.innerHTML = '<div class="cat-icon-empty">No icons match that search — you can still type a class above.</div>';
+        return;
+    }
+    grid.innerHTML = list.map(n => {
+        const cls = 'fa-' + n;
+        const sel = cls === cur ? ' selected' : '';
+        return '<button type="button" class="cat-icon-btn' + sel + '" title="' + cls +
+               '" onclick="pickIcon(\'' + cls + '\')"><i class="fas ' + cls + '"></i></button>';
+    }).join('');
+}
+
+function pickIcon(cls) {
+    document.getElementById('catModalIcon').value = cls;
+    updateIconPreview();
+    renderIconGrid(document.getElementById('catIconSearch').value);
+}
+
+function onIconInput() {
+    updateIconPreview();
+    renderIconGrid(document.getElementById('catIconSearch').value);
+}
+
+function openCategoryModal(id, name, desc, color, icon) {
+    document.getElementById('catModalId').value = id || '';
+    document.getElementById('catModalName').value = name || '';
+    document.getElementById('catModalDesc').value = desc || '';
+    document.getElementById('catModalColor').value = color || '#5eeef8';
+    document.getElementById('catModalIcon').value = icon || '';
+    document.getElementById('catIconSearch').value = '';
+    updateIconPreview();
+    renderIconGrid('');
+    document.getElementById('catModalTitle').textContent = id ? 'Edit Category' : 'New Category';
+    document.getElementById('catModalSubmitBtn').textContent = id ? 'Save' : 'Create';
+    document.getElementById('catModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('catModalName').focus(), 60);
+}
+
+function closeCategoryModal() {
+    document.getElementById('catModalOverlay').style.display = 'none';
+}
+
+async function submitCategoryModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('catModalId').value;
+    const name = document.getElementById('catModalName').value.trim();
+    if (!name) return;
+    const btn = document.getElementById('catModalSubmitBtn');
+    btn.disabled = true;
+    const body = {
+        name,
+        description: document.getElementById('catModalDesc').value.trim(),
+        color: document.getElementById('catModalColor').value || '',
+        icon: document.getElementById('catModalIcon').value.trim(),
+    };
+    const url = id ? `/admin/guides/categories/${id}/update` : '/admin/guides/categories/create';
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) { closeCategoryModal(); location.reload(); }
+        else alert(d.error || 'Failed to save category');
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function confirmCategoryDelete(id, name) {
+    _catDelId = id;
+    document.getElementById('catDelMsg').textContent =
+        `Delete the "${name}" category?`;
+    document.getElementById('catDelConfirmBtn').onclick = doCategoryDelete;
+    document.getElementById('catDelOverlay').style.display = 'flex';
+}
+
+function closeCategoryDelete() {
+    document.getElementById('catDelOverlay').style.display = 'none';
+    _catDelId = null;
+}
+
+async function doCategoryDelete() {
+    if (!_catDelId) return;
+    const btn = document.getElementById('catDelConfirmBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/guides/categories/${_catDelId}/delete`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) { closeCategoryDelete(); location.reload(); }
         else alert(d.error || 'Failed to delete');
     } catch (err) {
         alert('Request failed');

@@ -403,6 +403,41 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
     </div>
 </div>
 
+<!-- Promote to staff modal -->
+<div class="pu-overlay" id="promoteOverlay" onclick="if(event.target===this)closePromote()">
+    <div class="pu-modal" style="max-width:520px;">
+        <h3 class="pu-modal-title">Promote to staff</h3>
+        <p style="color:rgba(255,255,255,0.7);margin:0 0 18px;font-size:0.92rem;">
+            Turning <strong id="promoteUsername"></strong> into a sub-admin under your account. They keep their current password, and any badge they earn on forums will read the <em>permission group</em> name you pick below — not "Admin".
+        </p>
+        <div class="pu-modal-error" id="promoteError"></div>
+        <div class="pu-field">
+            <label class="pu-label">Permission group <span style="color:#ff8888;">*</span></label>
+            <select class="pu-input" id="promoteGroup">
+                <option value="">— Pick a group —</option>
+            </select>
+            <p class="pu-input-hint">The group name becomes their staff badge wherever they post (e.g. "Student", "Moderator"). Manage groups under Admin Users → Permission Groups.</p>
+        </div>
+        <div id="promoteConflictsBox" style="display:none;background:rgba(255,170,80,0.08);border:1px solid rgba(255,170,80,0.3);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#ffc97a;margin-bottom:6px;">
+                <i class="fas fa-triangle-exclamation"></i> Username or email collisions on other websites
+            </div>
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.75);margin:0 0 8px;">
+                Other public users on your other websites share this username or email. Their mirror would otherwise fail to create — tick the box to auto-rename them out of the way.
+            </p>
+            <ul id="promoteConflictsList" style="font-size:0.8rem;color:rgba(255,255,255,0.7);margin:0 0 10px 18px;padding:0;"></ul>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;">
+                <input type="checkbox" id="promoteResolve" style="accent-color:#5eeec8;">
+                Rename conflicting users (append <code>-promoted-2</code>, …) and continue
+            </label>
+        </div>
+        <div class="pu-modal-footer">
+            <button class="pu-modal-btn pu-modal-btn-cancel" onclick="closePromote()">Cancel</button>
+            <button class="pu-modal-btn pu-modal-btn-save" id="promoteSubmit" onclick="submitPromote()">Promote</button>
+        </div>
+    </div>
+</div>
+
 <!-- Delete confirm modal -->
 <div class="pu-overlay" id="deleteOverlay" onclick="if(event.target===this)closeDelete()">
     <div class="pu-modal">
@@ -429,6 +464,10 @@ const _rolesData = {{ roles_by_website_dicts | tojson }};
 const _userRoleData = {};        // populated as user rows load
 const _websiteLoaded = {};       // websiteId → true once first fetch is done
 const _searchTimers = {};        // websiteId → debounce timer
+
+const CAN_PROMOTE_STAFF = {{ can_promote_staff | tojson }};
+const PERMISSION_GROUPS = {{ (permission_groups_dicts or []) | tojson }};
+var _promoteUserId = null;
 
 function switchTab(websiteId) {
     document.querySelectorAll('.pu-tab').forEach(t => t.classList.remove('active'));
@@ -529,7 +568,8 @@ function buildUserRow(websiteId, u) {
         ? `<span class="pu-badge" style="background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="This is the public-facing mirror of an admin account. It auto-syncs with the admin's username and cannot be removed from here.">Admin</span>`
         : '';
 
-    let stateBtn, banBtn, deleteBtn, editBtn, roleBtn;
+    let stateBtn, banBtn, deleteBtn, editBtn, roleBtn, promoteBtn;
+    promoteBtn = '';
     if (u.is_admin_mirror) {
         // Auth lives on the admin User row, so account-level actions are locked.
         // Roles are still assignable: the "Admin" badge is auto-derived, and
@@ -556,6 +596,13 @@ function buildUserRow(websiteId, u) {
                 <button class="pu-btn pu-btn-edit" onclick="toggleRoleDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-tag"></i> Roles</button>
                 <div class="pu-role-dropdown-menu" id="roleMenu-${u.id}"></div>
             </div>`;
+        if (CAN_PROMOTE_STAFF) {
+            // Mirrors are filtered out by the outer branch; the server still
+            // re-checks (rejecting passwordless / social-only accounts).
+            promoteBtn = `<button class="pu-btn pu-btn-edit" style="background:rgba(94,238,200,0.15);color:#5eeec8;border-color:rgba(94,238,200,0.3);"
+                onclick='openPromote(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)})'
+                title="Promote to a sub-admin and assign a permission group"><i class="fas fa-user-graduate"></i> Promote</button>`;
+        }
     }
 
     tr.innerHTML = `
@@ -576,6 +623,7 @@ function buildUserRow(websiteId, u) {
             <div class="pu-actions">
                 ${roleBtn}
                 ${editBtn}
+                ${promoteBtn}
                 ${stateBtn}
                 ${banBtn}
                 ${deleteBtn}
@@ -650,6 +698,105 @@ function openEdit(userId, username, email) {
 function closeEdit() {
     _editUserId = null;
     document.getElementById('editOverlay').classList.remove('show');
+}
+
+// ── Promote to staff ───────────────────────────────────────────────────────
+function _populatePromoteGroups() {
+    const sel = document.getElementById('promoteGroup');
+    sel.innerHTML = '<option value="">— Pick a group —</option>';
+    (PERMISSION_GROUPS || []).forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name + (g.member_count ? ` (${g.member_count} member${g.member_count===1?'':'s'})` : '');
+        sel.appendChild(opt);
+    });
+}
+
+async function openPromote(userId, username, email) {
+    _promoteUserId = userId;
+    document.getElementById('promoteUsername').textContent = username;
+    document.getElementById('promoteError').style.display = 'none';
+    document.getElementById('promoteConflictsBox').style.display = 'none';
+    document.getElementById('promoteResolve').checked = false;
+    _populatePromoteGroups();
+    document.getElementById('promoteOverlay').classList.add('show');
+    // Preview cross-website conflicts up-front so the admin sees them before
+    // submitting; the modal still posts and re-checks server-side.
+    try {
+        const r = await fetch(`/admin/users/public/${userId}/promote/preview`);
+        const d = await r.json();
+        if (d && d.success && (d.conflicts || []).length) {
+            _renderPromoteConflicts(d.conflicts);
+        }
+    } catch (e) { /* preview is best-effort */ }
+}
+
+function _renderPromoteConflicts(conflicts) {
+    const box = document.getElementById('promoteConflictsBox');
+    const list = document.getElementById('promoteConflictsList');
+    list.innerHTML = '';
+    conflicts.forEach(c => {
+        const li = document.createElement('li');
+        const where = c.website_name ? ` on ${c.website_name}` : '';
+        li.textContent = `${c.username} (${c.email})${where}`;
+        list.appendChild(li);
+    });
+    box.style.display = 'block';
+}
+
+function closePromote() {
+    _promoteUserId = null;
+    document.getElementById('promoteOverlay').classList.remove('show');
+}
+
+async function submitPromote() {
+    if (!_promoteUserId) return;
+    const errEl = document.getElementById('promoteError');
+    errEl.style.display = 'none';
+    const groupId = document.getElementById('promoteGroup').value;
+    if (!groupId) {
+        errEl.textContent = 'Pick a permission group — its name becomes their staff badge.';
+        errEl.style.display = 'block';
+        return;
+    }
+    const resolve = document.getElementById('promoteResolve').checked;
+    const btn = document.getElementById('promoteSubmit');
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/users/public/${_promoteUserId}/promote`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                permission_group_id: parseInt(groupId, 10),
+                resolve_conflicts: resolve,
+            }),
+        });
+        const d = await r.json();
+        if (d.success) {
+            closePromote();
+            // The row is now a mirror — reload the panel so it re-renders with
+            // the locked actions + badge.
+            const activeTab = document.querySelector('.pu-tab.active');
+            if (activeTab) {
+                const m = activeTab.getAttribute('onclick').match(/switchTab\((\d+)\)/);
+                if (m) reloadList(parseInt(m[1], 10));
+            }
+            return;
+        }
+        if (d.needs_conflict_resolution && (d.conflicts || []).length) {
+            _renderPromoteConflicts(d.conflicts);
+            errEl.textContent = (d.error || 'Conflicts found.') + ' Tick the resolve box and try again.';
+            errEl.style.display = 'block';
+        } else {
+            errEl.textContent = d.error || 'Promotion failed.';
+            errEl.style.display = 'block';
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error.';
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 async function saveEdit() {

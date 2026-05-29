@@ -17,39 +17,96 @@
     transition: transform 0.15s ease, border-color 0.15s ease;
 }
 .gi-card:hover { transform: translateY(-3px); border-color: rgba(94,238,248,0.4); }
+.gi-cover-wrap { position: relative; }
 .gi-cover { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
 .gi-cover-empty { width: 100%; aspect-ratio: 16 / 9; background: linear-gradient(135deg, rgba(94,238,248,0.15), rgba(94,238,200,0.1)); display: flex; align-items: center; justify-content: center; font-size: 2rem; opacity: 0.5; }
 .gi-body { padding: 16px 18px 20px; }
 .gi-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 6px; }
 .gi-desc { font-size: 0.88rem; opacity: 0.6; line-height: 1.5; margin: 0; }
 .gi-empty { opacity: 0.45; text-align: center; padding: 80px 20px; }
+
+/* Completion display on each card */
+.gi-badge { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(94,238,200,0.95); color: #0c1611; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+.gi-progress-mini { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.gi-progress-track { flex: 1; height: 6px; background: rgba(255,255,255,0.12); border-radius: 99px; overflow: hidden; }
+.gi-progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
+.gi-progress-label { font-size: 0.74rem; opacity: 0.7; font-weight: 600; white-space: nowrap; }
+
+/* Category sections */
+.gi-section { margin-bottom: 44px; }
+.gi-section:last-child { margin-bottom: 0; }
+.gi-section-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; }
+.gi-section-title { font-size: 1.25rem; font-weight: 800; margin: 0; display: inline-flex; align-items: center; gap: 9px; }
+.gi-section-title i { font-size: 0.95em; }
+.gi-section-count { font-size: 0.72rem; font-weight: 700; opacity: 0.55; padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); }
+.gi-section-desc { opacity: 0.55; font-size: 0.88rem; margin: -8px 0 14px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="gi-wrap">
-    <h1 class="gi-heading">Guides</h1>
-    <p class="gi-sub">Browse training modules and reference material.</p>
-
-    {% if guides %}
-    <div class="gi-grid">
-        {% for g in guides %}
-        {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
-        <a class="gi-card" href="{{ _gurl }}">
+{% macro guide_card(g) -%}
+    {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
+    {% set comp = completion_by_guide.get(g.id) if completion_by_guide else None %}
+    {% set is_done = comp and comp.total > 0 and comp.completed >= comp.total %}
+    {% set in_progress = comp and comp.completed > 0 and not is_done %}
+    <a class="gi-card" href="{{ _gurl }}">
+        <div class="gi-cover-wrap">
             {% if g.cover_image_url %}
             <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
             {% else %}
             <div class="gi-cover-empty"><i class="fas fa-book-open"></i></div>
             {% endif %}
-            <div class="gi-body">
-                <h2 class="gi-title">{{ g.title }}</h2>
-                {% if g.description %}<p class="gi-desc">{{ g.description }}</p>{% endif %}
+            {% if is_done %}
+            <span class="gi-badge"><i class="fas fa-check"></i> Completed</span>
+            {% endif %}
+        </div>
+        <div class="gi-body">
+            <h2 class="gi-title">{{ g.title }}</h2>
+            {% if g.description %}<p class="gi-desc">{{ g.description }}</p>{% endif %}
+            {% if in_progress %}
+            <div class="gi-progress-mini">
+                <div class="gi-progress-track"><div class="gi-progress-fill" style="width: {{ comp.percent }}%;"></div></div>
+                <span class="gi-progress-label">{{ comp.completed }}/{{ comp.total }} · {{ comp.percent }}%</span>
             </div>
-        </a>
-        {% endfor %}
+            {% endif %}
+        </div>
+    </a>
+{%- endmacro %}
+
+<div class="gi-wrap">
+    <h1 class="gi-heading">Guides</h1>
+    <p class="gi-sub">Browse training modules and reference material.</p>
+
+    {% if not guides %}
+    <div class="gi-empty"><p>No guides published yet.</p></div>
+    {% elif grouped_guides|length == 1 and grouped_guides[0].category is none %}
+    {# Single bucket and it's uncategorized — render flat without an
+       awkward "Uncategorized" header. #}
+    <div class="gi-grid">
+        {% for g in grouped_guides[0].guides %}{{ guide_card(g) }}{% endfor %}
     </div>
     {% else %}
-    <div class="gi-empty"><p>No guides published yet.</p></div>
+    {% for grp in grouped_guides %}
+    <section class="gi-section">
+        <header class="gi-section-head">
+            <h2 class="gi-section-title">
+                {% if grp.category %}
+                {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
+                {{ grp.category.name }}
+                {% else %}
+                Uncategorized
+                {% endif %}
+            </h2>
+            <span class="gi-section-count">{{ grp.guides|length }}</span>
+        </header>
+        {% if grp.category and grp.category.description %}
+        <p class="gi-section-desc">{{ grp.category.description }}</p>
+        {% endif %}
+        <div class="gi-grid">
+            {% for g in grp.guides %}{{ guide_card(g) }}{% endfor %}
+        </div>
+    </section>
+    {% endfor %}
     {% endif %}
 </div>
 {% endblock %}
