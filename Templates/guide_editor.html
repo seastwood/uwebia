@@ -50,6 +50,8 @@
 .ge-btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 9px; font-size: 0.88rem; font-weight: 700; border: none; cursor: pointer; }
 .ge-btn-primary { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
 .ge-btn-primary:hover { opacity: 0.88; }
+.ge-btn[disabled] { opacity: 0.7; cursor: default; }
+.ge-btn-saved { background: linear-gradient(135deg, #4ade80, #22c55e) !important; color: #06310f !important; }
 .ge-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
 .ge-btn-danger:hover { background: rgba(255,80,80,0.22); }
 .ge-placeholder { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
@@ -160,7 +162,7 @@
                 Chapters are headings that group lessons. They have no body content of their own.
             </div>
             <div class="ge-actions">
-                <button class="ge-btn ge-btn-primary" onclick="saveNode()"><i class="fas fa-check"></i> Save</button>
+                <button class="ge-btn ge-btn-primary" onclick="saveNode(this)"><i class="fas fa-check"></i> Save</button>
                 <button class="ge-btn ge-btn-danger" onclick="deleteNode()"><i class="fas fa-trash"></i> Delete</button>
             </div>
         </div>
@@ -672,7 +674,7 @@ async function selectNode(id) {
     const li = document.querySelector(`.gn-item[data-id="${id}"]`);
     if (li) li.querySelector('.gn-row').classList.add('is-selected');
 }
-async function saveNode() {
+async function saveNode(btn) {
     const id = document.getElementById('geNodeId').value;
     const type = document.getElementById('geNodeType').value;
     const body = {
@@ -685,8 +687,32 @@ async function saveNode() {
     };
     if (!body.title) { alert('Title is required'); return; }
     if (type === 'lesson') body.content = quill.root.innerHTML;
-    const d = await (await fetch(`/admin/guides/${GUIDE_ID}/nodes/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-    if (d.success) { await refreshTree(parseInt(id)); } else { alert(d.error || 'Failed to save'); }
+
+    const original = btn ? btn.innerHTML : null;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+    }
+    const restore = () => { if (btn) { btn.innerHTML = original; btn.disabled = false; btn.classList.remove('ge-btn-saved'); } };
+
+    try {
+        const d = await (await fetch(`/admin/guides/${GUIDE_ID}/nodes/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+        if (d.success) {
+            await refreshTree(parseInt(id));
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
+                btn.classList.add('ge-btn-saved');
+                clearTimeout(btn._savedTimer);
+                btn._savedTimer = setTimeout(restore, 1800);
+            }
+        } else {
+            alert(d.error || 'Failed to save');
+            restore();
+        }
+    } catch (e) {
+        alert('Failed to save');
+        restore();
+    }
 }
 async function deleteNode() {
     const id = document.getElementById('geNodeId').value;

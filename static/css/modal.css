@@ -22,6 +22,11 @@ body.uw-modal-open { overflow: hidden; }
     display: none;
     position: fixed;
     inset: 0;
+    /* Pin to the *visible* viewport. On iOS the layout viewport (inset:0 / 100vh)
+       extends behind the Safari toolbars, so in landscape a centered modal's
+       footer ends up below the visible fold. dvh tracks the on-screen area;
+       browsers without dvh support simply fall back to the inset:0 height. */
+    height: 100dvh;
     z-index: 200000;
     background: rgba(0, 0, 0, 0.72);
     backdrop-filter: blur(5px);
@@ -48,6 +53,7 @@ body.uw-modal-open { overflow: hidden; }
     width: 100%;
     max-width: 520px;
     max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px); /* visible-viewport cap so the footer stays on-screen (iOS landscape) */
     display: flex;
     flex-direction: column;
     position: relative;

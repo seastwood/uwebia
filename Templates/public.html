@@ -1701,6 +1701,12 @@
         font-weight: 900;
     }
 
+    /* Keep the toolbar button cluster (Print, Today, prev/next) on one line so
+       the navigation arrows stay in place instead of wrapping. */
+    .calendar .fc-toolbar-chunk {
+        white-space: nowrap;
+    }
+
     .calendar .fc-button {
         border-radius: 999px !important;
         border-color: rgba(255, 255, 255, 0.16) !important;
@@ -5929,6 +5935,22 @@ html, body {
             const calendarEl = document.getElementById(`calendar-${sectionId}`);
             if (!calendarEl) return;
 
+            // Swap the Print button's text for a printer icon. FullCalendar's
+            // customButtons.text only accepts plain text, and FC rebuilds the
+            // toolbar buttons on every navigation — which would restore the
+            // "Print" text (widening the button and wrapping the toolbar so the
+            // nav arrows shift). So this must be idempotent and re-run after each
+            // toolbar render, not just once. Keep "Print" as the title/aria-label.
+            function applyPrintIcon() {
+                const btn = calendarEl.querySelector('.fc-printCal-button');
+                if (!btn) return;
+                if (!btn.querySelector('i.fa-print')) {
+                    btn.innerHTML = '<i class="fas fa-print" aria-hidden="true"></i>';
+                }
+                btn.setAttribute('title', 'Print');
+                btn.setAttribute('aria-label', 'Print');
+            }
+
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
                 eventDisplay: 'block',
@@ -5954,6 +5976,13 @@ html, body {
                     right: 'printCal today prev,next',
                 },
                 showNonCurrentDates: true,
+
+                // Re-apply the print icon after FC re-renders the toolbar on
+                // navigation (prev/next/today), otherwise the button reverts to
+                // its plain "Print" text.
+                datesSet: function () {
+                    applyPrintIcon();
+                },
 
                 events: (info, successCallback, failureCallback) => {
                     fetchEvents(calendarId, successCallback, failureCallback);
@@ -6091,16 +6120,9 @@ html, body {
             });
             calendar.render();
 
-            // Swap the Print button's text for a printer icon. FullCalendar's
-            // customButtons.text only accepts plain text, so we have to do
-            // this after render() puts the button in the DOM. Keep "Print"
-            // as the title/aria-label for accessibility.
-            const _printBtn = calendarEl.querySelector('.fc-printCal-button');
-            if (_printBtn) {
-                _printBtn.innerHTML = '<i class="fas fa-print" aria-hidden="true"></i>';
-                _printBtn.setAttribute('title', 'Print');
-                _printBtn.setAttribute('aria-label', 'Print');
-            }
+            // Initial icon swap (datesSet also fires on render, but call it
+            // explicitly so the icon is present immediately after render()).
+            applyPrintIcon();
 
             // Safari: suppress tap highlight on all interactive calendar elements.
             // CSS alone is ignored by Safari for dynamically-created elements;
@@ -6121,6 +6143,10 @@ html, body {
                     el.style.userSelect = 'none';
                     el.style.webkitUserSelect = 'none';
                 });
+                // The same toolbar re-render that drops tap-highlight styles
+                // also restores the Print button text — re-apply the icon here
+                // too. Idempotent, so it won't loop the observer.
+                applyPrintIcon();
             }
             _suppressTapHighlight();
             new MutationObserver(_suppressTapHighlight)
