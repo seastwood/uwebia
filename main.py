@@ -13531,6 +13531,15 @@ def export_backup():
                     fpath = os.path.join(user_assets_dir, fname)
                     if os.path.isfile(fpath):
                         zf.write(fpath, f'assets/{fname}')
+            # The navbar icon lives outside assets/ (uploads/<uid>/navbar/), so
+            # bundle it too — otherwise the restored site loses its navbar logo
+            # even though the icon_url survives in public_navbar_style.
+            user_navbar_dir = os.path.join(uploads_folder, str(uid), 'navbar')
+            if os.path.isdir(user_navbar_dir):
+                for fname in os.listdir(user_navbar_dir):
+                    fpath = os.path.join(user_navbar_dir, fname)
+                    if os.path.isfile(fpath):
+                        zf.write(fpath, f'navbar/{fname}')
 
     buf.seek(0)
     ts = datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d_%H%M%S')
@@ -13677,6 +13686,18 @@ def import_backup():
                 db.session.add(w);
                 db.session.flush()
                 website_map[wd['id']] = w.id
+
+                # The navbar icon URL embeds the owner uid
+                # (/static/uploads/<uid>/navbar/...). Remap it so the restored
+                # site points at this user's extracted icon file rather than the
+                # source owner's path (which won't exist on this deploy).
+                style = w.public_navbar_style
+                icon = style.get('icon_url') if isinstance(style, dict) else None
+                if icon and f'/uploads/{old_uid}/navbar/' in icon:
+                    new_style = dict(style)
+                    new_style['icon_url'] = icon.replace(
+                        f'/uploads/{old_uid}/navbar/', f'/uploads/{uid}/navbar/')
+                    w.public_navbar_style = new_style
 
             # ── Page folders ──────────────────────────────────────────────────
             for fd in data.get('page_folders', []):
@@ -13831,10 +13852,14 @@ def import_backup():
 
             # ── Calendars ─────────────────────────────────────────────────────
             for cd in data.get('calendars', []):
-                new_wid = website_map.get(cd['website_id'])
-                if not new_wid:
-                    continue
-                cal = Calendar(name=cd['name'], description=cd.get('description'),
+                # Calendars are a user-scoped POOL (like assets), not tied to a
+                # single website — website_id is optional. Don't skip when it's
+                # missing/unmapped, and always stamp user_id so the calendar
+                # shows in the admin pool and survives the wipe/restore cycle.
+                src_wid = cd.get('website_id')
+                new_wid = website_map.get(src_wid) if src_wid else None
+                cal = Calendar(user_id=uid, name=cd['name'],
+                               description=cd.get('description'),
                                website_id=new_wid, styles=cd.get('styles'))
                 db.session.add(cal);
                 db.session.flush()
@@ -13865,10 +13890,13 @@ def import_backup():
 
             # ── AI agents ─────────────────────────────────────────────────────
             for ad in data.get('ai_agents', []):
-                new_wid = website_map.get(ad['website_id'])
-                if not new_wid:
-                    continue
-                ag = AIAgent(website_id=new_wid, name=ad['name'],
+                # AI agents are also a user-scoped pool with an optional website
+                # link (same as calendars). Don't skip when website_id is
+                # missing/unmapped, and stamp user_id so they survive the
+                # user-scoped wipe/restore and show in the agent pool.
+                src_wid = ad.get('website_id')
+                new_wid = website_map.get(src_wid) if src_wid else None
+                ag = AIAgent(user_id=uid, website_id=new_wid, name=ad['name'],
                              provider=ad.get('provider', 'openai_compatible'),
                              api_url=ad.get('api_url'), api_key=ad.get('api_key'),
                              model=ad.get('model'), system_prompt=ad.get('system_prompt'),
@@ -15258,6 +15286,19 @@ def import_backup():
                 if name.startswith('assets/') and not name.endswith('/'):
                     fname = name[len('assets/'):]
                     with zf.open(name) as src, open(os.path.join(new_assets_dir, fname), 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+
+            # ── Extract navbar icon files (uploads/<uid>/navbar/) ──────────────
+            new_navbar_dir = os.path.join(uploads_folder, str(uid), 'navbar')
+            os.makedirs(new_navbar_dir, exist_ok=True)
+            for fname in os.listdir(new_navbar_dir):
+                fpath = os.path.join(new_navbar_dir, fname)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+            for name in zf.namelist():
+                if name.startswith('navbar/') and not name.endswith('/'):
+                    fname = name[len('navbar/'):]
+                    with zf.open(name) as src, open(os.path.join(new_navbar_dir, fname), 'wb') as dst:
                         shutil.copyfileobj(src, dst)
 
     except zipfile.BadZipFile:
