@@ -14151,6 +14151,32 @@ def import_backup():
                     prompt=qd['prompt'], config=qd.get('config'),
                     points=qd.get('points', 1), sort_order=qd.get('sort_order', 0)))
 
+            # Quizzes are embedded in lesson HTML as
+            # <div class="uw-quiz-embed" data-quiz-id="N">. Restored quizzes get
+            # new ids (quiz_map), so rewrite those references in each restored
+            # lesson's content — otherwise the public lesson page looks up the
+            # old id and the quiz fails to load (the admin lists quizzes
+            # separately, so it still appears there).
+            if quiz_map:
+                def _remap_quiz_ids(html):
+                    def _sub(m):
+                        try:
+                            new = quiz_map.get(int(m.group(2)))
+                        except (TypeError, ValueError):
+                            new = None
+                        return f'{m.group(1)}{new}{m.group(3)}' if new else m.group(0)
+                    return re.sub(r'(data-quiz-id=["\'])(\d+)(["\'])', _sub, html)
+
+                for nd in data.get('guide_nodes', []):
+                    new_nid = guide_node_map.get(nd['id'])
+                    content = nd.get('content')
+                    if not new_nid or not content or 'data-quiz-id' not in content:
+                        continue
+                    new_content = _remap_quiz_ids(content)
+                    if new_content != content:
+                        GuideNode.query.filter_by(id=new_nid).update(
+                            {'content': new_content}, synchronize_session=False)
+
             for ad in data.get('quiz_attempts', []):
                 new_qid = quiz_map.get(ad['quiz_id'])
                 new_wid = website_map.get(ad['website_id'])
