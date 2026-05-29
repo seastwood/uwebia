@@ -13888,6 +13888,31 @@ def import_backup():
                 db.session.flush()
                 cal_sub_map[sd['id']] = cs.id
 
+            # 'calendar' / 'calendar_badges' sections embed the calendar id in
+            # section.content.calendar_id. Sections are restored before calendars
+            # exist, so the copied content still holds the source's old id —
+            # remap it now that cal_map is built, otherwise the public page links
+            # to a calendar id that no longer exists.
+            if cal_map:
+                for secd in data.get('sections', []):
+                    if secd.get('section_type') not in ('calendar', 'calendar_badges'):
+                        continue
+                    content = secd.get('content')
+                    new_sid = sec_map.get(secd['id'])
+                    if not new_sid or not isinstance(content, dict) or content.get('calendar_id') is None:
+                        continue
+                    try:
+                        new_cid = cal_map.get(int(content['calendar_id']))
+                    except (TypeError, ValueError):
+                        new_cid = None
+                    if not new_cid:
+                        continue
+                    sec = db.session.get(PageSection, new_sid)
+                    if sec and isinstance(sec.content, dict):
+                        merged = dict(sec.content)
+                        merged['calendar_id'] = new_cid
+                        sec.content = merged
+
             # ── AI agents ─────────────────────────────────────────────────────
             for ad in data.get('ai_agents', []):
                 # AI agents are also a user-scoped pool with an optional website
