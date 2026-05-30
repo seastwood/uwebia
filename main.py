@@ -22967,9 +22967,9 @@ def send_public_user_verification_email(public_user):
         _external=True
     )
 
-    subject = f'Verify your {public_user.website.name} forum account'
+    subject = f'Verify your {public_user.website.name} account'
 
-    body = f"""Welcome to the forum.
+    body = f"""Welcome
 
 Verify your email address here:
 {verification_url}
