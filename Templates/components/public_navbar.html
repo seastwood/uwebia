@@ -820,10 +820,16 @@
     /* A group whose title is also a link renders the toggle as an <a>, which the
        generic side-panel link rule above would style as a plain block link
        (wrong font size, chevron no longer right-aligned). Re-assert the toggle
-       layout so a linked group looks identical to a non-linked (button) one. */
+       layout so a linked group looks identical to a non-linked (button) one.
+       The generic `.public-navbar-menu a` rule (color:inherit; font:inherit)
+       outranks `.public-navbar-menu-group-toggle` on the <a>, so its weight
+       and color must be restated here or the link renders un-bold and a
+       slightly different shade than the button toggles. */
     .public-navbar.dropdown-mode-side_panel .public-navbar-menu a.public-navbar-menu-group-toggle {
         display: flex;
         font-size: 0.82rem;
+        font-weight: 850;
+        color: inherit;
     }
 
     .public-navbar.dropdown-mode-side_panel .public-navbar-menu-group {
