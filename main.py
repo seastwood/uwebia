@@ -17967,10 +17967,80 @@ def _fetch_and_parse_ical(url):
     return ICalendar.from_ical(resp.content)
 
 
+def _normalize_ical_dt(value, local_tz):
+    """Normalize an iCal date/datetime to a naive wall-clock value in the
+    calendar owner's timezone — the same storage convention as manually
+    created events (see _parse_event_datetime)."""
+    from datetime import date as date_type
+    if value is None:
+        return None
+    if isinstance(value, date_type) and not isinstance(value, datetime):
+        return datetime.combine(value, datetime.min.time())
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(local_tz).replace(tzinfo=None)
+
+
+def _expand_ical_occurrences(component, base_start):
+    """Expand a recurring VEVENT into its occurrence start datetimes.
+
+    Returns a list of datetimes in the *original* form (tz-aware or naive,
+    matching base_start) so the caller can normalize each one consistently.
+    Honors RRULE/EXRULE/RDATE/EXDATE via dateutil and is bounded by the same
+    RECURRENCE_MAX_OCCURRENCES / RECURRENCE_MAX_HORIZON_DAYS caps used for
+    local events, so an unbounded "FREQ=DAILY" feed can't blow up the DB.
+
+    Returns None when the event is not recurring (no RRULE/RDATE), so the
+    caller falls back to treating it as a single event.
+    """
+    from datetime import date as date_type
+    if not component.get('rrule') and not component.get('rdate'):
+        return None
+
+    # Recurrence math needs a datetime; promote date-only all-day starts.
+    if isinstance(base_start, date_type) and not isinstance(base_start, datetime):
+        base_start = datetime.combine(base_start, datetime.min.time())
+
+    # Reconstruct the recurrence ruleset string from the component so dateutil
+    # applies RRULE plus any EXDATE/RDATE exclusions/additions natively.
+    parts = []
+    for key in ('RRULE', 'EXRULE', 'RDATE', 'EXDATE'):
+        vals = component.get(key)
+        if not vals:
+            continue
+        if not isinstance(vals, list):
+            vals = [vals]
+        for v in vals:
+            try:
+                parts.append(key + ':' + v.to_ical().decode('utf-8'))
+            except Exception:
+                continue
+    if not parts:
+        return None
+
+    from dateutil.rrule import rrulestr
+    try:
+        ruleset = rrulestr('\r\n'.join(parts), dtstart=base_start, forceset=True)
+    except Exception:
+        # Malformed rule — don't drop the event, just keep the first instance.
+        return None
+
+    horizon = base_start + timedelta(days=RECURRENCE_MAX_HORIZON_DAYS)
+    occurrences = []
+    try:
+        for occ in ruleset:
+            if occ > horizon:
+                break
+            occurrences.append(occ)
+            if len(occurrences) >= RECURRENCE_MAX_OCCURRENCES:
+                break
+    except Exception:
+        return None
+    return occurrences or None
+
+
 def sync_subscription(sub):
     """Fetch one external iCal subscription and replace its events."""
-    from datetime import date as date_type
-
     try:
         cal_data = _fetch_and_parse_ical(sub.url)
     except Exception as e:
@@ -17995,44 +18065,61 @@ def sync_subscription(sub):
             if not dtstart:
                 continue
 
-            start = dtstart.dt
+            base_start = dtstart.dt
             dtend = component.get('dtend')
-            end = dtend.dt if dtend else None
+            base_end = dtend.dt if dtend else None
 
-            # Normalize to a naive datetime representing the wall clock in
-            # the calendar owner's timezone — same storage convention as
-            # manually-created events. Without stripping tzinfo, psycopg2
-            # would silently convert to UTC and the round-trip display
-            # would be offset by the owner's UTC offset.
-            if isinstance(start, date_type) and not isinstance(start, datetime):
-                start = datetime.combine(start, datetime.min.time())
-            elif start.tzinfo is None:
-                pass
+            # A recurring VEVENT carries a single DTSTART plus an RRULE; we
+            # must expand it into one stored CalendarEvent per occurrence,
+            # otherwise only the first instance of the series shows up.
+            occurrence_starts = _expand_ical_occurrences(component, base_start)
+            if occurrence_starts is None:
+                occurrence_starts = [base_start]
+                series_id = None
             else:
-                start = start.astimezone(local_tz).replace(tzinfo=None)
+                series_id = uuid.uuid4().hex
 
-            if end is not None:
-                if isinstance(end, date_type) and not isinstance(end, datetime):
-                    end = datetime.combine(end, datetime.min.time())
-                elif end.tzinfo is None:
-                    pass
-                else:
-                    end = end.astimezone(local_tz).replace(tzinfo=None)
+            # Duration is preserved across occurrences (RRULE only moves the
+            # start); compute it before tz-normalization while both ends are
+            # in their original form.
+            duration = None
+            if base_end is not None and isinstance(base_start, datetime) \
+                    and isinstance(base_end, datetime):
+                duration = base_end - base_start
 
             location_raw = component.get('location')
             location = str(location_raw).strip() if location_raw else None
+            title = str(component.get('summary', 'Untitled'))
+            description = str(component.get('description', '')) or None
 
-            db.session.add(CalendarEvent(
-                title=str(component.get('summary', 'Untitled')),
-                description=str(component.get('description', '')) or None,
-                location=location or None,
-                start=start,
-                end=end,
-                calendar_id=sub.calendar_id,
-                source='external',
-                subscription_id=sub.id,
-            ))
-            count += 1
+            for position, occ_start in enumerate(occurrence_starts):
+                # Normalize to a naive datetime representing the wall clock in
+                # the calendar owner's timezone — same storage convention as
+                # manually-created events. Without stripping tzinfo, psycopg2
+                # would silently convert to UTC and the round-trip display
+                # would be offset by the owner's UTC offset.
+                start = _normalize_ical_dt(occ_start, local_tz)
+                if duration is not None and isinstance(occ_start, datetime):
+                    end = _normalize_ical_dt(occ_start + duration, local_tz)
+                elif series_id is None:
+                    # Non-recurring all-day / date-only events keep their DTEND.
+                    end = _normalize_ical_dt(base_end, local_tz)
+                else:
+                    end = None
+
+                db.session.add(CalendarEvent(
+                    title=title,
+                    description=description,
+                    location=location or None,
+                    start=start,
+                    end=end,
+                    calendar_id=sub.calendar_id,
+                    source='external',
+                    subscription_id=sub.id,
+                    series_id=series_id,
+                    series_position=position if series_id else None,
+                ))
+                count += 1
 
         sub.last_synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
         sub.last_sync_error = None
