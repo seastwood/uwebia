@@ -15849,7 +15849,6 @@ def render_public_page(website, page, is_preview=False):
 
     # ── Calendar badge sections ────────────────────────────────────────────────
     badges_by_section = {}
-    _now = datetime.now(timezone.utc).replace(tzinfo=None)
     for section in sections:
         if section.section_type != 'calendar_badges':
             continue
@@ -15857,6 +15856,13 @@ def render_public_page(website, page, is_preview=False):
         cal_id = cfg.get('calendar_id')
         limit  = max(1, min(int(cfg.get('limit') or 5), 20))
         if cal_id:
+            # Event start/end are stored as naive wall-clock in the calendar
+            # owner's timezone, so "now" must be computed in that same zone —
+            # using UTC here drops a currently-running event by the owner's
+            # UTC offset (e.g. an evening event vanishes hours before it ends).
+            _cal_obj = db.session.get(Calendar, int(cal_id))
+            _local_tz = _get_calendar_owner_timezone(_cal_obj)
+            _now = datetime.now(_local_tz).replace(tzinfo=None)
             _events = (CalendarEvent.query
                        .filter(CalendarEvent.calendar_id == int(cal_id),
                                db.or_(
@@ -18057,14 +18063,36 @@ def sync_subscription(sub):
     try:
         CalendarEvent.query.filter_by(subscription_id=sub.id).delete()
 
+        vevents = [c for c in cal_data.walk() if c.name == 'VEVENT']
+
+        # iCal represents a single edited instance of a recurring series as a
+        # separate VEVENT that shares the series UID and carries a
+        # RECURRENCE-ID pointing at the original occurrence it replaces. We
+        # must add that override once *and* suppress the occurrence the master
+        # RRULE would otherwise generate at the same slot — otherwise the
+        # instance shows up twice (typically at the original and modified
+        # times). Map uid -> set of normalized recurrence-id datetimes.
+        overridden = {}
+        for component in vevents:
+            rid = component.get('recurrence-id')
+            if rid is None:
+                continue
+            uid = str(component.get('uid') or '')
+            norm = _normalize_ical_dt(rid.dt, local_tz)
+            if uid and norm is not None:
+                overridden.setdefault(uid, set()).add(norm)
+
         count = 0
-        for component in cal_data.walk():
-            if component.name != 'VEVENT':
+        for component in vevents:
+            # CANCELLED instances/events should not appear at all.
+            if str(component.get('status') or '').upper() == 'CANCELLED':
                 continue
             dtstart = component.get('dtstart')
             if not dtstart:
                 continue
 
+            uid = str(component.get('uid') or '')
+            is_override = component.get('recurrence-id') is not None
             base_start = dtstart.dt
             dtend = component.get('dtend')
             base_end = dtend.dt if dtend else None
@@ -18092,6 +18120,10 @@ def sync_subscription(sub):
             title = str(component.get('summary', 'Untitled'))
             description = str(component.get('description', '')) or None
 
+            # Only the recurring master suppresses overridden slots; the
+            # override VEVENT itself must still be added (it has no RRULE).
+            skip_slots = overridden.get(uid) if not is_override else None
+
             for position, occ_start in enumerate(occurrence_starts):
                 # Normalize to a naive datetime representing the wall clock in
                 # the calendar owner's timezone — same storage convention as
@@ -18099,6 +18131,8 @@ def sync_subscription(sub):
                 # would silently convert to UTC and the round-trip display
                 # would be offset by the owner's UTC offset.
                 start = _normalize_ical_dt(occ_start, local_tz)
+                if skip_slots and start in skip_slots:
+                    continue
                 if duration is not None and isinstance(occ_start, datetime):
                     end = _normalize_ical_dt(occ_start + duration, local_tz)
                 elif series_id is None:
