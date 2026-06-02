@@ -17987,17 +17987,87 @@ def _normalize_ical_dt(value, local_tz):
     return value.astimezone(local_tz).replace(tzinfo=None)
 
 
+def _ical_source_zone(component):
+    """The IANA timezone a VEVENT's DTSTART is expressed in, as a pytz zone.
+
+    Returned so recurrence expansion can re-apply DST per occurrence (see
+    _expand_ical_occurrences). None for UTC/floating starts or unknown TZIDs.
+    """
+    dtstart = component.get('dtstart')
+    try:
+        tzid = dtstart.params.get('TZID') if dtstart is not None else None
+    except Exception:
+        tzid = None
+    if not tzid:
+        return None
+    try:
+        return pytz.timezone(str(tzid))
+    except Exception:
+        return None
+
+
+def _ical_dt_list(prop):
+    """Flatten an icalendar EXDATE/RDATE property (or list of them) into a
+    plain list of date/datetime values."""
+    if not prop:
+        return []
+    items = prop if isinstance(prop, list) else [prop]
+    out = []
+    for it in items:
+        dts = getattr(it, 'dts', None)
+        if dts is None:
+            d = getattr(it, 'dt', None)
+            if d is not None:
+                out.append(d)
+            continue
+        for x in dts:
+            out.append(getattr(x, 'dt', x))
+    return out
+
+
+def _wallclock(value):
+    """Drop tzinfo, yielding the local wall-clock datetime. Recurrence is
+    matched in wall-clock space (RFC 5545 semantics for TZID events), which
+    sidesteps dateutil's habit of freezing DTSTART's UTC offset for the whole
+    series — that froze offset is what makes a CST-anchored series emit CDT
+    occurrences an hour off and breaks EXDATE / RECURRENCE-ID matching."""
+    from datetime import date as date_type
+    if isinstance(value, date_type) and not isinstance(value, datetime):
+        return datetime.combine(value, datetime.min.time())
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _rrule_until_to_wallclock(rrule_text, src_zone):
+    """Rewrite an RRULE's UNTIL (which feeds carry in UTC, e.g.
+    UNTIL=20251211T055959Z) into naive wall-clock in the source zone, so it
+    can be compared against the naive occurrences we expand."""
+    import re as _re
+    m = _re.search(r'UNTIL=(\d{8}T\d{6})Z', rrule_text)
+    if not m:
+        # date-only or already-naive UNTIL — just drop any trailing Z.
+        return _re.sub(r'(UNTIL=[0-9T]+)Z', r'\1', rrule_text)
+    u = datetime.strptime(m.group(1), '%Y%m%dT%H%M%S').replace(tzinfo=pytz.utc)
+    zone = src_zone or pytz.utc
+    local = u.astimezone(zone).replace(tzinfo=None)
+    return rrule_text[:m.start(1)] + local.strftime('%Y%m%dT%H%M%S') + rrule_text[m.end():]
+
+
 def _expand_ical_occurrences(component, base_start):
     """Expand a recurring VEVENT into its occurrence start datetimes.
 
-    Returns a list of datetimes in the *original* form (tz-aware or naive,
-    matching base_start) so the caller can normalize each one consistently.
-    Honors RRULE/EXRULE/RDATE/EXDATE via dateutil and is bounded by the same
+    Returns tz-aware datetimes in the event's source zone (or naive ones for
+    floating events) so the caller can normalize each consistently. Honors
+    RRULE/EXRULE/RDATE/EXDATE and is bounded by the same
     RECURRENCE_MAX_OCCURRENCES / RECURRENCE_MAX_HORIZON_DAYS caps used for
     local events, so an unbounded "FREQ=DAILY" feed can't blow up the DB.
 
     Returns None when the event is not recurring (no RRULE/RDATE), so the
     caller falls back to treating it as a single event.
+
+    Expansion runs in wall-clock space and each occurrence is then localized
+    back to the source zone (see _wallclock) so DST is applied per occurrence.
     """
     from datetime import date as date_type
     if not component.get('rrule') and not component.get('rdate'):
@@ -18007,10 +18077,16 @@ def _expand_ical_occurrences(component, base_start):
     if isinstance(base_start, date_type) and not isinstance(base_start, datetime):
         base_start = datetime.combine(base_start, datetime.min.time())
 
-    # Reconstruct the recurrence ruleset string from the component so dateutil
-    # applies RRULE plus any EXDATE/RDATE exclusions/additions natively.
-    parts = []
-    for key in ('RRULE', 'EXRULE', 'RDATE', 'EXDATE'):
+    src_zone = _ical_source_zone(component)
+    if src_zone is None and base_start.tzinfo is not None:
+        # DTSTART in UTC (…Z) with no TZID param — no DST, localize as UTC.
+        src_zone = pytz.utc
+    naive_start = _wallclock(base_start)
+
+    from dateutil.rrule import rrulestr, rruleset
+    ruleset = rruleset()
+    have_rule = False
+    for key, adder in (('RRULE', ruleset.rrule), ('EXRULE', ruleset.exrule)):
         vals = component.get(key)
         if not vals:
             continue
@@ -18018,25 +18094,31 @@ def _expand_ical_occurrences(component, base_start):
             vals = [vals]
         for v in vals:
             try:
-                parts.append(key + ':' + v.to_ical().decode('utf-8'))
+                text = _rrule_until_to_wallclock(v.to_ical().decode('utf-8'), src_zone)
+                adder(rrulestr(key + ':' + text, dtstart=naive_start))
+                have_rule = have_rule or key == 'RRULE'
             except Exception:
                 continue
-    if not parts:
+    for d in _ical_dt_list(component.get('rdate')):
+        ruleset.rdate(_wallclock(d))
+        have_rule = True
+    for d in _ical_dt_list(component.get('exdate')):
+        ruleset.exdate(_wallclock(d))
+    if not have_rule:
         return None
 
-    from dateutil.rrule import rrulestr
-    try:
-        ruleset = rrulestr('\r\n'.join(parts), dtstart=base_start, forceset=True)
-    except Exception:
-        # Malformed rule — don't drop the event, just keep the first instance.
-        return None
-
-    horizon = base_start + timedelta(days=RECURRENCE_MAX_HORIZON_DAYS)
+    horizon = naive_start + timedelta(days=RECURRENCE_MAX_HORIZON_DAYS)
     occurrences = []
     try:
-        for occ in ruleset:
+        for occ in ruleset:  # naive wall-clock
             if occ > horizon:
                 break
+            # is_dst=False keeps pytz from raising on the rare ambiguous /
+            # nonexistent wall time at a DST boundary.
+            if src_zone is not None and src_zone is not pytz.utc:
+                occ = src_zone.localize(occ, is_dst=False)
+            elif src_zone is pytz.utc:
+                occ = pytz.utc.localize(occ)
             occurrences.append(occ)
             if len(occurrences) >= RECURRENCE_MAX_OCCURRENCES:
                 break
