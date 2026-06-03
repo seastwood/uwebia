@@ -53,6 +53,37 @@
 .qe-placeholder { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
 .qe-check-row { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; color: rgba(255,255,255,0.8); }
 .qe-check-row input { width: 16px; height: 16px; accent-color: #5eeef8; }
+
+/* Cell editor (text-or-image) used by matching + ordering */
+.qe-cell { border: 1px solid rgba(255,255,255,0.12); border-radius: 9px; padding: 9px; background: rgba(255,255,255,0.03); }
+.qe-cell-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.qe-cell-kind { padding: 4px 8px; border-radius: 7px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.78rem; }
+.qe-cell-thumb { width: 100%; max-height: 120px; object-fit: contain; border-radius: 7px; background: rgba(0,0,0,0.25); margin-top: 6px; }
+.qe-pair { display: grid; grid-template-columns: 1fr 18px 1fr 34px; gap: 8px; align-items: start; margin-bottom: 10px; }
+.qe-pair-arrow { align-self: center; text-align: center; color: rgba(94,238,200,0.6); }
+@media (max-width: 600px) { .qe-pair { grid-template-columns: 1fr; } .qe-pair-arrow { display:none; } }
+.qe-order-item { display: grid; grid-template-columns: 22px 1fr auto 34px; gap: 8px; align-items: start; margin-bottom: 10px; }
+.qe-order-pos { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(94,238,248,0.18); color: #5eeef8; font-size: 0.72rem; font-weight: 700; margin-top: 8px; }
+.qe-order-moves { display: flex; flex-direction: column; gap: 3px; }
+.qe-move { width: 30px; height: 22px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: #fff; border-radius: 6px; cursor: pointer; line-height: 1; font-size: 0.7rem; }
+.qe-move:disabled { opacity: 0.3; cursor: default; }
+.qe-img-opt { display: grid; grid-template-columns: 26px 1fr 34px; gap: 8px; align-items: start; margin-bottom: 10px; }
+.qe-img-opt-correct { width: 18px; height: 18px; accent-color: #5eeec8; margin-top: 9px; }
+.qe-blank-row { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 9px; margin-bottom: 8px; }
+.qe-blank-tag { font-size: 0.7rem; font-weight: 700; color: #5eeec8; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Image picker modal */
+.qp-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; align-items: center; justify-content: center; }
+.qp-modal { width: min(640px, 92vw); max-height: 82vh; display: flex; flex-direction: column; background: #16161f; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; overflow: hidden; }
+.qp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.qp-head h3 { margin: 0; font-size: 1rem; color: #fff; }
+.qp-body { padding: 14px 16px; overflow-y: auto; }
+.qp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.qp-item { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; cursor: pointer; aspect-ratio: 1; }
+.qp-item:hover { border-color: rgba(94,238,248,0.5); }
+.qp-item img { width: 100%; height: 100%; object-fit: cover; }
+.qp-folder { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; margin: 0 6px 8px 0; border-radius: 8px; border: 1px solid rgba(255,255,255,0.13); background: rgba(255,255,255,0.06); color: #fff; cursor: pointer; font-size: 0.82rem; }
+.qp-close { background: none; border: none; color: rgba(255,255,255,0.6); font-size: 1.4rem; cursor: pointer; }
 </style>
 
 <div class="qe-page">
@@ -69,6 +100,10 @@
             <button class="qe-mini-btn" onclick="newQuestion('multi_choice')"><i class="fas fa-check-square"></i> Multi</button>
             <button class="qe-mini-btn" onclick="newQuestion('true_false')"><i class="fas fa-toggle-on"></i> T/F</button>
             <button class="qe-mini-btn" onclick="newQuestion('short_text')"><i class="fas fa-keyboard"></i> Text</button>
+            <button class="qe-mini-btn" onclick="newQuestion('fill_blank')"><i class="fas fa-i-cursor"></i> Fill blank</button>
+            <button class="qe-mini-btn" onclick="newQuestion('matching')"><i class="fas fa-link"></i> Matching</button>
+            <button class="qe-mini-btn" onclick="newQuestion('ordering')"><i class="fas fa-sort"></i> Ordering</button>
+            <button class="qe-mini-btn" onclick="newQuestion('image_choice')"><i class="fas fa-images"></i> Image</button>
         </div>
         <ul class="qe-qlist" id="qList"></ul>
         <div class="qe-empty" id="qEmpty" style="display:none;">No questions yet. Add one above.</div>
@@ -99,6 +134,20 @@
     </div>
 </div>
 
+<!-- Image library picker -->
+<div class="qp-overlay" id="qpOverlay" onclick="if(event.target===this)closeQuizPicker()">
+    <div class="qp-modal">
+        <div class="qp-head">
+            <h3>Choose an image</h3>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <button class="qe-mini-btn" onclick="qpUseUrl()"><i class="fas fa-link"></i> Use URL</button>
+                <button class="qp-close" onclick="closeQuizPicker()">&times;</button>
+            </div>
+        </div>
+        <div class="qp-body" id="qpBody"></div>
+    </div>
+</div>
+
 <script>
 const QUIZ_ID = {{ quiz.id }};
 let QUESTIONS = {{ questions | tojson }};
@@ -110,6 +159,10 @@ const TYPE_LABELS = {
     multi_choice:  'Multiple choice',
     true_false:    'True / False',
     short_text:    'Short text answer',
+    fill_blank:    'Fill in the blank',
+    matching:      'Matching',
+    ordering:      'Ordering',
+    image_choice:  'Image choice',
 };
 
 document.addEventListener('DOMContentLoaded', renderList);
@@ -137,7 +190,8 @@ function qItemEl(q) {
 }
 
 function shortType(t) {
-    return { single_choice: 'Single', multi_choice: 'Multi', true_false: 'T/F', short_text: 'Text' }[t] || t;
+    return { single_choice: 'Single', multi_choice: 'Multi', true_false: 'T/F', short_text: 'Text',
+             fill_blank: 'Blank', matching: 'Match', ordering: 'Order', image_choice: 'Image' }[t] || t;
 }
 
 function persistOrder() {
@@ -152,11 +206,17 @@ function persistOrder() {
     }).catch(() => alert('Failed to save order'));
 }
 
+function emptyCell() { return { kind: 'text', text: '', image_url: '' }; }
+
 function blankConfig(type) {
     if (type === 'true_false') {
         return { options: [{ id: 1, text: 'True', correct: true }, { id: 2, text: 'False', correct: false }] };
     }
     if (type === 'short_text') return { accepted: [''], case_sensitive: false };
+    if (type === 'fill_blank') return { blanks: [] };
+    if (type === 'matching') return { pairs: [{ left: emptyCell(), right: emptyCell() }, { left: emptyCell(), right: emptyCell() }] };
+    if (type === 'ordering') return { items: [emptyCell(), emptyCell()] };
+    if (type === 'image_choice') return { multiple: false, options: [{ image_url: '', caption: '', correct: true }, { image_url: '', caption: '', correct: false }] };
     return { options: [{ id: 1, text: '', correct: true }, { id: 2, text: '', correct: false }] };
 }
 
@@ -183,6 +243,8 @@ function showForm() {
     document.getElementById('qPrompt').value = _editing.prompt || '';
     document.getElementById('qPoints').value = _editing.points || 1;
     document.getElementById('qDeleteBtn').style.display = _editing.id ? 'inline-flex' : 'none';
+    // Fill-blank: live-sync the blank rows as the prompt's ___ markers change.
+    document.getElementById('qPrompt').oninput = (_editing.question_type === 'fill_blank') ? renderBody : null;
     renderBody();
 }
 
@@ -203,6 +265,68 @@ function renderBody() {
         html += '<button type="button" class="qe-mini-btn" onclick="addAccepted()" style="margin-top:4px;"><i class="fas fa-plus"></i> Add answer</button>';
         html += '</div>';
         html += `<label class="qe-check-row" style="margin-top:8px;"><input type="checkbox" id="qCaseSensitive" ${cfg.case_sensitive ? 'checked' : ''}> Case sensitive</label>`;
+        body.innerHTML = html;
+        return;
+    }
+
+    if (t === 'fill_blank') {
+        syncBlanksState();
+        const blanks = cfg.blanks || [];
+        let html = `<p class="qe-correct-hint">Type 3 or more underscores (<code>___</code>) in the prompt above wherever a blank should appear. ${blanks.length} blank(s) detected.</p>`;
+        blanks.forEach((b, i) => {
+            html += `<div class="qe-blank-row"><div class="qe-blank-tag">Blank ${i + 1}</div>
+                <input class="qe-input" style="margin-top:7px;" value="${escAttr((b.accepted || []).join(', '))}" placeholder="Accepted answers, comma-separated" oninput="onBlankAccepted(${i}, this.value)">
+                <label class="qe-check-row" style="margin-top:6px;font-size:0.8rem;"><input type="checkbox" ${b.case_sensitive ? 'checked' : ''} onchange="onBlankCase(${i}, this.checked)"> Case sensitive</label></div>`;
+        });
+        if (!blanks.length) html += '<p class="qe-placeholder" style="padding:20px;">No blanks yet — add <code>___</code> to the prompt.</p>';
+        body.innerHTML = html;
+        return;
+    }
+
+    if (t === 'matching') {
+        let html = '<div class="qe-field"><label class="qe-label">Pairs</label>';
+        html += '<p class="qe-correct-hint">Each item (left) matches the description (right). Either side can be text or an image. Readers see them shuffled.</p>';
+        (cfg.pairs || []).forEach((p, i) => {
+            html += `<div class="qe-pair"><div>${cellEditorHtml(p.left, 'm', i, 'left')}</div>
+                <div class="qe-pair-arrow"><i class="fas fa-arrows-alt-h"></i></div>
+                <div>${cellEditorHtml(p.right, 'm', i, 'right')}</div>
+                <button type="button" class="qe-opt-remove" onclick="removePair(${i})">&times;</button></div>`;
+        });
+        html += '</div><button type="button" class="qe-mini-btn" onclick="addPair()"><i class="fas fa-plus"></i> Add pair</button>';
+        body.innerHTML = html;
+        return;
+    }
+
+    if (t === 'ordering') {
+        let html = '<div class="qe-field"><label class="qe-label">Items in correct order</label>';
+        html += '<p class="qe-correct-hint">Enter items top-to-bottom in the correct order (text or image). Readers see them shuffled and must reorder.</p>';
+        (cfg.items || []).forEach((it, i) => {
+            html += `<div class="qe-order-item"><span class="qe-order-pos">${i + 1}</span>
+                <div>${cellEditorHtml(it, 'o', i, null)}</div>
+                <div class="qe-order-moves">
+                    <button type="button" class="qe-move" onclick="moveOrder(${i},-1)" ${i === 0 ? 'disabled' : ''}>▲</button>
+                    <button type="button" class="qe-move" onclick="moveOrder(${i},1)" ${i === cfg.items.length - 1 ? 'disabled' : ''}>▼</button>
+                </div>
+                <button type="button" class="qe-opt-remove" onclick="removeOrderItem(${i})">&times;</button></div>`;
+        });
+        html += '</div><button type="button" class="qe-mini-btn" onclick="addOrderItem()"><i class="fas fa-plus"></i> Add item</button>';
+        body.innerHTML = html;
+        return;
+    }
+
+    if (t === 'image_choice') {
+        const multiple = !!cfg.multiple;
+        let html = `<label class="qe-check-row" style="margin-bottom:10px;"><input type="checkbox" ${multiple ? 'checked' : ''} onchange="onImgMultiple(this.checked)"> Allow multiple correct answers</label>`;
+        html += '<div class="qe-field"><label class="qe-label">Image options</label>';
+        html += `<p class="qe-correct-hint">${multiple ? 'Tick every correct image.' : 'Tick the one correct image.'}</p>`;
+        (cfg.options || []).forEach((o, i) => {
+            html += `<div class="qe-img-opt">
+                <input class="qe-img-opt-correct" type="${multiple ? 'checkbox' : 'radio'}" name="imgcorrect" ${o.correct ? 'checked' : ''} onchange="onImgCorrect(${i}, ${multiple})">
+                <div class="qe-cell">${imageFieldHtml(o.image_url, 'i', i, null)}
+                    <input class="qe-input" style="margin-top:7px;" value="${escAttr(o.caption || '')}" placeholder="Caption (optional)" oninput="onImgCaption(${i}, this.value)"></div>
+                <button type="button" class="qe-opt-remove" onclick="removeImgOption(${i})">&times;</button></div>`;
+        });
+        html += '</div><button type="button" class="qe-mini-btn" onclick="addImgOption()"><i class="fas fa-plus"></i> Add image</button>';
         body.innerHTML = html;
         return;
     }
@@ -267,6 +391,123 @@ function removeAccepted(i) {
     renderBody();
 }
 
+// ── fill in the blank ───────────────────────────────────────────────────────
+function syncBlanksState() {
+    const prompt = document.getElementById('qPrompt').value || '';
+    const n = (prompt.match(/_{3,}/g) || []).length;
+    const blanks = _editing.config.blanks || (_editing.config.blanks = []);
+    while (blanks.length < n) blanks.push({ accepted: [], case_sensitive: false });
+    while (blanks.length > n) blanks.pop();
+}
+function onBlankAccepted(i, v) { _editing.config.blanks[i].accepted = v.split(',').map(s => s.trim()).filter(Boolean); }
+function onBlankCase(i, c) { _editing.config.blanks[i].case_sensitive = c; }
+
+// ── shared text/image cell editor (matching + ordering) ─────────────────────
+function _cellRef(kind, i, side) {
+    if (kind === 'm') return _editing.config.pairs[i][side];
+    if (kind === 'o') return _editing.config.items[i];
+    if (kind === 'i') return _editing.config.options[i];
+    return null;
+}
+function cellEditorHtml(cell, kind, i, side) {
+    cell = cell || emptyCell();
+    const sideArg = side ? `'${side}'` : 'null';
+    let h = `<div class="qe-cell"><div class="qe-cell-head">
+        <select class="qe-cell-kind" onchange="onCellKind('${kind}',${i},${sideArg},this.value)">
+            <option value="text"${cell.kind !== 'image' ? ' selected' : ''}>Text</option>
+            <option value="image"${cell.kind === 'image' ? ' selected' : ''}>Image</option>
+        </select></div>`;
+    if (cell.kind === 'image') {
+        h += imageFieldHtml(cell.image_url, kind, i, side);
+        h += `<input class="qe-input" style="margin-top:7px;" value="${escAttr(cell.text || '')}" placeholder="Caption (optional)" oninput="onCellText('${kind}',${i},${sideArg},this.value)">`;
+    } else {
+        h += `<input class="qe-input" value="${escAttr(cell.text || '')}" placeholder="Text" oninput="onCellText('${kind}',${i},${sideArg},this.value)">`;
+    }
+    return h + '</div>';
+}
+function imageFieldHtml(url, kind, i, side) {
+    const sideArg = side ? `'${side}'` : 'null';
+    let h = `<button type="button" class="qe-mini-btn" onclick="pickCellImage('${kind}',${i},${sideArg})"><i class="fas fa-image"></i> ${url ? 'Change image' : 'Choose image'}</button>`;
+    if (url) h += `<img class="qe-cell-thumb" src="${escAttr(url)}" alt="">`;
+    return h;
+}
+function onCellKind(kind, i, side, v) { _cellRef(kind, i, side).kind = v; renderBody(); }
+function onCellText(kind, i, side, v) { _cellRef(kind, i, side).text = v; }
+function pickCellImage(kind, i, side) {
+    openQuizImagePicker(url => { const c = _cellRef(kind, i, side); c.image_url = url; if (kind !== 'i') c.kind = 'image'; renderBody(); });
+}
+function cleanCell(c) {
+    if (!c) return null;
+    if (c.kind === 'image') { const u = (c.image_url || '').trim(); return u ? { kind: 'image', image_url: u, text: (c.text || '').trim() } : null; }
+    const tx = (c.text || '').trim();
+    return tx ? { kind: 'text', text: tx } : null;
+}
+
+// ── matching ────────────────────────────────────────────────────────────────
+function addPair() { _editing.config.pairs.push({ left: emptyCell(), right: emptyCell() }); renderBody(); }
+function removePair(i) {
+    if (_editing.config.pairs.length <= 2) { alert('Keep at least two pairs.'); return; }
+    _editing.config.pairs.splice(i, 1); renderBody();
+}
+
+// ── ordering ──────────────────────────────────────────────────────────────--
+function addOrderItem() { _editing.config.items.push(emptyCell()); renderBody(); }
+function removeOrderItem(i) {
+    if (_editing.config.items.length <= 2) { alert('Keep at least two items.'); return; }
+    _editing.config.items.splice(i, 1); renderBody();
+}
+function moveOrder(i, dir) {
+    const a = _editing.config.items, j = i + dir;
+    if (j < 0 || j >= a.length) return;
+    const t = a[i]; a[i] = a[j]; a[j] = t; renderBody();
+}
+
+// ── image choice ─────────────────────────────────────────────────────────--
+function onImgMultiple(c) {
+    _editing.config.multiple = c;
+    if (!c) { let seen = false; (_editing.config.options || []).forEach(o => { if (o.correct) { if (seen) o.correct = false; else seen = true; } }); }
+    renderBody();
+}
+function onImgCorrect(i, multiple) {
+    const opts = _editing.config.options;
+    if (multiple) opts[i].correct = !opts[i].correct;
+    else opts.forEach((o, j) => o.correct = (j === i));
+}
+function onImgCaption(i, v) { _editing.config.options[i].caption = v; }
+function addImgOption() { _editing.config.options.push({ image_url: '', caption: '', correct: false }); renderBody(); }
+function removeImgOption(i) {
+    if (_editing.config.options.length <= 2) { alert('Keep at least two images.'); return; }
+    _editing.config.options.splice(i, 1); renderBody();
+}
+
+// ── image library picker ────────────────────────────────────────────────────
+let _qpCb = null;
+function openQuizImagePicker(cb) { _qpCb = cb; document.getElementById('qpOverlay').style.display = 'flex'; qpLoadRoot(); }
+function closeQuizPicker() { document.getElementById('qpOverlay').style.display = 'none'; _qpCb = null; }
+function qpUseUrl() { const u = prompt('Paste an image URL:'); if (u && u.trim()) { const cb = _qpCb; closeQuizPicker(); if (cb) cb(u.trim()); } }
+async function qpLoadRoot() {
+    const b = document.getElementById('qpBody'); b.innerHTML = 'Loading…';
+    try { const d = await (await fetch('/admin/assets/root?type=image')).json(); qpRender(d.folders || [], d.assets || [], false); }
+    catch (e) { b.innerHTML = '<div style="color:#ff6b6b;">Failed to load images.</div>'; }
+}
+async function qpLoadFolder(id) {
+    const b = document.getElementById('qpBody'); b.innerHTML = 'Loading…';
+    try { const d = await (await fetch('/admin/assets/folder/' + id + '?type=image')).json(); qpRender([], d.assets || [], true); }
+    catch (e) { b.innerHTML = '<div style="color:#ff6b6b;">Failed to load folder.</div>'; }
+}
+function qpRender(folders, assets, inFolder) {
+    const b = document.getElementById('qpBody'); let h = '';
+    if (inFolder) h += '<button class="qp-folder" data-back="1"><i class="fas fa-arrow-left"></i> Back</button>';
+    if (folders.length) { h += '<div style="margin-bottom:10px;">'; folders.forEach(f => { h += `<button class="qp-folder" data-folder="${f.id}"><i class="fas fa-folder"></i> ${escAttr(f.name)}</button>`; }); h += '</div>'; }
+    if (assets.length) { h += '<div class="qp-grid">'; assets.forEach(a => { h += `<div class="qp-item" data-url="${escAttr(a.url)}"><img src="${escAttr(a.thumbnail_url || a.url)}" alt=""></div>`; }); h += '</div>'; }
+    else if (!folders.length) { h += '<p style="color:rgba(255,255,255,0.4);">No images here.</p>'; }
+    b.innerHTML = h;
+    b.querySelectorAll('[data-back]').forEach(el => el.addEventListener('click', qpLoadRoot));
+    b.querySelectorAll('[data-folder]').forEach(el => el.addEventListener('click', () => qpLoadFolder(parseInt(el.dataset.folder))));
+    b.querySelectorAll('.qp-item').forEach(el => el.addEventListener('click', () => qpPick(el.dataset.url)));
+}
+function qpPick(u) { const cb = _qpCb; closeQuizPicker(); if (cb) cb(u); }
+
 async function saveQuestion() {
     const prompt = document.getElementById('qPrompt').value.trim();
     if (!prompt) { alert('Question prompt is required'); return; }
@@ -276,6 +517,36 @@ async function saveQuestion() {
         const accepted = (_editing.config.accepted || []).map(a => (a || '').trim()).filter(Boolean);
         if (!accepted.length) { alert('Add at least one accepted answer.'); return; }
         config = { accepted, case_sensitive: document.getElementById('qCaseSensitive').checked };
+    } else if (t === 'fill_blank') {
+        const n = (prompt.match(/_{3,}/g) || []).length;
+        if (n < 1) { alert('Mark at least one blank by typing 3+ underscores (___) in the prompt.'); return; }
+        const blanks = [];
+        for (let i = 0; i < n; i++) {
+            const b = (_editing.config.blanks || [])[i] || { accepted: [] };
+            const acc = (b.accepted || []).map(a => (a || '').trim()).filter(Boolean);
+            if (!acc.length) { alert('Blank ' + (i + 1) + ' needs at least one accepted answer.'); return; }
+            blanks.push({ accepted: acc, case_sensitive: !!b.case_sensitive });
+        }
+        config = { blanks };
+    } else if (t === 'matching') {
+        const pairs = (_editing.config.pairs || [])
+            .map(p => ({ left: cleanCell(p.left), right: cleanCell(p.right) }))
+            .filter(p => p.left && p.right);
+        if (pairs.length < 2) { alert('Add at least two complete pairs (each with an item and a match).'); return; }
+        config = { pairs };
+    } else if (t === 'ordering') {
+        const items = (_editing.config.items || []).map(cleanCell).filter(Boolean);
+        if (items.length < 2) { alert('Add at least two items to order.'); return; }
+        config = { items };
+    } else if (t === 'image_choice') {
+        const opts = (_editing.config.options || [])
+            .map(o => ({ image_url: (o.image_url || '').trim(), caption: (o.caption || '').trim(), correct: !!o.correct }))
+            .filter(o => o.image_url);
+        if (opts.length < 2) { alert('Add at least two images.'); return; }
+        const cc = opts.filter(o => o.correct).length;
+        if (!_editing.config.multiple && cc !== 1) { alert('Pick exactly one correct image.'); return; }
+        if (_editing.config.multiple && cc < 1) { alert('Mark at least one correct image.'); return; }
+        config = { multiple: !!_editing.config.multiple, options: opts };
     } else {
         const opts = (_editing.config.options || [])
             .map((o, i) => ({ id: i + 1, text: (o.text || '').trim(), correct: !!o.correct }))
