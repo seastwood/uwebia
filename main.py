@@ -892,6 +892,9 @@ class PublicUser(UserMixin, db.Model):
 
     is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     is_active_public = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    # When False, this user is hidden from the public member directory and their
+    # profile page returns 404 to everyone but themselves. Opt-out (default on).
+    profile_visible = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     last_login_at = db.Column(db.DateTime, nullable=True)
@@ -2236,6 +2239,29 @@ class GuideProgress(db.Model):
     completed_at    = db.Column(db.DateTime, nullable=True)
     __table_args__  = (db.UniqueConstraint('guide_node_id', 'visitor_id_hash',
                                            name='uq_guide_progress_node_visitor'),)
+
+
+class QuizDraft(db.Model):
+    """In-progress (unsubmitted) answers for a quiz, so a reader can leave and
+    resume without losing work. One row per quiz per device, dual-keyed like
+    QuizAttempt: visitor_id_hash always set; public_user_id stamped when logged
+    in so a draft can be resumed across that user's devices. Deleted once the
+    quiz is submitted."""
+    __tablename__ = 'quiz_draft'
+    id              = db.Column(db.Integer, primary_key=True)
+    quiz_id         = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    guide_node_id   = db.Column(db.Integer, db.ForeignKey('guide_node.id', ondelete='SET NULL'),
+                                nullable=True, index=True)
+    public_user_id  = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                                nullable=True, index=True)
+    visitor_id_hash = db.Column(db.String(64), nullable=False, index=True)
+    answers         = db.Column(db.JSON, nullable=True)  # {question_id: answer}
+    updated_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__  = (db.UniqueConstraint('quiz_id', 'visitor_id_hash',
+                                           name='uq_quiz_draft_quiz_visitor'),)
 
 
 class Newsletter(db.Model):
@@ -6059,7 +6085,7 @@ _RESERVED_URL_PREFIXES = frozenset({
     'forgot-password', 'reset-password', 'verify-email', 'resend-verification',
     # Public content
     'posts', 'products', 'shop', 'store', 'forum', 'calendar', 'guides', 'quizzes',
-    'page', 'section', 'comment', 'upload', 'asset',
+    'members', 'page', 'section', 'comment', 'upload', 'asset',
     'preview-page', 'preview-navbar', 'preview_page', 'preview_navbar',
     # Admin CRUD prefixes (top-level)
     'create-website', 'create_website', 'delete-website', 'delete_website',
@@ -22868,6 +22894,26 @@ def public_account_set_display_name(prefix=None):
     return _utf8_json({'success': True, 'display_username': public_user.display_username})
 
 
+@app.route('/<string:prefix>/account/profile-visibility', methods=['POST'])
+@app.route('/account/profile-visibility', methods=['POST'], defaults={'prefix': None})
+def public_account_set_profile_visibility(prefix=None):
+    """Public users opt in/out of appearing in the member directory and having
+    a viewable profile."""
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Not logged in'}, 401)
+    website = public_user.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+    body = request.get_json(silent=True) or {}
+    raw = request.form.get('visible')
+    if raw is None:
+        raw = body.get('visible')
+    public_user.profile_visible = bool(raw) if isinstance(raw, bool) else str(raw).lower() in ('1', 'true', 'on', 'yes')
+    db.session.commit()
+    return _utf8_json({'success': True, 'profile_visible': public_user.profile_visible})
+
+
 @app.route('/<string:prefix>/account/name', methods=['POST'])
 @app.route('/account/name', methods=['POST'], defaults={'prefix': None})
 def public_account_set_name(prefix=None):
@@ -30240,17 +30286,90 @@ def _live_website_for(model_obj):
     return website
 
 
+def _quiz_draft_for(quiz_id, public_user, visitor_hash):
+    """The saved in-progress draft for this quiz and identity, or None.
+    Prefers a draft tied to the logged-in user (resumes across devices),
+    falling back to one keyed on the current device's visitor hash."""
+    if public_user:
+        rec = QuizDraft.query.filter_by(quiz_id=quiz_id, public_user_id=public_user.id) \
+            .order_by(QuizDraft.updated_at.desc()).first()
+        if rec:
+            return rec
+    if visitor_hash:
+        return QuizDraft.query.filter_by(quiz_id=quiz_id, visitor_id_hash=visitor_hash).first()
+    return None
+
+
 @app.route('/api/quizzes/<int:qid>')
 def public_quiz_get(qid):
     quiz = Quiz.query.get_or_404(qid)
-    _live_website_for(quiz)
+    website = _live_website_for(quiz)
     questions = [q.to_public_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
     if quiz.shuffle_questions:
         import random as _random
         _random.shuffle(questions)
-    return _utf8_json({'success': True, 'quiz': {
+
+    # Pre-fill any saved in-progress answers so the reader resumes where they
+    # left off. Resolving the visitor here (and setting the cookie) keeps the
+    # anonymous identity stable between load, autosave and submit.
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    draft = _quiz_draft_for(quiz.id, public_user, visitor_hash)
+
+    resp = _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
-        'questions': questions}})
+        'questions': questions,
+        'draft': (draft.answers or {}) if draft else None}})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+@app.route('/api/quizzes/<int:qid>/draft', methods=['POST'])
+def public_quiz_save_draft(qid):
+    """Autosave a reader's in-progress answers (debounced from the client) so
+    they can resume the quiz later. Upserts one row per quiz per identity."""
+    quiz = Quiz.query.get_or_404(qid)
+    website = _live_website_for(quiz)
+    data = request.get_json() or {}
+    answers = data.get('answers')
+    if not isinstance(answers, dict):
+        answers = {}
+    try:
+        node_id = int(data.get('guide_node_id')) if data.get('guide_node_id') not in (None, '', 0) else None
+    except (ValueError, TypeError):
+        node_id = None
+
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    rec = QuizDraft.query.filter_by(quiz_id=quiz.id, visitor_id_hash=visitor_hash).first()
+    if rec:
+        rec.answers = answers
+        rec.updated_at = now
+        rec.guide_node_id = node_id
+        if public_user and not rec.public_user_id:
+            rec.public_user_id = public_user.id
+    else:
+        db.session.add(QuizDraft(
+            quiz_id=quiz.id, website_id=website.id, guide_node_id=node_id,
+            public_user_id=public_user.id if public_user else None,
+            visitor_id_hash=visitor_hash, answers=answers, updated_at=now))
+    db.session.commit()
+    resp = _utf8_json({'success': True})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+def _clear_quiz_draft(quiz_id, public_user, visitor_hash):
+    """Drop saved drafts for this quiz + identity once it's submitted."""
+    q = QuizDraft.query.filter(QuizDraft.quiz_id == quiz_id)
+    if public_user:
+        q = q.filter(db.or_(QuizDraft.public_user_id == public_user.id,
+                            QuizDraft.visitor_id_hash == visitor_hash))
+    else:
+        q = q.filter(QuizDraft.visitor_id_hash == visitor_hash)
+    q.delete(synchronize_session=False)
 
 
 # Match `data-quiz-id="123"` (single or double quoted) in a lesson's HTML body.
@@ -30340,6 +30459,9 @@ def public_quiz_submit(qid):
         quiz_id=quiz.id, website_id=website.id, guide_node_id=node_id,
         public_user_id=public_user.id if public_user else None,
         visitor_id_hash=visitor_hash, score=score, max_score=max_score, answers=submitted))
+    # The attempt is now the record of these answers — discard the in-progress
+    # draft so a later visit starts fresh (or from a new draft).
+    _clear_quiz_draft(quiz.id, public_user, visitor_hash)
     db.session.commit()
 
     # If this quiz is embedded in a lesson, see whether the lesson is now done.
@@ -30439,6 +30561,183 @@ def public_guide_progress_get(gid):
     resp = _utf8_json({'success': True, 'tracking': True,
                        **_guide_progress_summary(guide, public_user, visitor_hash)})
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Member directory + public profiles — logged-in public users browse each other
+# ════════════════════════════════════════════════════════════════════════════
+
+def _require_member_area(prefix):
+    """Gate the member directory / profiles: site must be live with public
+    accounts on, and the viewer must be a logged-in public user. Returns
+    (website, viewer, None) on success or (None, None, response) to short-circuit."""
+    website = get_live_website(url_prefix=prefix) if prefix else get_live_website()
+    if not website:
+        return None, None, (render_template('no_site_found.html'), 404)
+    if not website.is_live:
+        return None, None, (render_template('site_offline.html', website=website), 503)
+    if not website_uses_public_accounts(website):
+        return None, None, ('Member profiles are not available for this site.', 404)
+    viewer = _public_user_for_website(website)
+    if not viewer:
+        kwargs = {'next': request.path}
+        if website.url_prefix:
+            kwargs['website_prefix'] = website.url_prefix
+        return None, None, redirect(url_for('public_login', **kwargs))
+    return website, viewer, None
+
+
+def _members_base_url(website):
+    return url_for('public_members', prefix=website.url_prefix or None)
+
+
+def _member_profile_url(website, user_id):
+    return url_for('public_member_profile', user_id=user_id, prefix=website.url_prefix or None)
+
+
+def _can_view_member_profile(viewer, target):
+    """A profile is viewable when it's opted-in, or the viewer is the owner or
+    a staff/admin mirror (so moderators can always look)."""
+    if target.profile_visible:
+        return True
+    if viewer and viewer.id == target.id:
+        return True
+    return bool(viewer and viewer.is_admin_mirror)
+
+
+def _member_forum_activity(target_user, website, q=None, limit=100):
+    """Combined list of a user's forum threads + replies (newest first),
+    optionally filtered by a search string. Hidden content is excluded."""
+    like = f'%{q.strip()}%' if (q and q.strip()) else None
+    tq = ForumThread.query.filter(ForumThread.website_id == website.id,
+                                  ForumThread.public_user_id == target_user.id,
+                                  ForumThread.is_hidden == False)
+    rq = ForumReply.query.join(ForumThread, ForumReply.thread_id == ForumThread.id).filter(
+        ForumReply.website_id == website.id,
+        ForumReply.public_user_id == target_user.id,
+        ForumReply.is_hidden == False,
+        ForumThread.is_hidden == False)
+    if like:
+        tq = tq.filter(db.or_(ForumThread.title.ilike(like), ForumThread.body.ilike(like)))
+        rq = rq.filter(ForumReply.body.ilike(like))
+    items = []
+    for t in tq.order_by(ForumThread.created_at.desc()).limit(limit).all():
+        items.append({'kind': 'thread', 'thread_id': t.id, 'title': t.title,
+                      'body': t.body, 'created_at': t.created_at,
+                      'votes': t.vote_count_cached or 0, 'replies': t.reply_count or 0})
+    for r in rq.order_by(ForumReply.created_at.desc()).limit(limit).all():
+        items.append({'kind': 'reply', 'thread_id': r.thread_id,
+                      'title': r.thread.title if r.thread else '(deleted thread)',
+                      'body': r.body, 'created_at': r.created_at,
+                      'votes': r.vote_count_cached or 0, 'replies': 0})
+    items.sort(key=lambda x: x['created_at'] or datetime.min, reverse=True)
+    return items[:limit]
+
+
+def _member_guide_progress(target_user, website):
+    """Every published guide this user has made progress on, with per-guide
+    completed/total counts. Completed guides sort first."""
+    rows = GuideProgress.query.filter(GuideProgress.website_id == website.id,
+                                      GuideProgress.public_user_id == target_user.id).all()
+    by_guide = {}
+    for r in rows:
+        slot = by_guide.setdefault(r.guide_id, {'viewed': set(), 'completed': set()})
+        slot['viewed'].add(r.guide_node_id)
+        if r.completed_at:
+            slot['completed'].add(r.guide_node_id)
+    out = []
+    for gid, data in by_guide.items():
+        guide = Guide.query.get(gid)
+        if not guide or guide.website_id != website.id or guide.status != 'published':
+            continue
+        lesson_ids = {n.id for n in _guide_reading_order(guide)}
+        if not (data['viewed'] & lesson_ids):
+            continue
+        total = len(lesson_ids)
+        completed = len(data['completed'] & lesson_ids)
+        out.append({'guide': guide, 'total': total, 'completed': completed,
+                    'percent': round(100 * completed / total) if total else 0,
+                    'is_done': total > 0 and completed >= total})
+    out.sort(key=lambda x: (not x['is_done'], -x['percent'], x['guide'].title.lower()))
+    return out
+
+
+@app.route('/members', defaults={'prefix': None})
+@app.route('/<string:prefix>/members')
+def public_members(prefix=None):
+    return _render_members_directory(prefix)
+
+
+def _render_members_directory(prefix):
+    website, viewer, short = _require_member_area(prefix)
+    if short is not None:
+        return short
+    q = (request.args.get('q') or '').strip()
+    query = PublicUser.query.filter(PublicUser.website_id == website.id,
+                                    PublicUser.is_banned == False,
+                                    PublicUser.is_active_public == True,
+                                    PublicUser.profile_visible == True)
+    if q:
+        like = f'%{q}%'
+        query = query.filter(db.or_(
+            PublicUser.display_username.ilike(like),
+            PublicUser.username.ilike(like),
+            PublicUser.first_name.ilike(like),
+            PublicUser.last_name.ilike(like)))
+    query = query.order_by(db.func.lower(db.func.coalesce(
+        PublicUser.display_username, PublicUser.username)).asc())
+    page = request.args.get('page', 1, type=int)
+    pagination = query.paginate(page=page, per_page=30, error_out=False)
+    return render_template('public_members.html', website=website, public_user=viewer,
+                           members=pagination.items, pagination=pagination, q=q,
+                           members_base=_members_base_url(website),
+                           profile_url=lambda u: _member_profile_url(website, u))
+
+
+@app.route('/members/<int:user_id>', defaults={'prefix': None})
+@app.route('/<string:prefix>/members/<int:user_id>')
+def public_member_profile(user_id, prefix=None):
+    return _render_member_profile(prefix, user_id)
+
+
+def _render_member_profile(prefix, user_id):
+    website, viewer, short = _require_member_area(prefix)
+    if short is not None:
+        return short
+    target = PublicUser.query.filter_by(id=user_id, website_id=website.id).first()
+    if not target or target.is_banned or not target.is_active_public:
+        abort(404)
+    if not _can_view_member_profile(viewer, target):
+        abort(404)
+
+    tab = request.args.get('tab', 'forum')
+    if tab not in ('forum', 'guides', 'roles'):
+        tab = 'forum'
+    q = (request.args.get('q') or '').strip()
+
+    thread_count = ForumThread.query.filter_by(website_id=website.id,
+        public_user_id=target.id, is_hidden=False).count()
+    reply_count = ForumReply.query.filter_by(website_id=website.id,
+        public_user_id=target.id, is_hidden=False).count()
+
+    forum_items = _member_forum_activity(target, website, q) if tab == 'forum' else None
+    guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
+    # Cheap counts for the tab labels (computed regardless of active tab).
+    guides_done = sum(1 for g in _member_guide_progress(target, website) if g['is_done'])
+
+    def _forum_thread_url(thread_id):
+        return (url_for('public_forum_thread', thread_id=thread_id, prefix=website.url_prefix)
+                if website.url_prefix else url_for('public_forum_thread', thread_id=thread_id))
+
+    return render_template('public_member_profile.html', website=website, public_user=viewer,
+                           target=target, tab=tab, q=q,
+                           thread_count=thread_count, reply_count=reply_count,
+                           post_count=thread_count + reply_count, guides_done=guides_done,
+                           forum_items=forum_items, guide_items=guide_items,
+                           is_self=(viewer.id == target.id),
+                           members_base=_members_base_url(website),
+                           forum_thread_url=_forum_thread_url,
+                           profile_base=_member_profile_url(website, target.id))
 
 
 @app.route('/admin/settings/profanity', methods=['POST'])

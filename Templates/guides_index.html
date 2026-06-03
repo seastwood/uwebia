@@ -40,6 +40,15 @@
 .gi-section-title i { font-size: 0.95em; }
 .gi-section-count { font-size: 0.72rem; font-weight: 700; opacity: 0.55; padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); }
 .gi-section-desc { opacity: 0.55; font-size: 0.88rem; margin: -8px 0 14px; }
+
+.gi-login-offer { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 32px; padding: 14px 18px; border-radius: 12px; border: 1px solid rgba(94,238,248,0.28); background: rgba(94,238,248,0.06); }
+.gi-login-offer-text { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; opacity: 0.92; margin: 0; flex: 1 1 240px; }
+.gi-login-offer-text i { color: #5eeec8; font-size: 1.1rem; }
+.gi-login-offer-actions { display: flex; gap: 9px; }
+.gi-login-offer-actions a { padding: 8px 16px; border-radius: 8px; font-size: 0.82rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.gi-login-offer-login { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.gi-login-offer-signup { border: 1px solid rgba(255,255,255,0.2); color: inherit; }
+.gi-login-offer-actions a:hover { opacity: 0.88; }
 </style>
 {% endblock %}
 
@@ -76,6 +85,18 @@
 <div class="gi-wrap">
     <h1 class="gi-heading">Guides</h1>
     <p class="gi-sub">Browse training modules and reference material.</p>
+
+    {% if guides and navbar_public_accounts_enabled and not navbar_public_user and (guides|selectattr('track_progress')|list) %}
+    {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
+    {% set _signup_url = url_for('public_register', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_register', next=request.path) %}
+    <div class="gi-login-offer">
+        <p class="gi-login-offer-text"><i class="fas fa-chart-line"></i> Log in to save your progress across devices.</p>
+        <div class="gi-login-offer-actions">
+            <a class="gi-login-offer-login" href="{{ _login_url }}">Log in</a>
+            <a class="gi-login-offer-signup" href="{{ _signup_url }}">Sign up</a>
+        </div>
+    </div>
+    {% endif %}
 
     {% if not guides %}
     <div class="gi-empty"><p>No guides published yet.</p></div>

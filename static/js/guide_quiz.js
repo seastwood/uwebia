@@ -68,10 +68,12 @@
         try { data = await (await fetch('/api/quizzes/' + quizId)).json(); }
         catch (e) { el.innerHTML = '<div class="uwq-err">Could not load quiz.</div>'; return; }
         if (!data || !data.success) { el.innerHTML = '<div class="uwq-err">Quiz unavailable.</div>'; return; }
-        renderQuiz(el, data.quiz);
+        // Pass any saved in-progress answers so the reader resumes where they
+        // left off. Only on first load — a Retake starts from a blank form.
+        renderQuiz(el, data.quiz, data.quiz.draft);
     }
 
-    function renderQuiz(el, quiz) {
+    function renderQuiz(el, quiz, draft) {
         let html = '<div class="uwq"><div class="uwq-head"><i class="fas fa-clipboard-check"></i><h3>' + esc(quiz.title) + '</h3></div>';
         if (quiz.description) html += '<p class="uwq-desc">' + esc(quiz.description) + '</p>';
         html += '<form class="uwq-form">';
@@ -91,7 +93,50 @@
         html += '<div class="uwq-actions"><button type="submit" class="uwq-submit">Submit</button><span class="uwq-score"></span></div>';
         html += '</form></div>';
         el.innerHTML = html;
-        el.querySelector('.uwq-form').addEventListener('submit', ev => { ev.preventDefault(); submit(el, quiz); });
+        const form = el.querySelector('.uwq-form');
+        form.addEventListener('submit', ev => { ev.preventDefault(); submit(el, quiz); });
+        if (draft) applyDraft(el, quiz, draft);
+        // Autosave the in-progress answers (debounced) so leaving the page
+        // mid-quiz doesn't lose work.
+        form.addEventListener('input', () => scheduleDraftSave(el, quiz));
+        form.addEventListener('change', () => scheduleDraftSave(el, quiz));
+    }
+
+    // Restore previously-saved answers onto a freshly rendered form.
+    function applyDraft(el, quiz, draft) {
+        (quiz.questions || []).forEach(q => {
+            if (!(q.id in draft)) return;
+            const val = draft[q.id];
+            const name = 'q' + q.id;
+            if (q.question_type === 'short_text') {
+                const inp = el.querySelector('input[name="' + name + '"]');
+                if (inp && val != null) inp.value = val;
+            } else if (q.question_type === 'multi_choice') {
+                const picked = Array.isArray(val) ? val.map(String) : [];
+                el.querySelectorAll('input[name="' + name + '"]').forEach(i => {
+                    i.checked = picked.indexOf(String(i.value)) >= 0;
+                });
+            } else {
+                el.querySelectorAll('input[name="' + name + '"]').forEach(i => {
+                    i.checked = String(i.value) === String(val);
+                });
+            }
+        });
+    }
+
+    function scheduleDraftSave(el, quiz) {
+        clearTimeout(el._uwqDraftTimer);
+        el._uwqDraftTimer = setTimeout(() => saveDraft(el, quiz), 700);
+    }
+
+    function saveDraft(el, quiz) {
+        // Best-effort: a failed autosave shouldn't disrupt taking the quiz.
+        try {
+            fetch('/api/quizzes/' + quiz.id + '/draft', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ answers: collect(el, quiz), guide_node_id: window.UW_GUIDE_NODE_ID || null })
+            });
+        } catch (e) { /* ignore */ }
     }
 
     function collect(el, quiz) {
@@ -112,6 +157,9 @@
     }
 
     async function submit(el, quiz) {
+        // Drop any queued autosave — the submit clears the draft server-side
+        // and a late save would resurrect it.
+        clearTimeout(el._uwqDraftTimer);
         const answers = collect(el, quiz);
         const btn = el.querySelector('.uwq-submit');
         btn.disabled = true; btn.textContent = 'Checking…';
