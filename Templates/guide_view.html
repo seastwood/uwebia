@@ -80,6 +80,17 @@
     .gv-sidebar.is-open .gv-sidebar-body { display: block; }
 }
 
+/* "Log in to save your progress" offer, shown to signed-out readers when the
+   site has public accounts and this guide tracks progress. */
+.gv-login-offer { margin: 0 0 16px; padding: 12px 14px; border-radius: 11px; border: 1px solid rgba(94,238,248,0.28); background: rgba(94,238,248,0.06); }
+.gv-login-offer-text { display: flex; gap: 8px; align-items: flex-start; font-size: 0.82rem; line-height: 1.4; opacity: 0.92; margin: 0 0 10px; }
+.gv-login-offer-text i { color: #5eeec8; margin-top: 2px; }
+.gv-login-offer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.gv-login-offer-actions a { flex: 1 1 auto; text-align: center; padding: 7px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.gv-login-offer-login { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.gv-login-offer-signup { border: 1px solid rgba(255,255,255,0.2); color: inherit; }
+.gv-login-offer-actions a:hover { opacity: 0.88; }
+
 /* Desktop: the header is purely decorative (progress bar). When the guide
    has no progress tracking, hide the empty header entirely. */
 @media (min-width: 821px) {
@@ -114,6 +125,17 @@
         <div class="gv-sidebar-body" id="gvSidebarBody">
             <a class="gv-back-link" href="{{ _base }}"><i class="fas fa-arrow-left"></i> All guides</a>
             <h2 class="gv-guide-title"><a href="{{ _base }}/{{ guide.slug }}">{{ guide.title }}</a></h2>
+            {% if guide.track_progress and navbar_public_accounts_enabled and not navbar_public_user %}
+            {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
+            {% set _signup_url = url_for('public_register', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_register', next=request.path) %}
+            <div class="gv-login-offer">
+                <p class="gv-login-offer-text"><i class="fas fa-chart-line"></i><span>Log in to save your progress across devices.</span></p>
+                <div class="gv-login-offer-actions">
+                    <a class="gv-login-offer-login" href="{{ _login_url }}">Log in</a>
+                    <a class="gv-login-offer-signup" href="{{ _signup_url }}">Sign up</a>
+                </div>
+            </div>
+            {% endif %}
             {% if toc %}
             {% macro render_toc(items) %}
             <ul class="gv-toc-list">

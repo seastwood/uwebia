@@ -2238,6 +2238,29 @@ class GuideProgress(db.Model):
                                            name='uq_guide_progress_node_visitor'),)
 
 
+class QuizDraft(db.Model):
+    """In-progress (unsubmitted) answers for a quiz, so a reader can leave and
+    resume without losing work. One row per quiz per device, dual-keyed like
+    QuizAttempt: visitor_id_hash always set; public_user_id stamped when logged
+    in so a draft can be resumed across that user's devices. Deleted once the
+    quiz is submitted."""
+    __tablename__ = 'quiz_draft'
+    id              = db.Column(db.Integer, primary_key=True)
+    quiz_id         = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    guide_node_id   = db.Column(db.Integer, db.ForeignKey('guide_node.id', ondelete='SET NULL'),
+                                nullable=True, index=True)
+    public_user_id  = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                                nullable=True, index=True)
+    visitor_id_hash = db.Column(db.String(64), nullable=False, index=True)
+    answers         = db.Column(db.JSON, nullable=True)  # {question_id: answer}
+    updated_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__  = (db.UniqueConstraint('quiz_id', 'visitor_id_hash',
+                                           name='uq_quiz_draft_quiz_visitor'),)
+
+
 class Newsletter(db.Model):
     __tablename__ = 'newsletter'
     id = db.Column(db.Integer, primary_key=True)
@@ -30240,17 +30263,90 @@ def _live_website_for(model_obj):
     return website
 
 
+def _quiz_draft_for(quiz_id, public_user, visitor_hash):
+    """The saved in-progress draft for this quiz and identity, or None.
+    Prefers a draft tied to the logged-in user (resumes across devices),
+    falling back to one keyed on the current device's visitor hash."""
+    if public_user:
+        rec = QuizDraft.query.filter_by(quiz_id=quiz_id, public_user_id=public_user.id) \
+            .order_by(QuizDraft.updated_at.desc()).first()
+        if rec:
+            return rec
+    if visitor_hash:
+        return QuizDraft.query.filter_by(quiz_id=quiz_id, visitor_id_hash=visitor_hash).first()
+    return None
+
+
 @app.route('/api/quizzes/<int:qid>')
 def public_quiz_get(qid):
     quiz = Quiz.query.get_or_404(qid)
-    _live_website_for(quiz)
+    website = _live_website_for(quiz)
     questions = [q.to_public_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
     if quiz.shuffle_questions:
         import random as _random
         _random.shuffle(questions)
-    return _utf8_json({'success': True, 'quiz': {
+
+    # Pre-fill any saved in-progress answers so the reader resumes where they
+    # left off. Resolving the visitor here (and setting the cookie) keeps the
+    # anonymous identity stable between load, autosave and submit.
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    draft = _quiz_draft_for(quiz.id, public_user, visitor_hash)
+
+    resp = _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
-        'questions': questions}})
+        'questions': questions,
+        'draft': (draft.answers or {}) if draft else None}})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+@app.route('/api/quizzes/<int:qid>/draft', methods=['POST'])
+def public_quiz_save_draft(qid):
+    """Autosave a reader's in-progress answers (debounced from the client) so
+    they can resume the quiz later. Upserts one row per quiz per identity."""
+    quiz = Quiz.query.get_or_404(qid)
+    website = _live_website_for(quiz)
+    data = request.get_json() or {}
+    answers = data.get('answers')
+    if not isinstance(answers, dict):
+        answers = {}
+    try:
+        node_id = int(data.get('guide_node_id')) if data.get('guide_node_id') not in (None, '', 0) else None
+    except (ValueError, TypeError):
+        node_id = None
+
+    public_user = _public_user_for_website(website)
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    rec = QuizDraft.query.filter_by(quiz_id=quiz.id, visitor_id_hash=visitor_hash).first()
+    if rec:
+        rec.answers = answers
+        rec.updated_at = now
+        rec.guide_node_id = node_id
+        if public_user and not rec.public_user_id:
+            rec.public_user_id = public_user.id
+    else:
+        db.session.add(QuizDraft(
+            quiz_id=quiz.id, website_id=website.id, guide_node_id=node_id,
+            public_user_id=public_user.id if public_user else None,
+            visitor_id_hash=visitor_hash, answers=answers, updated_at=now))
+    db.session.commit()
+    resp = _utf8_json({'success': True})
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
+
+
+def _clear_quiz_draft(quiz_id, public_user, visitor_hash):
+    """Drop saved drafts for this quiz + identity once it's submitted."""
+    q = QuizDraft.query.filter(QuizDraft.quiz_id == quiz_id)
+    if public_user:
+        q = q.filter(db.or_(QuizDraft.public_user_id == public_user.id,
+                            QuizDraft.visitor_id_hash == visitor_hash))
+    else:
+        q = q.filter(QuizDraft.visitor_id_hash == visitor_hash)
+    q.delete(synchronize_session=False)
 
 
 # Match `data-quiz-id="123"` (single or double quoted) in a lesson's HTML body.
@@ -30340,6 +30436,9 @@ def public_quiz_submit(qid):
         quiz_id=quiz.id, website_id=website.id, guide_node_id=node_id,
         public_user_id=public_user.id if public_user else None,
         visitor_id_hash=visitor_hash, score=score, max_score=max_score, answers=submitted))
+    # The attempt is now the record of these answers — discard the in-progress
+    # draft so a later visit starts fresh (or from a new draft).
+    _clear_quiz_draft(quiz.id, public_user, visitor_hash)
     db.session.commit()
 
     # If this quiz is embedded in a lesson, see whether the lesson is now done.
