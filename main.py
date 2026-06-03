@@ -2180,6 +2180,7 @@ class QuizQuestion(db.Model):
 
     def to_public_dict(self):
         """Public payload — STRIPS every hint of which answer is correct."""
+        import random as _random
         cfg = self._config()
         out = {
             'id': self.id,
@@ -2192,6 +2193,32 @@ class QuizQuestion(db.Model):
                 {'id': o.get('id'), 'text': o.get('text', '')}
                 for o in (cfg.get('options') or [])
             ]
+        elif self.question_type == 'image_choice':
+            out['multiple'] = bool(cfg.get('multiple'))
+            out['options'] = [
+                {'id': o.get('id'), 'image_url': o.get('image_url', ''),
+                 'caption': o.get('caption', '')}
+                for o in (cfg.get('options') or [])
+            ]
+        elif self.question_type == 'fill_blank':
+            # Prompt carries the ___ markers; the reader fills inputs in place.
+            out['blank_count'] = len(cfg.get('blanks') or [])
+        elif self.question_type == 'matching':
+            # Lefts (draggables) and rights (targets) are shuffled independently
+            # and the correct mapping is never sent to the client.
+            lefts = [{'id': p['left_id'], **_quiz_side_public(p.get('left'))}
+                     for p in (cfg.get('pairs') or [])]
+            rights = [{'id': p['right_id'], **_quiz_side_public(p.get('right'))}
+                      for p in (cfg.get('pairs') or [])]
+            _random.shuffle(lefts)
+            _random.shuffle(rights)
+            out['lefts'] = lefts
+            out['rights'] = rights
+        elif self.question_type == 'ordering':
+            items = [{'id': it['id'], **_quiz_side_public(it)}
+                     for it in (cfg.get('items') or [])]
+            _random.shuffle(items)
+            out['items'] = items
         # short_text exposes nothing beyond the prompt itself.
         return out
 
@@ -29987,11 +30014,40 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
 # Quizzes — reusable assessment assets (embed in lessons / sections)
 # ════════════════════════════════════════════════════════════════════════════
 
-_QUIZ_QUESTION_TYPES = ('single_choice', 'multi_choice', 'true_false', 'short_text')
+_QUIZ_QUESTION_TYPES = ('single_choice', 'multi_choice', 'true_false', 'short_text',
+                        'fill_blank', 'matching', 'ordering', 'image_choice')
 
 
-def _normalize_quiz_config(question_type, config):
+def _quiz_side_public(side):
+    """The client-safe representation of a matching/ordering cell (text or
+    image). Never carries correctness — pairing is decided server-side."""
+    side = side or {}
+    if side.get('kind') == 'image':
+        return {'kind': 'image', 'image_url': side.get('image_url', ''),
+                'text': side.get('text', '')}
+    return {'kind': 'text', 'text': side.get('text', '')}
+
+
+def _normalize_quiz_side(side):
+    """Validate one matching/ordering cell. Returns a clean dict or None.
+    A cell is either an image (image_url required, text is an optional caption)
+    or text (text required)."""
+    if not isinstance(side, dict):
+        return None
+    if side.get('kind') == 'image':
+        url = (side.get('image_url') or '').strip()
+        if not url:
+            return None
+        return {'kind': 'image', 'image_url': url, 'text': (side.get('text') or '').strip()}
+    text = (side.get('text') or '').strip()
+    if not text:
+        return None
+    return {'kind': 'text', 'text': text}
+
+
+def _normalize_quiz_config(question_type, config, prompt=''):
     """Validate + normalize one question's config JSON. Returns (config, error)."""
+    import random as _random
     config = config or {}
     if question_type in ('single_choice', 'multi_choice', 'true_false'):
         options = []
@@ -30014,6 +30070,78 @@ def _normalize_quiz_config(question_type, config):
         if question_type == 'multi_choice' and correct_count < 1:
             return None, 'Mark at least one option correct.'
         return {'options': options}, None
+
+    if question_type == 'image_choice':
+        options = []
+        for i, o in enumerate(config.get('options') or []):
+            url = (o.get('image_url') or '').strip()
+            if not url:
+                continue
+            options.append({
+                'id': i + 1,
+                'image_url': url,
+                'caption': (o.get('caption') or '').strip(),
+                'correct': bool(o.get('correct')),
+            })
+        if len(options) < 2:
+            return None, 'Add at least two image options.'
+        multiple = bool(config.get('multiple'))
+        correct_count = sum(1 for o in options if o['correct'])
+        if not multiple and correct_count != 1:
+            return None, 'Pick exactly one correct image.'
+        if multiple and correct_count < 1:
+            return None, 'Mark at least one correct image.'
+        return {'multiple': multiple, 'options': options}, None
+
+    if question_type == 'fill_blank':
+        import re as _re
+        n_blanks = len(_re.findall(r'_{3,}', prompt or ''))
+        if n_blanks < 1:
+            return None, 'Mark at least one blank by typing 3+ underscores (___) in the prompt.'
+        raw = config.get('blanks') or []
+        blanks = []
+        for i in range(n_blanks):
+            b = raw[i] if i < len(raw) else {}
+            accepted = [a.strip() for a in (b.get('accepted') or []) if a and a.strip()]
+            if not accepted:
+                return None, f'Blank {i + 1} needs at least one accepted answer.'
+            blanks.append({'accepted': accepted, 'case_sensitive': bool(b.get('case_sensitive'))})
+        return {'blanks': blanks}, None
+
+    if question_type == 'matching':
+        pairs = []
+        for p in (config.get('pairs') or []):
+            left = _normalize_quiz_side((p or {}).get('left'))
+            right = _normalize_quiz_side((p or {}).get('right'))
+            if left and right:
+                pairs.append({'left': left, 'right': right})
+        if len(pairs) < 2:
+            return None, 'Add at least two complete pairs (each with an item and a match).'
+        # Stable ids; right ids are a shuffled permutation so the correct
+        # mapping is never just "match equal ids".
+        right_ids = list(range(1, len(pairs) + 1))
+        _random.shuffle(right_ids)
+        for i, p in enumerate(pairs):
+            p['left_id'] = i + 1
+            p['right_id'] = right_ids[i]
+        return {'pairs': pairs}, None
+
+    if question_type == 'ordering':
+        items = []
+        for it in (config.get('items') or []):
+            cell = _normalize_quiz_side(it)
+            if cell:
+                items.append(cell)
+        if len(items) < 2:
+            return None, 'Add at least two items to put in order.'
+        # Items are stored in the correct order; give them shuffled stable ids
+        # so id order doesn't leak the answer. answer_order is the key.
+        ids = list(range(1, len(items) + 1))
+        _random.shuffle(ids)
+        for i, it in enumerate(items):
+            it['id'] = ids[i]
+        return {'items': items, 'answer_order': [it['id'] for it in items]}, None
+
     # short_text
     accepted = [a.strip() for a in (config.get('accepted') or []) if a and a.strip()]
     if not accepted:
@@ -30161,7 +30289,7 @@ def admin_quiz_question_save(qid):
     prompt = (data.get('prompt') or '').strip()
     if not prompt:
         return _utf8_json({'success': False, 'error': 'Question prompt is required'}, 400)
-    cfg, err = _normalize_quiz_config(qtype, data.get('config'))
+    cfg, err = _normalize_quiz_config(qtype, data.get('config'), prompt)
     if err:
         return _utf8_json({'success': False, 'error': err}, 400)
     try:
@@ -30235,7 +30363,8 @@ def _grade_quiz(quiz, submitted):
         ans = submitted.get(str(q.id), submitted.get(q.id))
         detail = {'question_id': q.id}
         correct = False
-        if q.question_type in ('single_choice', 'true_false'):
+        earned = None  # set explicitly only for partial-credit types
+        if q.question_type in ('single_choice', 'true_false', 'image_choice') and not cfg.get('multiple'):
             correct_ids = [o['id'] for o in cfg.get('options', []) if o.get('correct')]
             try:
                 sel = int(ans) if ans not in (None, '') else None
@@ -30243,7 +30372,7 @@ def _grade_quiz(quiz, submitted):
                 sel = None
             correct = sel is not None and sel in correct_ids
             detail['correct_option_ids'] = correct_ids
-        elif q.question_type == 'multi_choice':
+        elif q.question_type == 'multi_choice' or (q.question_type == 'image_choice' and cfg.get('multiple')):
             correct_ids = set(o['id'] for o in cfg.get('options', []) if o.get('correct'))
             try:
                 sel = set(int(x) for x in (ans or []))
@@ -30251,6 +30380,50 @@ def _grade_quiz(quiz, submitted):
                 sel = set()
             correct = bool(correct_ids) and sel == correct_ids
             detail['correct_option_ids'] = list(correct_ids)
+        elif q.question_type == 'fill_blank':
+            # Partial credit: each blank scores independently.
+            blanks = cfg.get('blanks', [])
+            answers = ans if isinstance(ans, list) else []
+            per_blank = []
+            got = 0
+            for i, b in enumerate(blanks):
+                raw = answers[i] if i < len(answers) else ''
+                val = raw.strip() if isinstance(raw, str) else ''
+                cs = b.get('case_sensitive')
+                needle = val if cs else val.lower()
+                haystack = b.get('accepted', []) if cs else [a.lower() for a in b.get('accepted', [])]
+                ok = needle != '' and needle in haystack
+                per_blank.append(ok)
+                if ok:
+                    got += 1
+            total = len(blanks)
+            earned = round(q.points * got / total) if total else 0
+            correct = total > 0 and got == total
+            detail['blank_results'] = per_blank
+            detail['blank_accepted'] = [b.get('accepted', []) for b in blanks]
+        elif q.question_type == 'matching':
+            pairs = cfg.get('pairs', [])
+            sub = ans if isinstance(ans, dict) else {}
+            all_ok = bool(pairs)
+            for p in pairs:
+                chosen = sub.get(str(p['left_id']), sub.get(p['left_id']))
+                try:
+                    chosen = int(chosen)
+                except (TypeError, ValueError):
+                    chosen = None
+                if chosen != p['right_id']:
+                    all_ok = False
+            correct = all_ok
+            detail['correct_pairs'] = {str(p['left_id']): p['right_id'] for p in pairs}
+        elif q.question_type == 'ordering':
+            order = cfg.get('answer_order', [])
+            sub = ans if isinstance(ans, list) else []
+            try:
+                sub_ids = [int(x) for x in sub]
+            except (TypeError, ValueError):
+                sub_ids = []
+            correct = bool(order) and sub_ids == order
+            detail['answer_order'] = order
         else:  # short_text
             accepted = cfg.get('accepted', [])
             cs = cfg.get('case_sensitive')
@@ -30259,8 +30432,10 @@ def _grade_quiz(quiz, submitted):
             haystack = accepted if cs else [a.lower() for a in accepted]
             correct = needle != '' and needle in haystack
             detail['accepted'] = accepted
-        if correct:
-            score += q.points
+        if earned is None:
+            earned = q.points if correct else 0
+        score += earned
+        detail['earned'] = earned
         detail['correct'] = correct
         results.append(detail)
     return score, max_score, results
@@ -30392,11 +30567,18 @@ def _quiz_passed(quiz, score, max_score):
     return (score / max_score) >= thresh
 
 
+# Result keys safe to return on a failing attempt: they convey right/wrong
+# (and partial progress) without revealing the actual answers. Everything else
+# (correct_option_ids, accepted, blank_accepted, correct_pairs, answer_order)
+# is withheld until the reader passes.
+_SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results'}
+
+
 def _strip_answers_from_results(results):
-    """When a reader hasn't passed, the per-question right/wrong flag stays
-    (so they know which they got wrong) but the actual correct answers are
-    removed — no `correct_option_ids`, no `accepted` short-text list."""
-    return [{'question_id': r['question_id'], 'correct': r['correct']} for r in results]
+    """When a reader hasn't passed, keep only the non-revealing feedback (which
+    questions/blanks were right, and partial credit earned) and drop anything
+    that would disclose the correct answer."""
+    return [{k: v for k, v in r.items() if k in _SAFE_RESULT_KEYS} for r in results]
 
 
 def _mark_lesson_complete_if_passed(node, public_user, visitor_hash):
