@@ -1,0 +1,133 @@
+{% extends 'public_base.html' %}
+
+{% block title %}{{ target.effective_display_name }} — {{ website.name if website else 'Member' }}{% endblock %}
+
+{% block head %}
+<style>
+.mp-wrap { max-width: 820px; margin: 0 auto; padding: 36px 20px 80px; }
+.mp-back { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; opacity: 0.6; text-decoration: none; color: inherit; margin-bottom: 20px; }
+.mp-back:hover { opacity: 1; }
+.mp-head { display: flex; align-items: center; gap: 18px; margin-bottom: 8px; }
+.mp-avatar { flex-shrink: 0; width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.9rem; background: linear-gradient(135deg, rgba(94,238,248,0.32), rgba(94,238,200,0.24)); color: #d8fbff; }
+.mp-name { font-size: 1.7rem; font-weight: 800; margin: 0; }
+.mp-meta { opacity: 0.55; font-size: 0.85rem; margin: 4px 0 0; }
+.mp-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.mp-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
+.mp-badge-staff { background: rgba(123,47,247,0.15); color: #c79aff; border: 1px solid rgba(123,47,247,0.4); }
+.mp-self-note { font-size: 0.78rem; opacity: 0.5; margin: 14px 0 0; }
+.mp-tabs { display: flex; gap: 4px; margin: 26px 0 0; border-bottom: 1px solid rgba(255,255,255,0.12); }
+.mp-tab { padding: 11px 16px; font-size: 0.9rem; font-weight: 700; text-decoration: none; color: inherit; opacity: 0.55; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.mp-tab:hover { opacity: 0.85; }
+.mp-tab.is-active { opacity: 1; border-bottom-color: #5eeec8; color: #aef7e8; }
+.mp-tab-count { font-size: 0.72rem; opacity: 0.7; }
+.mp-panel { padding: 24px 0 0; }
+.mp-search { display: flex; gap: 10px; margin: 0 0 20px; }
+.mp-search input { flex: 1; padding: 10px 13px; border-radius: 9px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: inherit; font-size: 0.92rem; outline: none; }
+.mp-search input:focus { border-color: rgba(94,238,248,0.5); }
+.mp-search button { padding: 10px 16px; border-radius: 9px; border: none; cursor: pointer; font-weight: 700; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.mp-item { display: block; padding: 14px 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.1); background: rgba(20,20,30,0.55); text-decoration: none; color: inherit; margin-bottom: 10px; }
+.mp-item:hover { border-color: rgba(94,238,248,0.4); }
+.mp-item-kind { display: inline-block; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 7px; border-radius: 5px; background: rgba(94,238,248,0.16); color: #5eeef8; margin-right: 8px; vertical-align: middle; }
+.mp-item-title { font-weight: 700; font-size: 0.96rem; }
+.mp-item-body { opacity: 0.62; font-size: 0.85rem; line-height: 1.5; margin: 6px 0 0; }
+.mp-item-meta { opacity: 0.4; font-size: 0.74rem; margin: 8px 0 0; display: flex; gap: 14px; }
+.mp-guide { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.1); background: rgba(20,20,30,0.55); text-decoration: none; color: inherit; margin-bottom: 10px; }
+.mp-guide:hover { border-color: rgba(94,238,248,0.4); }
+.mp-guide-body { flex: 1; min-width: 0; }
+.mp-guide-title { font-weight: 700; font-size: 0.95rem; }
+.mp-guide-bar { height: 7px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden; margin-top: 8px; }
+.mp-guide-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
+.mp-guide-label { font-size: 0.75rem; opacity: 0.65; font-weight: 600; white-space: nowrap; }
+.mp-guide-done { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 99px; background: rgba(94,238,200,0.18); color: #5eeec8; white-space: nowrap; }
+.mp-empty { opacity: 0.45; text-align: center; padding: 48px 20px; }
+.mp-roles-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.mp-role-chip { padding: 8px 14px; border-radius: 9px; font-weight: 700; font-size: 0.9rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set _gbase = ('/' + website.url_prefix + '/guides/') if website.url_prefix else '/guides/' %}
+<div class="mp-wrap">
+    <a class="mp-back" href="{{ members_base }}"><i class="fas fa-arrow-left"></i> All members</a>
+
+    <div class="mp-head">
+        <div class="mp-avatar">{{ (target.effective_display_name or '?')[0]|upper }}</div>
+        <div>
+            <h1 class="mp-name">{{ target.effective_display_name }}</h1>
+            <p class="mp-meta">Member since {{ target.created_at.strftime('%b %d, %Y') if target.created_at else '—' }} · {{ post_count }} forum post{{ '' if post_count == 1 else 's' }}</p>
+            {% if target.staff_badge_label or target.roles %}
+            <div class="mp-badges">
+                {% if target.staff_badge_label %}<span class="mp-badge mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
+                {% for role in target.roles %}<span class="mp-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% if is_self and not target.profile_visible %}
+    <p class="mp-self-note"><i class="fas fa-lock"></i> Your profile is hidden from other members. Only you can see this page.</p>
+    {% endif %}
+
+    <div class="mp-tabs">
+        <a class="mp-tab {% if tab == 'forum' %}is-active{% endif %}" href="{{ profile_base }}?tab=forum">Forum posts <span class="mp-tab-count">{{ post_count }}</span></a>
+        <a class="mp-tab {% if tab == 'guides' %}is-active{% endif %}" href="{{ profile_base }}?tab=guides">Guides <span class="mp-tab-count">{{ guides_done }}</span></a>
+        <a class="mp-tab {% if tab == 'roles' %}is-active{% endif %}" href="{{ profile_base }}?tab=roles">Roles <span class="mp-tab-count">{{ target.roles|length + (1 if target.staff_badge_label else 0) }}</span></a>
+    </div>
+
+    <div class="mp-panel">
+        {% if tab == 'forum' %}
+        <form class="mp-search" method="GET" action="{{ profile_base }}">
+            <input type="hidden" name="tab" value="forum">
+            <input type="text" name="q" value="{{ q }}" placeholder="Search this member’s posts…" autocomplete="off">
+            <button type="submit">Search</button>
+        </form>
+        {% if not forum_items %}
+        <div class="mp-empty"><p>{% if q %}No posts match “{{ q }}”.{% else %}No forum activity yet.{% endif %}</p></div>
+        {% else %}
+        {% for it in forum_items %}
+        <a class="mp-item" href="{{ forum_thread_url(it.thread_id) }}">
+            <div>
+                <span class="mp-item-kind">{{ 'Thread' if it.kind == 'thread' else 'Reply' }}</span>
+                <span class="mp-item-title">{{ it.title }}</span>
+            </div>
+            <p class="mp-item-body">{{ it.body|striptags|truncate(180) }}</p>
+            <div class="mp-item-meta">
+                <span>{{ it.created_at.strftime('%b %d, %Y') if it.created_at else '' }}</span>
+                <span><i class="fas fa-arrow-up"></i> {{ it.votes }}</span>
+                {% if it.kind == 'thread' %}<span><i class="fas fa-comment"></i> {{ it.replies }}</span>{% endif %}
+            </div>
+        </a>
+        {% endfor %}
+        {% endif %}
+
+        {% elif tab == 'guides' %}
+        {% if not guide_items %}
+        <div class="mp-empty"><p>No guide progress yet.</p></div>
+        {% else %}
+        {% for g in guide_items %}
+        <a class="mp-guide" href="{{ _gbase }}{{ g.guide.slug }}">
+            <div class="mp-guide-body">
+                <div class="mp-guide-title">{{ g.guide.title }}</div>
+                <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ g.percent }}%;"></div></div>
+            </div>
+            {% if g.is_done %}
+            <span class="mp-guide-done"><i class="fas fa-check"></i> Completed</span>
+            {% else %}
+            <span class="mp-guide-label">{{ g.completed }}/{{ g.total }} · {{ g.percent }}%</span>
+            {% endif %}
+        </a>
+        {% endfor %}
+        {% endif %}
+
+        {% elif tab == 'roles' %}
+        {% if not target.roles and not target.staff_badge_label %}
+        <div class="mp-empty"><p>No roles assigned.</p></div>
+        {% else %}
+        <div class="mp-roles-grid">
+            {% if target.staff_badge_label %}<span class="mp-role-chip mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
+            {% for role in target.roles %}<span class="mp-role-chip" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

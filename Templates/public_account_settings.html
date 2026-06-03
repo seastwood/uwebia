@@ -267,6 +267,18 @@
     </div>
 
     <div class="settings-card">
+        <h2>Profile Privacy</h2>
+        <div class="settings-row">
+            <div class="settings-row-text">
+                <p class="settings-row-label">Show my profile to other members</p>
+                <p class="settings-row-help">When off, you're hidden from the member directory and your profile page is private to you.</p>
+            </div>
+            <div class="tog-track{% if public_user.profile_visible %} on{% endif %}"
+                 id="profVisTog" onclick="toggleProfileVisibility()"></div>
+        </div>
+    </div>
+
+    <div class="settings-card">
         <h2>Change Password</h2>
         <form method="POST" action="{{ url_for('public_account_change_password', prefix=website.url_prefix or none) }}">
             <div class="pw-field">
@@ -368,6 +380,19 @@ function pwToggle(btn) {
     var showing = input.type === 'text';
     input.type = showing ? 'password' : 'text';
     btn.querySelector('i').className = showing ? 'fas fa-eye' : 'fas fa-eye-slash';
+}
+
+function toggleProfileVisibility() {
+    var tog = document.getElementById('profVisTog');
+    var next = !tog.classList.contains('on');
+    tog.classList.toggle('on', next);  // optimistic
+    fetch("{{ url_for('public_account_set_profile_visibility', prefix=website.url_prefix or none) }}", {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visible: next })
+    }).then(r => r.json()).then(j => {
+        if (!j || !j.success) { tog.classList.toggle('on', !next); return; }
+        tog.classList.toggle('on', !!j.profile_visible);
+    }).catch(() => { tog.classList.toggle('on', !next); });
 }
 
 var _2faEnabled = {{ 'true' if public_user.two_factor_enabled else 'false' }};

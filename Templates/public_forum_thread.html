@@ -327,7 +327,7 @@
 
         <div class="forum-meta">
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
-                <span>Posted by {{ thread.author.effective_display_name if thread.author else 'Guest' }}</span>
+                <span>Posted by {% if thread.author and thread.author.profile_visible and navbar_public_user %}<a href="{{ url_for('public_member_profile', user_id=thread.author.id, prefix=website.url_prefix or none) }}" style="color:inherit;text-decoration:underline;text-underline-offset:2px;">{{ thread.author.effective_display_name }}</a>{% else %}{{ thread.author.effective_display_name if thread.author else 'Guest' }}{% endif %}</span>
                 {% if thread.author and thread.author.staff_badge_label %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Staff">{{ thread.author.staff_badge_label }}</span>{% endif %}
                 {% if thread.author %}{% for role in thread.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
             </div>
@@ -354,7 +354,7 @@
         <div class="forum-reply-main">
             <div class="forum-meta">
                 <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
-                    <span>{{ reply.author.effective_display_name if reply.author else 'Guest' }}</span>
+                    <span>{% if reply.author and reply.author.profile_visible and navbar_public_user %}<a href="{{ url_for('public_member_profile', user_id=reply.author.id, prefix=website.url_prefix or none) }}" style="color:inherit;text-decoration:underline;text-underline-offset:2px;">{{ reply.author.effective_display_name }}</a>{% else %}{{ reply.author.effective_display_name if reply.author else 'Guest' }}{% endif %}</span>
                     {% if reply.author and reply.author.staff_badge_label %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Staff">{{ reply.author.staff_badge_label }}</span>{% endif %}
                     {% if reply.author %}{% for role in reply.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
                 </div>

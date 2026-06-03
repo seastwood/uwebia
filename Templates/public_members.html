@@ -1,0 +1,70 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Members — {{ website.name if website else 'Members' }}{% endblock %}
+
+{% block head %}
+<style>
+.mb-wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+.mb-heading { font-size: 2rem; font-weight: 800; margin: 0 0 6px; }
+.mb-sub { opacity: 0.55; font-size: 0.95rem; margin: 0 0 26px; }
+.mb-search { display: flex; gap: 10px; margin: 0 0 26px; }
+.mb-search input { flex: 1; padding: 11px 14px; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: inherit; font-size: 0.95rem; outline: none; }
+.mb-search input:focus { border-color: rgba(94,238,248,0.5); }
+.mb-search button { padding: 11px 18px; border-radius: 10px; border: none; cursor: pointer; font-weight: 700; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.mb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.mb-card { display: flex; align-items: center; gap: 13px; padding: 14px 16px; border-radius: 13px; border: 1px solid rgba(255,255,255,0.1); background: rgba(20,20,30,0.6); text-decoration: none; color: inherit; transition: transform 0.15s, border-color 0.15s; }
+.mb-card:hover { transform: translateY(-2px); border-color: rgba(94,238,248,0.4); }
+.mb-avatar { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; background: linear-gradient(135deg, rgba(94,238,248,0.3), rgba(94,238,200,0.22)); color: #d8fbff; }
+.mb-card-body { min-width: 0; }
+.mb-name { font-weight: 700; font-size: 0.98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mb-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mb-badge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 5px; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.02em; }
+.mb-badge-staff { background: rgba(123,47,247,0.15); color: #c79aff; border: 1px solid rgba(123,47,247,0.4); }
+.mb-empty { opacity: 0.45; text-align: center; padding: 70px 20px; }
+.mb-pager { display: flex; justify-content: center; gap: 10px; margin-top: 30px; }
+.mb-pager a { padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); text-decoration: none; color: inherit; font-size: 0.85rem; }
+.mb-pager a:hover { background: rgba(255,255,255,0.06); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-wrap">
+    <h1 class="mb-heading">Members</h1>
+    <p class="mb-sub">Browse the people on this site.</p>
+
+    <form class="mb-search" method="GET" action="{{ members_base }}">
+        <input type="text" name="q" value="{{ q }}" placeholder="Search members by name…" autocomplete="off">
+        <button type="submit">Search</button>
+    </form>
+
+    {% if not members %}
+    <div class="mb-empty">
+        <p>{% if q %}No members match “{{ q }}”.{% else %}No members to show yet.{% endif %}</p>
+    </div>
+    {% else %}
+    <div class="mb-grid">
+        {% for m in members %}
+        <a class="mb-card" href="{{ profile_url(m.id) }}">
+            <div class="mb-avatar">{{ (m.effective_display_name or '?')[0]|upper }}</div>
+            <div class="mb-card-body">
+                <div class="mb-name">{{ m.effective_display_name }}</div>
+                {% if m.staff_badge_label or m.roles %}
+                <div class="mb-badges">
+                    {% if m.staff_badge_label %}<span class="mb-badge mb-badge-staff">{{ m.staff_badge_label }}</span>{% endif %}
+                    {% for role in m.roles %}<span class="mb-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+    {% if pagination and (pagination.has_prev or pagination.has_next) %}
+    <div class="mb-pager">
+        {% if pagination.has_prev %}<a href="{{ members_base }}?page={{ pagination.prev_num }}{% if q %}&q={{ q }}{% endif %}">← Previous</a>{% endif %}
+        {% if pagination.has_next %}<a href="{{ members_base }}?page={{ pagination.next_num }}{% if q %}&q={{ q }}{% endif %}">Next →</a>{% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}
