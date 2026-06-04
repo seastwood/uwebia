@@ -6814,9 +6814,12 @@ def login(admin_key=None):
 
             if needs_2fa:
                 # If a code was already sent within the last 30 seconds (e.g.
-                # from a double-click or back-button resubmit), skip generating
-                # and emailing a new one — just redirect to the waiting page.
-                if _2fa_recently_sent(user.id):
+                # from a double-click or back-button resubmit) AND this session
+                # still holds that pending code, skip generating and emailing a
+                # new one. We must NOT skip when the session has no pending code
+                # (cross-session cooldown), or the waiting page would have
+                # nothing to validate.
+                if _session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id):
                     session['pre_2fa_user_id'] = user.id
                     session['pre_2fa_admin_key'] = admin_key
                     return redirect(
@@ -7432,6 +7435,21 @@ def _2fa_recently_sent(user_id, cooldown_seconds=30):
         return False
     elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - user.two_factor_last_sent_at).total_seconds()
     return elapsed < cooldown_seconds
+
+
+def _session_has_pending_2fa(user_id):
+    """True when THIS session already holds a pending 2FA code for the user.
+
+    The `_2fa_recently_sent` cooldown is DB-backed (per-user, cross-session),
+    so on its own it can report "a code was just sent" for a session that
+    actually has nothing to validate — e.g. the code was sent in another
+    tab/session, or a prior failed attempt cleared it. Skipping a fresh send
+    in that case leaves the 2FA page with no pending code and the first login
+    fails with "No matching verification code is pending." Pair this check
+    with the cooldown so a send is only skipped when this session can already
+    validate the existing code."""
+    return (session.get('pending_2fa_user_id') == user_id
+            and bool(session.get('pending_2fa_code_hash')))
 
 
 def get_pending_two_factor_error(user_id, purpose):
@@ -21580,9 +21598,13 @@ def public_login():
                     # /admin/login.
                     session.pop('pre_2fa_admin_key', None)
 
-                    # Suppress resends when a code was just sent (matches the
-                    # admin login behavior on double-submit).
-                    if not _2fa_recently_sent(admin.id):
+                    # Suppress resends only when this session already holds the
+                    # pending code (double-submit). The cooldown alone is
+                    # DB-backed and cross-session, so skipping on it without a
+                    # session code leaves /2fa/admin with nothing to validate —
+                    # the cause of the "No matching verification code is
+                    # pending" first-attempt failure.
+                    if not (_session_has_pending_2fa(admin.id) and _2fa_recently_sent(admin.id)):
                         code = generate_two_factor_code()
                         set_pending_two_factor_code(admin.id, code, 'login')
                         try:
