@@ -206,14 +206,19 @@
                     <label for="guideModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
                     <textarea id="guideModalDesc" rows="3" placeholder="What this guide covers"></textarea>
                 </div>
-                <div class="uw-field" id="guideModalExtraFields" style="display:none;">
-                    <label style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Category</label>
-                    <select id="guideModalCategory" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.92rem;outline:none;margin-bottom:14px;">
-                        <option value="">— Uncategorized —</option>
+                <div class="uw-field" id="guideModalCategoryField">
+                    <label for="guideModalCategory" style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Category</label>
+                    <select id="guideModalCategory" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.92rem;outline:none;">
+                        <option value="" {% if guides_restricted %}disabled{% endif %}>— Uncategorized —</option>
                         {% for c in (categories or []) %}
-                        <option value="{{ c.id }}">{{ c.name }}</option>
+                        <option value="{{ c.id }}"{% if guides_restricted and c.id not in accessible_category_ids %} disabled{% endif %}>{{ c.name }}{% if guides_restricted and c.id not in accessible_category_ids %} — no access{% endif %}</option>
                         {% endfor %}
                     </select>
+                    {% if guides_restricted %}
+                    <p style="font-size:0.76rem;color:rgba(255,255,255,0.4);margin:6px 0 0;">You can only create guides in categories you have access to.</p>
+                    {% endif %}
+                </div>
+                <div class="uw-field" id="guideModalExtraFields" style="display:none;">
                     <label style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Cover image</label>
                     <div id="guideModalCoverPreview" style="display:none;margin-bottom:8px;">
                         <img id="guideModalCoverImg" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;display:block;">
@@ -237,6 +242,7 @@
                     </label>
                 </div>
             </div>
+            <div id="guideModalError" role="alert" style="display:none;color:#ff6b6b;font-size:0.85rem;padding:0 20px 4px;"></div>
             <div class="uw-modal-footer">
                 <button type="button" class="uw-btn uw-btn-secondary" onclick="closeGuideModal()">Cancel</button>
                 <button type="submit" class="uw-btn uw-btn-primary" id="guideModalSubmitBtn">Create</button>
@@ -444,11 +450,24 @@ function gpRenderPicker(folders, assets, folderId, folder) {
 }
 function gpPickCover(url) { _gpSetCover(url); gpClosePicker(); }
 
+function _setGuideModalError(msg) {
+    const el = document.getElementById('guideModalError');
+    if (!el) return;
+    if (msg) { el.textContent = msg; el.style.display = 'block'; }
+    else { el.textContent = ''; el.style.display = 'none'; }
+}
+
 function openGuideModal() {
     document.getElementById('guideModalId').value = '';
     document.getElementById('guideModalTitleInput').value = '';
     document.getElementById('guideModalDesc').value = '';
     document.getElementById('guideModalExtraFields').style.display = 'none';
+    // Category is chosen on create too; default to the first selectable option
+    // (restricted admins can't pick Uncategorized or a locked category).
+    const sel = document.getElementById('guideModalCategory');
+    const firstEnabled = Array.from(sel.options).find(o => !o.disabled);
+    sel.value = firstEnabled ? firstEnabled.value : '';
+    _setGuideModalError('');
     document.getElementById('guideModalTitle').textContent = 'New Guide';
     document.getElementById('guideModalSubmitBtn').textContent = 'Create';
     document.getElementById('guideModalOverlay').style.display = 'flex';
@@ -463,6 +482,7 @@ function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, c
     document.getElementById('guideModalTrackProgress').checked = !!trackProgress;
     document.getElementById('guideModalCategory').value = categoryId ? String(categoryId) : '';
     _gpSetCover(coverUrl || '');
+    _setGuideModalError('');
     document.getElementById('guideModalExtraFields').style.display = 'block';
     document.getElementById('guideModalTitle').textContent = 'Guide Settings';
     document.getElementById('guideModalSubmitBtn').textContent = 'Save';
@@ -480,6 +500,7 @@ async function submitGuideModal(e) {
     const title = document.getElementById('guideModalTitleInput').value.trim();
     const desc  = document.getElementById('guideModalDesc').value.trim();
     if (!title) return;
+    _setGuideModalError('');
     const btn = document.getElementById('guideModalSubmitBtn');
     btn.disabled = true;
 
@@ -506,10 +527,12 @@ async function submitGuideModal(e) {
             if (!id && d.guide) { window.location = `/admin/guides/${d.guide.id}/edit`; return; }
             location.reload();
         } else {
-            alert(d.error || 'Failed to save guide');
+            // Keep the modal open with the user's input intact so they can fix
+            // the problem (e.g. pick an accessible category) and resubmit.
+            _setGuideModalError(d.error || 'Failed to save guide');
         }
     } catch (err) {
-        alert('Request failed');
+        _setGuideModalError('Request failed — please try again.');
     } finally {
         btn.disabled = false;
     }
