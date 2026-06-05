@@ -19768,6 +19768,22 @@ def admin_public_users_list():
     def _iso(dt):
         return dt.isoformat() if dt else None
 
+    # Batch the page's division memberships so each user row can show division
+    # badges (like role badges) without an N+1.
+    _uids = [u.id for (u, _tc, _rc, _cc) in rows]
+    _div_by_user = {}
+    if _uids:
+        _div_cache = {}
+        for ms in DivisionMembership.query.filter(DivisionMembership.public_user_id.in_(_uids)).all():
+            d = _div_cache.get(ms.division_id)
+            if d is None:
+                d = db.session.get(Division, ms.division_id)
+                _div_cache[ms.division_id] = d
+            if d:
+                _div_by_user.setdefault(ms.public_user_id, []).append({
+                    'id': d.id, 'name': d.name, 'color': d.color or '#5eeef8',
+                    'icon': d.icon or '', 'status': ms.status})
+
     users_payload = []
     for u, tc, rc, cc in rows:
         users_payload.append({
@@ -19786,6 +19802,7 @@ def admin_public_users_list():
             'reply_count': int(rc or 0),
             'comment_count': int(cc or 0),
             'roles': [r.to_dict() for r in u.roles],
+            'divisions': _div_by_user.get(u.id, []),
             'is_admin_mirror': bool(u.mirrored_admin_user_id),
         })
 
@@ -32442,10 +32459,25 @@ def _render_members_directory(prefix):
         PublicUser.display_username, PublicUser.username)).asc())
     page = request.args.get('page', 1, type=int)
     pagination = query.paginate(page=page, per_page=30, error_out=False)
+    # Division badges per member on the page (batched to avoid an N+1).
+    member_divisions = {}
+    _mids = [u.id for u in pagination.items]
+    if _mids:
+        _dc = {}
+        for ms in DivisionMembership.query.filter(DivisionMembership.public_user_id.in_(_mids)).all():
+            d = _dc.get(ms.division_id)
+            if d is None:
+                d = db.session.get(Division, ms.division_id)
+                _dc[ms.division_id] = d
+            if d and d.website_id == website.id:
+                member_divisions.setdefault(ms.public_user_id, []).append(
+                    {'name': d.name, 'color': d.color or '#5eeef8',
+                     'icon': d.icon or '', 'status': ms.status})
     return render_template('public_members.html', website=website, public_user=viewer,
                            members=pagination.items, pagination=pagination, q=q,
                            roles=roles, active_role=active_role,
                            divisions=divisions, active_division=active_division,
+                           member_divisions=member_divisions,
                            members_base=_members_base_url(website),
                            members_filter_url=lambda **kw: url_for(
                                'public_members', prefix=website.url_prefix or None, **kw),

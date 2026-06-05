@@ -217,6 +217,7 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
 .pu-role-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
 .pu-role-row:last-of-type { border-bottom:none; }
 .pu-role-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:700; white-space:nowrap; }
+.pu-division-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; }
 .pu-role-name-input { flex:1 1 120px; min-width:100px; padding:5px 8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:0.82rem; }
 .pu-role-color-input { width:32px; height:28px; border:none; border-radius:5px; cursor:pointer; padding:0; background:none; flex-shrink:0; }
 .pu-role-div-input { padding:5px 8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:0.8rem; max-width:130px; }
@@ -601,6 +602,14 @@ function buildUserRow(websiteId, u) {
         `<span class="pu-role-badge" style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}44;">${escapeHtml(role.name)}</span>`
     ).join('');
 
+    const divisionBadges = (u.divisions || []).map(dv => {
+        const c = dv.color || '#5eeef8';
+        const icon = dv.icon ? `<i class="fas ${escapeHtml(dv.icon)}" style="margin-right:4px;"></i>` : '';
+        const alum = dv.status === 'alumni' ? '<span style="opacity:0.7;font-weight:500;"> · alumni</span>' : '';
+        const dim = dv.status === 'alumni' ? 'opacity:0.6;' : '';
+        return `<span class="pu-division-badge" style="background:${c}1a;color:${c};border:1px solid ${c}55;${dim}" title="Division">${icon}${escapeHtml(dv.name)}${alum}</span>`;
+    }).join('');
+
     const adminBadge = u.is_admin_mirror
         ? `<span class="pu-badge" style="background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="This is the public-facing mirror of an admin account. It auto-syncs with the admin's username and cannot be removed from here.">Admin</span>`
         : '';
@@ -647,7 +656,7 @@ function buildUserRow(websiteId, u) {
             <div class="pu-username" id="uname-${u.id}">${escapeHtml(u.username)} ${adminBadge}</div>
             <div class="pu-fullname" id="ufull-${u.id}" style="color:rgba(255,255,255,0.7);font-size:0.8rem;${u.full_name ? '' : 'display:none;'}">${escapeHtml(u.full_name || '')}</div>
             <div class="pu-email" id="uemail-${u.id}">${escapeHtml(u.email)}</div>
-            <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;" id="userRoles-${u.id}">${roleBadges}</div>
+            <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;" id="userRoles-${u.id}">${divisionBadges}${roleBadges}</div>
         </td>
         <td>${verifiedBadge}${bannedBadge}${stateBadge}</td>
         <td class="pu-activity col-activity">
