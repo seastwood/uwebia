@@ -219,7 +219,9 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
 .pu-role-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:700; white-space:nowrap; }
 .pu-role-name-input { flex:1 1 120px; min-width:100px; padding:5px 8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:0.82rem; }
 .pu-role-color-input { width:32px; height:28px; border:none; border-radius:5px; cursor:pointer; padding:0; background:none; flex-shrink:0; }
-.pu-add-role-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.pu-role-exclude { display:inline-flex; align-items:center; gap:5px; font-size:0.74rem; color:rgba(255,255,255,0.55); cursor:pointer; white-space:nowrap; user-select:none; }
+.pu-role-exclude input { width:14px; height:14px; accent-color:#5eeef8; cursor:pointer; }
+.pu-add-role-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; }
 /* Role assignment dropdown */
 .pu-role-dropdown { position:relative; display:inline-block; }
 .pu-role-dropdown-menu { display:none; position:absolute; right:0; top:100%; z-index:100; min-width:180px; background:#2a2830; border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
@@ -261,6 +263,10 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
                     <input type="text" class="pu-role-name-input" id="roleName-{{ role.id }}" value="{{ role.name }}" placeholder="Role name">
                     <input type="color" class="pu-role-color-input" id="roleColor-{{ role.id }}" value="{{ role.color }}" title="Badge color"
                            oninput="previewRoleBadge({{ role.id }}, this.value)">
+                    <label class="pu-role-exclude" title="Hide members with this role from the public members directory. They stay viewable when this role is selected — useful for Alumni / former members.">
+                        <input type="checkbox" id="roleExclude-{{ role.id }}" {% if role.exclude_from_directory %}checked{% endif %}>
+                        Hide from directory
+                    </label>
                     <button class="pu-btn pu-btn-edit" onclick="saveRole({{ role.id }}, {{ w.id }})">Save</button>
                     <button class="pu-btn pu-btn-delete" onclick="deleteRole({{ role.id }})"><i class='fas fa-trash'></i></button>
                 </div>
@@ -272,6 +278,10 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
             <div class="pu-add-role-row">
                 <input type="text" class="pu-role-name-input" id="newRoleName-{{ w.id }}" placeholder="Role name" style="flex:1;">
                 <input type="color" class="pu-role-color-input" id="newRoleColor-{{ w.id }}" value="#5eeef8" title="Badge color">
+                <label class="pu-role-exclude" title="Hide members with this role from the public members directory. They stay viewable when this role is selected — useful for Alumni / former members.">
+                    <input type="checkbox" id="newRoleExclude-{{ w.id }}">
+                    Hide from directory
+                </label>
                 <button class="pu-btn pu-btn-approve" onclick="createRole({{ w.id }})"><i class="fas fa-plus"></i> Add Role</button>
             </div>
         </div>
@@ -975,11 +985,12 @@ document.addEventListener('DOMContentLoaded', () => {
 async function createRole(websiteId) {
     const name = document.getElementById(`newRoleName-${websiteId}`).value.trim();
     const color = document.getElementById(`newRoleColor-${websiteId}`).value;
+    const exclude = document.getElementById(`newRoleExclude-${websiteId}`).checked;
     if (!name) { alert('Enter a role name.'); return; }
     const r = await fetch('/admin/users/public/roles', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({website_id: websiteId, name, color})
+        body: JSON.stringify({website_id: websiteId, name, color, exclude_from_directory: exclude})
     });
     const d = await r.json();
     if (!d.success) { alert(d.error || 'Error'); return; }
@@ -989,11 +1000,12 @@ async function createRole(websiteId) {
 async function saveRole(roleId, websiteId) {
     const name  = document.getElementById(`roleName-${roleId}`).value.trim();
     const color = document.getElementById(`roleColor-${roleId}`).value;
+    const exclude = document.getElementById(`roleExclude-${roleId}`).checked;
     if (!name) { alert('Enter a role name.'); return; }
     const r = await fetch(`/admin/users/public/roles/${roleId}/update`, {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({name, color})
+        body: JSON.stringify({name, color, exclude_from_directory: exclude})
     });
     const d = await r.json();
     if (!d.success) { alert(d.error || 'Error'); return; }

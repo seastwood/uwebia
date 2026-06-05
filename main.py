@@ -1062,6 +1062,12 @@ class PublicUserRole(db.Model):
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
     name       = db.Column(db.String(50), nullable=False)
     color      = db.Column(db.String(20), nullable=False, default='#5eeef8')
+    # When True, members holding this role are hidden from the default public
+    # members directory (e.g. "Alumni" / former members) — they remain visible
+    # when this role is explicitly selected as the directory filter, so the
+    # site keeps a record of past members without deleting them.
+    exclude_from_directory = db.Column(db.Boolean, nullable=False, default=False,
+                                       server_default=_sa_false())
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     website    = db.relationship('Website', backref=db.backref('public_roles', lazy=True, cascade='all, delete-orphan'))
     __table_args__ = (
@@ -1069,7 +1075,8 @@ class PublicUserRole(db.Model):
     )
 
     def to_dict(self):
-        return {'id': self.id, 'name': self.name, 'color': self.color}
+        return {'id': self.id, 'name': self.name, 'color': self.color,
+                'exclude_from_directory': self.exclude_from_directory}
 
 
 class ForumThread(db.Model):
@@ -2297,6 +2304,13 @@ class QuizQuestion(db.Model):
                      for it in (cfg.get('items') or [])]
             _random.shuffle(items)
             out['items'] = items
+        elif self.question_type == 'coding':
+            # Expose the challenge spec but NOT the expected outputs (the code
+            # itself is the answer; grading runs hidden test cases).
+            out['language'] = cfg.get('language', 'python')
+            out['mode'] = cfg.get('mode', 'run')
+            out['starter_code'] = cfg.get('starter_code', '')
+            out['test_count'] = len(cfg.get('test_cases') or [])
         # short_text exposes nothing beyond the prompt itself.
         return out
 
@@ -3620,6 +3634,20 @@ class SmsProviderSettings(db.Model):
     channel_config = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime,
                            default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class CodeRunnerSettings(db.Model):
+    """Per-admin configuration for the sandboxed code runner used by `coding`
+    quiz questions. `piston_url` points at a Piston-compatible execute API
+    (https://github.com/engineid/piston). Defaults to the public instance so
+    coding challenges work out of the box; admins can self-host and point here
+    for reliability/privacy."""
+    __tablename__ = 'code_runner_settings'
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False,
+                           unique=True, index=True)
+    piston_url = db.Column(db.String(500), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=True)
 
 
@@ -13324,6 +13352,7 @@ def _serialize_backup(uid):
         'page_tags':    [{'page_id': p.page_id,       'tag_id': p.tag_id}    for p in page_tags],
         'public_user_roles': [{'id': r.id, 'website_id': r.website_id,
                                'name': r.name, 'color': r.color,
+                               'exclude_from_directory': r.exclude_from_directory,
                                'created_at': r.created_at.isoformat() if r.created_at else None,
                                } for r in public_user_roles],
         'public_user_role_assignments': [
@@ -14861,6 +14890,7 @@ def import_backup():
                 pur = PublicUserRole(
                     website_id=new_wid, name=rd.get('name', 'Role'),
                     color=rd.get('color') or '#5eeef8',
+                    exclude_from_directory=bool(rd.get('exclude_from_directory')),
                     created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
                 )
                 db.session.add(pur)
@@ -19635,7 +19665,8 @@ def admin_public_role_create():
     website = Website.query.filter_by(id=website_id, user_id=current_user.id, is_draft=False).first_or_404()
     if PublicUserRole.query.filter_by(website_id=website.id, name=name).first():
         return _utf8_json({'error': 'A role with that name already exists for this website.'}, 400)
-    role = PublicUserRole(website_id=website.id, name=name, color=color)
+    role = PublicUserRole(website_id=website.id, name=name, color=color,
+                          exclude_from_directory=bool(data.get('exclude_from_directory')))
     db.session.add(role)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
@@ -19656,6 +19687,8 @@ def admin_public_role_update(role_id):
         role.name = name
     if color:
         role.color = color
+    if 'exclude_from_directory' in data:
+        role.exclude_from_directory = bool(data['exclude_from_directory'])
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -30159,7 +30192,7 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
 # ════════════════════════════════════════════════════════════════════════════
 
 _QUIZ_QUESTION_TYPES = ('single_choice', 'multi_choice', 'true_false', 'short_text',
-                        'fill_blank', 'matching', 'ordering', 'image_choice')
+                        'fill_blank', 'matching', 'ordering', 'image_choice', 'coding')
 
 
 def _quiz_side_public(side):
@@ -30285,6 +30318,30 @@ def _normalize_quiz_config(question_type, config, prompt=''):
         for i, it in enumerate(items):
             it['id'] = ids[i]
         return {'items': items, 'answer_order': [it['id'] for it in items]}, None
+
+    if question_type == 'coding':
+        language = (config.get('language') or '').strip().lower()
+        if language not in _CODE_LANGUAGES:
+            return None, 'Choose a supported language.'
+        mode = config.get('mode') if config.get('mode') in ('run', 'compile') else 'run'
+        starter = config.get('starter_code')
+        starter = starter[:20000] if isinstance(starter, str) else ''
+        out = {'language': language, 'mode': mode, 'starter_code': starter}
+        if mode == 'run':
+            cases = []
+            for tc in (config.get('test_cases') or []):
+                if not isinstance(tc, dict):
+                    continue
+                expected = tc.get('expected')
+                if not isinstance(expected, str) or expected.strip() == '':
+                    continue
+                stdin = tc.get('stdin')
+                cases.append({'stdin': stdin if isinstance(stdin, str) else '',
+                              'expected': expected})
+            if not cases:
+                return None, 'Add at least one test case with an expected output.'
+            out['test_cases'] = cases[:10]
+        return out, None
 
     # short_text
     accepted = [a.strip() for a in (config.get('accepted') or []) if a and a.strip()]
@@ -30421,6 +30478,50 @@ def admin_quiz_categories_reorder():
     return _utf8_json({'success': True})
 
 
+@app.route('/admin/quizzes/code-runner', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_code_runner_save():
+    """Owner-only: set the Piston-compatible code-runner URL used to grade
+    coding challenges. Blank resets to the default public instance."""
+    if current_user.is_sub_admin:
+        return _utf8_json({'success': False, 'error': 'Only the account owner can change this.'}, 403)
+    data = request.get_json() or {}
+    url = (data.get('piston_url') or '').strip().rstrip('/')
+    if url and not (url.startswith('http://') or url.startswith('https://')):
+        return _utf8_json({'success': False, 'error': 'Enter a full http(s) URL.'}, 400)
+    s = CodeRunnerSettings.query.filter_by(user_id=current_user.id).first()
+    if not s:
+        s = CodeRunnerSettings(user_id=current_user.id)
+        db.session.add(s)
+    s.piston_url = url or None
+    s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    _PISTON_RUNTIMES_CACHE.pop(_code_runner_url_for_user(current_user.id), None)
+    return _utf8_json({'success': True, 'piston_url': s.piston_url or '',
+                       'effective_url': _code_runner_url_for_user(current_user.id)})
+
+
+@app.route('/admin/quizzes/code-runner/test', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_code_runner_test():
+    """Run a trivial program to confirm the configured runner works."""
+    if current_user.is_sub_admin:
+        return _utf8_json({'success': False, 'error': 'Only the account owner can test this.'}, 403)
+    url = _code_runner_url_for_user(current_user.id)
+    res = _run_code(url, 'python', "print('ok')")
+    if not res.get('ok'):
+        return _utf8_json({'success': False, 'error': res.get('error') or 'Runner unreachable.',
+                           'effective_url': url})
+    out = _normalize_code_output(res.get('stdout'))
+    if out != 'ok':
+        return _utf8_json({'success': False,
+                           'error': f'Runner responded but output was unexpected: {out!r}',
+                           'effective_url': url})
+    return _utf8_json({'success': True, 'effective_url': url})
+
+
 def _quiz_owned_or_403(qid):
     """Return (website, quiz) for an admin request, or a (response, None) tuple to
     short-circuit. Mirrors the ownership guard used by the guide routes."""
@@ -30458,6 +30559,13 @@ def admin_quizzes_page():
     if quizzes_restricted:
         accessible_quiz_ids = {q.id for q in quizzes if can_access_quiz(q)}
         accessible_category_ids = {c.id for c in categories if can_access_quiz_category(c.id)}
+    # Code-runner (Piston) config is account-global and owner-only.
+    code_runner_configured = ''
+    code_runner_effective = _PISTON_DEFAULT_URL
+    if not current_user.is_sub_admin:
+        _crs = CodeRunnerSettings.query.filter_by(user_id=current_user.id).first()
+        code_runner_configured = (_crs.piston_url or '') if _crs else ''
+        code_runner_effective = _code_runner_url_for_user(current_user.id)
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id).all() if website else []
     return render_template('quizzes_admin.html', quizzes=quizzes, website=website,
@@ -30465,6 +30573,9 @@ def admin_quizzes_page():
                            quizzes_restricted=quizzes_restricted,
                            accessible_quiz_ids=accessible_quiz_ids,
                            accessible_category_ids=accessible_category_ids,
+                           code_runner_configured=code_runner_configured,
+                           code_runner_effective=code_runner_effective,
+                           code_runner_default=_PISTON_DEFAULT_URL,
                            current_website=website,
                            current_website_pages=current_website_pages, page_id=None)
 
@@ -30681,6 +30792,130 @@ def admin_quiz_questions_reorder(qid):
     return _utf8_json({'success': True})
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Code runner (Piston) — sandboxed execution for `coding` quiz questions
+# ════════════════════════════════════════════════════════════════════════════
+
+_PISTON_DEFAULT_URL = (os.environ.get('PISTON_URL') or 'https://emkc.org/api/v2/piston').rstrip('/')
+
+# Our language ids → (Piston language name, source filename). Java's filename is
+# overridden to match its public class (see _piston_filename).
+_CODE_LANGUAGES = {
+    'python':     {'label': 'Python',     'piston': 'python',     'file': 'main.py',  'compiled': False},
+    'javascript': {'label': 'JavaScript', 'piston': 'javascript', 'file': 'main.js',  'compiled': False},
+    'java':       {'label': 'Java',       'piston': 'java',       'file': 'Main.java', 'compiled': True},
+    'c':          {'label': 'C',          'piston': 'c',          'file': 'main.c',   'compiled': True},
+    'cpp':        {'label': 'C++',        'piston': 'c++',        'file': 'main.cpp', 'compiled': True},
+}
+
+_PISTON_RUNTIMES_CACHE = {}  # url -> {'at': ts, 'map': {piston_lang: version}}
+
+
+def _code_runner_url_for_user(user_id):
+    s = CodeRunnerSettings.query.filter_by(user_id=user_id).first() if user_id else None
+    url = (s.piston_url or '').strip() if s else ''
+    return (url or _PISTON_DEFAULT_URL).rstrip('/')
+
+
+def _code_runner_url_for_website(website):
+    return _code_runner_url_for_user(website.user_id if website else None)
+
+
+def _piston_resolve_version(url, piston_lang):
+    """Latest available version for a Piston language, cached ~10 min per URL."""
+    import time as _time
+    entry = _PISTON_RUNTIMES_CACHE.get(url)
+    if not entry or (_time.time() - entry['at']) > 600:
+        import requests as _rq
+        rmap = {}
+        try:
+            resp = _rq.get(f'{url}/runtimes', timeout=10)
+            resp.raise_for_status()
+            for rt in resp.json():
+                name = rt.get('language')
+                ver = rt.get('version')
+                aliases = rt.get('aliases') or []
+                for key in [name] + aliases:
+                    if key and (key not in rmap):
+                        rmap[key] = ver
+        except Exception:
+            rmap = {}
+        entry = {'at': _time.time(), 'map': rmap}
+        _PISTON_RUNTIMES_CACHE[url] = entry
+    return entry['map'].get(piston_lang)
+
+
+def _piston_filename(language, source):
+    spec = _CODE_LANGUAGES.get(language) or {}
+    fname = spec.get('file', 'main.txt')
+    if language == 'java':
+        m = re.search(r'public\s+(?:final\s+|abstract\s+)?class\s+([A-Za-z_]\w*)', source or '')
+        if m:
+            fname = f'{m.group(1)}.java'
+    return fname
+
+
+def _run_code(url, language, source, stdin=''):
+    """Execute one program via Piston. Returns a normalized dict:
+    {ok, compile_ok, compile_output, stdout, stderr, code, error}. `ok` is the
+    transport success (the call completed), not whether the program passed."""
+    spec = _CODE_LANGUAGES.get(language)
+    if not spec:
+        return {'ok': False, 'error': 'Unsupported language.'}
+    version = _piston_resolve_version(url, spec['piston'])
+    if not version:
+        return {'ok': False, 'error': 'Code runner is unavailable or the language is not installed.'}
+    import requests as _rq
+    payload = {
+        'language': spec['piston'], 'version': version,
+        'files': [{'name': _piston_filename(language, source), 'content': source or ''}],
+        'stdin': stdin or '',
+        'compile_timeout': 10000, 'run_timeout': 6000,
+    }
+    try:
+        resp = _rq.post(f'{url}/execute', json=payload, timeout=25)
+        if resp.status_code == 429:
+            return {'ok': False, 'error': 'Code runner is busy (rate limited). Please try again in a moment.'}
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return {'ok': False, 'error': f'Could not reach the code runner: {e}'}
+    compile_stage = data.get('compile') or {}
+    run_stage = data.get('run') or {}
+    compile_code = compile_stage.get('code')
+    compile_out = (compile_stage.get('stderr') or compile_stage.get('output') or '').strip()
+    return {
+        'ok': True,
+        'compile_ok': (compile_code in (0, None)),
+        'compile_output': compile_out,
+        'stdout': run_stage.get('stdout') or '',
+        'stderr': run_stage.get('stderr') or '',
+        'code': run_stage.get('code'),
+        'error': None,
+    }
+
+
+def _normalize_code_output(s):
+    """Whitespace-tolerant comparison: trim trailing spaces per line and drop
+    trailing blank lines."""
+    lines = [ln.rstrip() for ln in (s or '').replace('\r\n', '\n').split('\n')]
+    while lines and lines[-1] == '':
+        lines.pop()
+    return '\n'.join(lines)
+
+
+def _code_compiles_cleanly(language, res):
+    """"Correctly written" check for compile-mode coding questions. Compiled
+    languages pass when the compile stage succeeded; interpreted languages pass
+    when running surfaced no syntax/parse error (runtime errors still count as
+    'written correctly')."""
+    spec = _CODE_LANGUAGES.get(language) or {}
+    if spec.get('compiled'):
+        return bool(res.get('compile_ok'))
+    stderr = (res.get('stderr') or '') + '\n' + (res.get('compile_output') or '')
+    return ('SyntaxError' not in stderr and 'IndentationError' not in stderr)
+
+
 # ── Public quiz + progress API ──────────────────────────────────────────────
 
 def _set_visitor_cookie(resp, visitor_id):
@@ -30695,6 +30930,15 @@ def _grade_quiz(quiz, submitted):
     short_text). Returns (score, max_score, results)."""
     score = max_score = 0
     results = []
+    # Coding questions run via the sandboxed runner; resolve its URL lazily so
+    # quizzes with no coding question pay no cost.
+    _runner = {}
+
+    def _runner_url():
+        if 'url' not in _runner:
+            _runner['url'] = _code_runner_url_for_website(db.session.get(Website, quiz.website_id))
+        return _runner['url']
+
     for q in quiz.questions.order_by(QuizQuestion.sort_order):
         max_score += q.points
         cfg = q._config()
@@ -30762,6 +31006,51 @@ def _grade_quiz(quiz, submitted):
                 sub_ids = []
             correct = bool(order) and sub_ids == order
             detail['answer_order'] = order
+        elif q.question_type == 'coding':
+            code = ans if isinstance(ans, str) else ''
+            language = cfg.get('language', 'python')
+            mode = cfg.get('mode', 'run')
+            detail['language'] = language
+            detail['mode'] = mode
+            if not code.strip():
+                correct = False
+            else:
+                url = _runner_url()
+                if mode == 'compile':
+                    res = _run_code(url, language, code)
+                    if not res.get('ok'):
+                        correct = False
+                        detail['runner_error'] = res.get('error')
+                    else:
+                        correct = _code_compiles_cleanly(language, res)
+                        detail['compile_output'] = (res.get('compile_output')
+                                                    or (res.get('stderr') if not correct else ''))[:4000]
+                else:  # run against test cases — all must pass
+                    cases = cfg.get('test_cases') or []
+                    tests, tests_expected = [], []
+                    all_ok = bool(cases)
+                    for tc in cases:
+                        res = _run_code(url, language, code, tc.get('stdin', ''))
+                        if not res.get('ok'):
+                            # Transport failure (runner down/rate-limited) — stop
+                            # rather than timing out once per remaining case.
+                            all_ok = False
+                            detail['runner_error'] = res.get('error')
+                            break
+                        got = _normalize_code_output(res.get('stdout'))
+                        exp = _normalize_code_output(tc.get('expected', ''))
+                        passed = res.get('compile_ok') and (got == exp)
+                        if not passed:
+                            all_ok = False
+                        tests.append({
+                            'passed': bool(passed),
+                            'stdout': (res.get('stdout') or '')[:4000],
+                            'stderr': ((res.get('stderr') or '') or (res.get('compile_output') or ''))[:4000],
+                        })
+                        tests_expected.append(tc.get('expected', ''))
+                    correct = all_ok
+                    detail['tests'] = tests
+                    detail['tests_expected'] = tests_expected
         else:  # short_text
             accepted = cfg.get('accepted', [])
             cs = cfg.get('case_sensitive')
@@ -30909,7 +31198,11 @@ def _quiz_passed(quiz, score, max_score):
 # (and partial progress) without revealing the actual answers. Everything else
 # (correct_option_ids, accepted, blank_accepted, correct_pairs, answer_order)
 # is withheld until the reader passes.
-_SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results'}
+_SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results',
+                     # coding: the learner's own output/compiler errors and
+                     # per-test pass flags are safe (their `tests_expected` is
+                     # the revealing part and is dropped).
+                     'tests', 'compile_output', 'runner_error', 'language', 'mode'}
 
 
 def _strip_answers_from_results(results):
@@ -31213,6 +31506,11 @@ def _render_members_directory(prefix):
             PublicUser.last_name.ilike(like)))
     if active_role is not None:
         query = query.filter(PublicUser.roles.any(PublicUserRole.id == active_role.id))
+    # "Excluded" roles (e.g. Alumni) drop their members from the default and
+    # any normal-role view, but are still browsable by selecting that role.
+    exclude_role_ids = [r.id for r in roles if r.exclude_from_directory]
+    if exclude_role_ids and (active_role is None or not active_role.exclude_from_directory):
+        query = query.filter(~PublicUser.roles.any(PublicUserRole.id.in_(exclude_role_ids)))
     query = query.order_by(db.func.lower(db.func.coalesce(
         PublicUser.display_username, PublicUser.username)).asc())
     page = request.args.get('page', 1, type=int)

@@ -104,6 +104,7 @@
             <button class="qe-mini-btn" onclick="newQuestion('matching')"><i class="fas fa-link"></i> Matching</button>
             <button class="qe-mini-btn" onclick="newQuestion('ordering')"><i class="fas fa-sort"></i> Ordering</button>
             <button class="qe-mini-btn" onclick="newQuestion('image_choice')"><i class="fas fa-images"></i> Image</button>
+            <button class="qe-mini-btn" onclick="newQuestion('coding')"><i class="fas fa-code"></i> Code</button>
         </div>
         <ul class="qe-qlist" id="qList"></ul>
         <div class="qe-empty" id="qEmpty" style="display:none;">No questions yet. Add one above.</div>
@@ -163,7 +164,10 @@ const TYPE_LABELS = {
     matching:      'Matching',
     ordering:      'Ordering',
     image_choice:  'Image choice',
+    coding:        'Coding challenge',
 };
+
+const CODE_LANGS = { python: 'Python', javascript: 'JavaScript', java: 'Java', c: 'C', cpp: 'C++' };
 
 document.addEventListener('DOMContentLoaded', renderList);
 
@@ -191,7 +195,7 @@ function qItemEl(q) {
 
 function shortType(t) {
     return { single_choice: 'Single', multi_choice: 'Multi', true_false: 'T/F', short_text: 'Text',
-             fill_blank: 'Blank', matching: 'Match', ordering: 'Order', image_choice: 'Image' }[t] || t;
+             fill_blank: 'Blank', matching: 'Match', ordering: 'Order', image_choice: 'Image', coding: 'Code' }[t] || t;
 }
 
 function persistOrder() {
@@ -217,6 +221,7 @@ function blankConfig(type) {
     if (type === 'matching') return { pairs: [{ left: emptyCell(), right: emptyCell() }, { left: emptyCell(), right: emptyCell() }] };
     if (type === 'ordering') return { items: [emptyCell(), emptyCell()] };
     if (type === 'image_choice') return { multiple: false, options: [{ image_url: '', caption: '', correct: true }, { image_url: '', caption: '', correct: false }] };
+    if (type === 'coding') return { language: 'python', mode: 'run', starter_code: '', test_cases: [{ stdin: '', expected: '' }] };
     return { options: [{ id: 1, text: '', correct: true }, { id: 2, text: '', correct: false }] };
 }
 
@@ -331,6 +336,45 @@ function renderBody() {
         return;
     }
 
+    if (t === 'coding') {
+        const mode = (cfg.mode === 'compile') ? 'compile' : 'run';
+        let html = '<div class="qe-field"><label class="qe-label">Language</label>';
+        html += '<select class="qe-select" onchange="onCodeLang(this.value)">';
+        Object.keys(CODE_LANGS).forEach(k => {
+            html += `<option value="${k}"${cfg.language === k ? ' selected' : ''}>${CODE_LANGS[k]}</option>`;
+        });
+        html += '</select></div>';
+
+        html += '<div class="qe-field"><label class="qe-label">Grading mode</label>';
+        html += `<label class="qe-check-row" style="margin-bottom:6px;"><input type="radio" name="codemode" ${mode === 'run' ? 'checked' : ''} onchange="onCodeMode('run')"> Run against test cases (output must match)</label>`;
+        html += `<label class="qe-check-row"><input type="radio" name="codemode" ${mode === 'compile' ? 'checked' : ''} onchange="onCodeMode('compile')"> Compiles cleanly (no run — passes if it's written correctly)</label>`;
+        html += '</div>';
+
+        html += '<div class="qe-field"><label class="qe-label">Starter code <span style="opacity:0.5;font-weight:400;text-transform:none;">(optional — prefilled in the learner\'s editor)</span></label>';
+        html += `<textarea class="qe-textarea qe-code-area" style="min-height:120px;font-family:ui-monospace,Menlo,Consolas,monospace;" placeholder="// shown to the learner to start from" oninput="onCodeStarter(this.value)">${escHtmlText(cfg.starter_code || '')}</textarea></div>`;
+        if (cfg.language === 'java') {
+            html += '<p class="qe-correct-hint">Java: name the public class to match what you want, e.g. <code>public class Main</code>.</p>';
+        }
+
+        if (mode === 'run') {
+            html += '<div class="qe-field"><label class="qe-label">Test cases</label>';
+            html += '<p class="qe-correct-hint">Each case feeds optional input (stdin) and checks the program\'s output. All must pass. Comparison ignores trailing whitespace.</p>';
+            (cfg.test_cases || []).forEach((tc, i) => {
+                html += `<div class="qe-blank-row">
+                    <div style="display:flex;align-items:center;justify-content:space-between;"><span class="qe-blank-tag">Case ${i + 1}</span>
+                    <button type="button" class="qe-opt-remove" style="height:28px;width:28px;" onclick="removeTestCase(${i})">&times;</button></div>
+                    <label class="qe-label" style="margin-top:6px;">Input (stdin)</label>
+                    <textarea class="qe-textarea" style="min-height:48px;font-family:ui-monospace,monospace;" placeholder="(optional)" oninput="onTestStdin(${i}, this.value)">${escHtmlText(tc.stdin || '')}</textarea>
+                    <label class="qe-label" style="margin-top:6px;">Expected output</label>
+                    <textarea class="qe-textarea" style="min-height:48px;font-family:ui-monospace,monospace;" placeholder="exact program output" oninput="onTestExpected(${i}, this.value)">${escHtmlText(tc.expected || '')}</textarea>
+                </div>`;
+            });
+            html += '</div><button type="button" class="qe-mini-btn" onclick="addTestCase()"><i class="fas fa-plus"></i> Add test case</button>';
+        }
+        body.innerHTML = html;
+        return;
+    }
+
     // choice types
     const isMulti = (t === 'multi_choice');
     const isTF = (t === 'true_false');
@@ -361,6 +405,25 @@ function acceptedRow(val, i) {
 }
 
 function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+function escHtmlText(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ── coding question handlers ────────────────────────────────────────────────
+function onCodeLang(v) { _editing.config.language = v; renderBody(); }
+function onCodeMode(v) {
+    _editing.config.mode = v;
+    if (v === 'run' && !(_editing.config.test_cases && _editing.config.test_cases.length)) {
+        _editing.config.test_cases = [{ stdin: '', expected: '' }];
+    }
+    renderBody();
+}
+function onCodeStarter(v) { _editing.config.starter_code = v; }
+function onTestStdin(i, v) { _editing.config.test_cases[i].stdin = v; }
+function onTestExpected(i, v) { _editing.config.test_cases[i].expected = v; }
+function addTestCase() { (_editing.config.test_cases = _editing.config.test_cases || []).push({ stdin: '', expected: '' }); renderBody(); }
+function removeTestCase(i) {
+    if ((_editing.config.test_cases || []).length <= 1) { alert('Keep at least one test case.'); return; }
+    _editing.config.test_cases.splice(i, 1); renderBody();
+}
 
 function onCorrectChange(i, isMulti) {
     const opts = _editing.config.options;
@@ -547,6 +610,18 @@ async function saveQuestion() {
         if (!_editing.config.multiple && cc !== 1) { alert('Pick exactly one correct image.'); return; }
         if (_editing.config.multiple && cc < 1) { alert('Mark at least one correct image.'); return; }
         config = { multiple: !!_editing.config.multiple, options: opts };
+    } else if (t === 'coding') {
+        const language = _editing.config.language;
+        if (!CODE_LANGS[language]) { alert('Choose a language.'); return; }
+        const mode = (_editing.config.mode === 'compile') ? 'compile' : 'run';
+        config = { language, mode, starter_code: _editing.config.starter_code || '' };
+        if (mode === 'run') {
+            const cases = (_editing.config.test_cases || [])
+                .map(tc => ({ stdin: tc.stdin || '', expected: tc.expected || '' }))
+                .filter(tc => (tc.expected || '').trim() !== '');
+            if (!cases.length) { alert('Add at least one test case with an expected output.'); return; }
+            config.test_cases = cases;
+        }
     } else {
         const opts = (_editing.config.options || [])
             .map((o, i) => ({ id: i + 1, text: (o.text || '').trim(), correct: !!o.correct }))

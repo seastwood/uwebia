@@ -93,6 +93,24 @@
 .uwq-move:disabled { opacity:0.3; cursor:default; }
 .uwq-order-row.bl-correct { border-color:#5eeec8; }
 .uwq-order-row.bl-wrong { border-color:#ff7676; }
+/* coding */
+.uwq-code-meta { font-size:0.82rem; opacity:0.75; margin:0 0 8px; }
+.uwq-code-lang { display:inline-block; font-weight:800; font-size:0.72rem; letter-spacing:0.04em; text-transform:uppercase; padding:2px 8px; border-radius:5px; background:rgba(94,238,248,0.16); color:#5eeef8; margin-right:6px; }
+.uwq-code { width:100%; min-height:180px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:0.88rem; line-height:1.5; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.18); background:rgba(10,12,18,0.7); color:#e6e6e6; outline:none; resize:vertical; tab-size:4; }
+.uwq-code:focus { border-color:rgba(94,238,248,0.5); }
+.uwq .CodeMirror { border:1px solid rgba(255,255,255,0.18); border-radius:10px; height:auto; font-size:0.88rem; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+.uwq .CodeMirror-scroll { min-height:180px; }
+.uwq-code-results { margin-top:12px; display:flex; flex-direction:column; gap:8px; }
+.uwq-code-banner { padding:9px 12px; border-radius:8px; font-size:0.85rem; background:rgba(255,255,255,0.05); }
+.uwq-code-banner.is-err { background:rgba(255,90,90,0.12); color:#ff9b9b; }
+.uwq-code-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; opacity:0.55; margin:6px 0 3px; }
+.uwq-code-pre { margin:0; padding:9px 11px; border-radius:8px; background:rgba(10,12,18,0.7); border:1px solid rgba(255,255,255,0.1); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.82rem; line-height:1.45; white-space:pre-wrap; word-break:break-word; max-height:220px; overflow:auto; }
+.uwq-code-pre.is-err { color:#ff9b9b; border-color:rgba(255,90,90,0.3); }
+.uwq-code-pre.is-exp { color:#aef7e8; border-color:rgba(94,238,200,0.3); }
+.uwq-code-test { padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); }
+.uwq-code-test.is-pass { border-color:rgba(94,238,200,0.45); background:rgba(94,238,200,0.06); }
+.uwq-code-test.is-fail { border-color:rgba(255,90,90,0.4); background:rgba(255,90,90,0.05); }
+.uwq-code-test-head { font-size:0.85rem; font-weight:700; }
 `;
         const style = document.createElement('style');
         style.id = 'uwq-styles';
@@ -164,6 +182,69 @@
             (quiz.questions || []).forEach(q => { if (q.question_type === 'image_choice') syncImgPicked(el, q); });
             scheduleDraftSave(el, quiz);
         });
+        // Upgrade coding textareas to CodeMirror once it has loaded (the plain
+        // textarea works as a fallback meanwhile). Done after applyDraft so the
+        // editor inherits any restored draft text.
+        if ((quiz.questions || []).some(q => q.question_type === 'coding')) {
+            const langs = (quiz.questions || []).filter(q => q.question_type === 'coding').map(q => q.language);
+            ensureCodeMirror(langs).then(() => initCodeEditors(el, quiz)).catch(() => {});
+        }
+    }
+
+    // ── coding: CodeMirror lazy loader + editor init ─────────────────────────
+    const CODE_LANG_LABELS = { python: 'Python', javascript: 'JavaScript', java: 'Java', c: 'C', cpp: 'C++' };
+    const CODE_CM_MODE = { python: 'python', javascript: 'javascript', java: 'text/x-java', c: 'text/x-csrc', cpp: 'text/x-c++src' };
+    const CODE_CM_MODE_FILE = { python: 'python/python', javascript: 'javascript/javascript', java: 'clike/clike', c: 'clike/clike', cpp: 'clike/clike' };
+    const _CM_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16';
+    let _cmLoad = null;
+
+    function _loadCss(href) {
+        if (document.querySelector('link[href="' + href + '"]')) return;
+        const l = document.createElement('link');
+        l.rel = 'stylesheet'; l.href = href;
+        document.head.appendChild(l);
+    }
+    function _loadScript(src) {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+            const s = document.createElement('script');
+            s.src = src; s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+        });
+    }
+    function ensureCodeMirror(langs) {
+        if (_cmLoad) return _cmLoad;
+        _cmLoad = (async () => {
+            _loadCss(_CM_BASE + '/codemirror.min.css');
+            _loadCss(_CM_BASE + '/theme/material-darker.min.css');
+            await _loadScript(_CM_BASE + '/codemirror.min.js');
+            const modeFiles = new Set((langs || []).map(l => CODE_CM_MODE_FILE[l]).filter(Boolean));
+            for (const mf of modeFiles) {
+                try { await _loadScript(_CM_BASE + '/mode/' + mf + '.min.js'); } catch (e) { /* fallback to plain */ }
+            }
+        })();
+        return _cmLoad;
+    }
+    function initCodeEditors(el, quiz) {
+        if (!window.CodeMirror) return;
+        (quiz.questions || []).forEach(q => {
+            if (q.question_type !== 'coding') return;
+            const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-code');
+            if (!ta || ta._cm) return;
+            const cm = window.CodeMirror.fromTextArea(ta, {
+                mode: CODE_CM_MODE[q.language] || 'text/plain',
+                theme: 'material-darker',
+                lineNumbers: true,
+                indentUnit: 4,
+                tabSize: 4,
+                matchBrackets: true,
+                autoCloseBrackets: true,
+                viewportMargin: Infinity,
+            });
+            cm.setSize('100%', 'auto');
+            cm.on('change', () => scheduleDraftSave(el, el._quiz));
+            ta._cm = cm;
+        });
     }
 
     function renderQuestion(q, qi) {
@@ -198,6 +279,14 @@
         } else if (t === 'ordering') {
             h += '<p class="uwq-match-help">Put these in the correct order using the arrows.</p>';
             h += '<div class="uwq-order" data-qid="' + q.id + '"></div>';
+        } else if (t === 'coding') {
+            const langLabel = CODE_LANG_LABELS[q.language] || q.language;
+            const modeNote = (q.mode === 'compile')
+                ? 'Passes if your code compiles cleanly.'
+                : 'Runs against ' + (q.test_count || 0) + ' hidden test case' + ((q.test_count === 1) ? '' : 's') + ' — all must pass.';
+            h += '<p class="uwq-code-meta"><span class="uwq-code-lang">' + esc(langLabel) + '</span> ' + esc(modeNote) + '</p>';
+            h += '<textarea class="uwq-code" data-lang="' + esc(q.language) + '" spellcheck="false">' + esc(q.starter_code || '') + '</textarea>';
+            h += '<div class="uwq-code-results" style="display:none;"></div>';
         }
         h += '<div class="uwq-fb" style="display:none;"></div></div>';
         return h;
@@ -332,6 +421,9 @@
                 answers[q.id] = el._mstate[q.id] || {};
             } else if (t === 'ordering') {
                 answers[q.id] = (el._ostate[q.id] || []).slice();
+            } else if (t === 'coding') {
+                const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-code');
+                answers[q.id] = ta ? (ta._cm ? ta._cm.getValue() : ta.value) : '';
             }
         });
         return answers;
@@ -360,6 +452,10 @@
                 const inputs = Array.from(qEl.querySelectorAll('.uwq-blank'))
                     .sort((a, b) => parseInt(a.dataset.bi) - parseInt(b.dataset.bi));
                 (Array.isArray(val) ? val : []).forEach((v, i) => { if (inputs[i] && v != null) inputs[i].value = v; });
+            } else if (t === 'coding') {
+                // Set the textarea now; CodeMirror inherits it when it inits.
+                const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-code');
+                if (ta && typeof val === 'string') { if (ta._cm) ta._cm.setValue(val); else ta.value = val; }
             }
             // matching / ordering already seeded from draft in renderQuiz.
         });
@@ -446,6 +542,8 @@
                         row.classList.add(order[i] === r.answer_order[i] ? 'bl-correct' : 'bl-wrong');
                     });
                 }
+            } else if (t === 'coding') {
+                renderCodeResults(qEl, r);
             }
 
             const fb = qEl.querySelector('.uwq-fb');
@@ -455,6 +553,10 @@
                 if (t === 'fill_blank' && Array.isArray(r.blank_results)) {
                     const got = r.blank_results.filter(Boolean).length;
                     txt += ' · ' + got + ' / ' + r.blank_results.length + ' blanks';
+                }
+                if (t === 'coding' && Array.isArray(r.tests)) {
+                    const got = r.tests.filter(x => x.passed).length;
+                    txt += ' · ' + got + ' / ' + r.tests.length + ' tests passed';
                 }
                 if (t === 'short_text' && !r.correct && r.accepted && r.accepted.length) {
                     txt += ' · Accepted: ' + r.accepted.map(esc).join(', ');
@@ -490,11 +592,46 @@
         btn.disabled = false;
         btn.textContent = 'Retake';
         btn.type = 'button';
-        btn.onclick = () => renderQuiz(el, quiz);
+        btn.onclick = () => {
+            // Preserve typed code across a retake so coders can iterate on the
+            // same solution; other question types reset to blank as before.
+            const prev = collect(el, quiz);
+            const codeDraft = {};
+            (quiz.questions || []).forEach(q => {
+                if (q.question_type === 'coding' && (q.id in prev)) codeDraft[q.id] = prev[q.id];
+            });
+            renderQuiz(el, quiz, Object.keys(codeDraft).length ? codeDraft : undefined);
+        };
 
         if (data.progress) {
             document.dispatchEvent(new CustomEvent('uwq-progress', { detail: data.progress }));
         }
+    }
+
+    function renderCodeResults(qEl, r) {
+        const box = qEl.querySelector('.uwq-code-results');
+        if (!box) return;
+        box.style.display = 'block';
+        let h = '';
+        if (r.runner_error) {
+            h += '<div class="uwq-code-banner is-err">⚠ ' + esc(r.runner_error) + '</div>';
+        }
+        if (r.compile_output) {
+            h += '<div class="uwq-code-label">Compiler output</div><pre class="uwq-code-pre is-err">' + esc(r.compile_output) + '</pre>';
+        }
+        if (Array.isArray(r.tests)) {
+            const expected = Array.isArray(r.tests_expected) ? r.tests_expected : null;
+            r.tests.forEach((tc, i) => {
+                h += '<div class="uwq-code-test ' + (tc.passed ? 'is-pass' : 'is-fail') + '">'
+                    + '<div class="uwq-code-test-head">Test ' + (i + 1) + ' · '
+                    + (tc.passed ? '<span class="uwq-ok">Passed</span>' : '<span class="uwq-no">Failed</span>') + '</div>';
+                if (tc.stdout) h += '<div class="uwq-code-label">Your output</div><pre class="uwq-code-pre">' + esc(tc.stdout) + '</pre>';
+                if (tc.stderr) h += '<div class="uwq-code-label">Errors</div><pre class="uwq-code-pre is-err">' + esc(tc.stderr) + '</pre>';
+                if (expected && expected[i] != null) h += '<div class="uwq-code-label">Expected</div><pre class="uwq-code-pre is-exp">' + esc(expected[i]) + '</pre>';
+                h += '</div>';
+            });
+        }
+        box.innerHTML = h || '<div class="uwq-code-banner">No output.</div>';
     }
 
     // Shared text/image choice highlighting (reveal mode vs own-pick-only mode).
