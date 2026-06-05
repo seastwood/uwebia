@@ -31138,6 +31138,38 @@ def admin_division_members(did):
     return _utf8_json({'success': True, 'members': members})
 
 
+@app.route('/admin/divisions/<int:did>/candidates')
+@login_required
+@require_perm('ksa.manage')
+def admin_division_candidates(did):
+    """Browsable list of public users who could be added to the division
+    (active, not already members), optionally filtered by a search string."""
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    q = (request.args.get('q') or '').strip()
+    existing = {m.public_user_id for m in d.memberships.all()}
+    query = PublicUser.query.filter(PublicUser.website_id == website.id,
+                                    PublicUser.is_banned == False,
+                                    PublicUser.is_active_public == True)
+    if q:
+        like = f'%{q}%'
+        query = query.filter(db.or_(
+            PublicUser.display_username.ilike(like), PublicUser.username.ilike(like),
+            PublicUser.first_name.ilike(like), PublicUser.last_name.ilike(like),
+            PublicUser.email.ilike(like)))
+    query = query.order_by(db.func.lower(db.func.coalesce(
+        PublicUser.display_username, PublicUser.username)).asc())
+    candidates = []
+    for u in query.limit(60).all():
+        if u.id in existing:
+            continue
+        candidates.append({'id': u.id, 'name': u.effective_display_name, 'username': u.username})
+        if len(candidates) >= 25:
+            break
+    return _utf8_json({'success': True, 'candidates': candidates})
+
+
 @app.route('/admin/divisions/<int:did>/members/add', methods=['POST'])
 @login_required
 @require_perm('ksa.manage')
@@ -31145,15 +31177,20 @@ def admin_division_member_add(did):
     website, d = _division_owned_or_403(did)
     if d is None:
         return website
-    login = ((request.get_json() or {}).get('login') or '').strip().lower()
-    if not login:
-        return _utf8_json({'success': False, 'error': 'Enter a username or email.'}, 400)
-    u = PublicUser.query.filter(
-        PublicUser.website_id == website.id,
-        db.or_(PublicUser.username == login, PublicUser.email == login,
-               PublicUser.display_username == login)).first()
+    data = request.get_json() or {}
+    uid = data.get('public_user_id')
+    if uid:
+        u = PublicUser.query.filter_by(id=int(uid), website_id=website.id).first()
+    else:
+        login = (data.get('login') or '').strip().lower()
+        if not login:
+            return _utf8_json({'success': False, 'error': 'Pick a member or enter a username/email.'}, 400)
+        u = PublicUser.query.filter(
+            PublicUser.website_id == website.id,
+            db.or_(PublicUser.username == login, PublicUser.email == login,
+                   PublicUser.display_username == login)).first()
     if not u:
-        return _utf8_json({'success': False, 'error': 'No member found with that username or email.'}, 404)
+        return _utf8_json({'success': False, 'error': 'No member found.'}, 404)
     if DivisionMembership.query.filter_by(public_user_id=u.id, division_id=d.id).first():
         return _utf8_json({'success': False, 'error': f'{u.effective_display_name} is already in this division.'}, 400)
     m = _ensure_division_membership(u.id, d.id)

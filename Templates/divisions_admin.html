@@ -56,8 +56,16 @@
 .da-member-row select { padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; }
 .da-req-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
 .da-req-row select { margin-left: auto; padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; min-width: 150px; }
-.da-add-member { display: flex; gap: 8px; margin-bottom: 14px; }
+.da-add-member { display: flex; gap: 8px; margin-bottom: 10px; }
 .da-add-member input { flex: 1; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; }
+.da-candidates { max-height: 260px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 9px; }
+.da-cand-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.da-cand-row:last-child { border-bottom: none; }
+.da-cand-row:hover { background: rgba(94,238,248,0.08); }
+.da-cand-name { font-weight: 600; font-size: 0.88rem; }
+.da-cand-user { font-size: 0.76rem; color: rgba(255,255,255,0.4); }
+.da-cand-add { margin-left: auto; color: #5eeef8; font-size: 0.78rem; font-weight: 700; }
+.da-cand-empty { padding: 14px; font-size: 0.84rem; color: rgba(255,255,255,0.4); text-align: center; }
 </style>
 
 <div class="da-page">
@@ -240,12 +248,13 @@
             <button class="uw-modal-close" onclick="closeMembersModal()">&times;</button>
         </div>
         <div class="uw-modal-body">
+            <p class="da-field-label">Add members</p>
             <div class="da-add-member">
-                <input type="text" id="memberLogin" placeholder="Add by username or email…" autocomplete="off"
-                       onkeydown="if(event.key==='Enter'){event.preventDefault();addMember();}">
-                <button class="da-btn da-btn-primary" onclick="addMember()"><i class="fas fa-plus"></i> Add</button>
+                <input type="text" id="memberSearch" placeholder="Search people by name, username or email…" autocomplete="off" oninput="onCandidateInput()">
             </div>
             <div id="memberAddError" class="da-modal-error" style="padding:0 0 8px;"></div>
+            <div id="candidateList" class="da-candidates"></div>
+            <p class="da-field-label" style="margin-top:16px;">Current members</p>
             <div id="membersList"></div>
         </div>
         <div class="uw-modal-footer">
@@ -417,11 +426,12 @@ function _escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</
 async function openMembersModal(did, name) {
     _membersDivId = did;
     document.getElementById('membersTitle').textContent = 'Members — ' + name;
-    document.getElementById('memberLogin').value = '';
+    document.getElementById('memberSearch').value = '';
     _err('memberAddError', '');
+    document.getElementById('candidateList').innerHTML = '<div class="da-cand-empty">Loading…</div>';
     document.getElementById('membersList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
     document.getElementById('membersOverlay').style.display = 'flex';
-    await loadMembers();
+    await Promise.all([loadMembers(), loadCandidates('')]);
 }
 function closeMembersModal() { document.getElementById('membersOverlay').style.display = 'none'; }
 async function loadMembers() {
@@ -429,6 +439,37 @@ async function loadMembers() {
         const d = await (await fetch(`/admin/divisions/${_membersDivId}/members`)).json();
         renderMembers(d.members || []);
     } catch (e) { document.getElementById('membersList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+
+// ── Browse / add candidates ──
+let _candTimer = null;
+function onCandidateInput() {
+    clearTimeout(_candTimer);
+    _candTimer = setTimeout(() => loadCandidates(document.getElementById('memberSearch').value.trim()), 220);
+}
+async function loadCandidates(q) {
+    const box = document.getElementById('candidateList');
+    try {
+        const d = await (await fetch(`/admin/divisions/${_membersDivId}/candidates?q=${encodeURIComponent(q)}`)).json();
+        const cands = d.candidates || [];
+        if (!cands.length) { box.innerHTML = '<div class="da-cand-empty">' + (q ? 'No matching people.' : 'Everyone is already a member.') + '</div>'; return; }
+        box.innerHTML = cands.map(c => `
+            <div class="da-cand-row" onclick="addMemberById(${c.id})">
+                <span class="da-cand-name">${_escH(c.name)}</span>
+                <span class="da-cand-user">@${_escH(c.username)}</span>
+                <span class="da-cand-add"><i class="fas fa-plus"></i> Add</span>
+            </div>`).join('');
+    } catch (e) { box.innerHTML = '<div class="da-cand-empty" style="color:#ff8a8a;">Failed to load.</div>'; }
+}
+async function addMemberById(uid) {
+    _err('memberAddError', '');
+    try {
+        const r = await fetch(`/admin/divisions/${_membersDivId}/members/add`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ public_user_id: uid }) });
+        const d = await r.json();
+        if (!d.success) { _err('memberAddError', d.error || 'Failed'); return; }
+        await Promise.all([loadMembers(), loadCandidates(document.getElementById('memberSearch').value.trim())]);
+    } catch (e) { _err('memberAddError', 'Request failed'); }
 }
 function renderMembers(members) {
     const box = document.getElementById('membersList');
@@ -442,19 +483,6 @@ function renderMembers(members) {
             </select>
             <button class="da-icon-btn is-danger" title="Remove" onclick="removeMember(${m.membership_id})"><i class="fas fa-times"></i></button>
         </div>`).join('');
-}
-async function addMember() {
-    const login = document.getElementById('memberLogin').value.trim();
-    if (!login) return;
-    _err('memberAddError', '');
-    try {
-        const r = await fetch(`/admin/divisions/${_membersDivId}/members/add`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login }) });
-        const d = await r.json();
-        if (!d.success) { _err('memberAddError', d.error || 'Failed'); return; }
-        document.getElementById('memberLogin').value = '';
-        await loadMembers();
-    } catch (e) { _err('memberAddError', 'Request failed'); }
 }
 async function setMemberStatus(mid, status) {
     await fetch(`/admin/divisions/membership/${mid}/status`, {
