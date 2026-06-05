@@ -32383,13 +32383,13 @@ def _member_ksa_profile(target_user, website):
             for uk in UserKSA.query.filter(UserKSA.public_user_id == target_user.id,
                                            UserKSA.ksa_id.in_([k.id for k in ksas])).all():
                 levels[uk.ksa_id] = uk.level
-        items = [{'name': k.name, 'type': k.ksa_type, 'level': lv,
-                  'label': _ksa_level_label(website, lv), 'max': k.max_level}
-                 for k in ksas for lv in [levels.get(k.id, 0)] if lv >= 1]
+        held_ksas = [{'name': k.name, 'type': k.ksa_type, 'level': lv,
+                      'label': _ksa_level_label(website, lv), 'max': k.max_level}
+                     for k in ksas for lv in [levels.get(k.id, 0)] if lv >= 1]
         roles = [r for r in target_roles if r.division_id == d.id]
         out.append({'division': d, 'status': m.status,
                     'roles': [{'name': r.name, 'color': r.color} for r in roles],
-                    'items': items})
+                    'ksas': held_ksas})
     out.sort(key=lambda x: (x['status'] != 'active', (x['division'].name or '').lower()))
     return out
 
