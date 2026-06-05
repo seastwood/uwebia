@@ -68,6 +68,15 @@
 .qa-runner-row input { flex: 1; min-width: 220px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.88rem; }
 .qa-runner-eff { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin: 10px 0 0; }
 .qa-runner-eff code, #runnerEffective { color: #aef7e8; }
+.qa-runner-sub { font-size: 0.82rem; color: rgba(255,255,255,0.55); margin: 10px 0 6px; word-break: break-word; }
+.qa-lang-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.qa-lang-list li { font-size: 0.85rem; padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.08); }
+.qa-lang-list li.is-ok { background: rgba(94,238,200,0.07); border-color: rgba(94,238,200,0.3); }
+.qa-lang-list li.is-bad { background: rgba(255,90,90,0.06); border-color: rgba(255,90,90,0.28); }
+.qa-lang-icon { font-weight: 800; }
+.qa-lang-list li.is-ok .qa-lang-icon { color: #5eeec8; }
+.qa-lang-list li.is-bad .qa-lang-icon { color: #ff8a8a; }
+.qa-lang-detail { color: rgba(255,255,255,0.5); }
 </style>
 
 <div class="pa-page">
@@ -193,7 +202,8 @@
                 </div>
                 <p class="qa-runner-eff">Currently using <code id="runnerEffective">{{ code_runner_effective }}</code></p>
                 <p id="runnerStatus" style="display:none;margin:8px 0 0;font-size:0.85rem;"></p>
-                <p style="font-size:0.78rem;color:rgba(255,255,255,0.4);margin:10px 0 0;">Leave blank to use the public default. Languages: Python, JavaScript, Java, C, C++.</p>
+                <div id="runnerResults"></div>
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.4);margin:10px 0 0;">Test checks the URL in the box (no need to save first), lists what's installed, and runs a hello-world per language. Leave blank to use the public default. The runner base URL is whatever serves <code>/runtimes</code> and <code>/execute</code> (often <code>…/api/v2</code> or <code>…/api/v2/piston</code>).</p>
             </div>
         </details>
     </div>
@@ -558,14 +568,46 @@ async function saveCodeRunner() {
         _runnerStatus('Saved.', true);
     } catch (e) { _runnerStatus('Request failed.', false); }
 }
+function _escHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
 async function testCodeRunner() {
-    _runnerStatus('Testing… (running a hello-world)', true);
+    const url = document.getElementById('pistonUrl').value.trim();
+    _runnerStatus('Testing ' + (url || 'the default runner') + '… (running a hello-world per language)', true);
+    document.getElementById('runnerResults').innerHTML = '';
     try {
-        const r = await fetch('/admin/quizzes/code-runner/test', { method: 'POST' });
+        const r = await fetch('/admin/quizzes/code-runner/test', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ piston_url: url })
+        });
         const d = await r.json();
-        if (d.success) _runnerStatus('✓ Runner is working (' + (d.effective_url || '') + ').', true);
-        else _runnerStatus('✗ ' + (d.error || 'Runner test failed.'), false);
+        renderRunnerResults(d);
     } catch (e) { _runnerStatus('Request failed.', false); }
+}
+
+function renderRunnerResults(d) {
+    if (d.success) {
+        _runnerStatus('✓ Runner reachable at ' + (d.effective_url || '') + '.', true);
+    } else {
+        _runnerStatus('✗ ' + (d.error || 'Runner test failed.'), false);
+    }
+    let h = '';
+    if (d.runtimes && d.runtimes.length) {
+        h += '<div class="qa-runner-sub"><strong>Installed runtimes:</strong> ' + d.runtimes.map(_escHtml).join(', ') + '</div>';
+    } else if (d.languages) {
+        h += '<div class="qa-runner-sub" style="color:#ff9b9b;">No runtimes installed — use <code>ppman install &lt;pkg&gt;</code>.</div>';
+    }
+    if (d.languages && d.languages.length) {
+        h += '<ul class="qa-lang-list">';
+        d.languages.forEach(l => {
+            h += '<li class="' + (l.ok ? 'is-ok' : 'is-bad') + '">'
+                + '<span class="qa-lang-icon">' + (l.ok ? '✓' : '✗') + '</span> '
+                + '<strong>' + _escHtml(l.label) + '</strong> — ' + _escHtml(l.status)
+                + (l.detail ? ' <span class="qa-lang-detail">' + _escHtml(l.detail) + '</span>' : '')
+                + '</li>';
+        });
+        h += '</ul>';
+    }
+    document.getElementById('runnerResults').innerHTML = h;
 }
 </script>
 {% endblock %}
