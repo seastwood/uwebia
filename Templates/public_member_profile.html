@@ -42,6 +42,18 @@
 .mp-empty { opacity: 0.45; text-align: center; padding: 48px 20px; }
 .mp-roles-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .mp-role-chip { padding: 8px 14px; border-radius: 9px; font-weight: 700; font-size: 0.9rem; }
+.mp-div-block { border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(20,20,30,0.5); padding: 16px 18px; margin-bottom: 14px; }
+.mp-div-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.mp-div-name { font-size: 1.05rem; font-weight: 800; text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 8px; }
+.mp-div-name:hover { color: #aef7e8; }
+.mp-alumni { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 5px; background: rgba(255,200,80,0.15); color: #ffce6b; }
+.mp-ksa-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.mp-ksa-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); }
+.mp-ksa-type { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; }
+.mp-ksa-name { font-weight: 600; font-size: 0.9rem; }
+.mp-ksa-level { margin-left: auto; font-size: 0.85rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
+.mp-ksa-num { font-weight: 500; color: rgba(255,255,255,0.4); }
+.mp-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin: 10px 0 0; }
 </style>
 {% endblock %}
 
@@ -71,6 +83,9 @@
         <a class="mp-tab {% if tab == 'forum' %}is-active{% endif %}" href="{{ profile_base }}?tab=forum">Forum posts <span class="mp-tab-count">{{ post_count }}</span></a>
         <a class="mp-tab {% if tab == 'guides' %}is-active{% endif %}" href="{{ profile_base }}?tab=guides">Guides <span class="mp-tab-count">{{ guides_done }}</span></a>
         <a class="mp-tab {% if tab == 'roles' %}is-active{% endif %}" href="{{ profile_base }}?tab=roles">Roles <span class="mp-tab-count">{{ target.roles|length + (1 if target.staff_badge_label else 0) }}</span></a>
+        {% if division_count %}
+        <a class="mp-tab {% if tab == 'ksas' %}is-active{% endif %}" href="{{ profile_base }}?tab=ksas">KSAs <span class="mp-tab-count">{{ division_count }}</span></a>
+        {% endif %}
     </div>
 
     <div class="mp-panel">
@@ -126,6 +141,37 @@
             {% if target.staff_badge_label %}<span class="mp-role-chip mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
             {% for role in target.roles %}<span class="mp-role-chip" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
         </div>
+        {% endif %}
+
+        {% elif tab == 'ksas' %}
+        {% if not ksa_profile %}
+        <div class="mp-empty"><p>No divisions or competencies recorded.</p></div>
+        {% else %}
+        {% for grp in ksa_profile %}
+        <div class="mp-div-block">
+            <div class="mp-div-head">
+                <a class="mp-div-name" href="{{ division_member_url(grp.division.id) }}">
+                    {% if grp.division.icon %}<i class="fas {{ grp.division.icon }}" style="{% if grp.division.color %}color:{{ grp.division.color }};{% endif %}"></i>{% endif %}
+                    {{ grp.division.name }}
+                </a>
+                {% if grp.status == 'alumni' %}<span class="mp-alumni">Alumni</span>{% endif %}
+                {% for r in grp.roles %}<span class="mp-role-chip" style="padding:3px 9px;font-size:0.74rem;background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44;">{{ r.name }}</span>{% endfor %}
+            </div>
+            {% if grp.items %}
+            <div class="mp-ksa-list">
+                {% for it in grp.items %}
+                <div class="mp-ksa-item">
+                    <span class="mp-ksa-type">{{ it.type }}</span>
+                    <span class="mp-ksa-name">{{ it.name }}</span>
+                    <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="mp-ksa-empty">No recorded levels in this division yet.</p>
+            {% endif %}
+        </div>
+        {% endfor %}
         {% endif %}
         {% endif %}
     </div>

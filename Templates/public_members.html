@@ -40,20 +40,36 @@
     <h1 class="mb-heading">Members</h1>
     <p class="mb-sub">Browse the people on this site.</p>
 
+    {# Active filters carried on every link; url_for drops the None ones. #}
+    {% set _aq = q or none %}
+    {% set _ar = active_role.id if active_role else none %}
+    {% set _ad = active_division.id if active_division else none %}
+
     <form class="mb-search" method="GET" action="{{ members_base }}">
         <input type="text" name="q" value="{{ q }}" placeholder="Search members by name…" autocomplete="off">
         {% if active_role %}<input type="hidden" name="role" value="{{ active_role.id }}">{% endif %}
+        {% if active_division %}<input type="hidden" name="division" value="{{ active_division.id }}">{% endif %}
         <button type="submit">Search</button>
     </form>
 
-    {% if roles %}
-    {% set _qs = ('&q=' + (q | urlencode)) if q else '' %}
+    {% if divisions %}
     <div class="mb-roles">
-        <a class="mb-role-chip {% if not active_role %}is-active{% endif %}"
-           href="{{ members_base }}{% if q %}?q={{ q | urlencode }}{% endif %}">All</a>
+        <a class="mb-role-chip {% if not active_division %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, role=_ar) }}">All divisions</a>
+        {% for dv in divisions %}
+        <a class="mb-role-chip {% if active_division and active_division.id == dv.id %}is-active{% endif %}"
+           href="{{ members_filter_url(q=_aq, role=_ar, division=dv.id) }}">
+            {% if dv.color %}<span class="mb-role-dot" style="background:{{ dv.color }};"></span>{% endif %}{{ dv.name }}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if roles %}
+    <div class="mb-roles">
+        <a class="mb-role-chip {% if not active_role %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, division=_ad) }}">All roles</a>
         {% for r in roles %}
         <a class="mb-role-chip {% if active_role and active_role.id == r.id %}is-active{% endif %}{% if r.exclude_from_directory %} is-archived{% endif %}"
-           href="{{ members_base }}?role={{ r.id }}{{ _qs }}">
+           href="{{ members_filter_url(q=_aq, division=_ad, role=r.id) }}">
             <span class="mb-role-dot" style="background:{{ r.color }};"></span>{{ r.name }}
             {% if r.exclude_from_directory %}<i class="fas fa-archive" title="Not shown in the default list"></i>{% endif %}
         </a>
@@ -64,7 +80,8 @@
     {% if not members %}
     <div class="mb-empty">
         <p>
-            {% if q and active_role %}No “{{ active_role.name }}” members match “{{ q }}”.
+            {% if active_division %}No members{% if active_role %} with the “{{ active_role.name }}” role{% endif %}{% if q %} matching “{{ q }}”{% endif %} in {{ active_division.name }}.
+            {% elif q and active_role %}No “{{ active_role.name }}” members match “{{ q }}”.
             {% elif active_role %}No members have the “{{ active_role.name }}” role yet.
             {% elif q %}No members match “{{ q }}”.
             {% else %}No members to show yet.{% endif %}
@@ -89,11 +106,9 @@
     </div>
 
     {% if pagination and (pagination.has_prev or pagination.has_next) %}
-    {% set _pq = ('&q=' + (q | urlencode)) if q else '' %}
-    {% set _pr = ('&role=' + active_role.id|string) if active_role else '' %}
     <div class="mb-pager">
-        {% if pagination.has_prev %}<a href="{{ members_base }}?page={{ pagination.prev_num }}{{ _pq }}{{ _pr }}">← Previous</a>{% endif %}
-        {% if pagination.has_next %}<a href="{{ members_base }}?page={{ pagination.next_num }}{{ _pq }}{{ _pr }}">Next →</a>{% endif %}
+        {% if pagination.has_prev %}<a href="{{ members_filter_url(page=pagination.prev_num, q=_aq, role=_ar, division=_ad) }}">← Previous</a>{% endif %}
+        {% if pagination.has_next %}<a href="{{ members_filter_url(page=pagination.next_num, q=_aq, role=_ar, division=_ad) }}">Next →</a>{% endif %}
     </div>
     {% endif %}
     {% endif %}

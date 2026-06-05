@@ -32328,6 +32328,35 @@ def _member_guide_progress(target_user, website):
     return out
 
 
+def _member_ksa_profile(target_user, website):
+    """A member's competency showcase: their divisions (with the roles they hold
+    in each + membership status) and the KSAs they actually hold (level >= 1),
+    grouped by division. Required levels/gaps are intentionally NOT shown
+    publicly — this is an attainment showcase, not the admin matrix."""
+    out = []
+    memberships = DivisionMembership.query.filter_by(public_user_id=target_user.id).all()
+    target_roles = target_user.roles or []
+    for m in memberships:
+        d = db.session.get(Division, m.division_id)
+        if not d or d.website_id != website.id:
+            continue
+        ksas = KSA.query.filter_by(division_id=d.id).order_by(KSA.sort_order, KSA.name).all()
+        levels = {}
+        if ksas:
+            for uk in UserKSA.query.filter(UserKSA.public_user_id == target_user.id,
+                                           UserKSA.ksa_id.in_([k.id for k in ksas])).all():
+                levels[uk.ksa_id] = uk.level
+        items = [{'name': k.name, 'type': k.ksa_type, 'level': lv,
+                  'label': _ksa_level_label(website, lv), 'max': k.max_level}
+                 for k in ksas for lv in [levels.get(k.id, 0)] if lv >= 1]
+        roles = [r for r in target_roles if r.division_id == d.id]
+        out.append({'division': d, 'status': m.status,
+                    'roles': [{'name': r.name, 'color': r.color} for r in roles],
+                    'items': items})
+    out.sort(key=lambda x: (x['status'] != 'active', (x['division'].name or '').lower()))
+    return out
+
+
 @app.route('/members', defaults={'prefix': None})
 @app.route('/<string:prefix>/members')
 def public_members(prefix=None):
@@ -32345,6 +32374,11 @@ def _render_members_directory(prefix):
              .order_by(db.func.lower(PublicUserRole.name)).all())
     role_id = request.args.get('role', type=int)
     active_role = next((r for r in roles if r.id == role_id), None)
+    # Division filter: chips link to ?division=<id> (members of that division).
+    divisions = (Division.query.filter_by(website_id=website.id)
+                 .order_by(Division.sort_order, Division.name).all())
+    division_id = request.args.get('division', type=int)
+    active_division = next((d for d in divisions if d.id == division_id), None)
 
     query = PublicUser.query.filter(PublicUser.website_id == website.id,
                                     PublicUser.is_banned == False,
@@ -32359,6 +32393,9 @@ def _render_members_directory(prefix):
             PublicUser.last_name.ilike(like)))
     if active_role is not None:
         query = query.filter(PublicUser.roles.any(PublicUserRole.id == active_role.id))
+    if active_division is not None:
+        query = query.filter(PublicUser.division_memberships.any(
+            DivisionMembership.division_id == active_division.id))
     # "Excluded" roles (e.g. Alumni) drop their members from the default and
     # any normal-role view, but are still browsable by selecting that role.
     exclude_role_ids = [r.id for r in roles if r.exclude_from_directory]
@@ -32371,7 +32408,10 @@ def _render_members_directory(prefix):
     return render_template('public_members.html', website=website, public_user=viewer,
                            members=pagination.items, pagination=pagination, q=q,
                            roles=roles, active_role=active_role,
+                           divisions=divisions, active_division=active_division,
                            members_base=_members_base_url(website),
+                           members_filter_url=lambda **kw: url_for(
+                               'public_members', prefix=website.url_prefix or None, **kw),
                            profile_url=lambda u: _member_profile_url(website, u))
 
 
@@ -32392,7 +32432,7 @@ def _render_member_profile(prefix, user_id):
         abort(404)
 
     tab = request.args.get('tab', 'forum')
-    if tab not in ('forum', 'guides', 'roles'):
+    if tab not in ('forum', 'guides', 'roles', 'ksas'):
         tab = 'forum'
     q = (request.args.get('q') or '').strip()
 
@@ -32403,21 +32443,28 @@ def _render_member_profile(prefix, user_id):
 
     forum_items = _member_forum_activity(target, website, q) if tab == 'forum' else None
     guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
+    ksa_profile = _member_ksa_profile(target, website) if tab == 'ksas' else None
     # Cheap counts for the tab labels (computed regardless of active tab).
     guides_done = sum(1 for g in _member_guide_progress(target, website) if g['is_done'])
+    division_count = DivisionMembership.query.filter_by(public_user_id=target.id).count()
 
     def _forum_thread_url(thread_id):
         return (url_for('public_forum_thread', thread_id=thread_id, prefix=website.url_prefix)
                 if website.url_prefix else url_for('public_forum_thread', thread_id=thread_id))
+
+    def _division_member_url(division_id):
+        return url_for('public_members', prefix=website.url_prefix or None, division=division_id)
 
     return render_template('public_member_profile.html', website=website, public_user=viewer,
                            target=target, tab=tab, q=q,
                            thread_count=thread_count, reply_count=reply_count,
                            post_count=thread_count + reply_count, guides_done=guides_done,
                            forum_items=forum_items, guide_items=guide_items,
+                           ksa_profile=ksa_profile, division_count=division_count,
                            is_self=(viewer.id == target.id),
                            members_base=_members_base_url(website),
                            forum_thread_url=_forum_thread_url,
+                           division_member_url=_division_member_url,
                            profile_base=_member_profile_url(website, target.id))
 
 
