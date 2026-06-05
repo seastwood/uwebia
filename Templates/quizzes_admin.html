@@ -60,6 +60,14 @@
 .qa-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); }
 .qa-group-count { font-size: 0.72rem; opacity: 0.5; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.07); font-weight: 600; }
 .cat-icon-preview { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #5eeef8; flex-shrink: 0; }
+
+.qa-runner { margin-top: 40px; padding: 14px 18px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.02); }
+.qa-runner summary { cursor: pointer; font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); user-select: none; }
+.qa-runner-body { margin-top: 14px; font-size: 0.85rem; color: rgba(255,255,255,0.6); line-height: 1.5; }
+.qa-runner-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.qa-runner-row input { flex: 1; min-width: 220px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.88rem; }
+.qa-runner-eff { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin: 10px 0 0; }
+.qa-runner-eff code, #runnerEffective { color: #aef7e8; }
 </style>
 
 <div class="pa-page">
@@ -169,6 +177,25 @@
     {% else %}
     <div class="pa-empty" id="quizGrid">
         <p>No quizzes yet. Create one, then insert it into any lesson.</p>
+    </div>
+    {% endif %}
+
+    {% if not current_user.is_sub_admin %}
+    <div class="qa-runner">
+        <details>
+            <summary><i class="fas fa-code"></i> Code runner <span style="opacity:0.5;font-weight:400;">— for coding challenge questions</span></summary>
+            <div class="qa-runner-body">
+                <p style="margin:0 0 12px;">Coding challenges run learner code in a sandbox via a <strong>Piston</strong>-compatible API. It defaults to the public instance so challenges work right away; for reliable, private grading, <a href="https://github.com/engineid/piston" target="_blank" rel="noopener" style="color:#5eeef8;">self-host Piston</a> and paste its URL here.</p>
+                <div class="qa-runner-row">
+                    <input type="text" id="pistonUrl" value="{{ code_runner_configured }}" placeholder="{{ code_runner_default }}" autocomplete="off">
+                    <button class="pa-btn pa-btn-primary" onclick="saveCodeRunner()">Save</button>
+                    <button class="pa-btn pa-btn-secondary" onclick="testCodeRunner()">Test</button>
+                </div>
+                <p class="qa-runner-eff">Currently using <code id="runnerEffective">{{ code_runner_effective }}</code></p>
+                <p id="runnerStatus" style="display:none;margin:8px 0 0;font-size:0.85rem;"></p>
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.4);margin:10px 0 0;">Leave blank to use the public default. Languages: Python, JavaScript, Java, C, C++.</p>
+            </div>
+        </details>
     </div>
     {% endif %}
 </div>
@@ -507,6 +534,38 @@ async function doCategoryDelete() {
     } finally {
         btn.disabled = false;
     }
+}
+
+// ── Code runner settings ────────────────────────────────────────────────────
+function _runnerStatus(msg, ok) {
+    const el = document.getElementById('runnerStatus');
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.color = ok ? '#5eeec8' : '#ff8a8a';
+    el.textContent = msg;
+}
+async function saveCodeRunner() {
+    const url = document.getElementById('pistonUrl').value.trim();
+    _runnerStatus('Saving…', true);
+    try {
+        const r = await fetch('/admin/quizzes/code-runner', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ piston_url: url })
+        });
+        const d = await r.json();
+        if (!d.success) { _runnerStatus(d.error || 'Failed to save.', false); return; }
+        document.getElementById('runnerEffective').textContent = d.effective_url || '';
+        _runnerStatus('Saved.', true);
+    } catch (e) { _runnerStatus('Request failed.', false); }
+}
+async function testCodeRunner() {
+    _runnerStatus('Testing… (running a hello-world)', true);
+    try {
+        const r = await fetch('/admin/quizzes/code-runner/test', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) _runnerStatus('✓ Runner is working (' + (d.effective_url || '') + ').', true);
+        else _runnerStatus('✗ ' + (d.error || 'Runner test failed.'), false);
+    } catch (e) { _runnerStatus('Request failed.', false); }
 }
 </script>
 {% endblock %}
