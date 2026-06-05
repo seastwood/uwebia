@@ -30506,20 +30506,48 @@ def admin_code_runner_save():
 @login_required
 @require_perm('quizzes.manage')
 def admin_code_runner_test():
-    """Run a trivial program to confirm the configured runner works."""
+    """Diagnose the code runner: tests the URL passed in (so it works before
+    saving), lists what runtimes are installed, and runs a hello-world in every
+    supported language so the owner can see exactly which ones work."""
     if current_user.is_sub_admin:
         return _utf8_json({'success': False, 'error': 'Only the account owner can test this.'}, 403)
-    url = _code_runner_url_for_user(current_user.id)
-    res = _run_code(url, 'python', "print('ok')")
-    if not res.get('ok'):
-        return _utf8_json({'success': False, 'error': res.get('error') or 'Runner unreachable.',
-                           'effective_url': url})
-    out = _normalize_code_output(res.get('stdout'))
-    if out != 'ok':
-        return _utf8_json({'success': False,
-                           'error': f'Runner responded but output was unexpected: {out!r}',
-                           'effective_url': url})
-    return _utf8_json({'success': True, 'effective_url': url})
+    data = request.get_json(silent=True) or {}
+    raw = (data.get('piston_url') or '').strip().rstrip('/')
+    if raw and not (raw.startswith('http://') or raw.startswith('https://')):
+        return _utf8_json({'success': False, 'error': 'Enter a full http(s) URL.'}, 400)
+    url = raw or _code_runner_url_for_user(current_user.id)
+
+    # Always check connectivity from a fresh /runtimes fetch (don't trust cache).
+    _PISTON_RUNTIMES_CACHE.pop(url, None)
+    runtimes, rt_err = _piston_runtimes_summary(url)
+    if rt_err:
+        return _utf8_json({'success': False, 'effective_url': url, 'runtimes': [],
+                           'error': f'Could not reach {url}/runtimes — {rt_err}'})
+
+    languages = []
+    for lang, spec in _CODE_LANGUAGES.items():
+        entry = {'id': lang, 'label': spec['label']}
+        version = _piston_resolve_version(url, spec['piston'])
+        if not version:
+            entry.update(ok=False, status='not installed',
+                         detail=f"No '{spec['piston']}' runtime — install it (e.g. ppman install {spec['piston']}).")
+        else:
+            res = _run_code(url, lang, _CODE_HELLO[lang])
+            if not res.get('ok'):
+                entry.update(ok=False, status='error', detail=res.get('error') or 'execute failed')
+            elif _normalize_code_output(res.get('stdout')) != 'ok':
+                so = _normalize_code_output(res.get('stdout'))
+                se = _normalize_code_output(res.get('stderr') or res.get('compile_output'))
+                entry.update(ok=False, status='unexpected output',
+                             detail=(f'got {so!r}' + (f' · stderr: {se}' if se else '')))
+            else:
+                entry.update(ok=True, status='working', detail=f'version {version}')
+        languages.append(entry)
+
+    any_ok = any(l['ok'] for l in languages)
+    return _utf8_json({'success': any_ok, 'effective_url': url,
+                       'runtimes': runtimes, 'languages': languages,
+                       'error': None if any_ok else 'No supported language is working — see details below.'})
 
 
 def _quiz_owned_or_403(qid):
@@ -30808,7 +30836,34 @@ _CODE_LANGUAGES = {
     'cpp':        {'label': 'C++',        'piston': 'c++',        'file': 'main.cpp', 'compiled': True},
 }
 
+# Trivial "print ok" programs, one per language, used by the runner self-test.
+_CODE_HELLO = {
+    'python':     "print('ok')",
+    'javascript': "console.log('ok')",
+    'java':       'public class Main { public static void main(String[] a){ System.out.println("ok"); } }',
+    'c':          '#include <stdio.h>\nint main(){ printf("ok\\n"); return 0; }',
+    'cpp':        '#include <iostream>\nint main(){ std::cout << "ok" << std::endl; return 0; }',
+}
+
 _PISTON_RUNTIMES_CACHE = {}  # url -> {'at': ts, 'map': {piston_lang: version}}
+
+
+def _piston_runtimes_summary(url):
+    """Fresh '<language> <version>' strings for what the runner reports as
+    installed — for the settings UI. Returns (list, error_or_None)."""
+    import requests as _rq
+    try:
+        resp = _rq.get(f'{url}/runtimes', timeout=10)
+        resp.raise_for_status()
+        out = []
+        for rt in resp.json():
+            lang = rt.get('language')
+            ver = rt.get('version')
+            if lang:
+                out.append(f'{lang} {ver}' if ver else lang)
+        return out, None
+    except Exception as e:
+        return [], str(e)
 
 
 def _code_runner_url_for_user(user_id):
@@ -30866,20 +30921,35 @@ def _run_code(url, language, source, stdin=''):
     if not version:
         return {'ok': False, 'error': 'Code runner is unavailable or the language is not installed.'}
     import requests as _rq
+    # NOTE: we deliberately don't send compile_timeout/run_timeout — a
+    # self-hosted Piston rejects values above its configured maximum with a
+    # 400, so we let the instance apply its own limits.
     payload = {
         'language': spec['piston'], 'version': version,
         'files': [{'name': _piston_filename(language, source), 'content': source or ''}],
         'stdin': stdin or '',
-        'compile_timeout': 10000, 'run_timeout': 6000,
     }
     try:
         resp = _rq.post(f'{url}/execute', json=payload, timeout=25)
-        if resp.status_code == 429:
-            return {'ok': False, 'error': 'Code runner is busy (rate limited). Please try again in a moment.'}
-        resp.raise_for_status()
+    except Exception as e:
+        return {'ok': False, 'error': f'Could not reach the code runner at {url}/execute: {e}'}
+    if resp.status_code == 429:
+        return {'ok': False, 'error': 'Code runner is busy (rate limited). Please try again in a moment.'}
+    if not resp.ok:
+        # Surface Piston's own message (e.g. "run_timeout exceeds maximum",
+        # "<lang>-<ver> runtime is unknown") instead of a bare status code.
+        detail = ''
+        try:
+            j = resp.json()
+            detail = j.get('message') or j.get('error') or ''
+        except Exception:
+            detail = (resp.text or '').strip()
+        detail = (detail or 'no error body')[:300]
+        return {'ok': False, 'error': f'Runner returned HTTP {resp.status_code}: {detail}'}
+    try:
         data = resp.json()
     except Exception as e:
-        return {'ok': False, 'error': f'Could not reach the code runner: {e}'}
+        return {'ok': False, 'error': f'Runner returned a non-JSON response: {e}'}
     compile_stage = data.get('compile') or {}
     run_stage = data.get('run') or {}
     compile_code = compile_stage.get('code')
