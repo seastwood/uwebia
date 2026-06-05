@@ -19609,6 +19609,12 @@ def admin_public_users_page():
         str(w_id): [r.to_dict() for r in roles]
         for w_id, roles in roles_by_website.items()
     }
+    # Divisions per website so the Roles card can scope a role to a division.
+    divisions_by_website = {
+        str(w.id): [d.to_dict() for d in
+                    Division.query.filter_by(website_id=w.id).order_by(Division.sort_order, Division.name).all()]
+        for w in live_websites
+    }
     selected_website_id = request.args.get('website_id', type=int) or (live_websites[0].id if live_websites else None)
     # Promotion (sub-admin from a public user) — list the root admin's own
     # permission groups so the modal can pick one. `can_promote_staff` mirrors
@@ -19621,6 +19627,7 @@ def admin_public_users_page():
                            user_counts_by_website=user_counts_by_website,
                            roles_by_website=roles_by_website,
                            roles_by_website_dicts=roles_by_website_dicts,
+                           divisions_by_website=divisions_by_website,
                            selected_website_id=selected_website_id,
                            permission_groups_dicts=permission_groups_dicts,
                            can_promote_staff=can_promote_staff)
@@ -19943,11 +19950,26 @@ def admin_public_role_create():
     website = Website.query.filter_by(id=website_id, user_id=current_user.id, is_draft=False).first_or_404()
     if PublicUserRole.query.filter_by(website_id=website.id, name=name).first():
         return _utf8_json({'error': 'A role with that name already exists for this website.'}, 400)
+    division_id = _validate_role_division(data.get('division_id'), website.id)
     role = PublicUserRole(website_id=website.id, name=name, color=color,
+                          division_id=division_id,
                           exclude_from_directory=bool(data.get('exclude_from_directory')))
     db.session.add(role)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
+
+
+def _validate_role_division(raw, website_id):
+    """A role's division must belong to the same website; anything else (or
+    blank) makes the role site-wide (division_id NULL)."""
+    if raw in (None, '', 0, '0'):
+        return None
+    try:
+        did = int(raw)
+    except (TypeError, ValueError):
+        return None
+    d = Division.query.filter_by(id=did, website_id=website_id).first()
+    return d.id if d else None
 
 
 @app.route('/admin/users/public/roles/<int:role_id>/update', methods=['POST'])
@@ -19967,6 +19989,8 @@ def admin_public_role_update(role_id):
         role.color = color
     if 'exclude_from_directory' in data:
         role.exclude_from_directory = bool(data['exclude_from_directory'])
+    if 'division_id' in data:
+        role.division_id = _validate_role_division(data.get('division_id'), role.website_id)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -19997,6 +20021,11 @@ def admin_public_user_set_roles(user_id):
         PublicUserRole.website_id.in_(owned_website_ids)
     ).all() if role_ids else []
     u.roles = roles
+    # Assigning a division-scoped role makes the user a member of that division
+    # (explicit membership is never removed here — only added).
+    for r in roles:
+        if r.division_id:
+            _ensure_division_membership(u.id, r.division_id)
     db.session.commit()
     return _utf8_json({'success': True, 'roles': [r.to_dict() for r in u.roles]})
 
@@ -30867,7 +30896,7 @@ def _ksa_owned_or_403(kid):
 @require_perm('ksa.view')
 def admin_divisions_page():
     website = get_admin_website()
-    divisions, ksas_by_division = [], {}
+    divisions, ksas_by_division, roles_by_division = [], {}, {}
     if website:
         divisions = Division.query.filter_by(website_id=website.id).order_by(
             Division.sort_order, Division.name).all()
@@ -30875,10 +30904,14 @@ def admin_divisions_page():
             KSA.sort_order, KSA.name).all()
         for k in all_ksas:
             ksas_by_division.setdefault(k.division_id, []).append(k)
+        for r in PublicUserRole.query.filter_by(website_id=website.id).order_by(PublicUserRole.name).all():
+            if r.division_id:
+                roles_by_division.setdefault(r.division_id, []).append(r)
     can_manage = (not current_user.is_sub_admin) or current_user.has_permission('ksa.manage')
     return render_template('divisions_admin.html', website=website,
                            current_website=website,
                            divisions=divisions, ksas_by_division=ksas_by_division,
+                           roles_by_division=roles_by_division,
                            ksa_types=_ksa_types(website), ksa_level_labels=_ksa_level_labels(website),
                            can_manage=can_manage, page_id=None)
 
@@ -31066,6 +31099,139 @@ def admin_ksa_settings():
     return _utf8_json({'success': True,
                        'level_labels': _ksa_level_labels(website),
                        'types': _ksa_types(website)})
+
+
+# ── KSA matrix Phase 3: division membership + role requirements ──────────────
+
+def _membership_owned_or_403(mid):
+    m = DivisionMembership.query.get_or_404(mid)
+    website = get_admin_website()
+    div = db.session.get(Division, m.division_id)
+    if not website or not is_owner(website) or not div or div.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, m
+
+
+def _role_for_ksa_or_403(role_id):
+    role = PublicUserRole.query.get_or_404(role_id)
+    website = get_admin_website()
+    if not website or not is_owner(website) or role.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, role
+
+
+@app.route('/admin/divisions/<int:did>/members')
+@login_required
+@require_perm('ksa.view')
+def admin_division_members(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    members = []
+    for m in d.memberships.order_by(DivisionMembership.created_at).all():
+        u = db.session.get(PublicUser, m.public_user_id)
+        if not u:
+            continue
+        members.append({'membership_id': m.id, 'public_user_id': u.id,
+                        'name': u.effective_display_name, 'username': u.username,
+                        'status': m.status})
+    return _utf8_json({'success': True, 'members': members})
+
+
+@app.route('/admin/divisions/<int:did>/members/add', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_division_member_add(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    login = ((request.get_json() or {}).get('login') or '').strip().lower()
+    if not login:
+        return _utf8_json({'success': False, 'error': 'Enter a username or email.'}, 400)
+    u = PublicUser.query.filter(
+        PublicUser.website_id == website.id,
+        db.or_(PublicUser.username == login, PublicUser.email == login,
+               PublicUser.display_username == login)).first()
+    if not u:
+        return _utf8_json({'success': False, 'error': 'No member found with that username or email.'}, 404)
+    if DivisionMembership.query.filter_by(public_user_id=u.id, division_id=d.id).first():
+        return _utf8_json({'success': False, 'error': f'{u.effective_display_name} is already in this division.'}, 400)
+    m = _ensure_division_membership(u.id, d.id)
+    db.session.commit()
+    return _utf8_json({'success': True, 'member': {
+        'membership_id': m.id, 'public_user_id': u.id,
+        'name': u.effective_display_name, 'username': u.username, 'status': m.status}})
+
+
+@app.route('/admin/divisions/membership/<int:mid>/status', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_membership_status(mid):
+    website, m = _membership_owned_or_403(mid)
+    if m is None:
+        return website
+    status = (request.get_json() or {}).get('status')
+    if status not in ('active', 'alumni'):
+        return _utf8_json({'success': False, 'error': 'Invalid status.'}, 400)
+    m.status = status
+    db.session.commit()
+    return _utf8_json({'success': True, 'status': m.status})
+
+
+@app.route('/admin/divisions/membership/<int:mid>/remove', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_membership_remove(mid):
+    website, m = _membership_owned_or_403(mid)
+    if m is None:
+        return website
+    db.session.delete(m)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/roles/<int:role_id>/ksa-requirements')
+@login_required
+@require_perm('ksa.view')
+def admin_role_ksa_requirements_get(role_id):
+    website, role = _role_for_ksa_or_403(role_id)
+    if role is None:
+        return website
+    if not role.division_id:
+        return _utf8_json({'success': True, 'role': role.to_dict(),
+                           'division': None, 'catalog': [], 'requirements': {}})
+    catalog = [k.to_dict() for k in KSA.query.filter_by(division_id=role.division_id)
+               .order_by(KSA.sort_order, KSA.name).all()]
+    reqs = {str(rk.ksa_id): rk.required_level for rk in role.ksa_requirements.all()}
+    div = db.session.get(Division, role.division_id)
+    return _utf8_json({'success': True, 'role': role.to_dict(),
+                       'division': div.to_dict() if div else None,
+                       'catalog': catalog, 'requirements': reqs})
+
+
+@app.route('/admin/roles/<int:role_id>/ksa-requirements', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_role_ksa_requirements_save(role_id):
+    website, role = _role_for_ksa_or_403(role_id)
+    if role is None:
+        return website
+    if not role.division_id:
+        return _utf8_json({'success': False, 'error': 'Give this role a division first.'}, 400)
+    incoming = (request.get_json() or {}).get('requirements') or {}
+    valid = {k.id: k for k in KSA.query.filter_by(division_id=role.division_id).all()}
+    RoleKSA.query.filter_by(role_id=role.id).delete(synchronize_session=False)
+    for kid, lvl in incoming.items():
+        try:
+            kid, lvl = int(kid), int(lvl)
+        except (TypeError, ValueError):
+            continue
+        if kid not in valid or lvl < 1:
+            continue
+        db.session.add(RoleKSA(role_id=role.id, ksa_id=kid,
+                               required_level=min(lvl, valid[kid].max_level)))
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 def _quiz_owned_or_403(qid):

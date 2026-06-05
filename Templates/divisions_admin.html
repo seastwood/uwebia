@@ -48,6 +48,16 @@
 .da-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.35); padding: 8px 2px; }
 .da-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 50px 20px; }
 .da-modal-error { display:none; color:#ff6b6b; font-size:0.85rem; padding:0 20px 4px; }
+.da-roles { display: flex; flex-direction: column; gap: 6px; }
+.da-role-row { display: flex; align-items: center; gap: 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); }
+.da-role-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.da-member-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.da-member-name { font-weight: 600; font-size: 0.9rem; }
+.da-member-row select { padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; }
+.da-req-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.da-req-row select { margin-left: auto; padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; min-width: 150px; }
+.da-add-member { display: flex; gap: 8px; margin-bottom: 14px; }
+.da-add-member input { flex: 1; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; }
 </style>
 
 <div class="da-page">
@@ -130,7 +140,28 @@
         </div>
 
         {% if can_manage %}
-        <button class="da-btn da-btn-secondary" style="margin-top:12px;" onclick="openKsaModal({{ d.id }})"><i class="fas fa-plus"></i> Add KSA</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+            <button class="da-btn da-btn-secondary" onclick="openKsaModal({{ d.id }})"><i class="fas fa-plus"></i> Add KSA</button>
+            <button class="da-btn da-btn-secondary" onclick='openMembersModal({{ d.id }}, {{ d.name|tojson }})'><i class="fas fa-users"></i> Members</button>
+        </div>
+        {% endif %}
+
+        {% set _droles = roles_by_division.get(d.id, []) %}
+        {% if _droles %}
+        <p class="da-field-label" style="margin-top:16px;">Roles &amp; requirements</p>
+        <div class="da-roles">
+            {% for role in _droles %}
+            <div class="da-role-row">
+                <span class="da-role-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>
+                <span class="da-ksa-meta">{{ role.ksa_requirements.count() }} required KSA{{ '' if role.ksa_requirements.count() == 1 else 's' }}</span>
+                {% if can_manage %}
+                <button class="da-btn da-btn-secondary" style="margin-left:auto;padding:5px 11px;" onclick='openReqModal({{ role.id }}, {{ role.name|tojson }})'>Edit requirements</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% elif can_manage %}
+        <p class="da-ksa-empty" style="margin-top:14px;">No roles are scoped to this division yet. Set a role's division in <strong>Admin → Users → Roles</strong> to define its required KSAs here.</p>
         {% endif %}
     </div>
     {% endfor %}
@@ -197,6 +228,47 @@
                 <button type="submit" class="uw-btn uw-btn-primary" id="ksaModalSubmit">Create</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Members modal -->
+<div class="uw-overlay" id="membersOverlay" style="display:none;" onclick="if(event.target===this)closeMembersModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="membersTitle">Members</h3>
+            <button class="uw-modal-close" onclick="closeMembersModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <div class="da-add-member">
+                <input type="text" id="memberLogin" placeholder="Add by username or email…" autocomplete="off"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addMember();}">
+                <button class="da-btn da-btn-primary" onclick="addMember()"><i class="fas fa-plus"></i> Add</button>
+            </div>
+            <div id="memberAddError" class="da-modal-error" style="padding:0 0 8px;"></div>
+            <div id="membersList"></div>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeMembersModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Role requirements modal -->
+<div class="uw-overlay" id="reqOverlay" style="display:none;" onclick="if(event.target===this)closeReqModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="reqTitle">Requirements</h3>
+            <button class="uw-modal-close" onclick="closeReqModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 12px;">Set the level this role is expected to hold for each KSA. <strong>Not required</strong> leaves it out of the role's profile.</p>
+            <div id="reqList"></div>
+        </div>
+        <div id="reqError" class="da-modal-error"></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeReqModal()">Cancel</button>
+            <button class="uw-btn uw-btn-primary" id="reqSubmit" onclick="saveReq()">Save</button>
+        </div>
     </div>
 </div>
 
@@ -336,6 +408,107 @@ async function saveKsaSettings() {
         if (d.success) { st.textContent = 'Saved.'; st.style.color = '#5eeec8'; setTimeout(() => location.reload(), 500); }
         else { st.textContent = d.error || 'Failed.'; st.style.color = '#ff8a8a'; }
     } catch (e) { st.textContent = 'Request failed.'; st.style.color = '#ff8a8a'; }
+}
+
+// ── Members modal ──
+let _membersDivId = null;
+function _escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function openMembersModal(did, name) {
+    _membersDivId = did;
+    document.getElementById('membersTitle').textContent = 'Members — ' + name;
+    document.getElementById('memberLogin').value = '';
+    _err('memberAddError', '');
+    document.getElementById('membersList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('membersOverlay').style.display = 'flex';
+    await loadMembers();
+}
+function closeMembersModal() { document.getElementById('membersOverlay').style.display = 'none'; }
+async function loadMembers() {
+    try {
+        const d = await (await fetch(`/admin/divisions/${_membersDivId}/members`)).json();
+        renderMembers(d.members || []);
+    } catch (e) { document.getElementById('membersList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+function renderMembers(members) {
+    const box = document.getElementById('membersList');
+    if (!members.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">No members yet.</p>'; return; }
+    box.innerHTML = members.map(m => `
+        <div class="da-member-row">
+            <span class="da-member-name">${_escH(m.name)}</span>
+            <select onchange="setMemberStatus(${m.membership_id}, this.value)" style="margin-left:auto;">
+                <option value="active"${m.status==='active'?' selected':''}>Active</option>
+                <option value="alumni"${m.status==='alumni'?' selected':''}>Alumni</option>
+            </select>
+            <button class="da-icon-btn is-danger" title="Remove" onclick="removeMember(${m.membership_id})"><i class="fas fa-times"></i></button>
+        </div>`).join('');
+}
+async function addMember() {
+    const login = document.getElementById('memberLogin').value.trim();
+    if (!login) return;
+    _err('memberAddError', '');
+    try {
+        const r = await fetch(`/admin/divisions/${_membersDivId}/members/add`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login }) });
+        const d = await r.json();
+        if (!d.success) { _err('memberAddError', d.error || 'Failed'); return; }
+        document.getElementById('memberLogin').value = '';
+        await loadMembers();
+    } catch (e) { _err('memberAddError', 'Request failed'); }
+}
+async function setMemberStatus(mid, status) {
+    await fetch(`/admin/divisions/membership/${mid}/status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+}
+async function removeMember(mid) {
+    await fetch(`/admin/divisions/membership/${mid}/remove`, { method: 'POST' });
+    await loadMembers();
+}
+
+// ── Role requirements modal ──
+let _reqRoleId = null, _reqCatalog = [];
+async function openReqModal(roleId, name) {
+    _reqRoleId = roleId;
+    document.getElementById('reqTitle').textContent = 'Requirements — ' + name;
+    _err('reqError', '');
+    document.getElementById('reqList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('reqOverlay').style.display = 'flex';
+    try {
+        const d = await (await fetch(`/admin/roles/${roleId}/ksa-requirements`)).json();
+        _reqCatalog = d.catalog || [];
+        renderReq(_reqCatalog, d.requirements || {});
+    } catch (e) { document.getElementById('reqList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+function closeReqModal() { document.getElementById('reqOverlay').style.display = 'none'; }
+function renderReq(catalog, current) {
+    const box = document.getElementById('reqList');
+    if (!catalog.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">This role\'s division has no KSAs yet. Add some in the catalog first.</p>'; return; }
+    box.innerHTML = catalog.map(k => {
+        const cur = parseInt(current[String(k.id)] || 0);
+        let opts = `<option value="0"${cur===0?' selected':''}>Not required</option>`;
+        for (let lv = 1; lv <= k.max_level; lv++) {
+            const lbl = KSA_LEVEL_LABELS[lv] || ('Level ' + lv);
+            opts += `<option value="${lv}"${cur===lv?' selected':''}>${_escH(lbl)} (${lv})</option>`;
+        }
+        return `<div class="da-req-row">
+            <span class="da-ksa-type">${_escH(k.ksa_type)}</span>
+            <span class="da-member-name">${_escH(k.name)}</span>
+            <select data-ksa="${k.id}">${opts}</select>
+        </div>`;
+    }).join('');
+}
+async function saveReq() {
+    const requirements = {};
+    document.querySelectorAll('#reqList select[data-ksa]').forEach(sel => {
+        const lv = parseInt(sel.value);
+        if (lv >= 1) requirements[sel.dataset.ksa] = lv;
+    });
+    const btn = document.getElementById('reqSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/roles/${_reqRoleId}/ksa-requirements`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirements }) });
+        const d = await r.json();
+        if (d.success) location.reload(); else _err('reqError', d.error || 'Failed to save');
+    } catch (e) { _err('reqError', 'Request failed'); } finally { btn.disabled = false; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
