@@ -44,6 +44,22 @@
 .pa-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
 .pa-btn-danger:hover { background: rgba(255,80,80,0.22); }
 .pa-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
+
+.qa-cats { margin-bottom: 28px; padding: 16px 18px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.03); }
+.qa-cats-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; }
+.qa-cats-title { margin: 0; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); }
+.qa-cats-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.qa-cat-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 99px; border: 1px solid rgba(255,255,255,0.13); background: rgba(255,255,255,0.05); font-size: 0.86rem; color: #fff; }
+.qa-cat-count { font-size: 0.72rem; opacity: 0.55; padding: 1px 7px; border-radius: 99px; background: rgba(255,255,255,0.08); }
+.qa-cat-edit { background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 2px 4px; font-size: 0.75rem; }
+.qa-cat-edit:hover { color: #fff; }
+.qa-cat-delete:hover { color: #ff6b6b; }
+.qa-cats-empty { font-size: 0.84rem; color: rgba(255,255,255,0.4); margin: 0; }
+
+.qa-group { margin-bottom: 32px; }
+.qa-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); }
+.qa-group-count { font-size: 0.72rem; opacity: 0.5; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.07); font-weight: 600; }
+.cat-icon-preview { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #5eeef8; flex-shrink: 0; }
 </style>
 
 <div class="pa-page">
@@ -53,38 +69,99 @@
             <h1 class="pa-title">Quizzes</h1>
             <p class="pa-sub">Reusable quizzes you can embed in lessons (and, later, page sections).</p>
         </div>
-        {% if user_has_perm('quizzes.manage') %}
+        {% if user_has_perm('quizzes.manage') and (not quizzes_restricted or accessible_category_ids) %}
         <button class="pa-btn-new" onclick="openQuizModal()">
             <i class="fas fa-plus"></i> New Quiz
         </button>
         {% endif %}
     </div>
 
-    {% if quizzes %}
-    <div class="pa-grid" id="quizGrid">
-        {% for q in quizzes %}
-        <div class="pa-card" id="quizCard-{{ q.id }}">
-            <div class="pa-card-top">
-                <h2 class="pa-card-name">{{ q.title }}</h2>
+    {# ─── Categories strip ─────────────────────────────────────────────── #}
+    {% if user_has_perm('quizzes.manage') or categories %}
+    <div class="qa-cats">
+        <div class="qa-cats-header">
+            <h3 class="qa-cats-title">Categories</h3>
+            {% if user_has_perm('quizzes.manage') and not quizzes_restricted %}
+            <button class="pa-btn pa-btn-secondary" onclick="openCategoryModal()">
+                <i class="fas fa-plus"></i> Add category
+            </button>
+            {% endif %}
+        </div>
+        {% if categories %}
+        <div class="qa-cats-list" id="categoriesList">
+            {% for c in categories %}
+            <div class="qa-cat-chip" id="catChip-{{ c.id }}" style="{% if c.color %}border-color:{{ c.color }};background:{{ c.color }}1a;{% endif %}">
+                {% if c.icon %}<i class="fas {{ c.icon }}" style="{% if c.color %}color:{{ c.color }};{% endif %}"></i>{% endif %}
+                <span>{{ c.name }}</span>
+                <span class="qa-cat-count">{{ c.quizzes.count() }}</span>
+                {% if user_has_perm('quizzes.manage') and (not quizzes_restricted or c.id in accessible_category_ids) %}
+                <button class="qa-cat-edit" title="Edit"
+                        onclick='openCategoryModal({{ c.id }}, {{ c.name | tojson }}, {{ (c.description or "") | tojson }}, {{ (c.color or "") | tojson }}, {{ (c.icon or "") | tojson }})'>
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="qa-cat-edit qa-cat-delete" title="Delete"
+                        onclick='confirmCategoryDelete({{ c.id }}, {{ c.name | tojson }})'>
+                    <i class="fas fa-times"></i>
+                </button>
+                {% elif quizzes_restricted %}
+                <i class="fas fa-lock" title="You don't have access to this category" style="opacity:0.4;font-size:0.75rem;margin-left:4px;"></i>
+                {% endif %}
             </div>
-            {% if q.description %}<p class="pa-card-desc">{{ q.description }}</p>{% endif %}
-            <p class="pa-card-meta">{{ q.questions.count() }} question{{ 's' if q.questions.count() != 1 else '' }}</p>
-            <div class="pa-card-actions">
-                {% if user_has_perm('quizzes.view') %}
-                <a href="{{ url_for('admin_quiz_editor', qid=q.id) }}" class="pa-btn pa-btn-primary">
-                    <i class="fas fa-tasks"></i> Edit Questions
-                </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="qa-cats-empty">No categories yet — use these to group quizzes (e.g. by department or module) and to scope sub-admin access.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if quizzes %}
+    <div id="quizGrid">
+        {% for grp in grouped_quizzes %}
+        <div class="qa-group">
+            <h3 class="qa-group-title">
+                {% if grp.category %}
+                {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
+                {{ grp.category.name }}
+                {% else %}
+                <span style="opacity:0.6;">Uncategorized</span>
                 {% endif %}
-                {% if user_has_perm('quizzes.manage') %}
-                <button class="pa-btn pa-btn-secondary"
-                        onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }})'>
-                    <i class="fas fa-cog"></i>
-                </button>
-                <button class="pa-btn pa-btn-danger"
-                        onclick='confirmQuizDelete({{ q.id }}, {{ q.title | tojson }})'>
-                    <i class="fas fa-trash"></i>
-                </button>
-                {% endif %}
+                <span class="qa-group-count">{{ grp.quizzes|length }}</span>
+            </h3>
+            <div class="pa-grid">
+                {% for q in grp.quizzes %}
+                {% set _quiz_locked = quizzes_restricted and q.id not in accessible_quiz_ids %}
+                <div class="pa-card" id="quizCard-{{ q.id }}">
+                    <div class="pa-card-top">
+                        <h2 class="pa-card-name">{{ q.title }}</h2>
+                    </div>
+                    {% if q.description %}<p class="pa-card-desc">{{ q.description }}</p>{% endif %}
+                    <p class="pa-card-meta">{{ q.questions.count() }} question{{ 's' if q.questions.count() != 1 else '' }}</p>
+                    <div class="pa-card-actions">
+                        {% if _quiz_locked %}
+                        <span style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;color:rgba(255,255,255,0.4);">
+                            <i class="fas fa-lock"></i> No access to this quiz
+                        </span>
+                        {% else %}
+                        {% if user_has_perm('quizzes.view') %}
+                        <a href="{{ url_for('admin_quiz_editor', qid=q.id) }}" class="pa-btn pa-btn-primary">
+                            <i class="fas fa-tasks"></i> Edit Questions
+                        </a>
+                        {% endif %}
+                        {% if user_has_perm('quizzes.manage') %}
+                        <button class="pa-btn pa-btn-secondary"
+                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }})'>
+                            <i class="fas fa-cog"></i>
+                        </button>
+                        <button class="pa-btn pa-btn-danger"
+                                onclick='confirmQuizDelete({{ q.id }}, {{ q.title | tojson }})'>
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endfor %}
@@ -114,6 +191,18 @@
                     <label for="quizModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
                     <textarea id="quizModalDesc" rows="3" placeholder="Shown above the quiz to readers"></textarea>
                 </div>
+                <div class="uw-field" id="quizModalCategoryField">
+                    <label for="quizModalCategory" style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Category</label>
+                    <select id="quizModalCategory" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;font-size:0.92rem;outline:none;">
+                        <option value="" {% if quizzes_restricted %}disabled{% endif %}>— Uncategorized —</option>
+                        {% for c in (categories or []) %}
+                        <option value="{{ c.id }}"{% if quizzes_restricted and c.id not in accessible_category_ids %} disabled{% endif %}>{{ c.name }}{% if quizzes_restricted and c.id not in accessible_category_ids %} — no access{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    {% if quizzes_restricted %}
+                    <p style="font-size:0.76rem;color:rgba(255,255,255,0.4);margin:6px 0 0;">You can only create quizzes in categories you have access to.</p>
+                    {% endif %}
+                </div>
                 <div class="uw-field" id="quizModalExtraFields" style="display:none;">
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
                         <input type="checkbox" id="quizModalShuffle" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
@@ -128,6 +217,7 @@
                     <p style="margin:8px 0 0;font-size:0.78rem;color:rgba(255,255,255,0.45);">When this quiz is embedded in a lesson, the reader must reach at least this score for the lesson to count as complete.</p>
                 </div>
             </div>
+            <div id="quizModalError" role="alert" style="display:none;color:#ff6b6b;font-size:0.85rem;padding:0 20px 4px;"></div>
             <div class="uw-modal-footer">
                 <button type="button" class="uw-btn uw-btn-secondary" onclick="closeQuizModal()">Cancel</button>
                 <button type="submit" class="uw-btn uw-btn-primary" id="quizModalSubmitBtn">Create</button>
@@ -156,26 +246,104 @@
     </div>
 </div>
 
+<!-- Category create/edit modal -->
+<div class="uw-overlay" id="catModalOverlay" style="display:none;" onclick="if(event.target===this)closeCategoryModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="catModalTitle">New Category</h3>
+            <button class="uw-modal-close" onclick="closeCategoryModal()">&times;</button>
+        </div>
+        <form id="catModalForm" onsubmit="submitCategoryModal(event)">
+            <input type="hidden" id="catModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field">
+                    <label for="catModalName">Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="catModalName" required placeholder="e.g. Onboarding, Safety, Module 1">
+                </div>
+                <div class="uw-field">
+                    <label for="catModalDesc">Description <span style="opacity:0.5;">(optional)</span></label>
+                    <textarea id="catModalDesc" rows="2" placeholder="What kinds of quizzes live here"></textarea>
+                </div>
+                <div class="uw-field" style="display:flex;gap:12px;align-items:flex-end;">
+                    <div style="flex:1;">
+                        <label for="catModalIcon">Icon <span style="opacity:0.5;">(optional)</span></label>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <span id="catModalIconPreview" class="cat-icon-preview" aria-hidden="true"><i class="fas fa-icons"></i></span>
+                            <input type="text" id="catModalIcon" placeholder="fa-clipboard-check" oninput="updateIconPreview()" style="flex:1;">
+                        </div>
+                        <p style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin:4px 0 0;">Type any Font Awesome class — e.g. <code>fa-clipboard-check</code>.</p>
+                    </div>
+                    <div style="width:90px;">
+                        <label for="catModalColor">Color</label>
+                        <input type="color" id="catModalColor" value="#5eeef8" oninput="updateIconPreview()" style="width:100%;height:40px;border:none;background:transparent;cursor:pointer;">
+                    </div>
+                </div>
+            </div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="catModalSubmitBtn">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Category delete-confirm modal -->
+<div class="uw-overlay" id="catDelOverlay" style="display:none;" onclick="if(event.target===this)closeCategoryDelete()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:400px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Delete Category</h3>
+            <button class="uw-modal-close" onclick="closeCategoryDelete()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p id="catDelMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p>
+            <p style="color:rgba(255,255,255,0.55);margin:8px 0 0;font-size:0.85rem;">Quizzes in this category will become <strong>Uncategorized</strong>; they're not deleted.</p>
+        </div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeCategoryDelete()">Cancel</button>
+            <button class="uw-btn" id="catDelConfirmBtn"
+                    style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 let _qdelId = null;
+let _catDelId = null;
+
+function _setQuizModalError(msg) {
+    const el = document.getElementById('quizModalError');
+    if (!el) return;
+    if (msg) { el.textContent = msg; el.style.display = 'block'; }
+    else { el.textContent = ''; el.style.display = 'none'; }
+}
 
 function openQuizModal() {
     document.getElementById('quizModalId').value = '';
     document.getElementById('quizModalTitleInput').value = '';
     document.getElementById('quizModalDesc').value = '';
     document.getElementById('quizModalExtraFields').style.display = 'none';
+    // Category is chosen on create too; default to the first selectable option
+    // (restricted admins can't pick Uncategorized or a locked category).
+    const sel = document.getElementById('quizModalCategory');
+    const firstEnabled = Array.from(sel.options).find(o => !o.disabled);
+    sel.value = firstEnabled ? firstEnabled.value : '';
+    _setQuizModalError('');
     document.getElementById('quizModalTitle').textContent = 'New Quiz';
     document.getElementById('quizModalSubmitBtn').textContent = 'Create';
     document.getElementById('quizModalOverlay').style.display = 'flex';
     setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
 }
 
-function openQuizEdit(id, title, desc, shuffle, passThreshold) {
+function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId) {
     document.getElementById('quizModalId').value = id;
     document.getElementById('quizModalTitleInput').value = title;
     document.getElementById('quizModalDesc').value = desc;
     document.getElementById('quizModalShuffle').checked = !!shuffle;
     document.getElementById('quizModalPass').value = Math.round((passThreshold == null ? 0.9 : passThreshold) * 100);
+    document.getElementById('quizModalCategory').value = categoryId ? String(categoryId) : '';
+    _setQuizModalError('');
     document.getElementById('quizModalExtraFields').style.display = 'block';
     document.getElementById('quizModalTitle').textContent = 'Quiz Settings';
     document.getElementById('quizModalSubmitBtn').textContent = 'Save';
@@ -193,10 +361,13 @@ async function submitQuizModal(e) {
     const title = document.getElementById('quizModalTitleInput').value.trim();
     const desc  = document.getElementById('quizModalDesc').value.trim();
     if (!title) return;
+    _setQuizModalError('');
     const btn = document.getElementById('quizModalSubmitBtn');
     btn.disabled = true;
 
     const body = { title, description: desc };
+    const _catVal = document.getElementById('quizModalCategory');
+    if (_catVal) body.category_id = _catVal.value || null;
     if (id) {
         body.shuffle_questions = document.getElementById('quizModalShuffle').checked;
         const pct = parseInt(document.getElementById('quizModalPass').value, 10);
@@ -214,10 +385,12 @@ async function submitQuizModal(e) {
             if (!id && d.quiz) { window.location = `/admin/quizzes/${d.quiz.id}/edit`; return; }
             location.reload();
         } else {
-            alert(d.error || 'Failed to save quiz');
+            // Keep the modal open with the user's input so they can fix the
+            // problem (e.g. pick an accessible category) and resubmit.
+            _setQuizModalError(d.error || 'Failed to save quiz');
         }
     } catch (err) {
-        alert('Request failed');
+        _setQuizModalError('Request failed — please try again.');
     } finally {
         btn.disabled = false;
     }
@@ -244,6 +417,90 @@ async function doQuizDelete() {
         const r = await fetch(`/admin/quizzes/${_qdelId}/delete`, { method: 'POST' });
         const d = await r.json();
         if (d.success) { closeQdelModal(); location.reload(); }
+        else alert(d.error || 'Failed to delete');
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── Categories ───────────────────────────────────────────────────────────---
+function updateIconPreview() {
+    const icon = document.getElementById('catModalIcon').value.trim();
+    const color = document.getElementById('catModalColor').value || '#5eeef8';
+    const prev = document.getElementById('catModalIconPreview');
+    prev.innerHTML = `<i class="fas ${icon || 'fa-icons'}"></i>`;
+    prev.style.color = color;
+}
+
+function openCategoryModal(id, name, desc, color, icon) {
+    document.getElementById('catModalId').value = id || '';
+    document.getElementById('catModalName').value = name || '';
+    document.getElementById('catModalDesc').value = desc || '';
+    document.getElementById('catModalColor').value = color || '#5eeef8';
+    document.getElementById('catModalIcon').value = icon || '';
+    updateIconPreview();
+    document.getElementById('catModalTitle').textContent = id ? 'Edit Category' : 'New Category';
+    document.getElementById('catModalSubmitBtn').textContent = id ? 'Save' : 'Create';
+    document.getElementById('catModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('catModalName').focus(), 60);
+}
+
+function closeCategoryModal() {
+    document.getElementById('catModalOverlay').style.display = 'none';
+}
+
+async function submitCategoryModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('catModalId').value;
+    const name = document.getElementById('catModalName').value.trim();
+    if (!name) return;
+    const btn = document.getElementById('catModalSubmitBtn');
+    btn.disabled = true;
+    const body = {
+        name,
+        description: document.getElementById('catModalDesc').value.trim(),
+        color: document.getElementById('catModalColor').value || '',
+        icon: document.getElementById('catModalIcon').value.trim(),
+    };
+    const url = id ? `/admin/quizzes/categories/${id}/update` : '/admin/quizzes/categories/create';
+    try {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) { closeCategoryModal(); location.reload(); }
+        else alert(d.error || 'Failed to save category');
+    } catch (err) {
+        alert('Request failed');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function confirmCategoryDelete(id, name) {
+    _catDelId = id;
+    document.getElementById('catDelMsg').textContent = `Delete the "${name}" category?`;
+    document.getElementById('catDelConfirmBtn').onclick = doCategoryDelete;
+    document.getElementById('catDelOverlay').style.display = 'flex';
+}
+
+function closeCategoryDelete() {
+    document.getElementById('catDelOverlay').style.display = 'none';
+    _catDelId = null;
+}
+
+async function doCategoryDelete() {
+    if (!_catDelId) return;
+    const btn = document.getElementById('catDelConfirmBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/quizzes/categories/${_catDelId}/delete`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) { closeCategoryDelete(); location.reload(); }
         else alert(d.error || 'Failed to delete');
     } catch (err) {
         alert('Request failed');

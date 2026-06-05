@@ -61,6 +61,62 @@
 </details>
 {% endmacro %}
 
+{% macro quiz_access_picker(cb, catcb, clearfn) %}
+<details style="margin-bottom:16px;">
+    <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+        <i class="fas fa-clipboard-check" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+        Quiz Access
+        <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow all quizzes</span>
+    </summary>
+    <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+        <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+            Check a <strong>category</strong> to grant full control of every quiz in it (current &amp; future), or check individual <strong>quizzes</strong>.
+            If nothing is checked, all quizzes are accessible (subject to the Quizzes permissions above).
+        </p>
+        {% if not quiz_catalog %}
+        <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No quizzes found yet.</div>
+        {% else %}
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="{{ clearfn }}()">Clear all</button>
+        </div>
+        {% for site in quiz_catalog %}
+        <div style="margin-bottom:10px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.35);margin:6px 0 4px;">{{ site.website_name }}</div>
+            {% for cat in site.categories %}
+            <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+                <input type="checkbox" class="{{ catcb }}" data-cat-id="{{ cat.id }}" value="{{ cat.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-folder" style="color:rgba(255,200,80,0.5);font-size:0.85rem;flex-shrink:0;"></i>
+                <span style="font-size:0.82rem;font-weight:700;">{{ cat.name }}</span>
+                <span style="font-size:0.72rem;color:rgba(255,255,255,0.3);">· category</span>
+            </label>
+            {% for q in cat.quizzes %}
+            <label class="perm-item" style="padding:5px 10px;margin:0 0 4px 22px;border:1px solid rgba(255,255,255,0.04);border-radius:7px;">
+                <input type="checkbox" class="{{ cb }}" data-quiz-id="{{ q.id }}" value="{{ q.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-clipboard-check" style="color:rgba(94,238,248,0.5);font-size:0.8rem;flex-shrink:0;"></i>
+                <span style="font-size:0.8rem;">{{ q.title }}</span>
+            </label>
+            {% endfor %}
+            {% endfor %}
+            {% if site.uncategorized %}
+            <div style="font-size:0.72rem;color:rgba(255,255,255,0.25);margin:4px 0;">Uncategorized</div>
+            {% for q in site.uncategorized %}
+            <label class="perm-item" style="padding:5px 10px;margin:0 0 4px 22px;border:1px solid rgba(255,255,255,0.04);border-radius:7px;">
+                <input type="checkbox" class="{{ cb }}" data-quiz-id="{{ q.id }}" value="{{ q.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-clipboard-check" style="color:rgba(94,238,248,0.5);font-size:0.8rem;flex-shrink:0;"></i>
+                <span style="font-size:0.8rem;">{{ q.title }}</span>
+            </label>
+            {% endfor %}
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+</details>
+{% endmacro %}
+
 <style>
 .au-page {
     width: min(1000px, calc(100% - 32px));
@@ -446,6 +502,7 @@
             </details>
 
             {{ guide_access_picker('guide-access-cb', 'guide-cat-cb', 'clearAllGuides') }}
+            {{ quiz_access_picker('quiz-access-cb', 'quiz-cat-cb', 'clearAllQuizzes') }}
 
             <div id="permissionsContainer" class="perm-columns">
                 {% for section_key, section in permissions_schema.items() %}
@@ -640,6 +697,7 @@
             </details>
 
             {{ guide_access_picker('grp-guide-access-cb', 'grp-guide-cat-cb', 'clearAllGrpGuides') }}
+            {{ quiz_access_picker('grp-quiz-access-cb', 'grp-quiz-cat-cb', 'clearAllGrpQuizzes') }}
 
             <!-- Per-website permission overrides for group -->
             <div style="margin-top:24px;">
@@ -726,6 +784,8 @@ const _existingGroups = {
         allowed_folders:     {{ ((g.permissions or {}).get('assets.allowed_folder_ids') or []) | tojson }},
         allowed_guide_cats:  {{ ((g.permissions or {}).get('guides.allowed_category_ids') or []) | tojson }},
         allowed_guide_ids:   {{ ((g.permissions or {}).get('guides.allowed_guide_ids') or []) | tojson }},
+        allowed_quiz_cats:   {{ ((g.permissions or {}).get('quizzes.allowed_category_ids') or []) | tojson }},
+        allowed_quiz_ids:    {{ ((g.permissions or {}).get('quizzes.allowed_quiz_ids') or []) | tojson }},
         page_folder_perms:   {{ ((g.permissions or {}).get('page_folder_perms') or {}) | tojson }},
     },
     {% endfor %}
@@ -882,8 +942,9 @@ function openUserModal(userId) {
         if (label) { label.style.opacity = ''; label.style.cursor = ''; }
     });
 
-    // Reset guide access checkboxes
+    // Reset guide + quiz access checkboxes
     document.querySelectorAll('.guide-access-cb, .guide-cat-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.quiz-access-cb, .quiz-cat-cb').forEach(cb => cb.checked = false);
 
     // Reset group selector
     const groupSel = document.getElementById('userGroupId');
@@ -907,7 +968,7 @@ function openUserModal(userId) {
         } else {
             // Restore individual permissions
             Object.entries(u.permissions || {}).forEach(([key, val]) => {
-                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids') {
+                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids') {
                     const cb = document.querySelector(`#permissionsContainer input[data-key="${key}"], #permissionsContainerWebsite input[data-key="${key}"]`);
                     if (cb) cb.checked = true;
                 }
@@ -926,6 +987,15 @@ function openUserModal(userId) {
         });
         (u.permissions?.['guides.allowed_guide_ids'] || []).forEach(gid => {
             const cb = document.querySelector(`.guide-access-cb[data-guide-id="${gid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore quiz access (categories + individual quizzes)
+        (u.permissions?.['quizzes.allowed_category_ids'] || []).forEach(cid => {
+            const cb = document.querySelector(`.quiz-cat-cb[data-cat-id="${cid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (u.permissions?.['quizzes.allowed_quiz_ids'] || []).forEach(qid => {
+            const cb = document.querySelector(`.quiz-access-cb[data-quiz-id="${qid}"]`);
             if (cb) cb.checked = true;
         });
     } else {
@@ -1027,6 +1097,14 @@ function clearAllGuides() {
 
 function clearAllGrpGuides() {
     document.querySelectorAll('.grp-guide-access-cb, .grp-guide-cat-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllQuizzes() {
+    document.querySelectorAll('.quiz-access-cb, .quiz-cat-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllGrpQuizzes() {
+    document.querySelectorAll('.grp-quiz-access-cb, .grp-quiz-cat-cb').forEach(cb => cb.checked = false);
 }
 
 function toggleAllFolders(state) {
@@ -1472,6 +1550,11 @@ async function submitUserForm() {
     permissions['guides.allowed_category_ids'] = allowedGuideCats.length ? allowedGuideCats : null;
     permissions['guides.allowed_guide_ids']    = allowedGuideIds.length  ? allowedGuideIds  : null;
 
+    const allowedQuizCats = Array.from(document.querySelectorAll('.quiz-cat-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedQuizIds  = Array.from(document.querySelectorAll('.quiz-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['quizzes.allowed_category_ids'] = allowedQuizCats.length ? allowedQuizCats : null;
+    permissions['quizzes.allowed_quiz_ids']     = allowedQuizIds.length  ? allowedQuizIds  : null;
+
     const groupSel = document.getElementById('userGroupId');
     const groupId  = groupSel ? (groupSel.value || null) : null;
 
@@ -1647,15 +1730,16 @@ function openGroupModal(groupId) {
         if (label) { label.style.opacity = ''; label.style.cursor = ''; }
     });
 
-    // Reset guide access checkboxes
+    // Reset guide + quiz access checkboxes
     document.querySelectorAll('.grp-guide-access-cb, .grp-guide-cat-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.grp-quiz-access-cb, .grp-quiz-cat-cb').forEach(cb => cb.checked = false);
 
     if (groupId && _existingGroups[groupId]) {
         const g = _existingGroups[groupId];
         document.getElementById('groupName').value = g.name;
         document.getElementById('groupDescription').value = g.description;
         Object.entries(g.permissions || {}).forEach(([key, val]) => {
-            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids') {
+            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids') {
                 const cb = document.querySelector(`#groupPermissionsContainer input[data-key="${key}"], #groupPermissionsContainerWebsite input[data-key="${key}"]`);
                 if (cb) cb.checked = true;
             }
@@ -1672,6 +1756,15 @@ function openGroupModal(groupId) {
         });
         (g.allowed_guide_ids || []).forEach(gid => {
             const cb = document.querySelector(`.grp-guide-access-cb[data-guide-id="${gid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore quiz access (categories + individual quizzes)
+        (g.allowed_quiz_cats || []).forEach(cid => {
+            const cb = document.querySelector(`.grp-quiz-cat-cb[data-cat-id="${cid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (g.allowed_quiz_ids || []).forEach(qid => {
+            const cb = document.querySelector(`.grp-quiz-access-cb[data-quiz-id="${qid}"]`);
             if (cb) cb.checked = true;
         });
     } else {
@@ -2073,6 +2166,12 @@ async function submitGroupForm() {
     const allowedGuideIds  = Array.from(document.querySelectorAll('.grp-guide-access-cb:checked')).map(cb => parseInt(cb.value));
     permissions['guides.allowed_category_ids'] = allowedGuideCats.length ? allowedGuideCats : null;
     permissions['guides.allowed_guide_ids']    = allowedGuideIds.length  ? allowedGuideIds  : null;
+
+    // Collect quiz access restrictions
+    const allowedQuizCats = Array.from(document.querySelectorAll('.grp-quiz-cat-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedQuizIds  = Array.from(document.querySelectorAll('.grp-quiz-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['quizzes.allowed_category_ids'] = allowedQuizCats.length ? allowedQuizCats : null;
+    permissions['quizzes.allowed_quiz_ids']     = allowedQuizIds.length  ? allowedQuizIds  : null;
 
     const payload = {
         name:               document.getElementById('groupName').value.trim(),
