@@ -139,12 +139,13 @@
             {% endfor %}
         </div>
 
-        {% if can_manage %}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+            {% if can_manage %}
             <button class="da-btn da-btn-secondary" onclick="openKsaModal({{ d.id }})"><i class="fas fa-plus"></i> Add KSA</button>
             <button class="da-btn da-btn-secondary" onclick='openMembersModal({{ d.id }}, {{ d.name|tojson }})'><i class="fas fa-users"></i> Members</button>
+            {% endif %}
+            <a class="da-btn da-btn-primary" href="{{ url_for('admin_division_matrix', did=d.id) }}"><i class="fas fa-th"></i> Matrix</a>
         </div>
-        {% endif %}
 
         {% set _droles = roles_by_division.get(d.id, []) %}
         {% if _droles %}

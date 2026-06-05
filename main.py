@@ -31234,6 +31234,105 @@ def admin_role_ksa_requirements_save(role_id):
     return _utf8_json({'success': True})
 
 
+# ── KSA matrix Phase 4: the members × KSAs grid ──────────────────────────────
+
+@app.route('/admin/divisions/<int:did>/matrix')
+@login_required
+@require_perm('ksa.view')
+def admin_division_matrix(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        abort(403)
+    ksas = KSA.query.filter_by(division_id=d.id).order_by(KSA.sort_order, KSA.name).all()
+    ksa_ids = [k.id for k in ksas]
+
+    # Division roles + their requirements (role_id -> {ksa_id: required_level}).
+    div_roles = PublicUserRole.query.filter_by(website_id=website.id, division_id=d.id) \
+        .order_by(PublicUserRole.name).all()
+    div_role_ids = {r.id for r in div_roles}
+    req_by_role = {}
+    if div_role_ids:
+        for rk in RoleKSA.query.filter(RoleKSA.role_id.in_(div_role_ids)).all():
+            req_by_role.setdefault(rk.role_id, {})[rk.ksa_id] = rk.required_level
+
+    role_filter = request.args.get('role', type=int)
+    status_filter = request.args.get('status') or 'all'
+
+    member_users, member_status = {}, {}
+    for m in d.memberships.order_by(DivisionMembership.created_at).all():
+        u = db.session.get(PublicUser, m.public_user_id)
+        if u:
+            member_users[u.id] = u
+            member_status[u.id] = m.status
+    member_ids = list(member_users.keys())
+
+    held = {}
+    if member_ids and ksa_ids:
+        for uk in UserKSA.query.filter(UserKSA.public_user_id.in_(member_ids),
+                                       UserKSA.ksa_id.in_(ksa_ids)).all():
+            held[(uk.public_user_id, uk.ksa_id)] = uk.level
+
+    rows = []
+    for uid, u in member_users.items():
+        if status_filter in ('active', 'alumni') and member_status[uid] != status_filter:
+            continue
+        u_div_roles = [r for r in (u.roles or []) if r.id in div_role_ids]
+        if role_filter and not any(r.id == role_filter for r in u_div_roles):
+            continue
+        required = {}
+        for r in u_div_roles:
+            for kid, lvl in req_by_role.get(r.id, {}).items():
+                required[kid] = max(required.get(kid, 0), lvl)
+        cells = []
+        for k in ksas:
+            lv = held.get((uid, k.id), 0)
+            rq = required.get(k.id, 0)
+            cells.append({'ksa': k, 'level': lv, 'required': rq,
+                          'has_req': rq > 0, 'met': (rq == 0 or lv >= rq)})
+        rows.append({'user': u, 'status': member_status[uid],
+                     'role_names': [r.name for r in u_div_roles], 'cells': cells})
+    rows.sort(key=lambda x: (x['user'].effective_display_name or '').lower())
+
+    can_manage = (not current_user.is_sub_admin) or current_user.has_permission('ksa.manage')
+    return render_template('division_matrix.html', website=website, current_website=website,
+                           division=d, ksas=ksas, rows=rows, div_roles=div_roles,
+                           role_filter=role_filter, status_filter=status_filter,
+                           level_labels=_ksa_level_labels(website), can_manage=can_manage,
+                           page_id=None)
+
+
+@app.route('/admin/ksa/<int:kid>/user/<int:uid>/level', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_user_ksa_set_level(kid, uid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    u = PublicUser.query.filter_by(id=uid, website_id=website.id).first()
+    if not u:
+        return _utf8_json({'success': False, 'error': 'Member not found.'}, 404)
+    try:
+        level = int((request.get_json() or {}).get('level'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid level.'}, 400)
+    level = max(0, min(level, k.max_level))
+    rec = UserKSA.query.filter_by(public_user_id=uid, ksa_id=kid).first()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if level == 0:
+        # 0 = not held — drop the row so the matrix stays sparse.
+        if rec:
+            db.session.delete(rec)
+    elif rec:
+        rec.level = level
+        rec.updated_at = now
+        rec.granted_by_user_id = current_user.id
+    else:
+        db.session.add(UserKSA(public_user_id=uid, ksa_id=kid, level=level,
+                               granted_by_user_id=current_user.id, granted_at=now))
+    db.session.commit()
+    return _utf8_json({'success': True, 'level': level})
+
+
 def _quiz_owned_or_403(qid):
     """Return (website, quiz) for an admin request, or a (response, None) tuple to
     short-circuit. Mirrors the ownership guard used by the guide routes."""
