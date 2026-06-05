@@ -900,6 +900,51 @@ def can_access_quiz_category(category_id):
     return cats is not None and category_id is not None and category_id in cats
 
 
+# ── KSA / competency-matrix config helpers ───────────────────────────────────
+_KSA_DEFAULT_TYPES = ['Knowledge', 'Skill', 'Ability']
+# Index 0 = "none/not held"; the rest are proficiency levels 1..N.
+_KSA_DEFAULT_LEVEL_LABELS = ['None', 'Novice', 'Competent', 'Proficient', 'Expert']
+
+
+def _ksa_types(website):
+    """The website's editable KSA type list (defaults to Knowledge/Skill/Ability)."""
+    t = getattr(website, 'ksa_types', None)
+    if isinstance(t, list):
+        clean = [str(x).strip() for x in t if str(x).strip()]
+        if clean:
+            return clean
+    return list(_KSA_DEFAULT_TYPES)
+
+
+def _ksa_level_labels(website):
+    """Ordered level labels; index = level (0 = none). Editable per website."""
+    lbl = getattr(website, 'ksa_level_labels', None)
+    if isinstance(lbl, list) and len(lbl) >= 2:
+        return [str(x) for x in lbl]
+    return list(_KSA_DEFAULT_LEVEL_LABELS)
+
+
+def _ksa_level_label(website, level):
+    labels = _ksa_level_labels(website)
+    try:
+        i = int(level)
+    except (TypeError, ValueError):
+        i = 0
+    return labels[i] if 0 <= i < len(labels) else str(level)
+
+
+def _ensure_division_membership(public_user_id, division_id, status='active'):
+    """Idempotently make a public user a member of a division — used when a
+    division-scoped role is assigned. Never downgrades an existing membership."""
+    m = DivisionMembership.query.filter_by(
+        public_user_id=public_user_id, division_id=division_id).first()
+    if not m:
+        m = DivisionMembership(public_user_id=public_user_id,
+                               division_id=division_id, status=status)
+        db.session.add(m)
+    return m
+
+
 class PublicUser(UserMixin, db.Model):
     __tablename__ = 'public_user'
 
@@ -1055,11 +1100,39 @@ public_user_role_assignment = db.Table(
 )
 
 
+class Division(db.Model):
+    """An organizational unit (team / department) a public user can belong to.
+    Owns a KSA catalog and members; roles can be scoped to it. Distinct from a
+    role: a Division is *where you belong*, a role is *the position you hold*."""
+    __tablename__ = 'division'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(150), nullable=False)
+    slug        = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color       = db.Column(db.String(20), nullable=True)
+    icon        = db.Column(db.String(60), nullable=True)
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_division_site_slug'),)
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'slug': self.slug,
+                'description': self.description or '', 'color': self.color or '',
+                'icon': self.icon or '', 'sort_order': self.sort_order}
+
+
 class PublicUserRole(db.Model):
-    """Named badge roles that can be assigned to public users, scoped per website."""
+    """Named badge roles that can be assigned to public users, scoped per website.
+    A role may belong to a Division (`division_id`); NULL means a site-wide role
+    (e.g. Moderator). 'Robotics – Captain' and 'Marketing – Captain' are distinct
+    rows when division-scoped."""
     __tablename__ = 'public_user_role'
     id         = db.Column(db.Integer, primary_key=True)
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
     name       = db.Column(db.String(50), nullable=False)
     color      = db.Column(db.String(20), nullable=False, default='#5eeef8')
     # When True, members holding this role are hidden from the default public
@@ -1070,13 +1143,102 @@ class PublicUserRole(db.Model):
                                        server_default=_sa_false())
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     website    = db.relationship('Website', backref=db.backref('public_roles', lazy=True, cascade='all, delete-orphan'))
+    division   = db.relationship('Division', backref=db.backref('roles', lazy='dynamic'))
     __table_args__ = (
         db.UniqueConstraint('website_id', 'name', name='uq_pub_role_name_per_website'),
     )
 
     def to_dict(self):
         return {'id': self.id, 'name': self.name, 'color': self.color,
+                'division_id': self.division_id,
                 'exclude_from_directory': self.exclude_from_directory}
+
+
+class DivisionMembership(db.Model):
+    """Explicit membership: a public user belongs to a Division, with a status
+    (active / alumni / …). A user can be in several divisions. 'alumni' lets the
+    org keep former members on record (composes with role exclude_from_directory)."""
+    __tablename__ = 'division_membership'
+    id             = db.Column(db.Integer, primary_key=True)
+    public_user_id = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    division_id    = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    status         = db.Column(db.String(20), nullable=False, default='active',
+                               server_default="'active'")
+    created_at     = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    division       = db.relationship('Division', backref=db.backref('memberships', lazy='dynamic',
+                                                                    cascade='all, delete-orphan'))
+    public_user    = db.relationship('PublicUser', backref=db.backref('division_memberships', lazy='dynamic',
+                                                                      cascade='all, delete-orphan'))
+    __table_args__ = (db.UniqueConstraint('public_user_id', 'division_id',
+                                          name='uq_division_membership'),)
+
+
+class KSA(db.Model):
+    """A Knowledge / Skill / Ability item, owned by a Division (its catalog).
+    `ksa_type` is a free string validated against the website's configurable
+    type list (defaults to knowledge/skill/ability). Leveled 0..max_level."""
+    __tablename__ = 'ksa'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    ksa_type    = db.Column(db.String(40), nullable=False, default='knowledge',
+                            server_default="'knowledge'")
+    name        = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    max_level   = db.Column(db.Integer, nullable=False, default=4, server_default='4')
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    division    = db.relationship('Division', backref=db.backref('ksas', lazy='dynamic',
+                                                                 cascade='all, delete-orphan'))
+
+    def to_dict(self):
+        return {'id': self.id, 'division_id': self.division_id, 'ksa_type': self.ksa_type,
+                'name': self.name, 'description': self.description or '',
+                'max_level': self.max_level, 'sort_order': self.sort_order}
+
+
+class RoleKSA(db.Model):
+    """A role's competency requirement: holding `role_id` is expected to require
+    `ksa_id` at `required_level`. Drives gap analysis in the matrix."""
+    __tablename__ = 'role_ksa'
+    id             = db.Column(db.Integer, primary_key=True)
+    role_id        = db.Column(db.Integer, db.ForeignKey('public_user_role.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    ksa_id         = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    required_level = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    role           = db.relationship('PublicUserRole', backref=db.backref('ksa_requirements', lazy='dynamic',
+                                                                          cascade='all, delete-orphan'))
+    ksa            = db.relationship('KSA', backref=db.backref('role_requirements', lazy='dynamic',
+                                                               cascade='all, delete-orphan'))
+    __table_args__ = (db.UniqueConstraint('role_id', 'ksa_id', name='uq_role_ksa'),)
+
+
+class UserKSA(db.Model):
+    """A matrix cell: public user `public_user_id` holds `ksa_id` at `level`.
+    Missing row = level 0 (not held). `granted_by_user_id` is the admin who set
+    it, for a light audit trail."""
+    __tablename__ = 'user_ksa'
+    id                 = db.Column(db.Integer, primary_key=True)
+    public_user_id     = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                                   nullable=False, index=True)
+    ksa_id             = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
+                                   nullable=False, index=True)
+    level              = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    note               = db.Column(db.Text, nullable=True)
+    granted_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                                   nullable=True)
+    granted_at         = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at         = db.Column(db.DateTime, nullable=True)
+    public_user        = db.relationship('PublicUser', backref=db.backref('ksa_levels', lazy='dynamic',
+                                                                          cascade='all, delete-orphan'))
+    ksa                = db.relationship('KSA', backref=db.backref('user_levels', lazy='dynamic',
+                                                                   cascade='all, delete-orphan'))
+    __table_args__ = (db.UniqueConstraint('public_user_id', 'ksa_id', name='uq_user_ksa'),)
 
 
 class ForumThread(db.Model):
@@ -1577,6 +1739,11 @@ class Website(db.Model):
         default=False,
         server_default=_sa_false()
     )
+    # KSA / competency-matrix config. `ksa_level_labels` indexes proficiency
+    # levels 0..N (index 0 = "none"); `ksa_types` is the editable list of KSA
+    # type labels. Both NULL fall back to module defaults.
+    ksa_level_labels = db.Column(db.JSON, nullable=True)
+    ksa_types        = db.Column(db.JSON, nullable=True)
 
     def __repr__(self):
         return f"<Website {self.id} - {self.name}>"
@@ -10322,6 +10489,17 @@ def _delete_website_all(website):
     Guide.query.filter_by(website_id=wid).delete(synchronize_session=False)
     GuideCategory.query.filter_by(website_id=wid).delete(synchronize_session=False)
 
+    # KSA / competency matrix (leaf rows first, then catalog, then divisions).
+    _ksa_ids = [k for (k,) in db.session.query(KSA.id).filter_by(website_id=wid).all()]
+    _div_ids = [d for (d,) in db.session.query(Division.id).filter_by(website_id=wid).all()]
+    if _ksa_ids:
+        UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
+        RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
+    KSA.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    if _div_ids:
+        DivisionMembership.query.filter(DivisionMembership.division_id.in_(_div_ids)).delete(synchronize_session=False)
+    Division.query.filter_by(website_id=wid).delete(synchronize_session=False)
+
     # Comments / messages / users / visits
     PageCommentLike.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PageComment.query.filter_by(website_id=wid).delete(synchronize_session=False)
@@ -12936,6 +13114,17 @@ def _serialize_backup(uid):
             except Exception:
                 pass
 
+    # KSA / competency-matrix data.
+    divisions = Division.query.filter(
+        Division.website_id.in_(website_ids)).all() if website_ids else []
+    _division_ids = [d.id for d in divisions]
+    division_memberships = DivisionMembership.query.filter(
+        DivisionMembership.division_id.in_(_division_ids)).all() if _division_ids else []
+    ksas = KSA.query.filter(KSA.website_id.in_(website_ids)).all() if website_ids else []
+    _ksa_ids = [k.id for k in ksas]
+    role_ksas = RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
+    user_ksas = UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
+
     # PublicUserAddress.
     _pub_user_ids = [pu.id for pu in public_users]
     public_user_addresses = (
@@ -13091,6 +13280,8 @@ def _serialize_backup(uid):
                       'public_approval_required': w.public_approval_required,
                       'public_email_verification_enabled': w.public_email_verification_enabled,
                       'public_email_verification_required': w.public_email_verification_required,
+                      'ksa_level_labels': w.ksa_level_labels,
+                      'ksa_types': w.ksa_types,
                       } for w in websites],
         'page_folders': [{'id': f.id, 'website_id': f.website_id, 'name': f.name,
                           'sort_order': f.sort_order} for f in page_folders],
@@ -13352,6 +13543,7 @@ def _serialize_backup(uid):
         'page_tags':    [{'page_id': p.page_id,       'tag_id': p.tag_id}    for p in page_tags],
         'public_user_roles': [{'id': r.id, 'website_id': r.website_id,
                                'name': r.name, 'color': r.color,
+                               'division_id': r.division_id,
                                'exclude_from_directory': r.exclude_from_directory,
                                'created_at': r.created_at.isoformat() if r.created_at else None,
                                } for r in public_user_roles],
@@ -13359,6 +13551,26 @@ def _serialize_backup(uid):
             {'public_user_id': pu_id, 'role_id': r_id}
             for (pu_id, r_id) in public_user_role_assignments
         ],
+        'divisions': [{'id': d.id, 'website_id': d.website_id, 'name': d.name, 'slug': d.slug,
+                       'description': d.description, 'color': d.color, 'icon': d.icon,
+                       'sort_order': d.sort_order,
+                       'created_at': d.created_at.isoformat() if d.created_at else None,
+                       } for d in divisions],
+        'division_memberships': [{'id': m.id, 'public_user_id': m.public_user_id,
+                                  'division_id': m.division_id, 'status': m.status,
+                                  'created_at': m.created_at.isoformat() if m.created_at else None,
+                                  } for m in division_memberships],
+        'ksas': [{'id': k.id, 'website_id': k.website_id, 'division_id': k.division_id,
+                  'ksa_type': k.ksa_type, 'name': k.name, 'description': k.description,
+                  'max_level': k.max_level, 'sort_order': k.sort_order,
+                  'created_at': k.created_at.isoformat() if k.created_at else None,
+                  } for k in ksas],
+        'role_ksas': [{'id': rk.id, 'role_id': rk.role_id, 'ksa_id': rk.ksa_id,
+                       'required_level': rk.required_level} for rk in role_ksas],
+        'user_ksas': [{'id': uk.id, 'public_user_id': uk.public_user_id, 'ksa_id': uk.ksa_id,
+                       'level': uk.level, 'note': uk.note,
+                       'granted_at': uk.granted_at.isoformat() if uk.granted_at else None,
+                       } for uk in user_ksas],
         'public_user_addresses': [{'id': a.id, 'public_user_id': a.public_user_id,
                                    'label': a.label, 'name': a.name,
                                    'line1': a.line1, 'line2': a.line2,
@@ -13869,7 +14081,9 @@ def import_backup():
                             require_login_to_view=wd.get('require_login_to_view', False),
                             public_approval_required=wd.get('public_approval_required', False),
                             public_email_verification_enabled=wd.get('public_email_verification_enabled', False),
-                            public_email_verification_required=wd.get('public_email_verification_required', False))
+                            public_email_verification_required=wd.get('public_email_verification_required', False),
+                            ksa_level_labels=wd.get('ksa_level_labels'),
+                            ksa_types=wd.get('ksa_types'))
                 db.session.add(w);
                 db.session.flush()
                 website_map[wd['id']] = w.id
@@ -14881,6 +15095,23 @@ def import_backup():
                 if not PageTag.query.filter_by(page_id=new_pid, tag_id=new_tid).first():
                     db.session.add(PageTag(page_id=new_pid, tag_id=new_tid))
 
+            # ── Divisions (created before roles so role.division_id remaps) ───
+            division_map = {}
+            for dd in data.get('divisions', []):
+                new_wid = website_map.get(dd.get('website_id'))
+                if not new_wid:
+                    continue
+                dv = Division(
+                    website_id=new_wid, name=dd.get('name', 'Division'),
+                    slug=dd.get('slug') or _slugify_post(dd.get('name', 'division')),
+                    description=dd.get('description'), color=dd.get('color'),
+                    icon=dd.get('icon'), sort_order=dd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(dd['created_at']) if dd.get('created_at') else None)
+                db.session.add(dv)
+                db.session.flush()
+                if dd.get('id'):
+                    division_map[dd['id']] = dv.id
+
             # ── PublicUserRole + assignments ──────────────────────────────────
             public_role_map = {}
             for rd in data.get('public_user_roles', []):
@@ -14890,6 +15121,7 @@ def import_backup():
                 pur = PublicUserRole(
                     website_id=new_wid, name=rd.get('name', 'Role'),
                     color=rd.get('color') or '#5eeef8',
+                    division_id=division_map.get(rd['division_id']) if rd.get('division_id') else None,
                     exclude_from_directory=bool(rd.get('exclude_from_directory')),
                     created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
                 )
@@ -14906,6 +15138,48 @@ def import_backup():
                 pr = db.session.get(PublicUserRole, new_r)
                 if pu and pr and pr not in pu.roles:
                     pu.roles.append(pr)
+
+            # ── KSA matrix: memberships, KSAs, requirements, levels ───────────
+            for md in data.get('division_memberships', []):
+                new_pu = pub_user_map.get(md.get('public_user_id'))
+                new_dv = division_map.get(md.get('division_id'))
+                if not new_pu or not new_dv:
+                    continue
+                db.session.add(DivisionMembership(
+                    public_user_id=new_pu, division_id=new_dv,
+                    status=md.get('status', 'active'),
+                    created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None))
+            ksa_map = {}
+            for kd in data.get('ksas', []):
+                new_wid = website_map.get(kd.get('website_id'))
+                new_dv = division_map.get(kd.get('division_id'))
+                if not new_wid or not new_dv:
+                    continue
+                k = KSA(website_id=new_wid, division_id=new_dv,
+                        ksa_type=kd.get('ksa_type', 'Knowledge'), name=kd.get('name', 'KSA'),
+                        description=kd.get('description'), max_level=kd.get('max_level', 4),
+                        sort_order=kd.get('sort_order', 0),
+                        created_at=datetime.fromisoformat(kd['created_at']) if kd.get('created_at') else None)
+                db.session.add(k)
+                db.session.flush()
+                if kd.get('id'):
+                    ksa_map[kd['id']] = k.id
+            for rk in data.get('role_ksas', []):
+                new_r = public_role_map.get(rk.get('role_id'))
+                new_k = ksa_map.get(rk.get('ksa_id'))
+                if not new_r or not new_k:
+                    continue
+                db.session.add(RoleKSA(role_id=new_r, ksa_id=new_k,
+                                       required_level=rk.get('required_level', 1)))
+            for uk in data.get('user_ksas', []):
+                new_pu = pub_user_map.get(uk.get('public_user_id'))
+                new_k = ksa_map.get(uk.get('ksa_id'))
+                if not new_pu or not new_k:
+                    continue
+                db.session.add(UserKSA(
+                    public_user_id=new_pu, ksa_id=new_k, level=uk.get('level', 0),
+                    note=uk.get('note'),
+                    granted_at=datetime.fromisoformat(uk['granted_at']) if uk.get('granted_at') else None))
 
             # ── PublicUserAddress ─────────────────────────────────────────────
             for ad in data.get('public_user_addresses', []):
@@ -19098,6 +19372,10 @@ ADMIN_PERMISSIONS = {
         'view': 'View quizzes list & open the quiz builder',
         'manage': 'Create & delete quizzes',
         'edit': 'Edit quiz questions & answers',
+    }},
+    'ksa': {'label': 'Divisions & KSAs', 'actions': {
+        'view': 'View divisions, KSAs and the competency matrix',
+        'manage': 'Create/edit divisions, KSAs, memberships, role requirements & set levels',
     }},
     'newsletters': {'label': 'Newsletters', 'actions': {
         'view': 'View newsletters, subscribers & campaigns',
