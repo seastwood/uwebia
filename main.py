@@ -1062,6 +1062,12 @@ class PublicUserRole(db.Model):
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
     name       = db.Column(db.String(50), nullable=False)
     color      = db.Column(db.String(20), nullable=False, default='#5eeef8')
+    # When True, members holding this role are hidden from the default public
+    # members directory (e.g. "Alumni" / former members) — they remain visible
+    # when this role is explicitly selected as the directory filter, so the
+    # site keeps a record of past members without deleting them.
+    exclude_from_directory = db.Column(db.Boolean, nullable=False, default=False,
+                                       server_default=_sa_false())
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     website    = db.relationship('Website', backref=db.backref('public_roles', lazy=True, cascade='all, delete-orphan'))
     __table_args__ = (
@@ -1069,7 +1075,8 @@ class PublicUserRole(db.Model):
     )
 
     def to_dict(self):
-        return {'id': self.id, 'name': self.name, 'color': self.color}
+        return {'id': self.id, 'name': self.name, 'color': self.color,
+                'exclude_from_directory': self.exclude_from_directory}
 
 
 class ForumThread(db.Model):
@@ -13324,6 +13331,7 @@ def _serialize_backup(uid):
         'page_tags':    [{'page_id': p.page_id,       'tag_id': p.tag_id}    for p in page_tags],
         'public_user_roles': [{'id': r.id, 'website_id': r.website_id,
                                'name': r.name, 'color': r.color,
+                               'exclude_from_directory': r.exclude_from_directory,
                                'created_at': r.created_at.isoformat() if r.created_at else None,
                                } for r in public_user_roles],
         'public_user_role_assignments': [
@@ -14861,6 +14869,7 @@ def import_backup():
                 pur = PublicUserRole(
                     website_id=new_wid, name=rd.get('name', 'Role'),
                     color=rd.get('color') or '#5eeef8',
+                    exclude_from_directory=bool(rd.get('exclude_from_directory')),
                     created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
                 )
                 db.session.add(pur)
@@ -19635,7 +19644,8 @@ def admin_public_role_create():
     website = Website.query.filter_by(id=website_id, user_id=current_user.id, is_draft=False).first_or_404()
     if PublicUserRole.query.filter_by(website_id=website.id, name=name).first():
         return _utf8_json({'error': 'A role with that name already exists for this website.'}, 400)
-    role = PublicUserRole(website_id=website.id, name=name, color=color)
+    role = PublicUserRole(website_id=website.id, name=name, color=color,
+                          exclude_from_directory=bool(data.get('exclude_from_directory')))
     db.session.add(role)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
@@ -19656,6 +19666,8 @@ def admin_public_role_update(role_id):
         role.name = name
     if color:
         role.color = color
+    if 'exclude_from_directory' in data:
+        role.exclude_from_directory = bool(data['exclude_from_directory'])
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -31213,6 +31225,11 @@ def _render_members_directory(prefix):
             PublicUser.last_name.ilike(like)))
     if active_role is not None:
         query = query.filter(PublicUser.roles.any(PublicUserRole.id == active_role.id))
+    # "Excluded" roles (e.g. Alumni) drop their members from the default and
+    # any normal-role view, but are still browsable by selecting that role.
+    exclude_role_ids = [r.id for r in roles if r.exclude_from_directory]
+    if exclude_role_ids and (active_role is None or not active_role.exclude_from_directory):
+        query = query.filter(~PublicUser.roles.any(PublicUserRole.id.in_(exclude_role_ids)))
     query = query.order_by(db.func.lower(db.func.coalesce(
         PublicUser.display_username, PublicUser.username)).asc())
     page = request.args.get('page', 1, type=int)

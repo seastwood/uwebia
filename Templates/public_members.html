@@ -24,6 +24,9 @@
 .mb-role-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 99px; font-size: 0.82rem; font-weight: 600; text-decoration: none; color: inherit; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.04); transition: border-color 0.15s, background 0.15s; }
 .mb-role-chip:hover { border-color: rgba(255,255,255,0.32); }
 .mb-role-chip.is-active { border-color: rgba(94,238,248,0.7); background: rgba(94,238,248,0.12); color: #aef7e8; }
+.mb-role-chip.is-archived { opacity: 0.72; border-style: dashed; }
+.mb-role-chip.is-archived.is-active { opacity: 1; }
+.mb-role-chip .fa-archive { font-size: 0.7rem; opacity: 0.6; }
 .mb-role-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .mb-empty { opacity: 0.45; text-align: center; padding: 70px 20px; }
 .mb-pager { display: flex; justify-content: center; gap: 10px; margin-top: 30px; }
@@ -49,9 +52,10 @@
         <a class="mb-role-chip {% if not active_role %}is-active{% endif %}"
            href="{{ members_base }}{% if q %}?q={{ q | urlencode }}{% endif %}">All</a>
         {% for r in roles %}
-        <a class="mb-role-chip {% if active_role and active_role.id == r.id %}is-active{% endif %}"
+        <a class="mb-role-chip {% if active_role and active_role.id == r.id %}is-active{% endif %}{% if r.exclude_from_directory %} is-archived{% endif %}"
            href="{{ members_base }}?role={{ r.id }}{{ _qs }}">
             <span class="mb-role-dot" style="background:{{ r.color }};"></span>{{ r.name }}
+            {% if r.exclude_from_directory %}<i class="fas fa-archive" title="Not shown in the default list"></i>{% endif %}
         </a>
         {% endfor %}
     </div>
