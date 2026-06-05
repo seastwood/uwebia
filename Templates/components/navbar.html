@@ -213,6 +213,9 @@
         {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
         <a href="{{ url_for('admin_quizzes_page') }}" class="nav-link-btn" title="Quizzes"><i class="fas fa-clipboard-check"></i></a>
         {% endif %}
+        {% if user_has_perm('ksa.view') %}
+        <a href="{{ url_for('admin_divisions_page') }}" class="nav-link-btn" title="Divisions &amp; KSAs"><i class="fas fa-sitemap"></i></a>
+        {% endif %}
         {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
         <a href="{{ url_for('admin_newsletters_page') }}" class="nav-link-btn" title="Newsletters"><i class="fas fa-envelope-open-text"></i></a>
         {% endif %}
@@ -339,6 +342,11 @@
                 {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
                 <a href="{{ url_for('admin_quizzes_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-clipboard-check"></i><span>Quizzes</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('ksa.view') %}
+                <a href="{{ url_for('admin_divisions_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-sitemap"></i><span>Divisions &amp; KSAs</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}

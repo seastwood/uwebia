@@ -1,0 +1,345 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.da-page { max-width: 980px; margin: 0 auto; padding: 32px 20px 70px; }
+.da-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+.da-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
+.da-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.da-sub { font-size: 0.85rem; color: rgba(255,255,255,0.45); margin: 6px 0 0; }
+.da-btn-new { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; font-weight: 700; font-size: 0.9rem; border: none; cursor: pointer; }
+.da-btn-new:hover { opacity: 0.88; }
+.da-btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 13px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.da-btn-primary { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.da-btn-primary:hover { background: rgba(94,238,248,0.25); }
+.da-btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.da-btn-secondary:hover { background: rgba(255,255,255,0.12); }
+.da-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.da-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.da-icon-btn { background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px 6px; font-size: 0.85rem; }
+.da-icon-btn:hover { color: #fff; }
+.da-icon-btn.is-danger:hover { color: #ff6b6b; }
+
+.da-settings { margin-bottom: 26px; padding: 14px 18px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.02); }
+.da-settings summary { cursor: pointer; font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); user-select: none; }
+.da-settings-body { margin-top: 14px; }
+.da-settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+@media (max-width: 700px) { .da-settings-grid { grid-template-columns: 1fr; } }
+.da-field-label { font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.45); margin: 0 0 8px; }
+.da-chip-input { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.da-chip-input input { flex: 1; padding: 7px 10px; border-radius: 7px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.85rem; }
+.da-chip-num { width: 22px; text-align: center; font-size: 0.72rem; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+
+.da-div-card { border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background: rgba(255,255,255,0.03); padding: 18px 20px; margin-bottom: 18px; }
+.da-div-head { display: flex; align-items: center; gap: 12px; }
+.da-div-name { font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: inline-flex; align-items: center; gap: 9px; }
+.da-div-count { font-size: 0.72rem; opacity: 0.55; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.08); font-weight: 600; }
+.da-div-actions { margin-left: auto; display: flex; gap: 4px; }
+.da-div-desc { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin: 6px 0 0; }
+.da-ksa-list { margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.da-ksa-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); }
+.da-ksa-type { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; }
+.da-ksa-name { font-weight: 600; font-size: 0.9rem; }
+.da-ksa-meta { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
+.da-ksa-actions { margin-left: auto; display: flex; gap: 2px; }
+.da-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.35); padding: 8px 2px; }
+.da-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 50px 20px; }
+.da-modal-error { display:none; color:#ff6b6b; font-size:0.85rem; padding:0 20px 4px; }
+</style>
+
+<div class="da-page">
+    <div class="da-header">
+        <div>
+            <p class="da-kicker">Admin</p>
+            <h1 class="da-title">Divisions &amp; KSAs</h1>
+            <p class="da-sub">Organise members into divisions and define each division's Knowledge / Skills / Abilities catalog.</p>
+        </div>
+        {% if can_manage %}
+        <button class="da-btn-new" onclick="openDivisionModal()"><i class="fas fa-plus"></i> New division</button>
+        {% endif %}
+    </div>
+
+    {% if can_manage %}
+    <details class="da-settings">
+        <summary><i class="fas fa-sliders-h"></i> Proficiency levels &amp; KSA types</summary>
+        <div class="da-settings-body">
+            <div class="da-settings-grid">
+                <div>
+                    <p class="da-field-label">Proficiency levels <span style="opacity:0.6;font-weight:400;text-transform:none;">(index 0 = none)</span></p>
+                    <div id="levelLabels"></div>
+                    <button type="button" class="da-btn da-btn-secondary" style="margin-top:4px;" onclick="addLevelLabel()"><i class="fas fa-plus"></i> Add level</button>
+                </div>
+                <div>
+                    <p class="da-field-label">KSA types</p>
+                    <div id="ksaTypes"></div>
+                    <button type="button" class="da-btn da-btn-secondary" style="margin-top:4px;" onclick="addKsaType()"><i class="fas fa-plus"></i> Add type</button>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
+                <button class="da-btn da-btn-primary" onclick="saveKsaSettings()"><i class="fas fa-check"></i> Save settings</button>
+                <span id="settingsStatus" style="font-size:0.82rem;"></span>
+            </div>
+        </div>
+    </details>
+    {% endif %}
+
+    {% if divisions %}
+    {% for d in divisions %}
+    <div class="da-div-card" id="divCard-{{ d.id }}">
+        <div class="da-div-head">
+            <h2 class="da-div-name">
+                {% if d.icon %}<i class="fas {{ d.icon }}" style="{% if d.color %}color:{{ d.color }};{% endif %}"></i>{% endif %}
+                {{ d.name }}
+                <span class="da-div-count">{{ ksas_by_division.get(d.id, [])|length }} KSA{{ '' if ksas_by_division.get(d.id, [])|length == 1 else 's' }}</span>
+            </h2>
+            {% if can_manage %}
+            <div class="da-div-actions">
+                <button class="da-icon-btn" title="Edit division"
+                        onclick='openDivisionModal({{ d.id }}, {{ d.name|tojson }}, {{ (d.description or "")|tojson }}, {{ (d.color or "")|tojson }}, {{ (d.icon or "")|tojson }})'><i class="fas fa-pencil-alt"></i></button>
+                <button class="da-icon-btn is-danger" title="Delete division"
+                        onclick='confirmDivisionDelete({{ d.id }}, {{ d.name|tojson }})'><i class="fas fa-trash"></i></button>
+            </div>
+            {% endif %}
+        </div>
+        {% if d.description %}<p class="da-div-desc">{{ d.description }}</p>{% endif %}
+
+        <div class="da-ksa-list">
+            {% for k in ksas_by_division.get(d.id, []) %}
+            <div class="da-ksa-row" id="ksaRow-{{ k.id }}">
+                <span class="da-ksa-type">{{ k.ksa_type }}</span>
+                <div>
+                    <div class="da-ksa-name">{{ k.name }}</div>
+                    {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
+                </div>
+                <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+                {% if can_manage %}
+                <div class="da-ksa-actions">
+                    <button class="da-icon-btn" title="Edit"
+                            onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }})'><i class="fas fa-pencil-alt"></i></button>
+                    <button class="da-icon-btn is-danger" title="Delete"
+                            onclick='confirmKsaDelete({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-trash"></i></button>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="da-ksa-empty">No KSAs in this division yet.</div>
+            {% endfor %}
+        </div>
+
+        {% if can_manage %}
+        <button class="da-btn da-btn-secondary" style="margin-top:12px;" onclick="openKsaModal({{ d.id }})"><i class="fas fa-plus"></i> Add KSA</button>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="da-empty"><p>No divisions yet.{% if can_manage %} Create one to start building your KSA catalog.{% endif %}</p></div>
+    {% endif %}
+</div>
+
+<!-- Division modal -->
+<div class="uw-overlay" id="divModalOverlay" style="display:none;" onclick="if(event.target===this)closeDivisionModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="divModalTitle">New Division</h3>
+            <button class="uw-modal-close" onclick="closeDivisionModal()">&times;</button>
+        </div>
+        <form id="divModalForm" onsubmit="submitDivisionModal(event)">
+            <input type="hidden" id="divModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="divModalName" required placeholder="e.g. Robotics, Marketing"></div>
+                <div class="uw-field"><label>Description <span style="opacity:0.5;">(optional)</span></label>
+                    <textarea id="divModalDesc" rows="2"></textarea></div>
+                <div class="uw-field" style="display:flex;gap:12px;align-items:flex-end;">
+                    <div style="flex:1;"><label>Icon <span style="opacity:0.5;">(optional)</span></label>
+                        <input type="text" id="divModalIcon" placeholder="fa-users"></div>
+                    <div style="width:90px;"><label>Color</label>
+                        <input type="color" id="divModalColor" value="#5eeef8" style="width:100%;height:40px;border:none;background:transparent;cursor:pointer;"></div>
+                </div>
+            </div>
+            <div id="divModalError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeDivisionModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="divModalSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- KSA modal -->
+<div class="uw-overlay" id="ksaModalOverlay" style="display:none;" onclick="if(event.target===this)closeKsaModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="ksaModalTitle">New KSA</h3>
+            <button class="uw-modal-close" onclick="closeKsaModal()">&times;</button>
+        </div>
+        <form id="ksaModalForm" onsubmit="submitKsaModal(event)">
+            <input type="hidden" id="ksaModalId">
+            <input type="hidden" id="ksaModalDivId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="ksaModalName" required placeholder="e.g. Solder a through-hole joint"></div>
+                <div class="uw-field"><label>Description <span style="opacity:0.5;">(optional)</span></label>
+                    <textarea id="ksaModalDesc" rows="2"></textarea></div>
+                <div class="uw-field" style="display:flex;gap:12px;">
+                    <div style="flex:1;"><label>Type</label>
+                        <select id="ksaModalType" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;"></select></div>
+                    <div style="width:120px;"><label>Max level</label>
+                        <input type="number" id="ksaModalMax" min="1" max="10" value="4" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;"></div>
+                </div>
+            </div>
+            <div id="ksaModalError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeKsaModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="ksaModalSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete confirm -->
+<div class="uw-overlay" id="delOverlay" style="display:none;" onclick="if(event.target===this)closeDel()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:420px;">
+        <div class="uw-modal-header"><h3 class="uw-modal-title" id="delTitle">Delete</h3>
+            <button class="uw-modal-close" onclick="closeDel()">&times;</button></div>
+        <div class="uw-modal-body"><p id="delMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeDel()">Cancel</button>
+            <button class="uw-btn" id="delConfirm" style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const KSA_TYPES = {{ ksa_types | tojson }};
+const KSA_LEVEL_LABELS = {{ ksa_level_labels | tojson }};
+
+function _err(id, msg) { const e = document.getElementById(id); if (!e) return; if (msg) { e.textContent = msg; e.style.display = 'block'; } else { e.style.display = 'none'; e.textContent = ''; } }
+
+// ── Division modal ──
+function openDivisionModal(id, name, desc, color, icon) {
+    document.getElementById('divModalId').value = id || '';
+    document.getElementById('divModalName').value = name || '';
+    document.getElementById('divModalDesc').value = desc || '';
+    document.getElementById('divModalColor').value = color || '#5eeef8';
+    document.getElementById('divModalIcon').value = icon || '';
+    document.getElementById('divModalTitle').textContent = id ? 'Edit Division' : 'New Division';
+    document.getElementById('divModalSubmit').textContent = id ? 'Save' : 'Create';
+    _err('divModalError', '');
+    document.getElementById('divModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('divModalName').focus(), 60);
+}
+function closeDivisionModal() { document.getElementById('divModalOverlay').style.display = 'none'; }
+async function submitDivisionModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('divModalId').value;
+    const body = {
+        name: document.getElementById('divModalName').value.trim(),
+        description: document.getElementById('divModalDesc').value.trim(),
+        color: document.getElementById('divModalColor').value,
+        icon: document.getElementById('divModalIcon').value.trim(),
+    };
+    if (!body.name) return;
+    const btn = document.getElementById('divModalSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(id ? `/admin/divisions/${id}/update` : '/admin/divisions/create',
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (d.success) location.reload(); else _err('divModalError', d.error || 'Failed to save');
+    } catch (err) { _err('divModalError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── KSA modal ──
+function openKsaModal(divId, id, type, name, desc, maxLevel) {
+    document.getElementById('ksaModalDivId').value = divId;
+    document.getElementById('ksaModalId').value = id || '';
+    document.getElementById('ksaModalName').value = name || '';
+    document.getElementById('ksaModalDesc').value = desc || '';
+    document.getElementById('ksaModalMax').value = maxLevel || 4;
+    const sel = document.getElementById('ksaModalType');
+    sel.innerHTML = KSA_TYPES.map(t => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`).join('');
+    document.getElementById('ksaModalTitle').textContent = id ? 'Edit KSA' : 'New KSA';
+    document.getElementById('ksaModalSubmit').textContent = id ? 'Save' : 'Create';
+    _err('ksaModalError', '');
+    document.getElementById('ksaModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('ksaModalName').focus(), 60);
+}
+function closeKsaModal() { document.getElementById('ksaModalOverlay').style.display = 'none'; }
+async function submitKsaModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('ksaModalId').value;
+    const divId = document.getElementById('ksaModalDivId').value;
+    const body = {
+        name: document.getElementById('ksaModalName').value.trim(),
+        description: document.getElementById('ksaModalDesc').value.trim(),
+        ksa_type: document.getElementById('ksaModalType').value,
+        max_level: parseInt(document.getElementById('ksaModalMax').value, 10) || 4,
+    };
+    if (!body.name) return;
+    const btn = document.getElementById('ksaModalSubmit'); btn.disabled = true;
+    const url = id ? `/admin/ksa/${id}/update` : `/admin/divisions/${divId}/ksa/create`;
+    try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (d.success) location.reload(); else _err('ksaModalError', d.error || 'Failed to save');
+    } catch (err) { _err('ksaModalError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── Delete ──
+let _delAction = null;
+function _openDel(title, msg, action) {
+    document.getElementById('delTitle').textContent = title;
+    document.getElementById('delMsg').textContent = msg;
+    _delAction = action;
+    document.getElementById('delConfirm').onclick = async () => {
+        const btn = document.getElementById('delConfirm'); btn.disabled = true;
+        try { const r = await fetch(_delAction, { method: 'POST' }); const d = await r.json();
+            if (d.success) location.reload(); else { alert(d.error || 'Failed'); btn.disabled = false; }
+        } catch (e) { alert('Request failed'); btn.disabled = false; }
+    };
+    document.getElementById('delOverlay').style.display = 'flex';
+}
+function closeDel() { document.getElementById('delOverlay').style.display = 'none'; }
+function confirmDivisionDelete(id, name) { _openDel('Delete Division', `Delete "${name}"? Its KSAs and memberships are removed; roles in it become site-wide. This cannot be undone.`, `/admin/divisions/${id}/delete`); }
+function confirmKsaDelete(id, name) { _openDel('Delete KSA', `Delete "${name}"? Member levels and role requirements for it are removed.`, `/admin/ksa/${id}/delete`); }
+
+// ── Settings (level labels + types) ──
+function _chipRow(value, idx, withNum, onRemove) {
+    const wrap = document.createElement('div'); wrap.className = 'da-chip-input';
+    if (withNum) { const n = document.createElement('span'); n.className = 'da-chip-num'; n.textContent = idx; wrap.appendChild(n); }
+    const inp = document.createElement('input'); inp.type = 'text'; inp.value = value || ''; wrap.appendChild(inp);
+    const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'da-icon-btn is-danger'; rm.innerHTML = '<i class="fas fa-times"></i>';
+    rm.onclick = () => { wrap.remove(); onRemove && onRemove(); };
+    wrap.appendChild(rm);
+    return wrap;
+}
+function renderLevelLabels() {
+    const box = document.getElementById('levelLabels'); box.innerHTML = '';
+    KSA_LEVEL_LABELS.forEach((l, i) => box.appendChild(_chipRow(l, i, true)));
+}
+function renderKsaTypes() {
+    const box = document.getElementById('ksaTypes'); box.innerHTML = '';
+    KSA_TYPES.forEach(t => box.appendChild(_chipRow(t, null, false)));
+}
+function addLevelLabel() { document.getElementById('levelLabels').appendChild(_chipRow('', document.querySelectorAll('#levelLabels .da-chip-input').length, true)); }
+function addKsaType() { document.getElementById('ksaTypes').appendChild(_chipRow('', null, false)); }
+async function saveKsaSettings() {
+    const level_labels = Array.from(document.querySelectorAll('#levelLabels input')).map(i => i.value.trim());
+    const types = Array.from(document.querySelectorAll('#ksaTypes input')).map(i => i.value.trim()).filter(Boolean);
+    const st = document.getElementById('settingsStatus'); st.textContent = 'Saving…'; st.style.color = 'rgba(255,255,255,0.6)';
+    try {
+        const r = await fetch('/admin/ksa/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level_labels, types }) });
+        const d = await r.json();
+        if (d.success) { st.textContent = 'Saved.'; st.style.color = '#5eeec8'; setTimeout(() => location.reload(), 500); }
+        else { st.textContent = d.error || 'Failed.'; st.style.color = '#ff8a8a'; }
+    } catch (e) { st.textContent = 'Request failed.'; st.style.color = '#ff8a8a'; }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('levelLabels')) { renderLevelLabels(); renderKsaTypes(); }
+});
+</script>
+{% endblock %}

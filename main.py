@@ -30828,6 +30828,246 @@ def admin_code_runner_test():
                        'error': None if any_ok else 'No supported language is working — see details below.'})
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# KSA matrix — admin: divisions, KSA catalog, level/type config (Phase 2)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _unique_division_slug(website_id, base_slug, exclude_id=None):
+    slug = base_slug or 'division'
+    counter = 2
+    while True:
+        q = Division.query.filter_by(website_id=website_id, slug=slug)
+        if exclude_id:
+            q = q.filter(Division.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+def _division_owned_or_403(did):
+    """(website, division) for an admin request, or (response, None) to bail."""
+    division = Division.query.get_or_404(did)
+    website = get_admin_website()
+    if not website or not is_owner(website) or division.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, division
+
+
+def _ksa_owned_or_403(kid):
+    ksa = KSA.query.get_or_404(kid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or ksa.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, ksa
+
+
+@app.route('/admin/divisions')
+@login_required
+@require_perm('ksa.view')
+def admin_divisions_page():
+    website = get_admin_website()
+    divisions, ksas_by_division = [], {}
+    if website:
+        divisions = Division.query.filter_by(website_id=website.id).order_by(
+            Division.sort_order, Division.name).all()
+        all_ksas = KSA.query.filter_by(website_id=website.id).order_by(
+            KSA.sort_order, KSA.name).all()
+        for k in all_ksas:
+            ksas_by_division.setdefault(k.division_id, []).append(k)
+    can_manage = (not current_user.is_sub_admin) or current_user.has_permission('ksa.manage')
+    return render_template('divisions_admin.html', website=website,
+                           current_website=website,
+                           divisions=divisions, ksas_by_division=ksas_by_division,
+                           ksa_types=_ksa_types(website), ksa_level_labels=_ksa_level_labels(website),
+                           can_manage=can_manage, page_id=None)
+
+
+@app.route('/admin/divisions/create', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_divisions_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    max_sort = db.session.query(db.func.max(Division.sort_order)).filter_by(website_id=website.id).scalar()
+    d = Division(website_id=website.id, name=name,
+                 slug=_unique_division_slug(website.id, _slugify_post(name)),
+                 description=(data.get('description') or '').strip() or None,
+                 color=(data.get('color') or '').strip() or None,
+                 icon=(data.get('icon') or '').strip() or None,
+                 sort_order=(max_sort or 0) + 1)
+    db.session.add(d)
+    db.session.commit()
+    return _utf8_json({'success': True, 'division': d.to_dict()}, 201)
+
+
+@app.route('/admin/divisions/<int:did>/update', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_divisions_update(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    d.name = name
+    d.description = (data.get('description') or '').strip() or None
+    if 'color' in data:
+        d.color = (data.get('color') or '').strip() or None
+    if 'icon' in data:
+        d.icon = (data.get('icon') or '').strip() or None
+    db.session.commit()
+    return _utf8_json({'success': True, 'division': d.to_dict()})
+
+
+@app.route('/admin/divisions/<int:did>/delete', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_divisions_delete(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    # KSAs, memberships and the roles' division_id all cascade / SET NULL via FKs.
+    db.session.delete(d)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/divisions/reorder', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_divisions_reorder():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    by_id = {d.id: d for d in Division.query.filter_by(website_id=website.id).all()}
+    for it in (data.get('items') or []):
+        d = by_id.get(int(it.get('id')))
+        if d:
+            d.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/divisions/<int:did>/ksa/create', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_create(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    ktype = (data.get('ksa_type') or '').strip() or _ksa_types(website)[0]
+    if ktype not in _ksa_types(website):
+        return _utf8_json({'success': False, 'error': 'Unknown KSA type.'}, 400)
+    try:
+        max_level = max(1, min(10, int(data.get('max_level') or 4)))
+    except (ValueError, TypeError):
+        max_level = 4
+    max_sort = db.session.query(db.func.max(KSA.sort_order)).filter_by(division_id=d.id).scalar()
+    k = KSA(website_id=website.id, division_id=d.id, ksa_type=ktype, name=name,
+            description=(data.get('description') or '').strip() or None,
+            max_level=max_level, sort_order=(max_sort or 0) + 1)
+    db.session.add(k)
+    db.session.commit()
+    return _utf8_json({'success': True, 'ksa': k.to_dict()}, 201)
+
+
+@app.route('/admin/ksa/<int:kid>/update', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_update(kid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    k.name = name
+    k.description = (data.get('description') or '').strip() or None
+    if 'ksa_type' in data:
+        ktype = (data.get('ksa_type') or '').strip()
+        if ktype and ktype in _ksa_types(website):
+            k.ksa_type = ktype
+    if 'max_level' in data:
+        try:
+            k.max_level = max(1, min(10, int(data.get('max_level') or 4)))
+        except (ValueError, TypeError):
+            pass
+    db.session.commit()
+    return _utf8_json({'success': True, 'ksa': k.to_dict()})
+
+
+@app.route('/admin/ksa/<int:kid>/delete', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_delete(kid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    db.session.delete(k)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/divisions/<int:did>/ksa/reorder', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_reorder(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    data = request.get_json() or {}
+    by_id = {k.id: k for k in KSA.query.filter_by(division_id=d.id).all()}
+    for it in (data.get('items') or []):
+        k = by_id.get(int(it.get('id')))
+        if k:
+            k.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/ksa/settings', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_settings():
+    """Per-website KSA config: proficiency level labels + the KSA type list."""
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    if 'level_labels' in data:
+        labels = [str(x).strip() for x in (data.get('level_labels') or []) if str(x).strip()]
+        if len(labels) < 2:
+            return _utf8_json({'success': False, 'error': 'Provide at least two level labels (None + one level).'}, 400)
+        website.ksa_level_labels = labels[:11]
+    if 'types' in data:
+        types = []
+        for t in (data.get('types') or []):
+            t = str(t).strip()
+            if t and t not in types:
+                types.append(t)
+        if not types:
+            return _utf8_json({'success': False, 'error': 'Provide at least one KSA type.'}, 400)
+        website.ksa_types = types[:12]
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'level_labels': _ksa_level_labels(website),
+                       'types': _ksa_types(website)})
+
+
 def _quiz_owned_or_403(qid):
     """Return (website, quiz) for an admin request, or a (response, None) tuple to
     short-circuit. Mirrors the ownership guard used by the guide routes."""
