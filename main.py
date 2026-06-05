@@ -31193,6 +31193,13 @@ def _render_members_directory(prefix):
     if short is not None:
         return short
     q = (request.args.get('q') or '').strip()
+    # Role filter: chips on the page link to ?role=<id>. Only this website's
+    # roles are valid; an unknown id falls back to "all".
+    roles = (PublicUserRole.query.filter_by(website_id=website.id)
+             .order_by(db.func.lower(PublicUserRole.name)).all())
+    role_id = request.args.get('role', type=int)
+    active_role = next((r for r in roles if r.id == role_id), None)
+
     query = PublicUser.query.filter(PublicUser.website_id == website.id,
                                     PublicUser.is_banned == False,
                                     PublicUser.is_active_public == True,
@@ -31204,12 +31211,15 @@ def _render_members_directory(prefix):
             PublicUser.username.ilike(like),
             PublicUser.first_name.ilike(like),
             PublicUser.last_name.ilike(like)))
+    if active_role is not None:
+        query = query.filter(PublicUser.roles.any(PublicUserRole.id == active_role.id))
     query = query.order_by(db.func.lower(db.func.coalesce(
         PublicUser.display_username, PublicUser.username)).asc())
     page = request.args.get('page', 1, type=int)
     pagination = query.paginate(page=page, per_page=30, error_out=False)
     return render_template('public_members.html', website=website, public_user=viewer,
                            members=pagination.items, pagination=pagination, q=q,
+                           roles=roles, active_role=active_role,
                            members_base=_members_base_url(website),
                            profile_url=lambda u: _member_profile_url(website, u))
 
