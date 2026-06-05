@@ -854,6 +854,52 @@ def can_access_guide_category(category_id):
     return cats is not None and category_id is not None and category_id in cats
 
 
+def _quiz_restrictions():
+    """(allowed_category_ids, allowed_quiz_ids) governing the current sub-admin.
+    Each is either None (no restriction → all) or a list of ids. Mirrors the
+    guide-access pattern; stored globally in the permissions dict."""
+    perms = _effective_perms()
+    return (perms.get('quizzes.allowed_category_ids'),
+            perms.get('quizzes.allowed_quiz_ids'))
+
+
+def _quiz_unrestricted():
+    """True when no quiz-level restriction applies (both lists absent)."""
+    cats, quizzes = _quiz_restrictions()
+    return cats is None and quizzes is None
+
+
+def can_access_quiz(quiz_or_id):
+    """Sub-admins may be restricted to specific quiz categories and/or quizzes.
+    A category grant covers every quiz in it (current + future). No restriction
+    at all (both lists None) means all quizzes are accessible."""
+    if not current_user.is_sub_admin:
+        return True
+    cats, quizzes = _quiz_restrictions()
+    if cats is None and quizzes is None:
+        return True
+    quiz = quiz_or_id if isinstance(quiz_or_id, Quiz) else db.session.get(Quiz, quiz_or_id)
+    if not quiz:
+        return False
+    if quizzes is not None and quiz.id in quizzes:
+        return True
+    if cats is not None and quiz.category_id is not None and quiz.category_id in cats:
+        return True
+    return False
+
+
+def can_access_quiz_category(category_id):
+    """True if the current sub-admin may manage a specific quiz category (and
+    create / delete quizzes within it). Unrestricted users pass for any
+    category; restricted users only pass for categories granted to them."""
+    if not current_user.is_sub_admin:
+        return True
+    cats, quizzes = _quiz_restrictions()
+    if cats is None and quizzes is None:
+        return True
+    return cats is not None and category_id is not None and category_id in cats
+
+
 class PublicUser(UserMixin, db.Model):
     __tablename__ = 'public_user'
 
@@ -2123,6 +2169,32 @@ class GuideNode(db.Model):
 # dropped into a page-builder section. Questions are graded server-side; the
 # public payload (`to_public_dict`) NEVER exposes which answers are correct.
 
+class QuizCategory(db.Model):
+    """Admin-side grouping for quizzes, mirroring GuideCategory. Quizzes are
+    embedded assets (no public category pages), so this is purely for admin
+    organization and category-scoped sub-admin permissions."""
+    __tablename__ = 'quiz_category'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(150), nullable=False)
+    slug        = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color       = db.Column(db.String(20), nullable=True)
+    icon        = db.Column(db.String(60), nullable=True)  # FA class, e.g. 'fa-clipboard-check'
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_quiz_category_site_slug'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'name': self.name, 'slug': self.slug,
+            'description': self.description or '',
+            'color': self.color or '', 'icon': self.icon or '',
+            'sort_order': self.sort_order,
+        }
+
+
 class Quiz(db.Model):
     __tablename__ = 'quiz'
     id                = db.Column(db.Integer, primary_key=True)
@@ -2136,11 +2208,17 @@ class Quiz(db.Model):
     # gate lesson completion when this quiz is embedded in a lesson. 0.9 = 90%.
     pass_threshold    = db.Column(db.Float, nullable=False, default=0.9,
                                   server_default='0.9')
+    # Optional admin category grouping. ondelete=SET NULL so removing a category
+    # just orphans its quizzes into "Uncategorized".
+    category_id       = db.Column(db.Integer, db.ForeignKey('quiz_category.id', ondelete='SET NULL'),
+                                  nullable=True, index=True)
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
     questions         = db.relationship('QuizQuestion', backref='quiz', lazy='dynamic',
                                         cascade='all, delete-orphan',
                                         order_by='QuizQuestion.sort_order')
+    category          = db.relationship('QuizCategory',
+                                        backref=db.backref('quizzes', lazy='dynamic'))
 
 
 class QuizQuestion(db.Model):
@@ -10211,6 +10289,7 @@ def _delete_website_all(website):
     if _q_ids:
         QuizQuestion.query.filter(QuizQuestion.quiz_id.in_(_q_ids)).delete(synchronize_session=False)
     Quiz.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    QuizCategory.query.filter_by(website_id=wid).delete(synchronize_session=False)
     GuideNode.query.filter_by(website_id=wid).delete(synchronize_session=False)
     Guide.query.filter_by(website_id=wid).delete(synchronize_session=False)
     GuideCategory.query.filter_by(website_id=wid).delete(synchronize_session=False)
@@ -12787,6 +12866,8 @@ def _serialize_backup(uid):
         Guide.website_id.in_(website_ids)).all() if website_ids else []
     guide_nodes = GuideNode.query.filter(
         GuideNode.website_id.in_(website_ids)).all() if website_ids else []
+    quiz_categories = QuizCategory.query.filter(
+        QuizCategory.website_id.in_(website_ids)).all() if website_ids else []
     quizzes = Quiz.query.filter(
         Quiz.website_id.in_(website_ids)).all() if website_ids else []
     _quiz_ids = [q.id for q in quizzes]
@@ -13550,8 +13631,14 @@ def _serialize_backup(uid):
                          'created_at': n.created_at.isoformat() if n.created_at else None,
                          'updated_at': n.updated_at.isoformat() if n.updated_at else None,
                          } for n in guide_nodes],
+        'quiz_categories': [{'id': c.id, 'website_id': c.website_id,
+                             'name': c.name, 'slug': c.slug,
+                             'description': c.description, 'color': c.color,
+                             'icon': c.icon, 'sort_order': c.sort_order,
+                             'created_at': c.created_at.isoformat() if c.created_at else None,
+                             } for c in quiz_categories],
         'quizzes': [{'id': q.id, 'website_id': q.website_id, 'title': q.title,
-                     'description': q.description,
+                     'description': q.description, 'category_id': q.category_id,
                      'shuffle_questions': q.shuffle_questions,
                      'pass_threshold': q.pass_threshold,
                      'created_at': q.created_at.isoformat() if q.created_at else None,
@@ -14187,6 +14274,7 @@ def import_backup():
             guide_cat_map = {}
             guide_map = {}
             guide_node_map = {}
+            quiz_cat_map = {}
             quiz_map = {}
 
             for cd in data.get('guide_categories', []):
@@ -14250,6 +14338,19 @@ def import_backup():
                     GuideNode.query.filter_by(id=new_id).update(
                         {'parent_id': new_parent}, synchronize_session=False)
 
+            for cd in data.get('quiz_categories', []):
+                new_wid = website_map.get(cd['website_id'])
+                if not new_wid:
+                    continue
+                qc = QuizCategory(
+                    website_id=new_wid, name=cd['name'], slug=cd['slug'],
+                    description=cd.get('description'), color=cd.get('color'),
+                    icon=cd.get('icon'), sort_order=cd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None)
+                db.session.add(qc)
+                db.session.flush()
+                quiz_cat_map[cd['id']] = qc.id
+
             for qd in data.get('quizzes', []):
                 new_wid = website_map.get(qd['website_id'])
                 if not new_wid:
@@ -14257,6 +14358,7 @@ def import_backup():
                 q = Quiz(
                     website_id=new_wid, title=qd['title'],
                     description=qd.get('description'),
+                    category_id=quiz_cat_map.get(qd['category_id']) if qd.get('category_id') else None,
                     shuffle_questions=qd.get('shuffle_questions', False),
                     pass_threshold=qd.get('pass_threshold', 0.9),
                     created_at=datetime.fromisoformat(qd['created_at']) if qd.get('created_at') else None,
@@ -19135,6 +19237,25 @@ def admin_users_page():
                 'categories': cat_entries, 'uncategorized': uncategorized,
             })
 
+    # Quiz categories + quizzes per website, for the "Quiz Access" picker
+    # (mirrors guide_catalog). Stored as quizzes.allowed_category_ids /
+    # quizzes.allowed_quiz_ids.
+    quiz_catalog = []
+    for w in live_websites:
+        w_cats = QuizCategory.query.filter_by(website_id=w.id).order_by(
+            QuizCategory.sort_order, QuizCategory.name).all()
+        w_quizzes = Quiz.query.filter_by(website_id=w.id).order_by(Quiz.title).all()
+        cat_entries = [{
+            'id': c.id, 'name': c.name,
+            'quizzes': [{'id': q.id, 'title': q.title} for q in w_quizzes if q.category_id == c.id],
+        } for c in w_cats]
+        uncategorized = [{'id': q.id, 'title': q.title} for q in w_quizzes if q.category_id is None]
+        if cat_entries or uncategorized:
+            quiz_catalog.append({
+                'website_id': w.id, 'website_name': w.name or 'Website',
+                'categories': cat_entries, 'uncategorized': uncategorized,
+            })
+
     return render_template('admin_users.html',
                            sub_admins=sub_admins,
                            permissions_schema=ADMIN_PERMISSIONS,
@@ -19147,6 +19268,7 @@ def admin_users_page():
                            pf_actions=_PF_ACTIONS,
                            can_demote_staff=((not current_user.is_sub_admin) or current_user.has_permission('admin_users.demote')),
                            guide_catalog=guide_catalog,
+                           quiz_catalog=quiz_catalog,
                            now=datetime.now(timezone.utc).replace(tzinfo=None))
 
 
@@ -30171,6 +30293,134 @@ def _normalize_quiz_config(question_type, config, prompt=''):
     return {'accepted': accepted, 'case_sensitive': bool(config.get('case_sensitive'))}, None
 
 
+# ── Quiz categories (admin grouping + per-category sub-admin permissions) ─────
+
+def _unique_quiz_category_slug(website_id, base_slug, exclude_id=None):
+    """Return a slug unique among this website's quiz categories."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = QuizCategory.query.filter_by(website_id=website_id, slug=slug)
+        if exclude_id:
+            q = q.filter(QuizCategory.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
+@app.route('/admin/quizzes/categories')
+@login_required
+@require_perm('quizzes.view')
+def admin_quiz_categories_list():
+    website = get_admin_website()
+    cats = (QuizCategory.query.filter_by(website_id=website.id)
+            .order_by(QuizCategory.sort_order, QuizCategory.name).all()
+            if website else [])
+    return _utf8_json({'success': True, 'categories': [c.to_dict() for c in cats]})
+
+
+@app.route('/admin/quizzes/categories/create', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quiz_categories_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    if not _quiz_unrestricted():
+        return _utf8_json({'success': False,
+            'error': "You can only edit specific quizzes/categories and can't create new categories."}, 403)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    slug_base = _slugify_post((data.get('slug') or '').strip() or name)
+    max_sort = db.session.query(db.func.max(QuizCategory.sort_order)).filter_by(
+        website_id=website.id).scalar()
+    cat = QuizCategory(
+        website_id=website.id,
+        name=name,
+        slug=_unique_quiz_category_slug(website.id, slug_base),
+        description=(data.get('description') or '').strip() or None,
+        color=(data.get('color') or '').strip() or None,
+        icon=(data.get('icon') or '').strip() or None,
+        sort_order=(max_sort or 0) + 1,
+    )
+    db.session.add(cat)
+    db.session.commit()
+    return _utf8_json({'success': True, 'category': cat.to_dict()}, 201)
+
+
+def _admin_quiz_category_or_403(cid):
+    cat = QuizCategory.query.get_or_404(cid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or cat.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, cat
+
+
+@app.route('/admin/quizzes/categories/<int:cid>/update', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quiz_categories_update(cid):
+    website, cat = _admin_quiz_category_or_403(cid)
+    if cat is None:
+        return website
+    if not can_access_quiz_category(cid):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz category."}, 403)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    cat.name = name
+    cat.description = (data.get('description') or '').strip() or None
+    if 'color' in data:
+        cat.color = (data.get('color') or '').strip() or None
+    if 'icon' in data:
+        cat.icon = (data.get('icon') or '').strip() or None
+    raw_slug = (data.get('slug') or '').strip()
+    if raw_slug:
+        cat.slug = _unique_quiz_category_slug(
+            website.id, _slugify_post(raw_slug), exclude_id=cat.id)
+    db.session.commit()
+    return _utf8_json({'success': True, 'category': cat.to_dict()})
+
+
+@app.route('/admin/quizzes/categories/<int:cid>/delete', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quiz_categories_delete(cid):
+    website, cat = _admin_quiz_category_or_403(cid)
+    if cat is None:
+        return website
+    if not can_access_quiz_category(cid):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz category."}, 403)
+    # Quizzes under this category get their category_id NULLed by the FK's
+    # ondelete=SET NULL — they survive as Uncategorized.
+    db.session.delete(cat)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/quizzes/categories/reorder', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quiz_categories_reorder():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    if not _quiz_unrestricted():
+        return _utf8_json({'success': False, 'error': "You can't reorder quiz categories."}, 403)
+    data = request.get_json() or {}
+    by_id = {c.id: c for c in QuizCategory.query.filter_by(website_id=website.id).all()}
+    for it in (data.get('items') or []):
+        c = by_id.get(int(it.get('id')))
+        if c:
+            c.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 def _quiz_owned_or_403(qid):
     """Return (website, quiz) for an admin request, or a (response, None) tuple to
     short-circuit. Mirrors the ownership guard used by the guide routes."""
@@ -30187,12 +30437,34 @@ def _quiz_owned_or_403(qid):
 def admin_quizzes_page():
     website = get_admin_website()
     quizzes = []
+    categories = []
+    grouped_quizzes = []
     if website:
         quizzes = Quiz.query.filter_by(website_id=website.id).order_by(
             Quiz.created_at.desc()).all()
+        categories = QuizCategory.query.filter_by(website_id=website.id).order_by(
+            QuizCategory.sort_order, QuizCategory.name).all()
+        for c in categories:
+            in_cat = [q for q in quizzes if q.category_id == c.id]
+            if in_cat:
+                grouped_quizzes.append({'category': c, 'quizzes': in_cat})
+        uncategorized = [q for q in quizzes if q.category_id is None]
+        if uncategorized:
+            grouped_quizzes.append({'category': None, 'quizzes': uncategorized})
+    # "Show but locked" gating for restricted sub-admins (None = unrestricted).
+    quizzes_restricted = current_user.is_sub_admin and not _quiz_unrestricted()
+    accessible_quiz_ids = None
+    accessible_category_ids = None
+    if quizzes_restricted:
+        accessible_quiz_ids = {q.id for q in quizzes if can_access_quiz(q)}
+        accessible_category_ids = {c.id for c in categories if can_access_quiz_category(c.id)}
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id).all() if website else []
     return render_template('quizzes_admin.html', quizzes=quizzes, website=website,
+                           categories=categories, grouped_quizzes=grouped_quizzes,
+                           quizzes_restricted=quizzes_restricted,
+                           accessible_quiz_ids=accessible_quiz_ids,
+                           accessible_category_ids=accessible_category_ids,
                            current_website=website,
                            current_website_pages=current_website_pages, page_id=None)
 
@@ -30204,7 +30476,8 @@ def admin_quizzes_list():
     website = get_admin_website()
     quizzes = Quiz.query.filter_by(website_id=website.id).order_by(Quiz.title).all() if website else []
     return _utf8_json({'success': True, 'quizzes': [
-        {'id': q.id, 'title': q.title, 'question_count': q.questions.count()} for q in quizzes]})
+        {'id': q.id, 'title': q.title, 'question_count': q.questions.count(),
+         'category_id': q.category_id} for q in quizzes]})
 
 
 @app.route('/admin/quizzes/create', methods=['POST'])
@@ -30218,11 +30491,24 @@ def admin_quizzes_create():
     title = (data.get('title') or '').strip()
     if not title:
         return _utf8_json({'success': False, 'error': 'Title is required'}, 400)
+    cat_id = data.get('category_id') or None
+    if cat_id:
+        cat = QuizCategory.query.filter_by(id=int(cat_id), website_id=website.id).first()
+        if not cat:
+            cat_id = None
+    # Restricted sub-admins may only create quizzes inside a category they've
+    # been granted (which gives full control of that category's quizzes).
+    if not _quiz_unrestricted():
+        if cat_id is None or not can_access_quiz_category(int(cat_id)):
+            return _utf8_json({'success': False,
+                'error': 'You can only create quizzes inside a category you have access to.'}, 403)
     quiz = Quiz(website_id=website.id, title=title,
-                description=(data.get('description') or '').strip() or None)
+                description=(data.get('description') or '').strip() or None,
+                category_id=cat_id)
     db.session.add(quiz)
     db.session.commit()
-    return _utf8_json({'success': True, 'quiz': {'id': quiz.id, 'title': quiz.title}}, 201)
+    return _utf8_json({'success': True, 'quiz': {
+        'id': quiz.id, 'title': quiz.title, 'category_id': quiz.category_id}}, 201)
 
 
 @app.route('/admin/quizzes/<int:qid>/update', methods=['POST'])
@@ -30232,6 +30518,8 @@ def admin_quizzes_update(qid):
     website, quiz = _quiz_owned_or_403(qid)
     if quiz is None:
         return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     data = request.get_json() or {}
     title = (data.get('title') or '').strip()
     if not title:
@@ -30247,12 +30535,28 @@ def admin_quizzes_update(qid):
             pt = 0.9
         # Clamp to [0, 1]; the UI sends a fraction.
         quiz.pass_threshold = max(0.0, min(1.0, pt))
+    if 'category_id' in data:
+        raw = data.get('category_id')
+        if raw in (None, '', 0):
+            # Moving to "Uncategorized" — a restricted user may only do that if
+            # they hold a direct grant on this quiz (else they'd orphan it).
+            _, allowed_quizzes = _quiz_restrictions()
+            if not _quiz_unrestricted() and not (allowed_quizzes is not None and quiz.id in allowed_quizzes):
+                return _utf8_json({'success': False,
+                    'error': 'You can only move this quiz into a category you have access to.'}, 403)
+            quiz.category_id = None
+        else:
+            cat = QuizCategory.query.filter_by(id=int(raw), website_id=website.id).first()
+            if cat and not can_access_quiz_category(cat.id):
+                return _utf8_json({'success': False,
+                    'error': 'You can only move this quiz into a category you have access to.'}, 403)
+            quiz.category_id = cat.id if cat else None
     quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
         'shuffle_questions': quiz.shuffle_questions,
-        'pass_threshold': quiz.pass_threshold}})
+        'pass_threshold': quiz.pass_threshold, 'category_id': quiz.category_id}})
 
 
 @app.route('/admin/quizzes/<int:qid>/delete', methods=['POST'])
@@ -30262,6 +30566,8 @@ def admin_quizzes_delete(qid):
     website, quiz = _quiz_owned_or_403(qid)
     if quiz is None:
         return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     db.session.delete(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -30274,6 +30580,8 @@ def admin_quiz_editor(qid):
     quiz = Quiz.query.get_or_404(qid)
     website = get_admin_website()
     if not website or not is_owner(website) or quiz.website_id != website.id:
+        abort(403)
+    if not can_access_quiz(quiz):
         abort(403)
     questions = [q.to_admin_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
@@ -30290,6 +30598,8 @@ def admin_quiz_get(qid):
     website, quiz = _quiz_owned_or_403(qid)
     if quiz is None:
         return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     return _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
         'shuffle_questions': quiz.shuffle_questions,
@@ -30304,6 +30614,8 @@ def admin_quiz_question_save(qid):
     website, quiz = _quiz_owned_or_403(qid)
     if quiz is None:
         return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     data = request.get_json() or {}
     qtype = data.get('question_type')
     if qtype not in _QUIZ_QUESTION_TYPES:
@@ -30342,6 +30654,8 @@ def admin_quiz_question_delete(qid, question_id):
     website, quiz = _quiz_owned_or_403(qid)
     if quiz is None:
         return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     qq = QuizQuestion.query.filter_by(id=question_id, quiz_id=qid).first_or_404()
     db.session.delete(qq)
     db.session.commit()
@@ -30355,6 +30669,8 @@ def admin_quiz_questions_reorder(qid):
     website, quiz = _quiz_owned_or_403(qid)
     if quiz is None:
         return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     data = request.get_json() or {}
     by_id = {q.id: q for q in quiz.questions.all()}
     for it in (data.get('items') or []):
