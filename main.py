@@ -361,6 +361,10 @@ class User(UserMixin, db.Model):
     timezone = db.Column(db.String(100), nullable=False, default='America/Chicago')
     date_format = db.Column(db.String(50), nullable=False, default='%b %d, %Y %I:%M %p')
     admin_navbar_disabled = db.Column(db.JSON, nullable=True, default=list)
+    # Org-wide admin branding (lives on the anchor). NULL falls back to the
+    # default "uwebia" name / icon. Shown on the admin navbar & admin login page.
+    admin_brand_name = db.Column(db.String(80), nullable=True)
+    admin_brand_icon_url = db.Column(db.String(500), nullable=True)
     admin_chat_last_read = db.Column(db.DateTime, nullable=True)
     website_permissions = db.Column(db.JSON, nullable=True, default=dict)
     # Per-external-drive access toggle. Keys are str(StorageConnection.id),
@@ -1107,6 +1111,33 @@ def _division_effective_ksas(division_id):
     return owned, shared
 
 
+def _division_ksa_folder_groups(division_id):
+    """A division's effective KSAs grouped by folder for display: owned KSAs by
+    their folder (folder sort_order, then an 'Unfiled' group), then a trailing
+    'Shared' group for KSAs shared in from other divisions. Returns ordered
+    group dicts: {'name': str|None, 'shared': bool, 'ksas': [KSA, ...]}."""
+    owned, shared = _division_effective_ksas(division_id)
+    folders = sorted(KSAFolder.query.filter_by(division_id=division_id).all(),
+                     key=lambda f: (f.sort_order, (f.name or '').lower()))
+    by_folder = {}
+    for k in owned:
+        by_folder.setdefault(k.folder_id, []).append(k)
+    valid_ids = {f.id for f in folders}
+    groups = []
+    for f in folders:
+        if by_folder.get(f.id):
+            groups.append({'name': f.name, 'shared': False, 'ksas': by_folder[f.id]})
+    unfiled = []
+    for fid, klist in by_folder.items():
+        if fid is None or fid not in valid_ids:
+            unfiled.extend(klist)
+    if unfiled:
+        groups.append({'name': None, 'shared': False, 'ksas': unfiled})
+    if shared:
+        groups.append({'name': 'Shared', 'shared': True, 'ksas': shared})
+    return groups
+
+
 class PublicUser(UserMixin, db.Model):
     __tablename__ = 'public_user'
 
@@ -1417,15 +1448,34 @@ class KSAResource(db.Model):
     id            = db.Column(db.Integer, primary_key=True)
     ksa_id        = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
                               nullable=False, index=True)
-    resource_type = db.Column(db.String(10), nullable=False, default='link')  # link | guide | quiz
+    resource_type = db.Column(db.String(16), nullable=False, default='link')  # link | guide | quiz | demonstration
     label         = db.Column(db.String(300), nullable=True)   # title / override
     url           = db.Column(db.String(1000), nullable=True)  # for link
+    # For 'demonstration': what the member must demonstrate/prove to staff.
+    description   = db.Column(db.Text, nullable=True)
     guide_id      = db.Column(db.Integer, db.ForeignKey('guide.id', ondelete='CASCADE'), nullable=True)
     quiz_id       = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'), nullable=True)
     sort_order    = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     ksa           = db.relationship('KSA', backref=db.backref('resources', lazy='dynamic',
                                                               cascade='all, delete-orphan'))
+
+
+class KSAResourceCompletion(db.Model):
+    """A member's completion of a KSA resource. Used for resources that aren't
+    auto-tracked: 'link' (member self-marks) and 'demonstration' (an admin signs
+    off). Guide/quiz completion is derived from progress/attempts, not stored
+    here. `completed_by_user_id` = the admin for demonstrations, NULL for self."""
+    __tablename__ = 'ksa_resource_completion'
+    id                   = db.Column(db.Integer, primary_key=True)
+    public_user_id       = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                                     nullable=False, index=True)
+    resource_id          = db.Column(db.Integer, db.ForeignKey('ksa_resource.id', ondelete='CASCADE'),
+                                     nullable=False, index=True)
+    completed_at         = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    completed_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True)
+    __table_args__       = (db.UniqueConstraint('public_user_id', 'resource_id',
+                                                name='uq_ksa_resource_completion'),)
 
 
 class UserKSA(db.Model):
@@ -1440,6 +1490,11 @@ class UserKSA(db.Model):
                                    nullable=False, index=True)
     level              = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     note               = db.Column(db.Text, nullable=True)
+    # True when the member set this level themselves (vs an admin verifying it).
+    # Lets the directory/matrix distinguish self-claimed from verified skills, and
+    # keeps members from overwriting admin-verified levels.
+    self_reported      = db.Column(db.Boolean, nullable=False, default=False,
+                                   server_default=_sa_false())
     granted_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
                                    nullable=True)
     granted_at         = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
@@ -7444,6 +7499,44 @@ _FOLDER_ACTION_MAP = {
 
 
 @app.context_processor
+def inject_admin_brand():
+    """Org-wide admin branding (name + icon) for the admin navbar & login page.
+    Reads from the acting admin's anchor when logged in; for anonymous visitors
+    it only queries on /admin/* paths (the login page) so public pages pay
+    nothing. NULL fields fall back to the default uwebia branding."""
+    name, icon = 'uwebia', '/static/uwebia-icon.svg'
+    if _DB_MAINTENANCE_MODE:
+        return {'admin_brand_name': name, 'admin_brand_icon_url': icon}
+    try:
+        anchor = None
+        if current_user.is_authenticated and getattr(current_user, 'root_user_id', None):
+            anchor = db.session.get(User, current_user.root_user_id)
+        elif request.path.startswith('/admin'):
+            anchor = get_main_admin()
+        if anchor:
+            name = anchor.admin_brand_name or name
+            icon = anchor.admin_brand_icon_url or icon
+    except Exception:
+        pass
+    return {'admin_brand_name': name, 'admin_brand_icon_url': _versioned_static_url(icon)}
+
+
+def _versioned_static_url(url):
+    """Append ?v=<file-mtime> to a local /static URL so browsers (Safari in
+    particular, which caches favicons very hard) refetch when the file changes."""
+    try:
+        if url and url.startswith('/static/'):
+            rel = url.split('?', 1)[0][len('/static/'):].lstrip('/')
+            full = os.path.join(app.static_folder, rel)
+            if os.path.isfile(full):
+                sep = '&' if '?' in url else '?'
+                return f'{url}{sep}v={int(os.path.getmtime(full))}'
+    except Exception:
+        pass
+    return url
+
+
+@app.context_processor
 def inject_permissions_context():
     if _DB_MAINTENANCE_MODE:
         return {}
@@ -8647,7 +8740,7 @@ def save_navbar_visibility():
     # layout), so it's stored on and read from the primary owner (the anchor) —
     # not the acting user. Changeable by full admins or anyone with settings.edit.
     data = request.get_json() or {}
-    valid = {'posts', 'guides', 'quizzes', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
+    valid = {'posts', 'guides', 'quizzes', 'divisions', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'messages', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
              # Store dropdown master + the items that weren't in this set before,
              # so they can actually be toggled off (the navbar already honors them).
              'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support'}
@@ -9545,7 +9638,25 @@ def create_website():
 
 @app.route('/favicon.ico')
 def favicon():
-    return send_from_directory(app.static_folder, 'orange-uw.svg', mimetype='image/svg+xml')
+    # Browsers request /favicon.ico directly (and cache it hard, Safari most of
+    # all), so serve the org-wide admin brand icon here too — otherwise the tab
+    # keeps showing the default after branding changes. Falls back to the
+    # bundled default. no-cache forces a revalidate so updates show up.
+    resp = None
+    try:
+        anchor = get_main_admin()
+        icon = anchor.admin_brand_icon_url if anchor else None
+        if icon and icon.startswith('/static/'):
+            rel = icon.split('?', 1)[0][len('/static/'):].lstrip('/')
+            full = os.path.join(app.static_folder, rel)
+            if os.path.isfile(full):
+                resp = send_from_directory(app.static_folder, rel)
+    except Exception:
+        resp = None
+    if resp is None:
+        resp = send_from_directory(app.static_folder, 'orange-uw.svg', mimetype='image/svg+xml')
+    resp.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+    return resp
 
 
 def get_live_website(url_prefix=None):
@@ -13273,6 +13384,8 @@ def settings_page():
         can_store_settings=current_user.has_permission('store.settings'),
         can_moderate_posts=current_user.has_permission('posts.settings'),
         anchor_navbar_disabled=_anchor.admin_navbar_disabled or [],
+        admin_brand_name_raw=_anchor.admin_brand_name or '',
+        admin_brand_has_custom_icon=bool(_anchor.admin_brand_icon_url),
         email_settings=get_email_settings(),
         account_username=current_user.username,
         account_email=current_user.email,
@@ -13627,6 +13740,8 @@ def _serialize_backup(uid):
             'org_require_2fa': bool(_owner.org_require_2fa),
             'org_2fa_email_settings_version': _owner.org_2fa_email_settings_version,
             'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
+            'admin_brand_name': _owner.admin_brand_name,
+            'admin_brand_icon_url': _owner.admin_brand_icon_url,
         } if _owner else {},
         'websites': [{'id': w.id, 'name': w.name, 'description': w.description,
                       'is_draft': w.is_draft,
@@ -13967,11 +14082,17 @@ def _serialize_backup(uid):
                        'priority': rk.priority} for rk in role_ksas],
         'user_ksas': [{'id': uk.id, 'public_user_id': uk.public_user_id, 'ksa_id': uk.ksa_id,
                        'level': uk.level, 'note': uk.note,
+                       'self_reported': bool(uk.self_reported),
                        'granted_at': uk.granted_at.isoformat() if uk.granted_at else None,
                        } for uk in user_ksas],
         'ksa_resources': [{'id': rs.id, 'ksa_id': rs.ksa_id, 'resource_type': rs.resource_type,
                            'label': rs.label, 'url': rs.url, 'guide_id': rs.guide_id,
-                           'quiz_id': rs.quiz_id, 'sort_order': rs.sort_order} for rs in ksa_resources],
+                           'quiz_id': rs.quiz_id, 'description': rs.description,
+                           'sort_order': rs.sort_order} for rs in ksa_resources],
+        'ksa_resource_completions': [{'public_user_id': c.public_user_id, 'resource_id': c.resource_id,
+                                      'completed_at': c.completed_at.isoformat() if c.completed_at else None}
+                                     for c in KSAResourceCompletion.query.filter(
+                                         KSAResourceCompletion.resource_id.in_([r.id for r in ksa_resources])).all()] if ksa_resources else [],
         'ksa_shares': [{'id': s.id, 'division_id': s.division_id, 'ksa_id': s.ksa_id}
                        for s in ksa_shares],
         'public_user_addresses': [{'id': a.id, 'public_user_id': a.public_user_id,
@@ -14338,6 +14459,13 @@ def _build_backup_zip_bytes(uid, include_files=True):
                     fpath = os.path.join(user_navbar_dir, fname)
                     if os.path.isfile(fpath):
                         zf.write(fpath, f'navbar/{fname}')
+            # Org-wide admin brand icon (uploads/<uid>/admin-brand/).
+            user_brand_dir = os.path.join(uploads_folder, str(uid), 'admin-brand')
+            if os.path.isdir(user_brand_dir):
+                for fname in os.listdir(user_brand_dir):
+                    fpath = os.path.join(user_brand_dir, fname)
+                    if os.path.isfile(fpath):
+                        zf.write(fpath, f'admin-brand/{fname}')
     buf.seek(0)
     return buf.getvalue()
 
@@ -14938,6 +15066,15 @@ def import_backup():
                     _owner.org_require_2fa = bool(_owner_settings.get('org_require_2fa'))
                     _owner.org_2fa_email_settings_version = _owner_settings.get('org_2fa_email_settings_version')
                     _owner.org_2fa_needs_attention = bool(_owner_settings.get('org_2fa_needs_attention'))
+                    _owner.admin_brand_name = _owner_settings.get('admin_brand_name')
+                    # The brand icon url embeds the owner uid (either an uploaded
+                    # admin-brand/ icon or a picked assets/ image); remap the uid
+                    # segment so the restored path points at this owner.
+                    _brand_icon = _owner_settings.get('admin_brand_icon_url')
+                    if _brand_icon and f'/uploads/{old_uid}/' in _brand_icon:
+                        _brand_icon = _brand_icon.replace(
+                            f'/uploads/{old_uid}/', f'/uploads/{uid}/')
+                    _owner.admin_brand_icon_url = _brand_icon
 
             for gd in data.get('permission_groups', []):
                 pg = PermissionGroup(owner_user_id=uid, name=gd['name'],
@@ -15848,18 +15985,32 @@ def import_backup():
                     continue
                 db.session.add(UserKSA(
                     public_user_id=new_pu, ksa_id=new_k, level=uk.get('level', 0),
-                    note=uk.get('note'),
+                    note=uk.get('note'), self_reported=bool(uk.get('self_reported')),
                     granted_at=datetime.fromisoformat(uk['granted_at']) if uk.get('granted_at') else None))
+            resource_map = {}
             for rs in data.get('ksa_resources', []):
                 new_k = ksa_map.get(rs.get('ksa_id'))
                 if not new_k:
                     continue
-                db.session.add(KSAResource(
+                _new_rs = KSAResource(
                     ksa_id=new_k, resource_type=rs.get('resource_type', 'link'),
                     label=rs.get('label'), url=rs.get('url'),
+                    description=rs.get('description'),
                     guide_id=guide_map.get(rs['guide_id']) if rs.get('guide_id') else None,
                     quiz_id=quiz_map.get(rs['quiz_id']) if rs.get('quiz_id') else None,
-                    sort_order=rs.get('sort_order', 0)))
+                    sort_order=rs.get('sort_order', 0))
+                db.session.add(_new_rs)
+                if rs.get('id') is not None:
+                    db.session.flush()
+                    resource_map[rs['id']] = _new_rs.id
+            for c in data.get('ksa_resource_completions', []):
+                new_pu = pub_user_map.get(c.get('public_user_id'))
+                new_rs = resource_map.get(c.get('resource_id'))
+                if not new_pu or not new_rs:
+                    continue
+                db.session.add(KSAResourceCompletion(
+                    public_user_id=new_pu, resource_id=new_rs,
+                    completed_at=datetime.fromisoformat(c['completed_at']) if c.get('completed_at') else None))
             for sh in data.get('ksa_shares', []):
                 new_dv = division_map.get(sh.get('division_id'))
                 new_k = ksa_map.get(sh.get('ksa_id'))
@@ -16514,6 +16665,19 @@ def import_backup():
                 if name.startswith('navbar/') and not name.endswith('/'):
                     fname = name[len('navbar/'):]
                     with zf.open(name) as src, open(os.path.join(new_navbar_dir, fname), 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+
+            # ── Extract admin brand icon (uploads/<uid>/admin-brand/) ──────────
+            new_brand_dir = os.path.join(uploads_folder, str(uid), 'admin-brand')
+            os.makedirs(new_brand_dir, exist_ok=True)
+            for fname in os.listdir(new_brand_dir):
+                fpath = os.path.join(new_brand_dir, fname)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+            for name in zf.namelist():
+                if name.startswith('admin-brand/') and not name.endswith('/'):
+                    fname = name[len('admin-brand/'):]
+                    with zf.open(name) as src, open(os.path.join(new_brand_dir, fname), 'wb') as dst:
                         shutil.copyfileobj(src, dst)
 
     except zipfile.BadZipFile:
@@ -18346,6 +18510,138 @@ def upload_public_navbar_icon(website_id):
         'success': True,
         'icon_url': icon_url
     })
+
+
+# ── Admin branding (org-wide, on the anchor) ──────────────────────────────────
+
+@app.route('/admin/settings/admin-brand', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_admin_brand():
+    """Save the org-wide admin display name (shown on navbar & login page)."""
+    data = request.get_json(silent=True) or request.form
+    name = (data.get('admin_brand_name') or '').strip()
+    anchor = db.session.get(User, current_user.root_user_id)
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'Owner not found'}, 400)
+    anchor.admin_brand_name = name[:80] or None
+    db.session.commit()
+    return _utf8_json({'success': True, 'admin_brand_name': anchor.admin_brand_name or 'uwebia'})
+
+
+@app.route('/admin/settings/admin-brand/icon', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def upload_admin_brand_icon():
+    """Upload the org-wide admin navbar/login icon onto the anchor."""
+    file = request.files.get('icon')
+    if not file or file.filename == '':
+        return _utf8_json({'success': False, 'error': 'No icon file uploaded'}, 400)
+    fn = file.filename.lower()
+    if not (fn.endswith('.svg') or fn.endswith('.png')):
+        return _utf8_json({'success': False, 'error': 'Only SVG and PNG files are allowed'}, 400)
+
+    uid = current_user.root_user_id
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    folder = os.path.join(app.config['UPLOAD_FOLDER'], str(uid), 'admin-brand')
+    os.makedirs(folder, exist_ok=True)
+    for old in ('icon.svg', 'icon.png'):
+        p = os.path.join(folder, old)
+        if os.path.exists(p):
+            os.remove(p)
+    filename = f'icon.{ext}'
+    file.save(os.path.join(folder, filename))
+
+    icon_url = url_for('static', filename=f'uploads/{uid}/admin-brand/{filename}')
+    anchor = db.session.get(User, uid)
+    anchor.admin_brand_icon_url = icon_url
+    db.session.commit()
+    return _utf8_json({'success': True, 'icon_url': icon_url})
+
+
+@app.route('/admin/settings/admin-brand/icon-from-asset', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def set_admin_brand_icon_from_asset():
+    """Use an existing asset-library image as the org-wide admin icon."""
+    data = request.get_json(silent=True) or request.form
+    try:
+        asset_id = int(data.get('asset_id'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'No asset selected'}, 400)
+    uid = current_user.root_user_id
+    asset = Asset.query.filter_by(id=asset_id, user_id=uid).first()
+    if not asset:
+        return _utf8_json({'success': False, 'error': 'Asset not found'}, 404)
+    if asset.asset_type != 'image':
+        return _utf8_json({'success': False, 'error': 'Please choose an image asset'}, 400)
+
+    # Resolve the asset file on disk. The library stores a WebP for display
+    # (browsers show it in <img>, so the navbar looked fine) but Safari WON'T
+    # use WebP/JPG as a favicon — so we normalise raster picks to PNG. We prefer
+    # the ORIGINAL uploaded file (kept alongside the WebP) since it avoids a
+    # WebP-decode dependency and a lossy re-encode. SVG stays vector.
+    public_rel = (asset.url or '').split('?', 1)[0]
+    src_full = None
+    if public_rel.startswith('/static/'):
+        public_full = os.path.join(app.static_folder, public_rel[len('/static/'):].lstrip('/'))
+        asset_dir = os.path.dirname(public_full)
+        orig_full = (os.path.join(asset_dir, asset.original_stored_filename)
+                     if asset.original_stored_filename else None)
+        if orig_full and os.path.isfile(orig_full):
+            src_full = orig_full          # prefer the original upload
+        elif os.path.isfile(public_full):
+            src_full = public_full         # fall back to the WebP (Pillow decodes it)
+
+    folder = os.path.join(app.config['UPLOAD_FOLDER'], str(uid), 'admin-brand')
+    os.makedirs(folder, exist_ok=True)
+    for old in ('icon.svg', 'icon.png'):
+        p = os.path.join(folder, old)
+        if os.path.exists(p):
+            os.remove(p)
+
+    src_ext = os.path.splitext(src_full)[1].lower() if src_full else ''
+    icon_url = asset.url
+    try:
+        if src_ext == '.svg':
+            shutil.copyfile(src_full, os.path.join(folder, 'icon.svg'))
+            icon_url = url_for('static', filename=f'uploads/{uid}/admin-brand/icon.svg')
+        elif src_full:
+            with Image.open(src_full) as im:
+                im = im.convert('RGBA')
+                im.thumbnail((512, 512))
+                im.save(os.path.join(folder, 'icon.png'), format='PNG')
+            icon_url = url_for('static', filename=f'uploads/{uid}/admin-brand/icon.png')
+    except Exception as e:
+        app.logger.warning('admin brand icon conversion failed: %s', e)
+        icon_url = asset.url  # fall back to the raw asset url
+
+    anchor = db.session.get(User, uid)
+    anchor.admin_brand_icon_url = icon_url
+    db.session.commit()
+    return _utf8_json({'success': True, 'icon_url': icon_url})
+
+
+@app.route('/admin/settings/admin-brand/reset', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def reset_admin_brand():
+    """Revert the admin icon to the default (keeps the custom name, which is
+    cleared separately by saving a blank name). Deletes any uploaded icon file."""
+    uid = current_user.root_user_id
+    anchor = db.session.get(User, uid)
+    if anchor:
+        anchor.admin_brand_icon_url = None
+        db.session.commit()
+    folder = os.path.join(app.config['UPLOAD_FOLDER'], str(uid), 'admin-brand')
+    for old in ('icon.svg', 'icon.png'):
+        p = os.path.join(folder, old)
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
+    return _utf8_json({'success': True})
 
 
 @app.route('/set_navbar_icon_url/<int:website_id>', methods=['POST'])
@@ -32560,7 +32856,7 @@ def admin_role_ksa_requirements_get(role_id):
                        'catalog': catalog, 'requirements': reqs})
 
 
-_KSA_PRIORITIES = ('high', 'medium', 'low')
+_KSA_PRIORITIES = ('core', 'high', 'medium', 'low')
 
 
 @app.route('/admin/roles/<int:role_id>/ksa-requirements', methods=['POST'])
@@ -32605,7 +32901,8 @@ def admin_ksa_resources_get(kid):
     if k is None:
         return website
     resources = [{'id': rs.id, 'resource_type': rs.resource_type, 'label': rs.label or '',
-                  'url': rs.url or '', 'guide_id': rs.guide_id, 'quiz_id': rs.quiz_id}
+                  'url': rs.url or '', 'guide_id': rs.guide_id, 'quiz_id': rs.quiz_id,
+                  'description': rs.description or ''}
                  for rs in k.resources.order_by(KSAResource.sort_order, KSAResource.id).all()]
     guides = [{'id': g.id, 'title': g.title} for g in
               Guide.query.filter_by(website_id=website.id).order_by(Guide.title).all()]
@@ -32625,18 +32922,22 @@ def admin_ksa_resources_save(kid):
     incoming = (request.get_json() or {}).get('resources') or []
     valid_guides = {g.id for g in Guide.query.filter_by(website_id=website.id).all()}
     valid_quizzes = {qz.id for qz in Quiz.query.filter_by(website_id=website.id).all()}
-    KSAResource.query.filter_by(ksa_id=k.id).delete(synchronize_session=False)
+    # Upsert by id (do NOT delete-and-recreate) so resource ids stay stable —
+    # otherwise every save would orphan member completions & demonstration
+    # sign-offs (KSAResourceCompletion.resource_id).
+    existing = {rs.id: rs for rs in k.resources.all()}
+    seen = set()
     for i, rs in enumerate(incoming):
         if not isinstance(rs, dict):
             continue
         rtype = rs.get('resource_type')
         label = (rs.get('label') or '').strip() or None
+        desc = (rs.get('description') or '').strip() or None
+        url = gid = qzid = None
         if rtype == 'link':
             url = (rs.get('url') or '').strip()
             if not url:
                 continue
-            db.session.add(KSAResource(ksa_id=k.id, resource_type='link', label=label,
-                                       url=url, sort_order=i))
         elif rtype == 'guide':
             try:
                 gid = int(rs.get('guide_id'))
@@ -32644,8 +32945,6 @@ def admin_ksa_resources_save(kid):
                 continue
             if gid not in valid_guides:
                 continue
-            db.session.add(KSAResource(ksa_id=k.id, resource_type='guide', label=label,
-                                       guide_id=gid, sort_order=i))
         elif rtype == 'quiz':
             try:
                 qzid = int(rs.get('quiz_id'))
@@ -32653,8 +32952,23 @@ def admin_ksa_resources_save(kid):
                 continue
             if qzid not in valid_quizzes:
                 continue
-            db.session.add(KSAResource(ksa_id=k.id, resource_type='quiz', label=label,
-                                       quiz_id=qzid, sort_order=i))
+        elif rtype == 'demo':
+            if not (label or desc):
+                continue  # a demonstration needs at least a title or description
+        else:
+            continue
+        rec = existing.get(rs.get('id'))
+        if rec is not None:
+            rec.resource_type, rec.label, rec.url = rtype, label, url
+            rec.guide_id, rec.quiz_id, rec.description, rec.sort_order = gid, qzid, desc, i
+            seen.add(rec.id)
+        else:
+            db.session.add(KSAResource(ksa_id=k.id, resource_type=rtype, label=label, url=url,
+                                       guide_id=gid, quiz_id=qzid, description=desc, sort_order=i))
+    # Delete resources the admin removed (cascade clears their completions).
+    for rid, rec in existing.items():
+        if rid not in seen:
+            db.session.delete(rec)
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -32668,10 +32982,13 @@ def admin_division_matrix(did):
     website, d = _division_owned_or_403(did)
     if d is None:
         abort(403)
-    owned_ksas, shared_ksas = _division_effective_ksas(d.id)
-    ksas = owned_ksas + shared_ksas
-    shared_ksa_ids = {k.id for k in shared_ksas}
+    ksa_groups = _division_ksa_folder_groups(d.id)
+    ksas = [k for g in ksa_groups for k in g['ksas']]
+    shared_ksa_ids = {k.id for g in ksa_groups if g['shared'] for k in g['ksas']}
     ksa_ids = [k.id for k in ksas]
+    # Folder header spans for the matrix table (one <th> per group).
+    matrix_folder_groups = [{'name': g['name'], 'count': len(g['ksas']), 'shared': g['shared']}
+                            for g in ksa_groups]
 
     # Division roles + their requirements (role_id -> {ksa_id: required_level}).
     div_roles = PublicUserRole.query.filter_by(website_id=website.id, division_id=d.id) \
@@ -32698,7 +33015,25 @@ def admin_division_matrix(did):
     if member_ids and ksa_ids:
         for uk in UserKSA.query.filter(UserKSA.public_user_id.in_(member_ids),
                                        UserKSA.ksa_id.in_(ksa_ids)).all():
-            held[(uk.public_user_id, uk.ksa_id)] = uk.level
+            held[(uk.public_user_id, uk.ksa_id)] = uk
+
+    # Demonstration resources per KSA + which (member, demonstration) are signed
+    # off, so each cell can show & toggle demonstration completion.
+    demos_by_ksa = {}
+    demo_done = set()
+    if ksa_ids:
+        demo_resources = KSAResource.query.filter(
+            KSAResource.ksa_id.in_(ksa_ids),
+            KSAResource.resource_type == 'demo').order_by(
+            KSAResource.sort_order, KSAResource.id).all()
+        for rs in demo_resources:
+            demos_by_ksa.setdefault(rs.ksa_id, []).append(rs)
+        demo_rids = [rs.id for rs in demo_resources]
+        if demo_rids and member_ids:
+            for c in KSAResourceCompletion.query.filter(
+                    KSAResourceCompletion.public_user_id.in_(member_ids),
+                    KSAResourceCompletion.resource_id.in_(demo_rids)).all():
+                demo_done.add((c.public_user_id, c.resource_id))
 
     rows = []
     for uid, u in member_users.items():
@@ -32713,18 +33048,30 @@ def admin_division_matrix(did):
                 required[kid] = max(required.get(kid, 0), lvl)
         cells = []
         for k in ksas:
-            lv = held.get((uid, k.id), 0)
+            uk = held.get((uid, k.id))
+            lv = uk.level if uk else 0
             rq = required.get(k.id, 0)
+            demos = [{'id': rs.id, 'label': rs.label or 'Demonstration',
+                      'description': rs.description or '',
+                      'completed': (uid, rs.id) in demo_done}
+                     for rs in demos_by_ksa.get(k.id, [])]
             cells.append({'ksa': k, 'level': lv, 'required': rq,
-                          'has_req': rq > 0, 'met': (rq == 0 or lv >= rq)})
+                          'has_req': rq > 0, 'met': (rq == 0 or lv >= rq),
+                          'self_reported': bool(uk and lv > 0 and uk.self_reported),
+                          'demos': demos,
+                          'demos_done': sum(1 for x in demos if x['completed']),
+                          'demos_total': len(demos)})
+        req_total = sum(1 for c in cells if c['has_req'])
+        req_met = sum(1 for c in cells if c['has_req'] and c['met'])
         rows.append({'user': u, 'status': member_status[uid],
-                     'role_names': [r.name for r in u_div_roles], 'cells': cells})
+                     'role_names': [r.name for r in u_div_roles], 'cells': cells,
+                     'req_total': req_total, 'req_met': req_met})
     rows.sort(key=lambda x: (x['user'].effective_display_name or '').lower())
 
     can_manage = (not current_user.is_sub_admin) or current_user.has_permission('ksa.manage')
     return render_template('division_matrix.html', website=website, current_website=website,
                            division=d, ksas=ksas, rows=rows, div_roles=div_roles,
-                           shared_ksa_ids=shared_ksa_ids,
+                           shared_ksa_ids=shared_ksa_ids, matrix_folder_groups=matrix_folder_groups,
                            role_filter=role_filter, status_filter=status_filter,
                            member_total=len(member_ids),
                            level_labels=_ksa_level_labels(website), can_manage=can_manage,
@@ -32756,11 +33103,56 @@ def admin_user_ksa_set_level(kid, uid):
         rec.level = level
         rec.updated_at = now
         rec.granted_by_user_id = current_user.id
+        rec.self_reported = False  # an admin set it → verified
     else:
         db.session.add(UserKSA(public_user_id=uid, ksa_id=kid, level=level,
-                               granted_by_user_id=current_user.id, granted_at=now))
+                               granted_by_user_id=current_user.id, granted_at=now,
+                               self_reported=False))
     db.session.commit()
     return _utf8_json({'success': True, 'level': level})
+
+
+@app.route('/admin/ksa/<int:kid>/user/<int:uid>/verify', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_user_ksa_verify(kid, uid):
+    """Confirm a member's self-reported level: keep the level, mark it verified."""
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    rec = UserKSA.query.filter_by(public_user_id=uid, ksa_id=kid).first()
+    if not rec:
+        return _utf8_json({'success': False, 'error': 'No level to confirm.'}, 404)
+    rec.self_reported = False
+    rec.granted_by_user_id = current_user.id
+    rec.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'level': rec.level})
+
+
+@app.route('/admin/ksa/resource/<int:rid>/user/<int:uid>/demo-toggle', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_demo_toggle(rid, uid):
+    """Staff sign-off: mark/unmark a member's demonstration as completed."""
+    rs = db.session.get(KSAResource, rid)
+    if not rs or rs.resource_type != 'demo':
+        return _utf8_json({'success': False, 'error': 'Not a demonstration.'}, 400)
+    website, k = _ksa_owned_or_403(rs.ksa_id)
+    if k is None:
+        return website
+    u = PublicUser.query.filter_by(id=uid, website_id=website.id).first()
+    if not u:
+        return _utf8_json({'success': False, 'error': 'Member not found.'}, 404)
+    rec = KSAResourceCompletion.query.filter_by(public_user_id=uid, resource_id=rid).first()
+    if rec:
+        db.session.delete(rec)
+        db.session.commit()
+        return _utf8_json({'success': True, 'completed': False})
+    db.session.add(KSAResourceCompletion(public_user_id=uid, resource_id=rid,
+                                         completed_by_user_id=current_user.id))
+    db.session.commit()
+    return _utf8_json({'success': True, 'completed': True})
 
 
 def _quiz_owned_or_403(qid):
@@ -33771,11 +34163,144 @@ def _member_guide_progress(target_user, website):
     return out
 
 
-_KSA_PRIO_NAMES = ['high', 'medium', 'low']
+_KSA_PRIO_NAMES = ['core', 'high', 'medium', 'low']
 
 
-def _member_ksa_profile(target_user, website, full=False):
+def _ksa_user_completions(user, website):
+    """Precompute, for one member, the sets used to mark KSA resources done:
+    completed guide ids, passed quiz ids, and manually-completed resource ids
+    (links the member ticked + demonstrations an admin signed off)."""
+    if not user:
+        return (set(), set(), set())
+    done_guides = {g['guide'].id for g in _member_guide_progress(user, website) if g['is_done']}
+    best = {}
+    for a in QuizAttempt.query.filter_by(public_user_id=user.id).all():
+        if a.max_score and a.max_score > 0:
+            frac = a.score / a.max_score
+            if frac > best.get(a.quiz_id, -1.0):
+                best[a.quiz_id] = frac
+    passed = set()
+    if best:
+        for q in Quiz.query.filter(Quiz.id.in_(list(best.keys()))).all():
+            if best.get(q.id, 0) >= (q.pass_threshold or 0):
+                passed.add(q.id)
+    done_resources = {c.resource_id for c in
+                      KSAResourceCompletion.query.filter_by(public_user_id=user.id).all()}
+    return (done_guides, passed, done_resources)
+
+
+def _ksa_dev_resources(ksa, website, guide_cache=None, quiz_cache=None, completions=None):
+    """The learning resources attached to a KSA (links / published guides /
+    quizzes / demonstrations), resolved to public URLs for this website, each
+    annotated with whether the viewing member has completed it. `completions` is
+    the tuple from _ksa_user_completions. Optional caches avoid re-fetching the
+    same guide/quiz across many KSAs."""
+    guide_cache = guide_cache if guide_cache is not None else {}
+    quiz_cache = quiz_cache if quiz_cache is not None else {}
+    done_guides, passed_quizzes, done_resources = completions or (set(), set(), set())
+    items = []
+    for rs in ksa.resources.order_by(KSAResource.sort_order, KSAResource.id).all():
+        if rs.resource_type == 'link' and rs.url:
+            items.append({'type': 'link', 'label': rs.label or rs.url, 'url': rs.url,
+                          'resource_id': rs.id, 'manual': True,
+                          'completed': rs.id in done_resources})
+        elif rs.resource_type == 'guide' and rs.guide_id:
+            g = guide_cache.get(rs.guide_id)
+            if g is None:
+                g = db.session.get(Guide, rs.guide_id)
+                guide_cache[rs.guide_id] = g
+            if g and g.website_id == website.id and g.status == 'published':
+                gurl = (('/' + website.url_prefix + '/guides/' + g.slug)
+                        if website.url_prefix else ('/guides/' + g.slug))
+                items.append({'type': 'guide', 'label': rs.label or g.title, 'url': gurl,
+                              'resource_id': rs.id, 'completed': g.id in done_guides})
+        elif rs.resource_type == 'quiz' and rs.quiz_id:
+            qz = quiz_cache.get(rs.quiz_id)
+            if qz is None:
+                qz = db.session.get(Quiz, rs.quiz_id)
+                quiz_cache[rs.quiz_id] = qz
+            if qz and qz.website_id == website.id:
+                items.append({'type': 'quiz', 'label': rs.label or qz.title,
+                              'url': url_for('public_quiz_page', qid=qz.id),
+                              'resource_id': rs.id, 'completed': qz.id in passed_quizzes})
+        elif rs.resource_type == 'demo':
+            items.append({'type': 'demo', 'label': rs.label or 'Demonstration',
+                          'url': None, 'resource_id': rs.id,
+                          'description': rs.description or '',
+                          'completed': rs.id in done_resources})
+    return items
+
+
+def _browse_all_skills(website, viewer, group_by_folder=False):
+    """A self-development catalog of EVERY KSA on the website, grouped by its
+    owning division, annotated with the viewer's current level and the learning
+    resources attached to each — so a member can pick up any skill, even ones
+    outside their own divisions/roles. group_by_folder=False → a single flat
+    list per division (no folder headers); True → grouped by folder."""
+    ksas = KSA.query.filter_by(website_id=website.id).all()
+    if not ksas:
+        return []
+    divisions = {d.id: d for d in Division.query.filter_by(website_id=website.id).all()}
+    recs = {uk.ksa_id: uk for uk in UserKSA.query.filter(
+        UserKSA.public_user_id == viewer.id,
+        UserKSA.ksa_id.in_([k.id for k in ksas])).all()}
+    gc, qc = {}, {}
+    comp = _ksa_user_completions(viewer, website)
+    folders_by_div = {}
+    for f in KSAFolder.query.filter_by(website_id=website.id).all():
+        folders_by_div.setdefault(f.division_id, []).append(f)
+    by_div = {}
+    for k in ksas:
+        by_div.setdefault(k.division_id, []).append(k)
+
+    def _mk(k):
+        uk = recs.get(k.id)
+        lv = uk.level if uk else 0
+        return {
+            'id': k.id, 'name': k.name, 'type': k.ksa_type, 'level': lv,
+            'description': k.description or '',
+            'label': _ksa_level_label(website, lv), 'max': k.max_level,
+            # verified = an admin set it (read-only); self_reported = member set it.
+            'verified': bool(uk and lv > 0 and not uk.self_reported),
+            'self_reported': bool(uk and uk.self_reported),
+            'resources': _ksa_dev_resources(k, website, gc, qc, comp),
+        }
+    _name_key = lambda x: ((x.ksa_type or ''), (x.name or '').lower())
+
+    out = []
+    for d in sorted(divisions.values(), key=lambda x: (x.sort_order, (x.name or '').lower())):
+        klist = by_div.get(d.id)
+        if not klist:
+            continue
+        folders = sorted(folders_by_div.get(d.id, []),
+                         key=lambda f: (f.sort_order, (f.name or '').lower()))
+        valid = {f.id for f in folders}
+        kbf = {}
+        for k in klist:
+            kbf.setdefault(k.folder_id, []).append(k)
+        groups = []
+        for f in folders:
+            if kbf.get(f.id):
+                groups.append({'name': f.name, 'items': [_mk(k) for k in sorted(kbf[f.id], key=_name_key)]})
+        unfiled = []
+        for fid, kl in kbf.items():
+            if fid is None or fid not in valid:
+                unfiled.extend(kl)
+        if unfiled:
+            groups.append({'name': None, 'items': [_mk(k) for k in sorted(unfiled, key=_name_key)]})
+        if not group_by_folder:
+            flat = [it for g in groups for it in g['items']]
+            flat.sort(key=lambda x: ((x['type'] or ''), (x['name'] or '').lower()))
+            groups = [{'name': None, 'items': flat}] if flat else []
+        out.append({'division': d, 'ksa_groups': groups})
+    return out
+
+
+def _member_ksa_profile(target_user, website, full=False, group_by_folder=False):
     """A member's competency view, grouped by division.
+
+    group_by_folder=False (default) → each division is one flat list, gap/priority
+    sorted (the "hopper" view). True → KSAs grouped under their folder headers.
 
     full=False (others' profiles) → an attainment *showcase*: only KSAs the
     member holds (level >= 1), no targets/resources.
@@ -33789,30 +34314,10 @@ def _member_ksa_profile(target_user, website, full=False):
     memberships = DivisionMembership.query.filter_by(public_user_id=target_user.id).all()
     target_roles = target_user.roles or []
     _guide_cache, _quiz_cache = {}, {}
+    _completions = _ksa_user_completions(target_user, website) if full else None
 
     def _resources_for(ksa):
-        items = []
-        for rs in ksa.resources.order_by(KSAResource.sort_order, KSAResource.id).all():
-            if rs.resource_type == 'link' and rs.url:
-                items.append({'type': 'link', 'label': rs.label or rs.url, 'url': rs.url})
-            elif rs.resource_type == 'guide' and rs.guide_id:
-                g = _guide_cache.get(rs.guide_id)
-                if g is None:
-                    g = db.session.get(Guide, rs.guide_id)
-                    _guide_cache[rs.guide_id] = g
-                if g and g.website_id == website.id and g.status == 'published':
-                    gurl = (('/' + website.url_prefix + '/guides/' + g.slug)
-                            if website.url_prefix else ('/guides/' + g.slug))
-                    items.append({'type': 'guide', 'label': rs.label or g.title, 'url': gurl})
-            elif rs.resource_type == 'quiz' and rs.quiz_id:
-                qz = _quiz_cache.get(rs.quiz_id)
-                if qz is None:
-                    qz = db.session.get(Quiz, rs.quiz_id)
-                    _quiz_cache[rs.quiz_id] = qz
-                if qz and qz.website_id == website.id:
-                    items.append({'type': 'quiz', 'label': rs.label or qz.title,
-                                  'url': url_for('public_quiz_page', qid=qz.id)})
-        return items
+        return _ksa_dev_resources(ksa, website, _guide_cache, _quiz_cache, _completions)
 
     for m in memberships:
         d = db.session.get(Division, m.division_id)
@@ -33824,25 +34329,31 @@ def _member_ksa_profile(target_user, website, full=False):
         if full:
             for r in roles:
                 for rk in r.ksa_requirements.all():
-                    slot = req_map.setdefault(rk.ksa_id, {'level': 0, 'required': False, 'prank': 2})
+                    slot = req_map.setdefault(rk.ksa_id, {'level': 0, 'required': False,
+                                                          'prank': 3, '_role_ids': set(), 'roles': []})
                     slot['level'] = max(slot['level'], rk.required_level)
                     slot['required'] = slot['required'] or rk.required
-                    slot['prank'] = min(slot['prank'], {'high': 0, 'medium': 1, 'low': 2}.get(rk.priority, 1))
-        owned, shared = _division_effective_ksas(d.id)
-        ksas = owned + shared
+                    slot['prank'] = min(slot['prank'], {'core': 0, 'high': 1, 'medium': 2, 'low': 3}.get(rk.priority, 2))
+                    # Remember which of the member's roles require this KSA so the
+                    # profile can show role attribution and filter by role.
+                    if r.id not in slot['_role_ids']:
+                        slot['_role_ids'].add(r.id)
+                        slot['roles'].append({'id': r.id, 'name': r.name, 'color': r.color})
+        fgroups = _division_ksa_folder_groups(d.id)
+        ksas = [k for g in fgroups for k in g['ksas']]
         levels = {}
         if ksas:
             for uk in UserKSA.query.filter(UserKSA.public_user_id == target_user.id,
                                            UserKSA.ksa_id.in_([k.id for k in ksas])).all():
                 levels[uk.ksa_id] = uk.level
-        items = []
-        for k in ksas:
+
+        def _mk_item(k):
             lv = levels.get(k.id, 0)
             if not full and lv < 1:
-                continue
+                return None
             req = req_map.get(k.id) if full else None
             target = req['level'] if req else 0
-            items.append({
+            return {
                 'id': k.id, 'name': k.name, 'type': k.ksa_type, 'level': lv,
                 'description': k.description or '',
                 'label': _ksa_level_label(website, lv), 'max': k.max_level,
@@ -33852,17 +34363,62 @@ def _member_ksa_profile(target_user, website, full=False):
                 'priority': (_KSA_PRIO_NAMES[req['prank']] if req else None),
                 'met': (target == 0) or (lv >= target),
                 'resources': _resources_for(k) if full else [],
-            })
-        if full:
-            items.sort(key=lambda x: (
-                0 if (x['target'] and not x['met']) else (1 if x['target'] else 2),
-                {'high': 0, 'medium': 1, 'low': 2}.get(x['priority'], 3),
-                x['name'].lower()))
+                'roles': (req['roles'] if req else []),
+            }
+
+        def _sort_items(items):
+            if full:
+                items.sort(key=lambda x: (
+                    0 if (x['target'] and not x['met']) else (1 if x['target'] else 2),
+                    {'core': 0, 'high': 1, 'medium': 2, 'low': 3}.get(x['priority'], 4),
+                    x['name'].lower()))
+            return items
+
+        # Group the division's KSAs by their folder so the roadmap mirrors the
+        # admin's folder organisation. Empty folders (after the level≥1 filter in
+        # showcase mode) are dropped.
+        ksa_groups = []
+        for g in fgroups:
+            g_items = [it for it in (_mk_item(k) for k in g['ksas']) if it is not None]
+            if g_items:
+                ksa_groups.append({'name': g['name'], 'items': _sort_items(g_items)})
+        if not group_by_folder:
+            # Flat "hopper" view: one unnamed group, gap/priority sorted across
+            # all folders (renders without folder headers — the old default).
+            flat = [it for grp in ksa_groups for it in grp['items']]
+            ksa_groups = [{'name': None, 'items': _sort_items(flat)}] if flat else []
         out.append({'division': d, 'status': m.status,
-                    'roles': [{'name': r.name, 'color': r.color} for r in roles],
-                    'ksas': items})
+                    'roles': [{'id': r.id, 'name': r.name, 'color': r.color} for r in roles],
+                    'ksa_groups': ksa_groups})
     out.sort(key=lambda x: (x['status'] != 'active', (x['division'].name or '').lower()))
     return out
+
+
+def _member_other_skills(target_user, website, full=False):
+    """Self-reported skills the member holds (level≥1) that fall OUTSIDE their
+    divisions — surfaced as an 'Other skills' group so self-declared cross-division
+    skills are visible on the profile and not duplicated with the division groups."""
+    my_div_ids = {m.division_id for m in
+                  DivisionMembership.query.filter_by(public_user_id=target_user.id).all()}
+    rows = (UserKSA.query.filter_by(public_user_id=target_user.id, self_reported=True)
+            .filter(UserKSA.level >= 1).all())
+    if not rows:
+        return []
+    gc, qc = {}, {}
+    comp = _ksa_user_completions(target_user, website) if full else None
+    items = []
+    for uk in rows:
+        k = db.session.get(KSA, uk.ksa_id)
+        if not k or k.website_id != website.id or k.division_id in my_div_ids:
+            continue
+        items.append({
+            'id': k.id, 'name': k.name, 'type': k.ksa_type, 'level': uk.level,
+            'description': k.description or '',
+            'label': _ksa_level_label(website, uk.level), 'max': k.max_level,
+            'resources': _ksa_dev_resources(k, website, gc, qc, comp) if full else [],
+        })
+    items.sort(key=lambda x: ((x['type'] or ''), x['name'].lower()))
+    return items
 
 
 @app.route('/members', defaults={'prefix': None})
@@ -33897,6 +34453,9 @@ def _render_members_directory(prefix):
     # lookup is always in bounds (a crafted ?level=99 can't break the page).
     _max_lvl = len(_ksa_level_labels(website)) - 1
     skill_level = max(1, min(skill_level, max(1, _max_lvl)))
+    # Verified-only: restrict the skill match to admin-verified levels (excludes
+    # members who only self-reported the skill).
+    skill_verified = str(request.args.get('verified', '')).lower() in ('1', 'true', 'on')
     _ks_by_div = {}
     for k in all_ksas:
         _ks_by_div.setdefault(k.division_id, []).append(k)
@@ -33920,8 +34479,10 @@ def _render_members_directory(prefix):
         query = query.filter(PublicUser.division_memberships.any(
             DivisionMembership.division_id == active_division.id))
     if active_skill is not None:
-        query = query.filter(PublicUser.ksa_levels.any(db.and_(
-            UserKSA.ksa_id == active_skill.id, UserKSA.level >= skill_level)))
+        _skill_conds = [UserKSA.ksa_id == active_skill.id, UserKSA.level >= skill_level]
+        if skill_verified:
+            _skill_conds.append(UserKSA.self_reported == False)
+        query = query.filter(PublicUser.ksa_levels.any(db.and_(*_skill_conds)))
     # "Excluded" roles (e.g. Alumni) drop their members from the default and
     # any normal-role view, but are still browsable by selecting that role.
     exclude_role_ids = [r.id for r in roles if r.exclude_from_directory]
@@ -33951,19 +34512,24 @@ def _render_members_directory(prefix):
                     {'name': d.name, 'color': d.color or '#5eeef8',
                      'icon': d.icon or '', 'status': ms.status,
                      'roles': [{'name': r.name, 'color': r.color} for r in d_roles]})
-    # Each shown member's level for the active skill (for a badge on the card).
+    # Each shown member's level for the active skill (for a badge on the card),
+    # plus whether that level is self-reported (vs admin-verified).
     member_skill_levels = {}
+    member_skill_selfreported = {}
     if active_skill is not None and _mids:
         for uk in UserKSA.query.filter(UserKSA.public_user_id.in_(_mids),
                                        UserKSA.ksa_id == active_skill.id).all():
             member_skill_levels[uk.public_user_id] = uk.level
+            member_skill_selfreported[uk.public_user_id] = bool(uk.self_reported)
     return render_template('public_members.html', website=website, public_user=viewer,
                            members=pagination.items, pagination=pagination, q=q,
                            roles=roles, active_role=active_role,
                            divisions=divisions, active_division=active_division,
                            member_divisions=member_divisions,
                            skill_groups=skill_groups, active_skill=active_skill,
-                           skill_level=skill_level, member_skill_levels=member_skill_levels,
+                           skill_level=skill_level, skill_verified=skill_verified,
+                           member_skill_levels=member_skill_levels,
+                           member_skill_selfreported=member_skill_selfreported,
                            level_labels=_ksa_level_labels(website),
                            members_base=_members_base_url(website),
                            members_filter_url=lambda **kw: url_for(
@@ -33977,6 +34543,71 @@ def public_member_profile(user_id, prefix=None):
     return _render_member_profile(prefix, user_id)
 
 
+@app.route('/skills/<int:ksa_id>/level', defaults={'prefix': None}, methods=['POST'])
+@app.route('/<string:prefix>/skills/<int:ksa_id>/level', methods=['POST'])
+def public_set_own_skill_level(ksa_id, prefix=None):
+    """A member self-reports their own level on ANY skill on the site (even one
+    outside their divisions/roles) so they can track skills they're developing
+    and be found in the directory skill filter. Self-reported levels are flagged
+    and never overwrite an admin-verified level."""
+    website, viewer, short = _require_member_area(prefix)
+    if short is not None:
+        return short
+    ksa = KSA.query.filter_by(id=ksa_id, website_id=website.id).first()
+    if not ksa:
+        return _utf8_json({'success': False, 'error': 'Skill not found.'}, 404)
+    try:
+        level = int((request.get_json(silent=True) or {}).get('level'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid level.'}, 400)
+    level = max(0, min(level, ksa.max_level))
+
+    rec = UserKSA.query.filter_by(public_user_id=viewer.id, ksa_id=ksa_id).first()
+    # An admin-verified level is owned by staff — members can't change it here.
+    if rec and not rec.self_reported:
+        return _utf8_json({'success': False, 'verified': True,
+                           'error': 'This level was verified by an admin and can only be changed by staff.'}, 403)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if level == 0:
+        if rec:
+            db.session.delete(rec)
+    elif rec:
+        rec.level = level
+        rec.updated_at = now
+        rec.self_reported = True
+    else:
+        db.session.add(UserKSA(public_user_id=viewer.id, ksa_id=ksa_id, level=level,
+                               self_reported=True, granted_at=now))
+    db.session.commit()
+    return _utf8_json({'success': True, 'level': level,
+                       'label': _ksa_level_label(website, level)})
+
+
+@app.route('/skills/resource/<int:rid>/toggle', defaults={'prefix': None}, methods=['POST'])
+@app.route('/<string:prefix>/skills/resource/<int:rid>/toggle', methods=['POST'])
+def public_toggle_resource_complete(rid, prefix=None):
+    """A member ticks a 'link' learning resource done (guides/quizzes auto-track
+    from progress; demonstrations are admin-signed-off — neither is togglable here)."""
+    website, viewer, short = _require_member_area(prefix)
+    if short is not None:
+        return short
+    rs = db.session.get(KSAResource, rid)
+    if not rs or rs.resource_type != 'link':
+        return _utf8_json({'success': False, 'error': 'This resource cannot be marked here.'}, 400)
+    k = db.session.get(KSA, rs.ksa_id)
+    if not k or k.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Resource not found.'}, 404)
+    rec = KSAResourceCompletion.query.filter_by(public_user_id=viewer.id, resource_id=rid).first()
+    if rec:
+        db.session.delete(rec)
+        db.session.commit()
+        return _utf8_json({'success': True, 'completed': False})
+    db.session.add(KSAResourceCompletion(public_user_id=viewer.id, resource_id=rid))
+    db.session.commit()
+    return _utf8_json({'success': True, 'completed': True})
+
+
 def _render_member_profile(prefix, user_id):
     website, viewer, short = _require_member_area(prefix)
     if short is not None:
@@ -33988,9 +34619,12 @@ def _render_member_profile(prefix, user_id):
         abort(404)
 
     tab = request.args.get('tab', 'forum')
-    if tab not in ('forum', 'guides', 'roles', 'ksas'):
+    if tab not in ('forum', 'guides', 'roles', 'ksas', 'explore'):
         tab = 'forum'
     q = (request.args.get('q') or '').strip()
+    # Competency layout: 'priority' (flat hopper, default) or 'categories' (folders).
+    ksa_view = 'categories' if request.args.get('ksaview') == 'categories' else 'priority'
+    _by_folder = (ksa_view == 'categories')
 
     thread_count = ForumThread.query.filter_by(website_id=website.id,
         public_user_id=target.id, is_hidden=False).count()
@@ -34000,10 +34634,19 @@ def _render_member_profile(prefix, user_id):
     is_self = (viewer.id == target.id)
     forum_items = _member_forum_activity(target, website, q) if tab == 'forum' else None
     guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
-    ksa_profile = _member_ksa_profile(target, website, full=is_self) if tab == 'ksas' else None
+    ksa_profile = _member_ksa_profile(target, website, full=is_self, group_by_folder=_by_folder) if tab == 'ksas' else None
+    other_skills = _member_other_skills(target, website, full=is_self) if tab == 'ksas' else None
+    # "Explore" is a self-only catalog of every KSA on the site (any division).
+    all_skills = _browse_all_skills(website, viewer, group_by_folder=_by_folder) if (tab == 'explore' and is_self) else None
     # Cheap counts for the tab labels (computed regardless of active tab).
     guides_done = sum(1 for g in _member_guide_progress(target, website) if g['is_done'])
     division_count = DivisionMembership.query.filter_by(public_user_id=target.id).count()
+    # Show the Competencies tab if the member is in a division OR has self-declared
+    # skills outside any division (so non-members with skills still surface them).
+    self_skill_count = (UserKSA.query.filter_by(public_user_id=target.id, self_reported=True)
+                        .filter(UserKSA.level >= 1).count())
+    show_ksa_tab = bool(division_count or self_skill_count)
+    all_skills_count = KSA.query.filter_by(website_id=website.id).count() if is_self else 0
 
     # Split roles: site-wide vs division-scoped, and group the latter under
     # their division so the profile shows which divisions the member holds
@@ -34034,6 +34677,14 @@ def _render_member_profile(prefix, user_id):
                            post_count=thread_count + reply_count, guides_done=guides_done,
                            forum_items=forum_items, guide_items=guide_items,
                            ksa_profile=ksa_profile, division_count=division_count,
+                           other_skills=other_skills, show_ksa_tab=show_ksa_tab,
+                           ksa_view=ksa_view,
+                           all_skills=all_skills, all_skills_count=all_skills_count,
+                           ksa_level_labels=(_ksa_level_labels(website) if is_self else None),
+                           skill_level_base=(('/' + website.url_prefix + '/skills/')
+                                             if website.url_prefix else '/skills/'),
+                           resource_toggle_base=(('/' + website.url_prefix + '/skills/resource/')
+                                                 if website.url_prefix else '/skills/resource/'),
                            site_roles=site_roles, division_role_groups=division_role_groups,
                            ksa_full=is_self,
                            is_self=is_self,

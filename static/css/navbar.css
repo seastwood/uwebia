@@ -39,8 +39,10 @@
 .nav-right { justify-self: end; }
 
 .navbar-logo {
-    width: 28px;
     height: 28px;
+    width: auto;
+    max-width: 160px;
+    object-fit: contain;
     display: block;
     transition: transform 0.2s ease, opacity 0.2s ease;
 }
@@ -222,6 +224,16 @@
     font-size: 0.7rem;
     color: rgba(255,255,255,0.4);
     margin-top: 1px;
+}
+
+/* Co-owners get full, unrestricted control — surface that clearly (matches the
+   amber co-owner badge on the Admin Users page). */
+.profile-identity-role--coowner {
+    color: #ffce6b;
+    font-weight: 700;
+}
+.profile-identity-role--coowner i {
+    margin-right: 3px;
 }
 
 .profile-divider {

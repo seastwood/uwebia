@@ -9,10 +9,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
     <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-        <!-- Favicon -->
-        <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
+        <!-- Favicon (org-wide admin brand icon; falls back to uwebia) -->
+        <link rel="icon" href="{{ admin_brand_icon_url }}">
 
-    <title>Uwebia</title>
+    <title>{{ admin_brand_name }}</title>
     <!-- Tell iOS Safari / Chrome to use a dark browser chrome (address bar, toolbar) -->
     <meta name="theme-color" content="#1c1a1d">
     <meta name="color-scheme" content="dark">

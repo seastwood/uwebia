@@ -1,7 +1,7 @@
 <div class="navbar">
     <div class="nav-left">
-        <a href="{{ url_for('dashboard') }}" class="base-navbar-home-button">
-            <img src="/static/uwebia-icon.svg" alt="Uwebia Logo" class="navbar-logo">
+        <a href="{{ url_for('dashboard') }}" class="base-navbar-home-button" title="{{ admin_brand_name }}">
+            <img src="{{ admin_brand_icon_url }}" alt="{{ admin_brand_name }} logo" class="navbar-logo">
         </a>
     </div>
 
@@ -213,7 +213,7 @@
         {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
         <a href="{{ url_for('admin_quizzes_page') }}" class="nav-link-btn" title="Quizzes"><i class="fas fa-clipboard-check"></i></a>
         {% endif %}
-        {% if user_has_perm('divisions.view') or user_has_perm('ksa.view') %}
+        {% if (user_has_perm('divisions.view') or user_has_perm('ksa.view')) and 'divisions' not in _nd %}
         <a href="{{ url_for('admin_divisions_page') }}" class="nav-link-btn" title="{{ dlabel(plural=True) }}"><i class="fas fa-sitemap"></i></a>
         {% endif %}
         {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
@@ -344,7 +344,7 @@
                     <i class="fas fa-clipboard-check"></i><span>Quizzes</span>
                 </a>
                 {% endif %}
-                {% if user_has_perm('divisions.view') or user_has_perm('ksa.view') %}
+                {% if (user_has_perm('divisions.view') or user_has_perm('ksa.view')) and 'divisions' not in _nd %}
                 <a href="{{ url_for('admin_divisions_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-sitemap"></i><span>{{ dlabel(plural=True) }}</span>
                 </a>
@@ -445,6 +445,7 @@
 
     <div class="nav-right">
         
+        {% if 'messages' not in _nd %}
         <a href="{{ url_for('messages_page') }}" class="nav-messages">
             <i class="fas fa-envelope"></i>
             <span class="nav-badge" id="unreadMessagesBadge" {% if unread_message_count==0 %}style="display:none;" {%
@@ -452,6 +453,7 @@
                 {{ unread_message_count }}
             </span>
         </a>
+        {% endif %}
         <div class="profile-dropdown">
             
             <button class="profile-icon" id="profileIcon">
@@ -463,7 +465,7 @@
                     <div class="profile-identity-avatar">{{ current_user.username[0].upper() }}</div>
                     <div class="profile-identity-info">
                         <div class="profile-identity-name">{{ current_user.username }}</div>
-                        <div class="profile-identity-role">{{ 'Sub-Admin' if current_user.is_sub_admin else 'Admin' }}</div>
+                        <div class="profile-identity-role{% if current_user.is_co_owner %} profile-identity-role--coowner{% endif %}">{% if current_user.is_co_owner %}<i class="fas fa-user-shield"></i> Co-owner{% elif current_user.is_sub_admin %}Sub-Admin{% else %}Admin{% endif %}</div>
                     </div>
                 </div>
                 <div class="profile-divider"></div>

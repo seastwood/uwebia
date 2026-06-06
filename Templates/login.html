@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>{{ admin_brand_name }} Login</title>
+    <link rel="icon" href="{{ admin_brand_icon_url }}">
     <style>
 
         .content{
@@ -97,8 +98,8 @@
 
     {% block content %}
     <div class="login-container">
-        <img src="/static/uwebia-icon.svg" alt="Uwebia" style="width:56px;height:56px;display:block;margin:0 auto 14px;">
-        <h1>uwebia Login</h1>
+        <img src="{{ admin_brand_icon_url }}" alt="{{ admin_brand_name }}" style="height:56px;width:auto;max-width:220px;object-fit:contain;display:block;margin:0 auto 14px;">
+        <h1>{{ admin_brand_name }} Login</h1>
 <form method="POST" action="{{ request.path }}" id="loginForm">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
@@ -147,7 +148,7 @@
                 </ul>
             {% endif %}
         {% endwith %}
-        <div class="footer">uwebia</div>
+        <div class="footer">{{ admin_brand_name }}</div>
     </div>
 </body>
 {% endblock %}
