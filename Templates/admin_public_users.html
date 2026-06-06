@@ -255,7 +255,7 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
     <div class="pu-website-panel{% if w.id == selected_website_id %} active{% endif %}" id="panel-{{ w.id }}">
 
         <!-- Roles card -->
-        {% if not current_user_is_sub_admin %}
+        {% if current_user.is_full_admin %}
         <div class="pu-card pu-roles-card">
             <h2 class="pu-card-title">Roles</h2>
             <div id="rolesList-{{ w.id }}">
@@ -265,14 +265,6 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
                     <input type="text" class="pu-role-name-input" id="roleName-{{ role.id }}" value="{{ role.name }}" placeholder="Role name">
                     <input type="color" class="pu-role-color-input" id="roleColor-{{ role.id }}" value="{{ role.color }}" title="Badge color"
                            oninput="previewRoleBadge({{ role.id }}, this.value)">
-                    {% if divisions_by_website.get(w.id|string, []) %}
-                    <select class="pu-role-div-input" id="roleDiv-{{ role.id }}" title="Division">
-                        <option value="">Site-wide</option>
-                        {% for dv in divisions_by_website.get(w.id|string, []) %}
-                        <option value="{{ dv.id }}"{% if role.division_id == dv.id %} selected{% endif %}>{{ dv.name }}</option>
-                        {% endfor %}
-                    </select>
-                    {% endif %}
                     <label class="pu-role-exclude" title="Hide members with this role from the public members directory. They stay viewable when this role is selected — useful for Alumni / former members.">
                         <input type="checkbox" id="roleExclude-{{ role.id }}" {% if role.exclude_from_directory %}checked{% endif %}>
                         Hide from directory
@@ -288,14 +280,6 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
             <div class="pu-add-role-row">
                 <input type="text" class="pu-role-name-input" id="newRoleName-{{ w.id }}" placeholder="Role name" style="flex:1;">
                 <input type="color" class="pu-role-color-input" id="newRoleColor-{{ w.id }}" value="#5eeef8" title="Badge color">
-                {% if divisions_by_website.get(w.id|string, []) %}
-                <select class="pu-role-div-input" id="newRoleDiv-{{ w.id }}" title="Division">
-                    <option value="">Site-wide</option>
-                    {% for dv in divisions_by_website.get(w.id|string, []) %}
-                    <option value="{{ dv.id }}">{{ dv.name }}</option>
-                    {% endfor %}
-                </select>
-                {% endif %}
                 <label class="pu-role-exclude" title="Hide members with this role from the public members directory. They stay viewable when this role is selected — useful for Alumni / former members.">
                     <input type="checkbox" id="newRoleExclude-{{ w.id }}">
                     Hide from directory
@@ -306,7 +290,7 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
         {% endif %}
 
         <!-- Access settings -->
-        {% if not current_user_is_sub_admin %}
+        {% if current_user.is_full_admin %}
         <div class="pu-card">
             <h2 class="pu-card-title">Access Settings</h2>
 
@@ -598,7 +582,9 @@ function buildUserRow(websiteId, u) {
         stateBadge = `<span class="pu-badge pu-badge-active" id="badge-active-${u.id}" style="display:none">Active</span>`;
     }
 
-    const roleBadges = (u.roles || []).map(role =>
+    // Only site-wide roles are managed/shown here; division-scoped roles live
+    // on the Divisions & KSAs page. Division membership is shown via badges.
+    const roleBadges = (u.roles || []).filter(role => !role.division_id).map(role =>
         `<span class="pu-role-badge" style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}44;">${escapeHtml(role.name)}</span>`
     ).join('');
 
@@ -607,7 +593,7 @@ function buildUserRow(websiteId, u) {
         const icon = dv.icon ? `<i class="fas ${escapeHtml(dv.icon)}" style="margin-right:4px;"></i>` : '';
         const alum = dv.status === 'alumni' ? '<span style="opacity:0.7;font-weight:500;"> · alumni</span>' : '';
         const dim = dv.status === 'alumni' ? 'opacity:0.6;' : '';
-        return `<span class="pu-division-badge" style="background:${c}1a;color:${c};border:1px solid ${c}55;${dim}" title="Division">${icon}${escapeHtml(dv.name)}${alum}</span>`;
+        return `<span class="pu-division-badge" style="background:${c}1a;color:${c};border:1px solid ${c}55;${dim}" title="{{ dlabel() }}">${icon}${escapeHtml(dv.name)}${alum}</span>`;
     }).join('');
 
     const adminBadge = u.is_admin_mirror
@@ -1014,8 +1000,6 @@ async function createRole(websiteId) {
     const exclude = document.getElementById(`newRoleExclude-${websiteId}`).checked;
     if (!name) { alert('Enter a role name.'); return; }
     const body = {website_id: websiteId, name, color, exclude_from_directory: exclude};
-    const divEl = document.getElementById(`newRoleDiv-${websiteId}`);
-    if (divEl) body.division_id = divEl.value || null;
     const r = await fetch('/admin/users/public/roles', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -1032,8 +1016,6 @@ async function saveRole(roleId, websiteId) {
     const exclude = document.getElementById(`roleExclude-${roleId}`).checked;
     if (!name) { alert('Enter a role name.'); return; }
     const body = {name, color, exclude_from_directory: exclude};
-    const divEl = document.getElementById(`roleDiv-${roleId}`);
-    if (divEl) body.division_id = divEl.value || null;
     const r = await fetch(`/admin/users/public/roles/${roleId}/update`, {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -1109,13 +1091,17 @@ async function _onRoleCheck(userId, websiteId) {
     });
     const d = await r.json();
     if (!d.success) { alert(d.error || 'Error'); return; }
-    // Update badge display in user row
+    // Update badge display in user row. `d.roles` is site-wide only, so keep
+    // the division badges (and any division-role badges) already rendered.
     _userRoleData[userId] = d.roles;
     const badgesEl = document.getElementById(`userRoles-${userId}`);
     if (badgesEl) {
-        badgesEl.innerHTML = d.roles.map(role =>
+        const divHtml = Array.from(badgesEl.querySelectorAll('.pu-division-badge'))
+            .map(el => el.outerHTML).join('');
+        const roleHtml = d.roles.map(role =>
             `<span class="pu-role-badge" style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}44;">${escapeHtml(role.name)}</span>`
         ).join('');
+        badgesEl.innerHTML = divHtml + roleHtml;
     }
 }
 </script>

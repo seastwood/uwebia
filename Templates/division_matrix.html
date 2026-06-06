@@ -32,10 +32,11 @@
 .mx-level { font-size: 0.9rem; font-weight: 700; }
 .mx-req { font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-left: 3px; }
 .mx-empty { color: rgba(255,255,255,0.4); text-align: center; padding: 50px 20px; }
+.mx-shared { font-size: 0.62rem; color: #c79bf0; opacity: 0.85; margin-left: 3px; }
 </style>
 
 <div class="mx-page">
-    <a class="mx-back" href="{{ url_for('admin_divisions_page') }}"><i class="fas fa-arrow-left"></i> Divisions &amp; KSAs</a>
+    <a class="mx-back" href="{{ url_for('admin_divisions_page') }}"><i class="fas fa-arrow-left"></i> {{ dlabel(website, plural=True) }}</a>
     <h1 class="mx-title">
         {% if division.icon %}<i class="fas {{ division.icon }}" style="{% if division.color %}color:{{ division.color }};{% endif %}"></i>{% endif %}
         {{ division.name }} — Matrix
@@ -43,7 +44,7 @@
     <p class="mx-sub">Each cell is a member's level for a KSA. Cells turn <span style="color:#5eeec8;">green</span> when the member meets their roles' required level and <span style="color:#ff8a6b;">red</span> when there's a gap.</p>
 
     {% if not ksas %}
-    <div class="mx-empty"><p>This division has no KSAs yet. Add some in the catalog first.</p></div>
+    <div class="mx-empty"><p>This {{ dlabel(website)|lower }} has no KSAs yet. Add some in the catalog first.</p></div>
     {% else %}
     <div class="mx-bar">
         <form method="GET" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
@@ -66,7 +67,7 @@
     </div>
 
     {% if not rows %}
-    <div class="mx-empty"><p>No members{% if role_filter or status_filter != 'all' %} match this filter{% else %} in this division yet. Add some from the division's “Members” panel{% endif %}.</p></div>
+    <div class="mx-empty"><p>No members{% if member_total %} match this filter{% else %} in this {{ dlabel(website)|lower }} yet. Add some from its “Members” panel{% endif %}.</p></div>
     {% else %}
     <div class="mx-scroll">
         <table class="mx-table">
@@ -74,7 +75,7 @@
                 <tr>
                     <th class="mx-corner">Member</th>
                     {% for k in ksas %}
-                    <th class="mx-kh" title="{{ k.description or '' }}"><span class="mx-ktype">{{ k.ksa_type }}</span>{{ k.name }}</th>
+                    <th class="mx-kh" title="{{ k.description or '' }}{% if k.id in shared_ksa_ids %} (shared){% endif %}"><span class="mx-ktype">{{ k.ksa_type }}</span>{{ k.name }}{% if k.id in shared_ksa_ids %} <i class="fas fa-share-alt mx-shared" title="Shared from another division"></i>{% endif %}</th>
                     {% endfor %}
                 </tr>
             </thead>

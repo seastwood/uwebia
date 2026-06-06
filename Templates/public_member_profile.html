@@ -14,6 +14,15 @@
 .mp-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .mp-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
 .mp-badge-staff { background: rgba(123,47,247,0.15); color: #c79aff; border: 1px solid rgba(123,47,247,0.4); }
+/* A division's roles encapsulated together: [Division | role role] */
+.mp-divrole { display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px 2px 8px; border-radius: 7px; border: 1px solid; }
+.mp-divrole-name { font-size: 0.7rem; font-weight: 800; display: inline-flex; align-items: center; gap: 4px; }
+.mp-divrole-chip { padding: 2px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; }
+/* Roles tab: per-division grouped block */
+.mp-role-section-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.4); margin: 0 0 10px; }
+.mp-role-group { border: 1px solid; border-radius: 12px; padding: 14px 16px; margin-top: 16px; background: rgba(255,255,255,0.02); }
+.mp-role-group-head { display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; text-decoration: none; margin-bottom: 12px; }
+.mp-role-group-head:hover { text-decoration: underline; }
 .mp-self-note { font-size: 0.78rem; opacity: 0.5; margin: 14px 0 0; }
 .mp-tabs { display: flex; gap: 4px; margin: 26px 0 0; border-bottom: 1px solid rgba(255,255,255,0.12); }
 .mp-tab { padding: 11px 16px; font-size: 0.9rem; font-weight: 700; text-decoration: none; color: inherit; opacity: 0.55; border-bottom: 2px solid transparent; margin-bottom: -1px; }
@@ -64,6 +73,7 @@
 .mp-tag { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
 .mp-tag-req { background: rgba(255,120,90,0.15); color: #ff9b7a; }
 .mp-tag-rec { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); }
+.mp-tag-sat { background: rgba(94,238,200,0.16); color: #5eeec8; }
 .mp-prio-high { background: rgba(255,90,90,0.16); color: #ff8a8a; }
 .mp-prio-medium { background: rgba(255,200,80,0.15); color: #ffce6b; }
 .mp-prio-low { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
@@ -72,6 +82,7 @@
 .mp-res-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 8px; background: rgba(94,238,248,0.06); border: 1px solid rgba(94,238,248,0.18); text-decoration: none; color: #aef7e8; font-size: 0.85rem; font-weight: 600; }
 .mp-res-link:hover { background: rgba(94,238,248,0.14); }
 .mp-res-empty { font-size: 0.8rem; color: rgba(255,255,255,0.35); padding: 2px 12px 10px; margin: 0; }
+.mp-ksa-desc { font-size: 0.86rem; line-height: 1.55; color: rgba(255,255,255,0.7); margin: 0 0 4px; padding: 0 2px; white-space: pre-wrap; }
 </style>
 {% endblock %}
 
@@ -88,7 +99,13 @@
             {% if target.staff_badge_label or target.roles %}
             <div class="mp-badges">
                 {% if target.staff_badge_label %}<span class="mp-badge mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
-                {% for role in target.roles %}<span class="mp-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+                {% for role in site_roles %}<span class="mp-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+                {% for grp in division_role_groups %}
+                <span class="mp-divrole" style="border-color:{{ (grp.division.color or '#5eeef8') }}55;">
+                    <span class="mp-divrole-name" style="color:{{ grp.division.color or '#aef7e8' }};">{% if grp.division.icon %}<i class="fas {{ grp.division.icon }}"></i> {% endif %}{{ grp.division.name }}</span>
+                    {% for r in grp.roles %}<span class="mp-divrole-chip" style="background:{{ r.color }}26;color:{{ r.color }};">{{ r.name }}</span>{% endfor %}
+                </span>
+                {% endfor %}
             </div>
             {% endif %}
         </div>
@@ -102,7 +119,7 @@
         <a class="mp-tab {% if tab == 'guides' %}is-active{% endif %}" href="{{ profile_base }}?tab=guides">Guides <span class="mp-tab-count">{{ guides_done }}</span></a>
         <a class="mp-tab {% if tab == 'roles' %}is-active{% endif %}" href="{{ profile_base }}?tab=roles">Roles <span class="mp-tab-count">{{ target.roles|length + (1 if target.staff_badge_label else 0) }}</span></a>
         {% if division_count %}
-        <a class="mp-tab {% if tab == 'ksas' %}is-active{% endif %}" href="{{ profile_base }}?tab=ksas">KSAs <span class="mp-tab-count">{{ division_count }}</span></a>
+        <a class="mp-tab {% if tab == 'ksas' %}is-active{% endif %}" href="{{ profile_base }}?tab=ksas">Competencies <span class="mp-tab-count">{{ division_count }}</span></a>
         {% endif %}
     </div>
 
@@ -155,15 +172,28 @@
         {% if not target.roles and not target.staff_badge_label %}
         <div class="mp-empty"><p>No roles assigned.</p></div>
         {% else %}
+        {% if target.staff_badge_label or site_roles %}
+        <p class="mp-role-section-label">{% if division_role_groups %}Site-wide{% else %}Roles{% endif %}</p>
         <div class="mp-roles-grid">
             {% if target.staff_badge_label %}<span class="mp-role-chip mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
-            {% for role in target.roles %}<span class="mp-role-chip" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+            {% for role in site_roles %}<span class="mp-role-chip" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
         </div>
+        {% endif %}
+        {% for grp in division_role_groups %}
+        <div class="mp-role-group" style="border-color:{{ (grp.division.color or '#5eeef8') }}33;">
+            <a class="mp-role-group-head" href="{{ division_member_url(grp.division.id) }}" style="color:{{ grp.division.color or '#aef7e8' }};">
+                {% if grp.division.icon %}<i class="fas {{ grp.division.icon }}"></i>{% endif %}{{ grp.division.name }}
+            </a>
+            <div class="mp-roles-grid">
+                {% for r in grp.roles %}<span class="mp-role-chip" style="background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44;">{{ r.name }}</span>{% endfor %}
+            </div>
+        </div>
+        {% endfor %}
         {% endif %}
 
         {% elif tab == 'ksas' %}
         {% if not ksa_profile %}
-        <div class="mp-empty"><p>No divisions or competencies recorded.</p></div>
+        <div class="mp-empty"><p>No {{ dlabel(website, plural=True)|lower }} or competencies recorded.</p></div>
         {% else %}
         {% if ksa_full %}<p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 16px;"><i class="fas fa-route"></i> Your learning roadmap — click a skill to see guides, links and quizzes that help you reach its target level.</p>{% endif %}
         {% for grp in ksa_profile %}
@@ -184,12 +214,17 @@
                     <summary>
                         <span class="mp-ksa-type">{{ it.type }}</span>
                         <span class="mp-ksa-name">{{ it.name }}</span>
-                        {% if it.required is not none %}<span class="mp-tag {{ 'mp-tag-req' if it.required else 'mp-tag-rec' }}">{{ 'Required' if it.required else 'Recommended' }}</span>{% endif %}
-                        {% if it.priority %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
+                        {% if it.required is not none %}
+                            {% if it.met %}<span class="mp-tag mp-tag-sat"><i class="fas fa-check" style="margin-right:3px;"></i>Satisfied</span>
+                            {% elif it.required %}<span class="mp-tag mp-tag-req">Needed</span>
+                            {% else %}<span class="mp-tag mp-tag-rec">Recommended</span>{% endif %}
+                        {% endif %}
+                        {% if it.priority and not it.met %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
                         <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span>{% if it.target %}<span class="mp-target"> → {{ it.target_label }}</span>{% endif %}</span>
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
+                        {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
                         {% if it.resources %}
                         {% for res in it.resources %}
                         <a class="mp-res-link mp-res-{{ res.type }}" href="{{ res.url }}"{% if res.type == 'link' %} target="_blank" rel="noopener"{% endif %}>
@@ -211,7 +246,7 @@
                 {% endfor %}
             </div>
             {% else %}
-            <p class="mp-ksa-empty">{% if ksa_full %}No KSAs in this division yet.{% else %}No recorded levels in this division yet.{% endif %}</p>
+            <p class="mp-ksa-empty">{% if ksa_full %}Nothing to work on in this {{ dlabel(website)|lower }} yet.{% else %}No recorded levels in this {{ dlabel(website)|lower }} yet.{% endif %}</p>
             {% endif %}
         </div>
         {% endfor %}

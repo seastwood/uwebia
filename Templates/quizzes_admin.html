@@ -189,7 +189,7 @@
     </div>
     {% endif %}
 
-    {% if not current_user.is_sub_admin %}
+    {% if can_edit_code_runner %}
     <div class="qa-runner">
         <details>
             <summary><i class="fas fa-code"></i> Code runner <span style="opacity:0.5;font-weight:400;">— for coding challenge questions</span></summary>

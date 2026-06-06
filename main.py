@@ -295,6 +295,14 @@ class PermissionGroup(db.Model):
         }
 
 
+# Holding any of the "implying" permissions on the right automatically grants
+# the "implied" key on the left (e.g. anyone who can edit/email/2fa/backup the
+# site settings can also reach the settings page to do so).
+PERMISSION_IMPLIES = {
+    'settings.view': ('settings.edit', 'settings.email', 'settings.2fa', 'settings.backup'),
+}
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
@@ -308,6 +316,12 @@ class User(UserMixin, db.Model):
     parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     permission_group_id = db.Column(db.Integer, db.ForeignKey('permission_group.id'), nullable=True)
     permissions = db.Column(db.JSON, nullable=True)  # dict of 'section.action': bool
+    # A co-owner is a sub-admin elevated to full, unrestricted control (same as
+    # the main admin) so the system isn't dependent on a single account. Their
+    # data still belongs to the root (root_user_id is unchanged), so it's shared
+    # full access, not a separate silo.
+    is_co_owner = db.Column(db.Boolean, nullable=False, default=False,
+                            server_default=_sa_false())
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
     two_factor_email = db.Column(db.String(255), nullable=True)
@@ -326,6 +340,18 @@ class User(UserMixin, db.Model):
     )
     admin_url_key = db.Column(db.String(120), nullable=True)
     admin_url_key_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    # Org-wide policy (only meaningful on the anchor / primary owner): when on,
+    # EVERY admin must pass email 2FA at login, regardless of their personal
+    # 2FA enrollment. Replaces the old implicit "the owner's own 2FA forces the
+    # team" cascade with an explicit, transfer-proof setting.
+    org_require_2fa = db.Column(db.Boolean, nullable=False, default=False,
+                                server_default=_sa_false())
+    # Email-settings fingerprint captured when the org policy was verified; if it
+    # no longer matches, the policy auto-disables (mirrors per-user 2FA). The
+    # needs-attention flag lets the UI explain why it switched off.
+    org_2fa_email_settings_version = db.Column(db.String(64), nullable=True)
+    org_2fa_needs_attention = db.Column(db.Boolean, nullable=False, default=False,
+                                        server_default=_sa_false())
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -392,11 +418,16 @@ class User(UserMixin, db.Model):
         """The owning admin's user ID (self for main admins, parent for sub-admins)."""
         return self.parent_user_id or self.id
 
-    def has_permission(self, key, website_id=None):
-        """Main admins always have all permissions. Sub-admins check per-website overrides
-        first, then their group (if any), then individual global permissions."""
-        if not self.is_sub_admin:
-            return True
+    @property
+    def is_full_admin(self):
+        """Full, unrestricted control: the main admin OR a co-owner. Use this for
+        permission gating. (is_sub_admin stays True for co-owners — their DATA is
+        still the root's, so data-scoping that branches on is_sub_admin is right.)"""
+        return (self.parent_user_id is None) or bool(self.is_co_owner)
+
+    def _direct_permission(self, key, website_id=None):
+        """Resolve a single permission key with no implication fallback:
+        per-website override first, then group, then individual global."""
         # Per-website override takes precedence when a website context is given
         if website_id is not None:
             wp = (self.website_permissions or {}).get(str(website_id), {})
@@ -410,6 +441,20 @@ class User(UserMixin, db.Model):
                     return bool(grp_wp[key])
             return bool((self.permission_group.permissions or {}).get(key, False))
         return bool((self.permissions or {}).get(key, False))
+
+    def has_permission(self, key, website_id=None):
+        """Full admins (main admin or co-owner) always have all permissions.
+        Other sub-admins check per-website overrides first, then their group (if
+        any), then individual global permissions. A key is also granted when the
+        user holds any permission that implies it (see PERMISSION_IMPLIES)."""
+        if self.is_full_admin:
+            return True
+        if self._direct_permission(key, website_id):
+            return True
+        for implying in PERMISSION_IMPLIES.get(key, ()):
+            if self._direct_permission(implying, website_id):
+                return True
+        return False
 
     def __repr__(self):
         return f"<User {self.username}>"
@@ -639,6 +684,44 @@ def get_admin_draft_website():
         if w.is_draft:
             return w
     return None
+
+
+def get_main_admin():
+    """The primary owner account (the one with no parent). After an ownership
+    transfer this is NOT necessarily the lowest-id user, so recovery / admin-key
+    logic must resolve it by parent_user_id, not by row order."""
+    return (User.query.filter_by(parent_user_id=None)
+            .order_by(User.id.asc()).first())
+
+
+def _org_requires_2fa():
+    """Org-wide 2FA policy, read from the anchor (primary owner). True when the
+    explicit policy is on OR (legacy/back-compat) the owner has their own 2FA
+    enabled — so enabling the org policy never makes the admin side LESS secure
+    than the old 'owner's 2FA forces everyone' behaviour.
+
+    Like per-user 2FA, the explicit policy auto-disables if the email server
+    settings changed since it was verified (admins couldn't receive codes), and
+    must be re-verified."""
+    anchor = get_main_admin()
+    if not anchor:
+        return False
+    if getattr(anchor, 'org_require_2fa', False):
+        current_fp = get_email_settings_fingerprint(get_email_settings())
+        if anchor.org_2fa_email_settings_version != current_fp:
+            anchor.org_require_2fa = False
+            anchor.org_2fa_email_settings_version = None
+            anchor.org_2fa_needs_attention = True
+            db.session.commit()
+    return bool(anchor.org_require_2fa or anchor.two_factor_enabled)
+
+
+def admin_requires_2fa(user):
+    """True if this admin must pass 2FA at login: the org policy requires it, or
+    they've enrolled 2FA themselves."""
+    if user is None:
+        return False
+    return bool(getattr(user, 'two_factor_enabled', False)) or _org_requires_2fa()
 
 
 def is_owner(website):
@@ -900,6 +983,52 @@ def can_access_quiz_category(category_id):
     return cats is not None and category_id is not None and category_id in cats
 
 
+def _division_restriction():
+    """The sub-admin's allowed division ids (None = no restriction → all).
+    Stored globally in the permissions dict like guides.allowed_category_ids."""
+    return _effective_perms().get('divisions.allowed_division_ids')
+
+
+def can_access_division(division_or_id):
+    """True if the current sub-admin may see/act on a division (the specific
+    action — view/edit/members/delete/ksa — is gated separately by require_perm).
+    This is the per-division SCOPE check: unrestricted users pass for any
+    division; restricted users only pass for divisions granted to them. A
+    division's KSAs inherit this scope (they live inside the division)."""
+    if not current_user.is_sub_admin:
+        return True
+    allowed = _division_restriction()
+    if allowed is None:
+        return True
+    did = division_or_id.id if isinstance(division_or_id, Division) else division_or_id
+    return did is not None and did in allowed
+
+
+def _assignable_group_restriction():
+    """Permission-group ids this sub-admin may assign to others when promoting
+    or editing a staff member (None = no restriction → any of the root admin's
+    groups). Lets an owner stop a sub-admin from elevating someone into a group
+    more powerful than the sub-admin's own. Stored in the permissions dict."""
+    if not current_user.is_sub_admin:
+        return None
+    return _effective_perms().get('admin_users.assignable_group_ids')
+
+
+def can_assign_group(group_id):
+    """True if the current user may assign permission group `group_id` to a staff
+    member. Unrestricted users may assign any of their groups; restricted ones
+    only the groups explicitly granted to them."""
+    if not current_user.is_sub_admin:
+        return True
+    allowed = _assignable_group_restriction()
+    if allowed is None:
+        return True
+    try:
+        return int(group_id) in allowed
+    except (TypeError, ValueError):
+        return False
+
+
 # ── KSA / competency-matrix config helpers ───────────────────────────────────
 _KSA_DEFAULT_TYPES = ['Knowledge', 'Skill', 'Ability']
 # Index 0 = "none/not held"; the rest are proficiency levels 1..N.
@@ -933,6 +1062,24 @@ def _ksa_level_label(website, level):
     return labels[i] if 0 <= i < len(labels) else str(level)
 
 
+_DEFAULT_DIVISION_SINGULAR = 'Division'
+_DEFAULT_DIVISION_PLURAL = 'Divisions'
+
+
+def _division_labels(website):
+    """(singular, plural) name the site uses for a "Division" — configurable so
+    a site can call them Guilds, Departments, Squads, etc. Falls back to the
+    default. Returns title-cased-as-entered values."""
+    s = (getattr(website, 'division_label_singular', None) or '').strip() or _DEFAULT_DIVISION_SINGULAR
+    p = (getattr(website, 'division_label_plural', None) or '').strip() or _DEFAULT_DIVISION_PLURAL
+    return s, p
+
+
+def _division_word(website, plural=False):
+    s, p = _division_labels(website)
+    return p if plural else s
+
+
 def _ensure_division_membership(public_user_id, division_id, status='active'):
     """Idempotently make a public user a member of a division — used when a
     division-scoped role is assigned. Never downgrades an existing membership."""
@@ -943,6 +1090,21 @@ def _ensure_division_membership(public_user_id, division_id, status='active'):
                                division_id=division_id, status=status)
         db.session.add(m)
     return m
+
+
+def _division_effective_ksas(division_id):
+    """A division's effective KSA catalog: the KSAs it owns plus any KSAs shared
+    into it from other divisions. Returns (owned, shared) — two ordered lists.
+    Shared KSAs stay owned (and thus edited/deleted) by their origin division."""
+    owned = KSA.query.filter_by(division_id=division_id).order_by(
+        KSA.sort_order, KSA.name).all()
+    shared_ids = [s.ksa_id for s in
+                  DivisionKSAShare.query.filter_by(division_id=division_id).all()]
+    shared = []
+    if shared_ids:
+        shared = KSA.query.filter(KSA.id.in_(shared_ids)).order_by(
+            KSA.ksa_type, KSA.name).all()
+    return owned, shared
 
 
 class PublicUser(UserMixin, db.Model):
@@ -1175,16 +1337,39 @@ class DivisionMembership(db.Model):
                                           name='uq_division_membership'),)
 
 
+class KSAFolder(db.Model):
+    """A named grouping for a division's KSAs (e.g. "1st year", "2nd year").
+    Owned by a division; deleting a folder leaves its KSAs unfiled (SET NULL)."""
+    __tablename__ = 'ksa_folder'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(120), nullable=False)
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    division    = db.relationship('Division', backref=db.backref('ksa_folders', lazy='dynamic',
+                                                                 cascade='all, delete-orphan'))
+
+    def to_dict(self):
+        return {'id': self.id, 'division_id': self.division_id,
+                'name': self.name, 'sort_order': self.sort_order}
+
+
 class KSA(db.Model):
     """A Knowledge / Skill / Ability item, owned by a Division (its catalog).
     `ksa_type` is a free string validated against the website's configurable
-    type list (defaults to knowledge/skill/ability). Leveled 0..max_level."""
+    type list (defaults to knowledge/skill/ability). Leveled 0..max_level.
+    Optionally filed under a KSAFolder within its division."""
     __tablename__ = 'ksa'
     id          = db.Column(db.Integer, primary_key=True)
     website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
                             nullable=False, index=True)
     division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='CASCADE'),
                             nullable=False, index=True)
+    folder_id   = db.Column(db.Integer, db.ForeignKey('ksa_folder.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
     ksa_type    = db.Column(db.String(40), nullable=False, default='knowledge',
                             server_default="'knowledge'")
     name        = db.Column(db.String(200), nullable=False)
@@ -1197,6 +1382,7 @@ class KSA(db.Model):
 
     def to_dict(self):
         return {'id': self.id, 'division_id': self.division_id, 'ksa_type': self.ksa_type,
+                'folder_id': self.folder_id,
                 'name': self.name, 'description': self.description or '',
                 'max_level': self.max_level, 'sort_order': self.sort_order}
 
@@ -1263,6 +1449,26 @@ class UserKSA(db.Model):
     ksa                = db.relationship('KSA', backref=db.backref('user_levels', lazy='dynamic',
                                                                    cascade='all, delete-orphan'))
     __table_args__ = (db.UniqueConstraint('public_user_id', 'ksa_id', name='uq_user_ksa'),)
+
+
+class DivisionKSAShare(db.Model):
+    """Shares a KSA into a division other than its owner. The KSA stays owned by
+    `KSA.division_id` (only the owner edits/deletes it); this row makes it appear
+    in the borrowing division's catalog/matrix so that division's roles can
+    require it. Member attainment (UserKSA) is global per (user, ksa), so a
+    shared KSA reflects one level everywhere it appears."""
+    __tablename__ = 'division_ksa_share'
+    id          = db.Column(db.Integer, primary_key=True)
+    division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    ksa_id      = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    division    = db.relationship('Division', backref=db.backref('ksa_shares', lazy='dynamic',
+                                                                 cascade='all, delete-orphan'))
+    ksa         = db.relationship('KSA', backref=db.backref('shares', lazy='dynamic',
+                                                            cascade='all, delete-orphan'))
+    __table_args__ = (db.UniqueConstraint('division_id', 'ksa_id', name='uq_division_ksa_share'),)
 
 
 class ForumThread(db.Model):
@@ -1768,6 +1974,10 @@ class Website(db.Model):
     # type labels. Both NULL fall back to module defaults.
     ksa_level_labels = db.Column(db.JSON, nullable=True)
     ksa_types        = db.Column(db.JSON, nullable=True)
+    # What "Division" is called on this site (e.g. Guild, Department, Squad).
+    # NULL falls back to the default "Division" / "Divisions".
+    division_label_singular = db.Column(db.String(40), nullable=True)
+    division_label_plural   = db.Column(db.String(40), nullable=True)
 
     def __repr__(self):
         return f"<Website {self.id} - {self.name}>"
@@ -3842,6 +4052,29 @@ class CodeRunnerSettings(db.Model):
     updated_at = db.Column(db.DateTime, nullable=True)
 
 
+class AutoBackupSettings(db.Model):
+    """Org-wide automatic backup config, one row per anchor (owner) user.
+    A background daemon writes a full `_serialize_backup` JSON to `folder_path`
+    on the configured cadence and prunes to the newest `max_backups` files."""
+    __tablename__ = 'auto_backup_settings'
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False,
+                            unique=True, index=True)
+    enabled     = db.Column(db.Boolean, nullable=False, default=False,
+                            server_default=_sa_false())
+    folder_path = db.Column(db.String(1000), nullable=True)
+    max_backups = db.Column(db.Integer, nullable=False, default=10,
+                            server_default='10')
+    # 'hourly' | 'daily' | 'weekly' | 'monthly'
+    frequency   = db.Column(db.String(20), nullable=False, default='daily',
+                            server_default='daily')
+    last_run_at  = db.Column(db.DateTime, nullable=True)
+    last_status  = db.Column(db.String(20), nullable=True)   # 'success' | 'error'
+    last_error   = db.Column(db.String(500), nullable=True)
+    last_file    = db.Column(db.String(1000), nullable=True)
+    updated_at   = db.Column(db.DateTime, nullable=True)
+
+
 class SmsLog(db.Model):
     """Audit row for every outbound (and inbound STOP/HELP) SMS. Keeps the
     monthly spend honest and lets admin troubleshoot delivery failures."""
@@ -4301,7 +4534,7 @@ def asset_library():
 
     # For sub-admins, restrict to allowed folders
     allowed_folder_ids = None
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         allowed_folder_ids = _effective_perms().get('assets.allowed_folder_ids')
 
     if allowed_folder_ids is not None:
@@ -5109,7 +5342,7 @@ def get_asset_library_root():
 
     # Restrict sub-admins to their allowed folder list
     allowed_folder_ids = None
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         allowed_folder_ids = _effective_perms().get('assets.allowed_folder_ids')
 
     if allowed_folder_ids is not None:
@@ -5158,7 +5391,7 @@ def get_asset_library_folder(folder_id):
     ).first_or_404()
 
     # Enforce sub-admin folder restrictions
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         allowed = _effective_perms().get('assets.allowed_folder_ids')
         if allowed is not None and folder.id not in allowed:
             return _utf8_json(
@@ -5328,10 +5561,13 @@ def normalize_admin_url_key(value):
 
 
 def admin_url_key_is_enabled():
+    # Org-wide setting: read from the anchor (primary owner), not the acting
+    # user — matches how require_admin_url_key_for_admin_routes enforces it.
+    anchor = get_main_admin()
     return bool(
-        current_user.is_authenticated
-        and getattr(current_user, 'admin_url_key_enabled', False)
-        and getattr(current_user, 'admin_url_key', None)
+        anchor
+        and getattr(anchor, 'admin_url_key_enabled', False)
+        and getattr(anchor, 'admin_url_key', None)
     )
 
 
@@ -6678,7 +6914,7 @@ def require_admin_url_key_for_admin_routes():
         return None
 
     if is_admin_like_path:
-        admin_user = User.query.first()
+        admin_user = get_main_admin()
 
         if admin_url_key_required_for_user(admin_user) and not session.get('admin_path_verified'):
             return "Not Found", 404
@@ -6692,7 +6928,7 @@ def require_admin_url_key_for_admin_routes():
 @app.route('/admin/forgot-password', methods=['GET', 'POST'])
 @app.route('/admin/forgot-password/<admin_key>', methods=['GET', 'POST'])
 def forgot_password(admin_key=None):
-    admin_user = User.query.first()
+    admin_user = get_main_admin()
 
     if admin_url_key_required_for_user(admin_user):
         if admin_key != admin_user.admin_url_key:
@@ -6873,7 +7109,7 @@ def send_account_recovery_email(to_email, subject, body):
 @app.route('/admin/request-username', methods=['GET', 'POST'])
 @app.route('/admin/request-username/<admin_key>', methods=['GET', 'POST'])
 def request_username(admin_key=None):
-    admin_user = User.query.first()
+    admin_user = get_main_admin()
 
     if admin_url_key_required_for_user(admin_user):
         if admin_key != admin_user.admin_url_key:
@@ -6988,7 +7224,9 @@ def two_factor_login(admin_key=None):
 
         login_user(user)
 
-        if admin_url_key_required_for_user(user):
+        # The admin URL key is org-wide (on the anchor); they reached this 2FA
+        # step through the gated login flow, so mark the path verified.
+        if admin_url_key_required_for_user(get_main_admin()):
             session['admin_path_verified'] = True
 
         _stamp_login(user)
@@ -7013,11 +7251,7 @@ def two_factor_resend(admin_key=None):
         return _utf8_json({'error': 'User not found.'}, 400)
     if _2fa_recently_sent(user_id, cooldown_seconds=10):
         return _utf8_json({'error': 'Please wait before requesting a new code.'}, 429)
-    two_fa_email = user.two_factor_email or user.email
-    if user.is_sub_admin:
-        parent = db.session.get(User, user.parent_user_id)
-        if parent and parent.two_factor_enabled:
-            two_fa_email = user.email
+    two_fa_email = _admin_two_fa_email(user) or user.email
     code = generate_two_factor_code()
     set_pending_two_factor_code(user.id, code, 'login')
     try:
@@ -7045,7 +7279,7 @@ def login(admin_key=None):
     if User.query.count() == 0:
         return redirect(url_for('register'))
 
-    admin_user = User.query.first()
+    admin_user = get_main_admin()
 
     if admin_url_key_required_for_user(admin_user):
         expected_key = admin_user.admin_url_key
@@ -7103,11 +7337,10 @@ def login(admin_key=None):
                 needs_2fa = True
                 two_fa_email = user.two_factor_email or user.email
 
-            elif user.is_sub_admin:
-                parent = db.session.get(User, user.parent_user_id)
-                if parent and parent.two_factor_enabled:
-                    needs_2fa = True
-                    two_fa_email = user.email  # always the sub-admin's own email
+            elif _org_requires_2fa():
+                # Org-wide policy: 2FA required even without personal enrollment.
+                needs_2fa = True
+                two_fa_email = user.two_factor_email or user.email
 
             if needs_2fa:
                 # If a code was already sent within the last 30 seconds (e.g.
@@ -7360,11 +7593,9 @@ def inject_current_website():
         draft_folders = PageFolder.query.filter_by(website_id=draft_website.id) \
             .order_by(PageFolder.sort_order, PageFolder.id).all()
 
-    if current_user.is_sub_admin:
-        _nd_root = db.session.get(User, current_user.root_user_id)
-        disabled = (_nd_root.admin_navbar_disabled if _nd_root else None) or []
-    else:
-        disabled = current_user.admin_navbar_disabled or []
+    # Org-wide setting: always read from the primary owner (the anchor).
+    _nd_root = db.session.get(User, current_user.root_user_id)
+    disabled = (_nd_root.admin_navbar_disabled if _nd_root else None) or []
 
     # All live websites for the switcher in the navbar
     if current_user.is_sub_admin:
@@ -7957,6 +8188,74 @@ def disable_two_factor_authentication():
     })
 
 
+@app.route('/admin/dashboard/settings/2fa/org-policy/start', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def org_2fa_policy_start():
+    """Begin enabling the org-wide 2FA requirement: email a verification code to
+    the acting admin (proving codes can actually be delivered), exactly like
+    enabling per-user 2FA. Confirmed in the /confirm step."""
+    es = get_email_settings()
+    if not (es and es.is_active):
+        return _utf8_json({'success': False,
+            'error': 'Configure an active email server first — admins receive 2FA codes by email.'}, 400)
+    to_email = current_user.email
+    code = generate_two_factor_code()
+    set_pending_two_factor_code(current_user.id, code, 'org_activation')
+    try:
+        send_two_factor_email(to_email, code, purpose='activation')
+    except Exception as e:
+        clear_pending_two_factor_code()
+        return _utf8_json({'success': False, 'error': f'Could not send code: {e}'}, 400)
+    session['pending_2fa_email'] = to_email
+    return _utf8_json({'success': True,
+                       'message': f'Verification code sent to {to_email}. Enter it to turn on org-wide 2FA.'})
+
+
+@app.route('/admin/dashboard/settings/2fa/org-policy/confirm', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def org_2fa_policy_confirm():
+    """Verify the emailed code, then enable the org-wide 2FA requirement on the
+    anchor and stamp the current email-settings fingerprint (so it auto-disables
+    if those settings later change)."""
+    code = ((request.get_json() or {}).get('code') or '').strip()
+    if not code:
+        return _utf8_json({'success': False, 'error': 'Please enter the verification code.'}, 400)
+    err = get_pending_two_factor_error(current_user.id, 'org_activation')
+    if err:
+        clear_pending_two_factor_code()
+        return _utf8_json({'success': False, 'error': err}, 400)
+    expected_hash = session.get('pending_2fa_code_hash')
+    if not expected_hash or not check_password_hash(expected_hash, code):
+        return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+    anchor.org_require_2fa = True
+    anchor.org_2fa_email_settings_version = get_email_settings_fingerprint(get_email_settings())
+    anchor.org_2fa_needs_attention = False
+    db.session.commit()
+    clear_pending_two_factor_code()
+    session.pop('pending_2fa_email', None)
+    return _utf8_json({'success': True, 'org_require_2fa': True})
+
+
+@app.route('/admin/dashboard/settings/2fa/org-policy/disable', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def org_2fa_policy_disable():
+    """Turn off the org-wide 2FA requirement (no code needed to relax it)."""
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+    anchor.org_require_2fa = False
+    anchor.org_2fa_email_settings_version = None
+    anchor.org_2fa_needs_attention = False
+    db.session.commit()
+    return _utf8_json({'success': True, 'org_require_2fa': False})
+
+
 @app.route('/admin/email_server_settings')
 @login_required
 @require_perm('settings.email')
@@ -8342,15 +8641,21 @@ def admin_switch_website(website_id):
 
 @app.route('/admin/settings/navbar-visibility', methods=['POST'])
 @login_required
+@require_perm('settings.edit')
 def save_navbar_visibility():
+    # Admin-navbar visibility is an ORG-WIDE setting (all admins share one nav
+    # layout), so it's stored on and read from the primary owner (the anchor) —
+    # not the acting user. Changeable by full admins or anyone with settings.edit.
     data = request.get_json() or {}
     valid = {'posts', 'guides', 'quizzes', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
              # Store dropdown master + the items that weren't in this set before,
              # so they can actually be toggled off (the navbar already honors them).
              'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support'}
     disabled = [k for k in data.get('disabled', []) if k in valid]
-    current_user.admin_navbar_disabled = disabled
-    db.session.commit()
+    root = db.session.get(User, current_user.root_user_id)
+    if root:
+        root.admin_navbar_disabled = disabled
+        db.session.commit()
     return jsonify({'ok': True})
 
 
@@ -8604,6 +8909,25 @@ def delete_message(message_id):
     db.session.delete(msg)
     db.session.commit()
     return jsonify({'status': 'success'})
+
+
+@app.context_processor
+def inject_division_label_helper():
+    """Expose dlabel(website, plural=False, cap=False) to every template so the
+    site's custom word for "Division" renders everywhere. `cap` upper-cases the
+    first letter for sentence starts."""
+    def dlabel(website=None, plural=False, cap=False):
+        # On admin pages the caller often has no website in scope; fall back to
+        # the admin's current editing website. Public pages always pass one.
+        if website is None:
+            try:
+                if current_user.is_authenticated and not getattr(current_user, 'is_public_user', False):
+                    website = get_admin_website()
+            except Exception:
+                website = None
+        word = _division_word(website, plural=plural)
+        return (word[:1].upper() + word[1:]) if cap and word else word
+    return dict(dlabel=dlabel)
 
 
 @app.context_processor
@@ -9300,7 +9624,7 @@ def create_page(website_id):
     website = Website.query.get_or_404(website_id)
     if not is_owner(website):
         return jsonify({'status': 'error', 'message': 'Unauthorized access'})
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         _raw = ((request.get_json() or {}).get('folder_id') if request.is_json
                 else request.form.get('folder_id', ''))
         try:
@@ -9371,7 +9695,7 @@ def create_page(website_id):
 @app.route('/admin/website/<int:website_id>/toggle-live', methods=['POST'])
 @login_required
 def website_toggle_live(website_id):
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     website = Website.query.filter_by(
         id=website_id,
@@ -10520,7 +10844,9 @@ def _delete_website_all(website):
         UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
         RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
         KSAResource.query.filter(KSAResource.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
+        DivisionKSAShare.query.filter(DivisionKSAShare.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
     KSA.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    KSAFolder.query.filter_by(website_id=wid).delete(synchronize_session=False)
     if _div_ids:
         DivisionMembership.query.filter(DivisionMembership.division_id.in_(_div_ids)).delete(synchronize_session=False)
     Division.query.filter_by(website_id=wid).delete(synchronize_session=False)
@@ -12799,15 +13125,21 @@ def settings_page():
     timezone_choices = pytz.common_timezones
 
     if request.method == 'POST':
-        admin_url_key_enabled = request.form.get('admin_url_key_enabled') == 'on'
-        admin_url_key = normalize_admin_url_key(request.form.get('admin_url_key'))
+        # The custom admin-login URL key is an ORG-WIDE security setting: it's
+        # stored on the anchor (primary owner) and enforced for everyone, so only
+        # full admins / settings.edit may change it. (Timezone & date format below
+        # are per-user display prefs and stay on the acting user.)
+        if current_user.has_permission('settings.edit'):
+            admin_url_key_enabled = request.form.get('admin_url_key_enabled') == 'on'
+            admin_url_key = normalize_admin_url_key(request.form.get('admin_url_key'))
 
-        if admin_url_key_enabled and not admin_url_key:
-            flash('Please enter an admin URL key or turn off the custom admin login URL setting.', 'error')
-            return redirect(url_for('settings_page'))
+            if admin_url_key_enabled and not admin_url_key:
+                flash('Please enter an admin URL key or turn off the custom admin login URL setting.', 'error')
+                return redirect(url_for('settings_page'))
 
-        current_user.admin_url_key_enabled = admin_url_key_enabled
-        current_user.admin_url_key = admin_url_key if admin_url_key_enabled else None
+            _anchor = get_main_admin() or current_user
+            _anchor.admin_url_key_enabled = admin_url_key_enabled
+            _anchor.admin_url_key = admin_url_key if admin_url_key_enabled else None
 
         timezone_name = request.form.get('timezone', 'America/Chicago').strip()
         date_format = request.form.get('date_format', '%b %d, %Y %I:%M %p').strip()
@@ -12877,9 +13209,10 @@ def settings_page():
         db.session.commit()
         sync_admin_mirrors_for_user(current_user)
 
-        if current_user.admin_url_key_enabled and current_user.admin_url_key:
+        _akey_anchor = get_main_admin() or current_user
+        if _akey_anchor.admin_url_key_enabled and _akey_anchor.admin_url_key:
             flash(
-                f'Settings saved. Your custom admin login URL is /admin/login/{current_user.admin_url_key}',
+                f'Settings saved. The custom admin login URL is /admin/login/{_akey_anchor.admin_url_key}',
                 'success'
             )
         else:
@@ -12919,15 +13252,27 @@ def settings_page():
         if pu:
             admin_mirrors.append((w, pu))
 
+    _org_requires_2fa()  # runs the email-fingerprint auto-disable before display
+    _anchor = get_main_admin() or current_user
+    _auto_backup = _get_auto_backup_settings(current_user.root_user_id)
     return render_template(
         'settings.html',
+        auto_backup=_auto_backup,
         timezone_choices=timezone_choices,
         selected_timezone=current_user.timezone or 'America/Chicago',
         selected_date_format=current_user.date_format or '%b %d, %Y %I:%M %p',
-        admin_url_key_enabled=current_user.admin_url_key_enabled,
-        admin_url_key=current_user.admin_url_key or '',
+        admin_url_key_enabled=_anchor.admin_url_key_enabled,
+        admin_url_key=_anchor.admin_url_key or '',
+        can_edit_settings=current_user.has_permission('settings.edit'),
         two_factor_enabled=current_user.two_factor_enabled,
         two_factor_email=current_user.two_factor_email or current_user.email,
+        org_require_2fa=bool(_anchor.org_require_2fa),
+        org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
+        can_set_org_2fa=current_user.has_permission('settings.2fa'),
+        can_backup=current_user.has_permission('settings.backup'),
+        can_store_settings=current_user.has_permission('store.settings'),
+        can_moderate_posts=current_user.has_permission('posts.settings'),
+        anchor_navbar_disabled=_anchor.admin_navbar_disabled or [],
         email_settings=get_email_settings(),
         account_username=current_user.username,
         account_email=current_user.email,
@@ -12966,10 +13311,10 @@ def admin_set_mirror_display_name():
 
 # ── Backup / Restore ──────────────────────────────────────────────────────────
 
-BACKUP_VERSION = 3
+BACKUP_VERSION = 4
 # Backup versions the restore endpoint will accept. Old v1 backups remain
 # importable; fields added after v1 are simply blank on the restored side.
-BACKUP_ACCEPTED_VERSIONS = {1, 2, 3}
+BACKUP_ACCEPTED_VERSIONS = {1, 2, 3, 4}
 
 
 def _serialize_backup(uid):
@@ -13145,11 +13490,13 @@ def _serialize_backup(uid):
     _division_ids = [d.id for d in divisions]
     division_memberships = DivisionMembership.query.filter(
         DivisionMembership.division_id.in_(_division_ids)).all() if _division_ids else []
+    ksa_folders = KSAFolder.query.filter(KSAFolder.website_id.in_(website_ids)).all() if website_ids else []
     ksas = KSA.query.filter(KSA.website_id.in_(website_ids)).all() if website_ids else []
     _ksa_ids = [k.id for k in ksas]
     role_ksas = RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
     user_ksas = UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
     ksa_resources = KSAResource.query.filter(KSAResource.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
+    ksa_shares = DivisionKSAShare.query.filter(DivisionKSAShare.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
 
     # PublicUserAddress.
     _pub_user_ids = [pu.id for pu in public_users]
@@ -13260,13 +13607,27 @@ def _serialize_backup(uid):
     storage_connections = StorageConnection.query.filter_by(user_id=uid).all()
     # oauth_app_creds: query moved into the "complete backup" block below.
 
+    _owner = db.session.get(User, uid)
+
     return {
         'meta': {
             'version': BACKUP_VERSION,
             'created_at': datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
-            'owner_username': current_user.username,
+            'owner_username': _owner.username if _owner else '',
             'owner_user_id': uid,
         },
+        # Org-wide settings that live on the anchor (owner) user. Restored onto
+        # whoever owns the destination instance so navbar/2fa-policy/admin-URL
+        # survive a backup→restore. Per-user prefs (personal 2FA, password,
+        # timezone) are intentionally excluded.
+        'owner_settings': {
+            'admin_navbar_disabled': _owner.admin_navbar_disabled or [],
+            'admin_url_key': _owner.admin_url_key,
+            'admin_url_key_enabled': bool(_owner.admin_url_key_enabled),
+            'org_require_2fa': bool(_owner.org_require_2fa),
+            'org_2fa_email_settings_version': _owner.org_2fa_email_settings_version,
+            'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
+        } if _owner else {},
         'websites': [{'id': w.id, 'name': w.name, 'description': w.description,
                       'is_draft': w.is_draft,
                       'is_live':   w.is_live,
@@ -13308,6 +13669,8 @@ def _serialize_backup(uid):
                       'public_email_verification_required': w.public_email_verification_required,
                       'ksa_level_labels': w.ksa_level_labels,
                       'ksa_types': w.ksa_types,
+                      'division_label_singular': w.division_label_singular,
+                      'division_label_plural': w.division_label_plural,
                       } for w in websites],
         'page_folders': [{'id': f.id, 'website_id': f.website_id, 'name': f.name,
                           'sort_order': f.sort_order} for f in page_folders],
@@ -13376,12 +13739,17 @@ def _serialize_backup(uid):
                             'description': t.description, 'template_data': t.template_data,
                             'group_count': t.group_count, 'section_count': t.section_count} for t in page_templates],
         'permission_groups': [{'id': g.id, 'name': g.name, 'description': g.description,
-                               'permissions': g.permissions} for g in perm_groups],
+                               'permissions': g.permissions,
+                               'website_permissions': g.website_permissions or {},
+                               'storage_connection_access': g.storage_connection_access or {}} for g in perm_groups],
         'sub_admins': [{'id': u.id, 'username': u.username, 'email': u.email,
                         'first_name': u.first_name, 'last_name': u.last_name,
                         'password_hash': u.password_hash,
                         'permission_group_id': u.permission_group_id,
-                        'permissions': u.permissions, '_is_active': u._is_active} for u in sub_admins],
+                        'permissions': u.permissions, '_is_active': u._is_active,
+                        'website_permissions': u.website_permissions or {},
+                        'storage_connection_access': u.storage_connection_access or {},
+                        'is_co_owner': bool(u.is_co_owner)} for u in sub_admins],
         'public_users': [{'id': u.id, 'website_id': u.website_id, 'username': u.username,
                           'display_username': u.display_username,
                           'first_name': u.first_name, 'last_name': u.last_name,
@@ -13586,7 +13954,10 @@ def _serialize_backup(uid):
                                   'division_id': m.division_id, 'status': m.status,
                                   'created_at': m.created_at.isoformat() if m.created_at else None,
                                   } for m in division_memberships],
+        'ksa_folders': [{'id': f.id, 'website_id': f.website_id, 'division_id': f.division_id,
+                         'name': f.name, 'sort_order': f.sort_order} for f in ksa_folders],
         'ksas': [{'id': k.id, 'website_id': k.website_id, 'division_id': k.division_id,
+                  'folder_id': k.folder_id,
                   'ksa_type': k.ksa_type, 'name': k.name, 'description': k.description,
                   'max_level': k.max_level, 'sort_order': k.sort_order,
                   'created_at': k.created_at.isoformat() if k.created_at else None,
@@ -13601,6 +13972,8 @@ def _serialize_backup(uid):
         'ksa_resources': [{'id': rs.id, 'ksa_id': rs.ksa_id, 'resource_type': rs.resource_type,
                            'label': rs.label, 'url': rs.url, 'guide_id': rs.guide_id,
                            'quiz_id': rs.quiz_id, 'sort_order': rs.sort_order} for rs in ksa_resources],
+        'ksa_shares': [{'id': s.id, 'division_id': s.division_id, 'ksa_id': s.ksa_id}
+                       for s in ksa_shares],
         'public_user_addresses': [{'id': a.id, 'public_user_id': a.public_user_id,
                                    'label': a.label, 'name': a.name,
                                    'line1': a.line1, 'line2': a.line2,
@@ -13939,14 +14312,10 @@ def _serialize_backup(uid):
     }
 
 
-@app.route('/admin/settings/backup/export')
-@login_required
-def export_backup():
-    if current_user.is_sub_admin:
-        return _utf8_json({'error': 'Permission denied'}, 403)
-
-    include_files = request.args.get('include_files', '1') != '0'
-    uid = current_user.id
+def _build_backup_zip_bytes(uid, include_files=True):
+    """Serialise the whole instance for owner `uid` into an in-memory ZIP
+    (backup.json + uploaded asset/navbar files) and return the raw bytes.
+    Shared by the manual export route and the automatic-backup daemon."""
     data = _serialize_backup(uid)
     json_bytes = json.dumps(data, indent=2, default=str).encode('utf-8')
 
@@ -13969,26 +14338,146 @@ def export_backup():
                     fpath = os.path.join(user_navbar_dir, fname)
                     if os.path.isfile(fpath):
                         zf.write(fpath, f'navbar/{fname}')
-
     buf.seek(0)
+    return buf.getvalue()
+
+
+@app.route('/admin/settings/backup/export')
+@login_required
+@require_perm('settings.backup')
+def export_backup():
+    # Whole-instance backup is org-wide and always scoped to the primary owner's
+    # id (the shared anchor), never the acting user's own id. Gated by
+    # settings.backup (full admins pass automatically; sub-admins can be granted).
+    include_files = request.args.get('include_files', '1') != '0'
+    uid = current_user.root_user_id
+    zip_bytes = _build_backup_zip_bytes(uid, include_files=include_files)
+
     ts = datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d_%H%M%S')
     suffix = '' if include_files else '_data_only'
-    return send_file(buf, as_attachment=True,
+    return send_file(io.BytesIO(zip_bytes), as_attachment=True,
                      download_name=f'uwebia_backup_{ts}{suffix}.zip',
                      mimetype='application/zip')
 
 
+# ── Automatic backups ─────────────────────────────────────────────────────────
+
+# Minimum elapsed time between automatic runs, per frequency setting.
+_AUTO_BACKUP_INTERVALS = {
+    'hourly':  timedelta(hours=1),
+    'daily':   timedelta(days=1),
+    'weekly':  timedelta(weeks=1),
+    'monthly': timedelta(days=30),
+}
+
+
+def _auto_backup_is_due(cfg, now=None):
+    """True when an enabled config with a valid folder has never run or its
+    interval has elapsed."""
+    if not cfg or not cfg.enabled or not (cfg.folder_path or '').strip():
+        return False
+    if cfg.last_run_at is None:
+        return True
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    interval = _AUTO_BACKUP_INTERVALS.get(cfg.frequency, timedelta(days=1))
+    return (now - cfg.last_run_at) >= interval
+
+
+def _prune_auto_backups(folder, max_backups):
+    """Keep only the newest `max_backups` auto-backup zips in `folder`."""
+    try:
+        files = [os.path.join(folder, f) for f in os.listdir(folder)
+                 if f.startswith('uwebia_autobackup_') and f.endswith('.zip')]
+        files = [f for f in files if os.path.isfile(f)]
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for stale in files[max(1, int(max_backups or 1)):]:
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _run_auto_backup_for(cfg):
+    """Write one automatic backup zip for the given AutoBackupSettings row to
+    its folder, prune old ones, and stamp status. Returns (ok, path_or_error).
+    Must run inside an app context."""
+    folder = (cfg.folder_path or '').strip()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        zip_bytes = _build_backup_zip_bytes(cfg.user_id, include_files=True)
+        ts = now.strftime('%Y%m%d_%H%M%S')
+        path = os.path.join(folder, f'uwebia_autobackup_{ts}.zip')
+        with open(path, 'wb') as fh:
+            fh.write(zip_bytes)
+        _prune_auto_backups(folder, cfg.max_backups)
+        cfg.last_run_at = now
+        cfg.last_status = 'success'
+        cfg.last_error = None
+        cfg.last_file = path
+        db.session.commit()
+        return True, path
+    except Exception as e:
+        db.session.rollback()
+        cfg.last_run_at = now
+        cfg.last_status = 'error'
+        cfg.last_error = str(e)[:500]
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        return False, str(e)
+
+
+_auto_backup_scheduler_started = False
+
+
+def _start_auto_backup_scheduler():
+    """Background daemon that writes scheduled backups for every enabled
+    AutoBackupSettings row whose interval has elapsed."""
+    import threading
+    import time
+
+    global _auto_backup_scheduler_started
+    if _auto_backup_scheduler_started:
+        return
+    _auto_backup_scheduler_started = True
+
+    def _loop():
+        time.sleep(60)  # let startup settle
+        while True:
+            try:
+                with app.app_context():
+                    for cfg in AutoBackupSettings.query.filter_by(enabled=True).all():
+                        if _auto_backup_is_due(cfg):
+                            ok, info = _run_auto_backup_for(cfg)
+                            print(f"[autobackup] owner {cfg.user_id}: "
+                                  f"{'wrote ' + info if ok else 'error ' + info}")
+            except Exception as loop_err:
+                print(f"[autobackup] scheduler error: {loop_err}")
+            time.sleep(300)  # re-check every 5 minutes
+
+    t = threading.Thread(target=_loop, daemon=True, name='auto-backup')
+    t.start()
+    print("[autobackup] background scheduler started (interval: 5 min)")
+
+
 @app.route('/admin/settings/backup/import', methods=['POST'])
 @login_required
+@require_perm('settings.backup')
 def import_backup():
-    if current_user.is_sub_admin:
-        return _utf8_json({'error': 'Permission denied'}, 403)
-
+    # Restore wipes & rebuilds everything under the primary owner's id (the
+    # shared anchor). Gated by settings.backup (full admins pass automatically;
+    # sub-admins can be granted it). Note: anyone who is themselves a sub-admin
+    # (incl. a co-owner) will have their own admin row wiped & recreated from the
+    # backup, so they're signed out and must log back in afterward.
     uploaded = request.files.get('backup_file')
     if not uploaded:
         return _utf8_json({'success': False, 'error': 'No file uploaded'}, 400)
 
-    uid = current_user.id
+    uid = current_user.root_user_id
     try:
         raw = uploaded.read()
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -14003,11 +14492,19 @@ def import_backup():
             old_uid = data['meta']['owner_user_id']
 
             # ── Wipe existing data ────────────────────────────────────────────
-            for w in Website.query.filter_by(user_id=uid).all():
+            # Websites can be owned by the root admin OR by a sub-admin (site /
+            # draft creation keys website.user_id to current_user.id). Wipe every
+            # website owned by the root or any of its sub-admins, else deleting
+            # the sub-admin users below FK-violates website_user_id_fkey.
+            _sub_admin_ids = [sid for (sid,) in
+                              db.session.query(User.id).filter_by(parent_user_id=uid).all()]
+            _owner_ids = [uid] + _sub_admin_ids
+            for w in Website.query.filter(Website.user_id.in_(_owner_ids)).all():
                 _delete_website_all(w)
-            # Delete sub-admins and permission groups
-            User.query.filter_by(parent_user_id=uid).delete(synchronize_session=False)
-            PermissionGroup.query.filter_by(owner_user_id=uid).delete(synchronize_session=False)
+            # NOTE: sub-admins (and their permission groups) are deleted LAST,
+            # after the asset/picture/settings wipes below — see further down.
+            # Doing it here would FK-violate, because rows like Asset.uploaded_by
+            # / analytics_settings still reference the sub-admin user ids.
             # Delete all assets (files deleted below after new ones extracted)
             for a in Asset.query.filter_by(user_id=uid).all():
                 db.session.delete(a)
@@ -14040,6 +14537,43 @@ def import_backup():
                 db.session.delete(nl)
             StorageConnection.query.filter_by(user_id=uid).delete(synchronize_session=False)
             OAuthAppCredentials.query.delete(synchronize_session=False)
+
+            # ── Sub-admins + their permission groups (deleted LAST) ───────────
+            # By now every root-owned row that referenced a sub-admin (assets'
+            # uploaded_by, page edited_by + websites via the wipe above) is gone.
+            # What remains are the sub-admins' OWN per-user rows, keyed by their
+            # user id — each FKs to user.id without ON DELETE CASCADE, so clear
+            # them first or the User delete raises a ForeignKeyViolation
+            # (e.g. analytics_settings_user_id_fkey). A permission group can be
+            # OWNED by a sub-admin (owner_user_id) AND ASSIGNED to sub-admins
+            # (permission_group_id), so: detach the assignments, delete every
+            # group owned by the root or a sub-admin, then delete the users.
+            if _sub_admin_ids:
+                # Legacy picture system: SectionImage → Picture → Folder.
+                _sub_pic_ids = [p for (p,) in db.session.query(Picture.id)
+                                .filter(Picture.user_id.in_(_sub_admin_ids)).all()]
+                if _sub_pic_ids:
+                    SectionImage.query.filter(SectionImage.picture_id.in_(_sub_pic_ids)) \
+                        .delete(synchronize_session=False)
+                    Picture.query.filter(Picture.id.in_(_sub_pic_ids)) \
+                        .delete(synchronize_session=False)
+                Folder.query.filter(Folder.user_id.in_(_sub_admin_ids)) \
+                    .delete(synchronize_session=False)
+                # Any asset attributions still pointing at a sub-admin (nullable).
+                Asset.query.filter(Asset.uploaded_by_user_id.in_(_sub_admin_ids)) \
+                    .update({'uploaded_by_user_id': None}, synchronize_session=False)
+                # Per-user settings / logs / colors / channels / chat.
+                for _UM in (AnalyticsSettings, CodeRunnerSettings, SavedColor,
+                            NotificationChannel, AdminChatMessage, SmsLog):
+                    _UM.query.filter(_UM.user_id.in_(_sub_admin_ids)) \
+                        .delete(synchronize_session=False)
+                # Detach sub-admins from their assigned group so the groups
+                # (including any a sub-admin owns) are no longer referenced.
+                User.query.filter(User.id.in_(_sub_admin_ids)) \
+                    .update({'permission_group_id': None}, synchronize_session=False)
+            PermissionGroup.query.filter(PermissionGroup.owner_user_id.in_(_owner_ids)) \
+                .delete(synchronize_session=False)
+            User.query.filter_by(parent_user_id=uid).delete(synchronize_session=False)
             db.session.flush()
 
             # ── ID maps ───────────────────────────────────────────────────────
@@ -14072,6 +14606,7 @@ def import_backup():
             store_cat_map = {};
             store_prod_map = {}
             store_order_map = {}
+            storage_map = {}
 
             # ── Websites ──────────────────────────────────────────────────────
             for wd in data.get('websites', []):
@@ -14113,7 +14648,9 @@ def import_backup():
                             public_email_verification_enabled=wd.get('public_email_verification_enabled', False),
                             public_email_verification_required=wd.get('public_email_verification_required', False),
                             ksa_level_labels=wd.get('ksa_level_labels'),
-                            ksa_types=wd.get('ksa_types'))
+                            ksa_types=wd.get('ksa_types'),
+                            division_label_singular=wd.get('division_label_singular'),
+                            division_label_plural=wd.get('division_label_plural'))
                 db.session.add(w);
                 db.session.flush()
                 website_map[wd['id']] = w.id
@@ -14390,10 +14927,24 @@ def import_backup():
                     group_count=td.get('group_count', 0), section_count=td.get('section_count', 0)))
 
             # ── Permission groups ──────────────────────────────────────────────
+            # ── Owner (anchor) org-wide settings ──────────────────────────────
+            _owner_settings = data.get('owner_settings') or {}
+            if _owner_settings:
+                _owner = db.session.get(User, uid)
+                if _owner:
+                    _owner.admin_navbar_disabled = _owner_settings.get('admin_navbar_disabled') or []
+                    _owner.admin_url_key = _owner_settings.get('admin_url_key')
+                    _owner.admin_url_key_enabled = bool(_owner_settings.get('admin_url_key_enabled'))
+                    _owner.org_require_2fa = bool(_owner_settings.get('org_require_2fa'))
+                    _owner.org_2fa_email_settings_version = _owner_settings.get('org_2fa_email_settings_version')
+                    _owner.org_2fa_needs_attention = bool(_owner_settings.get('org_2fa_needs_attention'))
+
             for gd in data.get('permission_groups', []):
                 pg = PermissionGroup(owner_user_id=uid, name=gd['name'],
                                      description=gd.get('description'),
-                                     permissions=gd.get('permissions') or {})
+                                     permissions=gd.get('permissions') or {},
+                                     website_permissions=gd.get('website_permissions') or {},
+                                     storage_connection_access=gd.get('storage_connection_access') or {})
                 db.session.add(pg);
                 db.session.flush()
                 pg_map[gd['id']] = pg.id
@@ -14407,6 +14958,9 @@ def import_backup():
                            permission_group_id=pg_map.get(ud['permission_group_id']) if ud.get(
                                'permission_group_id') else None,
                            permissions=ud.get('permissions') or {},
+                           website_permissions=ud.get('website_permissions') or {},
+                           storage_connection_access=ud.get('storage_connection_access') or {},
+                           is_co_owner=bool(ud.get('is_co_owner')),
                            _is_active=ud.get('_is_active', True))
                 db.session.add(sub);
                 db.session.flush()
@@ -14428,6 +14982,7 @@ def import_backup():
                 _remap_list('sections.allowed_ids',       sec_map)
                 _remap_list('groups.allowed_ids',         sg_map)
                 _remap_list('assets.allowed_folder_ids',  af_map)
+                _remap_list('admin_users.assignable_group_ids', pg_map)
                 # page_folder_perms: {str(folder_id): "full"|[actions]}
                 pfp = p.get('page_folder_perms')
                 if pfp:
@@ -14442,15 +14997,33 @@ def import_backup():
                     p['page_folder_perms'] = new_pfp or None
                 return p
 
+            def _remap_website_perms(wp):
+                """Remap a website_permissions dict {str(website_id): {perm: val}}:
+                outer keys through website_map, inner override dicts through
+                _remap_perm_ids (so per-website allowed_id lists stay valid)."""
+                if not wp:
+                    return wp
+                new_wp = {}
+                for old_wid_str, inner in wp.items():
+                    try:
+                        new_wid = website_map.get(int(old_wid_str))
+                    except (ValueError, TypeError):
+                        new_wid = None
+                    if new_wid:
+                        new_wp[str(new_wid)] = _remap_perm_ids(inner)
+                return new_wp
+
             # Apply remapping to permission groups
             for pg in PermissionGroup.query.filter(
                     PermissionGroup.id.in_(list(pg_map.values()))).all():
                 pg.permissions = _remap_perm_ids(pg.permissions)
+                pg.website_permissions = _remap_website_perms(pg.website_permissions)
 
             # Apply remapping to sub-admin individual permissions
             for sub in User.query.filter(
                     User.id.in_(list(sa_map.values()))).all():
                 sub.permissions = _remap_perm_ids(sub.permissions)
+                sub.website_permissions = _remap_website_perms(sub.website_permissions)
 
             # Restore last_edited_at on pages (user ID is not remapped — left null)
             old_page_edited = {pd['id']: pd.get('last_edited_at') for pd in data.get('pages', [])}
@@ -15142,6 +15715,58 @@ def import_backup():
                 if dd.get('id'):
                     division_map[dd['id']] = dv.id
 
+            # Guides, quizzes and divisions are created AFTER sub-admins &
+            # permission groups, so their id-scoped permission lists still hold
+            # the OLD ids at this point. Remap them now that every entity map
+            # exists — in both the global permissions dict and each per-website
+            # override (website_permissions). A list that remaps to empty is kept
+            # as [] (restricted → nothing), NOT None: None means "no restriction
+            # → all", so collapsing to None would silently grant full access.
+            from sqlalchemy.orm.attributes import flag_modified as _flag_mod
+            _late_scope_maps = {
+                'guides.allowed_category_ids':    guide_cat_map,
+                'guides.allowed_guide_ids':       guide_map,
+                'quizzes.allowed_category_ids':   quiz_cat_map,
+                'quizzes.allowed_quiz_ids':       quiz_map,
+                'divisions.allowed_division_ids': division_map,
+            }
+            def _remap_late_dict(perms):
+                """Return (new_perms, changed) with the late id-scoped lists remapped."""
+                if not perms:
+                    return perms, False
+                out = None
+                for key, id_map in _late_scope_maps.items():
+                    lst = perms.get(key)
+                    if isinstance(lst, list):
+                        if out is None:
+                            out = dict(perms)
+                        out[key] = [id_map[i] for i in lst if i in id_map]
+                return (out, True) if out is not None else (perms, False)
+            def _remap_late_scope(holder):
+                touched = False
+                new_perms, ch = _remap_late_dict(holder.permissions)
+                if ch:
+                    holder.permissions = new_perms
+                    _flag_mod(holder, 'permissions')
+                    touched = True
+                wp = holder.website_permissions or {}
+                if wp:
+                    new_wp = {}
+                    wp_changed = False
+                    for wid, inner in wp.items():
+                        ni, ic = _remap_late_dict(inner)
+                        new_wp[wid] = ni
+                        wp_changed = wp_changed or ic
+                    if wp_changed:
+                        holder.website_permissions = new_wp
+                        _flag_mod(holder, 'website_permissions')
+                        touched = True
+                return touched
+            for _pg in PermissionGroup.query.filter(PermissionGroup.id.in_(list(pg_map.values()))).all():
+                _remap_late_scope(_pg)
+            for _sub in User.query.filter(User.id.in_(list(sa_map.values()))).all():
+                _remap_late_scope(_sub)
+
             # ── PublicUserRole + assignments ──────────────────────────────────
             public_role_map = {}
             for rd in data.get('public_user_roles', []):
@@ -15179,6 +15804,18 @@ def import_backup():
                     public_user_id=new_pu, division_id=new_dv,
                     status=md.get('status', 'active'),
                     created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None))
+            folder_map = {}
+            for fd in data.get('ksa_folders', []):
+                new_wid = website_map.get(fd.get('website_id'))
+                new_dv = division_map.get(fd.get('division_id'))
+                if not new_wid or not new_dv:
+                    continue
+                f = KSAFolder(website_id=new_wid, division_id=new_dv,
+                              name=fd.get('name', 'Folder'), sort_order=fd.get('sort_order', 0))
+                db.session.add(f)
+                db.session.flush()
+                if fd.get('id'):
+                    folder_map[fd['id']] = f.id
             ksa_map = {}
             for kd in data.get('ksas', []):
                 new_wid = website_map.get(kd.get('website_id'))
@@ -15186,6 +15823,7 @@ def import_backup():
                 if not new_wid or not new_dv:
                     continue
                 k = KSA(website_id=new_wid, division_id=new_dv,
+                        folder_id=folder_map.get(kd['folder_id']) if kd.get('folder_id') else None,
                         ksa_type=kd.get('ksa_type', 'Knowledge'), name=kd.get('name', 'KSA'),
                         description=kd.get('description'), max_level=kd.get('max_level', 4),
                         sort_order=kd.get('sort_order', 0),
@@ -15222,6 +15860,12 @@ def import_backup():
                     guide_id=guide_map.get(rs['guide_id']) if rs.get('guide_id') else None,
                     quiz_id=quiz_map.get(rs['quiz_id']) if rs.get('quiz_id') else None,
                     sort_order=rs.get('sort_order', 0)))
+            for sh in data.get('ksa_shares', []):
+                new_dv = division_map.get(sh.get('division_id'))
+                new_k = ksa_map.get(sh.get('ksa_id'))
+                if not new_dv or not new_k:
+                    continue
+                db.session.add(DivisionKSAShare(division_id=new_dv, ksa_id=new_k))
 
             # ── PublicUserAddress ─────────────────────────────────────────────
             for ad in data.get('public_user_addresses', []):
@@ -15803,17 +16447,44 @@ def import_backup():
 
             # ── StorageConnection / OAuthAppCredentials (v2) ──────────────────
             for sd in data.get('storage_connections', []):
-                db.session.add(StorageConnection(
+                sc = StorageConnection(
                     user_id=uid, label=sd['label'], provider=sd['provider'],
                     account_identifier=sd.get('account_identifier'),
                     config=sd.get('config') or {},
                     is_active=sd.get('is_active', True),
                     created_at=datetime.fromisoformat(sd['created_at']) if sd.get('created_at') else None,
-                    last_used_at=datetime.fromisoformat(sd['last_used_at']) if sd.get('last_used_at') else None))
+                    last_used_at=datetime.fromisoformat(sd['last_used_at']) if sd.get('last_used_at') else None)
+                db.session.add(sc)
+                if sd.get('id') is not None:
+                    db.session.flush()
+                    storage_map[sd['id']] = sc.id
             # OAuthAppCredentials restore is now an upsert handled earlier
             # in the function — see the "OAuthAppCredentials" block in the
             # complete-backup additions. The old blind INSERT here caused
             # UniqueViolations when the provider row already existed.
+
+            # Remap storage_connection_access {str(conn_id): bool} now that the
+            # new connection ids exist (sub-admin & group access lists).
+            def _remap_storage_access(sca):
+                if not sca:
+                    return sca
+                new_sca = {}
+                for old_cid_str, val in sca.items():
+                    try:
+                        new_cid = storage_map.get(int(old_cid_str))
+                    except (ValueError, TypeError):
+                        new_cid = None
+                    if new_cid:
+                        new_sca[str(new_cid)] = bool(val)
+                return new_sca
+            # Always normalise (drops references to connections that no longer
+            # exist), even when there are no connections to map.
+            for pg in PermissionGroup.query.filter(
+                    PermissionGroup.id.in_(list(pg_map.values()))).all():
+                pg.storage_connection_access = _remap_storage_access(pg.storage_connection_access)
+            for sub in User.query.filter(
+                    User.id.in_(list(sa_map.values()))).all():
+                sub.storage_connection_access = _remap_storage_access(sub.storage_connection_access)
 
             db.session.commit()
 
@@ -15853,6 +16524,77 @@ def import_backup():
         return _utf8_json({'success': False, 'error': str(e)}, 500)
 
     return _utf8_json({'success': True})
+
+
+def _get_auto_backup_settings(uid, create=False):
+    """Return the AutoBackupSettings row for owner `uid`, optionally creating it."""
+    cfg = AutoBackupSettings.query.filter_by(user_id=uid).first()
+    if cfg is None and create:
+        cfg = AutoBackupSettings(user_id=uid)
+        db.session.add(cfg)
+        db.session.flush()
+    return cfg
+
+
+@app.route('/admin/settings/backup/auto/save', methods=['POST'])
+@login_required
+@require_perm('settings.backup')
+def save_auto_backup_settings():
+    """Save the org-wide automatic-backup config onto the anchor."""
+    uid = current_user.root_user_id
+    cfg = _get_auto_backup_settings(uid, create=True)
+
+    enabled = str(request.form.get('enabled', '')).lower() in ('1', 'true', 'on', 'yes')
+    folder = (request.form.get('folder_path') or '').strip()
+    frequency = (request.form.get('frequency') or 'daily').strip().lower()
+    if frequency not in _AUTO_BACKUP_INTERVALS:
+        frequency = 'daily'
+    try:
+        max_backups = int(request.form.get('max_backups') or 10)
+    except (TypeError, ValueError):
+        max_backups = 10
+    max_backups = max(1, min(max_backups, 365))
+
+    # Validate the folder is writable before enabling, so a bad path can't
+    # silently fail every night in the background.
+    if enabled:
+        if not folder:
+            return _utf8_json({'success': False,
+                               'error': 'A backup folder is required to enable automatic backups.'}, 400)
+        try:
+            os.makedirs(folder, exist_ok=True)
+            _probe = os.path.join(folder, '.uwebia_write_test')
+            with open(_probe, 'w') as fh:
+                fh.write('ok')
+            os.remove(_probe)
+        except OSError as e:
+            return _utf8_json({'success': False,
+                               'error': f'Folder is not writable: {e}'}, 400)
+
+    cfg.enabled = enabled
+    cfg.folder_path = folder or None
+    cfg.frequency = frequency
+    cfg.max_backups = max_backups
+    cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/settings/backup/auto/run', methods=['POST'])
+@login_required
+@require_perm('settings.backup')
+def run_auto_backup_now():
+    """Trigger an immediate automatic backup to the configured folder."""
+    uid = current_user.root_user_id
+    cfg = _get_auto_backup_settings(uid)
+    if not cfg or not (cfg.folder_path or '').strip():
+        return _utf8_json({'success': False,
+                           'error': 'Set and save a backup folder first.'}, 400)
+    ok, info = _run_auto_backup_for(cfg)
+    if not ok:
+        return _utf8_json({'success': False, 'error': info}, 500)
+    return _utf8_json({'success': True, 'file': info,
+                       'last_run_at': cfg.last_run_at.isoformat() if cfg.last_run_at else None})
 
 
 # ── Database migration (SQLite ↔ PostgreSQL) ──────────────────────────────────
@@ -16128,7 +16870,7 @@ def connect_to_postgres():
     Use this when the data is already in PostgreSQL (e.g. after moving servers)."""
     if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
         return _utf8_json({'error': 'Unauthorized'}, 401)
-    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+    if not _DB_MAINTENANCE_MODE and not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
     pg_url = (data.get('database_url') or '').strip()
@@ -16145,7 +16887,7 @@ def connect_to_postgres():
 @login_required
 def database_health():
     """Quick liveness check for the active database connection."""
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     try:
         db.session.execute(db.text('SELECT 1'))
@@ -16159,7 +16901,7 @@ def database_health():
 def test_db_connection():
     if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
         return _utf8_json({'error': 'Unauthorized'}, 401)
-    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+    if not _DB_MAINTENANCE_MODE and not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
     pg_url = (data.get('database_url') or '').strip()
@@ -16174,7 +16916,7 @@ def test_db_connection():
 def migrate_to_postgres():
     """Migrate all data from the current SQLite database to PostgreSQL,
     save the new DATABASE_URL to db_config.json, and signal a restart."""
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
 
     data = request.get_json() or {}
@@ -16207,7 +16949,7 @@ def revert_to_sqlite():
     """Switch back to SQLite (data is not migrated back — SQLite file is unchanged)."""
     if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
         return _utf8_json({'error': 'Unauthorized'}, 401)
-    if not _DB_MAINTENANCE_MODE and current_user.is_sub_admin:
+    if not _DB_MAINTENANCE_MODE and not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     cfg = _load_db_config()
     cfg.pop('database_url', None)
@@ -19414,10 +20156,17 @@ ADMIN_PERMISSIONS = {
         'view': 'View quizzes list & open the quiz builder',
         'manage': 'Create & delete quizzes',
         'edit': 'Edit quiz questions & answers',
+        'code_runner': 'Set the code-runner (Piston) URL for coding challenges',
     }},
-    'ksa': {'label': 'Divisions & KSAs', 'actions': {
-        'view': 'View divisions, KSAs and the competency matrix',
-        'manage': 'Create/edit divisions, KSAs, memberships, role requirements & set levels',
+    'divisions': {'label': 'Divisions / Groups', 'actions': {
+        'view': 'View divisions/groups, their members and roles',
+        'edit': 'Edit a division’s details and its roles',
+        'members': 'Add/remove members and assign division roles',
+        'create_delete': 'Create new divisions and delete existing ones',
+    }},
+    'ksa': {'label': 'KSAs (Competencies)', 'actions': {
+        'view': 'View the KSA catalog and competency matrix',
+        'manage': 'Create/edit KSAs & folders, set role requirements and member levels',
     }},
     'newsletters': {'label': 'Newsletters', 'actions': {
         'view': 'View newsletters, subscribers & campaigns',
@@ -19489,9 +20238,10 @@ ADMIN_PERMISSIONS = {
     }},
     'settings': {'label': 'Site Settings', 'actions': {
         'view': 'View site settings',
-        'edit': 'Edit general settings',
+        'edit': 'Edit general & admin-navbar settings',
         'email': 'Edit email server settings',
         '2fa': 'Manage two-factor authentication',
+        'backup': 'Download & restore full backups',
     }},
     'templates': {'label': 'Templates', 'actions': {
         'view': 'View saved templates',
@@ -19587,6 +20337,19 @@ def admin_users_page():
                 'categories': cat_entries, 'uncategorized': uncategorized,
             })
 
+    # Divisions per website, for the "Divisions Access" picker. Granting a
+    # division covers managing it + its members/roles/KSAs (subject to the
+    # per-action toggles). Stored as divisions.allowed_division_ids.
+    division_catalog = []
+    for w in live_websites:
+        w_divs = Division.query.filter_by(website_id=w.id).order_by(
+            Division.sort_order, Division.name).all()
+        if w_divs:
+            division_catalog.append({
+                'website_id': w.id, 'website_name': w.name or 'Website',
+                'divisions': [{'id': d.id, 'name': d.name} for d in w_divs],
+            })
+
     # Quiz categories + quizzes per website, for the "Quiz Access" picker
     # (mirrors guide_catalog). Stored as quizzes.allowed_category_ids /
     # quizzes.allowed_quiz_ids.
@@ -19619,6 +20382,7 @@ def admin_users_page():
                            can_demote_staff=((not current_user.is_sub_admin) or current_user.has_permission('admin_users.demote')),
                            guide_catalog=guide_catalog,
                            quiz_catalog=quiz_catalog,
+                           division_catalog=division_catalog,
                            now=datetime.now(timezone.utc).replace(tzinfo=None))
 
 
@@ -19631,8 +20395,11 @@ def admin_public_users_page():
             return redirect(url_for('dashboard'))
     root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
     live_websites = Website.query.filter_by(user_id=root_id, is_draft=False).order_by(Website.id).all()
+    # Only site-wide roles are managed here; division-scoped roles live on the
+    # Divisions & KSAs page and are assigned per-member there.
     roles_by_website = {
-        w.id: PublicUserRole.query.filter_by(website_id=w.id).order_by(PublicUserRole.name).all()
+        w.id: PublicUserRole.query.filter_by(website_id=w.id, division_id=None)
+                                  .order_by(PublicUserRole.name).all()
         for w in live_websites
     }
     # Total user count per website (cheap aggregate; rows are fetched via API)
@@ -19651,17 +20418,16 @@ def admin_public_users_page():
         str(w_id): [r.to_dict() for r in roles]
         for w_id, roles in roles_by_website.items()
     }
-    # Divisions per website so the Roles card can scope a role to a division.
-    divisions_by_website = {
-        str(w.id): [d.to_dict() for d in
-                    Division.query.filter_by(website_id=w.id).order_by(Division.sort_order, Division.name).all()]
-        for w in live_websites
-    }
     selected_website_id = request.args.get('website_id', type=int) or (live_websites[0].id if live_websites else None)
     # Promotion (sub-admin from a public user) — list the root admin's own
     # permission groups so the modal can pick one. `can_promote_staff` mirrors
     # the same gate used by the server route.
     permission_groups = PermissionGroup.query.filter_by(owner_user_id=root_id).order_by(PermissionGroup.name).all()
+    # A restricted promoter only sees the groups they're allowed to assign, and
+    # must pick one (no ad-hoc custom permissions).
+    _assignable = _assignable_group_restriction()
+    if _assignable is not None:
+        permission_groups = [g for g in permission_groups if g.id in _assignable]
     permission_groups_dicts = [g.to_dict() for g in permission_groups]
     can_promote_staff = (not current_user.is_sub_admin) or current_user.has_permission('admin_users.promote')
     return render_template('admin_public_users.html',
@@ -19669,9 +20435,9 @@ def admin_public_users_page():
                            user_counts_by_website=user_counts_by_website,
                            roles_by_website=roles_by_website,
                            roles_by_website_dicts=roles_by_website_dicts,
-                           divisions_by_website=divisions_by_website,
                            selected_website_id=selected_website_id,
                            permission_groups_dicts=permission_groups_dicts,
+                           promote_requires_group=(_assignable is not None),
                            can_promote_staff=can_promote_staff)
 
 
@@ -19862,7 +20628,7 @@ def admin_public_users_list():
 @app.route('/admin/users/public/settings', methods=['POST'])
 @login_required
 def admin_public_users_settings():
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
     website_id = data.get('website_id')
@@ -19998,7 +20764,7 @@ def _get_owned_role(role_id):
 @app.route('/admin/users/public/roles', methods=['POST'])
 @login_required
 def admin_public_role_create():
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
     website_id = data.get('website_id')
@@ -20034,7 +20800,7 @@ def _validate_role_division(raw, website_id):
 @app.route('/admin/users/public/roles/<int:role_id>/update', methods=['POST'])
 @login_required
 def admin_public_role_update(role_id):
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     role = _get_owned_role(role_id)
     data = request.get_json() or {}
@@ -20057,7 +20823,7 @@ def admin_public_role_update(role_id):
 @app.route('/admin/users/public/roles/<int:role_id>/delete', methods=['POST'])
 @login_required
 def admin_public_role_delete(role_id):
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     role = _get_owned_role(role_id)
     db.session.delete(role)
@@ -20077,16 +20843,15 @@ def admin_public_user_set_roles(user_id):
     owned_website_ids = {w.id for w in Website.query.filter_by(user_id=root_id, is_draft=False).all()}
     roles = PublicUserRole.query.filter(
         PublicUserRole.id.in_(role_ids),
-        PublicUserRole.website_id.in_(owned_website_ids)
+        PublicUserRole.website_id.in_(owned_website_ids),
+        PublicUserRole.division_id.is_(None)
     ).all() if role_ids else []
-    u.roles = roles
-    # Assigning a division-scoped role makes the user a member of that division
-    # (explicit membership is never removed here — only added).
-    for r in roles:
-        if r.division_id:
-            _ensure_division_membership(u.id, r.division_id)
+    # This page only manages site-wide roles; the member's division-scoped roles
+    # are assigned on the Divisions & KSAs page and must be preserved here.
+    u.roles = [r for r in (u.roles or []) if r.division_id is not None] + roles
     db.session.commit()
-    return _utf8_json({'success': True, 'roles': [r.to_dict() for r in u.roles]})
+    return _utf8_json({'success': True,
+                       'roles': [r.to_dict() for r in u.roles if r.division_id is None]})
 
 
 # ── Promote a public user to a sub-admin ───────────────────────────────────
@@ -20241,6 +21006,16 @@ def admin_public_user_promote(user_id):
         grp = db.session.get(PermissionGroup, group_id)
         if not grp or grp.owner_user_id != root_id:
             return _utf8_json({'success': False, 'error': "That permission group doesn't belong to you."}, 400)
+
+    # A sub-admin restricted to specific assignable groups can only promote
+    # using one of those groups (and can't hand out ad-hoc custom permissions),
+    # so they can't elevate someone above their own level.
+    if current_user.is_sub_admin and _assignable_group_restriction() is not None:
+        if not group_id or not can_assign_group(group_id):
+            return _utf8_json({'success': False,
+                'error': 'You can only promote using a permission group you are allowed to assign.'}, 403)
+        perms = {}
+        website_perms = {}
 
     # Admin-User namespace check first — these can't be auto-resolved (an
     # actual admin already owns the name).
@@ -20425,6 +21200,14 @@ def create_admin_user():
         if not grp or grp.owner_user_id != current_user.root_user_id:
             group_id = None
     website_perms = data.get('website_permissions') or {}
+    # A sub-admin restricted to specific assignable groups must use one of them
+    # (no ad-hoc custom permissions), so they can't out-grant themselves.
+    if current_user.is_sub_admin and _assignable_group_restriction() is not None:
+        if not group_id or not can_assign_group(group_id):
+            return _utf8_json({'success': False,
+                'error': 'You can only assign a permission group you are allowed to assign.'}, 403)
+        perms = {}
+        website_perms = {}
     sub = User(
         username=username,
         email=email,
@@ -20474,23 +21257,29 @@ def update_admin_user(user_id):
         if len(password) < 8:
             return _utf8_json({'success': False, 'error': 'Password must be at least 8 characters'}, 400)
         sub.password_hash = generate_password_hash(password)
+    # A sub-admin restricted to assignable groups may only set the group to one
+    # of those, and may not hand out ad-hoc custom permissions / overrides.
+    restricted = current_user.is_sub_admin and _assignable_group_restriction() is not None
     if group_id_raw != '__unset__':
         group_id = group_id_raw or None
         if group_id:
             grp = db.session.get(PermissionGroup, group_id)
             if not grp or grp.owner_user_id != current_user.root_user_id:
                 group_id = None
+        if restricted and (not group_id or not can_assign_group(group_id)):
+            return _utf8_json({'success': False,
+                'error': 'You can only assign a permission group you are allowed to assign.'}, 403)
         sub.permission_group_id = group_id
         if group_id:
             sub.permissions = {}
-        elif perms is not None:
+        elif perms is not None and not restricted:
             sub.permissions = perms
-    elif perms is not None:
+    elif perms is not None and not restricted:
         sub.permissions = perms
     if active is not None:
         sub._is_active = bool(active)
     website_perms = data.get('website_permissions')
-    if website_perms is not None:
+    if website_perms is not None and not restricted:
         sub.website_permissions = {str(k): v for k, v in website_perms.items()}
     if 'storage_connection_access' in data:
         raw = data.get('storage_connection_access') or {}
@@ -20519,12 +21308,96 @@ def delete_admin_user(user_id):
     return _utf8_json({'success': True})
 
 
+@app.route('/admin/users/<int:user_id>/set-co-owner', methods=['POST'])
+@login_required
+def admin_user_set_co_owner(user_id):
+    """Promote a sub-admin to a co-owner (full, unrestricted control) or demote
+    back. Co-owners give the system more than one fully-capable operator so it
+    isn't dependent on a single account. Only a full admin can do this; the main
+    admin account itself is never a 'co-owner' (it's already the owner)."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    sub = User.query.get_or_404(user_id)
+    if sub.parent_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False,
+                           'error': 'You can only change admins under your account.'}, 403)
+    want = bool((request.get_json() or {}).get('co_owner'))
+    sub.is_co_owner = want
+    db.session.commit()
+    return _utf8_json({'success': True, 'is_co_owner': sub.is_co_owner})
+
+
+# Account-level resources keyed to the owner (root_user_id) — these define the
+# shared workspace and move with the primary-owner anchor on transfer. Personal
+# per-user prefs (analytics/code-runner/saved-colors/notification/chat/sms) are
+# intentionally left with their individual user.
+_OWNERSHIP_COLUMNS = (
+    ('Website', 'user_id'), ('PermissionGroup', 'owner_user_id'),
+    ('Asset', 'user_id'), ('AssetFolder', 'user_id'),
+    ('Picture', 'user_id'), ('Folder', 'user_id'),
+    ('Newsletter', 'user_id'), ('AIAgent', 'user_id'),
+    ('Calendar', 'user_id'), ('ShippingMethod', 'user_id'),
+    ('StorageConnection', 'user_id'), ('Payment', 'user_id'),
+)
+# Unique-per-user account settings (store / SMS config) — repointed, replacing
+# any the new owner already has so the account's single config moves cleanly.
+_OWNERSHIP_UNIQUE_SETTINGS = ('StripeSettings', 'SmsProviderSettings')
+
+
+def _transfer_primary_ownership(new_owner):
+    """Make `new_owner` the new primary-owner anchor: repoint every account-level
+    resource from the current root to them, re-parent the rest of the team, and
+    swap the main-admin role. The previous owner is kept on as a co-owner so they
+    don't lose access (and so a dead/locked-out account just becomes dormant)."""
+    old_root_id = current_user.root_user_id
+    old_root = db.session.get(User, old_root_id)
+    new_id = new_owner.id
+    _g = globals()
+    for model_name, col in _OWNERSHIP_COLUMNS:
+        Model = _g[model_name]
+        Model.query.filter(getattr(Model, col) == old_root_id) \
+            .update({col: new_id}, synchronize_session=False)
+    for model_name in _OWNERSHIP_UNIQUE_SETTINGS:
+        Model = _g[model_name]
+        Model.query.filter_by(user_id=new_id).delete(synchronize_session=False)
+        Model.query.filter_by(user_id=old_root_id) \
+            .update({'user_id': new_id}, synchronize_session=False)
+    # Re-parent the other sub-admins under the new owner.
+    User.query.filter(User.parent_user_id == old_root_id, User.id != new_id) \
+        .update({'parent_user_id': new_id}, synchronize_session=False)
+    # New owner becomes the main admin; old owner becomes a co-owner under them.
+    new_owner.parent_user_id = None
+    new_owner.is_co_owner = False
+    if old_root and old_root.id != new_id:
+        old_root.parent_user_id = new_id
+        old_root.is_co_owner = True
+    db.session.commit()
+
+
+@app.route('/admin/users/<int:user_id>/transfer-ownership', methods=['POST'])
+@login_required
+def admin_transfer_ownership(user_id):
+    """Hand the primary-owner anchor to another admin under this account. Allowed
+    for any full admin (so a co-owner can take over if the main admin is gone).
+    The target must be a current sub-admin/co-owner under this account."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    new_owner = User.query.get_or_404(user_id)
+    if new_owner.parent_user_id != current_user.root_user_id or new_owner.parent_user_id is None:
+        return _utf8_json({'success': False,
+                           'error': 'You can only transfer ownership to an admin under this account.'}, 403)
+    if new_owner.id == current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'That account is already the owner.'}, 400)
+    _transfer_primary_ownership(new_owner)
+    return _utf8_json({'success': True, 'new_owner_id': new_owner.id})
+
+
 # ── Permission Groups ─────────────────────────────────────────────────────────
 
 @app.route('/admin/permission-groups', methods=['GET'])
 @login_required
 def list_permission_groups():
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     groups = PermissionGroup.query.filter_by(owner_user_id=current_user.id).order_by(PermissionGroup.name).all()
     return _utf8_json({'groups': [g.to_dict() for g in groups]})
@@ -20533,7 +21406,7 @@ def list_permission_groups():
 @app.route('/admin/permission-groups/create', methods=['POST'])
 @login_required
 def create_permission_group():
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
@@ -20555,7 +21428,7 @@ def create_permission_group():
 @app.route('/admin/permission-groups/<int:group_id>/update', methods=['POST'])
 @login_required
 def update_permission_group(group_id):
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     grp = PermissionGroup.query.get_or_404(group_id)
     if grp.owner_user_id != current_user.id:
@@ -20581,7 +21454,7 @@ def update_permission_group(group_id):
 @app.route('/admin/permission-groups/<int:group_id>/delete', methods=['POST'])
 @login_required
 def delete_permission_group(group_id):
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         return _utf8_json({'error': 'Permission denied'}, 403)
     grp = PermissionGroup.query.get_or_404(group_id)
     if grp.owner_user_id != current_user.id:
@@ -21800,12 +22673,16 @@ def _render_public_forum(website):
     page = request.args.get('page', 1, type=int)
     threads_pagination = threads_query.paginate(page=page, per_page=25, error_out=False)
 
+    author_divisions = _forum_author_divisions(
+        [t.public_user_id for t in threads_pagination.items], website)
+
     return render_template(
         'public_forum.html',
         website=website,
         threads=threads_pagination.items,
         threads_pagination=threads_pagination,
         public_user=public_user,
+        author_divisions=author_divisions,
         current_sort=sort,
         content={'current_page_url': forum_url},
     )
@@ -22093,15 +22970,8 @@ def public_login():
                 # to `public_admin_2fa` instead of `two_factor_login`, and on
                 # success we land on the requested public URL rather than the
                 # admin dashboard.
-                _needs_2fa = bool(admin.two_factor_enabled)
-                _two_fa_email = None
-                if admin.two_factor_enabled:
-                    _two_fa_email = admin.two_factor_email or admin.email
-                elif admin.is_sub_admin:
-                    _parent = db.session.get(User, admin.parent_user_id)
-                    if _parent and _parent.two_factor_enabled:
-                        _needs_2fa = True
-                        _two_fa_email = admin.email  # sub-admin's own address
+                _needs_2fa = admin_requires_2fa(admin)
+                _two_fa_email = _admin_two_fa_email(admin)
                 if _needs_2fa:
                     next_q = request.args.get('next') or _website_default_url(website)
                     if not _two_fa_email:
@@ -22506,6 +23376,38 @@ def public_forum_new_thread(prefix=None):
     )
 
 
+def _forum_author_divisions(user_ids, website):
+    """For the given public-user ids, the divisions each holds role(s) in with
+    those roles encapsulated under the division. Batched (no per-author query).
+    Returns {uid: [{'name','color','icon','roles':[{'name','color'}]}]} ordered."""
+    ids = {i for i in user_ids if i}
+    if not ids:
+        return {}
+    roles_by_user_div, div_ids = {}, set()
+    for u in PublicUser.query.filter(PublicUser.id.in_(ids)).all():
+        for r in (u.roles or []):
+            if r.division_id:
+                roles_by_user_div.setdefault(u.id, {}).setdefault(r.division_id, []).append(r)
+                div_ids.add(r.division_id)
+    if not div_ids:
+        return {}
+    divs = {d.id: d for d in Division.query.filter(
+        Division.id.in_(div_ids), Division.website_id == website.id).all()}
+    out = {}
+    for uid, by_div in roles_by_user_div.items():
+        groups = []
+        for did, roles in by_div.items():
+            d = divs.get(did)
+            if not d:
+                continue
+            groups.append({'name': d.name, 'color': d.color or '#5eeef8',
+                           'icon': d.icon or '', '_sort': (d.sort_order, (d.name or '').lower()),
+                           'roles': [{'name': r.name, 'color': r.color} for r in roles]})
+        groups.sort(key=lambda g: g['_sort'])
+        out[uid] = groups
+    return out
+
+
 @app.route('/<string:prefix>/forum/thread/<int:thread_id>', methods=['GET', 'POST'])
 @app.route('/forum/thread/<int:thread_id>', methods=['GET', 'POST'], defaults={'prefix': None})
 def public_forum_thread(thread_id, prefix=None):
@@ -22594,6 +23496,10 @@ def public_forum_thread(thread_id, prefix=None):
         'current_page_url': thread_url
     }
 
+    # Division roles encapsulated per author (thread starter + reply authors).
+    author_divisions = _forum_author_divisions(
+        [thread.public_user_id] + [r.public_user_id for r in replies], website)
+
     return render_template(
         'public_forum_thread.html',
         website=website,
@@ -22601,6 +23507,7 @@ def public_forum_thread(thread_id, prefix=None):
         replies=replies,
         replies_pagination=replies_pagination,
         public_user=public_user,
+        author_divisions=author_divisions,
         content=content
     )
 
@@ -23566,16 +24473,13 @@ def _clear_public_admin_2fa_session():
 
 
 def _admin_two_fa_email(user):
-    """Resolve which mailbox the admin's 2FA code should be sent to. Mirrors
-    the rules in /admin/login: main admins use `two_factor_email` (or their
-    primary email); sub-admins under a 2FA-enabled parent get the code at
-    their own account email."""
+    """Resolve which mailbox the admin's 2FA code should be sent to, or None if
+    2FA isn't required. Personal enrollment uses `two_factor_email`; when only
+    the org policy requires it, the code goes to the account email."""
     if user.two_factor_enabled:
         return user.two_factor_email or user.email
-    if user.is_sub_admin:
-        parent = db.session.get(User, user.parent_user_id)
-        if parent and parent.two_factor_enabled:
-            return user.email
+    if _org_requires_2fa():
+        return user.two_factor_email or user.email
     return None
 
 
@@ -24863,8 +25767,10 @@ def get_utc_start_for_user_local_days(days, user=None):
 
 @app.cli.command("disable-2fa")
 def disable_2fa_cli():
-    """Emergency disable 2FA for the admin account."""
-    user = User.query.first()
+    """Emergency disable 2FA for the admin account AND the org-wide 2FA policy.
+    Break-glass for when the org 2FA requirement + a broken email server would
+    otherwise lock every admin out."""
+    user = get_main_admin()
 
     if not user:
         print("No user found.")
@@ -24875,10 +25781,14 @@ def disable_2fa_cli():
         reason='an emergency server recovery command was used',
         needs_attention=True
     )
+    # Also lift the org-wide requirement so no admin is blocked on email codes.
+    user.org_require_2fa = False
+    user.org_2fa_email_settings_version = None
+    user.org_2fa_needs_attention = False
 
     db.session.commit()
 
-    print(f"2FA disabled for {user.username}.")
+    print(f"2FA disabled for {user.username} (and org-wide 2FA requirement lifted).")
 
 
 @app.cli.command("reset-admin-password")
@@ -24886,7 +25796,7 @@ def reset_admin_password_cli():
     """Emergency reset the admin password from the server terminal."""
     import getpass
 
-    user = User.query.first()
+    user = get_main_admin()
 
     if not user:
         print("No user found.")
@@ -24997,7 +25907,7 @@ def emergency_login_cli():
         print("Emergency login is disabled in config/security.json.")
         print("Set allow_emergency_login to true, then run this command again.")
         return
-    user = User.query.first()
+    user = get_main_admin()
 
     if not user:
         print("No admin user found.")
@@ -25261,7 +26171,7 @@ def ensure_default_website(user=None):
     """Create a default website (and home page) for a user if they don't have one.
     If no user is provided, operates on the first user in the database."""
     if user is None:
-        user = User.query.first()
+        user = get_main_admin()
     if user is None:
         return
     # Sub-admins never get their own website — they share the parent's
@@ -25658,6 +26568,7 @@ with app.app_context():
         if not _reloader_parent:
             _start_subscription_sync_scheduler()
             _start_notification_event_scheduler()
+            _start_auto_backup_scheduler()
 
         _DB_MAINTENANCE_MODE = False
 
@@ -29210,7 +30121,7 @@ def store_section_data():
 
 def _plugins_guard():
     """Block sub-admins from the plugins section with a proper permission message."""
-    if current_user.is_sub_admin:
+    if not current_user.is_full_admin:
         msg = ("You don't have permission to do this "
                "(Plugins › manage). Ask your admin to grant access.")
         wants_json = (
@@ -30846,42 +31757,43 @@ def admin_quiz_categories_reorder():
 
 @app.route('/admin/quizzes/code-runner', methods=['POST'])
 @login_required
-@require_perm('quizzes.manage')
+@require_perm('quizzes.code_runner')
 def admin_code_runner_save():
-    """Owner-only: set the Piston-compatible code-runner URL used to grade
-    coding challenges. Blank resets to the default public instance."""
-    if current_user.is_sub_admin:
-        return _utf8_json({'success': False, 'error': 'Only the account owner can change this.'}, 403)
+    """Set the org-wide Piston-compatible code-runner URL used to grade coding
+    challenges (stored on the anchor). Gated by quizzes.code_runner — full
+    admins pass automatically; sub-admins need it granted. Blank resets to the
+    default public instance."""
     data = request.get_json() or {}
     url = (data.get('piston_url') or '').strip().rstrip('/')
     if url and not (url.startswith('http://') or url.startswith('https://')):
         return _utf8_json({'success': False, 'error': 'Enter a full http(s) URL.'}, 400)
-    s = CodeRunnerSettings.query.filter_by(user_id=current_user.id).first()
+    # Org-wide setting: stored on the anchor so it's the one grading actually
+    # uses (grading resolves via website.user_id == the owner).
+    _rid = current_user.root_user_id
+    s = CodeRunnerSettings.query.filter_by(user_id=_rid).first()
     if not s:
-        s = CodeRunnerSettings(user_id=current_user.id)
+        s = CodeRunnerSettings(user_id=_rid)
         db.session.add(s)
     s.piston_url = url or None
     s.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
-    _PISTON_RUNTIMES_CACHE.pop(_code_runner_url_for_user(current_user.id), None)
+    _PISTON_RUNTIMES_CACHE.pop(_code_runner_url_for_user(_rid), None)
     return _utf8_json({'success': True, 'piston_url': s.piston_url or '',
-                       'effective_url': _code_runner_url_for_user(current_user.id)})
+                       'effective_url': _code_runner_url_for_user(_rid)})
 
 
 @app.route('/admin/quizzes/code-runner/test', methods=['POST'])
 @login_required
-@require_perm('quizzes.manage')
+@require_perm('quizzes.code_runner')
 def admin_code_runner_test():
     """Diagnose the code runner: tests the URL passed in (so it works before
     saving), lists what runtimes are installed, and runs a hello-world in every
-    supported language so the owner can see exactly which ones work."""
-    if current_user.is_sub_admin:
-        return _utf8_json({'success': False, 'error': 'Only the account owner can test this.'}, 403)
+    supported language so you can see exactly which ones work."""
     data = request.get_json(silent=True) or {}
     raw = (data.get('piston_url') or '').strip().rstrip('/')
     if raw and not (raw.startswith('http://') or raw.startswith('https://')):
         return _utf8_json({'success': False, 'error': 'Enter a full http(s) URL.'}, 400)
-    url = raw or _code_runner_url_for_user(current_user.id)
+    url = raw or _code_runner_url_for_user(current_user.root_user_id)
 
     # Always check connectivity from a fresh /runtimes fetch (don't trust cache).
     _PISTON_RUNTIMES_CACHE.pop(url, None)
@@ -30934,10 +31846,12 @@ def _unique_division_slug(website_id, base_slug, exclude_id=None):
 
 
 def _division_owned_or_403(did):
-    """(website, division) for an admin request, or (response, None) to bail."""
+    """(website, division) for an admin request, or (response, None) to bail.
+    Also enforces the sub-admin's per-division scope (can_access_division)."""
     division = Division.query.get_or_404(did)
     website = get_admin_website()
-    if not website or not is_owner(website) or division.website_id != website.id:
+    if (not website or not is_owner(website) or division.website_id != website.id
+            or not can_access_division(division.id)):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
     return website, division
 
@@ -30945,39 +31859,101 @@ def _division_owned_or_403(did):
 def _ksa_owned_or_403(kid):
     ksa = KSA.query.get_or_404(kid)
     website = get_admin_website()
-    if not website or not is_owner(website) or ksa.website_id != website.id:
+    if (not website or not is_owner(website) or ksa.website_id != website.id
+            or not can_access_division(ksa.division_id)):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
     return website, ksa
 
 
 @app.route('/admin/divisions')
 @login_required
-@require_perm('ksa.view')
 def admin_divisions_page():
+    # Hub for the group container (divisions / members / roles) plus the KSA
+    # feature module. Accessible to a sub-admin holding EITHER permission;
+    # the template hides whichever sections they can't use.
+    if current_user.is_sub_admin and not (
+            current_user.has_permission('divisions.view')
+            or current_user.has_permission('ksa.view')):
+        flash("You don't have permission to view this page.", 'permission_denied')
+        return redirect(url_for('dashboard'))
     website = get_admin_website()
     divisions, ksas_by_division, roles_by_division = [], {}, {}
+    shared_ksas_by_division, share_count_by_ksa, div_names = {}, {}, {}
+    active_members_by_division = {}
+    folders_by_division, ksa_groups_by_division, folders_json = {}, {}, {}
     if website:
         divisions = Division.query.filter_by(website_id=website.id).order_by(
             Division.sort_order, Division.name).all()
+        # Per-division scope: a restricted sub-admin only sees granted divisions.
+        divisions = [d for d in divisions if can_access_division(d.id)]
+        div_names = {d.id: d.name for d in divisions}
+        if divisions:
+            for did, cnt in db.session.query(
+                    DivisionMembership.division_id, db.func.count(DivisionMembership.id)) \
+                    .filter(DivisionMembership.division_id.in_([d.id for d in divisions]),
+                            DivisionMembership.status == 'active') \
+                    .group_by(DivisionMembership.division_id).all():
+                active_members_by_division[did] = cnt
+        for f in KSAFolder.query.filter_by(website_id=website.id).order_by(
+                KSAFolder.sort_order, KSAFolder.name).all():
+            folders_by_division.setdefault(f.division_id, []).append(f)
+            folders_json.setdefault(str(f.division_id), []).append({'id': f.id, 'name': f.name})
         all_ksas = KSA.query.filter_by(website_id=website.id).order_by(
             KSA.sort_order, KSA.name).all()
+        ksa_by_id = {k.id: k for k in all_ksas}
         for k in all_ksas:
             ksas_by_division.setdefault(k.division_id, []).append(k)
+        # Owned KSAs grouped by folder (folders in order, then "Unfiled" last).
+        for d in divisions:
+            owned = ksas_by_division.get(d.id, [])
+            groups = []
+            for f in folders_by_division.get(d.id, []):
+                fk = [k for k in owned if k.folder_id == f.id]
+                groups.append({'folder': f, 'ksas': fk})
+            unfiled = [k for k in owned if not k.folder_id]
+            if unfiled or not groups:
+                groups.append({'folder': None, 'ksas': unfiled})
+            ksa_groups_by_division[d.id] = groups
+        # KSAs lent in from other divisions (read-only in the borrowing division),
+        # plus how many divisions each owned KSA is shared into.
+        for s in DivisionKSAShare.query.join(KSA, DivisionKSAShare.ksa_id == KSA.id) \
+                .filter(KSA.website_id == website.id).all():
+            k = ksa_by_id.get(s.ksa_id)
+            if k:
+                shared_ksas_by_division.setdefault(s.division_id, []).append(k)
+                share_count_by_ksa[s.ksa_id] = share_count_by_ksa.get(s.ksa_id, 0) + 1
         for r in PublicUserRole.query.filter_by(website_id=website.id).order_by(PublicUserRole.name).all():
             if r.division_id:
                 roles_by_division.setdefault(r.division_id, []).append(r)
-    can_manage = (not current_user.is_sub_admin) or current_user.has_permission('ksa.manage')
+    is_sub = current_user.is_sub_admin
+    _p = current_user.has_permission
+    can_create_div = (not is_sub) or _p('divisions.create_delete')
+    can_edit_div = (not is_sub) or _p('divisions.edit')
+    can_members_div = (not is_sub) or _p('divisions.members')
+    can_delete_div = (not is_sub) or _p('divisions.create_delete')
+    can_view_ksa = (not is_sub) or _p('ksa.view')
+    can_manage_ksa = (not is_sub) or _p('ksa.manage')
+    div_singular, div_plural = _division_labels(website)
     return render_template('divisions_admin.html', website=website,
                            current_website=website,
                            divisions=divisions, ksas_by_division=ksas_by_division,
+                           ksa_groups_by_division=ksa_groups_by_division,
+                           folders_by_division=folders_by_division, folders_json=folders_json,
+                           active_members_by_division=active_members_by_division,
+                           shared_ksas_by_division=shared_ksas_by_division,
+                           share_count_by_ksa=share_count_by_ksa, div_names=div_names,
                            roles_by_division=roles_by_division,
                            ksa_types=_ksa_types(website), ksa_level_labels=_ksa_level_labels(website),
-                           can_manage=can_manage, page_id=None)
+                           can_create_div=can_create_div, can_edit_div=can_edit_div,
+                           can_members_div=can_members_div, can_delete_div=can_delete_div,
+                           can_view_ksa=can_view_ksa, can_manage_ksa=can_manage_ksa,
+                           div_singular=div_singular, div_plural=div_plural,
+                           page_id=None)
 
 
 @app.route('/admin/divisions/create', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.create_delete')
 def admin_divisions_create():
     website = get_admin_website()
     if not website:
@@ -30995,12 +31971,34 @@ def admin_divisions_create():
                  sort_order=(max_sort or 0) + 1)
     db.session.add(d)
     db.session.commit()
+    _grant_division_to_restricted_creator(d.id)
     return _utf8_json({'success': True, 'division': d.to_dict()}, 201)
+
+
+def _grant_division_to_restricted_creator(division_id):
+    """If a scoped sub-admin creates a division, add it to the allowed list that
+    governs them so they can manage what they just made. Writes to their
+    permission group's list if they have one, else their individual permissions
+    (this is the dict _effective_perms reads). No-op for unrestricted users."""
+    if not current_user.is_sub_admin:
+        return
+    if _division_restriction() is None:
+        return  # unrestricted — already covers everything
+    from sqlalchemy.orm.attributes import flag_modified
+    target = current_user.permission_group if current_user.permission_group_id else current_user
+    perms = dict(target.permissions or {})
+    allowed = list(perms.get('divisions.allowed_division_ids') or [])
+    if division_id not in allowed:
+        allowed.append(division_id)
+        perms['divisions.allowed_division_ids'] = allowed
+        target.permissions = perms
+        flag_modified(target, 'permissions')
+        db.session.commit()
 
 
 @app.route('/admin/divisions/<int:did>/update', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.edit')
 def admin_divisions_update(did):
     website, d = _division_owned_or_403(did)
     if d is None:
@@ -31021,7 +32019,7 @@ def admin_divisions_update(did):
 
 @app.route('/admin/divisions/<int:did>/delete', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.create_delete')
 def admin_divisions_delete(did):
     website, d = _division_owned_or_403(did)
     if d is None:
@@ -31034,7 +32032,7 @@ def admin_divisions_delete(did):
 
 @app.route('/admin/divisions/reorder', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.edit')
 def admin_divisions_reorder():
     website = get_admin_website()
     if not website:
@@ -31070,10 +32068,24 @@ def admin_ksa_create(did):
     max_sort = db.session.query(db.func.max(KSA.sort_order)).filter_by(division_id=d.id).scalar()
     k = KSA(website_id=website.id, division_id=d.id, ksa_type=ktype, name=name,
             description=(data.get('description') or '').strip() or None,
+            folder_id=_valid_folder_id(data.get('folder_id'), d.id),
             max_level=max_level, sort_order=(max_sort or 0) + 1)
     db.session.add(k)
     db.session.commit()
     return _utf8_json({'success': True, 'ksa': k.to_dict()}, 201)
+
+
+def _valid_folder_id(raw, division_id):
+    """A KSA's folder must belong to its own division; anything else (or blank)
+    leaves it unfiled (folder_id NULL)."""
+    if raw in (None, '', 0, '0'):
+        return None
+    try:
+        fid = int(raw)
+    except (TypeError, ValueError):
+        return None
+    f = KSAFolder.query.filter_by(id=fid, division_id=division_id).first()
+    return f.id if f else None
 
 
 @app.route('/admin/ksa/<int:kid>/update', methods=['POST'])
@@ -31098,6 +32110,8 @@ def admin_ksa_update(kid):
             k.max_level = max(1, min(10, int(data.get('max_level') or 4)))
         except (ValueError, TypeError):
             pass
+    if 'folder_id' in data:
+        k.folder_id = _valid_folder_id(data.get('folder_id'), k.division_id)
     db.session.commit()
     return _utf8_json({'success': True, 'ksa': k.to_dict()})
 
@@ -31131,6 +32145,111 @@ def admin_ksa_reorder(did):
     return _utf8_json({'success': True})
 
 
+# ── KSA folders: named groupings of a division's KSAs (e.g. "1st year") ───────
+
+def _folder_owned_or_403(fid):
+    f = KSAFolder.query.get_or_404(fid)
+    website = get_admin_website()
+    if (not website or not is_owner(website) or f.website_id != website.id
+            or not can_access_division(f.division_id)):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, f
+
+
+@app.route('/admin/divisions/<int:did>/folders/create', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_folder_create(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    name = ((request.get_json() or {}).get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    max_sort = db.session.query(db.func.max(KSAFolder.sort_order)).filter_by(division_id=d.id).scalar()
+    f = KSAFolder(website_id=website.id, division_id=d.id, name=name,
+                  sort_order=(max_sort or 0) + 1)
+    db.session.add(f)
+    db.session.commit()
+    return _utf8_json({'success': True, 'folder': f.to_dict()}, 201)
+
+
+@app.route('/admin/folders/<int:fid>/update', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_folder_update(fid):
+    website, f = _folder_owned_or_403(fid)
+    if f is None:
+        return website
+    name = ((request.get_json() or {}).get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    f.name = name
+    db.session.commit()
+    return _utf8_json({'success': True, 'folder': f.to_dict()})
+
+
+@app.route('/admin/folders/<int:fid>/delete', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_folder_delete(fid):
+    website, f = _folder_owned_or_403(fid)
+    if f is None:
+        return website
+    # KSAs filed here become unfiled (folder_id SET NULL via FK).
+    db.session.delete(f)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ── KSA sharing: lend a KSA to other divisions (it stays owned by its origin) ──
+
+@app.route('/admin/ksa/<int:kid>/shares')
+@login_required
+@require_perm('ksa.view')
+def admin_ksa_shares_get(kid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    shared_into = {s.division_id for s in k.shares.all()}
+    divisions = [d for d in Division.query.filter_by(website_id=website.id)
+                 .order_by(Division.sort_order, Division.name).all()
+                 if d.id != k.division_id and can_access_division(d.id)]
+    return _utf8_json({'success': True,
+                       'divisions': [{'id': d.id, 'name': d.name,
+                                      'shared': d.id in shared_into} for d in divisions]})
+
+
+@app.route('/admin/ksa/<int:kid>/shares', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_shares_save(kid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    wanted = set()
+    for did in ((request.get_json() or {}).get('division_ids') or []):
+        try:
+            wanted.add(int(did))
+        except (TypeError, ValueError):
+            continue
+    # Only divisions on this website that the editor can access, never the owner
+    # division. Shares to divisions outside a scoped sub-admin's reach (set by
+    # the owner) are preserved — they only sync the ones they can see.
+    accessible = {d.id for d in Division.query.filter_by(website_id=website.id).all()
+                  if d.id != k.division_id and can_access_division(d.id)}
+    wanted &= accessible
+    existing = {s.division_id: s for s in k.shares.all()}
+    for did, s in existing.items():
+        if did in accessible and did not in wanted:
+            db.session.delete(s)
+    for did in wanted:
+        if did not in existing:
+            db.session.add(DivisionKSAShare(division_id=did, ksa_id=k.id))
+    db.session.commit()
+    return _utf8_json({'success': True, 'division_ids': sorted(wanted)})
+
+
 @app.route('/admin/ksa/settings', methods=['POST'])
 @login_required
 @require_perm('ksa.manage')
@@ -31160,13 +32279,33 @@ def admin_ksa_settings():
                        'types': _ksa_types(website)})
 
 
+@app.route('/admin/divisions/settings', methods=['POST'])
+@login_required
+@require_perm('divisions.create_delete')
+def admin_division_settings():
+    """Per-website division/group config: the custom singular/plural label."""
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    sing = (data.get('singular') or '').strip()[:40]
+    plur = (data.get('plural') or '').strip()[:40]
+    # Blank → fall back to the default label.
+    website.division_label_singular = sing or None
+    website.division_label_plural = plur or None
+    db.session.commit()
+    s, p = _division_labels(website)
+    return _utf8_json({'success': True, 'singular': s, 'plural': p})
+
+
 # ── KSA matrix Phase 3: division membership + role requirements ──────────────
 
 def _membership_owned_or_403(mid):
     m = DivisionMembership.query.get_or_404(mid)
     website = get_admin_website()
     div = db.session.get(Division, m.division_id)
-    if not website or not is_owner(website) or not div or div.website_id != website.id:
+    if (not website or not is_owner(website) or not div or div.website_id != website.id
+            or not can_access_division(div.id)):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
     return website, m
 
@@ -31174,18 +32313,23 @@ def _membership_owned_or_403(mid):
 def _role_for_ksa_or_403(role_id):
     role = PublicUserRole.query.get_or_404(role_id)
     website = get_admin_website()
-    if not website or not is_owner(website) or role.website_id != website.id:
+    # Requirements are KSA-scoped, so the role must belong to a division in scope.
+    if (not website or not is_owner(website) or role.website_id != website.id
+            or not can_access_division(role.division_id)):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
     return website, role
 
 
 @app.route('/admin/divisions/<int:did>/members')
 @login_required
-@require_perm('ksa.view')
+@require_perm('divisions.view')
 def admin_division_members(did):
     website, d = _division_owned_or_403(did)
     if d is None:
         return website
+    div_roles = PublicUserRole.query.filter_by(website_id=website.id, division_id=d.id) \
+        .order_by(PublicUserRole.name).all()
+    div_role_ids = {r.id for r in div_roles}
     members = []
     for m in d.memberships.order_by(DivisionMembership.created_at).all():
         u = db.session.get(PublicUser, m.public_user_id)
@@ -31193,13 +32337,105 @@ def admin_division_members(did):
             continue
         members.append({'membership_id': m.id, 'public_user_id': u.id,
                         'name': u.effective_display_name, 'username': u.username,
-                        'status': m.status})
-    return _utf8_json({'success': True, 'members': members})
+                        'status': m.status,
+                        'role_ids': [r.id for r in (u.roles or []) if r.id in div_role_ids]})
+    return _utf8_json({'success': True, 'members': members,
+                       'roles': [{'id': r.id, 'name': r.name, 'color': r.color} for r in div_roles]})
+
+
+# ── Division roles: created & assigned within the division (distinct from the
+#    site-wide roles managed on the Public Users page) ──────────────────────--
+
+def _division_role_or_403(rid):
+    role = PublicUserRole.query.get_or_404(rid)
+    website = get_admin_website()
+    if (not website or not is_owner(website) or role.website_id != website.id
+            or role.division_id is None or not can_access_division(role.division_id)):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, role
+
+
+@app.route('/admin/divisions/<int:did>/roles/create', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_division_role_create(did):
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    if PublicUserRole.query.filter_by(website_id=website.id, name=name).first():
+        return _utf8_json({'success': False, 'error': 'A role with that name already exists on this site.'}, 400)
+    role = PublicUserRole(website_id=website.id, division_id=d.id, name=name,
+                          color=(data.get('color') or '#5eeef8').strip())
+    db.session.add(role)
+    db.session.commit()
+    return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
+
+
+@app.route('/admin/divisions/roles/<int:rid>/update', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_division_role_update(rid):
+    website, role = _division_role_or_403(rid)
+    if role is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if name and name != role.name:
+        if PublicUserRole.query.filter_by(website_id=role.website_id, name=name).first():
+            return _utf8_json({'success': False, 'error': 'A role with that name already exists.'}, 400)
+        role.name = name
+    if (data.get('color') or '').strip():
+        role.color = data['color'].strip()
+    db.session.commit()
+    return _utf8_json({'success': True, 'role': role.to_dict()})
+
+
+@app.route('/admin/divisions/roles/<int:rid>/delete', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_division_role_delete(rid):
+    website, role = _division_role_or_403(rid)
+    if role is None:
+        return website
+    db.session.delete(role)  # RoleKSA + assignments cascade
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/divisions/<int:did>/members/<int:uid>/roles', methods=['POST'])
+@login_required
+@require_perm('divisions.members')
+def admin_division_member_roles(did, uid):
+    """Replace a member's roles *within this division*, preserving their
+    site-wide and other-division roles. Ensures membership exists."""
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    u = PublicUser.query.filter_by(id=uid, website_id=website.id).first()
+    if not u:
+        return _utf8_json({'success': False, 'error': 'Member not found.'}, 404)
+    wanted_ids = set()
+    for rid in ((request.get_json() or {}).get('role_ids') or []):
+        try:
+            wanted_ids.add(int(rid))
+        except (TypeError, ValueError):
+            continue
+    this_div_roles = PublicUserRole.query.filter_by(website_id=website.id, division_id=d.id).all()
+    selected = [r for r in this_div_roles if r.id in wanted_ids]
+    # keep everything that isn't a role of THIS division, swap in the selection
+    u.roles = [r for r in (u.roles or []) if r.division_id != d.id] + selected
+    _ensure_division_membership(u.id, d.id)
+    db.session.commit()
+    return _utf8_json({'success': True, 'role_ids': [r.id for r in selected]})
 
 
 @app.route('/admin/divisions/<int:did>/candidates')
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.members')
 def admin_division_candidates(did):
     """Browsable list of public users who could be added to the division
     (active, not already members), optionally filtered by a search string."""
@@ -31231,7 +32467,7 @@ def admin_division_candidates(did):
 
 @app.route('/admin/divisions/<int:did>/members/add', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.members')
 def admin_division_member_add(did):
     website, d = _division_owned_or_403(did)
     if d is None:
@@ -31261,7 +32497,7 @@ def admin_division_member_add(did):
 
 @app.route('/admin/divisions/membership/<int:mid>/status', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.members')
 def admin_membership_status(mid):
     website, m = _membership_owned_or_403(mid)
     if m is None:
@@ -31276,7 +32512,7 @@ def admin_membership_status(mid):
 
 @app.route('/admin/divisions/membership/<int:mid>/remove', methods=['POST'])
 @login_required
-@require_perm('ksa.manage')
+@require_perm('divisions.members')
 def admin_membership_remove(mid):
     website, m = _membership_owned_or_403(mid)
     if m is None:
@@ -31296,13 +32532,31 @@ def admin_role_ksa_requirements_get(role_id):
     if not role.division_id:
         return _utf8_json({'success': True, 'role': role.to_dict(),
                            'division': None, 'catalog': [], 'requirements': {}})
-    catalog = [k.to_dict() for k in KSA.query.filter_by(division_id=role.division_id)
-               .order_by(KSA.sort_order, KSA.name).all()]
+    owned, shared = _division_effective_ksas(role.division_id)
+    div_names = {d.id: d.name for d in Division.query.filter_by(website_id=website.id).all()}
+    folders = KSAFolder.query.filter_by(division_id=role.division_id).order_by(
+        KSAFolder.sort_order, KSAFolder.name).all()
+    folder_names = {f.id: f.name for f in folders}
+    catalog = []
+    for k in owned:
+        d = k.to_dict()
+        d['folder_name'] = folder_names.get(k.folder_id)
+        catalog.append(d)
+    for k in shared:
+        d = k.to_dict()
+        # A shared KSA's folder belongs to its OWNER division, not this one —
+        # don't file it under a local folder; group it under "Shared" instead.
+        d['folder_id'] = None
+        d['folder_name'] = None
+        d['shared'] = True
+        d['owner_division'] = div_names.get(k.division_id, '')
+        catalog.append(d)
     reqs = {str(rk.ksa_id): {'level': rk.required_level, 'required': rk.required,
                              'priority': rk.priority} for rk in role.ksa_requirements.all()}
     div = db.session.get(Division, role.division_id)
     return _utf8_json({'success': True, 'role': role.to_dict(),
                        'division': div.to_dict() if div else None,
+                       'folders': [{'id': f.id, 'name': f.name} for f in folders],
                        'catalog': catalog, 'requirements': reqs})
 
 
@@ -31319,7 +32573,8 @@ def admin_role_ksa_requirements_save(role_id):
     if not role.division_id:
         return _utf8_json({'success': False, 'error': 'Give this role a division first.'}, 400)
     incoming = (request.get_json() or {}).get('requirements') or {}
-    valid = {k.id: k for k in KSA.query.filter_by(division_id=role.division_id).all()}
+    owned, shared = _division_effective_ksas(role.division_id)
+    valid = {k.id: k for k in (owned + shared)}
     RoleKSA.query.filter_by(role_id=role.id).delete(synchronize_session=False)
     for kid, spec in incoming.items():
         try:
@@ -31413,7 +32668,9 @@ def admin_division_matrix(did):
     website, d = _division_owned_or_403(did)
     if d is None:
         abort(403)
-    ksas = KSA.query.filter_by(division_id=d.id).order_by(KSA.sort_order, KSA.name).all()
+    owned_ksas, shared_ksas = _division_effective_ksas(d.id)
+    ksas = owned_ksas + shared_ksas
+    shared_ksa_ids = {k.id for k in shared_ksas}
     ksa_ids = [k.id for k in ksas]
 
     # Division roles + their requirements (role_id -> {ksa_id: required_level}).
@@ -31426,7 +32683,8 @@ def admin_division_matrix(did):
             req_by_role.setdefault(rk.role_id, {})[rk.ksa_id] = rk.required_level
 
     role_filter = request.args.get('role', type=int)
-    status_filter = request.args.get('status') or 'all'
+    # Default to active members only; "All members" is an explicit choice.
+    status_filter = request.args.get('status') or 'active'
 
     member_users, member_status = {}, {}
     for m in d.memberships.order_by(DivisionMembership.created_at).all():
@@ -31466,7 +32724,9 @@ def admin_division_matrix(did):
     can_manage = (not current_user.is_sub_admin) or current_user.has_permission('ksa.manage')
     return render_template('division_matrix.html', website=website, current_website=website,
                            division=d, ksas=ksas, rows=rows, div_roles=div_roles,
+                           shared_ksa_ids=shared_ksa_ids,
                            role_filter=role_filter, status_filter=status_filter,
+                           member_total=len(member_ids),
                            level_labels=_ksa_level_labels(website), can_manage=can_manage,
                            page_id=None)
 
@@ -31540,13 +32800,15 @@ def admin_quizzes_page():
     if quizzes_restricted:
         accessible_quiz_ids = {q.id for q in quizzes if can_access_quiz(q)}
         accessible_category_ids = {c.id for c in categories if can_access_quiz_category(c.id)}
-    # Code-runner (Piston) config is account-global and owner-only.
+    # Code-runner (Piston) config is org-wide (stored on the anchor); gated by
+    # the quizzes.code_runner permission (full admins pass automatically).
     code_runner_configured = ''
     code_runner_effective = _PISTON_DEFAULT_URL
-    if not current_user.is_sub_admin:
-        _crs = CodeRunnerSettings.query.filter_by(user_id=current_user.id).first()
+    if current_user.has_permission('quizzes.code_runner'):
+        _rid = current_user.root_user_id
+        _crs = CodeRunnerSettings.query.filter_by(user_id=_rid).first()
         code_runner_configured = (_crs.piston_url or '') if _crs else ''
-        code_runner_effective = _code_runner_url_for_user(current_user.id)
+        code_runner_effective = _code_runner_url_for_user(_rid)
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id).all() if website else []
     return render_template('quizzes_admin.html', quizzes=quizzes, website=website,
@@ -31557,6 +32819,7 @@ def admin_quizzes_page():
                            code_runner_configured=code_runner_configured,
                            code_runner_effective=code_runner_effective,
                            code_runner_default=_PISTON_DEFAULT_URL,
+                           can_edit_code_runner=current_user.has_permission('quizzes.code_runner'),
                            current_website=website,
                            current_website_pages=current_website_pages, page_id=None)
 
@@ -32565,7 +33828,8 @@ def _member_ksa_profile(target_user, website, full=False):
                     slot['level'] = max(slot['level'], rk.required_level)
                     slot['required'] = slot['required'] or rk.required
                     slot['prank'] = min(slot['prank'], {'high': 0, 'medium': 1, 'low': 2}.get(rk.priority, 1))
-        ksas = KSA.query.filter_by(division_id=d.id).order_by(KSA.sort_order, KSA.name).all()
+        owned, shared = _division_effective_ksas(d.id)
+        ksas = owned + shared
         levels = {}
         if ksas:
             for uk in UserKSA.query.filter(UserKSA.public_user_id == target_user.id,
@@ -32580,6 +33844,7 @@ def _member_ksa_profile(target_user, website, full=False):
             target = req['level'] if req else 0
             items.append({
                 'id': k.id, 'name': k.name, 'type': k.ksa_type, 'level': lv,
+                'description': k.description or '',
                 'label': _ksa_level_label(website, lv), 'max': k.max_level,
                 'target': target,
                 'target_label': _ksa_level_label(website, target) if target else None,
@@ -32622,6 +33887,21 @@ def _render_members_directory(prefix):
                  .order_by(Division.sort_order, Division.name).all())
     division_id = request.args.get('division', type=int)
     active_division = next((d for d in divisions if d.id == division_id), None)
+    # Skill filter: find members who hold a given KSA at >= a chosen level.
+    # Skills are grouped by their owning division for the dropdown.
+    all_ksas = KSA.query.filter_by(website_id=website.id).order_by(KSA.name).all()
+    skill_id = request.args.get('ksa', type=int)
+    active_skill = next((k for k in all_ksas if k.id == skill_id), None)
+    skill_level = request.args.get('level', type=int) or 1
+    # Clamp to the configured level range so the template's level_labels[...]
+    # lookup is always in bounds (a crafted ?level=99 can't break the page).
+    _max_lvl = len(_ksa_level_labels(website)) - 1
+    skill_level = max(1, min(skill_level, max(1, _max_lvl)))
+    _ks_by_div = {}
+    for k in all_ksas:
+        _ks_by_div.setdefault(k.division_id, []).append(k)
+    skill_groups = [{'division': d.name, 'ksas': _ks_by_div[d.id]}
+                    for d in divisions if d.id in _ks_by_div]
 
     query = PublicUser.query.filter(PublicUser.website_id == website.id,
                                     PublicUser.is_banned == False,
@@ -32639,6 +33919,9 @@ def _render_members_directory(prefix):
     if active_division is not None:
         query = query.filter(PublicUser.division_memberships.any(
             DivisionMembership.division_id == active_division.id))
+    if active_skill is not None:
+        query = query.filter(PublicUser.ksa_levels.any(db.and_(
+            UserKSA.ksa_id == active_skill.id, UserKSA.level >= skill_level)))
     # "Excluded" roles (e.g. Alumni) drop their members from the default and
     # any normal-role view, but are still browsable by selecting that role.
     exclude_role_ids = [r.id for r in roles if r.exclude_from_directory]
@@ -32648,9 +33931,12 @@ def _render_members_directory(prefix):
         PublicUser.display_username, PublicUser.username)).asc())
     page = request.args.get('page', 1, type=int)
     pagination = query.paginate(page=page, per_page=30, error_out=False)
-    # Division badges per member on the page (batched to avoid an N+1).
+    # Division badges per member on the page (batched), each carrying the roles
+    # that member holds within that division so division-scoped roles render
+    # encapsulated under their division (matching the profile page).
     member_divisions = {}
     _mids = [u.id for u in pagination.items]
+    _user_by_id = {u.id: u for u in pagination.items}
     if _mids:
         _dc = {}
         for ms in DivisionMembership.query.filter(DivisionMembership.public_user_id.in_(_mids)).all():
@@ -32659,14 +33945,26 @@ def _render_members_directory(prefix):
                 d = db.session.get(Division, ms.division_id)
                 _dc[ms.division_id] = d
             if d and d.website_id == website.id:
+                u = _user_by_id.get(ms.public_user_id)
+                d_roles = [r for r in (u.roles or []) if r.division_id == d.id] if u else []
                 member_divisions.setdefault(ms.public_user_id, []).append(
                     {'name': d.name, 'color': d.color or '#5eeef8',
-                     'icon': d.icon or '', 'status': ms.status})
+                     'icon': d.icon or '', 'status': ms.status,
+                     'roles': [{'name': r.name, 'color': r.color} for r in d_roles]})
+    # Each shown member's level for the active skill (for a badge on the card).
+    member_skill_levels = {}
+    if active_skill is not None and _mids:
+        for uk in UserKSA.query.filter(UserKSA.public_user_id.in_(_mids),
+                                       UserKSA.ksa_id == active_skill.id).all():
+            member_skill_levels[uk.public_user_id] = uk.level
     return render_template('public_members.html', website=website, public_user=viewer,
                            members=pagination.items, pagination=pagination, q=q,
                            roles=roles, active_role=active_role,
                            divisions=divisions, active_division=active_division,
                            member_divisions=member_divisions,
+                           skill_groups=skill_groups, active_skill=active_skill,
+                           skill_level=skill_level, member_skill_levels=member_skill_levels,
+                           level_labels=_ksa_level_labels(website),
                            members_base=_members_base_url(website),
                            members_filter_url=lambda **kw: url_for(
                                'public_members', prefix=website.url_prefix or None, **kw),
@@ -32707,6 +34005,22 @@ def _render_member_profile(prefix, user_id):
     guides_done = sum(1 for g in _member_guide_progress(target, website) if g['is_done'])
     division_count = DivisionMembership.query.filter_by(public_user_id=target.id).count()
 
+    # Split roles: site-wide vs division-scoped, and group the latter under
+    # their division so the profile shows which divisions the member holds
+    # roles in (especially when they span several divisions).
+    _all_roles = target.roles or []
+    site_roles = [r for r in _all_roles if r.division_id is None]
+    _roles_by_div = {}
+    for r in _all_roles:
+        if r.division_id:
+            _roles_by_div.setdefault(r.division_id, []).append(r)
+    division_role_groups = []
+    if _roles_by_div:
+        _divs = Division.query.filter(Division.id.in_(_roles_by_div.keys()),
+                                      Division.website_id == website.id).all()
+        for d in sorted(_divs, key=lambda x: (x.sort_order, (x.name or '').lower())):
+            division_role_groups.append({'division': d, 'roles': _roles_by_div[d.id]})
+
     def _forum_thread_url(thread_id):
         return (url_for('public_forum_thread', thread_id=thread_id, prefix=website.url_prefix)
                 if website.url_prefix else url_for('public_forum_thread', thread_id=thread_id))
@@ -32720,6 +34034,7 @@ def _render_member_profile(prefix, user_id):
                            post_count=thread_count + reply_count, guides_done=guides_done,
                            forum_items=forum_items, guide_items=guide_items,
                            ksa_profile=ksa_profile, division_count=division_count,
+                           site_roles=site_roles, division_role_groups=division_role_groups,
                            ksa_full=is_self,
                            is_self=is_self,
                            members_base=_members_base_url(website),
@@ -32730,14 +34045,13 @@ def _render_member_profile(prefix, user_id):
 
 @app.route('/admin/settings/profanity', methods=['POST'])
 @login_required
+@require_perm('posts.settings')
 def save_profanity_settings():
-    if current_user.is_sub_admin:
-        return _utf8_json({'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
     enabled = bool(data.get('enabled', False))
     words   = (data.get('words') or '').strip() or None
     action  = data.get('action', 'block') if data.get('action') in ('block', 'replace') else 'block'
-    live_websites = Website.query.filter_by(user_id=current_user.id, is_draft=False).all()
+    live_websites = Website.query.filter_by(user_id=current_user.root_user_id, is_draft=False).all()
     if not live_websites:
         return _utf8_json({'error': 'No website'}, 400)
     for w in live_websites:

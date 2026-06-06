@@ -117,6 +117,72 @@
 </details>
 {% endmacro %}
 
+{% macro division_access_picker(cb, clearfn) %}
+<details style="margin-bottom:16px;">
+    <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+        <i class="fas fa-sitemap" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+        Divisions Access
+        <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow all divisions</span>
+    </summary>
+    <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+        <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+            Check the <strong>divisions</strong> this person may manage. The Divisions permissions above (view / edit / members / create-delete) and the KSA permissions apply only within the checked divisions.
+            If nothing is checked, all divisions are accessible.
+        </p>
+        {% if not division_catalog %}
+        <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No divisions found yet.</div>
+        {% else %}
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="{{ clearfn }}()">Clear all</button>
+        </div>
+        {% for site in division_catalog %}
+        <div style="margin-bottom:10px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.35);margin:6px 0 4px;">{{ site.website_name }}</div>
+            {% for dv in site.divisions %}
+            <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+                <input type="checkbox" class="{{ cb }}" data-division-id="{{ dv.id }}" value="{{ dv.id }}"
+                       style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+                <i class="fas fa-sitemap" style="color:rgba(94,238,248,0.5);font-size:0.82rem;flex-shrink:0;"></i>
+                <span style="font-size:0.82rem;">{{ dv.name }}</span>
+            </label>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+</details>
+{% endmacro %}
+
+{% macro group_assign_picker(cb, clearfn) %}
+<details style="margin-bottom:16px;">
+    <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+        <i class="fas fa-user-shield" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+        Assignable Permission Groups
+        <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow assigning any group</span>
+    </summary>
+    <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+        <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+            When this person promotes a public user to staff (or creates/edits staff), they may only assign the permission groups checked here — and can't hand out ad-hoc custom permissions. Use this to stop them granting more power than they hold. If nothing is checked, they can assign any group.
+        </p>
+        {% if not permission_groups %}
+        <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No permission groups yet.</div>
+        {% else %}
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="{{ clearfn }}()">Clear all</button>
+        </div>
+        {% for g in permission_groups %}
+        <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+            <input type="checkbox" class="{{ cb }}" data-group-id="{{ g.id }}" value="{{ g.id }}"
+                   style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+            <i class="fas fa-user-shield" style="color:rgba(94,238,248,0.5);font-size:0.82rem;flex-shrink:0;"></i>
+            <span style="font-size:0.82rem;">{{ g.name }}</span>
+        </label>
+        {% endfor %}
+        {% endif %}
+    </div>
+</details>
+{% endmacro %}
+
 <style>
 .au-page {
     width: min(1000px, calc(100% - 32px));
@@ -221,6 +287,13 @@
     color: #a07dff; white-space: nowrap; margin-left: 6px;
     vertical-align: middle;
 }
+.au-coowner-badge {
+    font-size: 0.68rem; font-weight: 800; padding: 2px 8px;
+    border-radius: 20px; background: rgba(255,200,80,0.16);
+    color: #ffce6b; border: 1px solid rgba(255,200,80,0.4);
+    white-space: nowrap; margin-left: 6px; vertical-align: middle;
+}
+.uw-btn.is-coowner { background: rgba(255,200,80,0.16); color: #ffce6b; border-color: rgba(255,200,80,0.4); }
 .au-online-badge {
     font-size: 0.65rem; font-weight: 700; padding: 2px 7px;
     border-radius: 20px; background: rgba(94,238,180,0.15);
@@ -296,7 +369,7 @@
             <h1 class="au-title">Admin Users</h1>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            {% if not current_user.is_sub_admin %}
+            {% if current_user.is_full_admin %}
             <button class="uw-btn uw-btn-secondary" onclick="openGroupModal()">
                 <i class="fas fa-layer-group"></i> New Group
             </button>
@@ -307,7 +380,7 @@
         </div>
     </div>
 
-    {% if not current_user.is_sub_admin %}
+    {% if current_user.is_full_admin %}
     {% if permission_groups %}
     <p class="au-section-title">Permission Groups</p>
     <div class="au-list" id="pgList">
@@ -334,7 +407,7 @@
     {% endif %}
 
     {% if sub_admins %}
-    {% if not current_user.is_sub_admin %}<p class="au-section-title">Users</p>{% endif %}
+    {% if current_user.is_full_admin %}<p class="au-section-title">Users</p>{% endif %}
     <div class="au-list">
         {% for u in sub_admins %}
         <div class="au-card" id="auCard-{{ u.id }}">
@@ -342,6 +415,9 @@
             <div class="au-info">
                 <div class="au-name">
                     {% if u.full_name %}{{ u.full_name }} <span style="opacity:0.5;font-weight:400;">· {{ u.username }}</span>{% else %}{{ u.username }}{% endif %}
+                    {% if u.is_co_owner %}
+                    <span class="au-coowner-badge" title="Co-owner — full, unrestricted control"><i class="fas fa-user-shield"></i> Co-owner</span>
+                    {% endif %}
                     {% if u.permission_group %}
                     <span class="au-group-badge" title="Permission group">{{ u.permission_group.name }}</span>
                     {% endif %}
@@ -365,6 +441,14 @@
                 <button class="uw-btn uw-btn-secondary" onclick="openUserModal({{ u.id }})" title="Edit">
                     <i class="fas fa-pen"></i>
                 </button>
+                {% if current_user.is_full_admin %}
+                <button class="uw-btn uw-btn-secondary{% if u.is_co_owner %} is-coowner{% endif %}" onclick="toggleCoOwner({{ u.id }}, {{ 'true' if u.is_co_owner else 'false' }}, '{{ u.username | e }}')" title="{{ 'Revoke co-owner (full control)' if u.is_co_owner else 'Make co-owner — full, unrestricted control' }}">
+                    <i class="fas fa-user-shield"></i>
+                </button>
+                <button class="uw-btn uw-btn-secondary" onclick="transferOwnership({{ u.id }}, '{{ u.username | e }}')" title="Make primary owner (transfer the account anchor to them)">
+                    <i class="fas fa-crown"></i>
+                </button>
+                {% endif %}
                 {% if can_demote_staff and u.id != current_user.id %}
                 <button class="uw-btn uw-btn-secondary" onclick="demoteUser({{ u.id }}, '{{ u.username | e }}')" title="Demote to public user">
                     <i class="fas fa-user-minus"></i>
@@ -438,7 +522,7 @@
 
             <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:18px 0;">
 
-            {% if permission_groups and not current_user.is_sub_admin %}
+            {% if permission_groups and current_user.is_full_admin %}
             <div class="uw-field" style="margin-bottom:16px;">
                 <label>Permission Group <span style="color:rgba(255,255,255,0.35);font-weight:400;">— assigns the group's permissions to this user</span></label>
                 <select id="userGroupId" onchange="onGroupSelectChange(this.value)">
@@ -503,6 +587,8 @@
 
             {{ guide_access_picker('guide-access-cb', 'guide-cat-cb', 'clearAllGuides') }}
             {{ quiz_access_picker('quiz-access-cb', 'quiz-cat-cb', 'clearAllQuizzes') }}
+            {{ division_access_picker('division-access-cb', 'clearAllDivisions') }}
+            {{ group_assign_picker('group-assign-cb', 'clearAllGroupAssign') }}
 
             <div id="permissionsContainer" class="perm-columns">
                 {% for section_key, section in permissions_schema.items() %}
@@ -698,6 +784,8 @@
 
             {{ guide_access_picker('grp-guide-access-cb', 'grp-guide-cat-cb', 'clearAllGrpGuides') }}
             {{ quiz_access_picker('grp-quiz-access-cb', 'grp-quiz-cat-cb', 'clearAllGrpQuizzes') }}
+            {{ division_access_picker('grp-division-access-cb', 'clearAllGrpDivisions') }}
+            {{ group_assign_picker('grp-group-assign-cb', 'clearAllGrpGroupAssign') }}
 
             <!-- Per-website permission overrides for group -->
             <div style="margin-top:24px;">
@@ -786,6 +874,8 @@ const _existingGroups = {
         allowed_guide_ids:   {{ ((g.permissions or {}).get('guides.allowed_guide_ids') or []) | tojson }},
         allowed_quiz_cats:   {{ ((g.permissions or {}).get('quizzes.allowed_category_ids') or []) | tojson }},
         allowed_quiz_ids:    {{ ((g.permissions or {}).get('quizzes.allowed_quiz_ids') or []) | tojson }},
+        allowed_division_ids: {{ ((g.permissions or {}).get('divisions.allowed_division_ids') or []) | tojson }},
+        assignable_group_ids: {{ ((g.permissions or {}).get('admin_users.assignable_group_ids') or []) | tojson }},
         page_folder_perms:   {{ ((g.permissions or {}).get('page_folder_perms') or {}) | tojson }},
     },
     {% endfor %}
@@ -942,9 +1032,11 @@ function openUserModal(userId) {
         if (label) { label.style.opacity = ''; label.style.cursor = ''; }
     });
 
-    // Reset guide + quiz access checkboxes
+    // Reset guide + quiz + division + group-assign access checkboxes
     document.querySelectorAll('.guide-access-cb, .guide-cat-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.quiz-access-cb, .quiz-cat-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.division-access-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.group-assign-cb').forEach(cb => cb.checked = false);
 
     // Reset group selector
     const groupSel = document.getElementById('userGroupId');
@@ -968,12 +1060,22 @@ function openUserModal(userId) {
         } else {
             // Restore individual permissions
             Object.entries(u.permissions || {}).forEach(([key, val]) => {
-                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids') {
+                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids' && key !== 'divisions.allowed_division_ids' && key !== 'admin_users.assignable_group_ids') {
                     const cb = document.querySelector(`#permissionsContainer input[data-key="${key}"], #permissionsContainerWebsite input[data-key="${key}"]`);
                     if (cb) cb.checked = true;
                 }
             });
         }
+        // Restore division access
+        (u.permissions?.['divisions.allowed_division_ids'] || []).forEach(did => {
+            const cb = document.querySelector(`.division-access-cb[data-division-id="${did}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore assignable permission groups
+        (u.permissions?.['admin_users.assignable_group_ids'] || []).forEach(gid => {
+            const cb = document.querySelector(`.group-assign-cb[data-group-id="${gid}"]`);
+            if (cb) cb.checked = true;
+        });
         // Restore asset library folder access
         const allowedFolders = u.permissions?.['assets.allowed_folder_ids'] || [];
         allowedFolders.forEach(fid => {
@@ -1105,6 +1207,22 @@ function clearAllQuizzes() {
 
 function clearAllGrpQuizzes() {
     document.querySelectorAll('.grp-quiz-access-cb, .grp-quiz-cat-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllDivisions() {
+    document.querySelectorAll('.division-access-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllGrpDivisions() {
+    document.querySelectorAll('.grp-division-access-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllGroupAssign() {
+    document.querySelectorAll('.group-assign-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllGrpGroupAssign() {
+    document.querySelectorAll('.grp-group-assign-cb').forEach(cb => cb.checked = false);
 }
 
 function toggleAllFolders(state) {
@@ -1555,6 +1673,12 @@ async function submitUserForm() {
     permissions['quizzes.allowed_category_ids'] = allowedQuizCats.length ? allowedQuizCats : null;
     permissions['quizzes.allowed_quiz_ids']     = allowedQuizIds.length  ? allowedQuizIds  : null;
 
+    const allowedDivIds = Array.from(document.querySelectorAll('.division-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['divisions.allowed_division_ids'] = allowedDivIds.length ? allowedDivIds : null;
+
+    const assignableGroups = Array.from(document.querySelectorAll('.group-assign-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['admin_users.assignable_group_ids'] = assignableGroups.length ? assignableGroups : null;
+
     const groupSel = document.getElementById('userGroupId');
     const groupId  = groupSel ? (groupSel.value || null) : null;
 
@@ -1608,6 +1732,35 @@ async function demoteUser(userId, username) {
     } else {
         alert(d.error || 'Failed to demote');
     }
+}
+
+async function transferOwnership(userId, username) {
+    const warn = `Make "${username}" the PRIMARY OWNER of this account?\n\n`
+        + `• They become the main admin — full control of everything.\n`
+        + `• You become a co-owner (you keep full access, but they hold the anchor).\n`
+        + `• All websites, the asset library, settings and the rest of the shared workspace move to them.\n\n`
+        + `Do this for succession/handover. To confirm, type the username below.`;
+    const typed = prompt(warn, '');
+    if (typed === null) return;
+    if (typed.trim() !== username) { alert('Username did not match — transfer cancelled.'); return; }
+    const r = await fetch(`/admin/users/${userId}/transfer-ownership`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { alert(`"${username}" is now the primary owner.`); location.reload(); }
+    else alert(d.error || 'Failed to transfer ownership');
+}
+
+async function toggleCoOwner(userId, isCoOwner, username) {
+    const makingOwner = !isCoOwner;
+    const msg = makingOwner
+        ? `Make "${username}" a co-owner?\n\nThey get FULL, unrestricted control of the whole system — same as the main admin (manage admins, settings, backups, everything). Their existing permission restrictions are ignored while they're a co-owner.`
+        : `Revoke "${username}"'s co-owner status?\n\nThey'll go back to their normal permissions.`;
+    if (!confirm(msg)) return;
+    const r = await fetch(`/admin/users/${userId}/set-co-owner`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ co_owner: makingOwner }) });
+    const d = await r.json();
+    if (d.success) location.reload();
+    else alert(d.error || 'Failed to update co-owner status');
 }
 
 // ── Group permission area helpers ─────────────────────────────────────────────
@@ -1730,16 +1883,18 @@ function openGroupModal(groupId) {
         if (label) { label.style.opacity = ''; label.style.cursor = ''; }
     });
 
-    // Reset guide + quiz access checkboxes
+    // Reset guide + quiz + division + group-assign access checkboxes
     document.querySelectorAll('.grp-guide-access-cb, .grp-guide-cat-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.grp-quiz-access-cb, .grp-quiz-cat-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.grp-division-access-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.grp-group-assign-cb').forEach(cb => cb.checked = false);
 
     if (groupId && _existingGroups[groupId]) {
         const g = _existingGroups[groupId];
         document.getElementById('groupName').value = g.name;
         document.getElementById('groupDescription').value = g.description;
         Object.entries(g.permissions || {}).forEach(([key, val]) => {
-            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids') {
+            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids' && key !== 'divisions.allowed_division_ids' && key !== 'admin_users.assignable_group_ids') {
                 const cb = document.querySelector(`#groupPermissionsContainer input[data-key="${key}"], #groupPermissionsContainerWebsite input[data-key="${key}"]`);
                 if (cb) cb.checked = true;
             }
@@ -1765,6 +1920,16 @@ function openGroupModal(groupId) {
         });
         (g.allowed_quiz_ids || []).forEach(qid => {
             const cb = document.querySelector(`.grp-quiz-access-cb[data-quiz-id="${qid}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore division access
+        (g.allowed_division_ids || []).forEach(did => {
+            const cb = document.querySelector(`.grp-division-access-cb[data-division-id="${did}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore assignable permission groups
+        (g.assignable_group_ids || []).forEach(gid => {
+            const cb = document.querySelector(`.grp-group-assign-cb[data-group-id="${gid}"]`);
             if (cb) cb.checked = true;
         });
     } else {
@@ -2172,6 +2337,14 @@ async function submitGroupForm() {
     const allowedQuizIds  = Array.from(document.querySelectorAll('.grp-quiz-access-cb:checked')).map(cb => parseInt(cb.value));
     permissions['quizzes.allowed_category_ids'] = allowedQuizCats.length ? allowedQuizCats : null;
     permissions['quizzes.allowed_quiz_ids']     = allowedQuizIds.length  ? allowedQuizIds  : null;
+
+    // Collect division access restrictions
+    const allowedDivIds = Array.from(document.querySelectorAll('.grp-division-access-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['divisions.allowed_division_ids'] = allowedDivIds.length ? allowedDivIds : null;
+
+    // Collect assignable permission groups
+    const assignableGroups = Array.from(document.querySelectorAll('.grp-group-assign-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['admin_users.assignable_group_ids'] = assignableGroups.length ? assignableGroups : null;
 
     const payload = {
         name:               document.getElementById('groupName').value.trim(),

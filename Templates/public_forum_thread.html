@@ -1,5 +1,15 @@
 {% extends 'public_base.html' %}
 
+{# Author badges: staff + site-wide roles flat, division roles encapsulated
+   under their division (matches the profile / members directory). #}
+{% macro author_badges(author) %}
+{% if author %}
+    {% if author.staff_badge_label %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Staff">{{ author.staff_badge_label }}</span>{% endif %}
+    {% for role in author.roles if not role.division_id %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+    {% for grp in author_divisions.get(author.id, []) %}<span style="display:inline-flex;align-items:center;gap:3px;padding:0 4px 0 7px;border-radius:99px;font-size:0.65rem;font-weight:700;border:1px solid {{ grp.color }}55;background:{{ grp.color }}14;color:{{ grp.color }};" title="{{ dlabel(website) }}">{% if grp.icon %}<i class="fas {{ grp.icon }}"></i>{% endif %}{{ grp.name }}{% for r in grp.roles %}<span style="padding:0 6px;border-radius:99px;background:{{ r.color }}29;color:{{ r.color }};">{{ r.name }}</span>{% endfor %}</span>{% endfor %}
+{% endif %}
+{% endmacro %}
+
 {% block title %}
 {{ thread.title }}
 {% endblock %}
@@ -328,8 +338,7 @@
         <div class="forum-meta">
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
                 <span>Posted by {% if thread.author and thread.author.profile_visible and navbar_public_user %}<a href="{{ url_for('public_member_profile', user_id=thread.author.id, prefix=website.url_prefix or none) }}" style="color:inherit;text-decoration:underline;text-underline-offset:2px;">{{ thread.author.effective_display_name }}</a>{% else %}{{ thread.author.effective_display_name if thread.author else 'Guest' }}{% endif %}</span>
-                {% if thread.author and thread.author.staff_badge_label %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Staff">{{ thread.author.staff_badge_label }}</span>{% endif %}
-                {% if thread.author %}{% for role in thread.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
+                {{ author_badges(thread.author) }}
             </div>
             <span>{{ thread.created_at.strftime('%b %d, %Y %I:%M %p') }}{% if thread.is_locked %} · Locked{% endif %}</span>
         </div>
@@ -355,8 +364,7 @@
             <div class="forum-meta">
                 <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-bottom:2px;">
                     <span>{% if reply.author and reply.author.profile_visible and navbar_public_user %}<a href="{{ url_for('public_member_profile', user_id=reply.author.id, prefix=website.url_prefix or none) }}" style="color:inherit;text-decoration:underline;text-underline-offset:2px;">{{ reply.author.effective_display_name }}</a>{% else %}{{ reply.author.effective_display_name if reply.author else 'Guest' }}{% endif %}</span>
-                    {% if reply.author and reply.author.staff_badge_label %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="Staff">{{ reply.author.staff_badge_label }}</span>{% endif %}
-                    {% if reply.author %}{% for role in reply.author.roles %}<span style="display:inline-flex;align-items:center;padding:0 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}{% endif %}
+                    {{ author_badges(reply.author) }}
                 </div>
                 <span>{{ reply.created_at.strftime('%b %d, %Y %I:%M %p') }}</span>
             </div>
