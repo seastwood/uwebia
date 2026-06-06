@@ -6,6 +6,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
+    <!-- Favicon (org-wide admin brand icon; falls back to uwebia). This page has
+         its own head rendered before the mid-file extends, so base.html's favicon
+         is ignored by the browser — it must live here in the real head. -->
+    <link rel="icon" href="{{ admin_brand_icon_url }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">

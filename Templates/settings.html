@@ -276,6 +276,34 @@
     border-color: rgba(126, 226, 204, 0.55);
     box-shadow: 0 0 0 3px rgba(126, 226, 204, 0.12);
 }
+
+/* Asset-library icon picker — same look as the dashboard website-icon picker. */
+.icon-lib-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    grid-auto-rows: 72px;
+    gap: 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.icon-lib-thumb {
+    height: 72px;
+    min-width: 0;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.12s;
+    box-sizing: border-box;
+}
+.icon-lib-thumb:hover { border-color: rgba(94, 238, 248, 0.6); }
+.icon-lib-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.icon-lib-folder { gap: 4px; padding: 6px; }
 </style>
 
 <div class="settings-page">
@@ -698,15 +726,19 @@
             {% set _nd = anchor_navbar_disabled or [] %}
             {# Top-level (non-store) items. #}
             {% for key, label, icon in [
-                ('posts',         'Posts',           'fa-newspaper'),
-                ('newsletters',   'Newsletters',     'fa-envelope-open-text'),
-                ('forum',         'Forum',           'fa-comments'),
-                ('calendars',     'Calendars',       'fa-calendar-alt'),
-                ('palette',       'Color Palette',   'fa-palette'),
-                ('storage',       'External Drives', 'fa-cloud'),
-                ('notifications', 'Notifications',   'fa-bell'),
-                ('ai_agents',     'AI Agents',       'fa-robot'),
-                ('plugins',       'Plugins',         'fa-puzzle-piece'),
+                ('posts',         'Posts',                       'fa-newspaper'),
+                ('guides',        'Guides',                      'fa-book-open'),
+                ('quizzes',       'Quizzes',                     'fa-clipboard-check'),
+                ('divisions',     dlabel(plural=True, cap=True), 'fa-sitemap'),
+                ('newsletters',   'Newsletters',                 'fa-envelope-open-text'),
+                ('forum',         'Forum',                       'fa-comments'),
+                ('calendars',     'Calendars',                   'fa-calendar-alt'),
+                ('messages',      'Messages',                    'fa-envelope'),
+                ('palette',       'Color Palette',               'fa-palette'),
+                ('storage',       'External Drives',             'fa-cloud'),
+                ('notifications', 'Notifications',               'fa-bell'),
+                ('ai_agents',     'AI Agents',                   'fa-robot'),
+                ('plugins',       'Plugins',                     'fa-puzzle-piece'),
             ] %}
             <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);">
                 <input type="checkbox" class="nav-vis-check" data-key="{{ key }}"
@@ -757,6 +789,155 @@
         <button class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
         <div id="navVisStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
     </div>
+    {% endif %}
+
+    <!-- Admin Branding (org-wide; needs settings.edit) -->
+    {% if can_edit_settings %}
+    <div class="settings-card" style="margin-top:20px;">
+        <h2 class="settings-section-title">Admin Branding</h2>
+        <p class="settings-subtitle" style="margin-bottom:16px;">Org-wide — sets the name &amp; icon shown on the admin navbar and the admin login page for <strong>everyone</strong>. Leave blank to use the default uwebia branding.</p>
+
+        <div class="settings-field">
+            <label for="adminBrandName">Admin page name</label>
+            <input type="text" id="adminBrandName" maxlength="80" placeholder="uwebia" value="{{ admin_brand_name_raw }}">
+        </div>
+
+        <div class="settings-field">
+            <label>Admin icon</label>
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+                <img id="adminBrandIconPreview" src="{{ admin_brand_icon_url }}" alt="Admin icon"
+                     style="height:48px;width:auto;max-width:200px;border-radius:10px;background:rgba(255,255,255,0.06);padding:6px;box-sizing:border-box;object-fit:contain;">
+                <label class="uw-btn uw-btn-secondary" style="cursor:pointer;">
+                    <i class="fas fa-upload"></i> Upload icon
+                    <input type="file" id="adminBrandIconInput" accept=".svg,.png" style="display:none;" onchange="uploadAdminBrandIcon(this)">
+                </label>
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="openBrandAssetPicker()"><i class="fas fa-images"></i> Choose from library</button>
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="resetAdminBrandIcon()">Use default icon</button>
+            </div>
+            <p class="settings-help">Upload an SVG/PNG or pick an image from your asset library — any shape works, it won't be stretched. Clear the name field and save to drop a custom name.</p>
+        </div>
+
+        <button type="button" class="settings-button" onclick="saveAdminBrand()">Save Branding</button>
+        <div id="adminBrandStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
+    </div>
+
+    <!-- Asset-library picker for the admin brand icon -->
+    <div id="brandAssetOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;" onclick="if(event.target===this)closeBrandAssetPicker()">
+        <div style="background:#1e1d20;border:1px solid rgba(255,255,255,0.12);border-radius:14px;width:min(640px,92vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);">
+                <h3 style="margin:0;font-size:1rem;">Choose an image</h3>
+                <button type="button" onclick="closeBrandAssetPicker()" style="background:none;border:none;color:#fff;font-size:1.3rem;line-height:1;cursor:pointer;">&times;</button>
+            </div>
+            <div id="brandAssetNav" style="padding:8px 16px;font-size:0.82rem;color:rgba(255,255,255,0.6);"></div>
+            <div id="brandAssetBody" class="icon-lib-grid" style="padding:12px 16px 16px;"></div>
+        </div>
+    </div>
+
+    <script>
+    function _abStatus(msg, ok) {
+        const s = document.getElementById('adminBrandStatus');
+        if (!s) return;
+        s.textContent = msg;
+        s.style.color = (ok === undefined) ? 'rgba(255,255,255,0.6)' : (ok ? '#5eeec8' : '#f88');
+    }
+    function saveAdminBrand() {
+        const form = new FormData();
+        form.append('admin_brand_name', document.getElementById('adminBrandName').value);
+        _abStatus('Saving…');
+        fetch('/admin/settings/admin-brand', { method: 'POST', body: form })
+            .then(r => r.json()).then(d => {
+                if (d.success) { _abStatus('Saved. Reload to see it everywhere.', true); }
+                else { _abStatus('Error: ' + (d.error || 'Could not save.'), false); }
+            }).catch(() => _abStatus('Network error.', false));
+    }
+    function uploadAdminBrandIcon(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const form = new FormData();
+        form.append('icon', file);
+        _abStatus('Uploading icon…');
+        fetch('/admin/settings/admin-brand/icon', { method: 'POST', body: form })
+            .then(r => r.json()).then(d => {
+                if (d.success) {
+                    document.getElementById('adminBrandIconPreview').src = d.icon_url + '?t=' + Date.now();
+                    _abStatus('Icon updated. Reload to see it everywhere.', true);
+                } else { _abStatus('Error: ' + (d.error || 'Upload failed.'), false); }
+                input.value = '';
+            }).catch(() => { _abStatus('Network error.', false); input.value = ''; });
+    }
+    function resetAdminBrandIcon() {
+        if (!confirm('Revert the admin icon to the default uwebia icon?')) return;
+        _abStatus('Reverting…');
+        fetch('/admin/settings/admin-brand/reset', { method: 'POST' })
+            .then(r => r.json()).then(d => {
+                if (d.success) {
+                    document.getElementById('adminBrandIconPreview').src = '/static/uwebia-icon.svg';
+                    _abStatus('Default icon restored. Reload to see it everywhere.', true);
+                } else { _abStatus('Error: ' + (d.error || 'Reset failed.'), false); }
+            }).catch(() => _abStatus('Network error.', false));
+    }
+
+    // ── Asset-library picker for the brand icon (same style as the dashboard
+    //    website-icon picker: .icon-lib-grid / .icon-lib-thumb) ──
+    function _brandEsc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function _brandMsg(t, color) { return '<div style="grid-column:1/-1;color:' + (color || 'rgba(255,255,255,0.4)') + ';font-size:0.8rem;text-align:center;padding:10px 0;">' + t + '</div>'; }
+    function _brandThumb(a) {
+        const src = a.thumbnail_url || a.url;
+        return '<div class="icon-lib-thumb" title="' + _brandEsc(a.original_filename) + '" onclick="pickBrandAsset(' + a.id + ')">'
+             + '<img src="' + src + '" alt="" loading="lazy"></div>';
+    }
+    function _brandFolder(f) {
+        const label = _brandEsc(f.name);
+        return '<div class="icon-lib-thumb icon-lib-folder" title="' + label + '" onclick="brandLibFolder(' + f.id + ')">'
+             + '<i class="fas fa-folder" style="color:rgba(255,200,80,0.7);font-size:1.4rem;"></i>'
+             + '<span style="font-size:0.62rem;color:rgba(255,255,255,0.5);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;">' + label + '</span></div>';
+    }
+    function openBrandAssetPicker() {
+        document.getElementById('brandAssetOverlay').style.display = 'flex';
+        brandLibRoot();
+    }
+    function closeBrandAssetPicker() {
+        document.getElementById('brandAssetOverlay').style.display = 'none';
+    }
+    async function brandLibRoot() {
+        const body = document.getElementById('brandAssetBody');
+        document.getElementById('brandAssetNav').textContent = 'Your image library';
+        body.innerHTML = _brandMsg('Loading…');
+        try {
+            const d = await fetch('/admin/assets/root?type=image').then(r => r.json());
+            const folders = d.folders || [], images = d.assets || [];
+            if (!folders.length && !images.length) { body.innerHTML = _brandMsg('No images in your library yet.'); return; }
+            body.innerHTML = folders.map(_brandFolder).join('') + images.map(_brandThumb).join('');
+        } catch (e) { body.innerHTML = _brandMsg('Could not load images.', '#f88'); }
+    }
+    async function brandLibFolder(folderId) {
+        const body = document.getElementById('brandAssetBody');
+        const nav = document.getElementById('brandAssetNav');
+        nav.innerHTML = '<a href="#" onclick="brandLibRoot();return false;" style="color:#7ee2cc;">← All images</a>';
+        body.innerHTML = _brandMsg('Loading…');
+        try {
+            const d = await fetch('/admin/assets/folder/' + folderId + '?type=image').then(r => r.json());
+            const images = d.assets || [];
+            body.innerHTML = images.length ? images.map(_brandThumb).join('') : _brandMsg('No images in this folder.');
+        } catch (e) { body.innerHTML = _brandMsg('Could not load folder.', '#f88'); }
+    }
+    async function pickBrandAsset(assetId) {
+        _abStatus('Setting icon…');
+        try {
+            const r = await fetch('/admin/settings/admin-brand/icon-from-asset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ asset_id: assetId })
+            });
+            const d = await r.json();
+            if (d.success) {
+                document.getElementById('adminBrandIconPreview').src = d.icon_url + '?t=' + Date.now();
+                _abStatus('Icon updated. Reload to see it everywhere.', true);
+                closeBrandAssetPicker();
+            } else { _abStatus('Error: ' + (d.error || 'Failed.'), false); }
+        } catch (e) { _abStatus('Network error.', false); }
+    }
+    </script>
     {% endif %}
 
     <script>

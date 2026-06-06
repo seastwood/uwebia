@@ -14,21 +14,70 @@
 .mx-bar select { padding: 8px 11px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.85rem; }
 .mx-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.76rem; color: rgba(255,255,255,0.55); margin-left: auto; }
 .mx-legend b { color: #aef7e8; }
+.mx-key { display: inline-flex; align-items: center; gap: 5px; }
+.mx-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .mx-scroll { overflow-x: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; }
 .mx-table { border-collapse: collapse; width: 100%; }
 .mx-table th, .mx-table td { border-bottom: 1px solid rgba(255,255,255,0.07); border-right: 1px solid rgba(255,255,255,0.05); text-align: center; }
 .mx-table thead th { position: sticky; top: 0; background: #181820; z-index: 2; padding: 10px 8px; font-size: 0.74rem; font-weight: 700; color: rgba(255,255,255,0.7); vertical-align: bottom; }
-.mx-corner { position: sticky; left: 0; z-index: 3 !important; text-align: left !important; min-width: 180px; }
+/* Above the folder (z3) & KSA (z2) header rows so they slide UNDER it when
+   scrolling sideways, instead of the category title bleeding over the column. */
+.mx-corner { position: sticky; left: 0; z-index: 6 !important; background: #181820; text-align: left !important; min-width: 180px; }
 .mx-ktype { display: block; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #5eeef8; opacity: 0.8; margin-bottom: 2px; }
+/* Folder grouping header row above the KSA columns. */
+.mx-table thead th.mx-folder-head { top: 0; z-index: 3; height: 24px; box-sizing: border-box; background: #14141b; padding: 4px 8px; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.5); border-bottom: 1px solid rgba(255,255,255,0.14); border-right: 1px solid rgba(255,255,255,0.12); vertical-align: middle; }
+.mx-table thead th.mx-folder-head.is-shared { color: #c79bf0; }
+/* Sit the KSA header flush under the folder row (its fixed 24px height) and
+   top-align the title so it hugs the bottom of the category label. */
+.mx-table thead th.mx-kh { top: 24px; vertical-align: top; padding-top: 6px; }
 .mx-member { position: sticky; left: 0; background: #14141b; z-index: 1; text-align: left !important; padding: 9px 12px; min-width: 180px; }
 .mx-member-name { font-weight: 600; font-size: 0.88rem; }
 .mx-roles { font-size: 0.72rem; color: rgba(255,255,255,0.4); margin-top: 2px; }
+.mx-req-count { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 0.66rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: rgba(255,120,90,0.16); color: #ff9b7a; }
+.mx-req-count.is-all { background: rgba(94,238,200,0.16); color: #5eeec8; }
+/* Mobile: shrink the frozen member column so there's room to scroll across the
+   KSAs, but keep the roles — just let the name + roles wrap within a narrower box. */
+@media (max-width: 700px) {
+    /* Force a narrow fixed width (table cells ignore max-width in auto layout)
+       and let both the name and roles wrap inside it. */
+    .mx-corner, .mx-member { min-width: 0 !important; width: 92px !important; max-width: 92px !important; }
+    .mx-member { padding: 7px 7px; white-space: normal; vertical-align: top; }
+    .mx-member-name { font-size: 0.76rem; line-height: 1.2; overflow-wrap: anywhere; white-space: normal; }
+    .mx-roles { font-size: 0.62rem; line-height: 1.2; overflow-wrap: anywhere; white-space: normal; }
+    .mx-corner { font-size: 0.7rem; white-space: normal; }
+}
 .mx-alumni { display: inline-block; font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 4px; background: rgba(255,200,80,0.15); color: #ffce6b; margin-left: 6px; }
 .mx-cell { padding: 6px 8px; min-width: 78px; }
-.mx-cell.is-met { background: rgba(94,238,200,0.1); }
+.mx-cell.is-met { background: rgba(94,238,200,0.1); }       /* met & verified */
+.mx-cell.is-selfmet { background: rgba(96,160,250,0.16); }   /* met but self-reported */
 .mx-cell.is-gap { background: rgba(255,120,90,0.12); }
 .mx-cell select { width: 56px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff; font-size: 0.82rem; }
 .mx-cell select:disabled { opacity: 0.6; }
+.mx-cell-inner { display: flex; align-items: center; gap: 4px; }
+.mx-sr-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+.mx-sr-tag { font-size: 0.58rem; font-style: italic; color: #9ec3ff; white-space: nowrap; }
+.mx-sr-confirm { display: inline-flex; align-items: center; gap: 3px; border: 1px solid rgba(96,160,250,0.4); cursor: pointer; background: rgba(96,160,250,0.18); color: #cfe2ff; border-radius: 6px; padding: 2px 7px; font-size: 0.62rem; font-weight: 700; }
+.mx-sr-confirm:hover { background: rgba(96,160,250,0.34); }
+.mx-sr-confirm:disabled { opacity: 0.5; cursor: default; }
+.mx-demo-btn { margin-top: 5px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid rgba(180,140,255,0.4); background: rgba(180,140,255,0.14); color: #d9bcff; border-radius: 6px; padding: 2px 7px; font-size: 0.62rem; font-weight: 700; white-space: nowrap; }
+.mx-demo-btn:hover { background: rgba(180,140,255,0.28); }
+.mx-demo-btn.is-done { background: rgba(94,238,200,0.16); border-color: rgba(94,238,200,0.45); color: #5eeec8; }
+.mx-demo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; }
+.mx-demo-modal { background: #1e1d20; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; width: min(560px, 92vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+.mx-demo-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.mx-demo-title { margin: 0; font-size: 1rem; }
+.mx-demo-x { background: none; border: none; color: #fff; font-size: 1.4rem; line-height: 1; cursor: pointer; }
+.mx-demo-body { padding: 8px 18px; overflow-y: auto; }
+.mx-demo-foot { margin: 0; padding: 10px 18px 16px; font-size: 0.74rem; color: rgba(255,255,255,0.4); }
+.mx-demo-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.07); }
+.mx-demo-item:last-child { border-bottom: none; }
+.mx-demo-item-body { flex: 1; min-width: 0; }
+.mx-demo-item-title { font-weight: 700; font-size: 0.9rem; }
+.mx-demo-item-desc { margin: 5px 0 0; font-size: 0.83rem; line-height: 1.5; color: rgba(255,255,255,0.65); white-space: pre-wrap; }
+.mx-demo-toggle { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; padding: 7px 12px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); }
+.mx-demo-toggle:hover { border-color: rgba(94,238,200,0.5); }
+.mx-demo-toggle.is-done { background: rgba(94,238,200,0.16); border-color: rgba(94,238,200,0.45); color: #5eeec8; }
+.mx-demo-toggle:disabled { opacity: 0.5; cursor: default; }
 .mx-level { font-size: 0.9rem; font-weight: 700; }
 .mx-req { font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-left: 3px; }
 .mx-empty { color: rgba(255,255,255,0.4); text-align: center; padding: 50px 20px; }
@@ -41,7 +90,7 @@
         {% if division.icon %}<i class="fas {{ division.icon }}" style="{% if division.color %}color:{{ division.color }};{% endif %}"></i>{% endif %}
         {{ division.name }} — Matrix
     </h1>
-    <p class="mx-sub">Each cell is a member's level for a KSA. Cells turn <span style="color:#5eeec8;">green</span> when the member meets their roles' required level and <span style="color:#ff8a6b;">red</span> when there's a gap.</p>
+    <p class="mx-sub">Each cell is a member's level for a KSA. Cells turn <span style="color:#5eeec8;">green</span> when they meet their roles' required level (staff-verified), <span style="color:#8fbcff;">blue</span> when a member <em>self-reported</em> a level that meets it (click <b>Confirm</b> to verify), and <span style="color:#ff8a6b;">red</span> when there's a gap.</p>
 
     {% if not ksas %}
     <div class="mx-empty"><p>This {{ dlabel(website)|lower }} has no KSAs yet. Add some in the catalog first.</p></div>
@@ -61,6 +110,10 @@
             </select>
         </form>
         <div class="mx-legend">
+            <span class="mx-key"><span class="mx-swatch" style="background:rgba(94,238,200,0.5);"></span>Verified</span>
+            <span class="mx-key"><span class="mx-swatch" style="background:rgba(96,160,250,0.6);"></span>Self-reported</span>
+            <span class="mx-key"><span class="mx-swatch" style="background:rgba(255,120,90,0.5);"></span>Gap</span>
+            <span style="opacity:0.5;">·</span>
             <span>Levels:</span>
             {% for lbl in level_labels %}<span><b>{{ loop.index0 }}</b> {{ lbl }}</span>{% endfor %}
         </div>
@@ -73,7 +126,12 @@
         <table class="mx-table">
             <thead>
                 <tr>
-                    <th class="mx-corner">Member</th>
+                    <th class="mx-corner" rowspan="2">Member</th>
+                    {% for g in matrix_folder_groups %}
+                    <th class="mx-folder-head{% if g.shared %} is-shared{% endif %}" colspan="{{ g.count }}">{{ g.name or 'Unfiled' }}</th>
+                    {% endfor %}
+                </tr>
+                <tr>
                     {% for k in ksas %}
                     <th class="mx-kh" title="{{ k.description or '' }}{% if k.id in shared_ksa_ids %} (shared){% endif %}"><span class="mx-ktype">{{ k.ksa_type }}</span>{{ k.name }}{% if k.id in shared_ksa_ids %} <i class="fas fa-share-alt mx-shared" title="Shared from another division"></i>{% endif %}</th>
                     {% endfor %}
@@ -85,10 +143,12 @@
                     <td class="mx-member">
                         <div class="mx-member-name">{{ row.user.effective_display_name }}{% if row.status == 'alumni' %}<span class="mx-alumni">Alumni</span>{% endif %}</div>
                         {% if row.role_names %}<div class="mx-roles">{{ row.role_names|join(', ') }}</div>{% endif %}
+                        {% if row.req_total %}<div class="mx-req-count{% if row.req_met == row.req_total %} is-all{% endif %}" title="Required KSAs met"><i class="fas fa-circle-check"></i> <span class="mx-rc-num">{{ row.req_met }}/{{ row.req_total }}</span> met</div>{% endif %}
                     </td>
                     {% for c in row.cells %}
-                    <td class="mx-cell {% if c.has_req %}{{ 'is-met' if c.met else 'is-gap' }}{% endif %}"
-                        id="cell-{{ row.user.id }}-{{ c.ksa.id }}" data-required="{{ c.required }}">
+                    <td class="mx-cell {% if c.has_req %}{% if not c.met %}is-gap{% elif c.self_reported %}is-selfmet{% else %}is-met{% endif %}{% endif %}"
+                        id="cell-{{ row.user.id }}-{{ c.ksa.id }}" data-required="{{ c.required }}"{% if c.self_reported %} data-sr="1"{% endif %}>
+                        <div class="mx-cell-inner">
                         {% if can_manage %}
                         <select onchange="setLevel({{ c.ksa.id }}, {{ row.user.id }}, this)">
                             <option value="0"{% if c.level == 0 %} selected{% endif %}>—</option>
@@ -100,6 +160,19 @@
                         <span class="mx-level">{{ c.level if c.level else '—' }}</span>
                         {% endif %}
                         {% if c.has_req %}<span class="mx-req">/ {{ c.required }}</span>{% endif %}
+                        </div>
+                        <div class="mx-sr-row"{% if not c.self_reported %} style="display:none;"{% endif %}>
+                            <span class="mx-sr-tag" title="Self-reported by the member — confirm to verify"><i class="fas fa-user-pen"></i> self-reported</span>
+                            {% if can_manage %}<button type="button" class="mx-sr-confirm" title="Confirm &amp; verify this level" onclick="verifyCell({{ c.ksa.id }}, {{ row.user.id }})"><i class="fas fa-check"></i> Confirm</button>{% endif %}
+                        </div>
+                        {% if c.demos_total %}
+                        <button type="button" class="mx-demo-btn{% if c.demos_done == c.demos_total %} is-done{% endif %}"
+                                data-demos='{{ c.demos|tojson }}' data-uid="{{ row.user.id }}"
+                                data-member="{{ row.user.effective_display_name|e }}" data-ksa="{{ c.ksa.name|e }}"
+                                onclick="openDemos(this)" title="Demonstration sign-off">
+                            <i class="fas fa-hand-sparkles"></i> Demo {{ c.demos_done }}/{{ c.demos_total }}
+                        </button>
+                        {% endif %}
                     </td>
                     {% endfor %}
                 </tr>
@@ -111,7 +184,47 @@
     {% endif %}
 </div>
 
+<!-- Demonstration sign-off modal -->
+<div id="demoOverlay" class="mx-demo-overlay" style="display:none;" onclick="if(event.target===this)closeDemos()">
+    <div class="mx-demo-modal">
+        <div class="mx-demo-head">
+            <h3 id="demoTitle" class="mx-demo-title">Demonstrations</h3>
+            <button type="button" class="mx-demo-x" onclick="closeDemos()">&times;</button>
+        </div>
+        <div id="demoBody" class="mx-demo-body"></div>
+        <p class="mx-demo-foot">Marking a demonstration complete signs off that the member has proven this to staff.</p>
+    </div>
+</div>
+
 <script>
+function _recolorCell(td, level) {
+    const req = parseInt(td.dataset.required) || 0;
+    td.classList.remove('is-met', 'is-gap', 'is-selfmet');
+    if (req > 0) td.classList.add(level >= req ? 'is-met' : 'is-gap');
+}
+function _clearSelfReported(td) {
+    td.removeAttribute('data-sr');
+    const row = td.querySelector('.mx-sr-row');
+    if (row) row.style.display = 'none';
+}
+// Recompute the "X/Y met" badge in a row's member box after a level change.
+function _updateRowCounts(td) {
+    const tr = td.closest('tr');
+    if (!tr) return;
+    const badge = tr.querySelector('.mx-req-count');
+    if (!badge) return;
+    let total = 0, met = 0;
+    tr.querySelectorAll('.mx-cell').forEach(c => {
+        if ((parseInt(c.dataset.required) || 0) > 0) {
+            total++;
+            if (c.classList.contains('is-met') || c.classList.contains('is-selfmet')) met++;
+        }
+    });
+    const num = badge.querySelector('.mx-rc-num');
+    if (num) num.textContent = met + '/' + total;
+    badge.classList.toggle('is-all', total > 0 && met === total);
+}
+
 async function setLevel(kid, uid, sel) {
     const td = document.getElementById('cell-' + uid + '-' + kid);
     const level = parseInt(sel.value);
@@ -121,10 +234,82 @@ async function setLevel(kid, uid, sel) {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level }) });
         const d = await r.json();
         if (!d.success) { alert(d.error || 'Failed to save'); return; }
-        const req = parseInt(td.dataset.required) || 0;
-        td.classList.remove('is-met', 'is-gap');
-        if (req > 0) td.classList.add(level >= req ? 'is-met' : 'is-gap');
+        // An admin edit verifies the level → drop any self-reported state (green, not blue).
+        _clearSelfReported(td);
+        _recolorCell(td, level);
+        _updateRowCounts(td);
     } catch (e) { alert('Request failed'); } finally { sel.disabled = false; }
+}
+
+async function verifyCell(kid, uid) {
+    const td = document.getElementById('cell-' + uid + '-' + kid);
+    const btn = td.querySelector('.mx-sr-confirm');
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/ksa/${kid}/user/${uid}/verify`, { method: 'POST' });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Failed to confirm'); if (btn) btn.disabled = false; return; }
+        _clearSelfReported(td);
+        _recolorCell(td, d.level);
+        _updateRowCounts(td);
+    } catch (e) { alert('Request failed'); if (btn) btn.disabled = false; }
+}
+
+// ── Demonstration sign-off ──
+const CAN_MANAGE = {{ 'true' if can_manage else 'false' }};
+let _demoBtn = null, _demoUid = null;
+function _demoEsc(s) { const d = document.createElement('div'); d.textContent = (s == null ? '' : s); return d.innerHTML; }
+function openDemos(btn) {
+    _demoBtn = btn;
+    _demoUid = btn.dataset.uid;
+    let demos = [];
+    try { demos = JSON.parse(btn.dataset.demos || '[]'); } catch (e) {}
+    document.getElementById('demoTitle').textContent = (btn.dataset.member || '') + ' — ' + (btn.dataset.ksa || '');
+    document.getElementById('demoBody').innerHTML = demos.map(d => `
+        <div class="mx-demo-item" data-rid="${d.id}">
+            <div class="mx-demo-item-body">
+                <div class="mx-demo-item-title">${_demoEsc(d.label)}</div>
+                ${d.description ? `<p class="mx-demo-item-desc">${_demoEsc(d.description)}</p>` : ''}
+            </div>
+            ${CAN_MANAGE
+                ? `<button type="button" class="mx-demo-toggle${d.completed ? ' is-done' : ''}" onclick="toggleDemo(this, ${d.id})">
+                       <i class="fas ${d.completed ? 'fa-circle-check' : 'fa-circle'}"></i> <span>${d.completed ? 'Completed' : 'Mark complete'}</span>
+                   </button>`
+                : `<span class="mx-demo-toggle${d.completed ? ' is-done' : ''}" style="cursor:default;"><i class="fas ${d.completed ? 'fa-circle-check' : 'fa-circle'}"></i> ${d.completed ? 'Completed' : 'Pending'}</span>`}
+        </div>`).join('');
+    document.getElementById('demoOverlay').style.display = 'flex';
+}
+function closeDemos() { document.getElementById('demoOverlay').style.display = 'none'; }
+async function toggleDemo(tbtn, rid) {
+    tbtn.disabled = true;
+    try {
+        const r = await fetch(`/admin/ksa/resource/${rid}/user/${_demoUid}/demo-toggle`, { method: 'POST' });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Failed'); tbtn.disabled = false; return; }
+        const done = d.completed;
+        tbtn.classList.toggle('is-done', done);
+        tbtn.innerHTML = `<i class="fas ${done ? 'fa-circle-check' : 'fa-circle'}"></i> <span>${done ? 'Completed' : 'Mark complete'}</span>`;
+        _refreshDemoBtn();
+    } catch (e) { alert('Request failed'); }
+    tbtn.disabled = false;
+}
+function _refreshDemoBtn() {
+    if (!_demoBtn) return;
+    const items = document.querySelectorAll('#demoBody .mx-demo-item');
+    let done = 0;
+    let demos = [];
+    try { demos = JSON.parse(_demoBtn.dataset.demos || '[]'); } catch (e) {}
+    items.forEach(it => {
+        const rid = parseInt(it.dataset.rid);
+        const isDone = it.querySelector('.mx-demo-toggle').classList.contains('is-done');
+        if (isDone) done++;
+        const dd = demos.find(x => x.id === rid);
+        if (dd) dd.completed = isDone;
+    });
+    const total = items.length;
+    _demoBtn.dataset.demos = JSON.stringify(demos);
+    _demoBtn.classList.toggle('is-done', total > 0 && done === total);
+    _demoBtn.innerHTML = `<i class="fas fa-hand-sparkles"></i> Demo ${done}/${total}`;
 }
 </script>
 {% endblock %}

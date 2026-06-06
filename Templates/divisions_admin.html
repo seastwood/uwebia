@@ -497,6 +497,7 @@
                 <button class="da-btn da-btn-secondary" onclick="addResource('link')"><i class="fas fa-link"></i> Add link</button>
                 <button class="da-btn da-btn-secondary" onclick="addResource('guide')"><i class="fas fa-book-open"></i> Add guide</button>
                 <button class="da-btn da-btn-secondary" onclick="addResource('quiz')"><i class="fas fa-clipboard-check"></i> Add quiz</button>
+                <button class="da-btn da-btn-secondary" onclick="addResource('demo')"><i class="fas fa-hand-sparkles"></i> Add demonstration</button>
             </div>
         </div>
         <div id="resError" class="da-modal-error"></div>
@@ -941,7 +942,7 @@ function _reqRowHtml(k) {
         const lbl = KSA_LEVEL_LABELS[v] || ('Level ' + v);
         lvlOpts += `<option value="${v}"${lvl===v?' selected':''}>${_escH(lbl)} (${v})</option>`;
     }
-    const prioOpts = ['high','medium','low'].map(p => `<option value="${p}"${prio===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('');
+    const prioOpts = ['core','high','medium','low'].map(p => `<option value="${p}"${prio===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('');
     const sharedTag = k.shared ? ` <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from ${_escH(k.owner_division || 'another division')}</span>` : '';
     return `<div class="da-req-row" data-ksa="${k.id}">
         <span class="da-ksa-type">${_escH(k.ksa_type)}</span>
@@ -999,7 +1000,7 @@ async function openResourcesModal(kid, name) {
     try {
         const d = await (await fetch(`/admin/ksa/${kid}/resources`)).json();
         _resGuides = d.guides || []; _resQuizzes = d.quizzes || [];
-        _resList = (d.resources || []).map(r => ({ resource_type: r.resource_type, label: r.label || '', url: r.url || '', guide_id: r.guide_id, quiz_id: r.quiz_id }));
+        _resList = (d.resources || []).map(r => ({ id: r.id, resource_type: r.resource_type, label: r.label || '', url: r.url || '', guide_id: r.guide_id, quiz_id: r.quiz_id, description: r.description || '' }));
         renderResources();
     } catch (e) { document.getElementById('resList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
 }
@@ -1018,9 +1019,12 @@ function renderResources() {
         } else if (r.resource_type === 'guide') {
             mid = `<input style="flex:2;min-width:140px;" placeholder="Label (optional)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
                    <select style="flex:2;min-width:160px;" onchange="_resList[${i}].guide_id=parseInt(this.value)"><option value="">— pick a guide —</option>${_optList(_resGuides, r.guide_id)}</select>`;
-        } else {
+        } else if (r.resource_type === 'quiz') {
             mid = `<input style="flex:2;min-width:140px;" placeholder="Label (optional)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
                    <select style="flex:2;min-width:160px;" onchange="_resList[${i}].quiz_id=parseInt(this.value)"><option value="">— pick a quiz —</option>${_optList(_resQuizzes, r.quiz_id)}</select>`;
+        } else {
+            mid = `<input style="flex:2;min-width:140px;" placeholder="Title (e.g. Demonstrate to staff)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <textarea style="flex:3;min-width:200px;min-height:38px;resize:vertical;" placeholder="What must the member demonstrate / prove to staff?" oninput="_resList[${i}].description=this.value">${_escH(r.description)}</textarea>`;
         }
         return `<div class="da-res-row">
             <span class="da-res-type">${r.resource_type}</span>${mid}
@@ -1029,7 +1033,7 @@ function renderResources() {
     }).join('');
 }
 function addResource(type) {
-    _resList.push({ resource_type: type, label: '', url: '', guide_id: null, quiz_id: null });
+    _resList.push({ id: null, resource_type: type, label: '', url: '', guide_id: null, quiz_id: null, description: '' });
     renderResources();
 }
 function removeResource(i) { _resList.splice(i, 1); renderResources(); }
@@ -1037,7 +1041,8 @@ async function saveResources() {
     const clean = _resList.filter(r =>
         (r.resource_type === 'link' && (r.url || '').trim()) ||
         (r.resource_type === 'guide' && r.guide_id) ||
-        (r.resource_type === 'quiz' && r.quiz_id));
+        (r.resource_type === 'quiz' && r.quiz_id) ||
+        (r.resource_type === 'demo' && ((r.label || '').trim() || (r.description || '').trim())));
     const btn = document.getElementById('resSubmit'); btn.disabled = true;
     try {
         const r = await fetch(`/admin/ksa/${_resKsaId}/resources`, {

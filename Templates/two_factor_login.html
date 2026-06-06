@@ -70,7 +70,7 @@
 
 <div class="two-factor-page">
     <form class="two-factor-card" method="POST" action="{{ request.path }}">
-        <img src="/static/uwebia-icon.svg" alt="Uwebia" style="width:52px;height:52px;display:block;margin:0 auto 16px;">
+        <img src="{{ admin_brand_icon_url }}" alt="{{ admin_brand_name }}" style="height:52px;width:auto;max-width:220px;object-fit:contain;display:block;margin:0 auto 16px;">
         <h1>Two-Factor Authentication</h1>
         <p>Enter the 6-digit code sent to your email address.</p>
 

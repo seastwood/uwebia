@@ -24,8 +24,21 @@
 .mp-role-group-head { display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; text-decoration: none; margin-bottom: 12px; }
 .mp-role-group-head:hover { text-decoration: underline; }
 .mp-self-note { font-size: 0.78rem; opacity: 0.5; margin: 14px 0 0; }
-.mp-tabs { display: flex; gap: 4px; margin: 26px 0 0; border-bottom: 1px solid rgba(255,255,255,0.12); }
-.mp-tab { padding: 11px 16px; font-size: 0.9rem; font-weight: 700; text-decoration: none; color: inherit; opacity: 0.55; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.mp-tabs {
+    display: flex; gap: 4px; margin: 26px 0 0;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    /* horizontal-only scroll — lock the vertical axis so the strip can't drift up/down */
+    overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap;
+    touch-action: pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+    /* keep a thin scrollbar visible as a "scroll me" cue (gray works on any bg) */
+    scrollbar-width: thin; scrollbar-color: rgba(127,127,127,0.55) transparent;
+}
+.mp-tabs::-webkit-scrollbar { height: 6px; -webkit-appearance: none; }
+.mp-tabs::-webkit-scrollbar-thumb { background: rgba(127,127,127,0.55); border-radius: 6px; }
+.mp-tabs::-webkit-scrollbar-track { background: transparent; }
+.mp-tab { padding: 11px 16px; font-size: 0.9rem; font-weight: 700; text-decoration: none; color: inherit; opacity: 0.55; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; flex: 0 0 auto; }
+@media (max-width: 560px) { .mp-tab { padding: 11px 12px; font-size: 0.84rem; } }
 .mp-tab:hover { opacity: 0.85; }
 .mp-tab.is-active { opacity: 1; border-bottom-color: #5eeec8; color: #aef7e8; }
 .mp-tab-count { font-size: 0.72rem; opacity: 0.7; }
@@ -57,16 +70,23 @@
 .mp-div-name:hover { color: #aef7e8; }
 .mp-alumni { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 5px; background: rgba(255,200,80,0.15); color: #ffce6b; }
 .mp-ksa-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
-.mp-ksa-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); }
+.mp-ksa-folder { margin-top: 12px; }
+.mp-ksa-folder .mp-ksa-list { margin-top: 6px; }
+.mp-folder-head { font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.42); margin: 0 0 2px; padding: 0 2px; }
+.mp-viewtoggle { display: inline-flex; gap: 2px; margin: 0 0 16px; padding: 3px; border-radius: 9px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+.mp-vt { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 7px; font-size: 0.8rem; font-weight: 700; text-decoration: none; color: rgba(255,255,255,0.55); }
+.mp-vt:hover { color: rgba(255,255,255,0.85); }
+.mp-vt.is-active { background: rgba(94,238,200,0.16); color: #aef7e8; }
+.mp-ksa-item { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); }
 .mp-ksa-type { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; }
-.mp-ksa-name { font-weight: 600; font-size: 0.9rem; }
+.mp-ksa-name { font-weight: 600; font-size: 0.9rem; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .mp-ksa-level { margin-left: auto; font-size: 0.85rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
 .mp-ksa-num { font-weight: 500; color: rgba(255,255,255,0.4); }
 .mp-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin: 10px 0 0; }
 .mp-roadmap { display: block; padding: 0; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.07); }
 .mp-roadmap.is-gap { border-color: rgba(255,120,90,0.4); }
 .mp-roadmap.is-met { border-color: rgba(94,238,200,0.35); }
-.mp-roadmap summary { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; list-style: none; }
+.mp-roadmap summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 9px 12px; cursor: pointer; list-style: none; }
 .mp-roadmap summary::-webkit-details-marker { display: none; }
 .mp-roadmap .mp-chev { margin-left: 6px; opacity: 0.4; font-size: 0.75rem; transition: transform 0.2s; }
 .mp-roadmap[open] .mp-chev { transform: rotate(180deg); }
@@ -74,6 +94,7 @@
 .mp-tag-req { background: rgba(255,120,90,0.15); color: #ff9b7a; }
 .mp-tag-rec { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); }
 .mp-tag-sat { background: rgba(94,238,200,0.16); color: #5eeec8; }
+.mp-prio-core { background: rgba(214,40,90,0.28); color: #ff9ec0; border: 1px solid rgba(255,70,120,0.6); }
 .mp-prio-high { background: rgba(255,90,90,0.16); color: #ff8a8a; }
 .mp-prio-medium { background: rgba(255,200,80,0.15); color: #ffce6b; }
 .mp-prio-low { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
@@ -82,12 +103,79 @@
 .mp-res-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 8px; background: rgba(94,238,248,0.06); border: 1px solid rgba(94,238,248,0.18); text-decoration: none; color: #aef7e8; font-size: 0.85rem; font-weight: 600; }
 .mp-res-link:hover { background: rgba(94,238,248,0.14); }
 .mp-res-empty { font-size: 0.8rem; color: rgba(255,255,255,0.35); padding: 2px 12px 10px; margin: 0; }
+.mp-res-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mp-res-row .mp-res-link { flex: 1 1 auto; min-width: 0; }
+.mp-res-row.is-done .mp-res-link { opacity: 0.7; }
+.mp-res-done-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; font-weight: 700; color: #5eeec8; white-space: nowrap; }
+.mp-res-pending { display: inline-flex; align-items: center; gap: 5px; font-size: 0.68rem; font-weight: 600; color: rgba(255,206,107,0.85); white-space: nowrap; }
+.mp-res-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; padding: 6px 11px; border-radius: 8px; font-size: 0.76rem; font-weight: 700; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); }
+.mp-res-check:hover { border-color: rgba(94,238,200,0.5); }
+.mp-res-check.is-done { background: rgba(94,238,200,0.16); border-color: rgba(94,238,200,0.45); color: #5eeec8; }
+.mp-res-check i { font-size: 0.9rem; }
+.mp-res-demo { flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px; border-radius: 8px; background: rgba(180,140,255,0.07); border: 1px solid rgba(180,140,255,0.22); }
+.mp-res-demo-title { background: none; border: none; padding: 0; color: #d9bcff; }
+.mp-res-demo-desc { margin: 0; font-size: 0.82rem; line-height: 1.5; color: rgba(255,255,255,0.7); white-space: pre-wrap; }
+.mp-res-demo.is-done { border-color: rgba(94,238,200,0.4); }
 .mp-ksa-desc { font-size: 0.86rem; line-height: 1.55; color: rgba(255,255,255,0.7); margin: 0 0 4px; padding: 0 2px; white-space: pre-wrap; }
+.mp-ksa-role { font-size: 0.6rem; font-weight: 700; padding: 1px 6px; border-radius: 5px; border: 1px solid transparent; white-space: nowrap; }
+/* Group the role chips together and the status/priority tags together, with a
+   thin vertical divider between them, so the summary row reads as two capsules. */
+.mp-meta-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.mp-meta-sep { flex: 0 0 auto; width: 1px; height: 15px; background: rgba(255,255,255,0.22); }
+.mp-skill-flag { font-size: 0.78rem; opacity: 0.5; }
+.mp-skill-flag-ok { color: #5eeec8; opacity: 1; }
+.mp-skill-setlevel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 4px 2px 12px; }
+.mp-skill-setlevel-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+.mp-skill-select { padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.16); color: inherit; font-size: 0.85rem; font-weight: 600; color-scheme: dark; }
+.mp-skill-status { font-size: 0.72rem; color: rgba(255,255,255,0.45); font-style: italic; }
+.mp-skill-verified { font-size: 0.85rem; font-weight: 700; color: #aef7e8; }
+.mp-skill-verified i { color: #5eeec8; margin-right: 4px; }
+.mp-skill-verified em { font-style: normal; font-weight: 500; color: rgba(255,255,255,0.45); }
+.mp-role-filter { cursor: pointer; user-select: none; transition: filter 0.15s, box-shadow 0.15s; }
+.mp-role-filter:hover { filter: brightness(1.25); }
+.mp-role-filter.is-active { box-shadow: 0 0 0 2px currentColor inset; filter: brightness(1.3); }
+.mp-div-block.mp-filtering .mp-role-filter:not(.is-active) { opacity: 0.45; }
 </style>
 {% endblock %}
 
 {% block content %}
 {% set _gbase = ('/' + website.url_prefix + '/guides/') if website.url_prefix else '/guides/' %}
+
+{# Render a KSA's learning resources with completion state. Guides/quizzes are
+   auto-marked from progress; links are member-tickable; demonstrations are
+   admin-signed-off. #}
+{% macro render_resources(resources) %}
+    {% if resources %}
+    {% for res in resources %}
+    {% if res.type == 'demo' %}
+    <div class="mp-res-row mp-res-demo{% if res.completed %} is-done{% endif %}">
+        <div class="mp-res-demo-body">
+            <span class="mp-res-link mp-res-demo-title"><i class="fas fa-hand-sparkles"></i> {{ res.label }}</span>
+            {% if res.description %}<p class="mp-res-demo-desc">{{ res.description }}</p>{% endif %}
+        </div>
+        {% if res.completed %}<span class="mp-res-done-tag"><i class="fas fa-circle-check"></i> Demonstrated</span>
+        {% else %}<span class="mp-res-pending"><i class="fas fa-user-clock"></i> Staff sign-off</span>{% endif %}
+    </div>
+    {% else %}
+    <div class="mp-res-row">
+        <a class="mp-res-link mp-res-{{ res.type }}" href="{{ res.url }}"{% if res.type == 'link' %} target="_blank" rel="noopener"{% endif %}>
+            <i class="fas {% if res.type == 'guide' %}fa-book-open{% elif res.type == 'quiz' %}fa-clipboard-check{% else %}fa-external-link-alt{% endif %}"></i> {{ res.label }}
+        </a>
+        {% if res.manual %}
+        <button type="button" class="mp-res-check{% if res.completed %} is-done{% endif %}" data-rid="{{ res.resource_id }}" onclick="toggleResource(this)">
+            <i class="fas {% if res.completed %}fa-circle-check{% else %}fa-circle{% endif %}"></i> <span>{{ 'Done' if res.completed else 'Mark done' }}</span>
+        </button>
+        {% elif res.completed %}
+        <span class="mp-res-done-tag"><i class="fas fa-circle-check"></i> {{ 'Passed' if res.type == 'quiz' else 'Completed' }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% else %}
+    <p class="mp-res-empty">No learning resources linked to this skill yet.</p>
+    {% endif %}
+{% endmacro %}
+
 <div class="mp-wrap">
     <a class="mp-back" href="{{ members_base }}"><i class="fas fa-arrow-left"></i> All members</a>
 
@@ -115,11 +203,14 @@
     {% endif %}
 
     <div class="mp-tabs">
-        <a class="mp-tab {% if tab == 'forum' %}is-active{% endif %}" href="{{ profile_base }}?tab=forum">Forum posts <span class="mp-tab-count">{{ post_count }}</span></a>
+        <a class="mp-tab {% if tab == 'forum' %}is-active{% endif %}" href="{{ profile_base }}?tab=forum">Forum <span class="mp-tab-count">{{ post_count }}</span></a>
         <a class="mp-tab {% if tab == 'guides' %}is-active{% endif %}" href="{{ profile_base }}?tab=guides">Guides <span class="mp-tab-count">{{ guides_done }}</span></a>
         <a class="mp-tab {% if tab == 'roles' %}is-active{% endif %}" href="{{ profile_base }}?tab=roles">Roles <span class="mp-tab-count">{{ target.roles|length + (1 if target.staff_badge_label else 0) }}</span></a>
-        {% if division_count %}
-        <a class="mp-tab {% if tab == 'ksas' %}is-active{% endif %}" href="{{ profile_base }}?tab=ksas">Competencies <span class="mp-tab-count">{{ division_count }}</span></a>
+        {% if show_ksa_tab %}
+        <a class="mp-tab {% if tab == 'ksas' %}is-active{% endif %}" href="{{ profile_base }}?tab=ksas">Training <span class="mp-tab-count">{{ division_count }}</span></a>
+        {% endif %}
+        {% if is_self and all_skills_count %}
+        <a class="mp-tab {% if tab == 'explore' %}is-active{% endif %}" href="{{ profile_base }}?tab=explore">Explore skills <span class="mp-tab-count">{{ all_skills_count }}</span></a>
         {% endif %}
     </div>
 
@@ -192,10 +283,16 @@
         {% endif %}
 
         {% elif tab == 'ksas' %}
-        {% if not ksa_profile %}
+        {% if not ksa_profile and not other_skills %}
         <div class="mp-empty"><p>No {{ dlabel(website, plural=True)|lower }} or competencies recorded.</p></div>
         {% else %}
-        {% if ksa_full %}<p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 16px;"><i class="fas fa-route"></i> Your learning roadmap — click a skill to see guides, links and quizzes that help you reach its target level.</p>{% endif %}
+        {% if ksa_profile %}
+        <div class="mp-viewtoggle">
+            <a href="{{ profile_base }}?tab=ksas" class="mp-vt{% if ksa_view != 'categories' %} is-active{% endif %}"><i class="fas fa-fire"></i> Priority</a>
+            <a href="{{ profile_base }}?tab=ksas&ksaview=categories" class="mp-vt{% if ksa_view == 'categories' %} is-active{% endif %}"><i class="fas fa-folder-tree"></i> Categories</a>
+        </div>
+        {% endif %}
+        {% if ksa_full %}<p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 16px;"><i class="fas fa-route"></i> Your learning roadmap — click a skill to see guides, links and quizzes that help you reach its target level. Tap a role chip to focus on just that role's skills.</p>{% endif %}
         {% for grp in ksa_profile %}
         <div class="mp-div-block">
             <div class="mp-div-head">
@@ -204,36 +301,80 @@
                     {{ grp.division.name }}
                 </a>
                 {% if grp.status == 'alumni' %}<span class="mp-alumni">Alumni</span>{% endif %}
-                {% for r in grp.roles %}<span class="mp-role-chip" style="padding:3px 9px;font-size:0.74rem;background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44;">{{ r.name }}</span>{% endfor %}
+                {% for r in grp.roles %}<span class="mp-role-chip{% if ksa_full %} mp-role-filter{% endif %}"{% if ksa_full %} role="button" tabindex="0" data-role-id="{{ r.id }}" onclick="mpFilterRole(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}"{% endif %} style="padding:3px 9px;font-size:0.74rem;background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44;">{{ r.name }}</span>{% endfor %}
             </div>
-            {% if grp.ksas %}
-            <div class="mp-ksa-list">
-                {% for it in grp.ksas %}
+            {% if grp.ksa_groups %}
+            {% for fg in grp.ksa_groups %}
+            <div class="mp-ksa-folder">
+                {% if fg.name or grp.ksa_groups|length > 1 %}<div class="mp-folder-head">{{ fg.name or 'Unfiled' }}</div>{% endif %}
+                <div class="mp-ksa-list">
+                {% for it in fg['items'] %}
                 {% if ksa_full %}
-                <details class="mp-ksa-item mp-roadmap{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}">
+                <details class="mp-ksa-item mp-roadmap{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}" data-role-ids="{{ it.roles|map(attribute='id')|join(',') }}">
                     <summary>
                         <span class="mp-ksa-type">{{ it.type }}</span>
                         <span class="mp-ksa-name">{{ it.name }}</span>
-                        {% if it.required is not none %}
-                            {% if it.met %}<span class="mp-tag mp-tag-sat"><i class="fas fa-check" style="margin-right:3px;"></i>Satisfied</span>
-                            {% elif it.required %}<span class="mp-tag mp-tag-req">Needed</span>
-                            {% else %}<span class="mp-tag mp-tag-rec">Recommended</span>{% endif %}
+                        {% set _has_status = (it.required is not none) or (it.priority and not it.met) %}
+                        {% if it.roles %}
+                        <span class="mp-meta-group">
+                            {% for r in it.roles %}<span class="mp-ksa-role" style="background:{{ r.color }}22;color:{{ r.color }};border-color:{{ r.color }}55;" title="Part of the {{ r.name }} role">{{ r.name }}</span>{% endfor %}
+                        </span>
                         {% endif %}
-                        {% if it.priority and not it.met %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
+                        {% if it.roles and _has_status %}<span class="mp-meta-sep"></span>{% endif %}
+                        {% if _has_status %}
+                        <span class="mp-meta-group">
+                            {% if it.required is not none %}
+                                {% if it.met %}<span class="mp-tag mp-tag-sat"><i class="fas fa-check" style="margin-right:3px;"></i>Satisfied</span>
+                                {% elif it.required %}<span class="mp-tag mp-tag-req">Needed</span>
+                                {% else %}<span class="mp-tag mp-tag-rec">Recommended</span>{% endif %}
+                            {% endif %}
+                            {% if it.priority and not it.met %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
+                        </span>
+                        {% endif %}
                         <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span>{% if it.target %}<span class="mp-target"> → {{ it.target_label }}</span>{% endif %}</span>
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
                         {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
-                        {% if it.resources %}
-                        {% for res in it.resources %}
-                        <a class="mp-res-link mp-res-{{ res.type }}" href="{{ res.url }}"{% if res.type == 'link' %} target="_blank" rel="noopener"{% endif %}>
-                            <i class="fas {% if res.type == 'guide' %}fa-book-open{% elif res.type == 'quiz' %}fa-clipboard-check{% else %}fa-external-link-alt{% endif %}"></i> {{ res.label }}
-                        </a>
-                        {% endfor %}
-                        {% else %}
-                        <p class="mp-res-empty">No learning resources linked to this skill yet.</p>
-                        {% endif %}
+                        {{ render_resources(it.resources) }}
+                    </div>
+                </details>
+                {% else %}
+                <div class="mp-ksa-item">
+                    <span class="mp-ksa-type">{{ it.type }}</span>
+                    <span class="mp-ksa-name">{{ it.name }}</span>
+                    <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                </div>
+                {% endif %}
+                {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="mp-ksa-empty">{% if ksa_full %}Nothing to work on in this {{ dlabel(website)|lower }} yet.{% else %}No recorded levels in this {{ dlabel(website)|lower }} yet.{% endif %}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if other_skills %}
+        <div class="mp-div-block">
+            <div class="mp-div-head">
+                <span class="mp-div-name"><i class="fas fa-star" style="color:#aef7e8;"></i> Other skills</span>
+                <span class="mp-skill-status">self-reported, outside {{ ('your ' if ksa_full else '') }}{{ dlabel(website, plural=True)|lower }}</span>
+            </div>
+            <div class="mp-ksa-list">
+                {% for it in other_skills %}
+                {% if ksa_full %}
+                <details class="mp-ksa-item mp-roadmap">
+                    <summary>
+                        <span class="mp-ksa-type">{{ it.type }}</span>
+                        <span class="mp-ksa-name">{{ it.name }}</span>
+                        <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                        <i class="fas fa-chevron-down mp-chev"></i>
+                    </summary>
+                    <div class="mp-res">
+                        {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
+                        {{ render_resources(it.resources) }}
                     </div>
                 </details>
                 {% else %}
@@ -245,13 +386,179 @@
                 {% endif %}
                 {% endfor %}
             </div>
-            {% else %}
-            <p class="mp-ksa-empty">{% if ksa_full %}Nothing to work on in this {{ dlabel(website)|lower }} yet.{% else %}No recorded levels in this {{ dlabel(website)|lower }} yet.{% endif %}</p>
-            {% endif %}
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% elif tab == 'explore' %}
+        {% if not all_skills %}
+        <div class="mp-empty"><p>No skills have been set up yet.</p></div>
+        {% else %}
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 12px;"><i class="fas fa-compass"></i> Browse every skill across all {{ dlabel(website, plural=True)|lower }} — pick any one to see the guides, links and quizzes that help you develop it, even outside your own roles.</p>
+        <div class="mp-viewtoggle">
+            <a href="{{ profile_base }}?tab=explore" class="mp-vt{% if ksa_view != 'categories' %} is-active{% endif %}"><i class="fas fa-list"></i> Flat list</a>
+            <a href="{{ profile_base }}?tab=explore&ksaview=categories" class="mp-vt{% if ksa_view == 'categories' %} is-active{% endif %}"><i class="fas fa-folder-tree"></i> Categories</a>
+        </div>
+        <input type="text" id="mpSkillSearch" placeholder="Search skills…" oninput="mpFilterSkills()"
+               style="width:100%;padding:9px 12px;margin:0 0 16px;border-radius:9px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);color:#fff;font-size:0.9rem;box-sizing:border-box;">
+        <div id="mpSkillCatalog">
+        {% for grp in all_skills %}
+        <div class="mp-div-block mp-skill-block">
+            <div class="mp-div-head">
+                <a class="mp-div-name" href="{{ division_member_url(grp.division.id) }}">
+                    {% if grp.division.icon %}<i class="fas {{ grp.division.icon }}" style="{% if grp.division.color %}color:{{ grp.division.color }};{% endif %}"></i>{% endif %}
+                    {{ grp.division.name }}
+                </a>
+            </div>
+            {% for fg in grp.ksa_groups %}
+            <div class="mp-ksa-folder">
+                {% if fg.name or grp.ksa_groups|length > 1 %}<div class="mp-folder-head">{{ fg.name or 'Unfiled' }}</div>{% endif %}
+                <div class="mp-ksa-list">
+                {% for it in fg['items'] %}
+                <details class="mp-ksa-item mp-roadmap mp-skill-item" data-name="{{ it.name|lower }}">
+                    <summary>
+                        <span class="mp-ksa-type">{{ it.type }}</span>
+                        <span class="mp-ksa-name">{{ it.name }}</span>
+                        {% if it.verified %}<i class="fas fa-circle-check mp-skill-flag mp-skill-flag-ok" title="Verified by staff"></i>
+                        {% elif it.self_reported %}<i class="fas fa-user-pen mp-skill-flag" title="Self-reported"></i>{% endif %}
+                        <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                        <i class="fas fa-chevron-down mp-chev"></i>
+                    </summary>
+                    <div class="mp-res">
+                        <div class="mp-skill-setlevel">
+                            <span class="mp-skill-setlevel-label">Your level</span>
+                            {% if it.verified %}
+                            <span class="mp-skill-verified"><i class="fas fa-circle-check"></i> {{ it.label }} <em>· verified by staff</em></span>
+                            {% else %}
+                            <select class="mp-skill-select" data-ksa="{{ it.id }}" onchange="setOwnSkillLevel(this)">
+                                {% for lvl in range(0, it.max + 1) %}
+                                <option value="{{ lvl }}"{% if lvl == it.level %} selected{% endif %}>{{ ksa_level_labels[lvl] if ksa_level_labels and lvl < ksa_level_labels|length else ('Level ' ~ lvl) }}</option>
+                                {% endfor %}
+                            </select>
+                            <span class="mp-skill-status" data-ksa-status="{{ it.id }}">{% if it.self_reported %}self-reported{% endif %}</span>
+                            {% endif %}
+                        </div>
+                        {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
+                        {{ render_resources(it.resources) }}
+                    </div>
+                </details>
+                {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
         </div>
         {% endfor %}
+        </div>
+        <div id="mpSkillNoMatch" class="mp-empty" style="display:none;"><p>No skills match your search.</p></div>
         {% endif %}
         {% endif %}
     </div>
 </div>
+
+<script>
+const SKILL_LEVEL_BASE = "{{ skill_level_base }}";
+const RESOURCE_TOGGLE_BASE = "{{ resource_toggle_base }}";
+
+// Member ticks a 'link' learning resource done / undone.
+async function toggleResource(btn) {
+    const rid = btn.getAttribute('data-rid');
+    btn.disabled = true;
+    try {
+        const r = await fetch(RESOURCE_TOGGLE_BASE + rid + '/toggle', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            const done = d.completed;
+            btn.classList.toggle('is-done', done);
+            btn.querySelector('i').className = 'fas ' + (done ? 'fa-circle-check' : 'fa-circle');
+            btn.querySelector('span').textContent = done ? 'Done' : 'Mark done';
+        }
+    } catch (e) {}
+    btn.disabled = false;
+}
+
+// Member self-reports their own level on any skill in the Explore catalog.
+async function setOwnSkillLevel(sel) {
+    const ksaId = sel.getAttribute('data-ksa');
+    const level = parseInt(sel.value, 10);
+    const status = document.querySelector('[data-ksa-status="' + ksaId + '"]');
+    const prev = sel.getAttribute('data-prev') || '0';
+    sel.disabled = true;
+    if (status) { status.textContent = 'Saving…'; status.style.color = 'rgba(255,255,255,0.45)'; }
+    try {
+        const r = await fetch(SKILL_LEVEL_BASE + ksaId + '/level', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ level: level })
+        });
+        const d = await r.json();
+        if (d.success) {
+            sel.setAttribute('data-prev', String(level));
+            if (status) {
+                status.textContent = level > 0 ? 'self-reported' : '';
+                status.style.color = '';
+            }
+        } else {
+            sel.value = prev;
+            if (status) { status.textContent = d.error || 'Could not save.'; status.style.color = '#f88'; }
+        }
+    } catch (e) {
+        sel.value = prev;
+        if (status) { status.textContent = 'Network error.'; status.style.color = '#f88'; }
+    }
+    sel.disabled = false;
+}
+document.querySelectorAll('.mp-skill-select').forEach(s => s.setAttribute('data-prev', s.value));
+
+// Explore-skills catalog: filter the KSA list by name; hide divisions with no match.
+function mpFilterSkills() {
+    const q = (document.getElementById('mpSkillSearch').value || '').trim().toLowerCase();
+    let anyVisible = false;
+    document.querySelectorAll('#mpSkillCatalog .mp-skill-block').forEach(block => {
+        let blockVisible = false;
+        block.querySelectorAll('.mp-skill-item').forEach(it => {
+            const match = !q || (it.getAttribute('data-name') || '').includes(q);
+            it.style.display = match ? '' : 'none';
+            if (match) blockVisible = true;
+        });
+        // Hide folder groups whose every item is filtered out.
+        block.querySelectorAll('.mp-ksa-folder').forEach(_mpHideEmptyFolder);
+        block.style.display = blockVisible ? '' : 'none';
+        if (blockVisible) anyVisible = true;
+    });
+    const noMatch = document.getElementById('mpSkillNoMatch');
+    if (noMatch) noMatch.style.display = anyVisible ? 'none' : '';
+}
+
+// Hide a folder wrapper when all its KSA items are hidden (during filtering).
+function _mpHideEmptyFolder(folder) {
+    const items = folder.querySelectorAll('.mp-ksa-list > *');
+    let anyShown = false;
+    items.forEach(it => { if (it.style.display !== 'none') anyShown = true; });
+    folder.style.display = anyShown ? '' : 'none';
+}
+
+// Competencies roadmap: tap a role chip in a division block to show only the
+// KSAs that role requires; tap the active chip again to clear.
+function mpFilterRole(chip) {
+    const block = chip.closest('.mp-div-block');
+    if (!block) return;
+    const rid = chip.getAttribute('data-role-id');
+    const wasActive = chip.classList.contains('is-active');
+    block.querySelectorAll('.mp-role-filter').forEach(c => c.classList.remove('is-active'));
+    const items = block.querySelectorAll('.mp-ksa-list [data-role-ids]');
+    if (wasActive) {
+        block.classList.remove('mp-filtering');
+        items.forEach(it => { it.style.display = ''; });
+        block.querySelectorAll('.mp-ksa-folder').forEach(f => { f.style.display = ''; });
+        return;
+    }
+    chip.classList.add('is-active');
+    block.classList.add('mp-filtering');
+    items.forEach(it => {
+        const ids = (it.getAttribute('data-role-ids') || '').split(',').filter(Boolean);
+        it.style.display = ids.includes(rid) ? '' : 'none';
+    });
+    block.querySelectorAll('.mp-ksa-folder').forEach(_mpHideEmptyFolder);
+}
+</script>
 {% endblock %}
