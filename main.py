@@ -1337,8 +1337,12 @@ class PublicUserRole(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     website    = db.relationship('Website', backref=db.backref('public_roles', lazy=True, cascade='all, delete-orphan'))
     division   = db.relationship('Division', backref=db.backref('roles', lazy='dynamic'))
+    # Names are unique per (website, division) so different divisions can reuse
+    # the same role names (Mentors, Captains, Year 1, …). Site-wide roles have
+    # division_id NULL; NULLs are distinct in a UNIQUE index, so site-wide
+    # name uniqueness is enforced in the route validation instead.
     __table_args__ = (
-        db.UniqueConstraint('website_id', 'name', name='uq_pub_role_name_per_website'),
+        db.UniqueConstraint('website_id', 'division_id', 'name', name='uq_pub_role_name_per_division'),
     )
 
     def to_dict(self):
@@ -21069,9 +21073,9 @@ def admin_public_role_create():
     if not name or not website_id:
         return _utf8_json({'error': 'Name and website are required.'}, 400)
     website = Website.query.filter_by(id=website_id, user_id=current_user.id, is_draft=False).first_or_404()
-    if PublicUserRole.query.filter_by(website_id=website.id, name=name).first():
-        return _utf8_json({'error': 'A role with that name already exists for this website.'}, 400)
     division_id = _validate_role_division(data.get('division_id'), website.id)
+    if PublicUserRole.query.filter_by(website_id=website.id, name=name, division_id=division_id).first():
+        return _utf8_json({'error': 'A role with that name already exists here.'}, 400)
     role = PublicUserRole(website_id=website.id, name=name, color=color,
                           division_id=division_id,
                           exclude_from_directory=bool(data.get('exclude_from_directory')))
@@ -21102,16 +21106,28 @@ def admin_public_role_update(role_id):
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     color = (data.get('color') or '').strip()
-    if name and name != role.name:
-        if PublicUserRole.query.filter_by(website_id=role.website_id, name=name).first():
-            return _utf8_json({'error': 'A role with that name already exists.'}, 400)
+    target_name = name or role.name
+    target_div = (_validate_role_division(data.get('division_id'), role.website_id)
+                  if 'division_id' in data else role.division_id)
+    # Names are unique per (website, division); re-check when the name OR the
+    # division changes (a move could collide with a same-named role over there).
+    if target_name != role.name or target_div != role.division_id:
+        dup = PublicUserRole.query.filter(
+            PublicUserRole.website_id == role.website_id,
+            PublicUserRole.name == target_name,
+            PublicUserRole.id != role.id,
+            PublicUserRole.division_id.is_(None) if target_div is None
+            else PublicUserRole.division_id == target_div)
+        if dup.first():
+            return _utf8_json({'error': 'A role with that name already exists here.'}, 400)
+    if name:
         role.name = name
     if color:
         role.color = color
     if 'exclude_from_directory' in data:
         role.exclude_from_directory = bool(data['exclude_from_directory'])
     if 'division_id' in data:
-        role.division_id = _validate_role_division(data.get('division_id'), role.website_id)
+        role.division_id = target_div
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -26720,6 +26736,28 @@ def _run_startup_migrations_inner():
                         print(f'[migrate] warning: index {idx.name}: {exc}')
         except Exception:
             pass
+
+    # ── Step 6: swap the public_user_role uniqueness from per-website to
+    # per-(website, division) so different divisions can reuse role names.
+    # (db.create_all won't alter an existing table's constraints.) Postgres only;
+    # SQLite can't ALTER constraints, but a fresh SQLite already uses the new one.
+    if 'public_user_role' in pre_existing and not _is_sqlite():
+        try:
+            _cons = {c['name'] for c in inspector.get_unique_constraints('public_user_role')}
+            if 'uq_pub_role_name_per_website' in _cons:
+                db.session.execute(db.text(
+                    'ALTER TABLE public_user_role DROP CONSTRAINT uq_pub_role_name_per_website'))
+                db.session.commit()
+                print('[migrate] dropped uq_pub_role_name_per_website')
+            if 'uq_pub_role_name_per_division' not in _cons:
+                db.session.execute(db.text(
+                    'ALTER TABLE public_user_role ADD CONSTRAINT uq_pub_role_name_per_division '
+                    'UNIQUE (website_id, division_id, name)'))
+                db.session.commit()
+                print('[migrate] + uq_pub_role_name_per_division')
+        except Exception as _e:
+            db.session.rollback()
+            print(f'[migrate] warning: role uniqueness swap: {_e}')
 
 
 # Flag set to True when the configured database is unreachable at startup.
@@ -32662,8 +32700,8 @@ def admin_division_role_create(did):
     name = (data.get('name') or '').strip()
     if not name:
         return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
-    if PublicUserRole.query.filter_by(website_id=website.id, name=name).first():
-        return _utf8_json({'success': False, 'error': 'A role with that name already exists on this site.'}, 400)
+    if PublicUserRole.query.filter_by(website_id=website.id, name=name, division_id=d.id).first():
+        return _utf8_json({'success': False, 'error': 'A role with that name already exists in this ' + _division_word(website) + '.'}, 400)
     role = PublicUserRole(website_id=website.id, division_id=d.id, name=name,
                           color=(data.get('color') or '#5eeef8').strip())
     db.session.add(role)
@@ -32681,8 +32719,12 @@ def admin_division_role_update(rid):
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     if name and name != role.name:
-        if PublicUserRole.query.filter_by(website_id=role.website_id, name=name).first():
-            return _utf8_json({'success': False, 'error': 'A role with that name already exists.'}, 400)
+        if PublicUserRole.query.filter(
+                PublicUserRole.website_id == role.website_id,
+                PublicUserRole.name == name,
+                PublicUserRole.division_id == role.division_id,
+                PublicUserRole.id != role.id).first():
+            return _utf8_json({'success': False, 'error': 'A role with that name already exists in this ' + _division_word(website) + '.'}, 400)
         role.name = name
     if (data.get('color') or '').strip():
         role.color = data['color'].strip()
