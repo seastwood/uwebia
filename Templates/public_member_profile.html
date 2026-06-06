@@ -54,6 +54,24 @@
 .mp-ksa-level { margin-left: auto; font-size: 0.85rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
 .mp-ksa-num { font-weight: 500; color: rgba(255,255,255,0.4); }
 .mp-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin: 10px 0 0; }
+.mp-roadmap { display: block; padding: 0; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.07); }
+.mp-roadmap.is-gap { border-color: rgba(255,120,90,0.4); }
+.mp-roadmap.is-met { border-color: rgba(94,238,200,0.35); }
+.mp-roadmap summary { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; list-style: none; }
+.mp-roadmap summary::-webkit-details-marker { display: none; }
+.mp-roadmap .mp-chev { margin-left: 6px; opacity: 0.4; font-size: 0.75rem; transition: transform 0.2s; }
+.mp-roadmap[open] .mp-chev { transform: rotate(180deg); }
+.mp-tag { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
+.mp-tag-req { background: rgba(255,120,90,0.15); color: #ff9b7a; }
+.mp-tag-rec { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); }
+.mp-prio-high { background: rgba(255,90,90,0.16); color: #ff8a8a; }
+.mp-prio-medium { background: rgba(255,200,80,0.15); color: #ffce6b; }
+.mp-prio-low { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
+.mp-target { color: #aef7e8; font-weight: 700; }
+.mp-res { padding: 4px 12px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.mp-res-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 8px; background: rgba(94,238,248,0.06); border: 1px solid rgba(94,238,248,0.18); text-decoration: none; color: #aef7e8; font-size: 0.85rem; font-weight: 600; }
+.mp-res-link:hover { background: rgba(94,238,248,0.14); }
+.mp-res-empty { font-size: 0.8rem; color: rgba(255,255,255,0.35); padding: 2px 12px 10px; margin: 0; }
 </style>
 {% endblock %}
 
@@ -147,6 +165,7 @@
         {% if not ksa_profile %}
         <div class="mp-empty"><p>No divisions or competencies recorded.</p></div>
         {% else %}
+        {% if ksa_full %}<p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 16px;"><i class="fas fa-route"></i> Your learning roadmap — click a skill to see guides, links and quizzes that help you reach its target level.</p>{% endif %}
         {% for grp in ksa_profile %}
         <div class="mp-div-block">
             <div class="mp-div-head">
@@ -160,15 +179,39 @@
             {% if grp.ksas %}
             <div class="mp-ksa-list">
                 {% for it in grp.ksas %}
+                {% if ksa_full %}
+                <details class="mp-ksa-item mp-roadmap{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}">
+                    <summary>
+                        <span class="mp-ksa-type">{{ it.type }}</span>
+                        <span class="mp-ksa-name">{{ it.name }}</span>
+                        {% if it.required is not none %}<span class="mp-tag {{ 'mp-tag-req' if it.required else 'mp-tag-rec' }}">{{ 'Required' if it.required else 'Recommended' }}</span>{% endif %}
+                        {% if it.priority %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
+                        <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span>{% if it.target %}<span class="mp-target"> → {{ it.target_label }}</span>{% endif %}</span>
+                        <i class="fas fa-chevron-down mp-chev"></i>
+                    </summary>
+                    <div class="mp-res">
+                        {% if it.resources %}
+                        {% for res in it.resources %}
+                        <a class="mp-res-link mp-res-{{ res.type }}" href="{{ res.url }}"{% if res.type == 'link' %} target="_blank" rel="noopener"{% endif %}>
+                            <i class="fas {% if res.type == 'guide' %}fa-book-open{% elif res.type == 'quiz' %}fa-clipboard-check{% else %}fa-external-link-alt{% endif %}"></i> {{ res.label }}
+                        </a>
+                        {% endfor %}
+                        {% else %}
+                        <p class="mp-res-empty">No learning resources linked to this skill yet.</p>
+                        {% endif %}
+                    </div>
+                </details>
+                {% else %}
                 <div class="mp-ksa-item">
                     <span class="mp-ksa-type">{{ it.type }}</span>
                     <span class="mp-ksa-name">{{ it.name }}</span>
                     <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
                 </div>
+                {% endif %}
                 {% endfor %}
             </div>
             {% else %}
-            <p class="mp-ksa-empty">No recorded levels in this division yet.</p>
+            <p class="mp-ksa-empty">{% if ksa_full %}No KSAs in this division yet.{% else %}No recorded levels in this division yet.{% endif %}</p>
             {% endif %}
         </div>
         {% endfor %}

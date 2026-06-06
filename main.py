@@ -1202,8 +1202,10 @@ class KSA(db.Model):
 
 
 class RoleKSA(db.Model):
-    """A role's competency requirement: holding `role_id` is expected to require
-    `ksa_id` at `required_level`. Drives gap analysis in the matrix."""
+    """A role's competency requirement: holding `role_id` is expected to hold
+    `ksa_id` at `required_level`. `required` distinguishes must-have from
+    recommended; `priority` (high/medium/low) orders the learning roadmap.
+    Drives gap analysis in the matrix."""
     __tablename__ = 'role_ksa'
     id             = db.Column(db.Integer, primary_key=True)
     role_id        = db.Column(db.Integer, db.ForeignKey('public_user_role.id', ondelete='CASCADE'),
@@ -1211,11 +1213,33 @@ class RoleKSA(db.Model):
     ksa_id         = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
                                nullable=False, index=True)
     required_level = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    required       = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    priority       = db.Column(db.String(10), nullable=False, default='medium',
+                               server_default="'medium'")  # high | medium | low
     role           = db.relationship('PublicUserRole', backref=db.backref('ksa_requirements', lazy='dynamic',
                                                                           cascade='all, delete-orphan'))
     ksa            = db.relationship('KSA', backref=db.backref('role_requirements', lazy='dynamic',
                                                                cascade='all, delete-orphan'))
     __table_args__ = (db.UniqueConstraint('role_id', 'ksa_id', name='uq_role_ksa'),)
+
+
+class KSAResource(db.Model):
+    """A learning resource attached to a KSA: an external link, an internal
+    Guide, or a Quiz. Powers the self-learning roadmap — clicking a skill shows
+    its resources."""
+    __tablename__ = 'ksa_resource'
+    id            = db.Column(db.Integer, primary_key=True)
+    ksa_id        = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    resource_type = db.Column(db.String(10), nullable=False, default='link')  # link | guide | quiz
+    label         = db.Column(db.String(300), nullable=True)   # title / override
+    url           = db.Column(db.String(1000), nullable=True)  # for link
+    guide_id      = db.Column(db.Integer, db.ForeignKey('guide.id', ondelete='CASCADE'), nullable=True)
+    quiz_id       = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'), nullable=True)
+    sort_order    = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    ksa           = db.relationship('KSA', backref=db.backref('resources', lazy='dynamic',
+                                                              cascade='all, delete-orphan'))
 
 
 class UserKSA(db.Model):
@@ -6385,7 +6409,7 @@ _RESERVED_URL_PREFIXES = frozenset({
     'forgot-password', 'reset-password', 'verify-email', 'resend-verification',
     # Public content
     'posts', 'products', 'shop', 'store', 'forum', 'calendar', 'guides', 'quizzes',
-    'members', 'page', 'section', 'comment', 'upload', 'asset',
+    'members', 'quiz', 'page', 'section', 'comment', 'upload', 'asset',
     'preview-page', 'preview-navbar', 'preview_page', 'preview_navbar',
     # Admin CRUD prefixes (top-level)
     'create-website', 'create_website', 'delete-website', 'delete_website',
@@ -10495,6 +10519,7 @@ def _delete_website_all(website):
     if _ksa_ids:
         UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
         RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
+        KSAResource.query.filter(KSAResource.ksa_id.in_(_ksa_ids)).delete(synchronize_session=False)
     KSA.query.filter_by(website_id=wid).delete(synchronize_session=False)
     if _div_ids:
         DivisionMembership.query.filter(DivisionMembership.division_id.in_(_div_ids)).delete(synchronize_session=False)
@@ -13124,6 +13149,7 @@ def _serialize_backup(uid):
     _ksa_ids = [k.id for k in ksas]
     role_ksas = RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
     user_ksas = UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
+    ksa_resources = KSAResource.query.filter(KSAResource.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
 
     # PublicUserAddress.
     _pub_user_ids = [pu.id for pu in public_users]
@@ -13566,11 +13592,15 @@ def _serialize_backup(uid):
                   'created_at': k.created_at.isoformat() if k.created_at else None,
                   } for k in ksas],
         'role_ksas': [{'id': rk.id, 'role_id': rk.role_id, 'ksa_id': rk.ksa_id,
-                       'required_level': rk.required_level} for rk in role_ksas],
+                       'required_level': rk.required_level, 'required': rk.required,
+                       'priority': rk.priority} for rk in role_ksas],
         'user_ksas': [{'id': uk.id, 'public_user_id': uk.public_user_id, 'ksa_id': uk.ksa_id,
                        'level': uk.level, 'note': uk.note,
                        'granted_at': uk.granted_at.isoformat() if uk.granted_at else None,
                        } for uk in user_ksas],
+        'ksa_resources': [{'id': rs.id, 'ksa_id': rs.ksa_id, 'resource_type': rs.resource_type,
+                           'label': rs.label, 'url': rs.url, 'guide_id': rs.guide_id,
+                           'quiz_id': rs.quiz_id, 'sort_order': rs.sort_order} for rs in ksa_resources],
         'public_user_addresses': [{'id': a.id, 'public_user_id': a.public_user_id,
                                    'label': a.label, 'name': a.name,
                                    'line1': a.line1, 'line2': a.line2,
@@ -15170,7 +15200,9 @@ def import_backup():
                 if not new_r or not new_k:
                     continue
                 db.session.add(RoleKSA(role_id=new_r, ksa_id=new_k,
-                                       required_level=rk.get('required_level', 1)))
+                                       required_level=rk.get('required_level', 1),
+                                       required=rk.get('required', True),
+                                       priority=rk.get('priority', 'medium')))
             for uk in data.get('user_ksas', []):
                 new_pu = pub_user_map.get(uk.get('public_user_id'))
                 new_k = ksa_map.get(uk.get('ksa_id'))
@@ -15180,6 +15212,16 @@ def import_backup():
                     public_user_id=new_pu, ksa_id=new_k, level=uk.get('level', 0),
                     note=uk.get('note'),
                     granted_at=datetime.fromisoformat(uk['granted_at']) if uk.get('granted_at') else None))
+            for rs in data.get('ksa_resources', []):
+                new_k = ksa_map.get(rs.get('ksa_id'))
+                if not new_k:
+                    continue
+                db.session.add(KSAResource(
+                    ksa_id=new_k, resource_type=rs.get('resource_type', 'link'),
+                    label=rs.get('label'), url=rs.get('url'),
+                    guide_id=guide_map.get(rs['guide_id']) if rs.get('guide_id') else None,
+                    quiz_id=quiz_map.get(rs['quiz_id']) if rs.get('quiz_id') else None,
+                    sort_order=rs.get('sort_order', 0)))
 
             # ── PublicUserAddress ─────────────────────────────────────────────
             for ad in data.get('public_user_addresses', []):
@@ -31256,11 +31298,15 @@ def admin_role_ksa_requirements_get(role_id):
                            'division': None, 'catalog': [], 'requirements': {}})
     catalog = [k.to_dict() for k in KSA.query.filter_by(division_id=role.division_id)
                .order_by(KSA.sort_order, KSA.name).all()]
-    reqs = {str(rk.ksa_id): rk.required_level for rk in role.ksa_requirements.all()}
+    reqs = {str(rk.ksa_id): {'level': rk.required_level, 'required': rk.required,
+                             'priority': rk.priority} for rk in role.ksa_requirements.all()}
     div = db.session.get(Division, role.division_id)
     return _utf8_json({'success': True, 'role': role.to_dict(),
                        'division': div.to_dict() if div else None,
                        'catalog': catalog, 'requirements': reqs})
+
+
+_KSA_PRIORITIES = ('high', 'medium', 'low')
 
 
 @app.route('/admin/roles/<int:role_id>/ksa-requirements', methods=['POST'])
@@ -31275,15 +31321,85 @@ def admin_role_ksa_requirements_save(role_id):
     incoming = (request.get_json() or {}).get('requirements') or {}
     valid = {k.id: k for k in KSA.query.filter_by(division_id=role.division_id).all()}
     RoleKSA.query.filter_by(role_id=role.id).delete(synchronize_session=False)
-    for kid, lvl in incoming.items():
+    for kid, spec in incoming.items():
         try:
-            kid, lvl = int(kid), int(lvl)
-        except (TypeError, ValueError):
+            kid = int(kid)
+            lvl = int(spec.get('level') if isinstance(spec, dict) else spec)
+        except (TypeError, ValueError, AttributeError):
             continue
         if kid not in valid or lvl < 1:
             continue
+        priority = (spec.get('priority') if isinstance(spec, dict) else 'medium')
+        if priority not in _KSA_PRIORITIES:
+            priority = 'medium'
+        required = bool(spec.get('required', True)) if isinstance(spec, dict) else True
         db.session.add(RoleKSA(role_id=role.id, ksa_id=kid,
-                               required_level=min(lvl, valid[kid].max_level)))
+                               required_level=min(lvl, valid[kid].max_level),
+                               required=required, priority=priority))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ── KSA learning resources (links / guides / quizzes attached to a KSA) ───────
+
+@app.route('/admin/ksa/<int:kid>/resources')
+@login_required
+@require_perm('ksa.view')
+def admin_ksa_resources_get(kid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    resources = [{'id': rs.id, 'resource_type': rs.resource_type, 'label': rs.label or '',
+                  'url': rs.url or '', 'guide_id': rs.guide_id, 'quiz_id': rs.quiz_id}
+                 for rs in k.resources.order_by(KSAResource.sort_order, KSAResource.id).all()]
+    guides = [{'id': g.id, 'title': g.title} for g in
+              Guide.query.filter_by(website_id=website.id).order_by(Guide.title).all()]
+    quizzes = [{'id': qz.id, 'title': qz.title} for qz in
+               Quiz.query.filter_by(website_id=website.id).order_by(Quiz.title).all()]
+    return _utf8_json({'success': True, 'resources': resources,
+                       'guides': guides, 'quizzes': quizzes})
+
+
+@app.route('/admin/ksa/<int:kid>/resources', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_ksa_resources_save(kid):
+    website, k = _ksa_owned_or_403(kid)
+    if k is None:
+        return website
+    incoming = (request.get_json() or {}).get('resources') or []
+    valid_guides = {g.id for g in Guide.query.filter_by(website_id=website.id).all()}
+    valid_quizzes = {qz.id for qz in Quiz.query.filter_by(website_id=website.id).all()}
+    KSAResource.query.filter_by(ksa_id=k.id).delete(synchronize_session=False)
+    for i, rs in enumerate(incoming):
+        if not isinstance(rs, dict):
+            continue
+        rtype = rs.get('resource_type')
+        label = (rs.get('label') or '').strip() or None
+        if rtype == 'link':
+            url = (rs.get('url') or '').strip()
+            if not url:
+                continue
+            db.session.add(KSAResource(ksa_id=k.id, resource_type='link', label=label,
+                                       url=url, sort_order=i))
+        elif rtype == 'guide':
+            try:
+                gid = int(rs.get('guide_id'))
+            except (TypeError, ValueError):
+                continue
+            if gid not in valid_guides:
+                continue
+            db.session.add(KSAResource(ksa_id=k.id, resource_type='guide', label=label,
+                                       guide_id=gid, sort_order=i))
+        elif rtype == 'quiz':
+            try:
+                qzid = int(rs.get('quiz_id'))
+            except (TypeError, ValueError):
+                continue
+            if qzid not in valid_quizzes:
+                continue
+            db.session.add(KSAResource(ksa_id=k.id, resource_type='quiz', label=label,
+                                       quiz_id=qzid, sort_order=i))
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -32009,6 +32125,16 @@ def _quiz_draft_for(quiz_id, public_user, visitor_hash):
     return None
 
 
+@app.route('/quiz/<int:qid>')
+def public_quiz_page(qid):
+    """Standalone takeable quiz page — gives quizzes a public URL so they can be
+    attached as a KSA learning resource (or shared directly)."""
+    quiz = Quiz.query.get_or_404(qid)
+    website = _live_website_for(quiz)
+    return render_template('public_quiz_page.html', website=website, quiz=quiz,
+                           public_user=_public_user_for_website(website))
+
+
 @app.route('/api/quizzes/<int:qid>')
 def public_quiz_get(qid):
     quiz = Quiz.query.get_or_404(qid)
@@ -32382,31 +32508,94 @@ def _member_guide_progress(target_user, website):
     return out
 
 
-def _member_ksa_profile(target_user, website):
-    """A member's competency showcase: their divisions (with the roles they hold
-    in each + membership status) and the KSAs they actually hold (level >= 1),
-    grouped by division. Required levels/gaps are intentionally NOT shown
-    publicly — this is an attainment showcase, not the admin matrix."""
+_KSA_PRIO_NAMES = ['high', 'medium', 'low']
+
+
+def _member_ksa_profile(target_user, website, full=False):
+    """A member's competency view, grouped by division.
+
+    full=False (others' profiles) → an attainment *showcase*: only KSAs the
+    member holds (level >= 1), no targets/resources.
+
+    full=True (own profile) → the learning *roadmap*: every KSA in the member's
+    divisions including not-yet-started ones, annotated with the target level /
+    priority / required-vs-recommended derived from the roles they hold, plus
+    the learning resources attached to each KSA. Unmet required gaps sort first.
+    """
     out = []
     memberships = DivisionMembership.query.filter_by(public_user_id=target_user.id).all()
     target_roles = target_user.roles or []
+    _guide_cache, _quiz_cache = {}, {}
+
+    def _resources_for(ksa):
+        items = []
+        for rs in ksa.resources.order_by(KSAResource.sort_order, KSAResource.id).all():
+            if rs.resource_type == 'link' and rs.url:
+                items.append({'type': 'link', 'label': rs.label or rs.url, 'url': rs.url})
+            elif rs.resource_type == 'guide' and rs.guide_id:
+                g = _guide_cache.get(rs.guide_id)
+                if g is None:
+                    g = db.session.get(Guide, rs.guide_id)
+                    _guide_cache[rs.guide_id] = g
+                if g and g.website_id == website.id and g.status == 'published':
+                    gurl = (('/' + website.url_prefix + '/guides/' + g.slug)
+                            if website.url_prefix else ('/guides/' + g.slug))
+                    items.append({'type': 'guide', 'label': rs.label or g.title, 'url': gurl})
+            elif rs.resource_type == 'quiz' and rs.quiz_id:
+                qz = _quiz_cache.get(rs.quiz_id)
+                if qz is None:
+                    qz = db.session.get(Quiz, rs.quiz_id)
+                    _quiz_cache[rs.quiz_id] = qz
+                if qz and qz.website_id == website.id:
+                    items.append({'type': 'quiz', 'label': rs.label or qz.title,
+                                  'url': url_for('public_quiz_page', qid=qz.id)})
+        return items
+
     for m in memberships:
         d = db.session.get(Division, m.division_id)
         if not d or d.website_id != website.id:
             continue
+        roles = [r for r in target_roles if r.division_id == d.id]
+        # Aggregate this member's requirements per KSA across their division roles.
+        req_map = {}
+        if full:
+            for r in roles:
+                for rk in r.ksa_requirements.all():
+                    slot = req_map.setdefault(rk.ksa_id, {'level': 0, 'required': False, 'prank': 2})
+                    slot['level'] = max(slot['level'], rk.required_level)
+                    slot['required'] = slot['required'] or rk.required
+                    slot['prank'] = min(slot['prank'], {'high': 0, 'medium': 1, 'low': 2}.get(rk.priority, 1))
         ksas = KSA.query.filter_by(division_id=d.id).order_by(KSA.sort_order, KSA.name).all()
         levels = {}
         if ksas:
             for uk in UserKSA.query.filter(UserKSA.public_user_id == target_user.id,
                                            UserKSA.ksa_id.in_([k.id for k in ksas])).all():
                 levels[uk.ksa_id] = uk.level
-        held_ksas = [{'name': k.name, 'type': k.ksa_type, 'level': lv,
-                      'label': _ksa_level_label(website, lv), 'max': k.max_level}
-                     for k in ksas for lv in [levels.get(k.id, 0)] if lv >= 1]
-        roles = [r for r in target_roles if r.division_id == d.id]
+        items = []
+        for k in ksas:
+            lv = levels.get(k.id, 0)
+            if not full and lv < 1:
+                continue
+            req = req_map.get(k.id) if full else None
+            target = req['level'] if req else 0
+            items.append({
+                'id': k.id, 'name': k.name, 'type': k.ksa_type, 'level': lv,
+                'label': _ksa_level_label(website, lv), 'max': k.max_level,
+                'target': target,
+                'target_label': _ksa_level_label(website, target) if target else None,
+                'required': (req['required'] if req else None),
+                'priority': (_KSA_PRIO_NAMES[req['prank']] if req else None),
+                'met': (target == 0) or (lv >= target),
+                'resources': _resources_for(k) if full else [],
+            })
+        if full:
+            items.sort(key=lambda x: (
+                0 if (x['target'] and not x['met']) else (1 if x['target'] else 2),
+                {'high': 0, 'medium': 1, 'low': 2}.get(x['priority'], 3),
+                x['name'].lower()))
         out.append({'division': d, 'status': m.status,
                     'roles': [{'name': r.name, 'color': r.color} for r in roles],
-                    'ksas': held_ksas})
+                    'ksas': items})
     out.sort(key=lambda x: (x['status'] != 'active', (x['division'].name or '').lower()))
     return out
 
@@ -32510,9 +32699,10 @@ def _render_member_profile(prefix, user_id):
     reply_count = ForumReply.query.filter_by(website_id=website.id,
         public_user_id=target.id, is_hidden=False).count()
 
+    is_self = (viewer.id == target.id)
     forum_items = _member_forum_activity(target, website, q) if tab == 'forum' else None
     guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
-    ksa_profile = _member_ksa_profile(target, website) if tab == 'ksas' else None
+    ksa_profile = _member_ksa_profile(target, website, full=is_self) if tab == 'ksas' else None
     # Cheap counts for the tab labels (computed regardless of active tab).
     guides_done = sum(1 for g in _member_guide_progress(target, website) if g['is_done'])
     division_count = DivisionMembership.query.filter_by(public_user_id=target.id).count()
@@ -32530,7 +32720,8 @@ def _render_member_profile(prefix, user_id):
                            post_count=thread_count + reply_count, guides_done=guides_done,
                            forum_items=forum_items, guide_items=guide_items,
                            ksa_profile=ksa_profile, division_count=division_count,
-                           is_self=(viewer.id == target.id),
+                           ksa_full=is_self,
+                           is_self=is_self,
                            members_base=_members_base_url(website),
                            forum_thread_url=_forum_thread_url,
                            division_member_url=_division_member_url,

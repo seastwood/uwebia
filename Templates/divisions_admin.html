@@ -54,8 +54,14 @@
 .da-member-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
 .da-member-name { font-weight: 600; font-size: 0.9rem; }
 .da-member-row select { padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; }
-.da-req-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-.da-req-row select { margin-left: auto; padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; min-width: 150px; }
+.da-req-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
+.da-req-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.da-req-controls select { padding: 5px 7px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.78rem; }
+.rq-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; color: rgba(255,255,255,0.6); white-space: nowrap; }
+.rq-flag input { width: 14px; height: 14px; accent-color: #5eeef8; }
+.da-res-row { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.da-res-row input, .da-res-row select { padding: 6px 9px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.82rem; }
+.da-res-type { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; }
 .da-add-member { display: flex; gap: 8px; margin-bottom: 10px; }
 .da-add-member input { flex: 1; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; }
 .da-candidates { max-height: 260px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 9px; }
@@ -135,6 +141,8 @@
                 <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
                 {% if can_manage %}
                 <div class="da-ksa-actions">
+                    <button class="da-icon-btn" title="Learning resources (links / guides / quizzes)"
+                            onclick='openResourcesModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-book-reader"></i></button>
                     <button class="da-icon-btn" title="Edit"
                             onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }})'><i class="fas fa-pencil-alt"></i></button>
                     <button class="da-icon-btn is-danger" title="Delete"
@@ -278,6 +286,30 @@
         <div class="uw-modal-footer">
             <button class="uw-btn uw-btn-secondary" onclick="closeReqModal()">Cancel</button>
             <button class="uw-btn uw-btn-primary" id="reqSubmit" onclick="saveReq()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- KSA resources modal -->
+<div class="uw-overlay" id="resOverlay" style="display:none;" onclick="if(event.target===this)closeResModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="resTitle">Resources</h3>
+            <button class="uw-modal-close" onclick="closeResModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 12px;">Attach links, guides and quizzes a member can use to learn this skill. They appear on the member's roadmap.</p>
+            <div id="resList"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <button class="da-btn da-btn-secondary" onclick="addResource('link')"><i class="fas fa-link"></i> Add link</button>
+                <button class="da-btn da-btn-secondary" onclick="addResource('guide')"><i class="fas fa-book-open"></i> Add guide</button>
+                <button class="da-btn da-btn-secondary" onclick="addResource('quiz')"><i class="fas fa-clipboard-check"></i> Add quiz</button>
+            </div>
+        </div>
+        <div id="resError" class="da-modal-error"></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeResModal()">Cancel</button>
+            <button class="uw-btn uw-btn-primary" id="resSubmit" onclick="saveResources()">Save</button>
         </div>
     </div>
 </div>
@@ -512,24 +544,36 @@ function renderReq(catalog, current) {
     const box = document.getElementById('reqList');
     if (!catalog.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">This role\'s division has no KSAs yet. Add some in the catalog first.</p>'; return; }
     box.innerHTML = catalog.map(k => {
-        const cur = parseInt(current[String(k.id)] || 0);
-        let opts = `<option value="0"${cur===0?' selected':''}>Not required</option>`;
-        for (let lv = 1; lv <= k.max_level; lv++) {
-            const lbl = KSA_LEVEL_LABELS[lv] || ('Level ' + lv);
-            opts += `<option value="${lv}"${cur===lv?' selected':''}>${_escH(lbl)} (${lv})</option>`;
+        const cur = current[String(k.id)] || {};
+        const lvl = parseInt(cur.level || 0);
+        const req = cur.required !== false;
+        const prio = cur.priority || 'medium';
+        let lvlOpts = `<option value="0"${lvl===0?' selected':''}>Not required</option>`;
+        for (let v = 1; v <= k.max_level; v++) {
+            const lbl = KSA_LEVEL_LABELS[v] || ('Level ' + v);
+            lvlOpts += `<option value="${v}"${lvl===v?' selected':''}>${_escH(lbl)} (${v})</option>`;
         }
-        return `<div class="da-req-row">
+        const prioOpts = ['high','medium','low'].map(p => `<option value="${p}"${prio===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('');
+        return `<div class="da-req-row" data-ksa="${k.id}">
             <span class="da-ksa-type">${_escH(k.ksa_type)}</span>
-            <span class="da-member-name">${_escH(k.name)}</span>
-            <select data-ksa="${k.id}">${opts}</select>
+            <span class="da-member-name" style="flex:1;">${_escH(k.name)}</span>
+            <div class="da-req-controls">
+                <select class="rq-level" title="Required level">${lvlOpts}</select>
+                <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="rq-required" ${req?'checked':''}> Req'd</label>
+                <select class="rq-priority" title="Priority">${prioOpts}</select>
+            </div>
         </div>`;
     }).join('');
 }
 async function saveReq() {
     const requirements = {};
-    document.querySelectorAll('#reqList select[data-ksa]').forEach(sel => {
-        const lv = parseInt(sel.value);
-        if (lv >= 1) requirements[sel.dataset.ksa] = lv;
+    document.querySelectorAll('#reqList .da-req-row').forEach(row => {
+        const lv = parseInt(row.querySelector('.rq-level').value);
+        if (lv >= 1) requirements[row.dataset.ksa] = {
+            level: lv,
+            required: row.querySelector('.rq-required').checked,
+            priority: row.querySelector('.rq-priority').value,
+        };
     });
     const btn = document.getElementById('reqSubmit'); btn.disabled = true;
     try {
@@ -538,6 +582,65 @@ async function saveReq() {
         const d = await r.json();
         if (d.success) location.reload(); else _err('reqError', d.error || 'Failed to save');
     } catch (e) { _err('reqError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── KSA resources modal ──
+let _resKsaId = null, _resList = [], _resGuides = [], _resQuizzes = [];
+async function openResourcesModal(kid, name) {
+    _resKsaId = kid;
+    document.getElementById('resTitle').textContent = 'Resources — ' + name;
+    _err('resError', '');
+    document.getElementById('resList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('resOverlay').style.display = 'flex';
+    try {
+        const d = await (await fetch(`/admin/ksa/${kid}/resources`)).json();
+        _resGuides = d.guides || []; _resQuizzes = d.quizzes || [];
+        _resList = (d.resources || []).map(r => ({ resource_type: r.resource_type, label: r.label || '', url: r.url || '', guide_id: r.guide_id, quiz_id: r.quiz_id }));
+        renderResources();
+    } catch (e) { document.getElementById('resList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+function closeResModal() { document.getElementById('resOverlay').style.display = 'none'; }
+function _optList(items, sel) {
+    return items.map(it => `<option value="${it.id}"${String(sel)===String(it.id)?' selected':''}>${_escH(it.title)}</option>`).join('');
+}
+function renderResources() {
+    const box = document.getElementById('resList');
+    if (!_resList.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">No resources yet — add a link, guide or quiz below.</p>'; return; }
+    box.innerHTML = _resList.map((r, i) => {
+        let mid = '';
+        if (r.resource_type === 'link') {
+            mid = `<input style="flex:2;min-width:160px;" placeholder="Label (e.g. YouTube tutorial)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <input style="flex:3;min-width:200px;" placeholder="https://…" value="${escAttr(r.url)}" oninput="_resList[${i}].url=this.value">`;
+        } else if (r.resource_type === 'guide') {
+            mid = `<input style="flex:2;min-width:140px;" placeholder="Label (optional)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <select style="flex:2;min-width:160px;" onchange="_resList[${i}].guide_id=parseInt(this.value)"><option value="">— pick a guide —</option>${_optList(_resGuides, r.guide_id)}</select>`;
+        } else {
+            mid = `<input style="flex:2;min-width:140px;" placeholder="Label (optional)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <select style="flex:2;min-width:160px;" onchange="_resList[${i}].quiz_id=parseInt(this.value)"><option value="">— pick a quiz —</option>${_optList(_resQuizzes, r.quiz_id)}</select>`;
+        }
+        return `<div class="da-res-row">
+            <span class="da-res-type">${r.resource_type}</span>${mid}
+            <button class="da-icon-btn is-danger" title="Remove" onclick="removeResource(${i})"><i class="fas fa-times"></i></button>
+        </div>`;
+    }).join('');
+}
+function addResource(type) {
+    _resList.push({ resource_type: type, label: '', url: '', guide_id: null, quiz_id: null });
+    renderResources();
+}
+function removeResource(i) { _resList.splice(i, 1); renderResources(); }
+async function saveResources() {
+    const clean = _resList.filter(r =>
+        (r.resource_type === 'link' && (r.url || '').trim()) ||
+        (r.resource_type === 'guide' && r.guide_id) ||
+        (r.resource_type === 'quiz' && r.quiz_id));
+    const btn = document.getElementById('resSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/ksa/${_resKsaId}/resources`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resources: clean }) });
+        const d = await r.json();
+        if (d.success) closeResModal(); else _err('resError', d.error || 'Failed to save');
+    } catch (e) { _err('resError', 'Request failed'); } finally { btn.disabled = false; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
