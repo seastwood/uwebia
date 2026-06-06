@@ -113,14 +113,14 @@
     </div>
     {% endif %}
 
-    {% if roles %}
+    {% if role_filters %}
     <div class="mb-roles">
         <a class="mb-role-chip {% if not active_role %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, division=_ad, ksa=_ak, level=_alvl, verified=_av) }}">All roles</a>
-        {% for r in roles %}
-        <a class="mb-role-chip {% if active_role and active_role.id == r.id %}is-active{% endif %}{% if r.exclude_from_directory %} is-archived{% endif %}"
+        {% for r in role_filters %}
+        <a class="mb-role-chip {% if active_role and (active_role.name|lower) == (r.name|lower) %}is-active{% endif %}{% if r.exclude %} is-archived{% endif %}"
            href="{{ members_filter_url(q=_aq, division=_ad, role=r.id, ksa=_ak, level=_alvl, verified=_av) }}">
             <span class="mb-role-dot" style="background:{{ r.color }};"></span>{{ r.name }}
-            {% if r.exclude_from_directory %}<i class="fas fa-archive" title="Not shown in the default list"></i>{% endif %}
+            {% if r.exclude %}<i class="fas fa-archive" title="Not shown in the default list"></i>{% endif %}
         </a>
         {% endfor %}
     </div>

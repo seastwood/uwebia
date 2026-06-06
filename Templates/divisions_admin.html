@@ -172,6 +172,33 @@
     </details>
     {% endif %}
 
+    {% if can_edit_div %}
+    <details class="da-settings">
+        <summary><i class="fas fa-id-badge"></i> Roles — reusable across {{ div_plural|lower }}</summary>
+        <div class="da-settings-body">
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 12px;">Define roles once (name, color, job description), then add them to any {{ div_singular|lower }} from its card. Editing a role updates it everywhere it's used.</p>
+            {% if role_types %}
+            <div class="da-roles">
+                {% for rt in role_types %}
+                <div class="da-role-row">
+                    <span class="da-role-badge" style="background:{{ rt.color }}22;color:{{ rt.color }};border:1px solid {{ rt.color }}44;">{{ rt.name }}</span>
+                    {% if rt.exclude_from_directory %}<span class="da-ksa-meta"><i class="fas fa-eye-slash"></i> hidden</span>{% endif %}
+                    <span class="da-ksa-meta">{{ rt.uses }} in use</span>
+                    <div style="margin-left:auto;display:flex;gap:6px;">
+                        <button class="da-icon-btn" title="Edit role" onclick="openRoleTypeModal({{ rt.id }})"><i class="fas fa-pen"></i></button>
+                        <button class="da-icon-btn is-danger" title="Delete role" onclick="deleteRoleType({{ rt.id }})"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p style="opacity:0.5;font-size:0.85rem;margin:0;">No roles yet — create your first below.</p>
+            {% endif %}
+            <button class="da-btn da-btn-primary" style="margin-top:12px;" onclick="openRoleTypeModal()"><i class="fas fa-plus"></i> New role</button>
+        </div>
+    </details>
+    {% endif %}
+
     {% if divisions %}
     {% for d in divisions %}
     <div class="da-div-card" id="divCard-{{ d.id }}">
@@ -203,10 +230,10 @@
 
         {# ── Roles: part of the group itself, independent of KSAs ── #}
         {% set _droles = roles_by_division.get(d.id, []) %}
-        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
             <p class="da-field-label" style="margin:0;">{{ div_singular }} roles</p>
             {% if can_edit_div %}
-            <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;" onclick='openRoleModal({{ d.id }})'><i class="fas fa-plus"></i> Add role</button>
+            <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;" onclick='openAddRoleModal({{ d.id }})'><i class="fas fa-plus"></i> Add role</button>
             {% endif %}
         </div>
         {% if _droles %}
@@ -218,8 +245,7 @@
                 <div style="margin-left:auto;display:flex;gap:6px;">
                     {% if can_manage_ksa %}<button class="da-btn da-btn-secondary" style="padding:5px 11px;" onclick='openReqModal({{ role.id }}, {{ role.name|tojson }})'>Requirements</button>{% endif %}
                     {% if can_edit_div %}
-                    <button class="da-icon-btn" title="Edit role" onclick='openRoleModal({{ d.id }}, {{ role.id }}, {{ role.name|tojson }}, {{ role.color|tojson }})'><i class="fas fa-pen"></i></button>
-                    <button class="da-icon-btn is-danger" title="Delete role" onclick='confirmRoleDelete({{ role.id }}, {{ role.name|tojson }})'><i class="fas fa-times"></i></button>
+                    <button class="da-icon-btn is-danger" title="Remove from this {{ div_singular|lower }}" onclick='confirmRoleDelete({{ role.id }}, {{ role.name|tojson }})'><i class="fas fa-times"></i></button>
                     {% endif %}
                 </div>
             </div>
@@ -434,27 +460,51 @@
     </div>
 </div>
 
-<!-- Role modal -->
-<div class="uw-overlay" id="roleModalOverlay" style="display:none;" onclick="if(event.target===this)closeRoleModal()">
-    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:420px;">
+<!-- Role-type (catalog) editor modal -->
+<div class="uw-overlay" id="roleTypeOverlay" style="display:none;" onclick="if(event.target===this)closeRoleTypeModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:440px;">
         <div class="uw-modal-header">
-            <h3 class="uw-modal-title" id="roleModalTitle">New Role</h3>
-            <button class="uw-modal-close" onclick="closeRoleModal()">&times;</button>
+            <h3 class="uw-modal-title" id="roleTypeTitle">New role</h3>
+            <button class="uw-modal-close" onclick="closeRoleTypeModal()">&times;</button>
         </div>
-        <form id="roleModalForm" onsubmit="submitRoleModal(event)">
-            <input type="hidden" id="roleModalId">
-            <input type="hidden" id="roleModalDivId">
+        <form id="roleTypeForm" onsubmit="submitRoleType(event)">
+            <input type="hidden" id="roleTypeId">
             <div class="uw-modal-body">
                 <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
-                    <input type="text" id="roleModalName" required placeholder="e.g. Lead, Mentor, Trainee"></div>
+                    <input type="text" id="roleTypeName" required placeholder="e.g. Mentor, Captain, Year 1" autocomplete="off"></div>
                 <div class="uw-field"><label>Color</label>
-                    <input type="color" id="roleModalColor" value="#5eeef8" style="width:90px;height:40px;border:none;background:transparent;cursor:pointer;"></div>
-                <p style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin:4px 0 0;">This role lives in this division only and is assigned to members from the Members panel.</p>
+                    <input type="color" id="roleTypeColor" value="#5eeef8" style="width:90px;height:40px;border:none;background:transparent;cursor:pointer;"></div>
+                <div class="uw-field"><label>Job description</label>
+                    <textarea id="roleTypeDesc" rows="3" placeholder="What does this role do? (shown to members)" style="width:100%;resize:vertical;"></textarea></div>
+                <label class="rq-flag" style="display:inline-flex;align-items:center;gap:7px;"><input type="checkbox" id="roleTypeExclude"> Hide members with this role from the public directory</label>
             </div>
-            <div id="roleModalError" class="da-modal-error"></div>
+            <div id="roleTypeError" class="da-modal-error"></div>
             <div class="uw-modal-footer">
-                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeRoleModal()">Cancel</button>
-                <button type="submit" class="uw-btn uw-btn-primary" id="roleModalSubmit">Create</button>
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeRoleTypeModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="roleTypeSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add a role to a division -->
+<div class="uw-overlay" id="addRoleOverlay" style="display:none;" onclick="if(event.target===this)closeAddRoleModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:440px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title">Add a role</h3>
+            <button class="uw-modal-close" onclick="closeAddRoleModal()">&times;</button>
+        </div>
+        <form id="addRoleForm" onsubmit="submitAddRole(event)">
+            <input type="hidden" id="addRoleDivId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Choose a role</label>
+                    <select id="addRoleSelect"></select></div>
+                <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:8px 0 0;">Don't see it? <a href="#" onclick="addRoleCreateNew();return false;" style="color:#7ee2cc;">Create a new role</a> in the catalog.</p>
+            </div>
+            <div id="addRoleError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeAddRoleModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary">Add to {{ div_singular|lower }}</button>
             </div>
         </form>
     </div>
@@ -673,36 +723,78 @@ async function submitFolderModal(e) {
         if (d.success) location.reload(); else { _err('folderModalError', d.error || 'Failed'); btn.disabled = false; }
     } catch (err) { _err('folderModalError', 'Request failed'); btn.disabled = false; }
 }
-function confirmRoleDelete(id, name) { _openDel('Delete Role', `Delete the "${name}" role? It is removed from every member in this division and its KSA requirements are cleared.`, `/admin/divisions/roles/${id}/delete`); }
+function confirmRoleDelete(id, name) { _openDel('Remove role', `Remove the "${name}" role from this {{ div_singular|lower }}? Members here lose it and its requirements are cleared. The role stays in the catalog for other {{ div_plural|lower if div_plural else 'divisions' }}.`, `/admin/divisions/roles/${id}/delete`); }
 
-// ── Role modal (division-scoped roles) ──
-function openRoleModal(divId, roleId, name, color) {
-    document.getElementById('roleModalDivId').value = divId || '';
-    document.getElementById('roleModalId').value = roleId || '';
-    document.getElementById('roleModalName').value = name || '';
-    document.getElementById('roleModalColor').value = color || '#5eeef8';
-    document.getElementById('roleModalTitle').textContent = roleId ? 'Edit Role' : 'New Role';
-    document.getElementById('roleModalSubmit').textContent = roleId ? 'Save' : 'Create';
-    _err('roleModalError', '');
-    document.getElementById('roleModalOverlay').style.display = 'flex';
+// ── Role catalog (RoleType) ──
+let ROLE_TYPES = {{ role_types|tojson }};
+
+async function deleteRoleType(id) {
+    const rt = ROLE_TYPES.find(x => x.id === id);
+    if (rt && (rt.uses || 0) > 0) { alert(`"${rt.name}" is in use by ${rt.uses} ${'{{ div_plural|lower }}'} / members. Remove it from those first.`); return; }
+    if (!confirm('Delete this role from the catalog?')) return;
+    const r = await fetch(`/admin/roles/${id}/delete`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) location.reload(); else alert(d.error || 'Failed');
 }
-function closeRoleModal() { document.getElementById('roleModalOverlay').style.display = 'none'; }
-async function submitRoleModal(e) {
+
+// Catalog role create/edit modal
+function openRoleTypeModal(id) {
+    const rt = id ? ROLE_TYPES.find(x => x.id === id) : null;
+    document.getElementById('roleTypeId').value = rt ? rt.id : '';
+    document.getElementById('roleTypeName').value = rt ? rt.name : '';
+    document.getElementById('roleTypeColor').value = rt ? rt.color : '#5eeef8';
+    document.getElementById('roleTypeDesc').value = rt ? (rt.description || '') : '';
+    document.getElementById('roleTypeExclude').checked = rt ? !!rt.exclude_from_directory : false;
+    document.getElementById('roleTypeTitle').textContent = rt ? 'Edit role' : 'New role';
+    document.getElementById('roleTypeSubmit').textContent = rt ? 'Save' : 'Create';
+    _err('roleTypeError', '');
+    document.getElementById('roleTypeOverlay').style.display = 'flex';
+}
+function closeRoleTypeModal() { document.getElementById('roleTypeOverlay').style.display = 'none'; }
+async function submitRoleType(e) {
     e.preventDefault();
-    const id = document.getElementById('roleModalId').value;
-    const did = document.getElementById('roleModalDivId').value;
-    const name = document.getElementById('roleModalName').value.trim();
-    const color = document.getElementById('roleModalColor').value;
-    if (!name) { _err('roleModalError', 'Name is required'); return; }
-    const url = id ? `/admin/divisions/roles/${id}/update` : `/admin/divisions/${did}/roles/create`;
-    const btn = document.getElementById('roleModalSubmit'); btn.disabled = true;
+    const id = document.getElementById('roleTypeId').value;
+    const name = document.getElementById('roleTypeName').value.trim();
+    const color = document.getElementById('roleTypeColor').value;
+    const description = document.getElementById('roleTypeDesc').value;
+    const exclude_from_directory = document.getElementById('roleTypeExclude').checked;
+    if (!name) { _err('roleTypeError', 'Name is required'); return; }
+    const url = id ? `/admin/roles/${id}/update` : '/admin/roles/create';
+    const btn = document.getElementById('roleTypeSubmit'); btn.disabled = true;
     try {
         const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, color }) });
+            body: JSON.stringify({ name, color, description, exclude_from_directory }) });
         const d = await r.json();
         if (d.success) location.reload();
-        else { _err('roleModalError', d.error || 'Failed'); btn.disabled = false; }
-    } catch (err) { _err('roleModalError', 'Request failed'); btn.disabled = false; }
+        else { _err('roleTypeError', d.error || 'Failed'); btn.disabled = false; }
+    } catch (err) { _err('roleTypeError', 'Request failed'); btn.disabled = false; }
+}
+
+// Add a role to a division
+function openAddRoleModal(divId) {
+    document.getElementById('addRoleDivId').value = divId;
+    const sel = document.getElementById('addRoleSelect');
+    if (!ROLE_TYPES.length) {
+        sel.innerHTML = '<option value="">No roles in the catalog yet</option>';
+    } else {
+        sel.innerHTML = ROLE_TYPES.map(rt => `<option value="${rt.id}">${_escH(rt.name)}</option>`).join('');
+    }
+    _err('addRoleError', '');
+    document.getElementById('addRoleOverlay').style.display = 'flex';
+}
+function closeAddRoleModal() { document.getElementById('addRoleOverlay').style.display = 'none'; }
+function addRoleCreateNew() { closeAddRoleModal(); openRoleTypeModal(); }
+async function submitAddRole(e) {
+    e.preventDefault();
+    const did = document.getElementById('addRoleDivId').value;
+    const rtid = document.getElementById('addRoleSelect').value;
+    if (!rtid) { _err('addRoleError', 'Pick a role (or create one)'); return; }
+    const r = await fetch(`/admin/divisions/${did}/roles/create`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role_type_id: rtid }) });
+    const d = await r.json();
+    if (d.success) location.reload();
+    else _err('addRoleError', d.error || 'Failed');
 }
 
 // ── Settings (level labels + types) ──

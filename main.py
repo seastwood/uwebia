@@ -1316,18 +1316,49 @@ class Division(db.Model):
                 'icon': self.icon or '', 'sort_order': self.sort_order}
 
 
+class RoleType(db.Model):
+    """The reusable role catalog: a role's identity (name, color, job description)
+    defined once per website. Divisions then *use* a role type via PublicUserRole
+    (which carries the per-division requirements & member assignments). Editing a
+    type propagates name/color/description to all its PublicUserRole rows."""
+    __tablename__ = 'role_type'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(50), nullable=False)
+    color       = db.Column(db.String(20), nullable=False, default='#5eeef8')
+    description = db.Column(db.Text, nullable=True)
+    # Members holding this role are hidden from the default directory (e.g. Alumni).
+    exclude_from_directory = db.Column(db.Boolean, nullable=False, default=False,
+                                       server_default=_sa_false())
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (
+        db.UniqueConstraint('website_id', 'name', name='uq_role_type_name_per_website'),
+    )
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'color': self.color,
+                'description': self.description or '',
+                'exclude_from_directory': self.exclude_from_directory}
+
+
 class PublicUserRole(db.Model):
-    """Named badge roles that can be assigned to public users, scoped per website.
-    A role may belong to a Division (`division_id`); NULL means a site-wide role
-    (e.g. Moderator). 'Robotics – Captain' and 'Marketing – Captain' are distinct
-    rows when division-scoped."""
+    """A division's *use* of a role type (or a site-wide role when division_id is
+    NULL). Carries the per-division KSA requirements and member assignments. Its
+    name/color/description/exclude_from_directory mirror its RoleType and are kept
+    in sync — existing readers (matrix, profile, directory) use these directly."""
     __tablename__ = 'public_user_role'
     id         = db.Column(db.Integer, primary_key=True)
     website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=False, index=True)
+    role_type_id = db.Column(db.Integer, db.ForeignKey('role_type.id', ondelete='CASCADE'),
+                             nullable=True, index=True)
     division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='SET NULL'),
                             nullable=True, index=True)
     name       = db.Column(db.String(50), nullable=False)
     color      = db.Column(db.String(20), nullable=False, default='#5eeef8')
+    # Optional job description — what this role is/does. Shown to members.
+    description = db.Column(db.Text, nullable=True)
     # When True, members holding this role are hidden from the default public
     # members directory (e.g. "Alumni" / former members) — they remain visible
     # when this role is explicitly selected as the directory filter, so the
@@ -1337,6 +1368,7 @@ class PublicUserRole(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     website    = db.relationship('Website', backref=db.backref('public_roles', lazy=True, cascade='all, delete-orphan'))
     division   = db.relationship('Division', backref=db.backref('roles', lazy='dynamic'))
+    role_type  = db.relationship('RoleType', backref=db.backref('uses', lazy='dynamic'))
     # Names are unique per (website, division) so different divisions can reuse
     # the same role names (Mentors, Captains, Year 1, …). Site-wide roles have
     # division_id NULL; NULLs are distinct in a UNIQUE index, so site-wide
@@ -1347,7 +1379,7 @@ class PublicUserRole(db.Model):
 
     def to_dict(self):
         return {'id': self.id, 'name': self.name, 'color': self.color,
-                'division_id': self.division_id,
+                'division_id': self.division_id, 'description': self.description or '',
                 'exclude_from_directory': self.exclude_from_directory}
 
 
@@ -10975,6 +11007,7 @@ def _delete_website_all(website):
     # so it must be deleted explicitly before the website row. The M2M
     # public_user_role_assignment rows cascade via their own ondelete=CASCADE.
     PublicUserRole.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    RoleType.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PageVisit.query.filter_by(website_id=wid).delete(synchronize_session=False)
 
     # Website-tag association table (no ORM class)
@@ -13589,6 +13622,9 @@ def _serialize_backup(uid):
     _tag_ids     = list({wt.tag_id for wt in website_tags} | {pt.tag_id for pt in page_tags})
     tags         = Tag.query.filter(Tag.id.in_(_tag_ids)).all() if _tag_ids else []
 
+    # Role catalog (RoleType) — reusable role definitions per website.
+    role_types = RoleType.query.filter(
+        RoleType.website_id.in_(website_ids)).all() if website_ids else []
     # Public-user roles (and the M2M between PublicUser ↔ PublicUserRole).
     public_user_roles = PublicUserRole.query.filter(
         PublicUserRole.website_id.in_(website_ids)).all() if website_ids else []
@@ -14054,9 +14090,13 @@ def _serialize_backup(uid):
         'tags': [{'id': t.id, 'name': t.name} for t in tags],
         'website_tags': [{'website_id': w.website_id, 'tag_id': w.tag_id} for w in website_tags],
         'page_tags':    [{'page_id': p.page_id,       'tag_id': p.tag_id}    for p in page_tags],
+        'role_types': [{'id': rt.id, 'website_id': rt.website_id, 'name': rt.name,
+                        'color': rt.color, 'description': rt.description,
+                        'exclude_from_directory': rt.exclude_from_directory,
+                        'sort_order': rt.sort_order} for rt in role_types],
         'public_user_roles': [{'id': r.id, 'website_id': r.website_id,
-                               'name': r.name, 'color': r.color,
-                               'division_id': r.division_id,
+                               'name': r.name, 'color': r.color, 'role_type_id': r.role_type_id,
+                               'division_id': r.division_id, 'description': r.description,
                                'exclude_from_directory': r.exclude_from_directory,
                                'created_at': r.created_at.isoformat() if r.created_at else None,
                                } for r in public_user_roles],
@@ -15908,6 +15948,22 @@ def import_backup():
             for _sub in User.query.filter(User.id.in_(list(sa_map.values()))).all():
                 _remap_late_scope(_sub)
 
+            # ── Role catalog (RoleType) ───────────────────────────────────────
+            role_type_map = {}
+            for td in data.get('role_types', []):
+                new_wid = website_map.get(td.get('website_id'))
+                if not new_wid:
+                    continue
+                rt = RoleType(website_id=new_wid, name=td.get('name', 'Role'),
+                              color=td.get('color') or '#5eeef8',
+                              description=td.get('description'),
+                              exclude_from_directory=bool(td.get('exclude_from_directory')),
+                              sort_order=td.get('sort_order', 0))
+                db.session.add(rt)
+                db.session.flush()
+                if td.get('id'):
+                    role_type_map[td['id']] = rt.id
+
             # ── PublicUserRole + assignments ──────────────────────────────────
             public_role_map = {}
             for rd in data.get('public_user_roles', []):
@@ -15916,7 +15972,8 @@ def import_backup():
                     continue
                 pur = PublicUserRole(
                     website_id=new_wid, name=rd.get('name', 'Role'),
-                    color=rd.get('color') or '#5eeef8',
+                    color=rd.get('color') or '#5eeef8', description=rd.get('description'),
+                    role_type_id=role_type_map.get(rd.get('role_type_id')) if rd.get('role_type_id') else None,
                     division_id=division_map.get(rd['division_id']) if rd.get('division_id') else None,
                     exclude_from_directory=bool(rd.get('exclude_from_directory')),
                     created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
@@ -21076,9 +21133,14 @@ def admin_public_role_create():
     division_id = _validate_role_division(data.get('division_id'), website.id)
     if PublicUserRole.query.filter_by(website_id=website.id, name=name, division_id=division_id).first():
         return _utf8_json({'error': 'A role with that name already exists here.'}, 400)
-    role = PublicUserRole(website_id=website.id, name=name, color=color,
-                          division_id=division_id,
-                          exclude_from_directory=bool(data.get('exclude_from_directory')))
+    # Link to (or create) the shared role-type catalog entry, then mirror it.
+    rt = _find_or_create_role_type(website, name, color=color,
+                                   description=(data.get('description') or '').strip(),
+                                   exclude=data.get('exclude_from_directory'))
+    role = PublicUserRole(website_id=website.id, name=rt.name, color=rt.color,
+                          division_id=division_id, role_type_id=rt.id,
+                          description=rt.description,
+                          exclude_from_directory=rt.exclude_from_directory)
     db.session.add(role)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
@@ -21126,8 +21188,25 @@ def admin_public_role_update(role_id):
         role.color = color
     if 'exclude_from_directory' in data:
         role.exclude_from_directory = bool(data['exclude_from_directory'])
+    if 'description' in data:
+        role.description = (data.get('description') or '').strip() or None
     if 'division_id' in data:
         role.division_id = target_div
+    # Keep the shared catalog in sync: link to (create) the type for the final
+    # name, push this role's fields onto it, and mirror to its other uses.
+    _ws = role.website  # same website
+    rt = _find_or_create_role_type(_ws, role.name, color=role.color,
+                                   description=role.description,
+                                   exclude=role.exclude_from_directory)
+    rt.color = role.color
+    rt.description = role.description
+    rt.exclude_from_directory = role.exclude_from_directory
+    role.role_type_id = rt.id
+    for pur in PublicUserRole.query.filter_by(role_type_id=rt.id).all():
+        pur.name = rt.name
+        pur.color = rt.color
+        pur.description = rt.description
+        pur.exclude_from_directory = rt.exclude_from_directory
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -26759,6 +26838,33 @@ def _run_startup_migrations_inner():
             db.session.rollback()
             print(f'[migrate] warning: role uniqueness swap: {_e}')
 
+    # ── Step 7: backfill the RoleType catalog from existing per-division roles
+    # (group by name per website) and link each PublicUserRole to its type.
+    if 'public_user_role' in pre_existing:
+        try:
+            cols = {c['name'] for c in inspector.get_columns('public_user_role')}
+            if 'role_type_id' in cols:
+                orphans = PublicUserRole.query.filter(PublicUserRole.role_type_id.is_(None)).all()
+                if orphans:
+                    existing_types = {(rt.website_id, (rt.name or '').lower()): rt
+                                      for rt in RoleType.query.all()}
+                    for r in orphans:
+                        key = (r.website_id, (r.name or '').lower())
+                        rt = existing_types.get(key)
+                        if rt is None:
+                            rt = RoleType(website_id=r.website_id, name=r.name,
+                                          color=r.color, description=r.description,
+                                          exclude_from_directory=r.exclude_from_directory)
+                            db.session.add(rt)
+                            db.session.flush()
+                            existing_types[key] = rt
+                        r.role_type_id = rt.id
+                    db.session.commit()
+                    print(f'[migrate] backfilled {len(orphans)} roles into the RoleType catalog')
+        except Exception as _e:
+            db.session.rollback()
+            print(f'[migrate] warning: RoleType backfill: {_e}')
+
 
 # Flag set to True when the configured database is unreachable at startup.
 # The before_request hook below uses it to gate all routes in maintenance mode.
@@ -32268,8 +32374,20 @@ def admin_divisions_page():
     can_view_ksa = (not is_sub) or _p('ksa.view')
     can_manage_ksa = (not is_sub) or _p('ksa.manage')
     div_singular, div_plural = _division_labels(website)
+    # The reusable role catalog (RoleType) — for the "Manage roles" screen and the
+    # per-division "add role" dropdown. role_uses_by_type lets the UI warn before
+    # deleting a role that's in use.
+    role_type_objs = RoleType.query.filter_by(website_id=website.id).order_by(
+        db.func.lower(RoleType.name)).all()
+    role_types = [rt.to_dict() for rt in role_type_objs]
+    _uses = {}
+    for _r in PublicUserRole.query.filter_by(website_id=website.id).all():
+        if _r.role_type_id:
+            _uses[_r.role_type_id] = _uses.get(_r.role_type_id, 0) + 1
+    for rt in role_types:
+        rt['uses'] = _uses.get(rt['id'], 0)
     return render_template('divisions_admin.html', website=website,
-                           current_website=website,
+                           current_website=website, role_types=role_types,
                            divisions=divisions, ksas_by_division=ksas_by_division,
                            ksa_groups_by_division=ksa_groups_by_division,
                            folders_by_division=folders_by_division, folders_json=folders_json,
@@ -32689,24 +32807,132 @@ def _division_role_or_403(rid):
     return website, role
 
 
+def _find_or_create_role_type(website, name, color=None, description=None, exclude=False):
+    """Return the website's RoleType for `name`, creating it if needed."""
+    rt = RoleType.query.filter(RoleType.website_id == website.id,
+                               db.func.lower(RoleType.name) == name.lower()).first()
+    if rt is None:
+        rt = RoleType(website_id=website.id, name=name,
+                      color=(color or '#5eeef8'), description=description or None,
+                      exclude_from_directory=bool(exclude))
+        db.session.add(rt)
+        db.session.flush()
+    return rt
+
+
 @app.route('/admin/divisions/<int:did>/roles/create', methods=['POST'])
 @login_required
 @require_perm('divisions.edit')
 def admin_division_role_create(did):
+    """Add a role to a division: pick an existing role type (role_type_id) or
+    create a new one (name/color/description)."""
     website, d = _division_owned_or_403(did)
     if d is None:
         return website
     data = request.get_json() or {}
-    name = (data.get('name') or '').strip()
-    if not name:
-        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
-    if PublicUserRole.query.filter_by(website_id=website.id, name=name, division_id=d.id).first():
-        return _utf8_json({'success': False, 'error': 'A role with that name already exists in this ' + _division_word(website) + '.'}, 400)
-    role = PublicUserRole(website_id=website.id, division_id=d.id, name=name,
-                          color=(data.get('color') or '#5eeef8').strip())
+    rtid = data.get('role_type_id')
+    if rtid:
+        rt = db.session.get(RoleType, int(rtid)) if str(rtid).isdigit() else None
+        if not rt or rt.website_id != website.id:
+            return _utf8_json({'success': False, 'error': 'Role not found.'}, 404)
+    else:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return _utf8_json({'success': False, 'error': 'Pick a role or enter a name.'}, 400)
+        rt = _find_or_create_role_type(website, name,
+                                       color=(data.get('color') or '#5eeef8').strip(),
+                                       description=(data.get('description') or '').strip(),
+                                       exclude=data.get('exclude_from_directory'))
+    if PublicUserRole.query.filter_by(website_id=website.id, division_id=d.id,
+                                      role_type_id=rt.id).first():
+        return _utf8_json({'success': False, 'error': 'That role is already in this ' + _division_word(website) + '.'}, 400)
+    role = PublicUserRole(website_id=website.id, division_id=d.id, role_type_id=rt.id,
+                          name=rt.name, color=rt.color, description=rt.description,
+                          exclude_from_directory=rt.exclude_from_directory)
     db.session.add(role)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
+
+
+# ── Role catalog (RoleType): reusable role definitions, used across divisions ──
+
+def _role_type_or_403(rid):
+    website = get_admin_website()
+    rt = db.session.get(RoleType, rid)
+    if not website or not is_owner(website) or not rt or rt.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, rt
+
+
+@app.route('/admin/roles/create', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_role_type_create():
+    website = get_admin_website()
+    if not website or not is_owner(website):
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    if RoleType.query.filter(RoleType.website_id == website.id,
+                             db.func.lower(RoleType.name) == name.lower()).first():
+        return _utf8_json({'success': False, 'error': 'A role with that name already exists.'}, 400)
+    rt = RoleType(website_id=website.id, name=name,
+                  color=(data.get('color') or '#5eeef8').strip(),
+                  description=(data.get('description') or '').strip() or None,
+                  exclude_from_directory=bool(data.get('exclude_from_directory')))
+    db.session.add(rt)
+    db.session.commit()
+    return _utf8_json({'success': True, 'role_type': rt.to_dict()}, 201)
+
+
+@app.route('/admin/roles/<int:rid>/update', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_role_type_update(rid):
+    website, rt = _role_type_or_403(rid)
+    if rt is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if name and name.lower() != (rt.name or '').lower():
+        if RoleType.query.filter(RoleType.website_id == website.id,
+                                 db.func.lower(RoleType.name) == name.lower(),
+                                 RoleType.id != rt.id).first():
+            return _utf8_json({'success': False, 'error': 'A role with that name already exists.'}, 400)
+    if name:
+        rt.name = name
+    if (data.get('color') or '').strip():
+        rt.color = data['color'].strip()
+    if 'description' in data:
+        rt.description = (data.get('description') or '').strip() or None
+    if 'exclude_from_directory' in data:
+        rt.exclude_from_directory = bool(data['exclude_from_directory'])
+    # Keep every division's use of this role in sync (existing readers use these).
+    for pur in PublicUserRole.query.filter_by(role_type_id=rt.id).all():
+        pur.name = rt.name
+        pur.color = rt.color
+        pur.description = rt.description
+        pur.exclude_from_directory = rt.exclude_from_directory
+    db.session.commit()
+    return _utf8_json({'success': True, 'role_type': rt.to_dict()})
+
+
+@app.route('/admin/roles/<int:rid>/delete', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_role_type_delete(rid):
+    website, rt = _role_type_or_403(rid)
+    if rt is None:
+        return website
+    uses = PublicUserRole.query.filter_by(role_type_id=rt.id).count()
+    if uses:
+        return _utf8_json({'success': False, 'error':
+                           f'This role is in use ({uses}). Remove it from those divisions/members first.'}, 400)
+    db.session.delete(rt)
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 @app.route('/admin/divisions/roles/<int:rid>/update', methods=['POST'])
@@ -32728,6 +32954,8 @@ def admin_division_role_update(rid):
         role.name = name
     if (data.get('color') or '').strip():
         role.color = data['color'].strip()
+    if 'description' in data:
+        role.description = (data.get('description') or '').strip() or None
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -34480,6 +34708,20 @@ def _render_members_directory(prefix):
              .order_by(db.func.lower(PublicUserRole.name)).all())
     role_id = request.args.get('role', type=int)
     active_role = next((r for r in roles if r.id == role_id), None)
+    # A role name can exist in several divisions; collapse the filter chips to one
+    # per NAME (filtering then matches members holding that role in ANY division),
+    # so the same name no longer appears multiple times. A name chip is "archived"
+    # only when every role sharing that name is excluded from the directory.
+    _by_name = {}
+    for r in roles:
+        key = (r.name or '').lower()
+        slot = _by_name.get(key)
+        if slot is None:
+            slot = {'id': r.id, 'name': r.name, 'color': r.color, 'exclude': True}
+            _by_name[key] = slot
+        if not r.exclude_from_directory:
+            slot['exclude'] = False
+    role_filters = list(_by_name.values())
     # Division filter: chips link to ?division=<id> (members of that division).
     divisions = (Division.query.filter_by(website_id=website.id)
                  .order_by(Division.sort_order, Division.name).all())
@@ -34516,7 +34758,10 @@ def _render_members_directory(prefix):
             PublicUser.first_name.ilike(like),
             PublicUser.last_name.ilike(like)))
     if active_role is not None:
-        query = query.filter(PublicUser.roles.any(PublicUserRole.id == active_role.id))
+        # Match by NAME so the chip covers that role across all divisions.
+        query = query.filter(PublicUser.roles.any(db.and_(
+            PublicUserRole.website_id == website.id,
+            db.func.lower(PublicUserRole.name) == (active_role.name or '').lower())))
     if active_division is not None:
         query = query.filter(PublicUser.division_memberships.any(
             DivisionMembership.division_id == active_division.id))
@@ -34565,7 +34810,7 @@ def _render_members_directory(prefix):
             member_skill_selfreported[uk.public_user_id] = bool(uk.self_reported)
     return render_template('public_members.html', website=website, public_user=viewer,
                            members=pagination.items, pagination=pagination, q=q,
-                           roles=roles, active_role=active_role,
+                           roles=roles, role_filters=role_filters, active_role=active_role,
                            divisions=divisions, active_division=active_division,
                            member_divisions=member_divisions,
                            skill_groups=skill_groups, active_skill=active_skill,
