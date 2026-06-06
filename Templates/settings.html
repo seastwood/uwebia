@@ -147,7 +147,8 @@
         }
     }
 
-    .settings-field input[type="text"] {
+    .settings-field input[type="text"],
+    .settings-field input[type="number"] {
         width: 100%;
         min-height: 42px;
         padding: 9px 11px;
@@ -159,7 +160,8 @@
         box-sizing: border-box;
     }
 
-    .settings-field input[type="text"]:focus {
+    .settings-field input[type="text"]:focus,
+    .settings-field input[type="number"]:focus {
         border-color: rgba(126, 226, 204, 0.55);
         box-shadow: 0 0 0 3px rgba(126, 226, 204, 0.12);
     }
@@ -450,18 +452,62 @@
 
                 <div class="settings-message" id="twoFactorMessage"></div>
             </div>
+
+            {% if can_set_org_2fa %}
+            <div class="settings-card" style="margin-top: 20px;">
+                <h2 class="settings-section-title">Organization 2FA Policy</h2>
+                <p class="settings-help">
+                    A site-wide security policy (not just your account). When on, <strong>every admin</strong> — main
+                    admin, co-owners and all sub-admins — must pass an emailed 2FA code at login, whether or not they've
+                    enabled 2FA individually. Stored on the primary owner so it survives ownership changes. Enabling it
+                    requires a verification code by email, and it auto-disables if the email server settings change (until
+                    re-verified) — just like per-account 2FA.
+                </p>
+
+                {% if org_2fa_needs_attention %}
+                <p class="settings-help" style="color:#ffb3b3;">
+                    Org-wide 2FA was turned off automatically because the email server settings changed. Re-verify below to turn it back on.
+                </p>
+                {% endif %}
+
+                {% if org_require_2fa %}
+                <p class="settings-help">Org-wide 2FA is currently <strong>ON</strong> — every admin is required to pass an emailed code at login.</p>
+                <button type="button" class="settings-button danger" onclick="disableOrg2fa()">Turn off org-wide 2FA</button>
+                {% else %}
+                {% if not email_settings or not email_settings.is_active %}
+                <p class="settings-help" style="color:#ffb3b3;">
+                    Configure an active email server first — admins receive their 2FA codes by email.
+                </p>
+                {% endif %}
+                <button type="button" class="settings-button" onclick="startOrg2fa()">Send Verification Code</button>
+                <div id="org2faVerifyBox" style="display:none; margin-top:16px;">
+                    <div class="settings-field">
+                        <label for="org2faCode">Verification Code</label>
+                        <input id="org2faCode" type="text" inputmode="numeric" maxlength="6" class="form-control" placeholder="000000">
+                    </div>
+                    <button type="button" class="settings-button" onclick="confirmOrg2fa()">Enable Org-wide 2FA</button>
+                </div>
+                {% endif %}
+
+                <div class="settings-message" id="org2faMessage"></div>
+            </div>
+            {% endif %}
         </dive>
 
+            {% if can_edit_settings %}
             <div class="settings-card">
                 <h2 class="settings-section-title">Admin URL Key</h2>
 
+                <p class="settings-help" style="margin-top:-6px;">Org-wide security setting — applies to every admin's login.</p>
                 <div class="settings-field">
+                    {% if can_edit_settings %}
                     <label
                         style="display: flex; align-items: center; gap: 10px; text-transform: none; letter-spacing: 0;">
                         <input type="checkbox" name="admin_url_key_enabled" {% if admin_url_key_enabled %}checked{%
                             endif %}>
                         Hide the standard /login page behind a custom URL
                     </label>
+                    {% endif %}
                     {% if admin_url_key_enabled and admin_url_key %}
                     <div class="settings-current-key-box">
                         <span class="settings-current-key-label">Current Admin Login URL</span>
@@ -488,6 +534,7 @@
                     </p>
                 </div>
 
+                {% if can_edit_settings %}
                 <div class="settings-field">
                     <label for="admin_url_key">Admin URL Key</label>
                     <input id="admin_url_key" name="admin_url_key" type="text" value="{{ admin_url_key }}"
@@ -498,7 +545,9 @@
                         available at your custom URL.
                     </p>
                 </div>
+                {% endif %}
             </div>
+            {% endif %}
             </div>
 
             <div class="settings-card" style="margin-top: 20px;">
@@ -580,7 +629,8 @@
     </div>
     {% endif %}
 
-    <!-- Site Features -->
+    <!-- Site Features (org-wide; needs store.settings) -->
+    {% if can_store_settings %}
     <div class="settings-card">
         <h2 class="settings-section-title">Site Features</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Turn site-wide features on or off for public visitors. Existing data (products, orders, threads, …) is preserved either way — these toggles only control what visitors can see and use.</p>
@@ -637,13 +687,15 @@
         }
     }
     </script>
+    {% endif %}
 
-    <!-- Admin Navbar Visibility -->
+    <!-- Admin Navbar Visibility (org-wide; needs settings.edit) -->
+    {% if can_edit_settings %}
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Admin Navbar</h2>
-        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar. Disabled items are hidden everywhere.</p>
+        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar for <strong>everyone</strong>. Disabled items are hidden across all admins.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
-            {% set _nd = current_user.admin_navbar_disabled or [] %}
+            {% set _nd = anchor_navbar_disabled or [] %}
             {# Top-level (non-store) items. #}
             {% for key, label, icon in [
                 ('posts',         'Posts',           'fa-newspaper'),
@@ -705,6 +757,7 @@
         <button class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
         <div id="navVisStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
     </div>
+    {% endif %}
 
     <script>
     function onStoreMasterToggle(cb) {
@@ -875,6 +928,44 @@
                 showTwoFactorMessage(error.message || 'Could not disable 2FA.', true);
             }
         }
+
+        function _org2faMsg(text, isErr) {
+            const el = document.getElementById('org2faMessage');
+            if (el) { el.textContent = text || ''; el.style.color = isErr ? '#ffb3b3' : '#9cf0c0'; }
+        }
+        async function startOrg2fa() {
+            _org2faMsg('');
+            if (!confirm('Require 2FA for EVERY admin login?\n\nWe\'ll email you a verification code to confirm. Once on, all admins (co-owners and sub-admins included) must pass an emailed code at login.')) return;
+            try {
+                const r = await fetch('/admin/dashboard/settings/2fa/org-policy/start', { method: 'POST' });
+                const d = await r.json();
+                if (!d.success) { _org2faMsg(d.error || 'Could not send code.', true); return; }
+                document.getElementById('org2faVerifyBox').style.display = 'block';
+                _org2faMsg(d.message || 'Verification code sent.');
+            } catch (e) { _org2faMsg('Request failed.', true); }
+        }
+        async function confirmOrg2fa() {
+            const code = (document.getElementById('org2faCode').value || '').trim();
+            if (!code) { _org2faMsg('Enter the verification code.', true); return; }
+            try {
+                const r = await fetch('/admin/dashboard/settings/2fa/org-policy/confirm', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }) });
+                const d = await r.json();
+                if (!d.success) { _org2faMsg(d.error || 'Could not enable.', true); return; }
+                _org2faMsg('Org-wide 2FA is now required for all admins.');
+                window.location.reload();
+            } catch (e) { _org2faMsg('Request failed.', true); }
+        }
+        async function disableOrg2fa() {
+            if (!confirm('Turn off the org-wide 2FA requirement?\n\nAdmins who haven\'t enabled 2FA individually will no longer be prompted.')) return;
+            try {
+                const r = await fetch('/admin/dashboard/settings/2fa/org-policy/disable', { method: 'POST' });
+                const d = await r.json();
+                if (!d.success) { _org2faMsg(d.error || 'Could not disable.', true); return; }
+                window.location.reload();
+            } catch (e) { _org2faMsg('Request failed.', true); }
+        }
     </script>
 
     <!-- Profanity Filter -->
@@ -905,6 +996,7 @@
         background: #5eeec8 !important;
     }
     </style>
+    {% if can_moderate_posts %}
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Content Moderation</h2>
 
@@ -1005,8 +1097,9 @@
         label.textContent = on ? 'Enabled' : 'Disabled';
     });
     </script>
+    {% endif %}
 
-    {% if not current_user.is_sub_admin %}
+    {% if can_backup %}
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Backup &amp; Restore</h2>
 
@@ -1053,7 +1146,129 @@
         </div>
     </div>
 
+    {% set ab = auto_backup %}
+    <div class="settings-card" style="margin-top:20px;">
+        <h2 class="settings-section-title">Automatic Backups</h2>
+        <p class="settings-help" style="margin-bottom:14px;">
+            Write a full backup ZIP to a folder on the server on a schedule, keeping only the
+            most recent copies. Runs in the background — the server process must be running.
+        </p>
+
+        <div class="settings-field" style="margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="abEnabled" {% if ab and ab.enabled %}checked{% endif %}
+                       style="accent-color:#7ee2cc;width:16px;height:16px;">
+                Enable automatic backups
+            </label>
+        </div>
+
+        <div class="settings-field" style="margin-bottom:14px;">
+            <label>Backup folder (absolute path on the server)</label>
+            <input type="text" id="abFolder"
+                   placeholder="/var/backups/uwebia"
+                   value="{{ ab.folder_path if ab and ab.folder_path else '' }}">
+        </div>
+
+        <div style="display:flex;gap:14px;flex-wrap:wrap;">
+            <div class="settings-field" style="flex:1 1 180px;">
+                <label>Frequency</label>
+                <select id="abFrequency">
+                    {% set f = ab.frequency if ab else 'daily' %}
+                    <option value="hourly"  {% if f=='hourly'  %}selected{% endif %}>Hourly</option>
+                    <option value="daily"   {% if f=='daily'   %}selected{% endif %}>Daily</option>
+                    <option value="weekly"  {% if f=='weekly'  %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if f=='monthly' %}selected{% endif %}>Monthly</option>
+                </select>
+            </div>
+            <div class="settings-field" style="flex:1 1 180px;">
+                <label>Max backups to keep</label>
+                <input type="number" id="abMax" min="1" max="365"
+                       value="{{ ab.max_backups if ab and ab.max_backups else 10 }}">
+            </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+            <button type="button" class="uw-btn uw-btn-primary" id="abSaveBtn" onclick="saveAutoBackup()">
+                <i class="fas fa-save"></i> Save Schedule
+            </button>
+            <button type="button" class="uw-btn uw-btn-secondary" id="abRunBtn" onclick="runAutoBackupNow()">
+                <i class="fas fa-play"></i> Back Up Now
+            </button>
+        </div>
+        <div id="abStatus" style="margin-top:10px;font-size:0.85rem;display:none;"></div>
+        {% if ab and ab.last_run_at %}
+        <p class="settings-help" id="abLastRun" style="margin-top:10px;">
+            Last run: {{ ab.last_run_at.strftime('%b %d, %Y %H:%M UTC') }} —
+            {% if ab.last_status == 'success' %}
+                <span style="color:#5eeec8;">success</span>
+            {% else %}
+                <span style="color:#f88;">error: {{ ab.last_error }}</span>
+            {% endif %}
+        </p>
+        {% else %}
+        <p class="settings-help" id="abLastRun" style="margin-top:10px;">Has not run yet.</p>
+        {% endif %}
+    </div>
+
     <script>
+    function saveAutoBackup() {
+        const btn = document.getElementById('abSaveBtn');
+        const status = document.getElementById('abStatus');
+        const form = new FormData();
+        form.append('enabled', document.getElementById('abEnabled').checked ? '1' : '0');
+        form.append('folder_path', document.getElementById('abFolder').value);
+        form.append('frequency', document.getElementById('abFrequency').value);
+        form.append('max_backups', document.getElementById('abMax').value);
+        btn.disabled = true;
+        status.style.display = 'block';
+        status.style.color = 'rgba(255,255,255,0.5)';
+        status.textContent = 'Saving…';
+        fetch('/admin/settings/backup/auto/save', { method: 'POST', body: form })
+            .then(r => r.json()).then(d => {
+                btn.disabled = false;
+                if (d.success) {
+                    status.style.color = '#5eeec8';
+                    status.textContent = 'Schedule saved.';
+                } else {
+                    status.style.color = '#f88';
+                    status.textContent = 'Error: ' + (d.error || 'Could not save.');
+                }
+            }).catch(() => {
+                btn.disabled = false;
+                status.style.color = '#f88';
+                status.textContent = 'Network error.';
+            });
+    }
+
+    function runAutoBackupNow() {
+        const btn = document.getElementById('abRunBtn');
+        const status = document.getElementById('abStatus');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Backing up…';
+        status.style.display = 'block';
+        status.style.color = 'rgba(255,255,255,0.5)';
+        status.textContent = 'Writing backup…';
+        fetch('/admin/settings/backup/auto/run', { method: 'POST' })
+            .then(r => r.json()).then(d => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-play"></i> Back Up Now';
+                if (d.success) {
+                    status.style.color = '#5eeec8';
+                    status.textContent = 'Backup written: ' + d.file;
+                    const lr = document.getElementById('abLastRun');
+                    if (lr) lr.textContent = 'Last run: just now — success';
+                } else {
+                    status.style.color = '#f88';
+                    status.textContent = 'Error: ' + (d.error || 'Backup failed.');
+                }
+            }).catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-play"></i> Back Up Now';
+                status.style.color = '#f88';
+                status.textContent = 'Network error.';
+            });
+    }
+
     function downloadBackup() {
         const includeFiles = document.getElementById('backupIncludeFiles')?.checked !== false;
         const url = '{{ url_for("export_backup") }}' + (includeFiles ? '' : '?include_files=0');
@@ -1102,8 +1317,10 @@
         }
     }
     </script>
+    {% endif %}{# /can_backup #}
 
-    <!-- Database Settings -->
+    {% if current_user.is_full_admin %}
+    <!-- Database Settings (full admins only) -->
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Database</h2>
 

@@ -213,6 +213,9 @@
         {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
         <a href="{{ url_for('admin_quizzes_page') }}" class="nav-link-btn" title="Quizzes"><i class="fas fa-clipboard-check"></i></a>
         {% endif %}
+        {% if user_has_perm('divisions.view') or user_has_perm('ksa.view') %}
+        <a href="{{ url_for('admin_divisions_page') }}" class="nav-link-btn" title="{{ dlabel(plural=True) }}"><i class="fas fa-sitemap"></i></a>
+        {% endif %}
         {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
         <a href="{{ url_for('admin_newsletters_page') }}" class="nav-link-btn" title="Newsletters"><i class="fas fa-envelope-open-text"></i></a>
         {% endif %}
@@ -339,6 +342,11 @@
                 {% if user_has_perm('quizzes.view') and 'quizzes' not in _nd %}
                 <a href="{{ url_for('admin_quizzes_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-clipboard-check"></i><span>Quizzes</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('divisions.view') or user_has_perm('ksa.view') %}
+                <a href="{{ url_for('admin_divisions_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-sitemap"></i><span>{{ dlabel(plural=True) }}</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
@@ -491,7 +499,7 @@
                             <i class="fas fa-users-cog"></i> <span>Admins</span>
                         </a>
                         {% endif %}
-                        {% if not current_user_is_sub_admin %}
+                        {% if not current_user_is_sub_admin or user_has_perm('admin_users.view') %}
                         <a href="{{ url_for('admin_public_users_page') }}" class="profile-menu-link">
                             <i class="fas fa-user-friends"></i> <span>Public</span>
                         </a>

@@ -1,0 +1,15 @@
+{% extends 'public_base.html' %}
+
+{% block title %}{{ quiz.title }} — {{ website.name if website else 'Quiz' }}{% endblock %}
+
+{% block content %}
+<div style="max-width: 760px; margin: 0 auto; padding: 40px 20px 80px;">
+    <h1 style="font-size: 1.8rem; font-weight: 800; margin: 0 0 8px;">{{ quiz.title }}</h1>
+    {% if quiz.description %}<p style="opacity: 0.6; font-size: 0.95rem; line-height: 1.6; margin: 0 0 20px;">{{ quiz.description }}</p>{% endif %}
+    <div class="uw-quiz-embed" data-quiz-id="{{ quiz.id }}"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/guide_quiz.js') }}"></script>
+{% endblock %}

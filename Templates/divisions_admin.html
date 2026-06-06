@@ -1,0 +1,1088 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.da-page { max-width: 980px; margin: 0 auto; padding: 32px 20px 70px; }
+.da-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+.da-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
+.da-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.da-sub { font-size: 0.85rem; color: rgba(255,255,255,0.45); margin: 6px 0 0; }
+.da-btn-new { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; font-weight: 700; font-size: 0.9rem; border: none; cursor: pointer; }
+.da-btn-new:hover { opacity: 0.88; }
+.da-btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 13px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.da-btn-primary { background: rgba(94,238,248,0.15); color: #5eeef8; border: 1px solid rgba(94,238,248,0.25); }
+.da-btn-primary:hover { background: rgba(94,238,248,0.25); }
+.da-btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.da-btn-secondary:hover { background: rgba(255,255,255,0.12); }
+.da-btn-danger { background: rgba(255,80,80,0.12); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
+.da-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.da-icon-btn { background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; padding: 4px 6px; font-size: 0.85rem; }
+.da-icon-btn:hover { color: #fff; }
+.da-icon-btn.is-danger:hover { color: #ff6b6b; }
+
+.da-settings { margin-bottom: 26px; padding: 14px 18px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.02); }
+.da-settings summary { cursor: pointer; font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); user-select: none; }
+.da-settings-body { margin-top: 14px; }
+.da-settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.da-name-input { width: 100%; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.9rem; box-sizing: border-box; }
+.da-ksa-module > summary { color: #aef7e8; }
+@media (max-width: 700px) { .da-settings-grid { grid-template-columns: 1fr; } }
+.da-field-label { font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.45); margin: 0 0 8px; }
+.da-chip-input { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.da-chip-input input { flex: 1; padding: 7px 10px; border-radius: 7px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.85rem; }
+.da-chip-num { width: 22px; text-align: center; font-size: 0.72rem; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+
+.da-div-card { border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background: rgba(255,255,255,0.03); margin-bottom: 18px; }
+.da-div-summary { list-style: none; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 12px; padding: 16px 20px; }
+.da-div-summary::-webkit-details-marker { display: none; }
+.da-div-chev { margin-left: auto; font-size: 0.8rem; opacity: 0.5; transition: transform 0.15s; flex-shrink: 0; }
+.da-div-collapse[open] > .da-div-summary .da-div-chev { transform: rotate(180deg); }
+.da-div-body { padding: 0 20px 18px; }
+.da-div-name { font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.da-div-count { font-size: 0.72rem; opacity: 0.55; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.08); font-weight: 600; }
+.da-div-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.da-div-desc { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin: 6px 0 0; }
+.da-ksa-list { margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; }
+.da-ksa-list::-webkit-scrollbar { width: 8px; }
+.da-ksa-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+.da-ksa-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); }
+.da-ksa-type { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; }
+.da-ksa-name { font-weight: 600; font-size: 0.9rem; }
+.da-ksa-meta { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
+.da-ksa-actions { margin-left: auto; display: flex; gap: 2px; }
+.da-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.35); padding: 8px 2px; }
+.da-ksa-row.is-shared { border-style: dashed; background: rgba(199,155,240,0.05); }
+.da-ksa-row.in-folder { margin-left: 16px; }
+.da-folder-head { display: flex; align-items: center; gap: 8px; padding: 8px 4px 4px; font-size: 0.8rem; font-weight: 700; color: #f0c674; letter-spacing: 0.02em; }
+.da-folder-head.is-unfiled { color: rgba(255,255,255,0.4); }
+.da-folder-head .da-ksa-meta { font-weight: 600; }
+.da-folder-name { text-transform: none; }
+.da-folder-actions { margin-left: auto; display: flex; gap: 2px; }
+.da-shared-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.66rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: rgba(199,155,240,0.14); color: #c79bf0; white-space: nowrap; }
+.da-icon-btn.is-active { color: #c79bf0; }
+.da-share-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); margin-bottom: 6px; }
+.da-share-row label { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 0.88rem; font-weight: 600; width: 100%; }
+.da-share-row input { width: 16px; height: 16px; accent-color: #c79bf0; }
+.da-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 50px 20px; }
+.da-modal-error { display:none; color:#ff6b6b; font-size:0.85rem; padding:0 20px 4px; }
+.da-roles { display: flex; flex-direction: column; gap: 6px; }
+.da-role-row { display: flex; align-items: center; gap: 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); }
+.da-role-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.da-rolechip { padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: filter 0.12s; }
+.da-rolechip:hover { filter: brightness(1.2); }
+.da-member-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.da-member-name { font-weight: 600; font-size: 0.9rem; }
+.da-member-row select { padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; }
+.da-req-toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+/* IDs beat the global `.uw-modal-body input[type=text]/select { width:100% }`
+   rule in modal.css, which otherwise lets the select eat the whole flex row
+   and squishes the search box to zero width. */
+#reqSearch { flex: 1 1 auto; width: auto; min-width: 0; }
+#reqFolderFilter { flex: 0 0 auto; width: auto; max-width: 45%; }
+.da-req-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
+.da-req-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.da-req-controls select { padding: 5px 7px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.78rem; }
+.rq-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; color: rgba(255,255,255,0.6); white-space: nowrap; }
+.rq-flag input { width: 14px; height: 14px; accent-color: #5eeef8; }
+.da-res-row { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.da-res-row input, .da-res-row select { padding: 6px 9px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.82rem; }
+.da-res-type { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; }
+.da-add-member { display: flex; gap: 8px; margin-bottom: 10px; }
+.da-add-member input { flex: 1; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; }
+.da-candidates { max-height: 260px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 9px; }
+.da-cand-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.da-cand-row:last-child { border-bottom: none; }
+.da-cand-row:hover { background: rgba(94,238,248,0.08); }
+.da-cand-name { font-weight: 600; font-size: 0.88rem; }
+.da-cand-user { font-size: 0.76rem; color: rgba(255,255,255,0.4); }
+.da-cand-add { margin-left: auto; color: #5eeef8; font-size: 0.78rem; font-weight: 700; }
+.da-cand-empty { padding: 14px; font-size: 0.84rem; color: rgba(255,255,255,0.4); text-align: center; }
+.da-members-panel { margin-top: 14px; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; background: rgba(255,255,255,0.015); }
+.da-members-panel > summary { list-style: none; cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; user-select: none; }
+.da-members-panel > summary::-webkit-details-marker { display: none; }
+.da-mp-chev { margin-left: auto; font-size: 0.7rem; opacity: 0.5; transition: transform 0.15s; }
+.da-members-panel[open] > summary .da-mp-chev { transform: rotate(180deg); }
+.da-mp-count { font-size: 0.76rem; color: rgba(255,255,255,0.45); font-weight: 500; }
+.da-mp-body { padding: 0 14px 14px; }
+.da-mp-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+.da-mp-toolbar label { font-size: 0.78rem; color: rgba(255,255,255,0.6); display: inline-flex; align-items: center; gap: 6px; }
+.da-mp-toolbar select { padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.8rem; }
+.da-mp-toolbar input[type=checkbox] { width: 14px; height: 14px; accent-color: #5eeef8; }
+.da-member-row.is-alumni { opacity: 0.6; }
+</style>
+
+<div class="da-page">
+    <div class="da-header">
+        <div>
+            <p class="da-kicker">Admin</p>
+            <h1 class="da-title">{{ div_plural }}</h1>
+            <p class="da-sub">Organise members into {{ div_plural|lower }} and give them roles. Competency tracking (KSAs) is an optional module on each {{ div_singular|lower }}.</p>
+        </div>
+        {% if can_create_div %}
+        <button class="da-btn-new" onclick="openDivisionModal()"><i class="fas fa-plus"></i> New {{ div_singular|lower }}</button>
+        {% endif %}
+    </div>
+
+    {% if can_create_div %}
+    <details class="da-settings">
+        <summary><i class="fas fa-tag"></i> Naming — what to call a “{{ div_singular }}”</summary>
+        <div class="da-settings-body">
+            <div class="da-settings-grid">
+                <div>
+                    <p class="da-field-label">Singular</p>
+                    <input type="text" id="divLabelSingular" class="da-name-input" value="{{ div_singular }}" placeholder="Division">
+                </div>
+                <div>
+                    <p class="da-field-label">Plural</p>
+                    <input type="text" id="divLabelPlural" class="da-name-input" value="{{ div_plural }}" placeholder="Divisions">
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
+                <button class="da-btn da-btn-primary" onclick="saveDivisionLabels()"><i class="fas fa-check"></i> Save naming</button>
+                <span id="namingStatus" style="font-size:0.82rem;"></span>
+            </div>
+        </div>
+    </details>
+    {% endif %}
+
+    {% if can_manage_ksa %}
+    <details class="da-settings">
+        <summary><i class="fas fa-sliders-h"></i> KSA settings — proficiency levels &amp; types</summary>
+        <div class="da-settings-body">
+            <div class="da-settings-grid">
+                <div>
+                    <p class="da-field-label">Proficiency levels <span style="opacity:0.6;font-weight:400;text-transform:none;">(index 0 = none)</span></p>
+                    <div id="levelLabels"></div>
+                    <button type="button" class="da-btn da-btn-secondary" style="margin-top:4px;" onclick="addLevelLabel()"><i class="fas fa-plus"></i> Add level</button>
+                </div>
+                <div>
+                    <p class="da-field-label">KSA types</p>
+                    <div id="ksaTypes"></div>
+                    <button type="button" class="da-btn da-btn-secondary" style="margin-top:4px;" onclick="addKsaType()"><i class="fas fa-plus"></i> Add type</button>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
+                <button class="da-btn da-btn-primary" onclick="saveKsaSettings()"><i class="fas fa-check"></i> Save settings</button>
+                <span id="settingsStatus" style="font-size:0.82rem;"></span>
+            </div>
+        </div>
+    </details>
+    {% endif %}
+
+    {% if divisions %}
+    {% for d in divisions %}
+    <div class="da-div-card" id="divCard-{{ d.id }}">
+      <details class="da-div-collapse" open>
+        <summary class="da-div-summary">
+            <h2 class="da-div-name">
+                {% if d.icon %}<i class="fas {{ d.icon }}" style="{% if d.color %}color:{{ d.color }};{% endif %}"></i>{% endif %}
+                {{ d.name }}
+                {% set _am = active_members_by_division.get(d.id, 0) %}
+                <span class="da-div-count"><i class="fas fa-users" style="opacity:0.6;margin-right:3px;"></i>{{ _am }} active member{{ '' if _am == 1 else 's' }}</span>
+                {% if can_view_ksa %}<span class="da-div-count">{{ ksas_by_division.get(d.id, [])|length }} KSA{{ '' if ksas_by_division.get(d.id, [])|length == 1 else 's' }}</span>{% endif %}
+            </h2>
+            <i class="fas fa-chevron-down da-div-chev"></i>
+        </summary>
+        <div class="da-div-body">
+        {% if can_edit_div or can_delete_div %}
+        <div class="da-div-actions">
+            {% if can_edit_div %}
+            <button class="da-icon-btn" title="Edit {{ div_singular|lower }}"
+                    onclick='openDivisionModal({{ d.id }}, {{ d.name|tojson }}, {{ (d.description or "")|tojson }}, {{ (d.color or "")|tojson }}, {{ (d.icon or "")|tojson }})'><i class="fas fa-pencil-alt"></i></button>
+            {% endif %}
+            {% if can_delete_div %}
+            <button class="da-icon-btn is-danger" title="Delete {{ div_singular|lower }}"
+                    onclick='confirmDivisionDelete({{ d.id }}, {{ d.name|tojson }})'><i class="fas fa-trash"></i></button>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if d.description %}<p class="da-div-desc">{{ d.description }}</p>{% endif %}
+
+        {# ── Roles: part of the group itself, independent of KSAs ── #}
+        {% set _droles = roles_by_division.get(d.id, []) %}
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+            <p class="da-field-label" style="margin:0;">{{ div_singular }} roles</p>
+            {% if can_edit_div %}
+            <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;" onclick='openRoleModal({{ d.id }})'><i class="fas fa-plus"></i> Add role</button>
+            {% endif %}
+        </div>
+        {% if _droles %}
+        <div class="da-roles" style="margin-top:8px;">
+            {% for role in _droles %}
+            <div class="da-role-row">
+                <span class="da-role-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>
+                {% if can_view_ksa %}<span class="da-ksa-meta">{{ role.ksa_requirements.count() }} required KSA{{ '' if role.ksa_requirements.count() == 1 else 's' }}</span>{% endif %}
+                <div style="margin-left:auto;display:flex;gap:6px;">
+                    {% if can_manage_ksa %}<button class="da-btn da-btn-secondary" style="padding:5px 11px;" onclick='openReqModal({{ role.id }}, {{ role.name|tojson }})'>Requirements</button>{% endif %}
+                    {% if can_edit_div %}
+                    <button class="da-icon-btn" title="Edit role" onclick='openRoleModal({{ d.id }}, {{ role.id }}, {{ role.name|tojson }}, {{ role.color|tojson }})'><i class="fas fa-pen"></i></button>
+                    <button class="da-icon-btn is-danger" title="Delete role" onclick='confirmRoleDelete({{ role.id }}, {{ role.name|tojson }})'><i class="fas fa-times"></i></button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% elif can_edit_div %}
+        <p class="da-ksa-empty" style="margin-top:8px;">No roles in this {{ div_singular|lower }} yet. Roles you create here are scoped to this {{ div_singular|lower }} and separate from the site-wide roles on the Users page.</p>
+        {% endif %}
+
+        {# ── Members: the group's people ── #}
+        {% if can_members_div %}
+        <details class="da-members-panel" id="membersPanel-{{ d.id }}" ontoggle="onMembersToggle(this, {{ d.id }})">
+            <summary>
+                <i class="fas fa-users"></i> Members
+                <span class="da-mp-count" id="mpCount-{{ d.id }}"></span>
+                <i class="fas fa-chevron-down da-mp-chev"></i>
+            </summary>
+            <div class="da-mp-body">
+                <div class="da-add-member">
+                    <input type="text" id="memberSearch-{{ d.id }}" placeholder="Search people to add by name, username or email…" autocomplete="off" oninput="onCandidateInput({{ d.id }})">
+                </div>
+                <div id="memberAddError-{{ d.id }}" class="da-modal-error" style="padding:0 0 8px;"></div>
+                <div id="candidateList-{{ d.id }}" class="da-candidates"></div>
+                <div class="da-mp-toolbar">
+                    <label>Sort
+                        <select id="memberSort-{{ d.id }}" onchange="renderMembers({{ d.id }})">
+                            <option value="name">Name (A–Z)</option>
+                            <option value="name_desc">Name (Z–A)</option>
+                            <option value="status">Status</option>
+                            <option value="newest">Recently added</option>
+                            <option value="oldest">Oldest first</option>
+                        </select>
+                    </label>
+                    <label><input type="checkbox" id="memberShowAlumni-{{ d.id }}" onchange="renderMembers({{ d.id }})"> Show alumni</label>
+                </div>
+                <div id="membersList-{{ d.id }}"></div>
+            </div>
+        </details>
+        {% endif %}
+
+        {# ── KSAs: an optional competency-tracking module attached to the group ── #}
+        {% if can_view_ksa %}
+        {% set _owned = ksas_by_division.get(d.id, []) %}
+        {% set _shared = shared_ksas_by_division.get(d.id, []) %}
+        {% set _groups = ksa_groups_by_division.get(d.id, []) %}
+        {% set _has_folders = folders_by_division.get(d.id, [])|length > 0 %}
+        <details class="da-members-panel da-ksa-module" open>
+            <summary>
+                <i class="fas fa-graduation-cap"></i> KSAs &amp; competency
+                <span class="da-mp-count">{{ _owned|length }}{% if _shared %} (+{{ _shared|length }} shared){% endif %}</span>
+                <i class="fas fa-chevron-down da-mp-chev"></i>
+            </summary>
+            <div class="da-mp-body">
+                <div class="da-ksa-list">
+                    {% for grp in _groups %}
+                    {% if grp.folder %}
+                    <div class="da-folder-head">
+                        <i class="fas fa-folder"></i> <span class="da-folder-name">{{ grp.folder.name }}</span>
+                        <span class="da-ksa-meta">{{ grp.ksas|length }}</span>
+                        {% if can_manage_ksa %}
+                        <div class="da-folder-actions">
+                            <button class="da-icon-btn" title="Rename folder" onclick='openFolderModal({{ d.id }}, {{ grp.folder.id }}, {{ grp.folder.name|tojson }})'><i class="fas fa-pencil-alt"></i></button>
+                            <button class="da-icon-btn is-danger" title="Delete folder" onclick='confirmFolderDelete({{ grp.folder.id }}, {{ grp.folder.name|tojson }})'><i class="fas fa-times"></i></button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% elif _has_folders %}
+                    <div class="da-folder-head is-unfiled"><i class="fas fa-inbox"></i> <span class="da-folder-name">Unfiled</span> <span class="da-ksa-meta">{{ grp.ksas|length }}</span></div>
+                    {% endif %}
+                    {% for k in grp.ksas %}
+                    {% set _sc = share_count_by_ksa.get(k.id, 0) %}
+                    <div class="da-ksa-row{% if grp.folder %} in-folder{% endif %}" id="ksaRow-{{ k.id }}">
+                        <span class="da-ksa-type">{{ k.ksa_type }}</span>
+                        <div>
+                            <div class="da-ksa-name">{{ k.name }}{% if _sc %} <span class="da-shared-tag" title="Shared into {{ _sc }} other {{ div_singular|lower }}{{ '' if _sc == 1 else 's' }}"><i class="fas fa-share-alt"></i> shared ×{{ _sc }}</span>{% endif %}</div>
+                            {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
+                        </div>
+                        <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+                        {% if can_manage_ksa %}
+                        <div class="da-ksa-actions">
+                            <button class="da-icon-btn{% if _sc %} is-active{% endif %}" title="Share with other {{ div_plural|lower }}"
+                                    onclick='openShareModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-share-alt"></i></button>
+                            <button class="da-icon-btn" title="Learning resources (links / guides / quizzes)"
+                                    onclick='openResourcesModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-book-reader"></i></button>
+                            <button class="da-icon-btn" title="Edit"
+                                    onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }}, {{ k.folder_id or 0 }})'><i class="fas fa-pencil-alt"></i></button>
+                            <button class="da-icon-btn is-danger" title="Delete"
+                                    onclick='confirmKsaDelete({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-trash"></i></button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% endfor %}
+                    {% for k in _shared %}
+                    <div class="da-ksa-row is-shared" title="Owned by {{ div_names.get(k.division_id, 'another ' + div_singular|lower) }} — edit it there">
+                        <span class="da-ksa-type">{{ k.ksa_type }}</span>
+                        <div>
+                            <div class="da-ksa-name">{{ k.name }} <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from {{ div_names.get(k.division_id, 'another ' + div_singular|lower) }}</span></div>
+                            {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
+                        </div>
+                        <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+                    </div>
+                    {% endfor %}
+                    {% if not _owned and not _shared %}
+                    <div class="da-ksa-empty">No KSAs in this {{ div_singular|lower }} yet.</div>
+                    {% endif %}
+                </div>
+
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                    {% if can_manage_ksa %}
+                    <button class="da-btn da-btn-secondary" onclick="openKsaModal({{ d.id }})"><i class="fas fa-plus"></i> Add KSA</button>
+                    <button class="da-btn da-btn-secondary" onclick='openFolderModal({{ d.id }})'><i class="fas fa-folder-plus"></i> Add folder</button>
+                    {% endif %}
+                    <a class="da-btn da-btn-primary" href="{{ url_for('admin_division_matrix', did=d.id) }}"><i class="fas fa-th"></i> Matrix</a>
+                </div>
+            </div>
+        </details>
+        {% endif %}
+        </div>
+      </details>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="da-empty"><p>No {{ div_plural|lower }} yet.{% if can_create_div %} Create one to start organising your members.{% endif %}</p></div>
+    {% endif %}
+</div>
+
+<!-- Division modal -->
+<div class="uw-overlay" id="divModalOverlay" style="display:none;" onclick="if(event.target===this)closeDivisionModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="divModalTitle">New Division</h3>
+            <button class="uw-modal-close" onclick="closeDivisionModal()">&times;</button>
+        </div>
+        <form id="divModalForm" onsubmit="submitDivisionModal(event)">
+            <input type="hidden" id="divModalId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="divModalName" required placeholder="e.g. Robotics, Marketing"></div>
+                <div class="uw-field"><label>Description <span style="opacity:0.5;">(optional)</span></label>
+                    <textarea id="divModalDesc" rows="2"></textarea></div>
+                <div class="uw-field" style="display:flex;gap:12px;align-items:flex-end;">
+                    <div style="flex:1;"><label>Icon <span style="opacity:0.5;">(optional)</span></label>
+                        <input type="text" id="divModalIcon" placeholder="fa-users"></div>
+                    <div style="width:90px;"><label>Color</label>
+                        <input type="color" id="divModalColor" value="#5eeef8" style="width:100%;height:40px;border:none;background:transparent;cursor:pointer;"></div>
+                </div>
+            </div>
+            <div id="divModalError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeDivisionModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="divModalSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- KSA modal -->
+<div class="uw-overlay" id="ksaModalOverlay" style="display:none;" onclick="if(event.target===this)closeKsaModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="ksaModalTitle">New KSA</h3>
+            <button class="uw-modal-close" onclick="closeKsaModal()">&times;</button>
+        </div>
+        <form id="ksaModalForm" onsubmit="submitKsaModal(event)">
+            <input type="hidden" id="ksaModalId">
+            <input type="hidden" id="ksaModalDivId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="ksaModalName" required placeholder="e.g. Solder a through-hole joint"></div>
+                <div class="uw-field"><label>Description <span style="opacity:0.5;">(optional)</span></label>
+                    <textarea id="ksaModalDesc" rows="2"></textarea></div>
+                <div class="uw-field" style="display:flex;gap:12px;">
+                    <div style="flex:1;"><label>Type</label>
+                        <select id="ksaModalType" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;"></select></div>
+                    <div style="width:120px;"><label>Max level</label>
+                        <input type="number" id="ksaModalMax" min="1" max="10" value="4" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;"></div>
+                </div>
+                <div class="uw-field"><label>Folder <span style="opacity:0.5;">(optional)</span></label>
+                    <select id="ksaModalFolder" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;"></select></div>
+            </div>
+            <div id="ksaModalError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeKsaModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="ksaModalSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Folder modal -->
+<div class="uw-overlay" id="folderModalOverlay" style="display:none;" onclick="if(event.target===this)closeFolderModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:420px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="folderModalTitle">New folder</h3>
+            <button class="uw-modal-close" onclick="closeFolderModal()">&times;</button>
+        </div>
+        <form id="folderModalForm" onsubmit="submitFolderModal(event)">
+            <input type="hidden" id="folderModalId">
+            <input type="hidden" id="folderModalDivId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="folderModalName" required placeholder="e.g. 1st year, 2nd year, Core"></div>
+                <p style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin:4px 0 0;">Folders group this division's KSAs. Assign a KSA to a folder from its Edit dialog.</p>
+            </div>
+            <div id="folderModalError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeFolderModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="folderModalSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Role modal -->
+<div class="uw-overlay" id="roleModalOverlay" style="display:none;" onclick="if(event.target===this)closeRoleModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:420px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="roleModalTitle">New Role</h3>
+            <button class="uw-modal-close" onclick="closeRoleModal()">&times;</button>
+        </div>
+        <form id="roleModalForm" onsubmit="submitRoleModal(event)">
+            <input type="hidden" id="roleModalId">
+            <input type="hidden" id="roleModalDivId">
+            <div class="uw-modal-body">
+                <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
+                    <input type="text" id="roleModalName" required placeholder="e.g. Lead, Mentor, Trainee"></div>
+                <div class="uw-field"><label>Color</label>
+                    <input type="color" id="roleModalColor" value="#5eeef8" style="width:90px;height:40px;border:none;background:transparent;cursor:pointer;"></div>
+                <p style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin:4px 0 0;">This role lives in this division only and is assigned to members from the Members panel.</p>
+            </div>
+            <div id="roleModalError" class="da-modal-error"></div>
+            <div class="uw-modal-footer">
+                <button type="button" class="uw-btn uw-btn-secondary" onclick="closeRoleModal()">Cancel</button>
+                <button type="submit" class="uw-btn uw-btn-primary" id="roleModalSubmit">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Role requirements modal -->
+<div class="uw-overlay" id="reqOverlay" style="display:none;" onclick="if(event.target===this)closeReqModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="reqTitle">Requirements</h3>
+            <button class="uw-modal-close" onclick="closeReqModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 12px;">Set the level this role is expected to hold for each KSA. <strong>Not required</strong> leaves it out of the role's profile.</p>
+            <div class="da-req-toolbar">
+                <input type="text" id="reqSearch" placeholder="Search KSAs…" autocomplete="off" oninput="renderReqFiltered()">
+                <select id="reqFolderFilter" onchange="renderReqFiltered()"></select>
+            </div>
+            <div id="reqList"></div>
+        </div>
+        <div id="reqError" class="da-modal-error"></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeReqModal()">Cancel</button>
+            <button class="uw-btn uw-btn-primary" id="reqSubmit" onclick="saveReq()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- KSA resources modal -->
+<div class="uw-overlay" id="resOverlay" style="display:none;" onclick="if(event.target===this)closeResModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="resTitle">Resources</h3>
+            <button class="uw-modal-close" onclick="closeResModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 12px;">Attach links, guides and quizzes a member can use to learn this skill. They appear on the member's roadmap.</p>
+            <div id="resList"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <button class="da-btn da-btn-secondary" onclick="addResource('link')"><i class="fas fa-link"></i> Add link</button>
+                <button class="da-btn da-btn-secondary" onclick="addResource('guide')"><i class="fas fa-book-open"></i> Add guide</button>
+                <button class="da-btn da-btn-secondary" onclick="addResource('quiz')"><i class="fas fa-clipboard-check"></i> Add quiz</button>
+            </div>
+        </div>
+        <div id="resError" class="da-modal-error"></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeResModal()">Cancel</button>
+            <button class="uw-btn uw-btn-primary" id="resSubmit" onclick="saveResources()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- KSA share modal -->
+<div class="uw-overlay" id="shareOverlay" style="display:none;" onclick="if(event.target===this)closeShareModal()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:460px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="shareTitle">Share KSA</h3>
+            <button class="uw-modal-close" onclick="closeShareModal()">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 12px;">Lend this KSA to other divisions. It stays owned and edited here, but shows up in the selected divisions' matrix so their roles can require it.</p>
+            <div id="shareList"></div>
+        </div>
+        <div id="shareError" class="da-modal-error"></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeShareModal()">Cancel</button>
+            <button class="uw-btn uw-btn-primary" id="shareSubmit" onclick="saveShares()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirm -->
+<div class="uw-overlay" id="delOverlay" style="display:none;" onclick="if(event.target===this)closeDel()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:420px;">
+        <div class="uw-modal-header"><h3 class="uw-modal-title" id="delTitle">Delete</h3>
+            <button class="uw-modal-close" onclick="closeDel()">&times;</button></div>
+        <div class="uw-modal-body"><p id="delMsg" style="color:rgba(255,255,255,0.8);margin:0;"></p></div>
+        <div class="uw-modal-footer">
+            <button class="uw-btn uw-btn-secondary" onclick="closeDel()">Cancel</button>
+            <button class="uw-btn" id="delConfirm" style="background:rgba(255,80,80,0.2);color:#ff6b6b;border:1px solid rgba(255,80,80,0.35);">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const KSA_TYPES = {{ ksa_types | tojson }};
+const KSA_LEVEL_LABELS = {{ ksa_level_labels | tojson }};
+const FOLDERS_BY_DIV = {{ folders_json | tojson }};
+const DIV_SINGULAR = {{ div_singular | tojson }};
+const DIV_PLURAL = {{ div_plural | tojson }};
+
+function _err(id, msg) { const e = document.getElementById(id); if (!e) return; if (msg) { e.textContent = msg; e.style.display = 'block'; } else { e.style.display = 'none'; e.textContent = ''; } }
+
+// ── Division modal ──
+function openDivisionModal(id, name, desc, color, icon) {
+    document.getElementById('divModalId').value = id || '';
+    document.getElementById('divModalName').value = name || '';
+    document.getElementById('divModalDesc').value = desc || '';
+    document.getElementById('divModalColor').value = color || '#5eeef8';
+    document.getElementById('divModalIcon').value = icon || '';
+    document.getElementById('divModalTitle').textContent = (id ? 'Edit ' : 'New ') + DIV_SINGULAR;
+    document.getElementById('divModalSubmit').textContent = id ? 'Save' : 'Create';
+    _err('divModalError', '');
+    document.getElementById('divModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('divModalName').focus(), 60);
+}
+function closeDivisionModal() { document.getElementById('divModalOverlay').style.display = 'none'; }
+async function submitDivisionModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('divModalId').value;
+    const body = {
+        name: document.getElementById('divModalName').value.trim(),
+        description: document.getElementById('divModalDesc').value.trim(),
+        color: document.getElementById('divModalColor').value,
+        icon: document.getElementById('divModalIcon').value.trim(),
+    };
+    if (!body.name) return;
+    const btn = document.getElementById('divModalSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(id ? `/admin/divisions/${id}/update` : '/admin/divisions/create',
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (d.success) location.reload(); else _err('divModalError', d.error || 'Failed to save');
+    } catch (err) { _err('divModalError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── KSA modal ──
+function openKsaModal(divId, id, type, name, desc, maxLevel, folderId) {
+    document.getElementById('ksaModalDivId').value = divId;
+    document.getElementById('ksaModalId').value = id || '';
+    document.getElementById('ksaModalName').value = name || '';
+    document.getElementById('ksaModalDesc').value = desc || '';
+    document.getElementById('ksaModalMax').value = maxLevel || 4;
+    const sel = document.getElementById('ksaModalType');
+    sel.innerHTML = KSA_TYPES.map(t => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`).join('');
+    const fsel = document.getElementById('ksaModalFolder');
+    const folders = FOLDERS_BY_DIV[String(divId)] || [];
+    const fid = folderId ? String(folderId) : '';
+    fsel.innerHTML = '<option value="">No folder</option>' +
+        folders.map(f => `<option value="${f.id}"${String(f.id) === fid ? ' selected' : ''}>${_escH(f.name)}</option>`).join('');
+    document.getElementById('ksaModalTitle').textContent = id ? 'Edit KSA' : 'New KSA';
+    document.getElementById('ksaModalSubmit').textContent = id ? 'Save' : 'Create';
+    _err('ksaModalError', '');
+    document.getElementById('ksaModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('ksaModalName').focus(), 60);
+}
+function closeKsaModal() { document.getElementById('ksaModalOverlay').style.display = 'none'; }
+async function submitKsaModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('ksaModalId').value;
+    const divId = document.getElementById('ksaModalDivId').value;
+    const body = {
+        name: document.getElementById('ksaModalName').value.trim(),
+        description: document.getElementById('ksaModalDesc').value.trim(),
+        ksa_type: document.getElementById('ksaModalType').value,
+        max_level: parseInt(document.getElementById('ksaModalMax').value, 10) || 4,
+        folder_id: document.getElementById('ksaModalFolder').value || null,
+    };
+    if (!body.name) return;
+    const btn = document.getElementById('ksaModalSubmit'); btn.disabled = true;
+    const url = id ? `/admin/ksa/${id}/update` : `/admin/divisions/${divId}/ksa/create`;
+    try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (d.success) location.reload(); else _err('ksaModalError', d.error || 'Failed to save');
+    } catch (err) { _err('ksaModalError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── Delete ──
+let _delAction = null;
+// onDone: optional callback run after a successful POST instead of a full
+// page reload (used by the inline members panel so it doesn't collapse).
+function _openDel(title, msg, action, onDone) {
+    document.getElementById('delTitle').textContent = title;
+    document.getElementById('delMsg').textContent = msg;
+    _delAction = action;
+    document.getElementById('delConfirm').onclick = async () => {
+        const btn = document.getElementById('delConfirm'); btn.disabled = true;
+        try { const r = await fetch(_delAction, { method: 'POST' }); const d = await r.json();
+            if (d.success) { closeDel(); if (onDone) await onDone(); else location.reload(); }
+            else { alert(d.error || 'Failed'); btn.disabled = false; }
+        } catch (e) { alert('Request failed'); btn.disabled = false; }
+        finally { btn.disabled = false; }
+    };
+    document.getElementById('delOverlay').style.display = 'flex';
+}
+function closeDel() { document.getElementById('delOverlay').style.display = 'none'; }
+function confirmDivisionDelete(id, name) { _openDel(`Delete ${DIV_SINGULAR}`, `Delete "${name}"? Its members, roles and any KSAs are removed. This cannot be undone.`, `/admin/divisions/${id}/delete`); }
+function confirmKsaDelete(id, name) { _openDel('Delete KSA', `Delete "${name}"? Member levels and role requirements for it are removed.`, `/admin/ksa/${id}/delete`); }
+function confirmFolderDelete(id, name) { _openDel('Delete folder', `Delete the "${name}" folder? Its KSAs are kept but become unfiled.`, `/admin/folders/${id}/delete`); }
+
+// ── Folder modal ──
+function openFolderModal(divId, id, name) {
+    document.getElementById('folderModalDivId').value = divId || '';
+    document.getElementById('folderModalId').value = id || '';
+    document.getElementById('folderModalName').value = name || '';
+    document.getElementById('folderModalTitle').textContent = id ? 'Rename folder' : 'New folder';
+    document.getElementById('folderModalSubmit').textContent = id ? 'Save' : 'Create';
+    _err('folderModalError', '');
+    document.getElementById('folderModalOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('folderModalName').focus(), 60);
+}
+function closeFolderModal() { document.getElementById('folderModalOverlay').style.display = 'none'; }
+async function submitFolderModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('folderModalId').value;
+    const divId = document.getElementById('folderModalDivId').value;
+    const name = document.getElementById('folderModalName').value.trim();
+    if (!name) { _err('folderModalError', 'Name is required'); return; }
+    const url = id ? `/admin/folders/${id}/update` : `/admin/divisions/${divId}/folders/create`;
+    const btn = document.getElementById('folderModalSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+        const d = await r.json();
+        if (d.success) location.reload(); else { _err('folderModalError', d.error || 'Failed'); btn.disabled = false; }
+    } catch (err) { _err('folderModalError', 'Request failed'); btn.disabled = false; }
+}
+function confirmRoleDelete(id, name) { _openDel('Delete Role', `Delete the "${name}" role? It is removed from every member in this division and its KSA requirements are cleared.`, `/admin/divisions/roles/${id}/delete`); }
+
+// ── Role modal (division-scoped roles) ──
+function openRoleModal(divId, roleId, name, color) {
+    document.getElementById('roleModalDivId').value = divId || '';
+    document.getElementById('roleModalId').value = roleId || '';
+    document.getElementById('roleModalName').value = name || '';
+    document.getElementById('roleModalColor').value = color || '#5eeef8';
+    document.getElementById('roleModalTitle').textContent = roleId ? 'Edit Role' : 'New Role';
+    document.getElementById('roleModalSubmit').textContent = roleId ? 'Save' : 'Create';
+    _err('roleModalError', '');
+    document.getElementById('roleModalOverlay').style.display = 'flex';
+}
+function closeRoleModal() { document.getElementById('roleModalOverlay').style.display = 'none'; }
+async function submitRoleModal(e) {
+    e.preventDefault();
+    const id = document.getElementById('roleModalId').value;
+    const did = document.getElementById('roleModalDivId').value;
+    const name = document.getElementById('roleModalName').value.trim();
+    const color = document.getElementById('roleModalColor').value;
+    if (!name) { _err('roleModalError', 'Name is required'); return; }
+    const url = id ? `/admin/divisions/roles/${id}/update` : `/admin/divisions/${did}/roles/create`;
+    const btn = document.getElementById('roleModalSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, color }) });
+        const d = await r.json();
+        if (d.success) location.reload();
+        else { _err('roleModalError', d.error || 'Failed'); btn.disabled = false; }
+    } catch (err) { _err('roleModalError', 'Request failed'); btn.disabled = false; }
+}
+
+// ── Settings (level labels + types) ──
+function _chipRow(value, idx, withNum, onRemove) {
+    const wrap = document.createElement('div'); wrap.className = 'da-chip-input';
+    if (withNum) { const n = document.createElement('span'); n.className = 'da-chip-num'; n.textContent = idx; wrap.appendChild(n); }
+    const inp = document.createElement('input'); inp.type = 'text'; inp.value = value || ''; wrap.appendChild(inp);
+    const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'da-icon-btn is-danger'; rm.innerHTML = '<i class="fas fa-times"></i>';
+    rm.onclick = () => { wrap.remove(); onRemove && onRemove(); };
+    wrap.appendChild(rm);
+    return wrap;
+}
+function renderLevelLabels() {
+    const box = document.getElementById('levelLabels'); box.innerHTML = '';
+    KSA_LEVEL_LABELS.forEach((l, i) => box.appendChild(_chipRow(l, i, true)));
+}
+function renderKsaTypes() {
+    const box = document.getElementById('ksaTypes'); box.innerHTML = '';
+    KSA_TYPES.forEach(t => box.appendChild(_chipRow(t, null, false)));
+}
+function addLevelLabel() { document.getElementById('levelLabels').appendChild(_chipRow('', document.querySelectorAll('#levelLabels .da-chip-input').length, true)); }
+function addKsaType() { document.getElementById('ksaTypes').appendChild(_chipRow('', null, false)); }
+async function saveKsaSettings() {
+    const level_labels = Array.from(document.querySelectorAll('#levelLabels input')).map(i => i.value.trim());
+    const types = Array.from(document.querySelectorAll('#ksaTypes input')).map(i => i.value.trim()).filter(Boolean);
+    const st = document.getElementById('settingsStatus'); st.textContent = 'Saving…'; st.style.color = 'rgba(255,255,255,0.6)';
+    try {
+        const r = await fetch('/admin/ksa/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level_labels, types }) });
+        const d = await r.json();
+        if (d.success) { st.textContent = 'Saved.'; st.style.color = '#5eeec8'; setTimeout(() => location.reload(), 500); }
+        else { st.textContent = d.error || 'Failed.'; st.style.color = '#ff8a8a'; }
+    } catch (e) { st.textContent = 'Request failed.'; st.style.color = '#ff8a8a'; }
+}
+
+// ── Naming (custom singular/plural label) ──
+async function saveDivisionLabels() {
+    const singular = document.getElementById('divLabelSingular').value.trim();
+    const plural = document.getElementById('divLabelPlural').value.trim();
+    const st = document.getElementById('namingStatus'); st.textContent = 'Saving…'; st.style.color = 'rgba(255,255,255,0.6)';
+    try {
+        const r = await fetch('/admin/divisions/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ singular, plural }) });
+        const d = await r.json();
+        if (d.success) { st.textContent = 'Saved.'; st.style.color = '#5eeec8'; setTimeout(() => location.reload(), 500); }
+        else { st.textContent = d.error || 'Failed.'; st.style.color = '#ff8a8a'; }
+    } catch (e) { st.textContent = 'Request failed.'; st.style.color = '#ff8a8a'; }
+}
+
+// ── Members panel (inline, per division) ──
+const _membersState = {};   // did -> { members:[], roles:[], loaded:bool }
+const _candTimers = {};
+function _escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return _escH(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function onMembersToggle(panel, did) {
+    if (!panel.open) return;
+    if (_membersState[did] && _membersState[did].loaded) return;
+    document.getElementById(`candidateList-${did}`).innerHTML = '<div class="da-cand-empty">Loading…</div>';
+    document.getElementById(`membersList-${did}`).innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    Promise.all([loadMembers(did), loadCandidates(did, '')]);
+}
+async function loadMembers(did) {
+    try {
+        const d = await (await fetch(`/admin/divisions/${did}/members`)).json();
+        _membersState[did] = { members: d.members || [], roles: d.roles || [], loaded: true };
+        renderMembers(did);
+    } catch (e) { document.getElementById(`membersList-${did}`).innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+
+// ── Browse / add candidates ──
+function onCandidateInput(did) {
+    clearTimeout(_candTimers[did]);
+    _candTimers[did] = setTimeout(() => loadCandidates(did, document.getElementById(`memberSearch-${did}`).value.trim()), 220);
+}
+async function loadCandidates(did, q) {
+    const box = document.getElementById(`candidateList-${did}`);
+    try {
+        const d = await (await fetch(`/admin/divisions/${did}/candidates?q=${encodeURIComponent(q)}`)).json();
+        const cands = d.candidates || [];
+        if (!cands.length) { box.innerHTML = '<div class="da-cand-empty">' + (q ? 'No matching people.' : 'Everyone is already a member.') + '</div>'; return; }
+        box.innerHTML = cands.map(c => `
+            <div class="da-cand-row" onclick="addMemberById(${did}, ${c.id})">
+                <span class="da-cand-name">${_escH(c.name)}</span>
+                <span class="da-cand-user">@${_escH(c.username)}</span>
+                <span class="da-cand-add"><i class="fas fa-plus"></i> Add</span>
+            </div>`).join('');
+    } catch (e) { box.innerHTML = '<div class="da-cand-empty" style="color:#ff8a8a;">Failed to load.</div>'; }
+}
+async function addMemberById(did, uid) {
+    _err(`memberAddError-${did}`, '');
+    try {
+        const r = await fetch(`/admin/divisions/${did}/members/add`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ public_user_id: uid }) });
+        const d = await r.json();
+        if (!d.success) { _err(`memberAddError-${did}`, d.error || 'Failed'); return; }
+        await Promise.all([loadMembers(did), loadCandidates(did, document.getElementById(`memberSearch-${did}`).value.trim())]);
+    } catch (e) { _err(`memberAddError-${did}`, 'Request failed'); }
+}
+function renderMembers(did) {
+    const st = _membersState[did]; if (!st) return;
+    const box = document.getElementById(`membersList-${did}`);
+    const roles = st.roles || [];
+    const showAlumni = !!document.getElementById(`memberShowAlumni-${did}`)?.checked;
+    const sort = document.getElementById(`memberSort-${did}`)?.value || 'name';
+    // keep original (join) order index for newest/oldest sorts
+    let list = (st.members || []).map((m, i) => Object.assign({ _i: i }, m));
+    const activeCount = list.filter(m => m.status === 'active').length;
+    const alumniCount = list.length - activeCount;
+    const cnt = document.getElementById(`mpCount-${did}`);
+    if (cnt) cnt.textContent = list.length ? `(${activeCount} active${alumniCount ? ', ' + alumniCount + ' alumni' : ''})` : '';
+    if (!showAlumni) list = list.filter(m => m.status === 'active');
+    const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    if (sort === 'name') list.sort(byName);
+    else if (sort === 'name_desc') list.sort((a, b) => byName(b, a));
+    else if (sort === 'status') list.sort((a, b) => (a.status === b.status ? byName(a, b) : (a.status === 'active' ? -1 : 1)));
+    else if (sort === 'newest') list.sort((a, b) => b._i - a._i);
+    else if (sort === 'oldest') list.sort((a, b) => a._i - b._i);
+
+    if (!list.length) {
+        box.innerHTML = `<p style="opacity:0.5;font-size:0.85rem;">${st.members.length ? 'No ' + (showAlumni ? '' : 'active ') + 'members.' : 'No members yet.'}</p>`;
+        return;
+    }
+    box.innerHTML = list.map(m => {
+        const held = new Set(m.role_ids || []);
+        const chips = roles.length ? roles.map(r => {
+            const on = held.has(r.id);
+            const c = r.color || '#5eeef8';
+            const style = on
+                ? `background:${c}22;color:${c};border:1px solid ${c}66;`
+                : `background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.45);border:1px solid rgba(255,255,255,0.12);`;
+            return `<button type="button" class="da-rolechip" data-rid="${r.id}" data-on="${on?1:0}" style="${style}" onclick="toggleMemberRole(${did}, ${m.public_user_id}, ${r.id}, this)">${_escH(r.name)}</button>`;
+        }).join('') : '<span style="opacity:0.4;font-size:0.78rem;">No roles in this division yet.</span>';
+        return `
+        <div class="da-member-row${m.status === 'alumni' ? ' is-alumni' : ''}" style="flex-wrap:wrap;">
+            <span class="da-member-name">${_escH(m.name)}</span>
+            <select onchange="setMemberStatus(${did}, ${m.membership_id}, this.value)" style="margin-left:auto;">
+                <option value="active"${m.status==='active'?' selected':''}>Active</option>
+                <option value="alumni"${m.status==='alumni'?' selected':''}>Alumni</option>
+            </select>
+            <button class="da-icon-btn is-danger" title="Remove from division" onclick="removeMember(${did}, ${m.membership_id})"><i class="fas fa-times"></i></button>
+            <div class="da-member-roles" data-uid="${m.public_user_id}" style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${chips}</div>
+        </div>`;
+    }).join('');
+}
+async function toggleMemberRole(did, uid, rid, el) {
+    const row = el.closest('.da-member-roles');
+    const want = [];
+    row.querySelectorAll('.da-rolechip').forEach(b => {
+        const id = Number(b.dataset.rid || 0); if (!id) return;
+        const isOn = b === el ? b.dataset.on !== '1' : b.dataset.on === '1';
+        if (isOn) want.push(id);
+    });
+    try {
+        const r = await fetch(`/admin/divisions/${did}/members/${uid}/roles`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role_ids: want }) });
+        const d = await r.json();
+        if (d.success) await loadMembers(did);
+    } catch (e) { /* keep UI as-is on failure */ }
+}
+async function setMemberStatus(did, mid, status) {
+    await fetch(`/admin/divisions/membership/${mid}/status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    // reflect locally and re-render so sort/active-filter apply immediately
+    const st = _membersState[did];
+    if (st) { const m = st.members.find(x => x.membership_id === mid); if (m) m.status = status; renderMembers(did); }
+}
+function removeMember(did, mid) {
+    const st = _membersState[did];
+    const m = st && st.members.find(x => x.membership_id === mid);
+    const name = m ? m.name : 'this member';
+    _openDel('Remove member',
+        `Remove ${name} from the division? Their roles and KSA levels here are cleared. This does not delete their account.`,
+        `/admin/divisions/membership/${mid}/remove`,
+        () => Promise.all([loadMembers(did), loadCandidates(did, document.getElementById(`memberSearch-${did}`).value.trim())]));
+}
+
+// ── Role requirements modal ──
+// Selections live in _reqState (keyed by KSA id) so search / folder filtering
+// can hide rows without losing edits made to filtered-out KSAs.
+let _reqRoleId = null, _reqCatalog = [], _reqFolders = [], _reqState = {};
+async function openReqModal(roleId, name) {
+    _reqRoleId = roleId;
+    document.getElementById('reqTitle').textContent = 'Requirements — ' + name;
+    _err('reqError', '');
+    document.getElementById('reqList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('reqOverlay').style.display = 'flex';
+    try {
+        const d = await (await fetch(`/admin/roles/${roleId}/ksa-requirements`)).json();
+        _reqCatalog = d.catalog || [];
+        _reqFolders = d.folders || [];
+        _reqState = {};
+        Object.entries(d.requirements || {}).forEach(([kid, spec]) => {
+            _reqState[kid] = { level: parseInt(spec.level || 0),
+                               required: spec.required !== false,
+                               priority: spec.priority || 'medium' };
+        });
+        let opts = '<option value="">All folders</option>';
+        _reqFolders.forEach(f => { opts += `<option value="${f.id}">${_escH(f.name)}</option>`; });
+        if (_reqCatalog.some(k => !k.shared && !k.folder_id)) opts += '<option value="__unfiled">Unfiled</option>';
+        if (_reqCatalog.some(k => k.shared)) opts += '<option value="__shared">Shared</option>';
+        document.getElementById('reqFolderFilter').innerHTML = opts;
+        document.getElementById('reqSearch').value = '';
+        renderReqFiltered();
+    } catch (e) { document.getElementById('reqList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+function closeReqModal() { document.getElementById('reqOverlay').style.display = 'none'; }
+function _reqGroupKey(k) { return k.shared ? '__shared' : (k.folder_id ? String(k.folder_id) : '__unfiled'); }
+// Merge whatever is currently shown into _reqState before we re-render or save.
+function _captureReq() {
+    document.querySelectorAll('#reqList .da-req-row').forEach(row => {
+        const kid = row.dataset.ksa;
+        const lv = parseInt(row.querySelector('.rq-level').value);
+        if (lv >= 1) _reqState[kid] = { level: lv,
+            required: row.querySelector('.rq-required').checked,
+            priority: row.querySelector('.rq-priority').value };
+        else delete _reqState[kid];
+    });
+}
+function renderReqFiltered() {
+    _captureReq();
+    const q = (document.getElementById('reqSearch').value || '').trim().toLowerCase();
+    const ff = document.getElementById('reqFolderFilter').value;
+    let items = _reqCatalog.slice();
+    if (q) items = items.filter(k => (k.name || '').toLowerCase().includes(q));
+    if (ff === '__unfiled') items = items.filter(k => !k.shared && !k.folder_id);
+    else if (ff === '__shared') items = items.filter(k => k.shared);
+    else if (ff) items = items.filter(k => String(k.folder_id) === ff);
+    renderReq(items);
+}
+function _reqRowHtml(k) {
+    const cur = _reqState[String(k.id)] || {};
+    const lvl = parseInt(cur.level || 0);
+    const req = cur.required !== false;
+    const prio = cur.priority || 'medium';
+    let lvlOpts = `<option value="0"${lvl===0?' selected':''}>Not required</option>`;
+    for (let v = 1; v <= k.max_level; v++) {
+        const lbl = KSA_LEVEL_LABELS[v] || ('Level ' + v);
+        lvlOpts += `<option value="${v}"${lvl===v?' selected':''}>${_escH(lbl)} (${v})</option>`;
+    }
+    const prioOpts = ['high','medium','low'].map(p => `<option value="${p}"${prio===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('');
+    const sharedTag = k.shared ? ` <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from ${_escH(k.owner_division || 'another division')}</span>` : '';
+    return `<div class="da-req-row" data-ksa="${k.id}">
+        <span class="da-ksa-type">${_escH(k.ksa_type)}</span>
+        <span class="da-member-name" style="flex:1;">${_escH(k.name)}${sharedTag}</span>
+        <div class="da-req-controls">
+            <select class="rq-level" title="Required level">${lvlOpts}</select>
+            <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="rq-required" ${req?'checked':''}> Req'd</label>
+            <select class="rq-priority" title="Priority">${prioOpts}</select>
+        </div>
+    </div>`;
+}
+function renderReq(catalog) {
+    const box = document.getElementById('reqList');
+    if (!_reqCatalog.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">This role\'s division has no KSAs yet. Add some in the catalog first.</p>'; return; }
+    if (!catalog.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">No KSAs match.</p>'; return; }
+    const order = [], labelFor = {};
+    _reqFolders.forEach(f => { order.push(String(f.id)); labelFor[String(f.id)] = f.name; });
+    order.push('__unfiled'); labelFor['__unfiled'] = 'Unfiled';
+    order.push('__shared'); labelFor['__shared'] = 'Shared';
+    const groups = {};
+    catalog.forEach(k => { const key = _reqGroupKey(k); (groups[key] = groups[key] || []).push(k); });
+    let html = '';
+    order.forEach(key => {
+        const list = groups[key]; if (!list || !list.length) return;
+        const showHeader = _reqFolders.length > 0 || key === '__shared';
+        if (showHeader) {
+            const icon = key === '__shared' ? 'fa-share-alt' : (key === '__unfiled' ? 'fa-inbox' : 'fa-folder');
+            html += `<div class="da-folder-head${key==='__unfiled'?' is-unfiled':''}"><i class="fas ${icon}"></i> ${_escH(labelFor[key])} <span class="da-ksa-meta">${list.length}</span></div>`;
+        }
+        list.forEach(k => { html += _reqRowHtml(k); });
+    });
+    box.innerHTML = html;
+}
+async function saveReq() {
+    _captureReq();
+    const requirements = {};
+    Object.entries(_reqState).forEach(([kid, s]) => { if (s.level >= 1) requirements[kid] = s; });
+    const btn = document.getElementById('reqSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/roles/${_reqRoleId}/ksa-requirements`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirements }) });
+        const d = await r.json();
+        if (d.success) location.reload(); else _err('reqError', d.error || 'Failed to save');
+    } catch (e) { _err('reqError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── KSA resources modal ──
+let _resKsaId = null, _resList = [], _resGuides = [], _resQuizzes = [];
+async function openResourcesModal(kid, name) {
+    _resKsaId = kid;
+    document.getElementById('resTitle').textContent = 'Resources — ' + name;
+    _err('resError', '');
+    document.getElementById('resList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('resOverlay').style.display = 'flex';
+    try {
+        const d = await (await fetch(`/admin/ksa/${kid}/resources`)).json();
+        _resGuides = d.guides || []; _resQuizzes = d.quizzes || [];
+        _resList = (d.resources || []).map(r => ({ resource_type: r.resource_type, label: r.label || '', url: r.url || '', guide_id: r.guide_id, quiz_id: r.quiz_id }));
+        renderResources();
+    } catch (e) { document.getElementById('resList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+function closeResModal() { document.getElementById('resOverlay').style.display = 'none'; }
+function _optList(items, sel) {
+    return items.map(it => `<option value="${it.id}"${String(sel)===String(it.id)?' selected':''}>${_escH(it.title)}</option>`).join('');
+}
+function renderResources() {
+    const box = document.getElementById('resList');
+    if (!_resList.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">No resources yet — add a link, guide or quiz below.</p>'; return; }
+    box.innerHTML = _resList.map((r, i) => {
+        let mid = '';
+        if (r.resource_type === 'link') {
+            mid = `<input style="flex:2;min-width:160px;" placeholder="Label (e.g. YouTube tutorial)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <input style="flex:3;min-width:200px;" placeholder="https://…" value="${escAttr(r.url)}" oninput="_resList[${i}].url=this.value">`;
+        } else if (r.resource_type === 'guide') {
+            mid = `<input style="flex:2;min-width:140px;" placeholder="Label (optional)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <select style="flex:2;min-width:160px;" onchange="_resList[${i}].guide_id=parseInt(this.value)"><option value="">— pick a guide —</option>${_optList(_resGuides, r.guide_id)}</select>`;
+        } else {
+            mid = `<input style="flex:2;min-width:140px;" placeholder="Label (optional)" value="${escAttr(r.label)}" oninput="_resList[${i}].label=this.value">
+                   <select style="flex:2;min-width:160px;" onchange="_resList[${i}].quiz_id=parseInt(this.value)"><option value="">— pick a quiz —</option>${_optList(_resQuizzes, r.quiz_id)}</select>`;
+        }
+        return `<div class="da-res-row">
+            <span class="da-res-type">${r.resource_type}</span>${mid}
+            <button class="da-icon-btn is-danger" title="Remove" onclick="removeResource(${i})"><i class="fas fa-times"></i></button>
+        </div>`;
+    }).join('');
+}
+function addResource(type) {
+    _resList.push({ resource_type: type, label: '', url: '', guide_id: null, quiz_id: null });
+    renderResources();
+}
+function removeResource(i) { _resList.splice(i, 1); renderResources(); }
+async function saveResources() {
+    const clean = _resList.filter(r =>
+        (r.resource_type === 'link' && (r.url || '').trim()) ||
+        (r.resource_type === 'guide' && r.guide_id) ||
+        (r.resource_type === 'quiz' && r.quiz_id));
+    const btn = document.getElementById('resSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/ksa/${_resKsaId}/resources`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resources: clean }) });
+        const d = await r.json();
+        if (d.success) closeResModal(); else _err('resError', d.error || 'Failed to save');
+    } catch (e) { _err('resError', 'Request failed'); } finally { btn.disabled = false; }
+}
+
+// ── KSA share modal ──
+let _shareKsaId = null;
+async function openShareModal(kid, name) {
+    _shareKsaId = kid;
+    document.getElementById('shareTitle').textContent = 'Share — ' + name;
+    _err('shareError', '');
+    document.getElementById('shareList').innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('shareOverlay').style.display = 'flex';
+    try {
+        const d = await (await fetch(`/admin/ksa/${kid}/shares`)).json();
+        renderShares(d.divisions || []);
+    } catch (e) { document.getElementById('shareList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
+}
+function closeShareModal() { document.getElementById('shareOverlay').style.display = 'none'; }
+function renderShares(divisions) {
+    const box = document.getElementById('shareList');
+    if (!divisions.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">There are no other divisions to share with.</p>'; return; }
+    box.innerHTML = divisions.map(dv => `
+        <div class="da-share-row">
+            <label><input type="checkbox" data-did="${dv.id}"${dv.shared ? ' checked' : ''}> ${_escH(dv.name)}</label>
+        </div>`).join('');
+}
+async function saveShares() {
+    const ids = Array.from(document.querySelectorAll('#shareList input[type="checkbox"]:checked'))
+        .map(cb => Number(cb.dataset.did));
+    const btn = document.getElementById('shareSubmit'); btn.disabled = true;
+    try {
+        const r = await fetch(`/admin/ksa/${_shareKsaId}/shares`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ division_ids: ids }) });
+        const d = await r.json();
+        if (d.success) location.reload(); else { _err('shareError', d.error || 'Failed to save'); btn.disabled = false; }
+    } catch (e) { _err('shareError', 'Request failed'); btn.disabled = false; }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('levelLabels')) { renderLevelLabels(); renderKsaTypes(); }
+});
+</script>
+{% endblock %}

@@ -20,6 +20,8 @@
 .mb-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .mb-badge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 5px; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.02em; }
 .mb-badge-staff { background: rgba(123,47,247,0.15); color: #c79aff; border: 1px solid rgba(123,47,247,0.4); }
+.mb-badge-div { border-radius: 99px; gap: 4px; }
+.mb-divrole-chip { padding: 0 6px; border-radius: 99px; font-size: 0.6rem; font-weight: 700; }
 .mb-roles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; }
 .mb-role-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 99px; font-size: 0.82rem; font-weight: 600; text-decoration: none; color: inherit; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.04); transition: border-color 0.15s, background 0.15s; }
 .mb-role-chip:hover { border-color: rgba(255,255,255,0.32); }
@@ -28,6 +30,16 @@
 .mb-role-chip.is-archived.is-active { opacity: 1; }
 .mb-role-chip .fa-archive { font-size: 0.7rem; opacity: 0.6; }
 .mb-role-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.mb-skill-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 24px; padding: 12px 14px; border: 1px solid rgba(94,238,248,0.18); border-radius: 12px; background: rgba(94,238,248,0.05); }
+.mb-skill-label { font-size: 0.82rem; font-weight: 700; color: #aef7e8; display: inline-flex; align-items: center; gap: 7px; }
+.mb-skill-select, .mb-skill-level { padding: 9px 12px; border-radius: 9px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); color: inherit; font-size: 0.88rem; outline: none; }
+.mb-skill-select { flex: 1; min-width: 180px; }
+.mb-skill-select:focus, .mb-skill-level:focus { border-color: rgba(94,238,248,0.5); }
+.mb-skill-filter button { padding: 9px 16px; border-radius: 9px; border: none; cursor: pointer; font-weight: 700; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.mb-skill-clear { font-size: 0.82rem; color: rgba(255,255,255,0.5); text-decoration: none; }
+.mb-skill-clear:hover { color: rgba(255,255,255,0.85); }
+.mb-skill-have { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0 2px; font-size: 0.78rem; font-weight: 600; color: #aef7e8; }
+.mb-skill-have .mb-skill-lvl { opacity: 0.6; font-weight: 500; }
 .mb-empty { opacity: 0.45; text-align: center; padding: 70px 20px; }
 .mb-pager { display: flex; justify-content: center; gap: 10px; margin-top: 30px; }
 .mb-pager a { padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); text-decoration: none; color: inherit; font-size: 0.85rem; }
@@ -40,20 +52,65 @@
     <h1 class="mb-heading">Members</h1>
     <p class="mb-sub">Browse the people on this site.</p>
 
+    {# Active filters carried on every link; url_for drops the None ones. #}
+    {% set _aq = q or none %}
+    {% set _ar = active_role.id if active_role else none %}
+    {% set _ad = active_division.id if active_division else none %}
+    {% set _ak = active_skill.id if active_skill else none %}
+    {% set _alvl = skill_level if (active_skill and skill_level and skill_level > 1) else none %}
+
     <form class="mb-search" method="GET" action="{{ members_base }}">
         <input type="text" name="q" value="{{ q }}" placeholder="Search members by name…" autocomplete="off">
         {% if active_role %}<input type="hidden" name="role" value="{{ active_role.id }}">{% endif %}
+        {% if active_division %}<input type="hidden" name="division" value="{{ active_division.id }}">{% endif %}
+        {% if active_skill %}<input type="hidden" name="ksa" value="{{ active_skill.id }}"><input type="hidden" name="level" value="{{ skill_level }}">{% endif %}
         <button type="submit">Search</button>
     </form>
 
-    {% if roles %}
-    {% set _qs = ('&q=' + (q | urlencode)) if q else '' %}
+    {% if skill_groups %}
+    <form class="mb-skill-filter" method="GET" action="{{ members_base }}">
+        {% if active_role %}<input type="hidden" name="role" value="{{ active_role.id }}">{% endif %}
+        {% if active_division %}<input type="hidden" name="division" value="{{ active_division.id }}">{% endif %}
+        {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+        <label class="mb-skill-label"><i class="fas fa-graduation-cap"></i> Find by skill</label>
+        <select name="ksa" class="mb-skill-select">
+            <option value="">Any skill</option>
+            {% for grp in skill_groups %}
+            <optgroup label="{{ grp.division }}">
+                {% for k in grp.ksas %}
+                <option value="{{ k.id }}"{% if active_skill and active_skill.id == k.id %} selected{% endif %}>{{ k.name }}</option>
+                {% endfor %}
+            </optgroup>
+            {% endfor %}
+        </select>
+        <select name="level" class="mb-skill-level" title="Minimum level">
+            {% for lbl in level_labels %}{% if loop.index0 >= 1 %}
+            <option value="{{ loop.index0 }}"{% if skill_level == loop.index0 %} selected{% endif %}>{{ lbl }} or higher</option>
+            {% endif %}{% endfor %}
+        </select>
+        <button type="submit">Filter</button>
+        {% if active_skill %}<a class="mb-skill-clear" href="{{ members_filter_url(q=_aq, role=_ar, division=_ad) }}">Clear</a>{% endif %}
+    </form>
+    {% endif %}
+
+    {% if divisions %}
     <div class="mb-roles">
-        <a class="mb-role-chip {% if not active_role %}is-active{% endif %}"
-           href="{{ members_base }}{% if q %}?q={{ q | urlencode }}{% endif %}">All</a>
+        <a class="mb-role-chip {% if not active_division %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, role=_ar, ksa=_ak, level=_alvl) }}">All {{ dlabel(website, plural=True)|lower }}</a>
+        {% for dv in divisions %}
+        <a class="mb-role-chip {% if active_division and active_division.id == dv.id %}is-active{% endif %}"
+           href="{{ members_filter_url(q=_aq, role=_ar, division=dv.id, ksa=_ak, level=_alvl) }}">
+            {% if dv.color %}<span class="mb-role-dot" style="background:{{ dv.color }};"></span>{% endif %}{{ dv.name }}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if roles %}
+    <div class="mb-roles">
+        <a class="mb-role-chip {% if not active_role %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, division=_ad, ksa=_ak, level=_alvl) }}">All roles</a>
         {% for r in roles %}
         <a class="mb-role-chip {% if active_role and active_role.id == r.id %}is-active{% endif %}{% if r.exclude_from_directory %} is-archived{% endif %}"
-           href="{{ members_base }}?role={{ r.id }}{{ _qs }}">
+           href="{{ members_filter_url(q=_aq, division=_ad, role=r.id, ksa=_ak, level=_alvl) }}">
             <span class="mb-role-dot" style="background:{{ r.color }};"></span>{{ r.name }}
             {% if r.exclude_from_directory %}<i class="fas fa-archive" title="Not shown in the default list"></i>{% endif %}
         </a>
@@ -64,7 +121,9 @@
     {% if not members %}
     <div class="mb-empty">
         <p>
-            {% if q and active_role %}No “{{ active_role.name }}” members match “{{ q }}”.
+            {% if active_skill %}No members{% if active_role %} with the “{{ active_role.name }}” role{% endif %}{% if active_division %} in {{ active_division.name }}{% endif %} have “{{ active_skill.name }}”{% if skill_level > 1 %} at {{ level_labels[skill_level] }} or higher{% endif %}{% if q %} matching “{{ q }}”{% endif %}.
+            {% elif active_division %}No members{% if active_role %} with the “{{ active_role.name }}” role{% endif %}{% if q %} matching “{{ q }}”{% endif %} in {{ active_division.name }}.
+            {% elif q and active_role %}No “{{ active_role.name }}” members match “{{ q }}”.
             {% elif active_role %}No members have the “{{ active_role.name }}” role yet.
             {% elif q %}No members match “{{ q }}”.
             {% else %}No members to show yet.{% endif %}
@@ -77,10 +136,15 @@
             <div class="mb-avatar">{{ (m.effective_display_name or '?')[0]|upper }}</div>
             <div class="mb-card-body">
                 <div class="mb-name">{{ m.effective_display_name }}</div>
-                {% if m.staff_badge_label or m.roles %}
+                {% if active_skill %}{% set _lvl = member_skill_levels.get(m.id) %}{% if _lvl %}
+                <div class="mb-skill-have"><i class="fas fa-graduation-cap"></i> {{ active_skill.name }} · {{ level_labels[_lvl] if _lvl < level_labels|length else 'Level ' ~ _lvl }} <span class="mb-skill-lvl">({{ _lvl }}/{{ active_skill.max_level }})</span></div>
+                {% endif %}{% endif %}
+                {% set _mdivs = member_divisions.get(m.id, []) %}
+                {% if m.staff_badge_label or m.roles or _mdivs %}
                 <div class="mb-badges">
                     {% if m.staff_badge_label %}<span class="mb-badge mb-badge-staff">{{ m.staff_badge_label }}</span>{% endif %}
-                    {% for role in m.roles %}<span class="mb-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+                    {% for role in m.roles if not role.division_id %}<span class="mb-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+                    {% for dv in _mdivs %}<span class="mb-badge mb-badge-div" style="background:{{ dv.color }}1a;color:{{ dv.color }};border:1px solid {{ dv.color }}55;{% if dv.status == 'alumni' %}opacity:0.6;{% endif %}" title="{{ dlabel(website) }}{% if dv.status == 'alumni' %} · alumni{% endif %}">{% if dv.icon %}<i class="fas {{ dv.icon }}" style="margin-right:3px;"></i>{% endif %}{{ dv.name }}{% for r in dv.roles %}<span class="mb-divrole-chip" style="background:{{ r.color }}26;color:{{ r.color }};">{{ r.name }}</span>{% endfor %}</span>{% endfor %}
                 </div>
                 {% endif %}
             </div>
@@ -89,11 +153,9 @@
     </div>
 
     {% if pagination and (pagination.has_prev or pagination.has_next) %}
-    {% set _pq = ('&q=' + (q | urlencode)) if q else '' %}
-    {% set _pr = ('&role=' + active_role.id|string) if active_role else '' %}
     <div class="mb-pager">
-        {% if pagination.has_prev %}<a href="{{ members_base }}?page={{ pagination.prev_num }}{{ _pq }}{{ _pr }}">← Previous</a>{% endif %}
-        {% if pagination.has_next %}<a href="{{ members_base }}?page={{ pagination.next_num }}{{ _pq }}{{ _pr }}">Next →</a>{% endif %}
+        {% if pagination.has_prev %}<a href="{{ members_filter_url(page=pagination.prev_num, q=_aq, role=_ar, division=_ad, ksa=_ak, level=_alvl) }}">← Previous</a>{% endif %}
+        {% if pagination.has_next %}<a href="{{ members_filter_url(page=pagination.next_num, q=_aq, role=_ar, division=_ad, ksa=_ak, level=_alvl) }}">Next →</a>{% endif %}
     </div>
     {% endif %}
     {% endif %}

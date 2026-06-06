@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.mx-page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 70px; }
+.mx-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.mx-back:hover { color: rgba(255,255,255,0.85); }
+.mx-title { font-size: 1.6rem; font-weight: 800; color: #fff; margin: 8px 0 4px; display: inline-flex; align-items: center; gap: 10px; }
+.mx-sub { font-size: 0.85rem; color: rgba(255,255,255,0.45); margin: 0 0 18px; }
+.mx-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 16px; }
+.mx-bar select { padding: 8px 11px; border-radius: 8px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.85rem; }
+.mx-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.76rem; color: rgba(255,255,255,0.55); margin-left: auto; }
+.mx-legend b { color: #aef7e8; }
+.mx-scroll { overflow-x: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; }
+.mx-table { border-collapse: collapse; width: 100%; }
+.mx-table th, .mx-table td { border-bottom: 1px solid rgba(255,255,255,0.07); border-right: 1px solid rgba(255,255,255,0.05); text-align: center; }
+.mx-table thead th { position: sticky; top: 0; background: #181820; z-index: 2; padding: 10px 8px; font-size: 0.74rem; font-weight: 700; color: rgba(255,255,255,0.7); vertical-align: bottom; }
+.mx-corner { position: sticky; left: 0; z-index: 3 !important; text-align: left !important; min-width: 180px; }
+.mx-ktype { display: block; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #5eeef8; opacity: 0.8; margin-bottom: 2px; }
+.mx-member { position: sticky; left: 0; background: #14141b; z-index: 1; text-align: left !important; padding: 9px 12px; min-width: 180px; }
+.mx-member-name { font-weight: 600; font-size: 0.88rem; }
+.mx-roles { font-size: 0.72rem; color: rgba(255,255,255,0.4); margin-top: 2px; }
+.mx-alumni { display: inline-block; font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 4px; background: rgba(255,200,80,0.15); color: #ffce6b; margin-left: 6px; }
+.mx-cell { padding: 6px 8px; min-width: 78px; }
+.mx-cell.is-met { background: rgba(94,238,200,0.1); }
+.mx-cell.is-gap { background: rgba(255,120,90,0.12); }
+.mx-cell select { width: 56px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff; font-size: 0.82rem; }
+.mx-cell select:disabled { opacity: 0.6; }
+.mx-level { font-size: 0.9rem; font-weight: 700; }
+.mx-req { font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-left: 3px; }
+.mx-empty { color: rgba(255,255,255,0.4); text-align: center; padding: 50px 20px; }
+.mx-shared { font-size: 0.62rem; color: #c79bf0; opacity: 0.85; margin-left: 3px; }
+</style>
+
+<div class="mx-page">
+    <a class="mx-back" href="{{ url_for('admin_divisions_page') }}"><i class="fas fa-arrow-left"></i> {{ dlabel(website, plural=True) }}</a>
+    <h1 class="mx-title">
+        {% if division.icon %}<i class="fas {{ division.icon }}" style="{% if division.color %}color:{{ division.color }};{% endif %}"></i>{% endif %}
+        {{ division.name }} — Matrix
+    </h1>
+    <p class="mx-sub">Each cell is a member's level for a KSA. Cells turn <span style="color:#5eeec8;">green</span> when the member meets their roles' required level and <span style="color:#ff8a6b;">red</span> when there's a gap.</p>
+
+    {% if not ksas %}
+    <div class="mx-empty"><p>This {{ dlabel(website)|lower }} has no KSAs yet. Add some in the catalog first.</p></div>
+    {% else %}
+    <div class="mx-bar">
+        <form method="GET" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <select name="role" onchange="this.form.submit()">
+                <option value="">All roles</option>
+                {% for r in div_roles %}
+                <option value="{{ r.id }}"{% if role_filter == r.id %} selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
+            <select name="status" onchange="this.form.submit()">
+                <option value="all"{% if status_filter == 'all' %} selected{% endif %}>All members</option>
+                <option value="active"{% if status_filter == 'active' %} selected{% endif %}>Active only</option>
+                <option value="alumni"{% if status_filter == 'alumni' %} selected{% endif %}>Alumni only</option>
+            </select>
+        </form>
+        <div class="mx-legend">
+            <span>Levels:</span>
+            {% for lbl in level_labels %}<span><b>{{ loop.index0 }}</b> {{ lbl }}</span>{% endfor %}
+        </div>
+    </div>
+
+    {% if not rows %}
+    <div class="mx-empty"><p>No members{% if member_total %} match this filter{% else %} in this {{ dlabel(website)|lower }} yet. Add some from its “Members” panel{% endif %}.</p></div>
+    {% else %}
+    <div class="mx-scroll">
+        <table class="mx-table">
+            <thead>
+                <tr>
+                    <th class="mx-corner">Member</th>
+                    {% for k in ksas %}
+                    <th class="mx-kh" title="{{ k.description or '' }}{% if k.id in shared_ksa_ids %} (shared){% endif %}"><span class="mx-ktype">{{ k.ksa_type }}</span>{{ k.name }}{% if k.id in shared_ksa_ids %} <i class="fas fa-share-alt mx-shared" title="Shared from another division"></i>{% endif %}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="mx-member">
+                        <div class="mx-member-name">{{ row.user.effective_display_name }}{% if row.status == 'alumni' %}<span class="mx-alumni">Alumni</span>{% endif %}</div>
+                        {% if row.role_names %}<div class="mx-roles">{{ row.role_names|join(', ') }}</div>{% endif %}
+                    </td>
+                    {% for c in row.cells %}
+                    <td class="mx-cell {% if c.has_req %}{{ 'is-met' if c.met else 'is-gap' }}{% endif %}"
+                        id="cell-{{ row.user.id }}-{{ c.ksa.id }}" data-required="{{ c.required }}">
+                        {% if can_manage %}
+                        <select onchange="setLevel({{ c.ksa.id }}, {{ row.user.id }}, this)">
+                            <option value="0"{% if c.level == 0 %} selected{% endif %}>—</option>
+                            {% for lv in range(1, c.ksa.max_level + 1) %}
+                            <option value="{{ lv }}"{% if c.level == lv %} selected{% endif %}>{{ lv }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <span class="mx-level">{{ c.level if c.level else '—' }}</span>
+                        {% endif %}
+                        {% if c.has_req %}<span class="mx-req">/ {{ c.required }}</span>{% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+
+<script>
+async function setLevel(kid, uid, sel) {
+    const td = document.getElementById('cell-' + uid + '-' + kid);
+    const level = parseInt(sel.value);
+    sel.disabled = true;
+    try {
+        const r = await fetch(`/admin/ksa/${kid}/user/${uid}/level`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level }) });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Failed to save'); return; }
+        const req = parseInt(td.dataset.required) || 0;
+        td.classList.remove('is-met', 'is-gap');
+        if (req > 0) td.classList.add(level >= req ? 'is-met' : 'is-gap');
+    } catch (e) { alert('Request failed'); } finally { sel.disabled = false; }
+}
+</script>
+{% endblock %}
