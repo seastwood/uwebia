@@ -23,6 +23,9 @@
 .mp-role-group { border: 1px solid; border-radius: 12px; padding: 14px 16px; margin-top: 16px; background: rgba(255,255,255,0.02); }
 .mp-role-group-head { display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; text-decoration: none; margin-bottom: 12px; }
 .mp-role-group-head:hover { text-decoration: underline; }
+.mp-role-list { display: flex; flex-direction: column; gap: 10px; }
+.mp-role-entry .mp-role-chip { display: inline-block; }
+.mp-role-desc { margin: 6px 0 0; font-size: 0.84rem; line-height: 1.5; color: rgba(255,255,255,0.62); white-space: pre-wrap; }
 .mp-self-note { font-size: 0.78rem; opacity: 0.5; margin: 14px 0 0; }
 .mp-tabs {
     display: flex; gap: 4px; margin: 26px 0 0;
@@ -265,9 +268,14 @@
         {% else %}
         {% if target.staff_badge_label or site_roles %}
         <p class="mp-role-section-label">{% if division_role_groups %}Site-wide{% else %}Roles{% endif %}</p>
-        <div class="mp-roles-grid">
-            {% if target.staff_badge_label %}<span class="mp-role-chip mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
-            {% for role in site_roles %}<span class="mp-role-chip" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
+        <div class="mp-role-list">
+            {% if target.staff_badge_label %}<div class="mp-role-entry"><span class="mp-role-chip mp-badge-staff">{{ target.staff_badge_label }}</span></div>{% endif %}
+            {% for role in site_roles %}
+            <div class="mp-role-entry">
+                <span class="mp-role-chip" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>
+                {% if role.description %}<p class="mp-role-desc">{{ role.description }}</p>{% endif %}
+            </div>
+            {% endfor %}
         </div>
         {% endif %}
         {% for grp in division_role_groups %}
@@ -275,8 +283,13 @@
             <a class="mp-role-group-head" href="{{ division_member_url(grp.division.id) }}" style="color:{{ grp.division.color or '#aef7e8' }};">
                 {% if grp.division.icon %}<i class="fas {{ grp.division.icon }}"></i>{% endif %}{{ grp.division.name }}
             </a>
-            <div class="mp-roles-grid">
-                {% for r in grp.roles %}<span class="mp-role-chip" style="background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44;">{{ r.name }}</span>{% endfor %}
+            <div class="mp-role-list">
+                {% for r in grp.roles %}
+                <div class="mp-role-entry">
+                    <span class="mp-role-chip" style="background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44;">{{ r.name }}</span>
+                    {% if r.description %}<p class="mp-role-desc">{{ r.description }}</p>{% endif %}
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endfor %}
