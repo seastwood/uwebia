@@ -1917,6 +1917,9 @@ class ContactMessage(db.Model):
     is_read = db.Column(db.Boolean, nullable=False, default=False)
     read_at = db.Column(db.DateTime, nullable=True)
 
+    replied = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    replied_at = db.Column(db.DateTime, nullable=True)
+
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     sent_at = db.Column(db.DateTime, nullable=True)
 
@@ -8927,6 +8930,7 @@ def set_default_email_server(server_id):
 def messages_page():
     status_filter = request.args.get('status', 'all')
     read_filter = request.args.get('read', 'all')
+    replied_filter = request.args.get('replied', 'all')
     search = request.args.get('q', '').strip()
 
     query = ContactMessage.query.order_by(ContactMessage.created_at.desc())
@@ -8938,6 +8942,11 @@ def messages_page():
         query = query.filter(ContactMessage.is_read == False)
     elif read_filter == 'read':
         query = query.filter(ContactMessage.is_read == True)
+
+    if replied_filter == 'replied':
+        query = query.filter(ContactMessage.replied == True)
+    elif replied_filter == 'unreplied':
+        query = query.filter(ContactMessage.replied == False)
 
     if search:
         like = f"%{search}%"
@@ -8959,6 +8968,7 @@ def messages_page():
         unread_count=unread_count,
         status_filter=status_filter,
         read_filter=read_filter,
+        replied_filter=replied_filter,
         search=search
     )
 
@@ -8983,6 +8993,31 @@ def mark_message_unread(message_id):
 
     msg.is_read = False
     msg.read_at = None
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+
+@app.route('/admin/dashboard/messages/<int:message_id>/replied', methods=['POST'])
+@login_required
+def mark_message_replied(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+
+    if not msg.replied:
+        msg.replied = True
+        msg.replied_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+
+@app.route('/admin/dashboard/messages/<int:message_id>/unreplied', methods=['POST'])
+@login_required
+def mark_message_unreplied(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+
+    msg.replied = False
+    msg.replied_at = None
     db.session.commit()
 
     return jsonify({'status': 'success'})
@@ -9019,6 +9054,7 @@ def messages_live():
                 'body_preview': (msg.body[:120] + '...') if len(msg.body) > 120 else msg.body,
                 'created_at': msg.created_at.strftime('%b %d, %Y %I:%M %p'),
                 'is_read': msg.is_read,
+                'replied': msg.replied,
                 'status': msg.status,
                 'error_message': msg.error_message,
                 'ip_address': msg.ip_address,
@@ -9038,6 +9074,68 @@ def delete_message(message_id):
     db.session.delete(msg)
     db.session.commit()
     return jsonify({'status': 'success'})
+
+
+@app.route('/admin/dashboard/messages/mark_all_read', methods=['POST'])
+@login_required
+@require_perm('messages.view')
+def mark_all_messages_read():
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    updated = ContactMessage.query.filter_by(is_read=False).update(
+        {ContactMessage.is_read: True, ContactMessage.read_at: now},
+        synchronize_session=False,
+    )
+    db.session.commit()
+    return jsonify({'status': 'success', 'updated': updated})
+
+
+@app.route('/admin/dashboard/messages/<int:message_id>/subscribe', methods=['POST'])
+@login_required
+@require_perm('newsletters.manage')
+def subscribe_message_sender(message_id):
+    msg = ContactMessage.query.get_or_404(message_id)
+    data = request.get_json(silent=True) or {}
+    newsletter_id = data.get('newsletter_id')
+
+    nl = _get_newsletter_for_admin(newsletter_id) if newsletter_id else None
+    if not nl:
+        return jsonify({'status': 'error', 'message': 'Newsletter not found.'}), 404
+
+    email = (msg.sender_email or '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'status': 'error', 'message': 'This message has no valid sender address.'}), 400
+
+    existing = nl.subscribers.filter_by(email=email).first()
+    if existing and existing.confirmed_at and not existing.unsubscribed_at:
+        return jsonify({'status': 'success', 'message': f'{email} is already subscribed to {nl.name}.'})
+
+    if existing:
+        sub = existing
+        sub.unsubscribed_at = None
+    else:
+        sub = NewsletterSubscriber(
+            newsletter_id=nl.id,
+            email=email,
+            unsubscribe_token=_newsletter_token(),
+            source='contact_form',
+        )
+        db.session.add(sub)
+
+    if nl.require_double_optin:
+        sub.confirmation_token = _newsletter_token()
+        sub.confirmed_at = None
+        db.session.commit()
+        sent = _send_newsletter_confirmation(nl, sub)
+        if sent:
+            return jsonify({'status': 'success',
+                            'message': f'Confirmation email sent to {email}. They must confirm to subscribe.'})
+        return jsonify({'status': 'success',
+                        'message': f'{email} added as pending, but the confirmation email could not be sent '
+                                   '(check your email server).'})
+    else:
+        sub.confirmed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': f'{email} subscribed to {nl.name}.'})
 
 
 @app.context_processor
@@ -26870,6 +26968,32 @@ def _run_startup_migrations_inner():
 # The before_request hook below uses it to gate all routes in maintenance mode.
 _DB_MAINTENANCE_MODE = False
 
+
+# Defined here (before the startup block below) because the import-time data
+# backfills call them; Python resolves names at call time, so these defs must
+# execute before that block runs.
+def _slugify_post(text: str) -> str:
+    """Lowercase, replace non-alphanumeric with hyphens, strip leading/trailing hyphens."""
+    import re as _re
+    text = text.lower().strip()
+    text = _re.sub(r'[^a-z0-9]+', '-', text)
+    return text.strip('-') or 'untitled'
+
+
+def _unique_campaign_slug(newsletter_id, base_slug, exclude_id=None):
+    """Return a slug unique within the given newsletter."""
+    slug = base_slug
+    counter = 2
+    while True:
+        q = NewsletterCampaign.query.filter_by(newsletter_id=newsletter_id, slug=slug)
+        if exclude_id:
+            q = q.filter(NewsletterCampaign.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f'{base_slug}-{counter}'
+        counter += 1
+
+
 # ── Startup initialisation ────────────────────────────────────────────────────
 # Runs in every process that imports this module (each gunicorn worker as well
 # as the master when --preload is used).  All operations must be idempotent.
@@ -30620,14 +30744,6 @@ def plugin_config(slug):
 
 
 # ── Posts ─────────────────────────────────────────────────────────────────────
-
-def _slugify_post(text: str) -> str:
-    """Lowercase, replace non-alphanumeric with hyphens, strip leading/trailing hyphens."""
-    import re as _re
-    text = text.lower().strip()
-    text = _re.sub(r'[^a-z0-9]+', '-', text)
-    return text.strip('-') or 'untitled'
-
 
 def _unique_collection_slug(user_id, base_slug, exclude_id=None):
     """Return a unique slug within the user's post collections."""
@@ -39467,20 +39583,6 @@ def _newsletter_token():
     return secrets.token_urlsafe(32)[:64]
 
 
-def _unique_campaign_slug(newsletter_id, base_slug, exclude_id=None):
-    """Return a slug unique within the given newsletter."""
-    slug = base_slug
-    counter = 2
-    while True:
-        q = NewsletterCampaign.query.filter_by(newsletter_id=newsletter_id, slug=slug)
-        if exclude_id:
-            q = q.filter(NewsletterCampaign.id != exclude_id)
-        if not q.first():
-            return slug
-        slug = f'{base_slug}-{counter}'
-        counter += 1
-
-
 def _ensure_campaign_slug(campaign):
     """Generate a slug for the campaign if it doesn't already have one."""
     if campaign.slug:
@@ -40014,6 +40116,43 @@ def admin_newsletters_list_json():
     } for nl in items]})
 
 
+def _send_newsletter_confirmation(nl, sub):
+    """Send the double opt-in confirmation email for a pending subscriber.
+
+    Shared by the public signup form and the admin "add sender to newsletter"
+    action on the messages page. Logs and swallows send errors so the caller's
+    response stays successful (the row is already persisted as pending)."""
+    server = (get_email_server_by_id(nl.email_server_id)
+              or get_default_email_server())
+    if not (server and server.is_active):
+        return False
+    confirm_url = _absolute_url('public_newsletter_confirm', token=sub.confirmation_token)
+    intro_html = nl.confirmation_intro or (
+        f'<p>Hi{(" " + escape(sub.name)) if sub.name else ""},</p>'
+        f'<p>Thanks for subscribing to <strong>{escape(nl.name)}</strong>! '
+        f'Please confirm your subscription by clicking the link below.</p>'
+    )
+    html = (
+        intro_html +
+        f'<p style="text-align:center;margin:24px 0;">'
+        f'<a href="{escape(confirm_url)}" '
+        f'style="display:inline-block;padding:11px 22px;background:#5eeef8;color:#111;'
+        f'border-radius:8px;text-decoration:none;font-weight:600;">'
+        f'Confirm subscription</a></p>'
+        f'<p style="font-size:13px;color:#666;">Or copy and paste this link into your browser:<br>'
+        f'<a href="{escape(confirm_url)}">{escape(confirm_url)}</a></p>'
+        f'<p style="font-size:12px;color:#888;margin-top:24px;">'
+        f"If you didn't request this, you can ignore this email."
+        f'</p>'
+    )
+    try:
+        send_via(server, sub.email, nl.confirmation_subject, html=html)
+        return True
+    except Exception as e:
+        app.logger.exception('Failed to send newsletter confirmation: %s', e)
+        return False
+
+
 # ── Public subscribe / confirm / unsubscribe ────────────────────────────────
 
 @app.route('/newsletter/<string:slug>/subscribe', methods=['POST'])
@@ -40053,33 +40192,7 @@ def public_newsletter_subscribe(slug):
         sub.confirmation_token = _newsletter_token()
         sub.confirmed_at = None
         db.session.commit()
-        # Send the confirmation email.
-        server = (get_email_server_by_id(nl.email_server_id)
-                  or get_default_email_server())
-        if server and server.is_active:
-            confirm_url = _absolute_url('public_newsletter_confirm', token=sub.confirmation_token)
-            intro_html = nl.confirmation_intro or (
-                f'<p>Hi{(" " + escape(sub.name)) if sub.name else ""},</p>'
-                f'<p>Thanks for subscribing to <strong>{escape(nl.name)}</strong>! '
-                f'Please confirm your subscription by clicking the link below.</p>'
-            )
-            html = (
-                intro_html +
-                f'<p style="text-align:center;margin:24px 0;">'
-                f'<a href="{escape(confirm_url)}" '
-                f'style="display:inline-block;padding:11px 22px;background:#5eeef8;color:#111;'
-                f'border-radius:8px;text-decoration:none;font-weight:600;">'
-                f'Confirm subscription</a></p>'
-                f'<p style="font-size:13px;color:#666;">Or copy and paste this link into your browser:<br>'
-                f'<a href="{escape(confirm_url)}">{escape(confirm_url)}</a></p>'
-                f'<p style="font-size:12px;color:#888;margin-top:24px;">'
-                f"If you didn't request this, you can ignore this email."
-                f'</p>'
-            )
-            try:
-                send_via(server, sub.email, nl.confirmation_subject, html=html)
-            except Exception as e:
-                app.logger.exception('Failed to send newsletter confirmation: %s', e)
+        _send_newsletter_confirmation(nl, sub)
         return _utf8_json({'success': True, 'message': nl.signup_success_message})
     else:
         sub.confirmed_at = datetime.now(timezone.utc).replace(tzinfo=None)
