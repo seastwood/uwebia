@@ -83,6 +83,22 @@
         font-size: 0.92rem;
     }
 
+    .btn-mark-all-read {
+        margin-top: 12px;
+        width: 100%;
+        padding: 10px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 10px;
+        background: #4b5563;
+        color: #fff;
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .btn-mark-all-read:hover {
+        background: #374151;
+    }
+
     .messages-list {
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         max-height: 360px;
@@ -179,12 +195,19 @@
         flex-wrap: wrap;
     }
 
-    .message-detail-actions button {
+    .message-detail-actions button,
+    .message-detail-actions .btn-reply-mail {
         padding: 9px 12px;
         border-radius: 10px;
         border: none;
         cursor: pointer;
+        font-family: inherit;
+        font-size: 0.85rem;
         font-weight: 600;
+        line-height: 1.1;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
     }
 
     .btn-mark {
@@ -195,6 +218,106 @@
     .btn-delete {
         background: #7a2e2e;
         color: #fff;
+    }
+
+    .btn-subscribe {
+        background: #2d4d7a;
+        color: #fff;
+    }
+
+    .btn-reply-mail {
+        background: #1f6f4a;
+        color: #fff;
+    }
+
+    /* Mark-replied toggle: outlined when not replied, solid green once replied */
+    .btn-replied {
+        background: transparent;
+        color: #16a34a;
+        box-shadow: inset 0 0 0 1.5px #16a34a;
+    }
+
+    .btn-replied.is-replied {
+        background: #16a34a;
+        color: #fff;
+        box-shadow: none;
+    }
+
+    /* Green checkmark on a message row that has been replied to */
+    .message-replied-check {
+        color: #16a34a;
+        font-weight: 900;
+        margin-right: 5px;
+    }
+
+    /* newsletter picker panel */
+    .message-action-panel {
+        margin-top: 16px;
+        background: #f8fafc;
+        color: #111827;
+        border-radius: 14px;
+        padding: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+    }
+
+    .message-action-panel label {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #475569;
+        margin-bottom: 4px;
+    }
+
+    .message-action-panel select {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        font: inherit;
+        color: #111827;
+        background: #fff;
+        margin-bottom: 12px;
+        box-sizing: border-box;
+    }
+
+    .message-subscribe-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .message-subscribe-row select {
+        flex: 1;
+        margin-bottom: 0;
+    }
+
+    .message-subscribe-row button {
+        padding: 9px 16px;
+        border-radius: 10px;
+        border: none;
+        cursor: pointer;
+        font-weight: 700;
+        background: #2d4d7a;
+        color: #fff;
+        white-space: nowrap;
+    }
+
+    .message-subscribe-row button:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
+
+    .panel-feedback {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #256b5d;
+    }
+
+    .panel-feedback.error {
+        color: #b91c1c;
     }
 
     .message-status {
@@ -381,19 +504,31 @@
                     <option value="read" {% if read_filter=='read' %}selected{% endif %}>Read</option>
                 </select>
 
+                <select name="replied">
+                    <option value="all" {% if replied_filter=='all' %}selected{% endif %}>Replied &amp; not</option>
+                    <option value="replied" {% if replied_filter=='replied' %}selected{% endif %}>Replied</option>
+                    <option value="unreplied" {% if replied_filter=='unreplied' %}selected{% endif %}>Not replied</option>
+                </select>
+
                 <button type="submit">Apply Filters</button>
             </form>
 
             <div class="messages-summary">
                 {{ messages|length }} message{{ '' if messages|length == 1 else 's' }}
             </div>
+
+            <button type="button" class="btn-mark-all-read" id="markAllReadBtn"
+                onclick="markAllRead()" {% if not unread_count %}style="display:none;"{% endif %}>
+                Mark all read
+            </button>
         </aside>
 
         <section class="messages-main">
             <div class="messages-list" id="messagesList">
                 {% for msg in messages %}
                 <div class="message-row {% if not msg.is_read %}unread{% endif %}" data-message-id="{{ msg.id }}"
-                    data-is-read="{{ 'true' if msg.is_read else 'false' }}" data-sender="{{ msg.sender_email }}"
+                    data-is-read="{{ 'true' if msg.is_read else 'false' }}"
+                    data-replied="{{ 'true' if msg.replied else 'false' }}" data-sender="{{ msg.sender_email }}"
                     data-recipient="{{ msg.recipient_email or '' }}" data-subject="{{ msg.subject }}"
                     data-body="{{ msg.body | e }}" data-status="{{ msg.status }}"
                     data-error="{{ msg.error_message or '' }}"
@@ -406,6 +541,7 @@
                             {{ msg.sender_email }}
                         </div>
                         <div class="message-row-date">
+                            <span class="message-replied-check" {% if not msg.replied %}style="display:none;"{% endif %} title="Replied">✓</span>
                             {{ msg.created_at.strftime('%b %d, %Y %I:%M %p') }}
                         </div>
                     </div>
@@ -429,6 +565,8 @@
 </div>
 
 <script>
+    const CAN_SUBSCRIBE = {{ 'true' if current_user.has_permission('newsletters.manage') else 'false' }};
+
     let activeMessageId = null;
     const messageRows = document.querySelectorAll('.message-row');
     const messageDetail = document.getElementById('messageDetail');
@@ -449,6 +587,8 @@ function renderMessageDetail(row) {
 
     const id = row.dataset.messageId;
     const isRead = row.dataset.isRead === 'true';
+    const isReplied = row.dataset.replied === 'true';
+    messageDetail.dataset.renderedId = String(id);
 
     const data = {
         sender: row.dataset.sender || '',
@@ -477,6 +617,13 @@ function renderMessageDetail(row) {
             </div>
 
             <div class="message-detail-actions">
+                <a class="btn-reply-mail" id="replyMailtoLink" target="_blank" rel="noopener">Reply</a>
+                ${
+                    isReplied
+                    ? `<button class="btn-replied is-replied" onclick="markUnreplied(${id})">✓ Replied</button>`
+                    : `<button class="btn-replied" onclick="markReplied(${id})">Mark Replied</button>`
+                }
+                ${CAN_SUBSCRIBE ? `<button class="btn-subscribe" id="subscribeToggleBtn">Add to newsletter</button>` : ''}
                 ${
                     isRead
                     ? `<button class="btn-mark" onclick="markUnread(${id})">Mark Unread</button>`
@@ -488,15 +635,15 @@ function renderMessageDetail(row) {
 
         <div class="message-email-card">
             <div class="message-email-toolbar">
-                <button type="button" onclick="copyTextToClipboard(${JSON.stringify(data.sender)})">
+                <button type="button" class="message-copy-btn" data-copy="email">
                     Copy Email
                 </button>
 
-                <button type="button" onclick="copyTextToClipboard(${JSON.stringify(data.body)})">
+                <button type="button" class="message-copy-btn" data-copy="body">
                     Copy Message
                 </button>
 
-                <button type="button" onclick="copyTextToClipboard(${JSON.stringify(fullEmailText)})">
+                <button type="button" class="message-copy-btn" data-copy="all">
                     Copy All
                 </button>
 
@@ -527,22 +674,137 @@ function renderMessageDetail(row) {
             </div>
         </div>
 
+        ${CAN_SUBSCRIBE ? `
+        <div class="message-action-panel" id="subscribePanel" style="display:none;">
+            <label for="subscribeSelect">Choose which newsletter to add ${escapeHtml(data.sender)} to</label>
+            <div class="message-subscribe-row">
+                <select id="subscribeSelect"><option value="">Loading newsletters…</option></select>
+                <button type="button" id="doSubscribeBtn">Add</button>
+            </div>
+            <span class="panel-feedback" id="subscribeFeedback"></span>
+        </div>` : ''}
+
         ${data.error ? `<div class="message-error"><strong>Error:</strong> ${escapeHtml(data.error)}</div>` : ''}
     `;
+
+    const copyValues = {
+        email: data.sender,
+        body: data.body,
+        all: fullEmailText
+    };
+    messageDetail.querySelectorAll('.message-copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            copyTextToClipboard(copyValues[btn.dataset.copy] || '');
+        });
+    });
+
+    wireMessageActions(id, data);
 }
+
+let cachedNewsletters = null;
+
+function wireMessageActions(id, data) {
+    // ---- Reply: open the admin's mail client (the conversation then lives in
+    // their inbox, where the customer's response naturally threads back) ----
+    const mailtoLink = document.getElementById('replyMailtoLink');
+    if (mailtoLink) {
+        const subject = data.subject ? `Re: ${data.subject}` : 'Re: your message';
+        const quoted = (data.body || '').split('\n').map(l => `> ${l}`).join('\n');
+        const bodyText = `\n\n---\nOn ${data.created}, ${data.sender} wrote:\n${quoted}`;
+        mailtoLink.href = `mailto:${encodeURIComponent(data.sender)}`
+            + `?subject=${encodeURIComponent(subject)}`
+            + `&body=${encodeURIComponent(bodyText)}`;
+    }
+
+    // ---- Add sender to a newsletter ----
+    const subscribeToggle = document.getElementById('subscribeToggleBtn');
+    const subscribePanel = document.getElementById('subscribePanel');
+    if (subscribeToggle && subscribePanel) {
+        const select = document.getElementById('subscribeSelect');
+        const doBtn = document.getElementById('doSubscribeBtn');
+        const feedback = document.getElementById('subscribeFeedback');
+
+        const populate = (list) => {
+            if (!list.length) {
+                select.innerHTML = '<option value="">No newsletters yet</option>';
+                doBtn.disabled = true;
+                return;
+            }
+            select.innerHTML = list.map(n =>
+                `<option value="${n.id}">${escapeHtml(n.name)} (${n.subscriber_count} subscribers)</option>`
+            ).join('');
+            doBtn.disabled = false;
+        };
+
+        subscribeToggle.addEventListener('click', async () => {
+            const showing = subscribePanel.style.display !== 'none';
+            subscribePanel.style.display = showing ? 'none' : 'block';
+            if (showing) return;
+            if (cachedNewsletters) {
+                populate(cachedNewsletters);
+            } else {
+                try {
+                    const res = await fetch('/admin/newsletters-list');
+                    const result = await res.json();
+                    cachedNewsletters = result.newsletters || [];
+                    populate(cachedNewsletters);
+                } catch (e) {
+                    select.innerHTML = '<option value="">Could not load newsletters</option>';
+                    doBtn.disabled = true;
+                }
+            }
+        });
+
+        doBtn.addEventListener('click', async () => {
+            const newsletterId = select.value;
+            if (!newsletterId) return;
+            doBtn.disabled = true;
+            feedback.classList.remove('error');
+            feedback.textContent = 'Adding…';
+            try {
+                const res = await fetch(`/admin/dashboard/messages/${id}/subscribe`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newsletter_id: parseInt(newsletterId, 10) })
+                });
+                const result = await res.json();
+                if (res.ok && result.status === 'success') {
+                    feedback.classList.remove('error');
+                    feedback.textContent = result.message || 'Added.';
+                    cachedNewsletters = null; // refresh counts next time
+                } else {
+                    feedback.classList.add('error');
+                    feedback.textContent = result.message || 'Could not add subscriber.';
+                }
+            } catch (e) {
+                feedback.classList.add('error');
+                feedback.textContent = 'Network error.';
+            } finally {
+                doBtn.disabled = false;
+            }
+        });
+    }
+}
+
+    function adjustUnreadBadge(delta) {
+        const badge = document.getElementById('unreadMessagesBadge');
+        if (!badge) return;
+        const current = parseInt(badge.textContent || '0', 10) || 0;
+        updateUnreadMessagesBadge(Math.max(0, current + delta));
+    }
 
     async function markRead(messageId) {
         const response = await fetch(`/admin/dashboard/messages/${messageId}/read`, { method: 'POST' });
         if (response.ok) {
             const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
             if (row) {
+                if (row.dataset.isRead !== 'true') adjustUnreadBadge(-1);
                 row.dataset.isRead = 'true';
                 row.classList.remove('unread');
                 const emailBlock = row.querySelector('.message-row-email');
                 const dot = emailBlock.querySelector('.message-unread-dot');
                 if (dot) dot.remove();
                 renderMessageDetail(row);
-                location.reload();
             }
         }
     }
@@ -552,6 +814,7 @@ function renderMessageDetail(row) {
         if (response.ok) {
             const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
             if (row) {
+                if (row.dataset.isRead !== 'false') adjustUnreadBadge(1);
                 row.dataset.isRead = 'false';
                 row.classList.add('unread');
                 const emailBlock = row.querySelector('.message-row-email');
@@ -559,8 +822,48 @@ function renderMessageDetail(row) {
                     emailBlock.insertAdjacentHTML('afterbegin', '<span class="message-unread-dot"></span>');
                 }
                 renderMessageDetail(row);
-                location.reload();
             }
+        }
+    }
+
+    function setRowReplied(row, replied) {
+        row.dataset.replied = replied ? 'true' : 'false';
+        const check = row.querySelector('.message-replied-check');
+        if (check) check.style.display = replied ? '' : 'none';
+    }
+
+    async function markReplied(messageId) {
+        const response = await fetch(`/admin/dashboard/messages/${messageId}/replied`, { method: 'POST' });
+        if (response.ok) {
+            const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
+            if (row) {
+                setRowReplied(row, true);
+                renderMessageDetail(row);
+            }
+        }
+    }
+
+    async function markUnreplied(messageId) {
+        const response = await fetch(`/admin/dashboard/messages/${messageId}/unreplied`, { method: 'POST' });
+        if (response.ok) {
+            const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
+            if (row) {
+                setRowReplied(row, false);
+                renderMessageDetail(row);
+            }
+        }
+    }
+
+    async function markAllRead() {
+        const response = await fetch('/admin/dashboard/messages/mark_all_read', { method: 'POST' });
+        if (response.ok) {
+            document.querySelectorAll('.message-row').forEach(row => {
+                row.dataset.isRead = 'true';
+                row.classList.remove('unread');
+                const dot = row.querySelector('.message-unread-dot');
+                if (dot) dot.remove();
+            });
+            updateUnreadMessagesBadge(0);
         }
     }
 
@@ -568,9 +871,18 @@ function renderMessageDetail(row) {
         const confirmed = confirm('Delete this message?');
         if (!confirmed) return;
 
-        const response = await fetch(`/dashboard/messages/${messageId}/delete`, { method: 'POST' });
+        const response = await fetch(`/admin/dashboard/messages/${messageId}/delete`, { method: 'POST' });
         if (response.ok) {
-            location.reload();
+            const row = document.querySelector(`.message-row[data-message-id="${messageId}"]`);
+            if (row) {
+                if (row.dataset.isRead !== 'true') adjustUnreadBadge(-1);
+                row.remove();
+            }
+            if (String(messageId) === String(activeMessageId)) {
+                activeMessageId = null;
+                messageDetail.classList.add('empty');
+                messageDetail.textContent = 'Message deleted. Select another message.';
+            }
         }
     }
 
@@ -590,6 +902,9 @@ function renderMessageDetail(row) {
     });
 
     function updateUnreadMessagesBadge(count) {
+        const markAllBtn = document.getElementById('markAllReadBtn');
+        if (markAllBtn) markAllBtn.style.display = count > 0 ? '' : 'none';
+
         const badge = document.getElementById('unreadMessagesBadge');
         if (!badge) return;
 
@@ -617,6 +932,7 @@ function renderMessagesList(messages) {
         row.className = `message-row ${msg.is_read ? '' : 'unread'} ${String(msg.id) === String(activeMessageId) ? 'active' : ''}`;
         row.dataset.messageId = msg.id;
         row.dataset.isRead = msg.is_read ? 'true' : 'false';
+        row.dataset.replied = msg.replied ? 'true' : 'false';
         row.dataset.sender = msg.sender_email;
         row.dataset.recipient = msg.recipient_email || '';
         row.dataset.subject = msg.subject;
@@ -634,7 +950,10 @@ function renderMessagesList(messages) {
                     ${msg.is_read ? '' : '<span class="message-unread-dot"></span>'}
                     ${msg.sender_email}
                 </div>
-                <div class="message-row-date">${msg.created_at}</div>
+                <div class="message-row-date">
+                    <span class="message-replied-check" ${msg.replied ? '' : 'style="display:none;"'} title="Replied">✓</span>
+                    ${msg.created_at}
+                </div>
             </div>
             <div class="message-row-subject">${msg.subject}</div>
             <div class="message-row-preview">${msg.body_preview}</div>
@@ -671,7 +990,11 @@ row.addEventListener('click', async function () {
 
         list.appendChild(row);
 
-        if (String(msg.id) === String(activeMessageId)) {
+        // Render the detail pane for the active message only if it isn't
+        // already shown — re-rendering on every poll would wipe an in-progress
+        // reply or an open newsletter picker.
+        if (String(msg.id) === String(activeMessageId)
+            && messageDetail.dataset.renderedId !== String(msg.id)) {
             renderMessageDetail(row);
         }
     });
