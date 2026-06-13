@@ -8932,6 +8932,7 @@ def messages_page():
     read_filter = request.args.get('read', 'all')
     replied_filter = request.args.get('replied', 'all')
     search = request.args.get('q', '').strip()
+    focus_message_id = request.args.get('msg', type=int)
 
     query = ContactMessage.query.order_by(ContactMessage.created_at.desc())
 
@@ -8969,7 +8970,8 @@ def messages_page():
         status_filter=status_filter,
         read_filter=read_filter,
         replied_filter=replied_filter,
-        search=search
+        search=search,
+        focus_message_id=focus_message_id
     )
 
 
@@ -9251,7 +9253,33 @@ def inject_store_nav_badges():
         return zero
 
 
-_CONTACT_RATE_LIMIT_HOURS = 8  # one submission per IP per section per N hours
+_CONTACT_RATE_LIMIT_HOURS = 8  # default; per-section override via content['cooldown_hours']
+
+
+def _contact_cooldown_hours(section):
+    """Resolve the submission cooldown (in hours) for a contact-form section.
+
+    Reads content['cooldown_hours'] set in the page editor; falls back to the
+    default when unset or invalid. 0 disables the cooldown entirely."""
+    if section is not None and isinstance(section.content, dict):
+        raw = section.content.get('cooldown_hours')
+        if raw is not None and raw != '':
+            try:
+                return max(0.0, float(raw))
+            except (TypeError, ValueError):
+                pass
+    return _CONTACT_RATE_LIMIT_HOURS
+
+
+def _format_cooldown(hours):
+    """Human-friendly cooldown label, e.g. '8 hours', '1 hour', '30 minutes'."""
+    if hours < 1:
+        mins = int(round(hours * 60))
+        return f"{mins} minute{'s' if mins != 1 else ''}"
+    if hours == int(hours):
+        h = int(hours)
+        return f"{h} hour{'s' if h != 1 else ''}"
+    return f"{hours:g} hours"
 
 
 def _contact_form_token(section_id):
@@ -9337,9 +9365,11 @@ def send_email():
     if ip_address and ',' in ip_address:
         ip_address = ip_address.split(',')[0].strip()
 
-    # ── IP rate limit: one submission per IP per section per 8 hours ─────────
-    if ip_address:
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=_CONTACT_RATE_LIMIT_HOURS)
+    # ── IP rate limit: one submission per IP per section per N hours ─────────
+    # N is configurable per section in the page editor; 0 disables the limit.
+    cooldown_hours = _contact_cooldown_hours(section)
+    if ip_address and cooldown_hours > 0:
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=cooldown_hours)
         recent = ContactMessage.query.filter(
             ContactMessage.section_id == int(section_id),
             ContactMessage.ip_address == ip_address,
@@ -9348,7 +9378,7 @@ def send_email():
         if recent:
             return jsonify({
                 'status': 'error',
-                'message': f'You can only send one message every {_CONTACT_RATE_LIMIT_HOURS} hours. Please try again later.'
+                'message': f'You can only send one message every {_format_cooldown(cooldown_hours)}. Please try again later.'
             }), 429
 
     user_agent = request.headers.get('User-Agent')
@@ -9423,6 +9453,9 @@ def send_email():
             'message': 'Message received successfully.'
         })
 
+    # Deep link that opens this exact message in the admin inbox.
+    admin_link = _absolute_url('messages_page', msg=contact_message.id)
+
     formatted_body = f"""You have received a new message from your Uwebia website contact form.
 
 Sender Email: {sender_email}
@@ -9435,9 +9468,34 @@ Message Body:
 Contact Form: {contact_form_title or ''}
 IP Address: {ip_address or ''}
 Referrer: {referrer or ''}
+
+View this message in your admin inbox:
+{admin_link}
 """
 
-    msg = MIMEMultipart()
+    html_body = f"""\
+<div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.5;max-width:560px;">
+  <p>You have received a new message from your website contact form.</p>
+  <p><strong>Sender Email:</strong> {escape(sender_email)}<br>
+     <strong>Subject:</strong> {escape(subject)}</p>
+  <p><strong>Message:</strong></p>
+  <div style="white-space:pre-wrap;background:#f3f4f6;border-radius:8px;padding:12px;">{escape(body)}</div>
+  <p style="text-align:center;margin:26px 0;">
+    <a href="{escape(admin_link)}"
+       style="display:inline-block;padding:12px 22px;background:#1f6f4a;color:#ffffff;
+              border-radius:8px;text-decoration:none;font-weight:600;">
+      View Message in Admin Page
+    </a>
+  </p>
+  <p style="font-size:12px;color:#6b7280;">
+    Contact Form: {escape(contact_form_title or '')}<br>
+    IP Address: {escape(ip_address or '')}<br>
+    Referrer: {escape(referrer or '')}
+  </p>
+</div>
+"""
+
+    msg = MIMEMultipart('alternative')
     msg['From'] = (
         f"{email_settings.from_name} <{email_settings.from_email}>"
         if email_settings.from_name else email_settings.from_email
@@ -9446,6 +9504,7 @@ Referrer: {referrer or ''}
     msg['Subject'] = subject
     msg['Reply-To'] = sender_email
     msg.attach(MIMEText(formatted_body, 'plain', 'utf-8'))
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
     try:
         if email_settings.use_ssl:
@@ -18411,19 +18470,6 @@ def update_youtube_video_section(section, form_data):
     return section
 
 
-def update_contact_section(section, form_data):
-    contact_form_title = form_data.get('contact_form_title')
-    contact_email = form_data.get('contact_email')
-    contact_form_enabled = form_data.get('contact_form_enabled') == 'on'
-
-    section.content = {
-        'title': contact_form_title,
-        'email': contact_email,
-        'enabled': contact_form_enabled
-    }
-    return section
-
-
 def update_header_section(section, form_data):
     header_text = form_data.get('header_text')
     section.content = {'text': header_text}
@@ -18435,10 +18481,22 @@ def update_contact_section(section, form_data):
     contact_email = form_data.get('contact_email')
     contact_form_enabled = form_data.get('contact_form_enabled') == 'on'
 
+    # Per-section submission cooldown (hours). Blank falls back to the default;
+    # 0 disables the limit. Clamp to a sane range (0 .. one year).
+    raw_cooldown = (form_data.get('contact_cooldown_hours') or '').strip()
+    if raw_cooldown == '':
+        cooldown_hours = _CONTACT_RATE_LIMIT_HOURS
+    else:
+        try:
+            cooldown_hours = max(0.0, min(8760.0, float(raw_cooldown)))
+        except (TypeError, ValueError):
+            cooldown_hours = _CONTACT_RATE_LIMIT_HOURS
+
     section.content = {
         'title': contact_form_title,
         'email': contact_email,
-        'enabled': contact_form_enabled
+        'enabled': contact_form_enabled,
+        'cooldown_hours': cooldown_hours
     }
     return section
 

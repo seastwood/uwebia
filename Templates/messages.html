@@ -566,6 +566,7 @@
 
 <script>
     const CAN_SUBSCRIBE = {{ 'true' if current_user.has_permission('newsletters.manage') else 'false' }};
+    const FOCUS_MESSAGE_ID = {{ focus_message_id if focus_message_id else 'null' }};
 
     let activeMessageId = null;
     const messageRows = document.querySelectorAll('.message-row');
@@ -1019,6 +1020,18 @@ row.addEventListener('click', async function () {
     document.addEventListener('DOMContentLoaded', function () {
         pollMessagesLive();
         setInterval(pollMessagesLive, 5000); // every 5 seconds
+
+        // Deep link from the contact-form notification email (?msg=<id>):
+        // open that message and scroll it into view.
+        if (FOCUS_MESSAGE_ID != null) {
+            const row = document.querySelector(`.message-row[data-message-id="${FOCUS_MESSAGE_ID}"]`);
+            if (row) {
+                activeMessageId = String(FOCUS_MESSAGE_ID);
+                renderMessageDetail(row);
+                row.scrollIntoView({ block: 'center' });
+                if (row.dataset.isRead === 'false') markRead(FOCUS_MESSAGE_ID);
+            }
+        }
     });
 
     function decodeDatasetValue(value) {

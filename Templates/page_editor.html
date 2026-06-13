@@ -11107,6 +11107,11 @@ setTimeout(() => {
                 <label for="contact_email">Email Recipient:</label><br>
                 <textarea id="contact_email" name="contact_email" rows="1" class="dynamic-width"
                     style="padding: 10px;">${section.content['email']}</textarea><br><br>
+                <label for="contact_cooldown_hours">Submission cooldown (hours per visitor):</label><br>
+                <input type="number" id="contact_cooldown_hours" name="contact_cooldown_hours"
+                    min="0" max="8760" step="0.5" style="padding: 10px; width: 120px;"
+                    value="${section.content['cooldown_hours'] !== undefined && section.content['cooldown_hours'] !== null ? section.content['cooldown_hours'] : 8}">
+                <small style="display:block; color:#666; margin-top:4px;">How long before the same visitor can submit again. 0 = no limit. Default 8.</small><br>
                 <label for="contact_form_enabled">Enable Contact Form:</label>
                 <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
             </form>
