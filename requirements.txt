@@ -23,6 +23,7 @@ beautifulsoup4
 requests
 flask-wtf
 pillow
+qrcode
 geoip2
 gunicorn
 cryptography

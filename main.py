@@ -32087,11 +32087,16 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
 # never affected.
 
 def _qr_data_uri(url, _cache):
-    """Return a base64 PNG data URI of a QR code for `url`. `_cache` is a
-    per-request dict so duplicate links don't regenerate the image."""
+    """Return a base64 PNG data URI of a QR code for `url`, or None if the
+    `qrcode` package isn't installed (degrade gracefully — never 500 a print).
+    `_cache` is a per-request dict so duplicate links don't regenerate."""
     if url in _cache:
         return _cache[url]
-    import qrcode
+    try:
+        import qrcode
+    except ImportError:
+        _cache[url] = None
+        return None
     img = qrcode.make(url, box_size=4, border=2)
     buf = io.BytesIO()
     img.save(buf, format='PNG')
@@ -32126,8 +32131,11 @@ def _inject_print_qr(html, qr_cache, base_url=None):
             url = urljoin(base_url, url)
             if not url.lower().startswith(('http://', 'https://')):
                 return
+        data_uri = _qr_data_uri(url, qr_cache)
+        if not data_uri:
+            return  # qrcode unavailable — leave the link as-is, no QR
         wrap = soup.new_tag('span', attrs={'class': 'print-qr'})
-        img = soup.new_tag('img', src=_qr_data_uri(url, qr_cache), alt='QR code')
+        img = soup.new_tag('img', src=data_uri, alt='QR code')
         cap = soup.new_tag('span', attrs={'class': 'print-qr-url'})
         cap.string = url
         wrap.append(img)
