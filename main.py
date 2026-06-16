@@ -32100,18 +32100,32 @@ def _qr_data_uri(url, _cache):
     return uri
 
 
-def _inject_print_qr(html, qr_cache):
+def _inject_print_qr(html, qr_cache, base_url=None):
     """Append a QR code (+ the URL caption) after every link/media element in
     `html`: hyperlinks, video embeds (iframe/video), and audio. Images are left
-    alone — they're content, not links. Returns the transformed HTML string."""
+    alone — they're content, not links. Relative links (e.g. "/guides/x" or
+    "welcome") are resolved to absolute URLs against `base_url` (the site root,
+    defaulting to the current request's root) so they get scannable QR codes
+    too. Returns the transformed HTML string."""
     if not html:
         return ''
+    from urllib.parse import urljoin
+    base_url = base_url or request.url_root
     soup = BeautifulSoup(html, 'html.parser')
 
     def add_qr(after_el, url):
         url = (url or '').strip()
-        if not url.lower().startswith(('http://', 'https://')):
+        if not url:
             return
+        low = url.lower()
+        # In-page anchors and non-navigable schemes don't get a QR.
+        if low.startswith(('#', 'mailto:', 'tel:', 'javascript:', 'data:')):
+            return
+        # Resolve relative/protocol-relative links to an absolute URL.
+        if not low.startswith(('http://', 'https://')):
+            url = urljoin(base_url, url)
+            if not url.lower().startswith(('http://', 'https://')):
+                return
         wrap = soup.new_tag('span', attrs={'class': 'print-qr'})
         img = soup.new_tag('img', src=_qr_data_uri(url, qr_cache), alt='QR code')
         cap = soup.new_tag('span', attrs={'class': 'print-qr-url'})
