@@ -174,7 +174,10 @@
     <div class="pe-asset-modal">
         <div class="pe-asset-header">
             <h3>Insert Asset</h3>
-            <button class="pe-asset-close" onclick="closeAssetPicker()">&times;</button>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <button class="pe-folder-btn" onclick="gepUploadClick()"><i class="fas fa-upload"></i> Upload</button>
+                <button class="pe-asset-close" onclick="closeAssetPicker()">&times;</button>
+            </div>
         </div>
         <div class="pe-asset-tabs" id="assetPickerTabs">
             <button class="pe-asset-tab active" data-type="image" onclick="switchAssetTab('image')">Images</button>
@@ -182,6 +185,7 @@
             <button class="pe-asset-tab" data-type="video" onclick="switchAssetTab('video')">Video</button>
             <button class="pe-asset-tab" data-type="pdf,document,misc" onclick="switchAssetTab('pdf,document,misc')">Files</button>
         </div>
+        <input type="file" id="gepUploadInput" style="display:none" onchange="gepUploadFile(this.files[0])">
         <div class="pe-asset-body" id="assetPickerBody"></div>
     </div>
 </div>
@@ -397,7 +401,33 @@ async function switchAssetTab(type) {
     document.querySelectorAll('.pe-asset-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
     await loadAssetPickerRoot();
 }
+let _pickerFolderId = null;   // folder being browsed (uploads land here)
+function gepUploadClick() {
+    const inp = document.getElementById('gepUploadInput');
+    // Hint the file dialog based on the active tab; the server still validates.
+    inp.accept = _pickerCurrentType === 'image' ? 'image/*'
+        : _pickerCurrentType === 'audio' ? 'audio/*'
+        : _pickerCurrentType === 'video' ? 'video/*' : '';
+    inp.click();
+}
+async function gepUploadFile(file) {
+    if (!file) return;
+    const body = document.getElementById('assetPickerBody');
+    body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Uploading…</div>';
+    const fd = new FormData(); fd.append('asset', file);
+    if (_pickerFolderId) fd.append('folder_id', _pickerFolderId);
+    try {
+        const d = await (await fetch('/admin/assets/upload', { method: 'POST', body: fd })).json();
+        if (d.status === 'success' && d.assets && d.assets.length) {
+            pickAsset(d.assets[0]);   // insert the freshly uploaded asset
+        } else {
+            body.innerHTML = '<div style="color:#ff6b6b;">' + _escHtml(d.error || 'Upload failed.') + '</div>';
+        }
+    } catch(e) { body.innerHTML = '<div style="color:#ff6b6b;">Upload failed.</div>'; }
+    document.getElementById('gepUploadInput').value = '';
+}
 async function loadAssetPickerRoot() {
+    _pickerFolderId = null;
     const body = document.getElementById('assetPickerBody');
     body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
     try {
@@ -412,6 +442,7 @@ async function loadAssetPickerRoot() {
     } catch(e) { body.innerHTML = '<div style="color:#ff6b6b;">Failed to load assets.</div>'; }
 }
 async function loadAssetPickerFolder(folderId) {
+    _pickerFolderId = folderId;
     const body = document.getElementById('assetPickerBody');
     body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
     try {
