@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ quiz.title }} – Print</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/print_content.css') }}">
+</head>
+<body>
+    <div class="print-toolbar">
+        <button type="button" onclick="window.print()">Save as PDF / Print</button>
+        <button type="button" class="secondary" onclick="window.close(); window.history.back();">Close</button>
+        <span class="toolbar-hint">Scan a QR code to open any linked resource.</span>
+    </div>
+
+    <div class="print-wrap">
+        <h1 class="print-doc-title">{{ quiz.title }}</h1>
+        {% if quiz.description %}<p class="print-doc-sub">{{ quiz.description }}</p>{% endif %}
+        {{ quiz_html | safe }}
+    </div>
+
+    <script>
+        window.addEventListener('load', function () {
+            setTimeout(function () { window.focus(); window.print(); }, 500);
+        });
+    </script>
+</body>
+</html>

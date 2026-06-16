@@ -13,17 +13,20 @@
                 </p>
 
                 <div class="modal-library-toolbar">
+                    {% if current_user.has_permission('assets.upload') %}
                     <button type="button" class="btn-primary"
                         onclick="document.getElementById('modalLibraryFileInput').click()">
                         <i class="fas fa-upload"></i>
                         Upload Images
                     </button>
+                    {% endif %}
 
                     <button type="button" class="btn-secondary" onclick="PhotoLibraryModal.createFolder()">
                         <i class="fas fa-folder-plus"></i>
                         New Folder
                     </button>
 
+                    {% if current_user.has_permission('assets.upload') %}
                     <input
                         type="file"
                         id="modalLibraryFileInput"
@@ -31,8 +34,10 @@
                         accept="image/*"
                         style="display:none"
                         onchange="PhotoLibraryModal.handleUpload(event)">
+                    {% endif %}
                 </div>
 
+                {% if current_user.has_permission('assets.upload') %}
                 <div class="modal-upload-help">
                     These uploads go into your Asset Library under Images.
                 </div>
@@ -43,6 +48,7 @@
                     </div>
                     <div class="upload-progress-text" id="modalUploadProgressText">0%</div>
                 </div>
+                {% endif %}
             </div>
 
             <div class="library-modal-section-label">Folders</div>

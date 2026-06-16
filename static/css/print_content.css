@@ -1,0 +1,127 @@
+/* Shared styles for the print-to-PDF pages (guides & quizzes).
+   Black-on-white, screen toolbar hidden when printing, QR codes for links. */
+
+@page { margin: 14mm; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #000;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+}
+
+* {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
+/* Screen-only toolbar — never printed. */
+.print-toolbar {
+    position: sticky;
+    top: 0;
+    background: #f4f4f4;
+    border-bottom: 1px solid #ddd;
+    padding: 10px 14px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    z-index: 10;
+}
+.print-toolbar button {
+    background: #2563eb;
+    color: #fff;
+    border: 0;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.print-toolbar button.secondary {
+    background: #fff;
+    color: #333;
+    border: 1px solid #ccc;
+}
+.print-toolbar .toolbar-hint {
+    margin-left: auto;
+    color: #666;
+    font-size: 0.82rem;
+}
+@media print {
+    .print-toolbar { display: none !important; }
+}
+
+.print-wrap { max-width: 760px; margin: 0 auto; padding: 24px 28px; }
+
+.print-doc-title { font-size: 1.8rem; margin: 0 0 4px; }
+.print-doc-sub { color: #555; margin: 0 0 24px; }
+.print-cover { max-width: 100%; border-radius: 8px; margin: 0 0 20px; }
+
+/* Guide structure */
+.print-chapter {
+    font-size: 1.4rem;
+    margin: 28px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #000;
+    break-before: page;
+}
+.print-chapter:first-of-type { break-before: auto; }
+.print-lesson { margin: 18px 0; break-inside: avoid-page; }
+.print-lesson-title { font-size: 1.15rem; margin: 0 0 6px; }
+.print-content img { max-width: 100%; height: auto; }
+.print-content a { color: #000; text-decoration: underline; }
+
+/* QR codes appended after links/media (print-only content). */
+.print-qr {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: top;
+    margin: 6px 10px 6px 0;
+    font-size: 0.62rem;
+    color: #333;
+    break-inside: avoid;
+}
+.print-qr img { width: 92px; height: 92px; display: block; }
+.print-qr-url {
+    max-width: 130px;
+    word-break: break-all;
+    text-align: center;
+    margin-top: 2px;
+}
+
+/* Quiz worksheet */
+.print-quiz { margin: 16px 0; }
+.print-quiz-title { font-size: 1.2rem; margin: 18px 0 10px; }
+.print-q { margin: 0 0 14px; break-inside: avoid; }
+.print-q-prompt { margin: 0 0 6px; }
+.print-q-points { color: #777; font-weight: 400; font-size: 0.85rem; }
+.print-q-meta { color: #555; font-size: 0.85rem; margin: 2px 0; }
+.print-opts, .print-order { list-style: none; padding-left: 8px; margin: 4px 0; }
+.print-opts li, .print-order li { margin: 3px 0; }
+.print-blank-line { border-bottom: 1px solid #000; height: 1.4rem; margin: 6px 0; }
+.print-match { border-collapse: collapse; margin: 4px 0; width: 100%; }
+.print-match td { padding: 3px 10px 3px 0; vertical-align: top; }
+.print-img-opts { display: flex; flex-wrap: wrap; gap: 14px; margin: 6px 0; }
+.print-img-opts figure { margin: 0; width: 150px; text-align: center; }
+.print-img-opts img { max-width: 150px; height: auto; display: block; margin: 2px auto; }
+.print-img-opts figcaption { font-size: 0.8rem; }
+.print-code {
+    background: #f4f4f4;
+    border: 1px solid #ddd;
+    padding: 8px 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+}
+.print-code-space { border: 1px dashed #bbb; min-height: 90px; margin: 6px 0; }
+.print-answer-key {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border: 1px solid #000;
+    border-radius: 6px;
+    break-inside: avoid;
+}
+.print-answer-key h4 { margin: 0 0 8px; }

@@ -32079,6 +32079,281 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Print to PDF — guides & quizzes (browser print-to-PDF, QR codes for links)
+# ════════════════════════════════════════════════════════════════════════════
+# These build a standalone, print-optimized page that the browser saves as PDF
+# (see print_calendar_public for the same pattern). QR codes and quiz expansion
+# happen here at print time only, so stored content and the live site views are
+# never affected.
+
+def _qr_data_uri(url, _cache):
+    """Return a base64 PNG data URI of a QR code for `url`. `_cache` is a
+    per-request dict so duplicate links don't regenerate the image."""
+    if url in _cache:
+        return _cache[url]
+    import qrcode
+    img = qrcode.make(url, box_size=4, border=2)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    uri = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode('ascii')
+    _cache[url] = uri
+    return uri
+
+
+def _inject_print_qr(html, qr_cache, base_url=None):
+    """Append a QR code (+ the URL caption) after every link/media element in
+    `html`: hyperlinks, video embeds (iframe/video), and audio. Images are left
+    alone — they're content, not links. Relative links (e.g. "/guides/x" or
+    "welcome") are resolved to absolute URLs against `base_url` (the site root,
+    defaulting to the current request's root) so they get scannable QR codes
+    too. Returns the transformed HTML string."""
+    if not html:
+        return ''
+    from urllib.parse import urljoin
+    base_url = base_url or request.url_root
+    soup = BeautifulSoup(html, 'html.parser')
+
+    def add_qr(after_el, url):
+        url = (url or '').strip()
+        if not url:
+            return
+        low = url.lower()
+        # In-page anchors and non-navigable schemes don't get a QR.
+        if low.startswith(('#', 'mailto:', 'tel:', 'javascript:', 'data:')):
+            return
+        # Resolve relative/protocol-relative links to an absolute URL.
+        if not low.startswith(('http://', 'https://')):
+            url = urljoin(base_url, url)
+            if not url.lower().startswith(('http://', 'https://')):
+                return
+        wrap = soup.new_tag('span', attrs={'class': 'print-qr'})
+        img = soup.new_tag('img', src=_qr_data_uri(url, qr_cache), alt='QR code')
+        cap = soup.new_tag('span', attrs={'class': 'print-qr-url'})
+        cap.string = url
+        wrap.append(img)
+        wrap.append(cap)
+        after_el.insert_after(wrap)
+
+    # Hyperlinks
+    for a in soup.find_all('a', href=True):
+        add_qr(a, a['href'])
+    # Video embeds (YouTube/Vimeo iframes) and local <video>
+    for el in soup.find_all(['iframe', 'video']):
+        src = el.get('src')
+        if not src:
+            source = el.find('source')
+            src = source.get('src') if source else None
+        add_qr(el, src)
+    # Audio
+    for el in soup.find_all('audio'):
+        src = el.get('src')
+        if not src:
+            source = el.find('source')
+            src = source.get('src') if source else None
+        add_qr(el, src)
+
+    return str(soup)
+
+
+def _quiz_cell_text(cell):
+    """Plain-text label for a matching/ordering cell (text or image caption)."""
+    cell = cell or {}
+    if cell.get('kind') == 'image':
+        return cell.get('text') or '[image]'
+    return cell.get('text') or ''
+
+
+def _render_quiz_print_html(quiz, include_answers):
+    """Static, printable HTML for a quiz: a worksheet (no answers), plus an
+    answer key when include_answers is True. Reads QuizQuestion config directly
+    so it never depends on the interactive client renderer."""
+    from markupsafe import escape as _e
+    questions = quiz.questions.order_by(QuizQuestion.sort_order).all()
+    parts = [f'<div class="print-quiz"><h3 class="print-quiz-title">{_e(quiz.title)}</h3>']
+    answer_rows = []
+
+    for idx, q in enumerate(questions, 1):
+        cfg = q._config()
+        t = q.question_type
+        parts.append('<div class="print-q">')
+        parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_e(q.prompt)} '
+                     f'<span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span></p>')
+
+        if t in ('single_choice', 'multi_choice', 'true_false'):
+            box = '☐'
+            parts.append('<ul class="print-opts">')
+            for o in (cfg.get('options') or []):
+                parts.append(f'<li>{box} {_e(o.get("text", ""))}</li>')
+            parts.append('</ul>')
+            if include_answers:
+                correct = [o.get('text', '') for o in (cfg.get('options') or []) if o.get('correct')]
+                answer_rows.append((idx, ', '.join(correct) or '—'))
+        elif t == 'short_text':
+            parts.append('<div class="print-blank-line"></div>')
+            if include_answers:
+                answer_rows.append((idx, ', '.join(cfg.get('accepted') or []) or '—'))
+        elif t == 'fill_blank':
+            # The prompt already carries the ___ markers; nothing extra to draw.
+            if include_answers:
+                blanks = cfg.get('blanks') or []
+                ans = '; '.join('/'.join(b.get('accepted') or []) for b in blanks)
+                answer_rows.append((idx, ans or '—'))
+        elif t == 'matching':
+            pairs = cfg.get('pairs') or []
+            lefts = [_quiz_cell_text(p.get('left')) for p in pairs]
+            rights = sorted(_quiz_cell_text(p.get('right')) for p in pairs)
+            parts.append('<table class="print-match"><tbody>')
+            for i, lft in enumerate(lefts):
+                rgt = rights[i] if i < len(rights) else ''
+                parts.append(f'<tr><td>____ {_e(lft)}</td><td>{_e(chr(65 + i))}. {_e(rgt)}</td></tr>')
+            parts.append('</tbody></table>')
+            if include_answers:
+                pa = '; '.join(f'{_quiz_cell_text(p.get("left"))} → {_quiz_cell_text(p.get("right"))}'
+                               for p in pairs)
+                answer_rows.append((idx, pa or '—'))
+        elif t == 'ordering':
+            items = cfg.get('items') or []
+            parts.append('<ul class="print-order">')
+            for it in sorted(items, key=lambda _: _quiz_cell_text(_)):
+                parts.append(f'<li>____ {_e(_quiz_cell_text(it))}</li>')
+            parts.append('</ul>')
+            if include_answers:
+                order = ' → '.join(_quiz_cell_text(it) for it in items)
+                answer_rows.append((idx, order or '—'))
+        elif t == 'image_choice':
+            box = '☐'
+            parts.append('<div class="print-img-opts">')
+            for o in (cfg.get('options') or []):
+                url = o.get('image_url', '')
+                cap = o.get('caption', '')
+                parts.append(f'<figure>{box} <img src="{_e(url)}" alt="">'
+                             f'<figcaption>{_e(cap)}</figcaption></figure>')
+            parts.append('</div>')
+            if include_answers:
+                correct = [o.get('caption') or o.get('image_url', '')
+                           for o in (cfg.get('options') or []) if o.get('correct')]
+                answer_rows.append((idx, ', '.join(correct) or '—'))
+        elif t == 'coding':
+            starter = cfg.get('starter_code') or ''
+            lang = cfg.get('language') or ''
+            parts.append(f'<p class="print-q-meta">Language: {_e(lang)}</p>')
+            if starter:
+                parts.append(f'<pre class="print-code">{_e(starter)}</pre>')
+            parts.append('<div class="print-code-space"></div>')
+            if include_answers:
+                cases = cfg.get('test_cases') or []
+                ans = '; '.join(f'in={c.get("stdin","")!r}→out={c.get("expected","")!r}' for c in cases)
+                answer_rows.append((idx, ans or '(compiles cleanly)'))
+        parts.append('</div>')
+
+    if include_answers and answer_rows:
+        parts.append('<div class="print-answer-key"><h4>Answer key</h4><ol>')
+        for num, ans in answer_rows:
+            parts.append(f'<li>Q{num}: {_e(ans)}</li>')
+        parts.append('</ol></div>')
+
+    parts.append('</div>')
+    return ''.join(parts)
+
+
+def _expand_quiz_embeds(html, website_id, include_answers):
+    """Replace each <div class="uw-quiz-embed" data-quiz-id="N"> with the
+    rendered printable quiz (scoped to website_id)."""
+    if not html or 'uw-quiz-embed' not in html:
+        return html
+    soup = BeautifulSoup(html, 'html.parser')
+    for embed in soup.select('.uw-quiz-embed[data-quiz-id]'):
+        try:
+            qid = int(embed.get('data-quiz-id'))
+        except (TypeError, ValueError):
+            continue
+        quiz = Quiz.query.filter_by(id=qid, website_id=website_id).first()
+        if not quiz:
+            continue
+        fragment = BeautifulSoup(_render_quiz_print_html(quiz, include_answers), 'html.parser')
+        embed.replace_with(fragment)
+    return str(soup)
+
+
+def _prepare_print_content(html, website_id, include_answers, qr_cache):
+    """Expand embedded quizzes, then add QR codes for links/media."""
+    html = _expand_quiz_embeds(html, website_id, include_answers)
+    return _inject_print_qr(html, qr_cache)
+
+
+@app.route('/guides/<string:guide_slug>/print')
+@app.route('/<string:prefix>/guides/<string:guide_slug>/print')
+def public_guide_print(guide_slug, prefix=None):
+    website, guide, short = _resolve_public_guide(guide_slug, prefix)
+    if short is not None:
+        return short
+    return _render_guide_print(website, guide, include_answers=False)
+
+
+@app.route('/admin/guides/<int:gid>/print')
+@login_required
+@require_perm('guides.view')
+def admin_guide_print(gid):
+    guide = Guide.query.get_or_404(gid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or guide.website_id != website.id:
+        abort(403)
+    return _render_guide_print(website, guide, include_answers=True)
+
+
+def _render_guide_print(website, guide, include_answers):
+    """Shared renderer for the guide print page. Walks the published tree in
+    reading order; chapters become headings, lessons render their prepared
+    content (quiz embeds expanded + QR codes added)."""
+    qr_cache = {}
+
+    def walk(nodes):
+        items = []
+        for n in nodes:
+            children = n.children.filter_by(is_published=True).order_by(GuideNode.sort_order).all()
+            if n.node_type == 'chapter':
+                items.append({'type': 'chapter', 'title': n.title})
+                items.extend(walk(children))
+            else:
+                items.append({
+                    'type': 'lesson', 'title': n.title,
+                    'content': _prepare_print_content(n.content or '', website.id,
+                                                       include_answers, qr_cache),
+                })
+                items.extend(walk(children))
+        return items
+
+    roots = guide.nodes.filter_by(parent_id=None, is_published=True).order_by(GuideNode.sort_order).all()
+    items = walk(roots)
+    return render_template('print_guide.html', website=website, guide=guide,
+                           items=items, include_answers=include_answers)
+
+
+@app.route('/quiz/<int:qid>/print')
+def public_quiz_print(qid):
+    quiz = Quiz.query.get_or_404(qid)
+    website = _live_website_for(quiz)
+    html = _render_quiz_print_html(quiz, include_answers=False)
+    html = _inject_print_qr(html, {})
+    return render_template('print_quiz.html', website=website, quiz=quiz, quiz_html=html)
+
+
+@app.route('/admin/quizzes/<int:qid>/print')
+@login_required
+@require_perm('quizzes.view')
+def admin_quiz_print(qid):
+    quiz = Quiz.query.get_or_404(qid)
+    website = get_admin_website()
+    if not website or not is_owner(website) or quiz.website_id != website.id:
+        abort(403)
+    if not can_access_quiz(quiz):
+        abort(403)
+    html = _render_quiz_print_html(quiz, include_answers=True)
+    html = _inject_print_qr(html, {})
+    return render_template('print_quiz.html', website=website, quiz=quiz, quiz_html=html)
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Quizzes — reusable assessment assets (embed in lessons / sections)
 # ════════════════════════════════════════════════════════════════════════════
 

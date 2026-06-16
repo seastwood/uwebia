@@ -125,6 +125,7 @@
         <div class="gv-sidebar-body" id="gvSidebarBody">
             <a class="gv-back-link" href="{{ _base }}"><i class="fas fa-arrow-left"></i> All guides</a>
             <h2 class="gv-guide-title"><a href="{{ _base }}/{{ guide.slug }}">{{ guide.title }}</a></h2>
+            <a class="gv-back-link" href="{{ _base }}/{{ guide.slug }}/print" target="_blank" rel="noopener"><i class="fas fa-file-pdf"></i> Save as PDF</a>
             {% if guide.track_progress and navbar_public_accounts_enabled and not navbar_public_user %}
             {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
             {% set _signup_url = url_for('public_register', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_register', next=request.path) %}

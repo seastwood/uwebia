@@ -90,6 +90,9 @@
     <div class="qe-subnav">
         <a href="{{ url_for('admin_quizzes_page') }}" class="qe-back"><i class="fas fa-arrow-left"></i> Quizzes</a>
         <h1 class="qe-title">{{ quiz.title }}</h1>
+        <a class="qe-back" href="{{ url_for('admin_quiz_print', qid=quiz.id) }}" target="_blank" style="margin-left:auto;">
+            <i class="fas fa-file-pdf"></i> Print (with answer key)
+        </a>
     </div>
 
     <!-- Question list -->
@@ -141,10 +144,16 @@
         <div class="qp-head">
             <h3>Choose an image</h3>
             <div style="display:flex;gap:10px;align-items:center;">
+                {% if current_user.has_permission('assets.upload') %}
+                <button class="qe-mini-btn" onclick="qpUploadClick()"><i class="fas fa-upload"></i> Upload</button>
+                {% endif %}
                 <button class="qe-mini-btn" onclick="qpUseUrl()"><i class="fas fa-link"></i> Use URL</button>
                 <button class="qp-close" onclick="closeQuizPicker()">&times;</button>
             </div>
         </div>
+        {% if current_user.has_permission('assets.upload') %}
+        <input type="file" id="qpUploadInput" accept="image/*" style="display:none" onchange="qpUploadFile(this.files[0])">
+        {% endif %}
         <div class="qp-body" id="qpBody"></div>
     </div>
 </div>
@@ -154,6 +163,7 @@ const QUIZ_ID = {{ quiz.id }};
 let QUESTIONS = {{ questions | tojson }};
 let _editing = null;       // current question object in the form (may be unsaved)
 let _sortable = null;
+let _dirty = false;        // true once the user edits the open question form
 
 const TYPE_LABELS = {
     single_choice: 'Single choice',
@@ -169,7 +179,28 @@ const TYPE_LABELS = {
 
 const CODE_LANGS = { python: 'Python', javascript: 'JavaScript', java: 'Java', c: 'C', cpp: 'C++' };
 
-document.addEventListener('DOMContentLoaded', renderList);
+document.addEventListener('DOMContentLoaded', function () {
+    renderList();
+    // Any edit inside the question form (typed or toggled) marks it unsaved.
+    // Delegation covers the dynamically rendered config fields in #qBody too.
+    const form = document.getElementById('qForm');
+    form.addEventListener('input', () => { _dirty = true; });
+    form.addEventListener('change', () => { _dirty = true; });
+});
+
+// Warn before navigating away with unsaved edits.
+window.addEventListener('beforeunload', function (e) {
+    if (_editing && _dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// If the open question has unsaved edits, ask whether to save before switching
+// away or starting a new question. Returns true when it's safe to proceed.
+async function _guardUnsaved() {
+    if (!_editing || !_dirty) return true;
+    const save = confirm('You have unsaved changes to this question.\n\nClick OK to save them now, or Cancel to discard them.');
+    if (save) return await saveQuestion();   // only proceed if the save succeeds
+    return true;                             // discard and proceed
+}
 
 function renderList() {
     const ul = document.getElementById('qList');
@@ -225,15 +256,18 @@ function blankConfig(type) {
     return { options: [{ id: 1, text: '', correct: true }, { id: 2, text: '', correct: false }] };
 }
 
-function newQuestion(type) {
+async function newQuestion(type) {
+    if (!(await _guardUnsaved())) return;
     _editing = { id: null, question_type: type, prompt: '', points: 1, config: blankConfig(type) };
     showForm();
     document.querySelectorAll('#qList .qe-qitem').forEach(li => li.classList.remove('is-selected'));
 }
 
-function editQuestion(id) {
+async function editQuestion(id) {
     const q = QUESTIONS.find(x => x.id === id);
     if (!q) return;
+    if (_editing && _editing.id === id) return;   // already open — nothing to switch
+    if (!(await _guardUnsaved())) return;
     _editing = JSON.parse(JSON.stringify(q));   // edit a copy
     showForm();
     renderList();
@@ -251,6 +285,7 @@ function showForm() {
     // Fill-blank: live-sync the blank rows as the prompt's ___ markers change.
     document.getElementById('qPrompt').oninput = (_editing.question_type === 'fill_blank') ? renderBody : null;
     renderBody();
+    _dirty = false;   // form now mirrors the saved/loaded question
 }
 
 function renderBody() {
@@ -545,15 +580,34 @@ function removeImgOption(i) {
 
 // ── image library picker ────────────────────────────────────────────────────
 let _qpCb = null;
+let _qpFolderId = null;   // folder currently being browsed (uploads go here)
 function openQuizImagePicker(cb) { _qpCb = cb; document.getElementById('qpOverlay').style.display = 'flex'; qpLoadRoot(); }
 function closeQuizPicker() { document.getElementById('qpOverlay').style.display = 'none'; _qpCb = null; }
 function qpUseUrl() { const u = prompt('Paste an image URL:'); if (u && u.trim()) { const cb = _qpCb; closeQuizPicker(); if (cb) cb(u.trim()); } }
+function qpUploadClick() { document.getElementById('qpUploadInput').click(); }
+async function qpUploadFile(file) {
+    if (!file) return;
+    const b = document.getElementById('qpBody'); b.innerHTML = 'Uploading…';
+    const fd = new FormData(); fd.append('asset', file);
+    if (_qpFolderId) fd.append('folder_id', _qpFolderId);
+    try {
+        const d = await (await fetch('/admin/assets/upload', { method: 'POST', body: fd })).json();
+        if (d.status === 'success' && d.assets && d.assets.length) {
+            qpPick(d.assets[0].url);   // select the freshly uploaded image
+        } else {
+            b.innerHTML = '<div style="color:#ff6b6b;">' + escAttr(d.error || 'Upload failed.') + '</div>';
+        }
+    } catch (e) { b.innerHTML = '<div style="color:#ff6b6b;">Upload failed.</div>'; }
+    document.getElementById('qpUploadInput').value = '';
+}
 async function qpLoadRoot() {
+    _qpFolderId = null;
     const b = document.getElementById('qpBody'); b.innerHTML = 'Loading…';
     try { const d = await (await fetch('/admin/assets/root?type=image')).json(); qpRender(d.folders || [], d.assets || [], false); }
     catch (e) { b.innerHTML = '<div style="color:#ff6b6b;">Failed to load images.</div>'; }
 }
 async function qpLoadFolder(id) {
+    _qpFolderId = id;
     const b = document.getElementById('qpBody'); b.innerHTML = 'Loading…';
     try { const d = await (await fetch('/admin/assets/folder/' + id + '?type=image')).json(); qpRender([], d.assets || [], true); }
     catch (e) { b.innerHTML = '<div style="color:#ff6b6b;">Failed to load folder.</div>'; }
@@ -649,6 +703,7 @@ async function saveQuestion() {
     _editing = JSON.parse(JSON.stringify(q));
     renderList();
     showForm();
+    return true;
 }
 
 async function deleteQuestion() {
@@ -659,6 +714,7 @@ async function deleteQuestion() {
     if (!d.success) { alert(d.error || 'Failed to delete'); return; }
     QUESTIONS = QUESTIONS.filter(x => x.id !== _editing.id);
     _editing = null;
+    _dirty = false;
     document.getElementById('qForm').style.display = 'none';
     document.getElementById('qPlaceholder').style.display = 'block';
     renderList();
