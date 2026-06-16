@@ -117,6 +117,9 @@
         <a class="ge-view-link" href="{{ url_for('public_guide_view', guide_slug=guide.slug) }}" target="_blank">
             <i class="fas fa-external-link-alt"></i> View public page
         </a>
+        <a class="ge-view-link" href="{{ url_for('admin_guide_print', gid=guide.id) }}" target="_blank">
+            <i class="fas fa-file-pdf"></i> Print (with answer key)
+        </a>
     </div>
 
     <!-- Tree panel -->

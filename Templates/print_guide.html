@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ guide.title }} – Print</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/print_content.css') }}">
+</head>
+<body>
+    <div class="print-toolbar">
+        <button type="button" onclick="window.print()">Save as PDF / Print</button>
+        <button type="button" class="secondary" onclick="window.close(); window.history.back();">Close</button>
+        <span class="toolbar-hint">
+            {% if include_answers %}Includes an answer key for embedded quizzes.{% else %}Scan a QR code to open any linked page, video, or audio.{% endif %}
+        </span>
+    </div>
+
+    <div class="print-wrap">
+        <h1 class="print-doc-title">{{ guide.title }}</h1>
+        {% if guide.description %}<p class="print-doc-sub">{{ guide.description }}</p>{% endif %}
+        {% if guide.cover_image_url %}<img class="print-cover" src="{{ guide.cover_image_url }}" alt="">{% endif %}
+
+        {% for item in items %}
+            {% if item.type == 'chapter' %}
+                <h2 class="print-chapter">{{ item.title }}</h2>
+            {% else %}
+                <section class="print-lesson">
+                    <h3 class="print-lesson-title">{{ item.title }}</h3>
+                    <div class="print-content">{{ item.content | safe }}</div>
+                </section>
+            {% endif %}
+        {% else %}
+            <p>This guide has no published content.</p>
+        {% endfor %}
+    </div>
+
+    <script>
+        window.addEventListener('load', function () {
+            setTimeout(function () { window.focus(); window.print(); }, 500);
+        });
+    </script>
+</body>
+</html>

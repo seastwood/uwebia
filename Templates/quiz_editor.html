@@ -90,6 +90,9 @@
     <div class="qe-subnav">
         <a href="{{ url_for('admin_quizzes_page') }}" class="qe-back"><i class="fas fa-arrow-left"></i> Quizzes</a>
         <h1 class="qe-title">{{ quiz.title }}</h1>
+        <a class="qe-back" href="{{ url_for('admin_quiz_print', qid=quiz.id) }}" target="_blank" style="margin-left:auto;">
+            <i class="fas fa-file-pdf"></i> Print (with answer key)
+        </a>
     </div>
 
     <!-- Question list -->
