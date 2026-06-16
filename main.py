@@ -1920,6 +1920,9 @@ class ContactMessage(db.Model):
     replied = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     replied_at = db.Column(db.DateTime, nullable=True)
 
+    # Values submitted for admin-defined custom fields: [{"label": ..., "value": ...}].
+    extra_fields = db.Column(db.JSON, nullable=True)
+
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     sent_at = db.Column(db.DateTime, nullable=True)
 
@@ -9057,6 +9060,7 @@ def messages_live():
                 'created_at': msg.created_at.strftime('%b %d, %Y %I:%M %p'),
                 'is_read': msg.is_read,
                 'replied': msg.replied,
+                'extra_fields': msg.extra_fields or [],
                 'status': msg.status,
                 'error_message': msg.error_message,
                 'ip_address': msg.ip_address,
@@ -9350,10 +9354,28 @@ def send_email():
 
     recipient_email = None
     contact_form_title = None
+    custom_fields = []
 
     if section.content and isinstance(section.content, dict):
         recipient_email = (section.content.get('email') or '').strip()
         contact_form_title = section.content.get('title')
+        custom_fields = section.content.get('fields') or []
+
+    # Collect admin-defined custom field values (named cf_0, cf_1, … on the
+    # public form). Labels come from the stored section config, never the
+    # client, so they can't be spoofed. Enforce required fields server-side.
+    extra_fields = []
+    for i, fdef in enumerate(custom_fields):
+        if not isinstance(fdef, dict):
+            continue
+        value = (request.form.get(f'cf_{i}') or '').strip()
+        if fdef.get('required') and not value:
+            return jsonify({
+                'status': 'error',
+                'message': f"Please fill in the \"{fdef.get('label', 'required')}\" field."
+            }), 400
+        if value:
+            extra_fields.append({'label': fdef.get('label', f'Field {i + 1}'), 'value': value})
 
     page_id = getattr(section, 'page_content_id', None)
     website_id = None
@@ -9393,6 +9415,7 @@ def send_email():
         subject=subject,
         body=body,
         contact_form_title=contact_form_title,
+        extra_fields=extra_fields or None,
         ip_address=ip_address,
         user_agent=user_agent,
         referrer=referrer,
@@ -9456,10 +9479,17 @@ def send_email():
     # Deep link that opens this exact message in the admin inbox.
     admin_link = _absolute_url('messages_page', msg=contact_message.id)
 
+    extra_text = ''.join(f"\n{f['label']}: {f['value']}" for f in extra_fields)
+    if extra_text:
+        extra_text = '\n' + extra_text.lstrip('\n')
+    extra_html = ''.join(
+        f"<br><strong>{escape(f['label'])}:</strong> {escape(f['value'])}" for f in extra_fields
+    )
+
     formatted_body = f"""You have received a new message from your Uwebia website contact form.
 
 Sender Email: {sender_email}
-Subject: {subject}
+Subject: {subject}{extra_text}
 
 Message Body:
 {body}
@@ -9477,7 +9507,7 @@ View this message in your admin inbox:
 <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.5;max-width:560px;">
   <p>You have received a new message from your website contact form.</p>
   <p><strong>Sender Email:</strong> {escape(sender_email)}<br>
-     <strong>Subject:</strong> {escape(subject)}</p>
+     <strong>Subject:</strong> {escape(subject)}{extra_html}</p>
   <p><strong>Message:</strong></p>
   <div style="white-space:pre-wrap;background:#f3f4f6;border-radius:8px;padding:12px;">{escape(body)}</div>
   <p style="text-align:center;margin:26px 0;">
@@ -18496,9 +18526,39 @@ def update_contact_section(section, form_data):
         'title': contact_form_title,
         'email': contact_email,
         'enabled': contact_form_enabled,
-        'cooldown_hours': cooldown_hours
+        'cooldown_hours': cooldown_hours,
+        'fields': _parse_contact_custom_fields(form_data.get('contact_custom_fields')),
     }
     return section
+
+
+# Custom contact-form fields the admin can add (beyond Email/Subject/Message).
+_CONTACT_FIELD_TYPES = {'text', 'email', 'tel', 'number', 'textarea'}
+
+
+def _parse_contact_custom_fields(raw):
+    """Validate the JSON list of admin-defined custom fields from the editor.
+    Returns a clean list of {label, type, required}; drops malformed/empty rows."""
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    cleaned = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        label = (it.get('label') or '').strip()[:100]
+        if not label:
+            continue
+        ftype = it.get('type') if it.get('type') in _CONTACT_FIELD_TYPES else 'text'
+        cleaned.append({'label': label, 'type': ftype, 'required': bool(it.get('required'))})
+        if len(cleaned) >= 20:  # sane cap
+            break
+    return cleaned
 
 
 def update_product_grid_section(section, form_data):
@@ -32164,11 +32224,27 @@ def _inject_print_qr(html, qr_cache, base_url=None):
 
 
 def _quiz_cell_text(cell):
-    """Plain-text label for a matching/ordering cell (text or image caption)."""
+    """Plain-text label for a matching/ordering cell (text or image caption).
+    Used only as a stable sort key for shuffling the worksheet columns."""
     cell = cell or {}
     if cell.get('kind') == 'image':
-        return cell.get('text') or '[image]'
+        return cell.get('text') or cell.get('image_url') or '[image]'
     return cell.get('text') or ''
+
+
+def _quiz_cell_html(cell):
+    """Printable HTML for a matching/ordering cell: an <img> for image cells
+    (with an optional caption), otherwise escaped text. Returns safe markup."""
+    from markupsafe import escape as _e
+    cell = cell or {}
+    url = (cell.get('image_url') or '').strip()
+    if cell.get('kind') == 'image' and url:
+        cap = (cell.get('text') or '').strip()
+        html = f'<img class="print-cell-img" src="{_e(url)}" alt="">'
+        if cap:
+            html += f' <span class="print-cell-cap">{_e(cap)}</span>'
+        return html
+    return str(_e(cell.get('text') or ''))
 
 
 def _render_quiz_print_html(quiz, include_answers):
@@ -32187,6 +32263,10 @@ def _render_quiz_print_html(quiz, include_answers):
         parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_e(q.prompt)} '
                      f'<span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span></p>')
 
+        # Answer-key entries are stored as already-safe HTML (so image cells can
+        # render as <img>), then emitted without re-escaping below.
+        esc = lambda s: str(_e(s))
+
         if t in ('single_choice', 'multi_choice', 'true_false'):
             box = '☐'
             parts.append('<ul class="print-opts">')
@@ -32194,39 +32274,41 @@ def _render_quiz_print_html(quiz, include_answers):
                 parts.append(f'<li>{box} {_e(o.get("text", ""))}</li>')
             parts.append('</ul>')
             if include_answers:
-                correct = [o.get('text', '') for o in (cfg.get('options') or []) if o.get('correct')]
+                correct = [esc(o.get('text', '')) for o in (cfg.get('options') or []) if o.get('correct')]
                 answer_rows.append((idx, ', '.join(correct) or '—'))
         elif t == 'short_text':
             parts.append('<div class="print-blank-line"></div>')
             if include_answers:
-                answer_rows.append((idx, ', '.join(cfg.get('accepted') or []) or '—'))
+                answer_rows.append((idx, ', '.join(esc(a) for a in (cfg.get('accepted') or [])) or '—'))
         elif t == 'fill_blank':
             # The prompt already carries the ___ markers; nothing extra to draw.
             if include_answers:
                 blanks = cfg.get('blanks') or []
-                ans = '; '.join('/'.join(b.get('accepted') or []) for b in blanks)
+                ans = '; '.join('/'.join(esc(x) for x in (b.get('accepted') or [])) for b in blanks)
                 answer_rows.append((idx, ans or '—'))
         elif t == 'matching':
             pairs = cfg.get('pairs') or []
-            lefts = [_quiz_cell_text(p.get('left')) for p in pairs]
-            rights = sorted(_quiz_cell_text(p.get('right')) for p in pairs)
+            # Reorder the right column so row alignment doesn't reveal the pairing.
+            rights_sorted = sorted((p.get('right') for p in pairs),
+                                   key=lambda c: _quiz_cell_text(c).lower())
             parts.append('<table class="print-match"><tbody>')
-            for i, lft in enumerate(lefts):
-                rgt = rights[i] if i < len(rights) else ''
-                parts.append(f'<tr><td>____ {_e(lft)}</td><td>{_e(chr(65 + i))}. {_e(rgt)}</td></tr>')
+            for i, p in enumerate(pairs):
+                left_html = _quiz_cell_html(p.get('left'))
+                right_html = _quiz_cell_html(rights_sorted[i]) if i < len(rights_sorted) else ''
+                parts.append(f'<tr><td>____ {left_html}</td><td>{_e(chr(65 + i))}. {right_html}</td></tr>')
             parts.append('</tbody></table>')
             if include_answers:
-                pa = '; '.join(f'{_quiz_cell_text(p.get("left"))} → {_quiz_cell_text(p.get("right"))}'
-                               for p in pairs)
+                pa = '<br>'.join(f'{_quiz_cell_html(p.get("left"))} &rarr; {_quiz_cell_html(p.get("right"))}'
+                                 for p in pairs)
                 answer_rows.append((idx, pa or '—'))
         elif t == 'ordering':
             items = cfg.get('items') or []
             parts.append('<ul class="print-order">')
-            for it in sorted(items, key=lambda _: _quiz_cell_text(_)):
-                parts.append(f'<li>____ {_e(_quiz_cell_text(it))}</li>')
+            for it in sorted(items, key=lambda c: _quiz_cell_text(c).lower()):
+                parts.append(f'<li>____ {_quiz_cell_html(it)}</li>')
             parts.append('</ul>')
             if include_answers:
-                order = ' → '.join(_quiz_cell_text(it) for it in items)
+                order = ' &rarr; '.join(_quiz_cell_html(it) for it in items)
                 answer_rows.append((idx, order or '—'))
         elif t == 'image_choice':
             box = '☐'
@@ -32238,8 +32320,16 @@ def _render_quiz_print_html(quiz, include_answers):
                              f'<figcaption>{_e(cap)}</figcaption></figure>')
             parts.append('</div>')
             if include_answers:
-                correct = [o.get('caption') or o.get('image_url', '')
-                           for o in (cfg.get('options') or []) if o.get('correct')]
+                correct = []
+                for o in (cfg.get('options') or []):
+                    if not o.get('correct'):
+                        continue
+                    url = (o.get('image_url') or '').strip()
+                    cap = (o.get('caption') or '').strip()
+                    h = f'<img class="print-cell-img" src="{_e(url)}" alt="">' if url else ''
+                    if cap:
+                        h += f' <span class="print-cell-cap">{_e(cap)}</span>'
+                    correct.append(h or esc(url))
                 answer_rows.append((idx, ', '.join(correct) or '—'))
         elif t == 'coding':
             starter = cfg.get('starter_code') or ''
@@ -32250,14 +32340,15 @@ def _render_quiz_print_html(quiz, include_answers):
             parts.append('<div class="print-code-space"></div>')
             if include_answers:
                 cases = cfg.get('test_cases') or []
-                ans = '; '.join(f'in={c.get("stdin","")!r}→out={c.get("expected","")!r}' for c in cases)
+                ans = '; '.join(esc(f'in={c.get("stdin","")!r} -> out={c.get("expected","")!r}') for c in cases)
                 answer_rows.append((idx, ans or '(compiles cleanly)'))
         parts.append('</div>')
 
     if include_answers and answer_rows:
         parts.append('<div class="print-answer-key"><h4>Answer key</h4><ol>')
         for num, ans in answer_rows:
-            parts.append(f'<li>Q{num}: {_e(ans)}</li>')
+            # `ans` is already-safe HTML built above — do not re-escape.
+            parts.append(f'<li>Q{num}: {ans}</li>')
         parts.append('</ol></div>')
 
     parts.append('</div>')

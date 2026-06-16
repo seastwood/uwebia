@@ -103,7 +103,19 @@ html, body {
 .print-opts li, .print-order li { margin: 3px 0; }
 .print-blank-line { border-bottom: 1px solid #000; height: 1.4rem; margin: 6px 0; }
 .print-match { border-collapse: collapse; margin: 4px 0; width: 100%; }
-.print-match td { padding: 3px 10px 3px 0; vertical-align: top; }
+.print-match td { padding: 5px 10px 5px 0; vertical-align: middle; }
+
+/* Inline image cells in matching / ordering / answer key. */
+.print-cell-img {
+    max-height: 70px;
+    max-width: 130px;
+    height: auto;
+    vertical-align: middle;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.print-cell-cap { font-size: 0.82rem; color: #444; }
+.print-order li { margin: 5px 0; }
 .print-img-opts { display: flex; flex-wrap: wrap; gap: 14px; margin: 6px 0; }
 .print-img-opts figure { margin: 0; width: 150px; text-align: center; }
 .print-img-opts img { max-width: 150px; height: auto; display: block; margin: 2px auto; }
