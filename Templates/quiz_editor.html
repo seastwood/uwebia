@@ -141,12 +141,16 @@
         <div class="qp-head">
             <h3>Choose an image</h3>
             <div style="display:flex;gap:10px;align-items:center;">
+                {% if current_user.has_permission('assets.upload') %}
                 <button class="qe-mini-btn" onclick="qpUploadClick()"><i class="fas fa-upload"></i> Upload</button>
+                {% endif %}
                 <button class="qe-mini-btn" onclick="qpUseUrl()"><i class="fas fa-link"></i> Use URL</button>
                 <button class="qp-close" onclick="closeQuizPicker()">&times;</button>
             </div>
         </div>
+        {% if current_user.has_permission('assets.upload') %}
         <input type="file" id="qpUploadInput" accept="image/*" style="display:none" onchange="qpUploadFile(this.files[0])">
+        {% endif %}
         <div class="qp-body" id="qpBody"></div>
     </div>
 </div>

@@ -366,7 +366,9 @@
         <div class="pe-asset-header">
             <h3 id="assetPickerTitle">Insert Asset</h3>
             <div style="display:flex;gap:10px;align-items:center;">
+                {% if current_user.has_permission('assets.upload') %}
                 <button class="pe-folder-btn" onclick="pepUploadClick()"><i class="fas fa-upload"></i> Upload</button>
+                {% endif %}
                 <button class="pe-asset-close" onclick="closeAssetPicker()">&times;</button>
             </div>
         </div>
@@ -376,7 +378,9 @@
             <button class="pe-asset-tab" data-type="video" onclick="switchAssetTab('video')">Video</button>
             <button class="pe-asset-tab" data-type="pdf,document,misc" onclick="switchAssetTab('pdf,document,misc')">Files</button>
         </div>
+        {% if current_user.has_permission('assets.upload') %}
         <input type="file" id="pepUploadInput" style="display:none" onchange="pepUploadFile(this.files[0])">
+        {% endif %}
         <div class="pe-asset-body" id="assetPickerBody">
             <div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>
         </div>
