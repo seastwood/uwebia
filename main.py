@@ -32224,11 +32224,27 @@ def _inject_print_qr(html, qr_cache, base_url=None):
 
 
 def _quiz_cell_text(cell):
-    """Plain-text label for a matching/ordering cell (text or image caption)."""
+    """Plain-text label for a matching/ordering cell (text or image caption).
+    Used only as a stable sort key for shuffling the worksheet columns."""
     cell = cell or {}
     if cell.get('kind') == 'image':
-        return cell.get('text') or '[image]'
+        return cell.get('text') or cell.get('image_url') or '[image]'
     return cell.get('text') or ''
+
+
+def _quiz_cell_html(cell):
+    """Printable HTML for a matching/ordering cell: an <img> for image cells
+    (with an optional caption), otherwise escaped text. Returns safe markup."""
+    from markupsafe import escape as _e
+    cell = cell or {}
+    url = (cell.get('image_url') or '').strip()
+    if cell.get('kind') == 'image' and url:
+        cap = (cell.get('text') or '').strip()
+        html = f'<img class="print-cell-img" src="{_e(url)}" alt="">'
+        if cap:
+            html += f' <span class="print-cell-cap">{_e(cap)}</span>'
+        return html
+    return str(_e(cell.get('text') or ''))
 
 
 def _render_quiz_print_html(quiz, include_answers):
@@ -32247,6 +32263,10 @@ def _render_quiz_print_html(quiz, include_answers):
         parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_e(q.prompt)} '
                      f'<span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span></p>')
 
+        # Answer-key entries are stored as already-safe HTML (so image cells can
+        # render as <img>), then emitted without re-escaping below.
+        esc = lambda s: str(_e(s))
+
         if t in ('single_choice', 'multi_choice', 'true_false'):
             box = '☐'
             parts.append('<ul class="print-opts">')
@@ -32254,39 +32274,41 @@ def _render_quiz_print_html(quiz, include_answers):
                 parts.append(f'<li>{box} {_e(o.get("text", ""))}</li>')
             parts.append('</ul>')
             if include_answers:
-                correct = [o.get('text', '') for o in (cfg.get('options') or []) if o.get('correct')]
+                correct = [esc(o.get('text', '')) for o in (cfg.get('options') or []) if o.get('correct')]
                 answer_rows.append((idx, ', '.join(correct) or '—'))
         elif t == 'short_text':
             parts.append('<div class="print-blank-line"></div>')
             if include_answers:
-                answer_rows.append((idx, ', '.join(cfg.get('accepted') or []) or '—'))
+                answer_rows.append((idx, ', '.join(esc(a) for a in (cfg.get('accepted') or [])) or '—'))
         elif t == 'fill_blank':
             # The prompt already carries the ___ markers; nothing extra to draw.
             if include_answers:
                 blanks = cfg.get('blanks') or []
-                ans = '; '.join('/'.join(b.get('accepted') or []) for b in blanks)
+                ans = '; '.join('/'.join(esc(x) for x in (b.get('accepted') or [])) for b in blanks)
                 answer_rows.append((idx, ans or '—'))
         elif t == 'matching':
             pairs = cfg.get('pairs') or []
-            lefts = [_quiz_cell_text(p.get('left')) for p in pairs]
-            rights = sorted(_quiz_cell_text(p.get('right')) for p in pairs)
+            # Reorder the right column so row alignment doesn't reveal the pairing.
+            rights_sorted = sorted((p.get('right') for p in pairs),
+                                   key=lambda c: _quiz_cell_text(c).lower())
             parts.append('<table class="print-match"><tbody>')
-            for i, lft in enumerate(lefts):
-                rgt = rights[i] if i < len(rights) else ''
-                parts.append(f'<tr><td>____ {_e(lft)}</td><td>{_e(chr(65 + i))}. {_e(rgt)}</td></tr>')
+            for i, p in enumerate(pairs):
+                left_html = _quiz_cell_html(p.get('left'))
+                right_html = _quiz_cell_html(rights_sorted[i]) if i < len(rights_sorted) else ''
+                parts.append(f'<tr><td>____ {left_html}</td><td>{_e(chr(65 + i))}. {right_html}</td></tr>')
             parts.append('</tbody></table>')
             if include_answers:
-                pa = '; '.join(f'{_quiz_cell_text(p.get("left"))} → {_quiz_cell_text(p.get("right"))}'
-                               for p in pairs)
+                pa = '<br>'.join(f'{_quiz_cell_html(p.get("left"))} &rarr; {_quiz_cell_html(p.get("right"))}'
+                                 for p in pairs)
                 answer_rows.append((idx, pa or '—'))
         elif t == 'ordering':
             items = cfg.get('items') or []
             parts.append('<ul class="print-order">')
-            for it in sorted(items, key=lambda _: _quiz_cell_text(_)):
-                parts.append(f'<li>____ {_e(_quiz_cell_text(it))}</li>')
+            for it in sorted(items, key=lambda c: _quiz_cell_text(c).lower()):
+                parts.append(f'<li>____ {_quiz_cell_html(it)}</li>')
             parts.append('</ul>')
             if include_answers:
-                order = ' → '.join(_quiz_cell_text(it) for it in items)
+                order = ' &rarr; '.join(_quiz_cell_html(it) for it in items)
                 answer_rows.append((idx, order or '—'))
         elif t == 'image_choice':
             box = '☐'
@@ -32298,8 +32320,16 @@ def _render_quiz_print_html(quiz, include_answers):
                              f'<figcaption>{_e(cap)}</figcaption></figure>')
             parts.append('</div>')
             if include_answers:
-                correct = [o.get('caption') or o.get('image_url', '')
-                           for o in (cfg.get('options') or []) if o.get('correct')]
+                correct = []
+                for o in (cfg.get('options') or []):
+                    if not o.get('correct'):
+                        continue
+                    url = (o.get('image_url') or '').strip()
+                    cap = (o.get('caption') or '').strip()
+                    h = f'<img class="print-cell-img" src="{_e(url)}" alt="">' if url else ''
+                    if cap:
+                        h += f' <span class="print-cell-cap">{_e(cap)}</span>'
+                    correct.append(h or esc(url))
                 answer_rows.append((idx, ', '.join(correct) or '—'))
         elif t == 'coding':
             starter = cfg.get('starter_code') or ''
@@ -32310,14 +32340,15 @@ def _render_quiz_print_html(quiz, include_answers):
             parts.append('<div class="print-code-space"></div>')
             if include_answers:
                 cases = cfg.get('test_cases') or []
-                ans = '; '.join(f'in={c.get("stdin","")!r}→out={c.get("expected","")!r}' for c in cases)
+                ans = '; '.join(esc(f'in={c.get("stdin","")!r} -> out={c.get("expected","")!r}') for c in cases)
                 answer_rows.append((idx, ans or '(compiles cleanly)'))
         parts.append('</div>')
 
     if include_answers and answer_rows:
         parts.append('<div class="print-answer-key"><h4>Answer key</h4><ol>')
         for num, ans in answer_rows:
-            parts.append(f'<li>Q{num}: {_e(ans)}</li>')
+            # `ans` is already-safe HTML built above — do not re-escape.
+            parts.append(f'<li>Q{num}: {ans}</li>')
         parts.append('</ol></div>')
 
     parts.append('</div>')
