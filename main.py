@@ -1920,6 +1920,9 @@ class ContactMessage(db.Model):
     replied = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     replied_at = db.Column(db.DateTime, nullable=True)
 
+    # Values submitted for admin-defined custom fields: [{"label": ..., "value": ...}].
+    extra_fields = db.Column(db.JSON, nullable=True)
+
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     sent_at = db.Column(db.DateTime, nullable=True)
 
@@ -9057,6 +9060,7 @@ def messages_live():
                 'created_at': msg.created_at.strftime('%b %d, %Y %I:%M %p'),
                 'is_read': msg.is_read,
                 'replied': msg.replied,
+                'extra_fields': msg.extra_fields or [],
                 'status': msg.status,
                 'error_message': msg.error_message,
                 'ip_address': msg.ip_address,
@@ -9350,10 +9354,28 @@ def send_email():
 
     recipient_email = None
     contact_form_title = None
+    custom_fields = []
 
     if section.content and isinstance(section.content, dict):
         recipient_email = (section.content.get('email') or '').strip()
         contact_form_title = section.content.get('title')
+        custom_fields = section.content.get('fields') or []
+
+    # Collect admin-defined custom field values (named cf_0, cf_1, … on the
+    # public form). Labels come from the stored section config, never the
+    # client, so they can't be spoofed. Enforce required fields server-side.
+    extra_fields = []
+    for i, fdef in enumerate(custom_fields):
+        if not isinstance(fdef, dict):
+            continue
+        value = (request.form.get(f'cf_{i}') or '').strip()
+        if fdef.get('required') and not value:
+            return jsonify({
+                'status': 'error',
+                'message': f"Please fill in the \"{fdef.get('label', 'required')}\" field."
+            }), 400
+        if value:
+            extra_fields.append({'label': fdef.get('label', f'Field {i + 1}'), 'value': value})
 
     page_id = getattr(section, 'page_content_id', None)
     website_id = None
@@ -9393,6 +9415,7 @@ def send_email():
         subject=subject,
         body=body,
         contact_form_title=contact_form_title,
+        extra_fields=extra_fields or None,
         ip_address=ip_address,
         user_agent=user_agent,
         referrer=referrer,
@@ -9456,10 +9479,17 @@ def send_email():
     # Deep link that opens this exact message in the admin inbox.
     admin_link = _absolute_url('messages_page', msg=contact_message.id)
 
+    extra_text = ''.join(f"\n{f['label']}: {f['value']}" for f in extra_fields)
+    if extra_text:
+        extra_text = '\n' + extra_text.lstrip('\n')
+    extra_html = ''.join(
+        f"<br><strong>{escape(f['label'])}:</strong> {escape(f['value'])}" for f in extra_fields
+    )
+
     formatted_body = f"""You have received a new message from your Uwebia website contact form.
 
 Sender Email: {sender_email}
-Subject: {subject}
+Subject: {subject}{extra_text}
 
 Message Body:
 {body}
@@ -9477,7 +9507,7 @@ View this message in your admin inbox:
 <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.5;max-width:560px;">
   <p>You have received a new message from your website contact form.</p>
   <p><strong>Sender Email:</strong> {escape(sender_email)}<br>
-     <strong>Subject:</strong> {escape(subject)}</p>
+     <strong>Subject:</strong> {escape(subject)}{extra_html}</p>
   <p><strong>Message:</strong></p>
   <div style="white-space:pre-wrap;background:#f3f4f6;border-radius:8px;padding:12px;">{escape(body)}</div>
   <p style="text-align:center;margin:26px 0;">
@@ -18496,9 +18526,39 @@ def update_contact_section(section, form_data):
         'title': contact_form_title,
         'email': contact_email,
         'enabled': contact_form_enabled,
-        'cooldown_hours': cooldown_hours
+        'cooldown_hours': cooldown_hours,
+        'fields': _parse_contact_custom_fields(form_data.get('contact_custom_fields')),
     }
     return section
+
+
+# Custom contact-form fields the admin can add (beyond Email/Subject/Message).
+_CONTACT_FIELD_TYPES = {'text', 'email', 'tel', 'number', 'textarea'}
+
+
+def _parse_contact_custom_fields(raw):
+    """Validate the JSON list of admin-defined custom fields from the editor.
+    Returns a clean list of {label, type, required}; drops malformed/empty rows."""
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    cleaned = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        label = (it.get('label') or '').strip()[:100]
+        if not label:
+            continue
+        ftype = it.get('type') if it.get('type') in _CONTACT_FIELD_TYPES else 'text'
+        cleaned.append({'label': label, 'type': ftype, 'required': bool(it.get('required'))})
+        if len(cleaned) >= 20:  # sane cap
+            break
+    return cleaned
 
 
 def update_product_grid_section(section, form_data):

@@ -534,7 +534,8 @@
                     data-error="{{ msg.error_message or '' }}"
                     data-created="{{ msg.created_at.strftime('%b %d, %Y %I:%M %p') }}"
                     data-ip="{{ msg.ip_address or '' }}" data-referrer="{{ msg.referrer or '' }}"
-                    data-form-title="{{ msg.contact_form_title or '' }}">
+                    data-form-title="{{ msg.contact_form_title or '' }}"
+                    data-extra='{{ (msg.extra_fields or [])|tojson }}'>
                     <div class="message-row-top">
                         <div class="message-row-email">
                             {% if not msg.is_read %}<span class="message-unread-dot"></span>{% endif %}
@@ -601,7 +602,8 @@ function renderMessageDetail(row) {
         created: row.dataset.created || '',
         ip: row.dataset.ip || '',
         referrer: row.dataset.referrer || '',
-        formTitle: row.dataset.formTitle || ''
+        formTitle: row.dataset.formTitle || '',
+        extra: (function () { try { return JSON.parse(row.dataset.extra || '[]'); } catch (e) { return []; } })()
     };
 
     const fullEmailText = buildEmailText(data);
@@ -658,6 +660,7 @@ function renderMessageDetail(row) {
                     <div><strong>From:</strong> ${escapeHtml(data.sender)}</div>
                     <div><strong>To:</strong> ${escapeHtml(data.recipient)}</div>
                     <div><strong>Date:</strong> ${escapeHtml(data.created)}</div>
+                    ${(data.extra || []).map(f => `<div><strong>${escapeHtml(f.label)}:</strong> ${escapeHtml(f.value)}</div>`).join('')}
                 </div>
 
                 <div class="message-email-divider"></div>
@@ -944,6 +947,7 @@ function renderMessagesList(messages) {
         row.dataset.ip = msg.ip_address || '';
         row.dataset.referrer = msg.referrer || '';
         row.dataset.formTitle = msg.contact_form_title || '';
+        row.dataset.extra = JSON.stringify(msg.extra_fields || []);
 
         row.innerHTML = `
             <div class="message-row-top">

@@ -4963,6 +4963,19 @@ box-sizing: border-box;
                                                 required></textarea>
                                         </div>
 
+                                        {% for field in section.content.get('fields', []) %}
+                                        <div class="form-group">
+                                            <label for="cf_{{ section.id }}_{{ loop.index0 }}">{{ field.label }}{% if field.required %} *{% endif %}:</label><br>
+                                            {% if field.type == 'textarea' %}
+                                            <textarea id="cf_{{ section.id }}_{{ loop.index0 }}" name="cf_{{ loop.index0 }}" rows="3"
+                                                class="dynamic-width form-control" style="padding: 10px;" {% if field.required %}required{% endif %}></textarea>
+                                            {% else %}
+                                            <input type="{{ field.type }}" id="cf_{{ section.id }}_{{ loop.index0 }}" name="cf_{{ loop.index0 }}"
+                                                class="dynamic-width form-control" style="padding: 10px;" {% if field.required %}required{% endif %}>
+                                            {% endif %}
+                                        </div>
+                                        {% endfor %}
+
                                         <button type="submit" class="btn btn-primary">Submit</button>
                                     </form>
 
@@ -6233,14 +6246,12 @@ html, body {
             const sectionId = $form.find('input[name="section_id"]').val();
             const $successMessage = $('#successMessage-' + sectionId);
 
-            const formData = {
-                section_id: sectionId,
-                _form_token: $form.find('input[name="_form_token"]').val(),
-                _hp_name: $form.find('input[name="_hp_name"]').val(),
-                senders_email: $form.find('input[name="senders_email"]').val(),
-                message_subject: $form.find('input[name="message_subject"]').val(),
-                message_body: $form.find('textarea[name="message_body"]').val()
-            };
+            // Serialize every named field (core + any admin-defined cf_* fields).
+            const formData = {};
+            $form.serializeArray().forEach(function (item) {
+                formData[item.name] = item.value;
+            });
+            formData.section_id = sectionId;
 
             $.ajax({
                 type: 'POST',

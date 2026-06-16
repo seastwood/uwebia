@@ -11114,8 +11114,27 @@ setTimeout(() => {
                 <small style="display:block; color:#666; margin-top:4px;">How long before the same visitor can submit again. 0 = no limit. Default 8.</small><br>
                 <label for="contact_form_enabled">Enable Contact Form:</label>
                 <input type="checkbox" id="contact_form_enabled" name="contact_form_enabled" ${section.content['enabled'] ? 'checked' : ''}><br><br>
+
+                <label style="font-weight:600;">Custom fields:</label>
+                <small style="display:block; color:#666; margin:2px 0 8px;">Extra inputs shown after Message — e.g. First name, Phone.</small>
+                <input type="hidden" name="contact_custom_fields" id="cfHidden-${section.id}" value="">
+                <div id="cfList-${section.id}"></div>
+                <button type="button" class="btn btn-secondary" style="margin-top:6px;" onclick="cfAddField(${section.id})">
+                    <i class="fas fa-plus"></i> Add field
+                </button><br><br>
             </form>
         </div>`;
+                            // Initialise the custom-fields repeater for this contact form.
+                            const _cfForm = sectionContent.querySelector(`form[data-section-type="contact_form"][data-section-id="${section.id}"]`);
+                            if (_cfForm) {
+                                window._cfFormMap = window._cfFormMap || {};
+                                window._cfFormMap[section.id] = _cfForm;
+                                _cfForm._cfState = Array.isArray(section.content.fields)
+                                    ? section.content.fields.map(f => ({ label: f.label || '', type: f.type || 'text', required: !!f.required }))
+                                    : [];
+                                cfRender(section.id);
+                                cfSyncHidden(section.id);
+                            }
                         } else if (section.section_type === 'code') {
                             const existingCode = (section.content && section.content.code) || '';
                             const savedAgentId = (section.content && section.content.agent_id) || null;
@@ -16142,6 +16161,68 @@ setTimeout(() => {
             return String(s == null ? '' : s).replace(/[<>&"']/g, c => (
                 {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]
             ));
+        }
+
+        // ── Contact form custom-fields repeater ──────────────────────────────
+        const _CF_TYPES = [['text','Short text'],['email','Email'],['tel','Phone'],
+                           ['number','Number'],['textarea','Long text']];
+
+        function _cfForm(sectionId) {
+            return (window._cfFormMap || {})[sectionId]
+                || document.querySelector(`form[data-section-type="contact_form"][data-section-id="${sectionId}"]`);
+        }
+        function cfSyncHidden(sectionId) {
+            const form = _cfForm(sectionId);
+            if (!form) return;
+            const hidden = form.querySelector(`[id="cfHidden-${sectionId}"]`);
+            if (hidden) hidden.value = JSON.stringify(form._cfState || []);
+        }
+        function cfAddField(sectionId) {
+            const form = _cfForm(sectionId);
+            if (!form) return;
+            (form._cfState = form._cfState || []).push({ label: '', type: 'text', required: false });
+            cfRender(sectionId);
+            cfSyncHidden(sectionId);
+        }
+        function cfRemoveField(sectionId, idx) {
+            const form = _cfForm(sectionId);
+            if (!form || !form._cfState) return;
+            form._cfState.splice(idx, 1);
+            cfRender(sectionId);
+            cfSyncHidden(sectionId);
+        }
+        function cfUpdate(sectionId, idx, key, value) {
+            const form = _cfForm(sectionId);
+            if (!form || !form._cfState || !form._cfState[idx]) return;
+            form._cfState[idx][key] = value;
+            cfSyncHidden(sectionId);
+        }
+        function cfRender(sectionId) {
+            const form = _cfForm(sectionId);
+            if (!form) return;
+            const list = form.querySelector(`[id="cfList-${sectionId}"]`);
+            if (!list) return;
+            const state = form._cfState || [];
+            if (!state.length) {
+                list.innerHTML = '<p style="color:#888; font-size:0.85rem; margin:4px 0;">No custom fields yet.</p>';
+                return;
+            }
+            list.innerHTML = state.map((f, i) => {
+                const opts = _CF_TYPES.map(([v, lbl]) =>
+                    `<option value="${v}"${f.type === v ? ' selected' : ''}>${lbl}</option>`).join('');
+                return `<div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
+                    <input type="text" placeholder="Field label (e.g. Phone)" value="${_esc(f.label)}"
+                        style="flex:1; min-width:140px; padding:8px;"
+                        oninput="cfUpdate(${sectionId}, ${i}, 'label', this.value)">
+                    <select style="padding:8px;" onchange="cfUpdate(${sectionId}, ${i}, 'type', this.value)">${opts}</select>
+                    <label style="font-size:0.85rem; white-space:nowrap;">
+                        <input type="checkbox" ${f.required ? 'checked' : ''}
+                            onchange="cfUpdate(${sectionId}, ${i}, 'required', this.checked)"> Required
+                    </label>
+                    <button type="button" class="btn btn-danger" style="padding:6px 10px;"
+                        onclick="cfRemoveField(${sectionId}, ${i})"><i class="fas fa-trash"></i></button>
+                </div>`;
+            }).join('');
         }
 
         function _btnCardHtml(sectionId, idx, b) {
