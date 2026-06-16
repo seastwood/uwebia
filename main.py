@@ -23407,22 +23407,31 @@ def public_forum_vote_reply(reply_id, prefix=None):
 @app.route('/forum/register', methods=['GET', 'POST'])
 @app.route('/register', methods=['GET', 'POST'])
 def public_register():
-    website_prefix = (request.args.get('website_prefix') or '').strip().strip('/')
+    website_prefix = (request.values.get('website_prefix') or '').strip().strip('/')
     website = get_live_website(url_prefix=website_prefix or None)
 
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
 
+    # Preserve the intended destination across the form POST / error retries;
+    # only allow site-relative targets (no open redirects).
+    _raw_next = (request.values.get('next') or '').strip()
+    safe_next = _raw_next if (_raw_next.startswith('/') and not _raw_next.startswith('//')) else ''
+
     def _register_redirect(**extra):
         kwargs = extra
         if website_prefix:
             kwargs['website_prefix'] = website_prefix
+        if safe_next:
+            kwargs.setdefault('next', safe_next)
         return redirect(url_for('public_register', **kwargs))
 
     def _login_redirect(**extra):
         kwargs = extra
         if website_prefix:
             kwargs['website_prefix'] = website_prefix
+        if safe_next:
+            kwargs.setdefault('next', safe_next)
         return redirect(url_for('public_login', **kwargs))
 
     if request.method == 'POST':
@@ -23488,7 +23497,7 @@ def public_register():
                     'error'
                 )
 
-            return _login_redirect(next=request.args.get('next') or _website_default_url(website))
+            return _login_redirect(next=safe_next or _website_default_url(website))
 
         if getattr(website, 'public_approval_required', False) and not public_user.is_active_public:
             flash('Your account has been created and is pending admin approval.', 'success')
@@ -23496,7 +23505,7 @@ def public_register():
 
         public_user_login(public_user)
 
-        next_url = request.args.get('next') or _website_default_url(website)
+        next_url = safe_next or _website_default_url(website)
 
         return redirect(next_url)
 
@@ -23516,16 +23525,25 @@ def public_register():
 @app.route('/forum/login', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def public_login():
-    website_prefix = (request.args.get('website_prefix') or '').strip().strip('/')
+    # Read from request.values so both the GET query string and the POSTed
+    # hidden fields are honored — this is what keeps `next` alive across error/
+    # captcha retries (previously it was dropped, sending users to the forum).
+    website_prefix = (request.values.get('website_prefix') or '').strip().strip('/')
     website = get_live_website(url_prefix=website_prefix or None)
 
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
 
+    # Only allow site-relative targets (no scheme/host) to avoid open redirects.
+    _raw_next = (request.values.get('next') or '').strip()
+    safe_next = _raw_next if (_raw_next.startswith('/') and not _raw_next.startswith('//')) else ''
+
     def _login_redirect(**extra):
         kwargs = extra
         if website_prefix:
             kwargs['website_prefix'] = website_prefix
+        if safe_next:
+            kwargs.setdefault('next', safe_next)
         return redirect(url_for('public_login', **kwargs))
 
     ip = get_request_ip()
@@ -23549,6 +23567,7 @@ def public_login():
                 return render_template('public_forum_login.html', website=website,
                                        public_user=_public_user_for_website(website),
                                        content={'current_page_url': url_for('public_login')},
+                                       next_url=safe_next, website_prefix=website_prefix,
                                        show_captcha=True, captcha_question=captcha_question)
 
         public_user = PublicUser.query.filter(
@@ -23580,7 +23599,7 @@ def public_login():
                 _needs_2fa = admin_requires_2fa(admin)
                 _two_fa_email = _admin_two_fa_email(admin)
                 if _needs_2fa:
-                    next_q = request.args.get('next') or _website_default_url(website)
+                    next_q = safe_next or _website_default_url(website)
                     if not _two_fa_email:
                         # Defensive fallback — shouldn't normally happen.
                         flash('Your admin account requires two-factor verification, '
@@ -23626,7 +23645,7 @@ def public_login():
                 if mirror:
                     public_user_login(mirror)
                 _rl_record(ip, login_value, success=True)
-                next_url = request.args.get('next') or _website_default_url(website)
+                next_url = safe_next or _website_default_url(website)
                 return redirect(next_url)
 
             _rl_record(ip, login_value, success=False)
@@ -23639,6 +23658,7 @@ def public_login():
                 return render_template('public_forum_login.html', website=website,
                                        public_user=_public_user_for_website(website),
                                        content={'current_page_url': url_for('public_login')},
+                                       next_url=safe_next, website_prefix=website_prefix,
                                        show_captcha=True, captcha_question=captcha_question)
             return _login_redirect()
 
@@ -23663,7 +23683,7 @@ def public_login():
                 _rv_kwargs['website_prefix'] = website_prefix
             return redirect(url_for('public_resend_verification', **_rv_kwargs))
 
-        next_url = request.args.get('next') or _website_default_url(website)
+        next_url = safe_next or _website_default_url(website)
 
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
@@ -23690,6 +23710,8 @@ def public_login():
         website=website,
         public_user=_public_user_for_website(website),
         content=content,
+        next_url=safe_next,
+        website_prefix=website_prefix,
         show_captcha=rl['needs_captcha'],
         captcha_question=captcha_question,
     )

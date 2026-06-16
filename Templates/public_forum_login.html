@@ -142,6 +142,9 @@ Forum Login
     <form class="forum-auth" method="POST">
         <h1>Log In</h1>
 
+        <input type="hidden" name="next" value="{{ next_url or '' }}">
+        <input type="hidden" name="website_prefix" value="{{ website_prefix or '' }}">
+
         <input name="login" placeholder="Username or email" required>
         <div class="pw-wrap">
             <input name="password" type="password" placeholder="Password" required>
