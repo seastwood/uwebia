@@ -56,6 +56,14 @@
 .gv-start-btn:hover { opacity: 0.88; }
 
 .gv-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 48px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; }
+.gv-finish { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding: 18px 20px; border-radius: 14px; border: 1px solid rgba(94,238,200,0.32); background: rgba(94,238,200,0.07); }
+.gv-finish-flag { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 0.95rem; }
+.gv-finish-flag i { color: #5eeec8; }
+.gv-finish-next { display: inline-flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit; padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(94,238,200,0.4); background: rgba(94,238,200,0.1); transition: background 0.15s ease, transform 0.15s ease; }
+.gv-finish-next:hover { background: rgba(94,238,200,0.18); transform: translateY(-1px); }
+.gv-finish-next-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
+.gv-finish-next-title { font-weight: 800; font-size: 0.95rem; }
+.gv-finish-next-title i { font-size: 0.78rem; margin-left: 4px; color: #5eeec8; }
 .gv-nav a { display: inline-flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit; max-width: 46%; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); }
 .gv-nav a:hover { background: rgba(255,255,255,0.06); }
 .gv-nav .gv-nav-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.45; }
@@ -179,6 +187,26 @@
             </a>
             {% endif %}
         </nav>
+
+        {% if not next_node %}
+        {# End of the guide — keep momentum going instead of dead-ending. #}
+        <div class="gv-finish">
+            <span class="gv-finish-flag"><i class="fas fa-flag-checkered"></i> You've reached the end of this guide</span>
+            {% if next_guide %}
+            {% set _ng_url = ('/' + website.url_prefix + '/guides/' + next_guide.slug) if website.url_prefix else ('/guides/' + next_guide.slug) %}
+            <a class="gv-finish-next" href="{{ _ng_url }}">
+                <span class="gv-finish-next-label">Up next{% if guide.category %} in {{ guide.category.name }}{% endif %}</span>
+                <span class="gv-finish-next-title">{{ next_guide.title }} <i class="fas fa-arrow-right"></i></span>
+            </a>
+            {% else %}
+            {% set _idx_url = ('/' + website.url_prefix + '/guides') if website.url_prefix else '/guides' %}
+            <a class="gv-finish-next" href="{{ _idx_url }}">
+                <span class="gv-finish-next-label">Keep learning</span>
+                <span class="gv-finish-next-title">Browse all guides <i class="fas fa-arrow-right"></i></span>
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
         {% else %}
         {% if guide.cover_image_url %}<img class="gv-cover" src="{{ guide.cover_image_url }}" alt="{{ guide.title }}">{% endif %}
         <h1 class="gv-h1">{{ guide.title }}</h1>

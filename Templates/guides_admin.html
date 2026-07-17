@@ -61,6 +61,14 @@
 .ga-group { margin-bottom: 32px; }
 .ga-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); }
 .ga-group-count { font-size: 0.72rem; opacity: 0.5; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.07); font-weight: 600; }
+
+.ga-site-settings { margin: -14px 0 26px; padding: 12px 16px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); }
+.ga-toggle { display: flex; align-items: center; gap: 10px; font-size: 0.87rem; color: rgba(255,255,255,0.75); cursor: pointer; flex-wrap: wrap; }
+.ga-toggle input { width: 16px; height: 16px; accent-color: #5eeec8; cursor: pointer; }
+.ga-toggle strong { color: rgba(255,255,255,0.92); }
+.ga-toggle-status { font-size: 0.78rem; font-weight: 700; color: #5eeec8; opacity: 0; transition: opacity 0.2s ease; }
+.ga-toggle-status.is-visible { opacity: 1; }
+.ga-toggle-status.is-error { color: #ff8a8a; }
 </style>
 
 <div class="pa-page">
@@ -75,6 +83,18 @@
         </button>
         {% endif %}
     </div>
+
+    {% if user_has_perm('guides.manage') and not guides_restricted and website %}
+    <div class="ga-site-settings">
+        <label class="ga-toggle" title="Adds a button on the public guides page that takes logged-in members to the Training tab of their profile.">
+            <input type="checkbox" id="gaShowMyTraining"
+                   {% if website.guides_show_my_training %}checked{% endif %}
+                   onchange="gaSaveSiteSettings(this)">
+            <span>Show a <strong>“My Training”</strong> button on the public guides page (logged-in members only)</span>
+            <span class="ga-toggle-status" id="gaSiteSettingsStatus"></span>
+        </label>
+    </div>
+    {% endif %}
 
     {# ─── Categories strip ─────────────────────────────────────────────── #}
     {% if user_has_perm('guides.manage') or categories %}
@@ -96,7 +116,7 @@
                 <span class="ga-cat-count">{{ c.guides.count() }}</span>
                 {% if user_has_perm('guides.manage') and (not guides_restricted or c.id in accessible_category_ids) %}
                 <button class="ga-cat-edit" title="Edit"
-                        onclick='openCategoryModal({{ c.id }}, {{ c.name | tojson }}, {{ (c.description or "") | tojson }}, {{ (c.color or "") | tojson }}, {{ (c.icon or "") | tojson }})'>
+                        onclick='openCategoryModal({{ c.id }}, {{ c.name | tojson }}, {{ (c.description or "") | tojson }}, {{ (c.color or "") | tojson }}, {{ (c.icon or "") | tojson }}, {{ "true" if c.is_learning_path else "false" }})'>
                     <i class="fas fa-pencil-alt"></i>
                 </button>
                 <button class="ga-cat-edit ga-cat-delete" title="Delete"
@@ -311,6 +331,12 @@
                     <label for="catModalDesc">Description <span style="opacity:0.5;">(optional)</span></label>
                     <textarea id="catModalDesc" rows="2" placeholder="What kinds of guides live here"></textarea>
                 </div>
+                <div class="uw-field">
+                    <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:0.88rem;">
+                        <input type="checkbox" id="catModalLearningPath" style="width:15px;height:15px;accent-color:#5eeec8;cursor:pointer;">
+                        <span>Learning path <span style="opacity:0.5;">— show these guides as numbered sequential steps on the public guides page</span></span>
+                    </label>
+                </div>
                 <div class="uw-field" style="display:flex;gap:12px;align-items:flex-end;">
                     <div style="flex:1;">
                         <label for="catModalIcon">Icon <span style="opacity:0.5;">(optional)</span></label>
@@ -391,6 +417,32 @@
 
 <script>
 let _gdelId = null;
+
+// ── Site-level settings for the public guides page ────────────────────────
+async function gaSaveSiteSettings(cb) {
+    const status = document.getElementById('gaSiteSettingsStatus');
+    const show = (text, err) => {
+        if (!status) return;
+        status.textContent = text;
+        status.classList.toggle('is-error', !!err);
+        status.classList.add('is-visible');
+        clearTimeout(status._t);
+        status._t = setTimeout(() => status.classList.remove('is-visible'), 2200);
+    };
+    try {
+        const r = await fetch('/admin/guides/site-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ show_my_training: cb.checked }),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.success) throw new Error(j.error || 'Save failed');
+        show('Saved');
+    } catch (e) {
+        cb.checked = !cb.checked;   // revert the visual state on failure
+        show(e.message || 'Save failed', true);
+    }
+}
 
 // ── Cover picker (image-only asset picker) ────────────────────────────────
 function gpEsc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -650,12 +702,13 @@ function onIconInput() {
     renderIconGrid(document.getElementById('catIconSearch').value);
 }
 
-function openCategoryModal(id, name, desc, color, icon) {
+function openCategoryModal(id, name, desc, color, icon, isLearningPath) {
     document.getElementById('catModalId').value = id || '';
     document.getElementById('catModalName').value = name || '';
     document.getElementById('catModalDesc').value = desc || '';
     document.getElementById('catModalColor').value = color || '#5eeef8';
     document.getElementById('catModalIcon').value = icon || '';
+    document.getElementById('catModalLearningPath').checked = !!isLearningPath;
     document.getElementById('catIconSearch').value = '';
     updateIconPreview();
     renderIconGrid('');
@@ -681,6 +734,7 @@ async function submitCategoryModal(e) {
         description: document.getElementById('catModalDesc').value.trim(),
         color: document.getElementById('catModalColor').value || '',
         icon: document.getElementById('catModalIcon').value.trim(),
+        is_learning_path: document.getElementById('catModalLearningPath').checked,
     };
     const url = id ? `/admin/guides/categories/${id}/update` : '/admin/guides/categories/create';
     try {

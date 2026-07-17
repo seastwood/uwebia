@@ -1,0 +1,378 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+
+<style>
+.reviews-page { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+.reviews-header { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; margin-bottom:1.75rem; flex-wrap:wrap; }
+.reviews-kicker { text-transform:uppercase; letter-spacing:.12em; font-size:.72rem; opacity:.55; margin:0 0 .25rem; }
+.reviews-title { margin:0; font-size:1.9rem; }
+.btn-rv-primary { background:#5c6bc0; color:#fff; border:none; border-radius:10px; padding:.6rem 1rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:.5rem; }
+.btn-rv-primary:hover { background:#4a59ad; }
+.rv-board-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.10); border-radius:16px; padding:1.25rem 1.4rem; margin-bottom:1.25rem; }
+.rv-board-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
+.rv-board-name { margin:0; font-size:1.25rem; }
+.rv-board-desc { opacity:.7; margin:.35rem 0 0; font-size:.92rem; }
+.rv-board-meta { display:flex; gap:1rem; margin-top:.6rem; font-size:.82rem; opacity:.7; flex-wrap:wrap; }
+.rv-board-meta .rv-pending { color:#ffca7a; opacity:1; }
+.rv-board-actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+.btn-rv { background:rgba(255,255,255,0.08); color:inherit; border:1px solid rgba(255,255,255,0.12); border-radius:9px; padding:.45rem .7rem; font-size:.82rem; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; }
+.btn-rv:hover { background:rgba(255,255,255,0.16); }
+.btn-rv-danger:hover { background:rgba(229,57,53,0.25); border-color:rgba(229,57,53,0.5); }
+.rv-items { margin-top:1rem; border-top:1px solid rgba(255,255,255,0.08); padding-top:1rem; display:none; }
+.rv-items.open { display:block; }
+.rv-item { display:flex; gap:.8rem; padding:.7rem 0; border-bottom:1px solid rgba(255,255,255,0.06); }
+.rv-item:last-child { border-bottom:none; }
+.rv-item-avatar { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,0.12); flex:0 0 auto; display:flex; align-items:center; justify-content:center; font-weight:600; overflow:hidden; }
+.rv-item-avatar img { width:100%; height:100%; object-fit:cover; }
+.rv-item-body { flex:1; min-width:0; }
+.rv-item-top { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+.rv-item-author { font-weight:600; }
+.rv-stars { color:#ffc107; font-size:.85rem; letter-spacing:1px; }
+.rv-src-pill { font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; padding:.1rem .45rem; border-radius:20px; background:rgba(255,255,255,0.1); opacity:.8; }
+.rv-pending-pill { font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; padding:.1rem .45rem; border-radius:20px; background:rgba(255,202,122,0.2); color:#ffca7a; }
+.rv-item-text { opacity:.82; font-size:.9rem; margin:.3rem 0 0; white-space:pre-wrap; }
+.rv-item-date { font-size:.74rem; opacity:.5; margin-top:.25rem; }
+.rv-item-actions { display:flex; gap:.35rem; align-items:flex-start; }
+.rv-icon-btn { background:none; border:none; color:inherit; opacity:.6; cursor:pointer; padding:.3rem; border-radius:6px; }
+.rv-icon-btn:hover { opacity:1; background:rgba(255,255,255,0.1); }
+.rv-empty { opacity:.55; text-align:center; padding:2.5rem 1rem; }
+.rv-empty-board { opacity:.6; padding:.4rem 0 0; font-size:.88rem; }
+/* Modal */
+.rv-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; z-index:1000; padding:1rem; }
+.rv-modal-overlay.open { display:flex; }
+.rv-modal { background:#1f2430; color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:16px; width:100%; max-width:520px; max-height:90vh; overflow:auto; padding:1.5rem; }
+.rv-modal h3 { margin:0 0 1rem; }
+.rv-field { margin-bottom:.9rem; }
+.rv-field label { display:block; font-size:.82rem; opacity:.75; margin-bottom:.3rem; }
+.rv-field input, .rv-field textarea, .rv-field select { width:100%; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); border-radius:9px; padding:.55rem .7rem; color:#fff; font:inherit; box-sizing:border-box; }
+.rv-field textarea { min-height:90px; resize:vertical; }
+.rv-modal-actions { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1.2rem; }
+.rv-hint { font-size:.78rem; opacity:.6; margin:.4rem 0 0; }
+.rv-star-input { display:flex; gap:.25rem; font-size:1.4rem; color:rgba(255,255,255,0.3); }
+.rv-star-input i { cursor:pointer; }
+.rv-star-input i.on { color:#ffc107; }
+</style>
+
+<div class="reviews-page">
+    <div class="reviews-header">
+        <div>
+            <p class="reviews-kicker">Admin</p>
+            <h1 class="reviews-title">Reviews</h1>
+        </div>
+        {% if user_has_perm('reviews.create') %}
+        <button class="btn-rv-primary" onclick="rvOpenBoardModal()"><i class="fas fa-plus"></i> New Review Board</button>
+        {% endif %}
+    </div>
+
+    {% if boards %}
+    <div id="rvBoardList">
+        {% for board in boards %}
+        {% set pending = board.reviews | selectattr('status', 'equalto', 'pending') | list | length %}
+        <div class="rv-board-card" data-board-id="{{ board.id }}">
+            <div class="rv-board-head">
+                <div style="min-width:0;">
+                    <h2 class="rv-board-name">{{ board.name }}</h2>
+                    {% if board.description %}<p class="rv-board-desc">{{ board.description }}</p>{% endif %}
+                    <div class="rv-board-meta">
+                        <span>{{ board.reviews | length }} review{{ '' if board.reviews|length == 1 else 's' }}</span>
+                        {% if pending %}<span class="rv-pending">{{ pending }} awaiting approval</span>{% endif %}
+                    </div>
+                </div>
+                <div class="rv-board-actions">
+                    <button class="btn-rv" onclick="rvToggleItems({{ board.id }})"><i class="fas fa-list"></i> Manage</button>
+                    {% if user_has_perm('reviews.edit') %}
+                    <button class="btn-rv" onclick="rvOpenReviewModal({{ board.id }})"><i class="fas fa-plus"></i> Add</button>
+                    {% endif %}
+                    {% if user_has_perm('reviews.sources') %}
+                    <button class="btn-rv" onclick="rvOpenGoogleModal({{ board.id }})"><i class="fab fa-google"></i> Google</button>
+                    <button class="btn-rv" onclick="rvOpenImportModal({{ board.id }})"><i class="fas fa-file-import"></i> Import</button>
+                    {% endif %}
+                    {% if user_has_perm('reviews.edit') %}
+                    <button class="btn-rv" onclick="rvOpenBoardModal({{ board.id }}, {{ board.name|tojson }}, {{ (board.description or '')|tojson }})"><i class="fas fa-pen"></i></button>
+                    {% endif %}
+                    {% if user_has_perm('reviews.delete') %}
+                    <button class="btn-rv btn-rv-danger" onclick="rvDeleteBoard({{ board.id }}, {{ board.name|tojson }})"><i class="fas fa-trash"></i></button>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="rv-items" id="rvItems-{{ board.id }}">
+                <div class="rv-empty-board">Loading…</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="rv-empty">
+        <p><i class="fas fa-star" style="font-size:2rem; opacity:.4;"></i></p>
+        <p>No review boards yet. Create one to start collecting reviews.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Board modal -->
+<div class="rv-modal-overlay" id="rvBoardModal">
+    <div class="rv-modal">
+        <h3 id="rvBoardModalTitle">New Review Board</h3>
+        <input type="hidden" id="rvBoardId">
+        <div class="rv-field"><label>Name</label><input type="text" id="rvBoardName" placeholder="e.g. Customer Reviews"></div>
+        <div class="rv-field"><label>Description (optional)</label><textarea id="rvBoardDesc"></textarea></div>
+        <div class="rv-modal-actions">
+            <button class="btn-rv" onclick="rvCloseModal('rvBoardModal')">Cancel</button>
+            <button class="btn-rv-primary" onclick="rvSaveBoard()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Review modal -->
+<div class="rv-modal-overlay" id="rvReviewModal">
+    <div class="rv-modal">
+        <h3 id="rvReviewModalTitle">Add Review</h3>
+        <input type="hidden" id="rvReviewBoardId">
+        <input type="hidden" id="rvReviewId">
+        <input type="hidden" id="rvReviewRating" value="">
+        <div class="rv-field"><label>Author name</label><input type="text" id="rvReviewAuthor"></div>
+        <div class="rv-field">
+            <label>Rating</label>
+            <div class="rv-star-input" id="rvStarInput">
+                <i class="fas fa-star" data-v="1"></i><i class="fas fa-star" data-v="2"></i><i class="fas fa-star" data-v="3"></i><i class="fas fa-star" data-v="4"></i><i class="fas fa-star" data-v="5"></i>
+                <span class="btn-rv" style="margin-left:.6rem; font-size:.72rem;" onclick="rvSetStars(0)">Clear</span>
+            </div>
+        </div>
+        <div class="rv-field"><label>Title (optional)</label><input type="text" id="rvReviewTitle"></div>
+        <div class="rv-field"><label>Review</label><textarea id="rvReviewBody"></textarea></div>
+        <div class="rv-field"><label>Date (optional)</label><input type="date" id="rvReviewDate"></div>
+        <div class="rv-field"><label>Your reply (optional)</label><textarea id="rvReviewReply"></textarea></div>
+        <div class="rv-modal-actions">
+            <button class="btn-rv" onclick="rvCloseModal('rvReviewModal')">Cancel</button>
+            <button class="btn-rv-primary" onclick="rvSaveReview()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Google modal -->
+<div class="rv-modal-overlay" id="rvGoogleModal">
+    <div class="rv-modal">
+        <h3>Sync Google Reviews</h3>
+        <input type="hidden" id="rvGoogleBoardId">
+        <div class="rv-field"><label>Google Place ID</label><input type="text" id="rvGooglePlaceId" placeholder="ChIJ..."></div>
+        <div class="rv-field"><label>Google API key</label><input type="text" id="rvGoogleApiKey" placeholder="AIza..."></div>
+        <p class="rv-hint">Google's Places API returns up to ~5 of the most recent reviews. Re-syncing won't create duplicates.</p>
+        <div class="rv-modal-actions">
+            <button class="btn-rv" onclick="rvCloseModal('rvGoogleModal')">Cancel</button>
+            <button class="btn-rv-primary" onclick="rvSyncGoogle()">Sync now</button>
+        </div>
+    </div>
+</div>
+
+<!-- Import modal -->
+<div class="rv-modal-overlay" id="rvImportModal">
+    <div class="rv-modal">
+        <h3>Import Reviews</h3>
+        <input type="hidden" id="rvImportBoardId">
+        <div class="rv-field"><label>Upload CSV or JSON file</label><input type="file" id="rvImportFile" accept=".csv,.json,.txt"></div>
+        <div class="rv-field"><label>…or paste CSV / JSON</label><textarea id="rvImportText" placeholder="author_name,rating,title,body,review_date"></textarea></div>
+        <p class="rv-hint">Recognised columns: author_name, rating (1–5), title, body, review_date. Use this to bring in Apple Maps or any other reviews.</p>
+        <div class="rv-modal-actions">
+            <button class="btn-rv" onclick="rvCloseModal('rvImportModal')">Cancel</button>
+            <button class="btn-rv-primary" onclick="rvImport()">Import</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const RV_CAN_MODERATE = {{ 'true' if user_has_perm('reviews.moderate') else 'false' }};
+const RV_CAN_EDIT = {{ 'true' if user_has_perm('reviews.edit') else 'false' }};
+const RV_CAN_DELETE = {{ 'true' if user_has_perm('reviews.delete') else 'false' }};
+
+function rvCloseModal(id){ document.getElementById(id).classList.remove('open'); }
+function rvOpenModal(id){ document.getElementById(id).classList.add('open'); }
+
+async function rvPost(url, body){
+    const opts = { method:'POST', headers:{'Content-Type':'application/json'} };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const r = await fetch(url, opts);
+    return r.json();
+}
+
+function rvStars(n){
+    if (!n) return '';
+    let s = '';
+    for (let i=0;i<5;i++) s += i < n ? '★' : '☆';
+    return s;
+}
+function rvEsc(s){ const d=document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+
+/* ---- Board CRUD ---- */
+function rvOpenBoardModal(id, name, desc){
+    document.getElementById('rvBoardId').value = id || '';
+    document.getElementById('rvBoardName').value = name || '';
+    document.getElementById('rvBoardDesc').value = desc || '';
+    document.getElementById('rvBoardModalTitle').textContent = id ? 'Edit Review Board' : 'New Review Board';
+    rvOpenModal('rvBoardModal');
+}
+async function rvSaveBoard(){
+    const id = document.getElementById('rvBoardId').value;
+    const name = document.getElementById('rvBoardName').value.trim();
+    const description = document.getElementById('rvBoardDesc').value.trim();
+    if (!name){ alert('Name is required'); return; }
+    const url = id ? `/admin/reviews/${id}/update` : '/admin/reviews/create';
+    const res = await rvPost(url, { name, description });
+    if (res.success) location.reload(); else alert(res.error || 'Failed to save');
+}
+async function rvDeleteBoard(id, name){
+    if (!confirm(`Delete review board "${name}" and all its reviews?`)) return;
+    const res = await rvPost(`/admin/reviews/${id}/delete`);
+    if (res.success) location.reload(); else alert(res.error || 'Failed to delete');
+}
+
+/* ---- Items ---- */
+async function rvToggleItems(boardId){
+    const el = document.getElementById('rvItems-' + boardId);
+    if (el.classList.contains('open')){ el.classList.remove('open'); return; }
+    el.classList.add('open');
+    await rvLoadItems(boardId);
+}
+async function rvLoadItems(boardId){
+    const el = document.getElementById('rvItems-' + boardId);
+    const res = await (await fetch(`/admin/reviews/${boardId}/items`)).json();
+    if (!res.success){ el.innerHTML = '<div class="rv-empty-board">Failed to load.</div>'; return; }
+    if (!res.reviews.length){ el.innerHTML = '<div class="rv-empty-board">No reviews yet.</div>'; return; }
+    el.innerHTML = res.reviews.map(r => rvItemHtml(boardId, r)).join('');
+}
+function rvItemHtml(boardId, r){
+    const initial = (r.author_name || '?').trim().charAt(0).toUpperCase();
+    const avatar = r.author_avatar_url
+        ? `<img src="${rvEsc(r.author_avatar_url)}" alt="">`
+        : initial;
+    const dateStr = r.review_date ? new Date(r.review_date).toLocaleDateString() : '';
+    const pending = r.status === 'pending';
+    let actions = '';
+    if (pending && RV_CAN_MODERATE){
+        actions += `<button class="rv-icon-btn" title="Approve" onclick="rvModerate(${boardId},${r.id},'approve')"><i class="fas fa-check" style="color:#7ee2cc"></i></button>`;
+        actions += `<button class="rv-icon-btn" title="Reject" onclick="rvModerate(${boardId},${r.id},'reject')"><i class="fas fa-xmark" style="color:#e57373"></i></button>`;
+    }
+    if (RV_CAN_EDIT) actions += `<button class="rv-icon-btn" title="Edit" onclick='rvEditReview(${boardId}, ${JSON.stringify(r)})'><i class="fas fa-pen"></i></button>`;
+    if (RV_CAN_DELETE) actions += `<button class="rv-icon-btn" title="Delete" onclick="rvDeleteReview(${boardId},${r.id})"><i class="fas fa-trash"></i></button>`;
+    return `<div class="rv-item">
+        <div class="rv-item-avatar">${avatar}</div>
+        <div class="rv-item-body">
+            <div class="rv-item-top">
+                <span class="rv-item-author">${rvEsc(r.author_name) || 'Anonymous'}</span>
+                ${r.rating ? `<span class="rv-stars">${rvStars(r.rating)}</span>` : ''}
+                <span class="rv-src-pill">${rvEsc(r.source)}</span>
+                ${pending ? '<span class="rv-pending-pill">Pending</span>' : ''}
+            </div>
+            ${r.title ? `<div style="font-weight:600;margin-top:.25rem;">${rvEsc(r.title)}</div>` : ''}
+            ${r.body ? `<p class="rv-item-text">${rvEsc(r.body)}</p>` : ''}
+            ${r.owner_reply ? `<p class="rv-item-text" style="border-left:2px solid rgba(255,255,255,.2);padding-left:.6rem;"><strong>Reply:</strong> ${rvEsc(r.owner_reply)}</p>` : ''}
+            ${dateStr ? `<div class="rv-item-date">${dateStr}</div>` : ''}
+        </div>
+        <div class="rv-item-actions">${actions}</div>
+    </div>`;
+}
+
+/* ---- Star input ---- */
+function rvSetStars(n){
+    document.getElementById('rvReviewRating').value = n || '';
+    document.querySelectorAll('#rvStarInput i').forEach(i => {
+        i.classList.toggle('on', parseInt(i.dataset.v) <= n);
+    });
+}
+document.querySelectorAll('#rvStarInput i').forEach(i => {
+    i.addEventListener('click', () => rvSetStars(parseInt(i.dataset.v)));
+});
+
+/* ---- Review CRUD ---- */
+function rvOpenReviewModal(boardId){
+    document.getElementById('rvReviewBoardId').value = boardId;
+    document.getElementById('rvReviewId').value = '';
+    document.getElementById('rvReviewAuthor').value = '';
+    document.getElementById('rvReviewTitle').value = '';
+    document.getElementById('rvReviewBody').value = '';
+    document.getElementById('rvReviewDate').value = '';
+    document.getElementById('rvReviewReply').value = '';
+    rvSetStars(0);
+    document.getElementById('rvReviewModalTitle').textContent = 'Add Review';
+    rvOpenModal('rvReviewModal');
+}
+function rvEditReview(boardId, r){
+    document.getElementById('rvReviewBoardId').value = boardId;
+    document.getElementById('rvReviewId').value = r.id;
+    document.getElementById('rvReviewAuthor').value = r.author_name || '';
+    document.getElementById('rvReviewTitle').value = r.title || '';
+    document.getElementById('rvReviewBody').value = r.body || '';
+    document.getElementById('rvReviewDate').value = r.review_date ? r.review_date.substring(0,10) : '';
+    document.getElementById('rvReviewReply').value = r.owner_reply || '';
+    rvSetStars(r.rating || 0);
+    document.getElementById('rvReviewModalTitle').textContent = 'Edit Review';
+    rvOpenModal('rvReviewModal');
+}
+async function rvSaveReview(){
+    const boardId = document.getElementById('rvReviewBoardId').value;
+    const id = document.getElementById('rvReviewId').value;
+    const payload = {
+        author_name: document.getElementById('rvReviewAuthor').value.trim(),
+        rating: document.getElementById('rvReviewRating').value,
+        title: document.getElementById('rvReviewTitle').value.trim(),
+        body: document.getElementById('rvReviewBody').value.trim(),
+        review_date: document.getElementById('rvReviewDate').value,
+        owner_reply: document.getElementById('rvReviewReply').value.trim(),
+    };
+    const url = id ? `/admin/reviews/${boardId}/items/${id}/update` : `/admin/reviews/${boardId}/items/create`;
+    const res = await rvPost(url, payload);
+    if (res.success){ rvCloseModal('rvReviewModal'); rvLoadItems(boardId); }
+    else alert(res.error || 'Failed to save');
+}
+async function rvDeleteReview(boardId, id){
+    if (!confirm('Delete this review?')) return;
+    const res = await rvPost(`/admin/reviews/${boardId}/items/${id}/delete`);
+    if (res.success) rvLoadItems(boardId); else alert(res.error || 'Failed');
+}
+async function rvModerate(boardId, id, action){
+    const res = await rvPost(`/admin/reviews/${boardId}/items/${id}/moderate`, { action });
+    if (res.success) rvLoadItems(boardId); else alert(res.error || 'Failed');
+}
+
+/* ---- Google ---- */
+function rvOpenGoogleModal(boardId){
+    document.getElementById('rvGoogleBoardId').value = boardId;
+    rvOpenModal('rvGoogleModal');
+}
+async function rvSyncGoogle(){
+    const boardId = document.getElementById('rvGoogleBoardId').value;
+    const res = await rvPost(`/admin/reviews/${boardId}/sync-google`, {
+        google_place_id: document.getElementById('rvGooglePlaceId').value.trim(),
+        google_api_key: document.getElementById('rvGoogleApiKey').value.trim(),
+    });
+    if (res.success){ alert(`Synced. Added ${res.added} new review(s) of ${res.fetched} fetched.`); location.reload(); }
+    else alert(res.error || 'Sync failed');
+}
+
+/* ---- Import ---- */
+function rvOpenImportModal(boardId){
+    document.getElementById('rvImportBoardId').value = boardId;
+    document.getElementById('rvImportText').value = '';
+    document.getElementById('rvImportFile').value = '';
+    rvOpenModal('rvImportModal');
+}
+async function rvImport(){
+    const boardId = document.getElementById('rvImportBoardId').value;
+    const file = document.getElementById('rvImportFile').files[0];
+    let res;
+    if (file){
+        const fd = new FormData();
+        fd.append('file', file);
+        res = await (await fetch(`/admin/reviews/${boardId}/import`, { method:'POST', body: fd })).json();
+    } else {
+        const text = document.getElementById('rvImportText').value.trim();
+        if (!text){ alert('Provide a file or pasted text'); return; }
+        res = await rvPost(`/admin/reviews/${boardId}/import`, { text });
+    }
+    if (res.success){ alert(`Imported ${res.added} review(s).`); location.reload(); }
+    else alert(res.error || 'Import failed');
+}
+</script>
+{% endblock %}

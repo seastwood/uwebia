@@ -222,6 +222,9 @@
         {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
         <a href="{{ url_for('admin_calendars_page') }}" class="nav-link-btn" title="Calendars"><i class="fas fa-calendar-alt"></i></a>
         {% endif %}
+        {% if user_has_perm('reviews.view') and 'reviews' not in _nd %}
+        <a href="{{ url_for('admin_reviews_page') }}" class="nav-link-btn" title="Reviews"><i class="fas fa-star"></i></a>
+        {% endif %}
         {# Store umbrella — collapses Products / Orders / Shipping / Payments
            under one icon so the inline bar isn't cluttered. The whole group
            vanishes when none of its members are visible to this admin. #}
@@ -357,6 +360,11 @@
                 {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
                 <a href="{{ url_for('admin_calendars_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-calendar-alt"></i><span>Calendars</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('reviews.view') and 'reviews' not in _nd %}
+                <a href="{{ url_for('admin_reviews_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-star"></i><span>Reviews</span>
                 </a>
                 {% endif %}
                 {# Store group — collapsible nested dropdown inside the hamburger.

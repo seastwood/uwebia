@@ -177,6 +177,10 @@ Forum Login
 
         <div class="forum-auth-links">
 
+    <a href="{{ url_for('public_login_link_request', website_prefix=website.url_prefix or None, next=next_url or None) }}">
+        <i class="fas fa-magic"></i>
+        Email me a sign-in link instead
+    </a>
 
     <a href="{{ url_for('public_forgot_password') }}">
         <i class="fas fa-key"></i>

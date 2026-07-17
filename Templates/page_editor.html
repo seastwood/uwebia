@@ -7667,6 +7667,10 @@ nts-admin-pagination span {
                                 <i class="fas fa-tags"></i>
                                 <span>Cal. Badges</span>
                             </button>
+                            <button type="button" class="asm-type-tile" data-type="reviews" onclick="asmSelectType('reviews')">
+                                <i class="fas fa-star"></i>
+                                <span>Reviews</span>
+                            </button>
                             <button type="button" class="asm-type-tile" data-type="newsletter_signup" onclick="asmSelectType('newsletter_signup')">
                                 <i class="fas fa-envelope-open-text"></i>
                                 <span>Newsletter</span>
@@ -7838,6 +7842,53 @@ nts-admin-pagination span {
                                 <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;">
                                     <input type="checkbox" id="cb-show-description" checked> Show description on click
                                 </label>
+                            </div>
+
+                            <!-- Reviews picker -->
+                            <div id="reviews-picker" style="display:none; margin-bottom:14px;">
+                                <div style="margin-bottom:10px;">
+                                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Review board</label>
+                                    <select id="rvp-board"
+                                            style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                                        <option value="">Loading…</option>
+                                    </select>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                    <div>
+                                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Style</label>
+                                        <select id="rvp-style"
+                                                style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                                            <option value="cards">Cards</option>
+                                            <option value="list">List</option>
+                                            <option value="carousel">Carousel</option>
+                                            <option value="spotlight">Spotlight</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Max to show</label>
+                                        <input type="number" id="rvp-limit" value="6" min="1" max="50"
+                                               style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;box-sizing:border-box;">
+                                    </div>
+                                </div>
+                                <div style="margin:10px 0;">
+                                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Minimum rating</label>
+                                    <select id="rvp-min-rating"
+                                            style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                                        <option value="0">Show all</option>
+                                        <option value="3">3★ and up</option>
+                                        <option value="4">4★ and up</option>
+                                        <option value="5">5★ only</option>
+                                    </select>
+                                </div>
+                                <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="rvp-show-rating" checked> Show rating</label>
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="rvp-show-date" checked> Show date</label>
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="rvp-show-avatar" checked> Show avatar</label>
+                                </div>
+                                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="rvp-accept"> Let visitors leave a review</label>
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="rvp-require-approval" checked> Require approval</label>
+                                </div>
                             </div>
 
                             <!-- Product grid picker -->
@@ -11331,6 +11382,92 @@ setTimeout(() => {
                                 }
                             })();
 
+                        } else if (section.section_type === 'reviews') {
+                            const rv = section.content || {};
+                            const minR = parseInt(rv.min_rating || 0);
+                            sectionContent.innerHTML = `
+        <div class="section-container" style="padding:18px 20px;">
+            <form class="update-section-form"
+                  data-section-id="${section.id}"
+                  data-section-type="reviews"
+                  data-page-id="${section.page_content_id}">
+                <input type="hidden" name="section_id"   value="${section.id}">
+                <input type="hidden" name="section_type" value="reviews">
+
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Review board</label>
+                    <select name="rv_board_id"
+                            style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                        <option value="">Loading…</option>
+                    </select>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Style</label>
+                        <select name="rv_style" style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                            <option value="cards"     ${(rv.style||'cards')==='cards'?'selected':''}>Cards</option>
+                            <option value="list"      ${rv.style==='list'?'selected':''}>List</option>
+                            <option value="carousel"  ${rv.style==='carousel'?'selected':''}>Carousel</option>
+                            <option value="spotlight" ${rv.style==='spotlight'?'selected':''}>Spotlight</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Max to show</label>
+                        <input type="number" name="rv_limit" value="${rv.limit||6}" min="1" max="50"
+                               style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;box-sizing:border-box;">
+                    </div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:6px;font-size:0.82rem;color:rgba(255,255,255,0.6);">Minimum rating</label>
+                    <select name="rv_min_rating" style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;">
+                        <option value="0" ${minR===0?'selected':''}>Show all</option>
+                        <option value="3" ${minR===3?'selected':''}>3★ and up</option>
+                        <option value="4" ${minR===4?'selected':''}>4★ and up</option>
+                        <option value="5" ${minR===5?'selected':''}>5★ only</option>
+                    </select>
+                </div>
+
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" name="rv_show_rating" ${rv.show_rating!==false?'checked':''}> Show rating</label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" name="rv_show_date" ${rv.show_date!==false?'checked':''}> Show date</label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" name="rv_show_avatar" ${rv.show_avatar!==false?'checked':''}> Show avatar</label>
+                </div>
+
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" name="rv_accept_submissions" ${rv.accept_submissions?'checked':''}> Let visitors leave a review</label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" name="rv_require_approval" ${rv.require_approval!==false?'checked':''}> Require approval</label>
+                </div>
+
+                <button type="submit" style="padding:8px 18px;background:rgba(94,238,200,0.15);border:1px solid rgba(94,238,200,0.28);border-radius:8px;color:#5eeec8;font-size:0.85rem;font-weight:600;cursor:pointer;">Save</button>
+            </form>
+        </div>`;
+
+                            // Populate review board dropdown
+                            (async () => {
+                                const sel = sectionContent.querySelector('select[name="rv_board_id"]');
+                                if (!sel) return;
+                                try {
+                                    const r = await fetch('/admin/reviews/list');
+                                    const data = await r.json();
+                                    sel.innerHTML = '';
+                                    if (!data.boards || data.boards.length === 0) {
+                                        sel.innerHTML = '<option value="">No review boards available</option>';
+                                    } else {
+                                        data.boards.forEach(b => {
+                                            const o = document.createElement('option');
+                                            o.value = b.id;
+                                            o.textContent = b.name;
+                                            if (b.id == rv.review_board_id) o.selected = true;
+                                            sel.appendChild(o);
+                                        });
+                                    }
+                                } catch(e) {
+                                    sel.innerHTML = '<option value="">Error loading review boards</option>';
+                                }
+                            })();
+
                         } else if (section.section_type === 'product_grid') {
                             const pg = section.content || {};
                             sectionContent.innerHTML = `
@@ -14132,6 +14269,26 @@ setTimeout(() => {
                 };
             }
 
+            if (sectionType === 'reviews') {
+                const rvSel = document.getElementById('rvp-board');
+                const rvId  = rvSel ? parseInt(rvSel.value) : null;
+                if (!rvId) {
+                    alert('Please select a review board. If you have none, create one first in Reviews admin.');
+                    return;
+                }
+                content = {
+                    review_board_id:    rvId,
+                    style:              document.getElementById('rvp-style').value || 'cards',
+                    limit:              parseInt(document.getElementById('rvp-limit').value) || 6,
+                    min_rating:         parseInt(document.getElementById('rvp-min-rating').value) || 0,
+                    show_rating:        document.getElementById('rvp-show-rating').checked,
+                    show_date:          document.getElementById('rvp-show-date').checked,
+                    show_avatar:        document.getElementById('rvp-show-avatar').checked,
+                    accept_submissions: document.getElementById('rvp-accept').checked,
+                    require_approval:   document.getElementById('rvp-require-approval').checked,
+                };
+            }
+
             if (sectionType === 'newsletter_signup') {
                 const nsSel = document.getElementById('ns-newsletter');
                 const nsId  = nsSel ? parseInt(nsSel.value) : null;
@@ -14267,18 +14424,47 @@ setTimeout(() => {
             const cbPicker  = document.getElementById('calendar-badges-picker');
             const nsPicker  = document.getElementById('newsletter-picker');
             const nfPicker  = document.getElementById('newsletter-feed-picker');
+            const rvPicker  = document.getElementById('reviews-picker');
             if (calPicker) calPicker.style.display = value === 'calendar'      ? 'block' : 'none';
             if (pgPicker)  pgPicker.style.display  = value === 'product_grid'  ? 'block' : 'none';
             if (afPicker)  afPicker.style.display  = value === 'article_feed'  ? 'block' : 'none';
             if (cbPicker)  cbPicker.style.display  = value === 'calendar_badges' ? 'block' : 'none';
             if (nsPicker)  nsPicker.style.display  = value === 'newsletter_signup' ? 'block' : 'none';
             if (nfPicker)  nfPicker.style.display  = value === 'newsletter_feed' ? 'block' : 'none';
+            if (rvPicker)  rvPicker.style.display  = value === 'reviews' ? 'block' : 'none';
             if (value === 'calendar')         loadCalendarOptions();
             if (value === 'product_grid')     loadProductGridOptions();
             if (value === 'article_feed')     loadArticleFeedOptions();
             if (value === 'calendar_badges')  loadCalendarBadgesOptions();
             if (value === 'newsletter_signup') loadNewsletterPickerOptions();
             if (value === 'newsletter_feed')   loadNewsletterFeedOptions();
+            if (value === 'reviews')           loadReviewsPickerOptions();
+        }
+
+        let _rvDataLoaded = false;
+        async function loadReviewsPickerOptions() {
+            if (_rvDataLoaded) return;
+            const select = document.getElementById('rvp-board');
+            if (!select) return;
+            select.innerHTML = '<option value="">Loading…</option>';
+            try {
+                const r = await fetch('/admin/reviews/list');
+                const data = await r.json();
+                select.innerHTML = '';
+                if (!data.boards || data.boards.length === 0) {
+                    select.innerHTML = '<option value="">No review boards available</option>';
+                } else {
+                    data.boards.forEach(b => {
+                        const opt = document.createElement('option');
+                        opt.value = b.id;
+                        opt.textContent = b.name;
+                        select.appendChild(opt);
+                    });
+                    _rvDataLoaded = true;
+                }
+            } catch(e) {
+                select.innerHTML = '<option value="">Error loading review boards</option>';
+            }
         }
 
         let _nfDataLoaded = false;

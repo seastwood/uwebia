@@ -5317,6 +5317,188 @@ box-sizing: border-box;
                                 </div>
                                 {% endif %}
 
+                                {% elif section.section_type == 'reviews' %}
+                                {% set rv_list = content.reviews_by_section.get(section.id, []) %}
+                                {% set rv_cfg = section.content or {} %}
+                                {% set rv_board = content.review_boards_by_section.get(section.id) %}
+                                {% set rv_style = rv_cfg.get('style', 'cards') %}
+                                {% set rv_accent = (rv_board.get_styles().get('accent_color') if rv_board else '#5c6bc0') %}
+                                {% set rv_show_rating = rv_cfg.get('show_rating', true) %}
+                                {% set rv_show_date = rv_cfg.get('show_date', true) %}
+                                {% set rv_show_avatar = rv_cfg.get('show_avatar', true) %}
+                                {% set rv_accept = rv_cfg.get('accept_submissions', false) %}
+                                {% set rv_star_color = (rv_board.get_styles().get('star_color') if rv_board else '#ffc107') or '#ffc107' %}
+                                {% if rv_list or rv_accept %}
+                                <div class="rv-section" id="rv-section-{{ section.id }}" style="--rv-accent:{{ rv_accent }};--rv-star:{{ rv_star_color }};">
+                                    {% if rv_list %}
+                                    {% set rv_rated = rv_list | selectattr('rating') | list %}
+                                    {% if rv_show_rating and rv_rated %}
+                                    {% set rv_avg = (rv_rated | map(attribute='rating') | sum) / (rv_rated | length) %}
+                                    <div class="rv-summary">
+                                        <span class="rv-sum-num">{{ '%.1f' | format(rv_avg) }}</span>
+                                        <span class="rv-sum-stars" role="img" aria-label="Average rating {{ '%.1f' | format(rv_avg) }} out of 5">
+                                            <span class="rv-sum-stars-bg">{% for i in range(5) %}<i class="fas fa-star"></i>{% endfor %}</span>
+                                            <span class="rv-sum-stars-fill" style="width:{{ (rv_avg / 5 * 100) | round(1) }}%;">{% for i in range(5) %}<i class="fas fa-star"></i>{% endfor %}</span>
+                                        </span>
+                                        <span class="rv-sum-count">{{ rv_list | length }} review{{ 's' if rv_list | length != 1 }}</span>
+                                    </div>
+                                    {% endif %}
+                                    <div class="rv-grid rv-style-{{ rv_style }}">
+                                        {% for r in rv_list %}
+                                        <article class="rv-card">
+                                            <div class="rv-card-head">
+                                                {% if rv_show_avatar %}
+                                                <div class="rv-avatar">
+                                                    {% if r.author_avatar_url %}<img src="{{ r.author_avatar_url }}" alt="" loading="lazy">{% else %}{{ (r.author_name or '?')[0]|upper }}{% endif %}
+                                                </div>
+                                                {% endif %}
+                                                <div class="rv-author">{{ r.author_name or 'Anonymous' }}</div>
+                                                {% if r.source == 'google' %}<span class="rv-source-mark" title="Posted on Google"><i class="fab fa-google"></i></span>{% endif %}
+                                            </div>
+                                            {% if (rv_show_rating and r.rating) or (rv_show_date and r.review_date) %}
+                                            <div class="rv-meta">
+                                                {% if rv_show_rating and r.rating %}
+                                                <span class="rv-stars" role="img" aria-label="Rated {{ r.rating }} out of 5">{% for i in range(1,6) %}<i class="{{ 'fas' if i <= r.rating else 'far' }} fa-star"></i>{% endfor %}</span>
+                                                {% endif %}
+                                                {% if rv_show_date and r.review_date %}<span class="rv-date">{{ r.review_date.strftime('%B %-d, %Y') }}</span>{% endif %}
+                                            </div>
+                                            {% endif %}
+                                            {% if r.title %}<div class="rv-card-title">{{ r.title }}</div>{% endif %}
+                                            {% if r.body %}<p class="rv-card-body">{{ r.body }}</p>{% endif %}
+                                            {% if r.owner_reply %}
+                                            <div class="rv-reply">
+                                                <div class="rv-reply-label"><i class="fas fa-reply"></i> Response from the owner</div>
+                                                <p>{{ r.owner_reply }}</p>
+                                            </div>
+                                            {% endif %}
+                                        </article>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+
+                                    {% if rv_accept %}
+                                    <form class="rv-submit-form" id="rv-form-{{ section.id }}" onsubmit="rvSubmitReview(event, {{ section.id }})">
+                                        <h4 class="rv-form-title">Leave a review</h4>
+                                        <p class="rv-form-sub">Tell others about your experience.</p>
+                                        <div class="rv-field">
+                                            <span class="rv-label">Your rating</span>
+                                            <div class="rv-star-pick" data-rating="0" role="radiogroup" aria-label="Your rating">
+                                                {% for i in range(1,6) %}<button type="button" class="rv-star-box" data-v="{{ i }}" role="radio" aria-checked="false" aria-label="{{ i }} star{{ 's' if i > 1 }}"><i class="fas fa-star" aria-hidden="true"></i></button>{% endfor %}
+                                                <span class="rv-pick-label">Select a rating</span>
+                                            </div>
+                                        </div>
+                                        <div class="rv-field">
+                                            <label class="rv-label" for="rv-name-{{ section.id }}">Your name</label>
+                                            <input id="rv-name-{{ section.id }}" type="text" name="author_name" class="rv-input" placeholder="Jane Smith" maxlength="200" required>
+                                        </div>
+                                        <div class="rv-field">
+                                            <label class="rv-label" for="rv-title-{{ section.id }}">Title <span class="rv-optional">(optional)</span></label>
+                                            <input id="rv-title-{{ section.id }}" type="text" name="title" class="rv-input" placeholder="Sum it up in a few words" maxlength="300">
+                                        </div>
+                                        <div class="rv-field">
+                                            <label class="rv-label" for="rv-body-{{ section.id }}">Your review</label>
+                                            <textarea id="rv-body-{{ section.id }}" name="body" class="rv-input rv-textarea" placeholder="What stood out to you?" required></textarea>
+                                        </div>
+                                        <input type="text" name="website" class="rv-honeypot" tabindex="-1" autocomplete="off" aria-hidden="true">
+                                        <input type="hidden" name="form_token" value="">
+                                        <div class="rv-form-foot">
+                                            <button type="submit" class="rv-submit-btn"><i class="far fa-paper-plane"></i> Submit review</button>
+                                            <span class="rv-form-msg" role="status"></span>
+                                        </div>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                                <style>
+                                #rv-section-{{ section.id }} { margin: 8px 0; }
+                                /* Summary strip: average + stars + count */
+                                #rv-section-{{ section.id }} .rv-summary { display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
+                                #rv-section-{{ section.id }} .rv-sum-num { font-size:1.9rem; font-weight:800; line-height:1; }
+                                #rv-section-{{ section.id }} .rv-sum-stars { position:relative; display:inline-block; white-space:nowrap; font-size:1.05rem; letter-spacing:1px; line-height:1; }
+                                #rv-section-{{ section.id }} .rv-sum-stars i { margin-right:2px; }
+                                #rv-section-{{ section.id }} .rv-sum-stars-bg { color:rgba(127,127,127,0.35); }
+                                #rv-section-{{ section.id }} .rv-sum-stars-fill { position:absolute; top:0; left:0; overflow:hidden; white-space:nowrap; color:var(--rv-star); }
+                                #rv-section-{{ section.id }} .rv-sum-count { font-size:0.9rem; opacity:0.6; }
+                                /* Layouts */
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; align-items:stretch; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-list { display:flex; flex-direction:column; gap:14px; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-list .rv-card { max-width:820px; }
+                                #rv-section-{{ section.id }} .rv-carousel-wrap { position:relative; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-carousel { display:flex; gap:18px; overflow-x:auto; scroll-snap-type:x mandatory; padding:4px 4px 14px; scrollbar-width:thin; scrollbar-color:rgba(127,127,127,0.4) transparent; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-carousel::-webkit-scrollbar { height:6px; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-carousel::-webkit-scrollbar-thumb { background:rgba(127,127,127,0.4); border-radius:3px; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-carousel::-webkit-scrollbar-track { background:transparent; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-carousel .rv-card { flex:0 0 320px; scroll-snap-align:start; }
+                                #rv-section-{{ section.id }} .rv-car-nav { position:absolute; top:50%; transform:translateY(-50%); z-index:2; width:38px; height:38px; border-radius:50%; border:1px solid rgba(127,127,127,0.3); background:rgba(127,127,127,0.14); backdrop-filter:blur(6px); color:inherit; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:0.85rem; transition:background .15s ease, opacity .15s ease; }
+                                #rv-section-{{ section.id }} .rv-car-nav:hover { background:var(--rv-accent); border-color:var(--rv-accent); color:#fff; }
+                                #rv-section-{{ section.id }} .rv-car-nav.prev { left:-8px; }
+                                #rv-section-{{ section.id }} .rv-car-nav.next { right:-8px; }
+                                #rv-section-{{ section.id }} .rv-car-nav[disabled] { opacity:0.25; cursor:default; pointer-events:none; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-spotlight { display:grid; justify-items:center; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-spotlight .rv-card { grid-area:1/1; width:100%; max-width:680px; font-size:1.06rem; opacity:0; transform:translateY(8px); transition:opacity .55s ease, transform .55s ease; pointer-events:none; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-spotlight .rv-card.rv-active { opacity:1; transform:none; pointer-events:auto; }
+                                #rv-section-{{ section.id }} .rv-spot-dots { display:flex; justify-content:center; gap:8px; margin-top:14px; }
+                                #rv-section-{{ section.id }} .rv-spot-dot { width:9px; height:9px; padding:0; border-radius:50%; border:none; background:rgba(127,127,127,0.35); cursor:pointer; transition:background .2s ease, transform .2s ease; }
+                                #rv-section-{{ section.id }} .rv-spot-dot.on { background:var(--rv-accent); transform:scale(1.25); }
+                                /* Card */
+                                #rv-section-{{ section.id }} .rv-card { display:flex; flex-direction:column; background:rgba(127,127,127,0.09); border:1px solid rgba(127,127,127,0.2); border-radius:14px; padding:20px 22px; box-shadow:0 2px 10px rgba(0,0,0,0.07); transition:transform .18s ease, box-shadow .18s ease; }
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-cards .rv-card:hover,
+                                #rv-section-{{ section.id }} .rv-grid.rv-style-carousel .rv-card:hover { transform:translateY(-3px); box-shadow:0 10px 26px rgba(0,0,0,0.13); }
+                                #rv-section-{{ section.id }} .rv-card { text-align:left; }
+                                #rv-section-{{ section.id }} .rv-card-head { display:flex; align-items:center; gap:11px; margin-bottom:10px; }
+                                #rv-section-{{ section.id }} .rv-avatar { width:38px; height:38px; border-radius:50%; background:var(--rv-accent); background:linear-gradient(135deg, var(--rv-accent), color-mix(in srgb, var(--rv-accent) 65%, #000)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.95rem; overflow:hidden; flex:0 0 auto; box-shadow:0 2px 6px rgba(0,0,0,0.18); }
+                                #rv-section-{{ section.id }} .rv-avatar img { width:100%; height:100%; object-fit:cover; }
+                                #rv-section-{{ section.id }} .rv-author { flex:1; min-width:0; font-weight:600; font-size:0.96rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+                                #rv-section-{{ section.id }} .rv-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+                                #rv-section-{{ section.id }} .rv-stars { display:inline-flex; gap:2px; color:var(--rv-star); font-size:0.85rem; }
+                                #rv-section-{{ section.id }} .rv-stars .far { opacity:0.4; }
+                                #rv-section-{{ section.id }} .rv-date { font-size:0.78rem; opacity:0.55; }
+                                #rv-section-{{ section.id }} .rv-stars + .rv-date::before { content:'·'; margin-right:8px; opacity:0.7; }
+                                #rv-section-{{ section.id }} .rv-source-mark { opacity:0.5; font-size:0.95rem; flex:0 0 auto; }
+                                #rv-section-{{ section.id }} .rv-card-title { font-weight:700; font-size:1.04rem; line-height:1.35; margin-bottom:6px; }
+                                #rv-section-{{ section.id }} .rv-card-body { margin:0; opacity:0.88; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+                                #rv-section-{{ section.id }} .rv-reply { margin-top:12px; padding:10px 14px; border-left:3px solid var(--rv-accent); background:rgba(127,127,127,0.08); border-radius:0 10px 10px 0; font-size:0.9rem; }
+                                #rv-section-{{ section.id }} .rv-reply-label { font-weight:600; font-size:0.8rem; opacity:0.7; margin-bottom:4px; }
+                                #rv-section-{{ section.id }} .rv-reply-label i { font-size:0.72rem; margin-right:4px; }
+                                #rv-section-{{ section.id }} .rv-reply p { margin:0; opacity:0.85; line-height:1.5; }
+                                /* Submission form */
+                                #rv-section-{{ section.id }} .rv-submit-form { margin-top:24px; text-align:left; background:rgba(127,127,127,0.08); border:1px solid rgba(127,127,127,0.2); border-radius:14px; padding:22px 24px; max-width:640px; box-shadow:0 2px 10px rgba(0,0,0,0.06); }
+                                #rv-section-{{ section.id }} .rv-form-title { margin:0 0 2px; font-size:1.15rem; text-align:left; }
+                                #rv-section-{{ section.id }} .rv-form-sub { margin:0 0 16px; font-size:0.86rem; opacity:0.6; text-align:left; }
+                                #rv-section-{{ section.id }} .rv-field { margin-bottom:14px; text-align:left; }
+                                #rv-section-{{ section.id }} .rv-label { display:block; font-size:0.8rem; font-weight:600; opacity:0.7; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em; text-align:left; }
+                                #rv-section-{{ section.id }} .rv-input { text-align:left; }
+                                #rv-section-{{ section.id }} .rv-optional { font-weight:400; text-transform:none; letter-spacing:0; opacity:0.7; }
+                                #rv-section-{{ section.id }} .rv-input { width:100%; background:rgba(127,127,127,0.1); border:1px solid rgba(127,127,127,0.28); border-radius:9px; padding:10px 13px; color:inherit; font:inherit; box-sizing:border-box; transition:border-color .15s ease, box-shadow .15s ease; }
+                                #rv-section-{{ section.id }} .rv-input::placeholder { color:inherit; opacity:0.4; }
+                                #rv-section-{{ section.id }} .rv-input:focus { outline:none; border-color:var(--rv-accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--rv-accent) 22%, transparent); }
+                                #rv-section-{{ section.id }} .rv-textarea { min-height:100px; resize:vertical; }
+                                /* Box-to-star rating picker */
+                                #rv-section-{{ section.id }} .rv-star-pick { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+                                #rv-section-{{ section.id }} .rv-star-box { width:42px; height:42px; padding:0; border-radius:10px; border:1.5px solid rgba(127,127,127,0.35); background:rgba(127,127,127,0.1); color:var(--rv-star); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:border-color .18s ease, background .18s ease, transform .15s ease, box-shadow .18s ease; }
+                                #rv-section-{{ section.id }} .rv-star-box i { font-size:1.1rem; opacity:0; transform:scale(0.3) rotate(-30deg); transition:opacity .16s ease, transform .24s cubic-bezier(0.34,1.56,0.64,1); }
+                                #rv-section-{{ section.id }} .rv-star-box:hover { transform:translateY(-2px); }
+                                #rv-section-{{ section.id }} .rv-star-box.hot,
+                                #rv-section-{{ section.id }} .rv-star-box.on { border-color:var(--rv-star); background:rgba(255,193,7,0.14); background:color-mix(in srgb, var(--rv-star) 16%, transparent); box-shadow:0 3px 10px rgba(0,0,0,0.1); }
+                                #rv-section-{{ section.id }} .rv-star-box.hot i,
+                                #rv-section-{{ section.id }} .rv-star-box.on i { opacity:1; transform:scale(1) rotate(0deg); }
+                                #rv-section-{{ section.id }} .rv-star-box:focus-visible { outline:2px solid var(--rv-accent); outline-offset:2px; }
+                                #rv-section-{{ section.id }} .rv-pick-label { font-size:0.84rem; opacity:0.6; margin-left:6px; }
+                                #rv-section-{{ section.id }} .rv-honeypot { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
+                                #rv-section-{{ section.id }} .rv-form-foot { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:4px; }
+                                #rv-section-{{ section.id }} .rv-submit-btn { display:inline-flex; align-items:center; gap:8px; background:var(--rv-accent); color:#fff; border:none; border-radius:10px; padding:11px 22px; font-weight:600; font-size:0.94rem; cursor:pointer; box-shadow:0 3px 12px color-mix(in srgb, var(--rv-accent) 40%, transparent); transition:transform .15s ease, box-shadow .15s ease, opacity .15s ease; }
+                                #rv-section-{{ section.id }} .rv-submit-btn:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 6px 18px color-mix(in srgb, var(--rv-accent) 50%, transparent); }
+                                #rv-section-{{ section.id }} .rv-submit-btn:disabled { opacity:0.5; cursor:default; }
+                                #rv-section-{{ section.id }} .rv-form-msg { font-size:0.88rem; font-weight:500; }
+                                #rv-section-{{ section.id }} .rv-form-msg.ok { color:#27a06e; }
+                                #rv-section-{{ section.id }} .rv-form-msg.err { color:#d05050; }
+                                @media (max-width: 560px) {
+                                    #rv-section-{{ section.id }} .rv-grid.rv-style-carousel .rv-card { flex-basis:82vw; }
+                                    #rv-section-{{ section.id }} .rv-car-nav.prev { left:2px; }
+                                    #rv-section-{{ section.id }} .rv-car-nav.next { right:2px; }
+                                }
+                                </style>
+                                {% endif %}
+
                                 {% elif section.section_type == 'article_feed' %}
                                 {% set af = content.posts_by_section.get(section.id, []) %}
                                 {% set af_cfg = section.content or {} %}
@@ -7258,6 +7440,177 @@ async function submitNewsletterSignup(event, form) {
         if (result) { result.textContent = 'Network error.'; result.style.color = '#ff8a8a'; }
     } finally {
         if (button) { button.disabled = false; button.style.opacity = ''; }
+    }
+    return false;
+}
+</script>
+<script>
+/* ── Reviews section: star picker, carousel nav, spotlight rotation, visitor submission ── */
+const RV_RATING_WORDS = ['Select a rating', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
+
+function rvResetStarPick(pick) {
+    pick.dataset.rating = '0';
+    pick.querySelectorAll('.rv-star-box').forEach(function (b) {
+        b.classList.remove('on', 'hot');
+        b.setAttribute('aria-checked', 'false');
+    });
+    const label = pick.querySelector('.rv-pick-label');
+    if (label) label.textContent = RV_RATING_WORDS[0];
+}
+
+(function () {
+    // Box-to-star rating picker: plain boxes fill with stars on hover/select.
+    document.querySelectorAll('.rv-star-pick').forEach(function (pick) {
+        const boxes = pick.querySelectorAll('.rv-star-box');
+        const label = pick.querySelector('.rv-pick-label');
+        function paint(n, cls) {
+            boxes.forEach(function (b) { b.classList.toggle(cls, parseInt(b.dataset.v) <= n); });
+        }
+        function setLabel(n) {
+            if (label) label.textContent = n > 0 ? RV_RATING_WORDS[n] + ' · ' + n + '/5' : RV_RATING_WORDS[0];
+        }
+        boxes.forEach(function (b) {
+            b.addEventListener('mouseenter', function () {
+                paint(0, 'on');                       // preview only the hovered range
+                paint(parseInt(b.dataset.v), 'hot');
+                setLabel(parseInt(b.dataset.v));
+            });
+            b.addEventListener('click', function () {
+                pick.dataset.rating = b.dataset.v;
+                paint(0, 'hot');
+                paint(parseInt(b.dataset.v), 'on');
+                boxes.forEach(function (bb) { bb.setAttribute('aria-checked', bb.dataset.v === b.dataset.v ? 'true' : 'false'); });
+                setLabel(parseInt(b.dataset.v));
+            });
+        });
+        pick.addEventListener('mouseleave', function () {
+            const cur = parseInt(pick.dataset.rating) || 0;
+            paint(0, 'hot');
+            paint(cur, 'on');
+            setLabel(cur);
+        });
+    });
+
+    // Carousel: prev/next arrows (only when the strip actually overflows)
+    document.querySelectorAll('.rv-grid.rv-style-carousel').forEach(function (grid) {
+        const wrap = document.createElement('div');
+        wrap.className = 'rv-carousel-wrap';
+        grid.parentNode.insertBefore(wrap, grid);
+        wrap.appendChild(grid);
+        const mk = function (dir, icon) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'rv-car-nav ' + dir;
+            b.setAttribute('aria-label', dir === 'prev' ? 'Previous reviews' : 'Next reviews');
+            b.innerHTML = '<i class="fas fa-chevron-' + icon + '"></i>';
+            wrap.appendChild(b);
+            return b;
+        };
+        const prev = mk('prev', 'left'), next = mk('next', 'right');
+        function step(dir) {
+            const card = grid.querySelector('.rv-card');
+            const dx = card ? card.getBoundingClientRect().width + 18 : 320;
+            grid.scrollBy({ left: dir * dx, behavior: 'smooth' });
+        }
+        prev.addEventListener('click', function () { step(-1); });
+        next.addEventListener('click', function () { step(1); });
+        function updateNav() {
+            const overflow = grid.scrollWidth > grid.clientWidth + 8;
+            prev.style.display = next.style.display = overflow ? '' : 'none';
+            prev.disabled = grid.scrollLeft <= 4;
+            next.disabled = grid.scrollLeft >= grid.scrollWidth - grid.clientWidth - 4;
+        }
+        grid.addEventListener('scroll', updateNav, { passive: true });
+        window.addEventListener('resize', updateNav);
+        updateNav();
+    });
+
+    // Spotlight: cross-fade rotation with dots; pauses while hovered
+    document.querySelectorAll('.rv-grid.rv-style-spotlight').forEach(function (grid) {
+        const cards = grid.querySelectorAll('.rv-card');
+        if (!cards.length) return;
+        let idx = 0, paused = false;
+        cards[0].classList.add('rv-active');
+        if (cards.length < 2) return;
+        const dots = document.createElement('div');
+        dots.className = 'rv-spot-dots';
+        const dotEls = [];
+        cards.forEach(function (_, i) {
+            const d = document.createElement('button');
+            d.type = 'button';
+            d.className = 'rv-spot-dot' + (i === 0 ? ' on' : '');
+            d.setAttribute('aria-label', 'Show review ' + (i + 1));
+            d.addEventListener('click', function () { show(i); });
+            dots.appendChild(d);
+            dotEls.push(d);
+        });
+        grid.parentNode.insertBefore(dots, grid.nextSibling);
+        function show(i) {
+            cards[idx].classList.remove('rv-active');
+            dotEls[idx].classList.remove('on');
+            idx = i;
+            cards[idx].classList.add('rv-active');
+            dotEls[idx].classList.add('on');
+        }
+        grid.addEventListener('mouseenter', function () { paused = true; });
+        grid.addEventListener('mouseleave', function () { paused = false; });
+        setInterval(function () { if (!paused) show((idx + 1) % cards.length); }, 7000);
+    });
+
+    // Fetch a fresh anti-spam token for each accepting form
+    document.querySelectorAll('.rv-submit-form').forEach(function (form) {
+        const m = form.id.match(/rv-form-(\d+)/);
+        if (!m) return;
+        fetch('/contact_form_token/' + m[1])
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                const f = form.querySelector('input[name="form_token"]');
+                if (f && j.token) f.value = j.token;
+            })
+            .catch(function () {});
+    });
+})();
+
+async function rvSubmitReview(event, sectionId) {
+    event.preventDefault();
+    const form = document.getElementById('rv-form-' + sectionId);
+    if (!form) return false;
+    const msg = form.querySelector('.rv-form-msg');
+    const btn = form.querySelector('.rv-submit-btn');
+    const pick = form.querySelector('.rv-star-pick');
+    const payload = {
+        author_name: form.querySelector('input[name="author_name"]').value.trim(),
+        title:       form.querySelector('input[name="title"]').value.trim(),
+        body:        form.querySelector('textarea[name="body"]').value.trim(),
+        rating:      pick ? (pick.dataset.rating || '') : '',
+        website:     form.querySelector('input[name="website"]').value,
+        form_token:  form.querySelector('input[name="form_token"]').value,
+    };
+    function setMsg(text, cls) {
+        if (!msg) return;
+        msg.textContent = text;
+        msg.classList.remove('ok', 'err');
+        if (cls) msg.classList.add(cls);
+    }
+    if (btn) btn.disabled = true;
+    setMsg('Submitting…', '');
+    try {
+        const r = await fetch('/reviews/' + sectionId + '/submit', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.success) {
+            setMsg(j.error || 'Could not submit.', 'err');
+            if (btn) btn.disabled = false;
+        } else {
+            setMsg(j.message || 'Thanks!', 'ok');
+            form.reset();
+            if (pick) rvResetStarPick(pick);
+        }
+    } catch (e) {
+        setMsg('Network error.', 'err');
+        if (btn) btn.disabled = false;
     }
     return false;
 }

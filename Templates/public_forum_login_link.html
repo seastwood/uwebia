@@ -1,0 +1,75 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Email Sign-In Link{% endblock %}
+
+{% block head %}
+<style>
+    .forum-auth {
+        width: min(460px, calc(100% - 28px));
+        margin: 52px auto;
+        padding: 22px;
+
+        background: rgba(0,0,0,0.34);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        box-shadow: 0 18px 38px rgba(0,0,0,0.24);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .forum-auth input {
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 12px;
+        padding: 12px;
+
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.18);
+
+        background: rgba(255,255,255,0.1);
+        color: inherit;
+        font: inherit;
+    }
+
+    .forum-auth button {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.12);
+        color: inherit;
+        font-weight: 800;
+        cursor: pointer;
+    }
+
+    .forum-auth .auth-hint {
+        margin-top: 14px;
+        font-size: 0.85rem;
+        opacity: 0.7;
+    }
+
+    .forum-auth .auth-hint a {
+        color: inherit;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<form class="forum-auth" method="POST">
+    <h1>Sign in by email</h1>
+
+    <p>Enter the email address connected to your account and we'll send you a
+       one-time sign-in link. No password needed.</p>
+
+    <input type="hidden" name="next" value="{{ next_url or '' }}">
+    <input type="hidden" name="website_prefix" value="{{ website_prefix or '' }}">
+
+    <input name="email" type="email" placeholder="Email address" required>
+
+    <button type="submit">Email me a sign-in link</button>
+
+    <p class="auth-hint">
+        The link expires in 15 minutes and works once.
+        Prefer your password? <a href="{{ url_for('public_login', website_prefix=website.url_prefix or None, next=next_url or None) }}">Log in here</a>.
+    </p>
+</form>
+{% endblock %}
