@@ -332,6 +332,12 @@ class User(UserMixin, db.Model):
     two_factor_last_sent_at = db.Column(db.DateTime, nullable=True)
     last_login_at = db.Column(db.DateTime, nullable=True)
     last_seen_at  = db.Column(db.DateTime, nullable=True)
+    # Passwordless email sign-in on the *public* site (magic link). Mirrors
+    # PublicUser.login_link_*: per-link nonce (single-use) + resend cooldown.
+    # The link only acts like a correct password — 2FA-protected admins still
+    # go through the same code step the public login form uses.
+    login_link_nonce   = db.Column(db.String(64), nullable=True)
+    login_link_sent_at = db.Column(db.DateTime, nullable=True)
     two_factor_needs_attention = db.Column(
         db.Boolean,
         nullable=False,
@@ -470,6 +476,7 @@ def _perm_label(key):
     section_labels = {
         'pages': 'Pages', 'sections': 'Sections', 'appearance': 'Appearance',
         'code': 'Code', 'assets': 'Asset Library', 'calendars': 'Calendars',
+        'reviews': 'Reviews',
         'posts': 'Posts', 'store': 'Store', 'newsletters': 'Newsletters',
         'storage': 'External Drives', 'notifications': 'Notifications',
         'payments': 'Payments',
@@ -1185,6 +1192,13 @@ class PublicUser(UserMixin, db.Model):
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     two_factor_last_sent_at = db.Column(db.DateTime, nullable=True)
+
+    # Passwordless email sign-in ("magic link"). A fresh nonce is minted on
+    # every link request and cleared on use, so each link is single-use and
+    # issuing a new one invalidates any older link. sent_at drives the resend
+    # cooldown so the flow can't be used to mail-bomb an address.
+    login_link_nonce   = db.Column(db.String(64), nullable=True)
+    login_link_sent_at = db.Column(db.DateTime, nullable=True)
 
     # Phone + SMS opt-in. NULL phone or sms_opt_in=False means SMS sends to
     # this user fall back to email.
@@ -2009,6 +2023,9 @@ class Website(db.Model):
     post_profanity_action = db.Column(db.String(10), nullable=False, default='block', server_default="'block'")  # 'block' or 'replace'
     profanity_filter_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     reviews_enabled   = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # Shows a "My Training" button on the public guides page for logged-in
+    # members, linking to the Training tab of their member profile.
+    guides_show_my_training = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
@@ -2598,6 +2615,10 @@ class GuideCategory(db.Model):
     color       = db.Column(db.String(20), nullable=True)
     icon        = db.Column(db.String(60), nullable=True)  # FA class, e.g. 'fa-graduation-cap'
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # When true, the public guides index renders this category as a numbered
+    # learning path (sequential steps with done/up-next/upcoming states)
+    # instead of a card grid.
+    is_learning_path = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_guide_category_site_slug'),)
 
@@ -2607,6 +2628,7 @@ class GuideCategory(db.Model):
             'description': self.description or '',
             'color': self.color or '', 'icon': self.icon or '',
             'sort_order': self.sort_order,
+            'is_learning_path': bool(self.is_learning_path),
         }
 
 
@@ -3959,6 +3981,87 @@ class ProductReview(db.Model):
     __table_args__ = (
         db.UniqueConstraint('product_id', 'public_user_id', name='uq_product_review_user'),
     )
+
+
+REVIEW_STYLE_DEFAULTS = {
+    'accent_color': '#5c6bc0',
+    'card_bg': 'rgba(255,255,255,0.06)',
+    'text_color': '#ffffff',
+    'star_color': '#ffc107',
+}
+
+
+class ReviewBoard(db.Model):
+    """A standalone "Reviews" asset (like a Calendar). Holds individual reviews
+    that can be entered manually, pulled from Google, imported from a file, or
+    submitted by visitors. Selected into a page via the `reviews` section type."""
+    __tablename__ = 'review_board'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    styles = db.Column(db.JSON, nullable=True)
+    # External-source settings, e.g. {"google_place_id": "...", "google_api_key": "..."}
+    source_config = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviews = db.relationship('Review', backref='board', lazy=True, cascade='all, delete-orphan')
+
+    def get_styles(self):
+        merged = dict(REVIEW_STYLE_DEFAULTS)
+        if self.styles:
+            merged.update(self.styles)
+        return merged
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'website_id': self.website_id,
+            'styles': self.get_styles(),
+            'source_config': self.source_config or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Review(db.Model):
+    __tablename__ = 'review'
+    id = db.Column(db.Integer, primary_key=True)
+    board_id = db.Column(db.Integer, db.ForeignKey('review_board.id'), nullable=False, index=True)
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id'), nullable=True)
+    author_name = db.Column(db.String(200), nullable=True)
+    author_avatar_url = db.Column(db.String(1000), nullable=True)
+    rating = db.Column(db.Integer, nullable=True)
+    title = db.Column(db.String(300), nullable=True)
+    body = db.Column(db.Text, nullable=True)
+    # 'manual' | 'google' | 'import' | 'visitor'
+    source = db.Column(db.String(20), nullable=False, default='manual', server_default='manual')
+    # External identifier (e.g. Google review id) used to de-dupe on re-sync.
+    external_id = db.Column(db.String(255), nullable=True, index=True)
+    review_date = db.Column(db.DateTime, nullable=True)
+    # 'approved' | 'pending'
+    status = db.Column(db.String(20), nullable=False, default='approved', server_default='approved', index=True)
+    owner_reply = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        _date = self.review_date or self.created_at
+        return {
+            'id': self.id,
+            'board_id': self.board_id,
+            'author_name': self.author_name or '',
+            'author_avatar_url': self.author_avatar_url or '',
+            'rating': self.rating,
+            'title': self.title or '',
+            'body': self.body or '',
+            'source': self.source or 'manual',
+            'external_id': self.external_id,
+            'review_date': _date.isoformat() if _date else None,
+            'status': self.status or 'approved',
+            'owner_reply': self.owner_reply or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class StorageConnection(db.Model):
@@ -6738,7 +6841,7 @@ _RESERVED_URL_PREFIXES = frozenset({
     # System / auth
     'admin', 'static', 'favicon.ico', 'api', 'capture',
     # Public auth routes
-    'login', 'logout', 'register', 'account', '2fa',
+    'login', 'logout', 'register', 'account', '2fa', 'login-link',
     'forgot-password', 'reset-password', 'verify-email', 'resend-verification',
     # Public content
     'posts', 'products', 'shop', 'store', 'forum', 'calendar', 'guides', 'quizzes',
@@ -7044,7 +7147,8 @@ def forgot_password(admin_key=None):
 
             if email_settings and email_settings.is_active:
                 token = generate_password_reset_token(user)
-                reset_url = url_for('reset_password', token=token, _external=True)
+                reset_url = url_for('reset_password', token=token, _external=True,
+                                    _scheme=_email_link_scheme())
 
                 print("")
                 print("========================================")
@@ -8782,7 +8886,7 @@ def save_navbar_visibility():
     # layout), so it's stored on and read from the primary owner (the anchor) —
     # not the acting user. Changeable by full admins or anyone with settings.edit.
     data = request.get_json() or {}
-    valid = {'posts', 'guides', 'quizzes', 'divisions', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'messages', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
+    valid = {'posts', 'guides', 'quizzes', 'divisions', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'reviews', 'messages', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
              # Store dropdown master + the items that weren't in this set before,
              # so they can actually be toggled off (the navbar already honors them).
              'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support'}
@@ -13685,6 +13789,10 @@ def _serialize_backup(uid):
     ).all() if cal_ids else []
     cal_subs = CalendarSubscription.query.filter(CalendarSubscription.calendar_id.in_(cal_ids)).all() if cal_ids else []
 
+    review_boards = ReviewBoard.query.filter_by(user_id=uid).all()
+    rb_ids = [b.id for b in review_boards]
+    board_reviews = Review.query.filter(Review.board_id.in_(rb_ids)).all() if rb_ids else []
+
     ai_agents = AIAgent.query.filter_by(user_id=uid).all()
 
     sg_templates = SectionGroupTemplate.query.filter(
@@ -14059,6 +14167,15 @@ def _serialize_backup(uid):
                              'calendar_id': e.calendar_id, 'section_id': e.section_id} for e in cal_events],
         'calendar_subscriptions': [{'id': s.id, 'calendar_id': s.calendar_id,
                                     'name': s.name, 'url': s.url} for s in cal_subs],
+        'review_boards': [{'id': b.id, 'name': b.name, 'description': b.description,
+                           'website_id': b.website_id, 'styles': b.styles,
+                           'source_config': b.source_config} for b in review_boards],
+        'reviews': [{'id': r.id, 'board_id': r.board_id, 'website_id': r.website_id,
+                     'author_name': r.author_name, 'author_avatar_url': r.author_avatar_url,
+                     'rating': r.rating, 'title': r.title, 'body': r.body,
+                     'source': r.source, 'external_id': r.external_id,
+                     'review_date': r.review_date.isoformat() if r.review_date else None,
+                     'status': r.status, 'owner_reply': r.owner_reply} for r in board_reviews],
         'ai_agents': [{'id': a.id, 'website_id': a.website_id, 'name': a.name,
                        'provider': a.provider, 'api_url': a.api_url, 'api_key': a.api_key,
                        'model': a.model, 'system_prompt': a.system_prompt,
@@ -14889,6 +15006,10 @@ def import_backup():
             # cascade (all, delete-orphan).
             for cal in Calendar.query.filter_by(user_id=uid).all():
                 db.session.delete(cal)
+            # Review boards are also a user-scoped pool; delete via the ORM so
+            # their reviews cascade (all, delete-orphan).
+            for board in ReviewBoard.query.filter_by(user_id=uid).all():
+                db.session.delete(board)
             AIAgent.query.filter_by(user_id=uid).delete(synchronize_session=False)
             ShippingMethod.query.filter_by(user_id=uid).delete(synchronize_session=False)
             # v2 additions
@@ -14945,6 +15066,7 @@ def import_backup():
             sec_map = {}
             cal_map = {};
             cal_sub_map = {};
+            rb_map = {};
             agent_map = {}
             af_map = {};
             asset_map = {}
@@ -15238,6 +15360,56 @@ def import_backup():
                     if sec and isinstance(sec.content, dict):
                         merged = dict(sec.content)
                         merged['calendar_id'] = new_cid
+                        sec.content = merged
+
+            # ── Review boards & reviews ───────────────────────────────────────
+            # User-scoped pool like calendars; website_id is optional.
+            for bd in data.get('review_boards', []):
+                src_wid = bd.get('website_id')
+                new_wid = website_map.get(src_wid) if src_wid else None
+                board = ReviewBoard(user_id=uid, name=bd['name'],
+                                    description=bd.get('description'),
+                                    website_id=new_wid, styles=bd.get('styles'),
+                                    source_config=bd.get('source_config'))
+                db.session.add(board);
+                db.session.flush()
+                rb_map[bd['id']] = board.id
+
+            for rd in data.get('reviews', []):
+                new_bid = rb_map.get(rd['board_id'])
+                if not new_bid:
+                    continue
+                src_wid = rd.get('website_id')
+                rv = Review(
+                    board_id=new_bid,
+                    website_id=website_map.get(src_wid) if src_wid else None,
+                    author_name=rd.get('author_name'), author_avatar_url=rd.get('author_avatar_url'),
+                    rating=rd.get('rating'), title=rd.get('title'), body=rd.get('body'),
+                    source=rd.get('source', 'manual'), external_id=rd.get('external_id'),
+                    review_date=datetime.fromisoformat(rd['review_date']) if rd.get('review_date') else None,
+                    status=rd.get('status', 'approved'), owner_reply=rd.get('owner_reply'))
+                db.session.add(rv)
+
+            # Remap the board id embedded in 'reviews' section content, same as
+            # calendars above (sections are restored before boards exist).
+            if rb_map:
+                for secd in data.get('sections', []):
+                    if secd.get('section_type') != 'reviews':
+                        continue
+                    content = secd.get('content')
+                    new_sid = sec_map.get(secd['id'])
+                    if not new_sid or not isinstance(content, dict) or content.get('review_board_id') is None:
+                        continue
+                    try:
+                        new_bid = rb_map.get(int(content['review_board_id']))
+                    except (TypeError, ValueError):
+                        new_bid = None
+                    if not new_bid:
+                        continue
+                    sec = db.session.get(PageSection, new_sid)
+                    if sec and isinstance(sec.content, dict):
+                        merged = dict(sec.content)
+                        merged['review_board_id'] = new_bid
                         sec.content = merged
 
             # ── AI agents ─────────────────────────────────────────────────────
@@ -17546,6 +17718,31 @@ def render_public_page(website, page, is_preview=False):
                        .limit(limit).all())
             badges_by_section[section.id] = _events
 
+    # Reviews sections: load approved reviews for the chosen board, honoring the
+    # per-section minimum-rating filter and display limit.
+    reviews_by_section = {}
+    review_boards_by_section = {}
+    for section in sections:
+        if section.section_type != 'reviews':
+            continue
+        cfg = section.content or {}
+        board_id = cfg.get('review_board_id')
+        if not board_id:
+            continue
+        board = db.session.get(ReviewBoard, int(board_id))
+        if not board:
+            continue
+        review_boards_by_section[section.id] = board
+        limit = max(1, min(int(cfg.get('limit') or 6), 50))
+        min_rating = int(cfg.get('min_rating') or 0)
+        q = Review.query.filter(Review.board_id == int(board_id),
+                                Review.status == 'approved')
+        if min_rating > 0:
+            q = q.filter(Review.rating != None, Review.rating >= min_rating)
+        reviews_by_section[section.id] = (
+            q.order_by(db.func.coalesce(Review.review_date, Review.created_at).desc())
+             .limit(limit).all())
+
     section_groups = SectionGroup.query.filter_by(
         page_content_id=page.id
     ).order_by(SectionGroup.group_order).all()
@@ -17681,6 +17878,8 @@ def render_public_page(website, page, is_preview=False):
         'products_by_section': products_by_section,
         'posts_by_section': posts_by_section,
         'badges_by_section': badges_by_section,
+        'reviews_by_section': reviews_by_section,
+        'review_boards_by_section': review_boards_by_section,
     }
 
     html = render_template(
@@ -18609,6 +18808,22 @@ def update_calendar_badges_section(section, form_data):
     return section
 
 
+def update_reviews_section(section, form_data):
+    board_id = form_data.get('rv_board_id')
+    section.content = {
+        'review_board_id':    int(board_id) if board_id else None,
+        'style':              form_data.get('rv_style') or 'cards',
+        'limit':              int(form_data.get('rv_limit') or 6),
+        'min_rating':         int(form_data.get('rv_min_rating') or 0),
+        'show_rating':        form_data.get('rv_show_rating') == 'on',
+        'show_date':          form_data.get('rv_show_date') == 'on',
+        'show_avatar':        form_data.get('rv_show_avatar') == 'on',
+        'accept_submissions': form_data.get('rv_accept_submissions') == 'on',
+        'require_approval':   form_data.get('rv_require_approval') == 'on',
+    }
+    return section
+
+
 def update_newsletter_signup_section(section, form_data):
     newsletter_id = form_data.get('ns_newsletter_id')
     section.content = {
@@ -19102,6 +19317,8 @@ def update_section():
         section = update_article_feed_section(section, form_data)
     elif section_type == 'calendar_badges':
         section = update_calendar_badges_section(section, form_data)
+    elif section_type == 'reviews':
+        section = update_reviews_section(section, form_data)
     elif section_type == 'newsletter_signup':
         section = update_newsletter_signup_section(section, form_data)
     elif section_type == 'newsletter_feed':
@@ -20709,6 +20926,14 @@ ADMIN_PERMISSIONS = {
         'delete': 'Delete calendars',
         'events': 'Create, edit & delete events',
         'subscriptions': 'Manage external calendar feeds',
+    }},
+    'reviews': {'label': 'Reviews', 'actions': {
+        'view': 'View review boards',
+        'create': 'Create review boards',
+        'edit': 'Edit review boards & reviews',
+        'delete': 'Delete review boards & reviews',
+        'moderate': 'Approve & reject submitted reviews',
+        'sources': 'Sync Google & import reviews from a file',
     }},
     'posts': {'label': 'Posts', 'actions': {
         'view': 'View posts & collections list',
@@ -22906,6 +23131,433 @@ def test_ai_agent(agent_id):
     return _utf8_json({'success': True, 'reply': reply})
 
 
+def owns_review_board(board):
+    """True if the current user (or their root admin) owns this review board.
+    Boards are user-scoped, mirroring owns_calendar()."""
+    if board is None:
+        return False
+    if board.user_id is not None:
+        return board.user_id == current_user.root_user_id
+    if board.website_id is not None:
+        w = Website.query.get(board.website_id)
+        return bool(w and w.user_id == current_user.root_user_id)
+    return False
+
+
+def _parse_review_styles(raw):
+    if not raw or not isinstance(raw, dict):
+        return None
+    allowed = set(REVIEW_STYLE_DEFAULTS.keys())
+    return {k: v for k, v in raw.items() if k in allowed and isinstance(v, str) and v.strip()}
+
+
+def _parse_review_date(raw):
+    """Parse a date/datetime string from manual entry or imports; tolerant of
+    plain dates and ISO datetimes. Returns a naive datetime or None."""
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%m/%d/%Y'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(s.replace('Z', ''))
+    except ValueError:
+        return None
+
+
+@app.route('/admin/reviews')
+@login_required
+@require_perm('reviews.view')
+def admin_reviews_page():
+    website = get_admin_website()
+    boards = []
+    if website:
+        boards = ReviewBoard.query.filter_by(
+            user_id=current_user.root_user_id).order_by(ReviewBoard.created_at.desc()).all()
+    current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
+        PublicPageContent.sort_order, PublicPageContent.id
+    ).all() if website else []
+    return render_template(
+        'reviews.html',
+        boards=boards,
+        current_website=website,
+        current_website_pages=current_website_pages,
+        page_id=None,
+    )
+
+
+@app.route('/admin/reviews/list', methods=['GET'])
+@login_required
+def list_review_boards():
+    website = get_admin_website()
+    if not website:
+        return jsonify({'boards': []})
+    boards = ReviewBoard.query.filter_by(
+        user_id=current_user.root_user_id).order_by(ReviewBoard.created_at.desc()).all()
+    return jsonify({'boards': [b.to_dict() for b in boards]})
+
+
+@app.route('/admin/reviews/create', methods=['POST'])
+@login_required
+@require_perm('reviews.create')
+def create_review_board():
+    data = request.get_json() or {}
+    website = get_admin_website()
+    if not website:
+        return jsonify({'success': False, 'error': 'No website found'}), 400
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+    board = ReviewBoard(
+        name=name,
+        description=(data.get('description') or '').strip(),
+        user_id=current_user.root_user_id,
+        website_id=website.id,
+        styles=_parse_review_styles(data.get('styles')),
+        source_config=data.get('source_config') if isinstance(data.get('source_config'), dict) else None,
+    )
+    db.session.add(board)
+    db.session.commit()
+    return jsonify({'success': True, 'board': board.to_dict()}), 201
+
+
+@app.route('/admin/reviews/<int:board_id>/update', methods=['POST'])
+@login_required
+@require_perm('reviews.edit')
+def update_review_board(board_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+    board.name = name
+    board.description = (data.get('description') or '').strip()
+    if isinstance(data.get('styles'), dict):
+        board.styles = _parse_review_styles(data.get('styles'))
+    if isinstance(data.get('source_config'), dict):
+        board.source_config = data.get('source_config')
+    db.session.commit()
+    return jsonify({'success': True, 'board': board.to_dict()})
+
+
+@app.route('/admin/reviews/<int:board_id>/delete', methods=['POST'])
+@login_required
+@require_perm('reviews.delete')
+def delete_review_board(board_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    Review.query.filter_by(board_id=board_id).delete(synchronize_session=False)
+    ReviewBoard.query.filter_by(id=board_id).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/reviews/<int:board_id>/items', methods=['GET'])
+@login_required
+@require_perm('reviews.view')
+def list_board_reviews(board_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    items = Review.query.filter_by(board_id=board_id).order_by(
+        db.func.coalesce(Review.review_date, Review.created_at).desc()).all()
+    return jsonify({'success': True, 'reviews': [r.to_dict() for r in items]})
+
+
+@app.route('/admin/reviews/<int:board_id>/items/create', methods=['POST'])
+@login_required
+@require_perm('reviews.edit')
+def add_review_item(board_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json() or {}
+    rating = data.get('rating')
+    try:
+        rating = int(rating) if rating not in (None, '') else None
+    except (TypeError, ValueError):
+        rating = None
+    if rating is not None:
+        rating = max(1, min(5, rating))
+    review = Review(
+        board_id=board.id,
+        website_id=board.website_id,
+        author_name=(data.get('author_name') or '').strip() or None,
+        author_avatar_url=(data.get('author_avatar_url') or '').strip() or None,
+        rating=rating,
+        title=(data.get('title') or '').strip() or None,
+        body=(data.get('body') or '').strip() or None,
+        source='manual',
+        review_date=_parse_review_date(data.get('review_date')) or datetime.utcnow(),
+        status='approved',
+        owner_reply=(data.get('owner_reply') or '').strip() or None,
+    )
+    db.session.add(review)
+    db.session.commit()
+    return jsonify({'success': True, 'review': review.to_dict()}), 201
+
+
+@app.route('/admin/reviews/<int:board_id>/items/<int:review_id>/update', methods=['POST'])
+@login_required
+@require_perm('reviews.edit')
+def update_review_item(board_id, review_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    review = Review.query.filter_by(id=review_id, board_id=board_id).first_or_404()
+    data = request.get_json() or {}
+    if 'rating' in data:
+        try:
+            r = int(data.get('rating')) if data.get('rating') not in (None, '') else None
+            review.rating = max(1, min(5, r)) if r is not None else None
+        except (TypeError, ValueError):
+            pass
+    if 'author_name' in data:
+        review.author_name = (data.get('author_name') or '').strip() or None
+    if 'author_avatar_url' in data:
+        review.author_avatar_url = (data.get('author_avatar_url') or '').strip() or None
+    if 'title' in data:
+        review.title = (data.get('title') or '').strip() or None
+    if 'body' in data:
+        review.body = (data.get('body') or '').strip() or None
+    if 'owner_reply' in data:
+        review.owner_reply = (data.get('owner_reply') or '').strip() or None
+    if data.get('review_date'):
+        review.review_date = _parse_review_date(data.get('review_date')) or review.review_date
+    db.session.commit()
+    return jsonify({'success': True, 'review': review.to_dict()})
+
+
+@app.route('/admin/reviews/<int:board_id>/items/<int:review_id>/delete', methods=['POST'])
+@login_required
+@require_perm('reviews.delete')
+def delete_review_item(board_id, review_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    Review.query.filter_by(id=review_id, board_id=board_id).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/reviews/<int:board_id>/items/<int:review_id>/moderate', methods=['POST'])
+@login_required
+@require_perm('reviews.moderate')
+def moderate_review_item(board_id, review_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    review = Review.query.filter_by(id=review_id, board_id=board_id).first_or_404()
+    action = (request.get_json() or {}).get('action')
+    if action == 'approve':
+        review.status = 'approved'
+        db.session.commit()
+        return jsonify({'success': True, 'status': review.status})
+    if action == 'reject':
+        db.session.delete(review)
+        db.session.commit()
+        return jsonify({'success': True, 'status': 'deleted'})
+    return jsonify({'success': False, 'error': 'Unknown action'}), 400
+
+
+@app.route('/admin/reviews/<int:board_id>/sync-google', methods=['POST'])
+@login_required
+@require_perm('reviews.sources')
+def sync_review_board_google(board_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    data = request.get_json() or {}
+    cfg = dict(board.source_config or {})
+    place_id = (data.get('google_place_id') or cfg.get('google_place_id') or '').strip()
+    api_key = (data.get('google_api_key') or cfg.get('google_api_key') or '').strip()
+    if not place_id or not api_key:
+        return jsonify({'success': False, 'error': 'Google Place ID and API key are required'}), 400
+    # Persist the source config so future syncs don't need it re-entered.
+    cfg['google_place_id'] = place_id
+    cfg['google_api_key'] = api_key
+    board.source_config = cfg
+    import requests as _rq
+    try:
+        resp = _rq.get(
+            'https://maps.googleapis.com/maps/api/place/details/json',
+            params={'place_id': place_id, 'fields': 'reviews', 'key': api_key, 'reviews_sort': 'newest'},
+            timeout=15,
+        )
+        payload = resp.json()
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Google request failed: {e}'}), 502
+    if payload.get('status') not in ('OK', 'ZERO_RESULTS'):
+        return jsonify({'success': False,
+                        'error': payload.get('error_message') or payload.get('status') or 'Google error'}), 502
+    google_reviews = (payload.get('result') or {}).get('reviews') or []
+    added = 0
+    for gr in google_reviews:
+        author = (gr.get('author_name') or '').strip() or None
+        ts = gr.get('time')
+        ext_id = f"google:{ts}:{author or ''}"
+        if Review.query.filter_by(board_id=board.id, external_id=ext_id).first():
+            continue
+        review = Review(
+            board_id=board.id,
+            website_id=board.website_id,
+            author_name=author,
+            author_avatar_url=(gr.get('profile_photo_url') or '').strip() or None,
+            rating=int(gr['rating']) if gr.get('rating') else None,
+            body=(gr.get('text') or '').strip() or None,
+            source='google',
+            external_id=ext_id,
+            review_date=datetime.utcfromtimestamp(ts) if ts else datetime.utcnow(),
+            status='approved',
+        )
+        db.session.add(review)
+        added += 1
+    db.session.commit()
+    return jsonify({'success': True, 'added': added, 'fetched': len(google_reviews)})
+
+
+@app.route('/admin/reviews/<int:board_id>/import', methods=['POST'])
+@login_required
+@require_perm('reviews.sources')
+def import_review_board(board_id):
+    board = ReviewBoard.query.get_or_404(board_id)
+    if not owns_review_board(board):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    # Accept either a JSON body {"rows": [...]} / raw list, or pasted CSV/JSON text.
+    rows = []
+    raw_text = ''
+    if request.is_json:
+        body = request.get_json() or {}
+        if isinstance(body, list):
+            rows = body
+        elif isinstance(body.get('rows'), list):
+            rows = body['rows']
+        else:
+            raw_text = body.get('text') or ''
+    else:
+        raw_text = request.form.get('text') or ''
+        f = request.files.get('file')
+        if f:
+            raw_text = f.read().decode('utf-8', errors='replace')
+    if not rows and raw_text.strip():
+        txt = raw_text.strip()
+        if txt[0] in '[{':
+            try:
+                parsed = json.loads(txt)
+                rows = parsed if isinstance(parsed, list) else parsed.get('rows', [])
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Invalid JSON: {e}'}), 400
+        else:
+            import csv as _csv
+            import io as _io
+            try:
+                rows = list(_csv.DictReader(_io.StringIO(txt)))
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Invalid CSV: {e}'}), 400
+    if not rows:
+        return jsonify({'success': False, 'error': 'No rows found to import'}), 400
+
+    def _pick(row, *keys):
+        for k in keys:
+            for rk in row:
+                if rk and rk.strip().lower() == k:
+                    v = row[rk]
+                    return v.strip() if isinstance(v, str) else v
+        return None
+
+    added = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rating_raw = _pick(row, 'rating', 'stars', 'score')
+        try:
+            rating = max(1, min(5, int(float(rating_raw)))) if rating_raw not in (None, '') else None
+        except (TypeError, ValueError):
+            rating = None
+        review = Review(
+            board_id=board.id,
+            website_id=board.website_id,
+            author_name=(_pick(row, 'author_name', 'author', 'name') or None),
+            author_avatar_url=(_pick(row, 'author_avatar_url', 'avatar', 'photo') or None),
+            rating=rating,
+            title=(_pick(row, 'title', 'headline') or None),
+            body=(_pick(row, 'body', 'text', 'review', 'comment') or None),
+            source='import',
+            review_date=_parse_review_date(_pick(row, 'review_date', 'date', 'time')) or datetime.utcnow(),
+            status='approved',
+        )
+        db.session.add(review)
+        added += 1
+    db.session.commit()
+    return jsonify({'success': True, 'added': added})
+
+
+@app.route('/reviews/<int:section_id>/submit', methods=['POST'])
+def submit_visitor_review(section_id):
+    """Public endpoint: a site visitor leaves a review. The section controls
+    whether submissions are accepted and whether they need approval."""
+    section = db.session.get(PageSection, section_id)
+    if not section or section.section_type != 'reviews':
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    cfg = section.content or {}
+    if not cfg.get('accept_submissions'):
+        return jsonify({'success': False, 'error': 'This page is not accepting reviews.'}), 403
+    board_id = cfg.get('review_board_id')
+    board = db.session.get(ReviewBoard, int(board_id)) if board_id else None
+    if not board:
+        return jsonify({'success': False, 'error': 'Review board unavailable.'}), 404
+
+    data = request.get_json() or {}
+    # Honeypot: bots fill hidden fields a human never sees.
+    if (data.get('website') or '').strip():
+        return jsonify({'success': True})  # silently swallow
+    ok, err = _contact_form_token_valid(data.get('form_token') or '', section_id)
+    if not ok:
+        return jsonify({'success': False, 'error': err}), 400
+
+    author = (data.get('author_name') or '').strip()
+    body = (data.get('body') or '').strip()
+    if not author:
+        return jsonify({'success': False, 'error': 'Please enter your name.'}), 400
+    if not body:
+        return jsonify({'success': False, 'error': 'Please write your review.'}), 400
+    try:
+        rating = int(data.get('rating')) if data.get('rating') not in (None, '') else None
+        if rating is not None:
+            rating = max(1, min(5, rating))
+    except (TypeError, ValueError):
+        rating = None
+
+    require_approval = cfg.get('require_approval', True)
+    review = Review(
+        board_id=board.id,
+        website_id=board.website_id,
+        author_name=author[:200],
+        rating=rating,
+        title=(data.get('title') or '').strip()[:300] or None,
+        body=body,
+        source='visitor',
+        review_date=datetime.utcnow(),
+        status='pending' if require_approval else 'approved',
+    )
+    db.session.add(review)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'pending': require_approval,
+        'message': ('Thanks! Your review will appear once approved.'
+                    if require_approval else 'Thanks for your review!'),
+    })
+
+
 @app.route('/admin/calendars')
 @login_required
 @require_perm('calendars.view')
@@ -23758,6 +24410,221 @@ def public_forgot_password():
         public_user=get_public_user(),
         content=content
     )
+
+
+@app.route('/account/login-link', methods=['GET', 'POST'])
+@app.route('/forum/login-link', methods=['GET', 'POST'])
+@app.route('/login-link', methods=['GET', 'POST'])
+def public_login_link_request():
+    """Passwordless sign-in, step 1: email the user a single-use login link.
+    Security-equivalent to the forgot-password flow (inbox access already
+    grants entry there), so this adds convenience without new attack surface.
+    Never reveals whether an account exists for the submitted email."""
+    website_prefix = (request.values.get('website_prefix') or '').strip().strip('/')
+    website = get_live_website(url_prefix=website_prefix or None)
+
+    if not website or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    # Only site-relative targets, same as public_login (no open redirects).
+    _raw_next = (request.values.get('next') or '').strip()
+    safe_next = _raw_next if (_raw_next.startswith('/') and not _raw_next.startswith('//')) else ''
+
+    login_kwargs = {}
+    if website_prefix:
+        login_kwargs['website_prefix'] = website_prefix
+    if safe_next:
+        login_kwargs['next'] = safe_next
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+
+        # Honor the shared login lockout so a locked-out attacker can't pivot
+        # to spamming sign-in links instead.
+        ip = get_request_ip()
+        rl = _rl_check(ip, email)
+        if rl['locked']:
+            mins = max(1, int((rl['locked_until'] - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds() / 60) + 1)
+            flash(f'Too many attempts. Try again in {mins} minute{"s" if mins != 1 else ""}.', 'error')
+            return redirect(url_for('public_login', **login_kwargs))
+
+        generic_message = (
+            'If that email matches an account and email sending is configured, '
+            'a sign-in link is on its way. It expires in 15 minutes.'
+        )
+
+        public_user = PublicUser.query.filter_by(
+            website_id=website.id,
+            email=email
+        ).first()
+
+        # Admin mirrors hold no password of their own — the account behind
+        # them is the admin User. Route those (and plain admin emails) through
+        # the admin variant, which keeps the 2FA gate on consumption.
+        if public_user and public_user.is_admin_mirror:
+            public_user = None
+        admin = None
+        if not public_user:
+            admin = User.query.filter(User.email == email).first()
+
+        _now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        if public_user and not public_user.is_banned and public_user.is_active_public:
+            # Cooldown: at most one link per minute per account, so this
+            # endpoint can't be used to flood someone's inbox.
+            recently_sent = (
+                public_user.login_link_sent_at and
+                (_now - public_user.login_link_sent_at).total_seconds() < 60
+            )
+            if not recently_sent:
+                try:
+                    send_public_user_login_link_email(public_user, safe_next)
+                except Exception as e:
+                    print(f'Magic sign-in link email failed: {e}')
+        elif admin:
+            recently_sent = (
+                admin.login_link_sent_at and
+                (_now - admin.login_link_sent_at).total_seconds() < 60
+            )
+            if not recently_sent:
+                try:
+                    send_admin_login_link_email(admin, website, safe_next)
+                except Exception as e:
+                    print(f'Magic sign-in link email failed (admin): {e}')
+
+        flash(generic_message, 'success')
+        return redirect(url_for('public_login', **login_kwargs))
+
+    content = {
+        'current_page_url': url_for('public_login_link_request')
+    }
+
+    return render_template(
+        'public_forum_login_link.html',
+        website=website,
+        public_user=_public_user_for_website(website),
+        content=content,
+        next_url=safe_next,
+        website_prefix=website_prefix
+    )
+
+
+@app.route('/account/login-link/<token>', methods=['GET', 'POST'])
+@app.route('/forum/login-link/<token>', methods=['GET', 'POST'])
+@app.route('/login-link/<token>', methods=['GET', 'POST'])
+def public_login_link(token):
+    """Passwordless sign-in, step 2: confirm and consume the emailed
+    single-use token. GET only *verifies* and renders a confirm page — mail
+    clients, link-preview features, and security scanners prefetch URLs in
+    emails, and a consuming GET would let them burn the token before the user
+    ever clicks. Only the POST (the Continue button) consumes it and
+    establishes the session. For admins the link stands in for a correct
+    password — 2FA-protected admins still get the same code step the public
+    login form gives them."""
+    public_user, admin, website_id, next_url, error = verify_login_link_token(token)
+
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('public_login'))
+
+    website = public_user.website if public_user else (
+        db.session.get(Website, website_id) if website_id else None)
+
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    login_kwargs = {}
+    if website.url_prefix:
+        login_kwargs['website_prefix'] = website.url_prefix
+
+    safe_next = next_url if (next_url.startswith('/') and not next_url.startswith('//')) else ''
+    next_target = safe_next or _website_default_url(website)
+
+    if request.method != 'POST':
+        display_name = admin.username if admin else public_user.effective_display_name
+        return render_template(
+            'public_login_confirm.html',
+            website=website,
+            public_user=None,
+            content={'current_page_url': request.path},
+            display_name=display_name,
+            confirm_url=request.path,
+            is_admin_link=bool(admin),
+            will_need_code=bool(admin and admin_requires_2fa(admin)),
+        )
+
+    if admin:
+        # Burn the nonce first — the link stood in for the password and is
+        # now spent, whether or not the 2FA step below succeeds.
+        admin.login_link_nonce = None
+        db.session.commit()
+
+        if admin_requires_2fa(admin):
+            # Same flow as entering a correct admin password on the public
+            # login form: email a code and hand off to public_admin_2fa.
+            two_fa_email = _admin_two_fa_email(admin)
+            if not two_fa_email:
+                flash('Your admin account requires two-factor verification, '
+                      'but no 2FA email is configured. Use the admin login '
+                      'page.', 'error')
+                return redirect(url_for('login', next=next_target))
+
+            session['pre_2fa_user_id'] = admin.id
+            session['pre_2fa_public_next_url'] = next_target
+            session['pre_2fa_public_website_prefix'] = website.url_prefix or ''
+            session.pop('pre_2fa_admin_key', None)
+
+            if not (_session_has_pending_2fa(admin.id) and _2fa_recently_sent(admin.id)):
+                code = generate_two_factor_code()
+                set_pending_two_factor_code(admin.id, code, 'login')
+                try:
+                    send_two_factor_email(two_fa_email, code, purpose='login')
+                except Exception as e:
+                    clear_pending_two_factor_code()
+                    session.pop('pre_2fa_user_id', None)
+                    session.pop('pre_2fa_public_next_url', None)
+                    session.pop('pre_2fa_public_website_prefix', None)
+                    flash(f'Could not send 2FA login code: {e}', 'error')
+                    return redirect(url_for('public_login', **login_kwargs))
+
+            return redirect(url_for('public_admin_2fa'))
+
+        login_user(admin)
+        _stamp_login(admin)
+        mirror = ensure_admin_public_mirror(admin, website)
+        if mirror:
+            public_user_login(mirror)
+        _rl_record(get_request_ip(), admin.email or '', success=True)
+        return redirect(next_target)
+
+    # Same account gates as the password login path.
+    if public_user.is_banned:
+        flash('This account has been suspended.', 'error')
+        return redirect(url_for('public_login', **login_kwargs))
+    if not public_user.is_active_public:
+        if getattr(website, 'public_approval_required', False):
+            flash('Your account is pending admin approval.', 'error')
+        else:
+            flash('This account has been disabled.', 'error')
+        return redirect(url_for('public_login', **login_kwargs))
+
+    # Burn the nonce before establishing the session — the link is now dead.
+    public_user.login_link_nonce = None
+
+    # Clicking a link delivered to the account email proves ownership, the
+    # same confirmation a completed password reset gives.
+    if getattr(website, 'public_email_verification_enabled', False):
+        public_user.email_verified = True
+        public_user.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    db.session.commit()
+
+    # No 2FA step on purpose: public-user 2FA is an emailed code, and this
+    # link already proves control of that same inbox.
+    _rl_record(get_request_ip(), public_user.email or '', success=True)
+    public_user_login(public_user)
+
+    return redirect(next_target)
 
 
 @app.route('/account/reset-password/<token>', methods=['GET', 'POST'])
@@ -25283,13 +26150,194 @@ def verify_public_user_verification_token(token, max_age_seconds=86400):
     return public_user, None
 
 
+def _email_link_scheme():
+    """Scheme for absolute URLs embedded in emails (sign-in links, password
+    resets). Flask usually sits behind a TLS-terminating proxy and sees plain
+    HTTP, so request.scheme would stamp http:// into emailed links — and the
+    proxy's http→https redirect may not preserve the path. Trust the proxy's
+    X-Forwarded-Proto when it says https; otherwise force https for anything
+    that isn't an obviously-local host. Dev servers on localhost keep http."""
+    try:
+        if request.scheme == 'https':
+            return 'https'
+        xfp = (request.headers.get('X-Forwarded-Proto') or '').split(',')[0].strip().lower()
+        if xfp == 'https':
+            return 'https'
+        host = (request.host or '').rsplit(':', 1)[0].strip('[]').lower()
+    except Exception:
+        return 'https'
+    if host in ('localhost', '0.0.0.0', '::1') or host.endswith(('.local', '.lan', '.internal')) or '.' not in host:
+        return 'http'
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            return 'http'
+    except ValueError:
+        pass  # not an IP literal — treat as a real domain
+    return 'https'
+
+
+def generate_public_user_login_link_token(public_user, next_url=''):
+    """Mint a single-use magic-login token. A fresh nonce is stored on the row
+    each time, so older links die the moment a new one is issued — and the
+    login route clears the nonce on use, so a link can't be replayed."""
+    serializer = get_recovery_serializer()
+
+    public_user.login_link_nonce = secrets.token_urlsafe(24)
+    db.session.commit()
+
+    return serializer.dumps(
+        {
+            'public_user_id': public_user.id,
+            'website_id': public_user.website_id,
+            'nonce': public_user.login_link_nonce,
+            'next': next_url or '',
+            'purpose': 'public_user_magic_login'
+        },
+        salt='uwebia-public-user-magic-login'
+    )
+
+
+def generate_admin_login_link_token(admin, website, next_url=''):
+    """Magic-login token for an admin signing in on the *public* site. Same
+    single-use nonce scheme as the public-user variant; website_id records
+    which site the request came from so the login lands back there."""
+    serializer = get_recovery_serializer()
+
+    admin.login_link_nonce = secrets.token_urlsafe(24)
+    db.session.commit()
+
+    return serializer.dumps(
+        {
+            'user_id': admin.id,
+            'website_id': website.id if website else None,
+            'nonce': admin.login_link_nonce,
+            'next': next_url or '',
+            'purpose': 'admin_magic_login'
+        },
+        salt='uwebia-public-user-magic-login'
+    )
+
+
+def verify_login_link_token(token, max_age_seconds=900):
+    """Returns (public_user, admin, website_id, next_url, error). Exactly one
+    of public_user/admin is set on success. Any failure yields a generic error
+    so the token can't be probed for what exactly went wrong."""
+    serializer = get_recovery_serializer()
+
+    _invalid = (None, None, None, '', 'This sign-in link is invalid.')
+
+    try:
+        data = serializer.loads(
+            token,
+            salt='uwebia-public-user-magic-login',
+            max_age=max_age_seconds
+        )
+    except SignatureExpired:
+        return None, None, None, '', 'This sign-in link has expired. Request a new one from the login page.'
+    except BadSignature:
+        return _invalid
+
+    purpose = data.get('purpose')
+    next_url = data.get('next') or ''
+    used_error = 'This sign-in link has already been used or was replaced by a newer one.'
+
+    if purpose == 'public_user_magic_login':
+        public_user = PublicUser.query.filter_by(
+            id=data.get('public_user_id'),
+            website_id=data.get('website_id')
+        ).first()
+        if not public_user:
+            return _invalid
+        # Single-use enforcement: the nonce is cleared on login and replaced
+        # when a newer link is requested, killing this one either way.
+        if not public_user.login_link_nonce or public_user.login_link_nonce != data.get('nonce'):
+            return None, None, None, '', used_error
+        return public_user, None, data.get('website_id'), next_url, None
+
+    if purpose == 'admin_magic_login':
+        admin = db.session.get(User, data.get('user_id'))
+        if not admin:
+            return _invalid
+        if not admin.login_link_nonce or admin.login_link_nonce != data.get('nonce'):
+            return None, None, None, '', used_error
+        return None, admin, data.get('website_id'), next_url, None
+
+    return _invalid
+
+
+def send_public_user_login_link_email(public_user, next_url=''):
+    token = generate_public_user_login_link_token(public_user, next_url)
+
+    login_url = url_for(
+        'public_login_link',
+        token=token,
+        _external=True,
+        _scheme=_email_link_scheme()
+    )
+
+    site_name = public_user.website.name if public_user.website else 'the site'
+    subject = f'Your {site_name} sign-in link'
+
+    body = f"""Click the link below to sign in to your {site_name} account.
+
+{login_url}
+
+This link expires in 15 minutes and can only be used once.
+
+If you did not request this, you can ignore this email. No one can access
+your account without this link.
+"""
+
+    send_account_recovery_email(public_user.email, subject, body)
+
+    public_user.login_link_sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+
+
+def send_admin_login_link_email(admin, website, next_url=''):
+    token = generate_admin_login_link_token(admin, website, next_url)
+
+    login_url = url_for(
+        'public_login_link',
+        token=token,
+        _external=True,
+        _scheme=_email_link_scheme()
+    )
+
+    site_name = website.name if website else 'the site'
+    subject = f'Your {site_name} sign-in link'
+
+    extra = ''
+    if admin_requires_2fa(admin):
+        extra = ('\nBecause your account uses two-factor authentication, you will '
+                 'be asked for a verification code after clicking the link.\n')
+
+    body = f"""Click the link below to sign in to {site_name}.
+
+{login_url}
+
+This link expires in 15 minutes and can only be used once.
+{extra}
+If you did not request this, you can ignore this email. No one can access
+your account without this link.
+"""
+
+    send_account_recovery_email(admin.email, subject, body)
+
+    admin.login_link_sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+
+
 def send_public_user_password_reset_email(public_user):
     token = generate_public_user_password_reset_token(public_user)
 
     reset_url = url_for(
         'public_reset_password',
         token=token,
-        _external=True
+        _external=True,
+        _scheme=_email_link_scheme()
     )
 
     subject = f'Reset your {public_user.website.name} account password'
@@ -25316,7 +26364,8 @@ def send_public_user_verification_email(public_user):
     verification_url = url_for(
         'public_verify_email',
         token=token,
-        _external=True
+        _external=True,
+        _scheme=_email_link_scheme()
     )
 
     subject = f'Verify your {public_user.website.name} account'
@@ -31562,6 +32611,7 @@ def admin_guide_categories_create():
         description=(data.get('description') or '').strip() or None,
         color=(data.get('color') or '').strip() or None,
         icon=(data.get('icon') or '').strip() or None,
+        is_learning_path=bool(data.get('is_learning_path')),
         sort_order=(max_sort or 0) + 1,
     )
     db.session.add(cat)
@@ -31596,6 +32646,8 @@ def admin_guide_categories_update(cid):
         cat.color = (data.get('color') or '').strip() or None
     if 'icon' in data:
         cat.icon = (data.get('icon') or '').strip() or None
+    if 'is_learning_path' in data:
+        cat.is_learning_path = bool(data.get('is_learning_path'))
     raw_slug = (data.get('slug') or '').strip()
     if raw_slug:
         cat.slug = _unique_guide_category_slug(
@@ -31686,6 +32738,22 @@ def admin_guides_page():
         current_website_pages=current_website_pages,
         page_id=None,
     )
+
+
+@app.route('/admin/guides/site-settings', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guides_site_settings():
+    """Site-level toggles for the public guides page (not tied to one guide)."""
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    if 'show_my_training' in data:
+        website.guides_show_my_training = bool(data.get('show_my_training'))
+    db.session.commit()
+    return _utf8_json({'success': True,
+                       'show_my_training': website.guides_show_my_training})
 
 
 @app.route('/admin/guides/create', methods=['POST'])
@@ -32154,8 +33222,22 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
         i = ids.index(node.id)
         prev_node = order[i - 1] if i > 0 else None
         next_node = order[i + 1] if i < len(order) - 1 else None
+    # On the last lesson, keep the momentum going: offer the next guide in the
+    # same category (matching the index ordering) instead of a dead end.
+    next_guide = None
+    if next_node is None and order:
+        siblings = Guide.query.filter_by(
+            website_id=website.id, status='published',
+            category_id=guide.category_id).order_by(
+            Guide.sort_order, Guide.published_at.desc()).all()
+        sib_ids = [g.id for g in siblings]
+        if guide.id in sib_ids:
+            j = sib_ids.index(guide.id)
+            if j + 1 < len(siblings):
+                next_guide = siblings[j + 1]
     public_user = _public_user_for_website(website)
     return render_template('guide_view.html', website=website, guide=guide,
+                           next_guide=next_guide,
                            toc=_guide_published_tree(guide), node=node, start_node=None,
                            prev_node=prev_node, next_node=next_node, public_user=public_user)
 
@@ -34844,9 +35926,14 @@ def _guide_progress_summary(guide, public_user, visitor_hash):
     else:
         q = q.filter(GuideProgress.visitor_id_hash == visitor_hash)
     completed = {r.guide_node_id for r in q.all()} & lesson_ids
+    # First incomplete lesson in reading order — where a returning learner
+    # should resume. None when the guide is finished (or has no lessons).
+    resume = next((n for n in lessons if n.id not in completed), None)
     return {'completed_node_ids': list(completed), 'total': total,
             'completed': len(completed),
-            'percent': round(100 * len(completed) / total) if total else 0}
+            'percent': round(100 * len(completed) / total) if total else 0,
+            'next_slug': resume.slug if resume else None,
+            'next_title': resume.title if resume else None}
 
 
 def _resolve_published_guide_or_404(gid):
@@ -34991,14 +36078,18 @@ def _member_guide_progress(target_user, website):
         guide = Guide.query.get(gid)
         if not guide or guide.website_id != website.id or guide.status != 'published':
             continue
-        lesson_ids = {n.id for n in _guide_reading_order(guide)}
+        order = _guide_reading_order(guide)
+        lesson_ids = {n.id for n in order}
         if not (data['viewed'] & lesson_ids):
             continue
         total = len(lesson_ids)
         completed = len(data['completed'] & lesson_ids)
+        resume = next((n for n in order if n.id not in data['completed']), None)
         out.append({'guide': guide, 'total': total, 'completed': completed,
                     'percent': round(100 * completed / total) if total else 0,
-                    'is_done': total > 0 and completed >= total})
+                    'is_done': total > 0 and completed >= total,
+                    'resume_slug': resume.slug if resume else None,
+                    'resume_title': resume.title if resume else None})
     out.sort(key=lambda x: (not x['is_done'], -x['percent'], x['guide'].title.lower()))
     return out
 
@@ -35496,7 +36587,12 @@ def _render_member_profile(prefix, user_id):
     # "Explore" is a self-only catalog of every KSA on the site (any division).
     all_skills = _browse_all_skills(website, viewer, group_by_folder=_by_folder) if (tab == 'explore' and is_self) else None
     # Cheap counts for the tab labels (computed regardless of active tab).
-    guides_done = sum(1 for g in _member_guide_progress(target, website) if g['is_done'])
+    _member_guides = _member_guide_progress(target, website)
+    guides_done = sum(1 for g in _member_guides if g['is_done'])
+    # "Continue training" block on the Training tab — own profile only, since
+    # resume links are only meaningful to the member themselves.
+    training_guides = ([g for g in _member_guides if not g['is_done']]
+                       if (tab == 'ksas' and is_self) else None)
     division_count = DivisionMembership.query.filter_by(public_user_id=target.id).count()
     # Show the Competencies tab if the member is in a division OR has self-declared
     # skills outside any division (so non-members with skills still surface them).
@@ -35545,6 +36641,7 @@ def _render_member_profile(prefix, user_id):
                            site_roles=site_roles, division_role_groups=division_role_groups,
                            ksa_full=is_self,
                            is_self=is_self,
+                           training_guides=training_guides,
                            members_base=_members_base_url(website),
                            forum_thread_url=_forum_thread_url,
                            division_member_url=_division_member_url,

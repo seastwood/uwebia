@@ -27,6 +27,21 @@
 .mp-role-entry .mp-role-chip { display: inline-block; }
 .mp-role-desc { margin: 6px 0 0; font-size: 0.84rem; line-height: 1.5; color: rgba(255,255,255,0.62); white-space: pre-wrap; }
 .mp-self-note { font-size: 0.78rem; opacity: 0.5; margin: 14px 0 0; }
+/* "Continue training" strip on the Training tab (own profile) */
+.mp-train-continue { margin: 0 0 26px; }
+.mp-train-continue-title { display: flex; align-items: center; gap: 9px; font-size: 1rem; font-weight: 800; margin: 0 0 12px; }
+.mp-train-continue-title i { color: #5eeec8; }
+.mp-train-continue-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.mp-train-card { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border-radius: 13px; background: rgba(94,238,200,0.07); border: 1px solid rgba(94,238,200,0.3); text-decoration: none; color: inherit; transition: transform 0.15s ease, border-color 0.15s ease; }
+.mp-train-card:hover { transform: translateY(-2px); border-color: rgba(94,238,200,0.55); }
+.mp-train-card-info { flex: 1; min-width: 0; }
+.mp-train-card-guide { display: block; font-weight: 800; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-train-card-next { display: block; font-size: 0.76rem; opacity: 0.65; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-train-bar { height: 5px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 8px 0 4px; }
+.mp-train-bar span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
+.mp-train-pct { font-size: 0.72rem; font-weight: 700; opacity: 0.65; }
+.mp-train-go { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(94,238,200,0.16); color: #5eeec8; font-size: 0.78rem; }
+
 .mp-tabs {
     display: flex; gap: 4px; margin: 26px 0 0;
     border-bottom: 1px solid rgba(255,255,255,0.12);
@@ -296,6 +311,26 @@
         {% endif %}
 
         {% elif tab == 'ksas' %}
+        {% if training_guides %}
+        {# In-progress guides with one-click resume — own profile only. #}
+        <div class="mp-train-continue">
+            <h3 class="mp-train-continue-title"><i class="fas fa-play-circle"></i> Continue training</h3>
+            <div class="mp-train-continue-row">
+                {% for tg in training_guides[:4] %}
+                {% set _tg_base = ('/' + website.url_prefix + '/guides/' + tg.guide.slug) if website.url_prefix else ('/guides/' + tg.guide.slug) %}
+                <a class="mp-train-card" href="{{ (_tg_base + '/' + tg.resume_slug) if tg.resume_slug else _tg_base }}">
+                    <div class="mp-train-card-info">
+                        <span class="mp-train-card-guide">{{ tg.guide.title }}</span>
+                        {% if tg.resume_title %}<span class="mp-train-card-next">Next: {{ tg.resume_title }}</span>{% endif %}
+                        <div class="mp-train-bar"><span style="width: {{ tg.percent }}%;"></span></div>
+                        <span class="mp-train-pct">{{ tg.completed }}/{{ tg.total }} lessons · {{ tg.percent }}%</span>
+                    </div>
+                    <span class="mp-train-go"><i class="fas fa-arrow-right"></i></span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         {% if not ksa_profile and not other_skills %}
         <div class="mp-empty"><p>No {{ dlabel(website, plural=True)|lower }} or competencies recorded.</p></div>
         {% else %}

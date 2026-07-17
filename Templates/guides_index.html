@@ -5,8 +5,19 @@
 {% block head %}
 <style>
 .gi-wrap { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; }
+.gi-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .gi-heading { font-size: 2rem; font-weight: 800; margin: 0 0 6px; }
 .gi-sub { opacity: 0.55; font-size: 0.95rem; margin: 0 0 32px; }
+.gi-my-training {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 10px 18px; margin-top: 4px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111;
+    font-size: 0.88rem; font-weight: 800; text-decoration: none; white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(94,238,200,0.25);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.gi-my-training:hover { transform: translateY(-1px); box-shadow: 0 7px 20px rgba(94,238,200,0.35); }
 .gi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px; }
 .gi-card {
     display: flex; flex-direction: column;
@@ -41,6 +52,71 @@
 .gi-section-count { font-size: 0.72rem; font-weight: 700; opacity: 0.55; padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); }
 .gi-section-desc { opacity: 0.55; font-size: 0.88rem; margin: -8px 0 14px; }
 
+/* Resume hint on in-progress cards */
+.gi-resume-hint { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 0.78rem; font-weight: 700; color: #5eeec8; }
+.gi-resume-hint i { font-size: 0.68rem; }
+
+/* Continue learning strip */
+.gi-continue { margin: 0 0 36px; }
+.gi-continue-title { display: flex; align-items: center; gap: 9px; font-size: 1.05rem; font-weight: 800; margin: 0 0 12px; }
+.gi-continue-title i { color: #5eeec8; }
+.gi-continue-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.gi-continue-card {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; border-radius: 14px;
+    background: rgba(94,238,200,0.07);
+    border: 1px solid rgba(94,238,200,0.3);
+    text-decoration: none; color: inherit;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.gi-continue-card:hover { transform: translateY(-2px); border-color: rgba(94,238,200,0.55); background: rgba(94,238,200,0.11); }
+.gi-continue-info { flex: 1; min-width: 0; }
+.gi-continue-guide { display: block; font-weight: 800; font-size: 0.95rem; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gi-continue-next { display: block; font-size: 0.78rem; opacity: 0.65; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gi-continue-card .gi-progress-mini { margin-top: 0; }
+.gi-continue-go { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(94,238,200,0.16); color: #5eeec8; font-size: 0.85rem; }
+
+/* Category progress rollup */
+.gi-section-progress { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; font-size: 0.75rem; font-weight: 700; opacity: 0.75; white-space: nowrap; }
+.gi-section-progress[data-complete] { color: #5eeec8; opacity: 1; }
+.gi-section-progress-track { width: 70px; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden; }
+.gi-section-progress-fill { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
+
+/* Learning path (sequential categories) */
+.gi-path { list-style: none; margin: 0; padding: 0; position: relative; }
+.gi-path .gi-step { position: relative; display: flex; gap: 16px; padding: 0 0 18px 0; }
+.gi-path .gi-step::before { content: ''; position: absolute; left: 17px; top: 38px; bottom: -2px; width: 2px; background: rgba(255,255,255,0.12); }
+.gi-path .gi-step:last-child::before { display: none; }
+.gi-path .gi-step.is-done::before { background: rgba(94,238,200,0.45); }
+.gi-step-marker {
+    flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%; z-index: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 0.88rem;
+    background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.18);
+}
+.gi-step.is-done .gi-step-marker { background: rgba(94,238,200,0.18); border-color: #5eeec8; color: #5eeec8; }
+.gi-step.is-next .gi-step-marker { border-color: #5eeef8; color: #5eeef8; box-shadow: 0 0 0 4px rgba(94,238,248,0.12); }
+.gi-step-card {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; border-radius: 14px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    text-decoration: none; color: inherit;
+    transition: transform 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.gi-step-card:hover { transform: translateY(-2px); border-color: rgba(94,238,248,0.4); }
+.gi-step.is-next .gi-step-card { border-color: rgba(94,238,248,0.45); background: rgba(94,238,248,0.06); }
+.gi-step.is-later .gi-step-card { opacity: 0.55; }
+.gi-step.is-later .gi-step-card:hover { opacity: 0.85; }
+.gi-step-body { flex: 1; min-width: 0; }
+.gi-step-title { display: block; font-weight: 800; font-size: 0.98rem; }
+.gi-step-desc { display: block; font-size: 0.82rem; opacity: 0.6; margin-top: 3px; line-height: 1.45; }
+.gi-step-body .gi-progress-mini { margin-top: 8px; }
+.gi-step-cta { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9px; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; font-size: 0.82rem; font-weight: 800; white-space: nowrap; }
+.gi-step-done-mark { flex: 0 0 auto; color: #5eeec8; font-size: 1.05rem; }
+@media (max-width: 560px) {
+    .gi-step-cta { display: none; }   /* card itself is the tap target */
+}
+
 .gi-login-offer { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 32px; padding: 14px 18px; border-radius: 12px; border: 1px solid rgba(94,238,248,0.28); background: rgba(94,238,248,0.06); }
 .gi-login-offer-text { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; opacity: 0.92; margin: 0; flex: 1 1 240px; }
 .gi-login-offer-text i { color: #5eeec8; font-size: 1.1rem; }
@@ -58,7 +134,8 @@
     {% set comp = completion_by_guide.get(g.id) if completion_by_guide else None %}
     {% set is_done = comp and comp.total > 0 and comp.completed >= comp.total %}
     {% set in_progress = comp and comp.completed > 0 and not is_done %}
-    <a class="gi-card" href="{{ _gurl }}">
+    {# In-progress guides resume at the first incomplete lesson instead of the cover. #}
+    <a class="gi-card" href="{{ (_gurl + '/' + comp.next_slug) if (in_progress and comp.next_slug) else _gurl }}">
         <div class="gi-cover-wrap">
             {% if g.cover_image_url %}
             <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
@@ -77,14 +154,32 @@
                 <div class="gi-progress-track"><div class="gi-progress-fill" style="width: {{ comp.percent }}%;"></div></div>
                 <span class="gi-progress-label">{{ comp.completed }}/{{ comp.total }} · {{ comp.percent }}%</span>
             </div>
+            <span class="gi-resume-hint"><i class="fas fa-play"></i> Resume{% if comp.next_title %} · {{ comp.next_title }}{% endif %}</span>
             {% endif %}
         </div>
     </a>
 {%- endmacro %}
 
+{% macro progress_mini(comp) -%}
+    <div class="gi-progress-mini">
+        <div class="gi-progress-track"><div class="gi-progress-fill" style="width: {{ comp.percent }}%;"></div></div>
+        <span class="gi-progress-label">{{ comp.completed }}/{{ comp.total }} · {{ comp.percent }}%</span>
+    </div>
+{%- endmacro %}
+
 <div class="gi-wrap">
-    <h1 class="gi-heading">Guides</h1>
-    <p class="gi-sub">Browse training modules and reference material.</p>
+    <div class="gi-head-row">
+        <div>
+            <h1 class="gi-heading">Guides</h1>
+            <p class="gi-sub">Browse training modules and reference material.</p>
+        </div>
+        {% if website.guides_show_my_training and navbar_public_user %}
+        {% set _mt_url = ('/' + website.url_prefix + '/members/' + navbar_public_user.id|string + '?tab=ksas') if website.url_prefix else ('/members/' + navbar_public_user.id|string + '?tab=ksas') %}
+        <a class="gi-my-training" href="{{ _mt_url }}">
+            <i class="fas fa-graduation-cap"></i> My Training
+        </a>
+        {% endif %}
+    </div>
 
     {% if guides and navbar_public_accounts_enabled and not navbar_public_user and (guides|selectattr('track_progress')|list) %}
     {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
@@ -94,6 +189,31 @@
         <div class="gi-login-offer-actions">
             <a class="gi-login-offer-login" href="{{ _login_url }}">Log in</a>
             <a class="gi-login-offer-signup" href="{{ _signup_url }}">Sign up</a>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── Continue learning: in-progress guides with one-click resume ──── #}
+    {% set _inprog = [] %}
+    {% for g in guides %}
+        {% set c = completion_by_guide.get(g.id) %}
+        {% if c and c.completed > 0 and c.completed < c.total %}{% set _ = _inprog.append((g, c)) %}{% endif %}
+    {% endfor %}
+    {% if _inprog %}
+    <div class="gi-continue">
+        <h2 class="gi-continue-title"><i class="fas fa-play-circle"></i> Continue learning</h2>
+        <div class="gi-continue-row">
+            {% for g, c in _inprog[:3] %}
+            {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
+            <a class="gi-continue-card" href="{{ (_gurl + '/' + c.next_slug) if c.next_slug else _gurl }}">
+                <div class="gi-continue-info">
+                    <span class="gi-continue-guide">{{ g.title }}</span>
+                    {% if c.next_title %}<span class="gi-continue-next">Next: {{ c.next_title }}</span>{% endif %}
+                    {{ progress_mini(c) }}
+                </div>
+                <span class="gi-continue-go"><i class="fas fa-arrow-right"></i></span>
+            </a>
+            {% endfor %}
         </div>
     </div>
     {% endif %}
@@ -108,6 +228,15 @@
     </div>
     {% else %}
     {% for grp in grouped_guides %}
+    {# Per-category completion rollup (only counts progress-tracked guides). #}
+    {% set _tracked = [] %}{% set _done = [] %}
+    {% for g in grp.guides %}
+        {% set c = completion_by_guide.get(g.id) %}
+        {% if c and c.total > 0 %}
+            {% set _ = _tracked.append(1) %}
+            {% if c.completed >= c.total %}{% set _ = _done.append(1) %}{% endif %}
+        {% endif %}
+    {% endfor %}
     <section class="gi-section">
         <header class="gi-section-head">
             <h2 class="gi-section-title">
@@ -119,13 +248,50 @@
                 {% endif %}
             </h2>
             <span class="gi-section-count">{{ grp.guides|length }}</span>
+            {% if _tracked %}
+            <span class="gi-section-progress"{% if _done|length >= _tracked|length %} data-complete="1"{% endif %}>
+                <span class="gi-section-progress-track"><span class="gi-section-progress-fill" style="width: {{ (100 * _done|length / _tracked|length) | round }}%;"></span></span>
+                {{ _done|length }}/{{ _tracked|length }} completed
+            </span>
+            {% endif %}
         </header>
         {% if grp.category and grp.category.description %}
         <p class="gi-section-desc">{{ grp.category.description }}</p>
         {% endif %}
+
+        {% if grp.category and grp.category.is_learning_path %}
+        {# ── Learning path: numbered sequential steps ─────────────────── #}
+        <ol class="gi-path">
+            {% set pth = namespace(next_found=false) %}
+            {% for g in grp.guides %}
+            {% set c = completion_by_guide.get(g.id) %}
+            {% set is_done = c and c.total > 0 and c.completed >= c.total %}
+            {% set state = 'done' if is_done else ('next' if not pth.next_found else 'later') %}
+            {% if not is_done and not pth.next_found %}{% set pth.next_found = true %}{% endif %}
+            {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
+            {% set _in_prog = c and c.completed > 0 and not is_done %}
+            <li class="gi-step is-{{ state }}">
+                <span class="gi-step-marker">{% if is_done %}<i class="fas fa-check"></i>{% else %}{{ loop.index }}{% endif %}</span>
+                <a class="gi-step-card" href="{{ (_gurl + '/' + c.next_slug) if (_in_prog and c.next_slug) else _gurl }}">
+                    <div class="gi-step-body">
+                        <span class="gi-step-title">{{ g.title }}</span>
+                        {% if g.description %}<span class="gi-step-desc">{{ g.description }}</span>{% endif %}
+                        {% if _in_prog %}{{ progress_mini(c) }}{% endif %}
+                    </div>
+                    {% if state == 'next' %}
+                    <span class="gi-step-cta">{{ 'Resume' if _in_prog else 'Start' }} <i class="fas fa-arrow-right"></i></span>
+                    {% elif is_done %}
+                    <span class="gi-step-done-mark" aria-label="Completed"><i class="fas fa-check-circle"></i></span>
+                    {% endif %}
+                </a>
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
         <div class="gi-grid">
             {% for g in grp.guides %}{{ guide_card(g) }}{% endfor %}
         </div>
+        {% endif %}
     </section>
     {% endfor %}
     {% endif %}
