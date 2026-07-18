@@ -2735,6 +2735,13 @@ class Quiz(db.Model):
     # gate lesson completion when this quiz is embedded in a lesson. 0.9 = 90%.
     pass_threshold    = db.Column(db.Float, nullable=False, default=0.9,
                                   server_default='0.9')
+    # Attempt controls (None/0 = unlimited / no wait). Enforced per identity
+    # (public user or visitor hash) at submit time.
+    max_attempts      = db.Column(db.Integer, nullable=True)
+    retake_cooldown_minutes = db.Column(db.Integer, nullable=True)
+    # Question bank: serve only N randomly drawn graded questions per attempt
+    # (None/0 = all). Ungraded blocks (text/reflection/flashcards) always show.
+    draw_count        = db.Column(db.Integer, nullable=True)
     # Optional admin category grouping. ondelete=SET NULL so removing a category
     # just orphans its quizzes into "Uncategorized".
     category_id       = db.Column(db.Integer, db.ForeignKey('quiz_category.id', ondelete='SET NULL'),
@@ -2841,7 +2848,7 @@ class QuizQuestion(db.Model):
             out['cards'] = [{'id': c.get('id'), 'front': _fc_pub(c.get('front')),
                              'back': _fc_pub(c.get('back'))}
                             for c in (cfg.get('cards') or [])]
-        # short_text / reflection expose nothing beyond the prompt itself.
+        # short_text / reflection / text expose nothing beyond the prompt.
         return out
 
 
@@ -13970,6 +13977,8 @@ def _serialize_backup(uid):
         QuizQuestion.quiz_id.in_(_quiz_ids)).all() if _quiz_ids else []
     quiz_attempts = QuizAttempt.query.filter(
         QuizAttempt.website_id.in_(website_ids)).all() if website_ids else []
+    quiz_drafts = QuizDraft.query.filter(
+        QuizDraft.website_id.in_(website_ids)).all() if website_ids else []
     guide_progress = GuideProgress.query.filter(
         GuideProgress.website_id.in_(website_ids)).all() if website_ids else []
 
@@ -14831,6 +14840,9 @@ def _serialize_backup(uid):
                      'description': q.description, 'category_id': q.category_id,
                      'shuffle_questions': q.shuffle_questions,
                      'pass_threshold': q.pass_threshold,
+                     'max_attempts': q.max_attempts,
+                     'retake_cooldown_minutes': q.retake_cooldown_minutes,
+                     'draw_count': q.draw_count,
                      'created_at': q.created_at.isoformat() if q.created_at else None,
                      'updated_at': q.updated_at.isoformat() if q.updated_at else None,
                      } for q in quizzes],
@@ -14847,6 +14859,13 @@ def _serialize_backup(uid):
                            'answers': a.answers,
                            'created_at': a.created_at.isoformat() if a.created_at else None,
                            } for a in quiz_attempts],
+        'quiz_drafts': [{'id': d.id, 'quiz_id': d.quiz_id, 'website_id': d.website_id,
+                         'guide_node_id': d.guide_node_id,
+                         'public_user_id': d.public_user_id,
+                         'visitor_id_hash': d.visitor_id_hash,
+                         'answers': d.answers,
+                         'updated_at': d.updated_at.isoformat() if d.updated_at else None,
+                         } for d in quiz_drafts],
         'guide_progress': [{'id': p.id, 'guide_id': p.guide_id,
                             'guide_node_id': p.guide_node_id, 'website_id': p.website_id,
                             'visitor_id_hash': p.visitor_id_hash,
@@ -15827,21 +15846,49 @@ def import_backup():
                     category_id=quiz_cat_map.get(qd['category_id']) if qd.get('category_id') else None,
                     shuffle_questions=qd.get('shuffle_questions', False),
                     pass_threshold=qd.get('pass_threshold', 0.9),
+                    max_attempts=qd.get('max_attempts'),
+                    retake_cooldown_minutes=qd.get('retake_cooldown_minutes'),
+                    draw_count=qd.get('draw_count'),
                     created_at=datetime.fromisoformat(qd['created_at']) if qd.get('created_at') else None,
                     updated_at=datetime.fromisoformat(qd['updated_at']) if qd.get('updated_at') else None)
                 db.session.add(q)
                 db.session.flush()
                 quiz_map[qd['id']] = q.id
 
+            # Track old→new question ids: attempt/draft `answers` JSON is keyed
+            # by question id, so those keys must be rewritten after restore or
+            # saved responses (e.g. reflections) silently unlink.
+            quiz_question_map = {}
+            _restored_qq = []
             for qd in data.get('quiz_questions', []):
                 new_qid = quiz_map.get(qd['quiz_id'])
                 if not new_qid:
                     continue
-                db.session.add(QuizQuestion(
+                qq = QuizQuestion(
                     quiz_id=new_qid,
                     question_type=qd.get('question_type', 'single_choice'),
                     prompt=qd['prompt'], config=qd.get('config'),
-                    points=qd.get('points', 1), sort_order=qd.get('sort_order', 0)))
+                    points=qd.get('points', 1), sort_order=qd.get('sort_order', 0))
+                db.session.add(qq)
+                _restored_qq.append((qd['id'], qq))
+            if _restored_qq:
+                db.session.flush()
+                quiz_question_map = {old: qq.id for old, qq in _restored_qq}
+
+            def _remap_answer_keys(answers):
+                """Rewrite {old_question_id: answer} keys to the restored ids.
+                Keys with no mapping (question gone before backup) are kept
+                as-is — orphaned but harmless."""
+                if not isinstance(answers, dict):
+                    return answers
+                out = {}
+                for k, v in answers.items():
+                    try:
+                        nk = quiz_question_map.get(int(k))
+                    except (TypeError, ValueError):
+                        nk = None
+                    out[str(nk) if nk else str(k)] = v
+                return out
 
             # Quizzes are embedded in lesson HTML as
             # <div class="uw-quiz-embed" data-quiz-id="N">. Restored quizzes get
@@ -15880,8 +15927,23 @@ def import_backup():
                     public_user_id=pub_user_map.get(ad['public_user_id']) if ad.get('public_user_id') else None,
                     visitor_id_hash=ad.get('visitor_id_hash'),
                     score=ad.get('score', 0), max_score=ad.get('max_score', 0),
-                    answers=ad.get('answers'),
+                    answers=_remap_answer_keys(ad.get('answers')),
                     created_at=datetime.fromisoformat(ad['created_at']) if ad.get('created_at') else None))
+
+            # In-progress (unsubmitted) drafts — same identity keying and the
+            # same answer-key remap as attempts. Not present in older backups.
+            for dd in data.get('quiz_drafts', []):
+                new_qid = quiz_map.get(dd['quiz_id'])
+                new_wid = website_map.get(dd['website_id'])
+                if not new_qid or not new_wid or not dd.get('visitor_id_hash'):
+                    continue
+                db.session.add(QuizDraft(
+                    quiz_id=new_qid, website_id=new_wid,
+                    guide_node_id=guide_node_map.get(dd['guide_node_id']) if dd.get('guide_node_id') else None,
+                    public_user_id=pub_user_map.get(dd['public_user_id']) if dd.get('public_user_id') else None,
+                    visitor_id_hash=dd['visitor_id_hash'],
+                    answers=_remap_answer_keys(dd.get('answers')),
+                    updated_at=datetime.fromisoformat(dd['updated_at']) if dd.get('updated_at') else None))
 
             for prd in data.get('guide_progress', []):
                 new_gid = guide_map.get(prd['guide_id'])
@@ -33489,6 +33551,23 @@ def _quiz_cell_html(cell):
     return str(_e(cell.get('text') or ''))
 
 
+def _quiz_linkify_html(text):
+    """Escaped HTML for a quiz prompt / text block: URLs become anchors (the
+    print QR pass then adds scannable codes for them) and newlines survive."""
+    import re as _re
+    from markupsafe import escape as _e
+    src = str(text or '')
+    out = []
+    last = 0
+    for m in _re.finditer(r'https?://[^\s<>"\']+', src):
+        url = m.group(0).rstrip('.,;:!?)]')
+        out.append(str(_e(src[last:m.start()])))
+        out.append(f'<a href="{_e(url)}">{_e(url)}</a>')
+        last = m.start() + len(url)
+    out.append(str(_e(src[last:])))
+    return ''.join(out).replace('\n', '<br>')
+
+
 def _render_quiz_print_html(quiz, include_answers):
     """Static, printable HTML for a quiz: a worksheet (no answers), plus an
     answer key when include_answers is True. Reads QuizQuestion config directly
@@ -33498,13 +33577,21 @@ def _render_quiz_print_html(quiz, include_answers):
     parts = [f'<div class="print-quiz"><h3 class="print-quiz-title">{_e(quiz.title)}</h3>']
     answer_rows = []
 
-    for idx, q in enumerate(questions, 1):
+    idx = 0
+    for q in questions:
         cfg = q._config()
         t = q.question_type
+        if t == 'text':
+            # Not a question — instructional text between questions. No number,
+            # no answer-key row; links stay clickable (and get QR codes).
+            parts.append(f'<div class="print-q"><p class="print-text-block">'
+                         f'{_quiz_linkify_html(q.prompt)}</p></div>')
+            continue
+        idx += 1
         parts.append('<div class="print-q">')
         _pts = (f' <span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span>'
                 if q.points else '')
-        parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_e(q.prompt)}{_pts}</p>')
+        parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_quiz_linkify_html(q.prompt)}{_pts}</p>')
 
         # Answer-key entries are stored as already-safe HTML (so image cells can
         # render as <img>), then emitted without re-escaping below.
@@ -33602,6 +33689,9 @@ def _render_quiz_print_html(quiz, include_answers):
             parts.append('</tbody></table>')
             if include_answers:
                 answer_rows.append((idx, '(study cards — no correct answer)'))
+        if include_answers and cfg.get('explanation') and answer_rows and answer_rows[-1][0] == idx:
+            num, ans = answer_rows[-1]
+            answer_rows[-1] = (num, ans + f'<div class="print-expl">{_quiz_linkify_html(cfg["explanation"])}</div>')
         parts.append('</div>')
 
     if include_answers and answer_rows:
@@ -33694,7 +33784,8 @@ def public_quiz_print(qid):
     website = _live_website_for(quiz)
     html = _render_quiz_print_html(quiz, include_answers=False)
     html = _inject_print_qr(html, {})
-    return render_template('print_quiz.html', website=website, quiz=quiz, quiz_html=html)
+    return render_template('print_quiz.html', website=website, quiz=quiz,
+                           quiz_html=html, worksheet=True)
 
 
 @app.route('/admin/quizzes/<int:qid>/print')
@@ -33718,12 +33809,13 @@ def admin_quiz_print(qid):
 
 _QUIZ_QUESTION_TYPES = ('single_choice', 'multi_choice', 'true_false', 'short_text',
                         'fill_blank', 'matching', 'ordering', 'image_choice', 'coding',
-                        'reflection', 'flashcards')
+                        'reflection', 'flashcards', 'text')
 
 # Ungraded types: they carry no correct answer, score no points, and never
 # count toward max_score. Reflections save the reader's written response;
-# flashcards are a self-study widget.
-_QUIZ_UNGRADED_TYPES = ('reflection', 'flashcards')
+# flashcards are a self-study widget; text blocks are read-only content
+# (instructions / reading material) placed between questions.
+_QUIZ_UNGRADED_TYPES = ('reflection', 'flashcards', 'text')
 
 
 def _quiz_side_public(side):
@@ -33850,7 +33942,7 @@ def _normalize_quiz_config(question_type, config, prompt=''):
             it['id'] = ids[i]
         return {'items': items, 'answer_order': [it['id'] for it in items]}, None
 
-    if question_type == 'reflection':
+    if question_type in ('reflection', 'text'):
         # No correct answer by design — the prompt is the whole configuration.
         return {}, None
 
@@ -35408,12 +35500,23 @@ def admin_quizzes_update(qid):
                 return _utf8_json({'success': False,
                     'error': 'You can only move this quiz into a category you have access to.'}, 403)
             quiz.category_id = cat.id if cat else None
+    # Attempt controls + question bank: positive ints, anything else clears.
+    for _field in ('max_attempts', 'retake_cooldown_minutes', 'draw_count'):
+        if _field in data:
+            try:
+                val = int(data.get(_field))
+            except (ValueError, TypeError):
+                val = 0
+            setattr(quiz, _field, val if val > 0 else None)
     quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
         'shuffle_questions': quiz.shuffle_questions,
-        'pass_threshold': quiz.pass_threshold, 'category_id': quiz.category_id}})
+        'pass_threshold': quiz.pass_threshold, 'category_id': quiz.category_id,
+        'max_attempts': quiz.max_attempts,
+        'retake_cooldown_minutes': quiz.retake_cooldown_minutes,
+        'draw_count': quiz.draw_count}})
 
 
 @app.route('/admin/quizzes/<int:qid>/delete', methods=['POST'])
@@ -35428,6 +35531,187 @@ def admin_quizzes_delete(qid):
     db.session.delete(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
+
+
+@app.route('/admin/quizzes/<int:qid>/duplicate', methods=['POST'])
+@login_required
+@require_perm('quizzes.manage')
+def admin_quiz_duplicate(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
+    copy = Quiz(website_id=quiz.website_id, title=f'{quiz.title} (copy)',
+                description=quiz.description, category_id=quiz.category_id,
+                shuffle_questions=quiz.shuffle_questions,
+                pass_threshold=quiz.pass_threshold,
+                max_attempts=quiz.max_attempts,
+                retake_cooldown_minutes=quiz.retake_cooldown_minutes,
+                draw_count=quiz.draw_count)
+    db.session.add(copy)
+    db.session.flush()
+    for qq in quiz.questions.order_by(QuizQuestion.sort_order):
+        db.session.add(QuizQuestion(quiz_id=copy.id, question_type=qq.question_type,
+                                    prompt=qq.prompt, config=qq.config,
+                                    points=qq.points, sort_order=qq.sort_order))
+    db.session.commit()
+    return _utf8_json({'success': True, 'quiz': {'id': copy.id, 'title': copy.title}})
+
+
+def _quiz_identity_labels(attempts):
+    """{attempt identity key: display label}. Logged-in readers show their
+    username/email; anonymous devices show a short visitor tag."""
+    uids = {a.public_user_id for a in attempts if a.public_user_id}
+    users = {u.id: u for u in PublicUser.query.filter(PublicUser.id.in_(uids)).all()} if uids else {}
+    labels = {}
+    for a in attempts:
+        if a.public_user_id and a.public_user_id in users:
+            u = users[a.public_user_id]
+            labels[f'u:{a.public_user_id}'] = getattr(u, 'username', None) or u.email or f'User {u.id}'
+        else:
+            labels[f'v:{a.visitor_id_hash}'] = f'Visitor {(a.visitor_id_hash or "")[:8]}'
+    return labels
+
+
+def _attempt_identity_key(a):
+    return f'u:{a.public_user_id}' if a.public_user_id else f'v:{a.visitor_id_hash}'
+
+
+@app.route('/admin/quizzes/<int:qid>/reflections')
+@login_required
+@require_perm('quizzes.view')
+def admin_quiz_reflections(qid):
+    """Each reader's most recent response to every reflection question."""
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    if not can_access_quiz(quiz):
+        return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
+    ref_qs = quiz.questions.filter_by(question_type='reflection') \
+        .order_by(QuizQuestion.sort_order).all()
+    attempts = QuizAttempt.query.filter_by(quiz_id=qid) \
+        .order_by(QuizAttempt.created_at.desc()).all()
+    labels = _quiz_identity_labels(attempts)
+    out = []
+    for rq in ref_qs:
+        seen = {}
+        for att in attempts:      # newest first — first hit per identity wins
+            answers = att.answers or {}
+            val = answers.get(str(rq.id), answers.get(rq.id))
+            if not (isinstance(val, str) and val.strip()):
+                continue
+            key = _attempt_identity_key(att)
+            if key in seen:
+                continue
+            seen[key] = {'user': labels.get(key, '—'), 'text': val.strip(),
+                         'date': att.created_at.isoformat() if att.created_at else None}
+        out.append({'question_id': rq.id, 'prompt': rq.prompt,
+                    'responses': list(seen.values())})
+    return _utf8_json({'success': True, 'questions': out})
+
+
+def _format_attempt_answer(q, ans):
+    """Human-readable CSV cell for one submitted answer, resolving option /
+    cell ids back to their text."""
+    if ans is None:
+        return ''
+    cfg = q._config()
+    t = q.question_type
+    if t in ('single_choice', 'true_false', 'multi_choice'):
+        opts = {o['id']: o.get('text', '') for o in cfg.get('options') or []}
+        ids = ans if isinstance(ans, list) else [ans]
+        vals = []
+        for x in ids:
+            try:
+                vals.append(opts.get(int(x), str(x)))
+            except (TypeError, ValueError):
+                vals.append(str(x))
+        return '; '.join(vals)
+    if t == 'image_choice':
+        opts = {o['id']: (o.get('caption') or o.get('image_url', '')) for o in cfg.get('options') or []}
+        ids = ans if isinstance(ans, list) else [ans]
+        vals = []
+        for x in ids:
+            try:
+                vals.append(opts.get(int(x), str(x)))
+            except (TypeError, ValueError):
+                vals.append(str(x))
+        return '; '.join(vals)
+    if t == 'fill_blank':
+        return '; '.join(str(x) for x in ans) if isinstance(ans, list) else str(ans)
+    if t == 'matching':
+        if not isinstance(ans, dict):
+            return ''
+        lefts = {p['left_id']: _quiz_cell_text(p.get('left')) for p in cfg.get('pairs') or []}
+        rights = {p['right_id']: _quiz_cell_text(p.get('right')) for p in cfg.get('pairs') or []}
+        pairs = []
+        for lk, rv in ans.items():
+            try:
+                pairs.append(f'{lefts.get(int(lk), lk)} → {rights.get(int(rv), rv)}')
+            except (TypeError, ValueError):
+                continue
+        return '; '.join(pairs)
+    if t == 'ordering':
+        if not isinstance(ans, list):
+            return ''
+        items = {it['id']: _quiz_cell_text(it) for it in cfg.get('items') or []}
+        seq = []
+        for x in ans:
+            try:
+                seq.append(items.get(int(x), str(x)))
+            except (TypeError, ValueError):
+                continue
+        return ' → '.join(seq)
+    if t in ('short_text', 'reflection', 'coding'):
+        return str(ans)
+    return json.dumps(ans) if not isinstance(ans, str) else ans
+
+
+@app.route('/admin/quizzes/<int:qid>/attempts.csv')
+@login_required
+@require_perm('quizzes.view')
+def admin_quiz_attempts_csv(qid):
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    if not can_access_quiz(quiz):
+        abort(403)
+    import csv as _csv
+    import io as _io
+    questions = quiz.questions.order_by(QuizQuestion.sort_order).all()
+    # Same visible numbering as the player/print (text blocks don't count);
+    # flashcards submit nothing, text blocks aren't questions — skip both.
+    numbered = []
+    n = 0
+    for q in questions:
+        if q.question_type == 'text':
+            continue
+        n += 1
+        if q.question_type == 'flashcards':
+            continue
+        numbered.append((n, q))
+    attempts = QuizAttempt.query.filter_by(quiz_id=qid) \
+        .order_by(QuizAttempt.created_at.asc()).all()
+    labels = _quiz_identity_labels(attempts)
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(['date', 'user', 'score', 'max_score', 'percent', 'passed'] +
+               [f'Q{n}: {q.prompt[:80]}' for n, q in numbered])
+    for a in attempts:
+        answers = a.answers or {}
+        row = [a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '',
+               labels.get(_attempt_identity_key(a), '—'),
+               a.score, a.max_score,
+               round(100 * a.score / a.max_score) if a.max_score else '',
+               'yes' if _quiz_passed(quiz, a.score, a.max_score) else 'no']
+        for _, q in numbered:
+            row.append(_format_attempt_answer(q, answers.get(str(q.id), answers.get(q.id))))
+        w.writerow(row)
+    from flask import Response as _Response
+    fname = re.sub(r'[^A-Za-z0-9_-]+', '-', quiz.title).strip('-') or f'quiz-{qid}'
+    return _Response('\ufeff' + buf.getvalue(), mimetype='text/csv',
+                     headers={'Content-Disposition': f'attachment; filename="{fname}-attempts.csv"'})
 
 
 @app.route('/admin/quizzes/<int:qid>/edit')
@@ -35483,6 +35767,11 @@ def admin_quiz_question_save(qid):
     cfg, err = _normalize_quiz_config(qtype, data.get('config'), prompt)
     if err:
         return _utf8_json({'success': False, 'error': err}, 400)
+    # Optional explanation, revealed after answering (graded types only —
+    # normalize drops unknown keys, so re-attach it here).
+    expl = (data.get('config') or {}).get('explanation')
+    if isinstance(expl, str) and expl.strip() and qtype not in _QUIZ_UNGRADED_TYPES:
+        cfg['explanation'] = expl.strip()[:2000]
     try:
         points = max(1, int(data.get('points') or 1))
     except (ValueError, TypeError):
@@ -35729,7 +36018,24 @@ def _grade_quiz(quiz, submitted):
             _runner['url'] = _code_runner_url_for_website(db.session.get(Website, quiz.website_id))
         return _runner['url']
 
-    for q in quiz.questions.order_by(QuizQuestion.sort_order):
+    # Question-bank quizzes serve a random subset, so only the questions whose
+    # ids appear in the submission are graded. Padding below stops a client
+    # from inflating its score by omitting served questions.
+    served_ids = None
+    if quiz.draw_count and quiz.draw_count > 0:
+        served_ids = set()
+        for k in submitted.keys():
+            try:
+                served_ids.add(int(k))
+            except (TypeError, ValueError):
+                pass
+
+    all_questions = quiz.questions.order_by(QuizQuestion.sort_order).all()
+    graded_count = 0
+    for q in all_questions:
+        if (served_ids is not None and q.id not in served_ids
+                and q.question_type not in _QUIZ_UNGRADED_TYPES):
+            continue
         cfg = q._config()
         ans = submitted.get(str(q.id), submitted.get(q.id))
         # Ungraded types: never counted in score/max_score. Reflections keep
@@ -35742,6 +36048,7 @@ def _grade_quiz(quiz, submitted):
             results.append(detail)
             continue
         max_score += q.points
+        graded_count += 1
         detail = {'question_id': q.id}
         correct = False
         earned = None  # set explicitly only for partial-credit types
@@ -35759,7 +36066,12 @@ def _grade_quiz(quiz, submitted):
                 sel = set(int(x) for x in (ans or []))
             except (ValueError, TypeError):
                 sel = set()
-            correct = bool(correct_ids) and sel == correct_ids
+            # Partial credit (like fill_blank): each right pick earns its share,
+            # each wrong pick cancels one, floored at zero.
+            if correct_ids:
+                frac = max(0, len(sel & correct_ids) - len(sel - correct_ids)) / len(correct_ids)
+                earned = round(q.points * frac)
+                correct = frac >= 1
             detail['correct_option_ids'] = list(correct_ids)
         elif q.question_type == 'fill_blank':
             # Partial credit: each blank scores independently.
@@ -35863,7 +36175,22 @@ def _grade_quiz(quiz, submitted):
         score += earned
         detail['earned'] = earned
         detail['correct'] = correct
+        if cfg.get('explanation'):
+            # Revealed to the reader on pass, or per-question when correct
+            # (see _strip_answers_from_results).
+            detail['explanation'] = cfg['explanation']
         results.append(detail)
+
+    if served_ids is not None:
+        # Fewer graded answers than the draw requires: count the missing slots
+        # against max_score, assuming the highest-value questions were dodged.
+        graded_pool = [q.points for q in all_questions
+                       if q.question_type not in _QUIZ_UNGRADED_TYPES and q.id not in served_ids]
+        expected = min(quiz.draw_count,
+                       graded_count + len(graded_pool))
+        if graded_count < expected:
+            graded_pool.sort(reverse=True)
+            max_score += sum(graded_pool[:expected - graded_count])
     return score, max_score, results
 
 
@@ -35885,6 +36212,35 @@ def _live_website_for(model_obj):
     if not website or not website.is_live:
         abort(404)
     return website
+
+
+def _quiz_attempts_query(quiz_id, public_user, visitor_hash):
+    """All attempts on a quiz by this identity (user across devices, or the
+    device's visitor hash)."""
+    aq = QuizAttempt.query.filter_by(quiz_id=quiz_id)
+    if public_user:
+        return aq.filter(db.or_(QuizAttempt.public_user_id == public_user.id,
+                                QuizAttempt.visitor_id_hash == visitor_hash))
+    return aq.filter(QuizAttempt.visitor_id_hash == visitor_hash)
+
+
+def _quiz_attempt_gate(quiz, public_user, visitor_hash):
+    """(attempts_used, attempts_left, cooldown_seconds) for this identity.
+    attempts_left is None when unlimited; cooldown_seconds is how long until
+    the next attempt is allowed (0 = now)."""
+    aq = _quiz_attempts_query(quiz.id, public_user, visitor_hash)
+    used = aq.count()
+    left = None
+    if quiz.max_attempts and quiz.max_attempts > 0:
+        left = max(0, quiz.max_attempts - used)
+    cooldown = 0
+    if used and quiz.retake_cooldown_minutes and quiz.retake_cooldown_minutes > 0:
+        last = aq.order_by(QuizAttempt.created_at.desc()).first()
+        if last and last.created_at:
+            elapsed = (datetime.now(timezone.utc).replace(tzinfo=None)
+                       - last.created_at).total_seconds()
+            cooldown = max(0, int(quiz.retake_cooldown_minutes * 60 - elapsed))
+    return used, left, cooldown
 
 
 def _quiz_draft_for(quiz_id, public_user, visitor_hash):
@@ -35916,9 +36272,23 @@ def public_quiz_get(qid):
     quiz = Quiz.query.get_or_404(qid)
     website = _live_website_for(quiz)
     questions = [q.to_public_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
+    import random as _random
+    # Question bank: serve a random draw of N graded questions. Ungraded
+    # blocks (text/reflection/flashcards) are always shown, in place.
+    if quiz.draw_count and quiz.draw_count > 0:
+        graded = [qq for qq in questions if qq['question_type'] not in _QUIZ_UNGRADED_TYPES]
+        if len(graded) > quiz.draw_count:
+            keep = {qq['id'] for qq in _random.sample(graded, quiz.draw_count)}
+            questions = [qq for qq in questions
+                         if qq['question_type'] in _QUIZ_UNGRADED_TYPES or qq['id'] in keep]
     if quiz.shuffle_questions:
-        import random as _random
-        _random.shuffle(questions)
+        # Shuffle questions but keep text blocks pinned where the author put
+        # them — they're headings/instructions, not part of the deck.
+        idxs = [i for i, qq in enumerate(questions) if qq['question_type'] != 'text']
+        pool = [questions[i] for i in idxs]
+        _random.shuffle(pool)
+        for i, qq in zip(idxs, pool):
+            questions[i] = qq
 
     # Pre-fill any saved in-progress answers so the reader resumes where they
     # left off. Resolving the visitor here (and setting the cookie) keeps the
@@ -35950,11 +36320,15 @@ def public_quiz_get(qid):
             if len(reflections) == len(reflection_qids):
                 break
 
+    _used, _left, _cooldown = _quiz_attempt_gate(quiz, public_user, visitor_hash)
     resp = _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
         'questions': questions,
         'reflections': {str(k): v for k, v in reflections.items()},
-        'draft': (draft.answers or {}) if draft else None}})
+        'draft': (draft.answers or {}) if draft else None,
+        'max_attempts': quiz.max_attempts,
+        'attempts_used': _used, 'attempts_left': _left,
+        'cooldown_seconds': _cooldown}})
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
 
@@ -36044,8 +36418,13 @@ _SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results',
 def _strip_answers_from_results(results):
     """When a reader hasn't passed, keep only the non-revealing feedback (which
     questions/blanks were right, and partial credit earned) and drop anything
-    that would disclose the correct answer."""
-    return [{k: v for k, v in r.items() if k in _SAFE_RESULT_KEYS} for r in results]
+    that would disclose the correct answer. Explanations are kept only for
+    questions answered correctly — they teach without enabling a brute-force."""
+    out = []
+    for r in results:
+        keys = _SAFE_RESULT_KEYS | ({'explanation'} if r.get('correct') else set())
+        out.append({k: v for k, v in r.items() if k in keys})
+    return out
 
 
 def _mark_lesson_complete_if_passed(node, public_user, visitor_hash):
@@ -36098,12 +36477,24 @@ def public_quiz_submit(qid):
         node_id = int(data.get('guide_node_id')) if data.get('guide_node_id') not in (None, '', 0) else None
     except (ValueError, TypeError):
         node_id = None
-    score, max_score, results = _grade_quiz(quiz, submitted)
-    this_attempt_passed = _quiz_passed(quiz, score, max_score)
 
+    # Attempt controls — enforced before grading so a blocked submission never
+    # burns runner time or records an attempt.
     public_user = _public_user_for_website(website)
     visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
     visitor_hash = hash_asset_visitor_id(visitor_id)
+    _used, _left, _cooldown = _quiz_attempt_gate(quiz, public_user, visitor_hash)
+    if _left is not None and _left <= 0:
+        return _utf8_json({'success': False, 'error': 'attempt_limit',
+                           'message': f'You have used all {quiz.max_attempts} attempts for this quiz.'}, 429)
+    if _cooldown > 0:
+        _mins = max(1, -(-_cooldown // 60))
+        return _utf8_json({'success': False, 'error': 'cooldown', 'retry_after': _cooldown,
+                           'message': f'Please wait about {_mins} minute{"s" if _mins != 1 else ""} before trying again.'}, 429)
+
+    score, max_score, results = _grade_quiz(quiz, submitted)
+    this_attempt_passed = _quiz_passed(quiz, score, max_score)
+
     db.session.add(QuizAttempt(
         quiz_id=quiz.id, website_id=website.id, guide_node_id=node_id,
         public_user_id=public_user.id if public_user else None,
@@ -36133,7 +36524,9 @@ def public_quiz_submit(qid):
             'results': visible_results,
             'best_score': _quiz_best_score(quiz.id, public_user, visitor_hash),
             'passed': this_attempt_passed,
-            'pass_threshold': quiz.pass_threshold if quiz.pass_threshold is not None else 0.9}
+            'pass_threshold': quiz.pass_threshold if quiz.pass_threshold is not None else 0.9,
+            'attempts_left': (max(0, _left - 1) if _left is not None else None),
+            'cooldown_seconds': (quiz.retake_cooldown_minutes or 0) * 60}
     if progress_summary is not None:
         body['progress'] = progress_summary
     resp = _utf8_json(body)

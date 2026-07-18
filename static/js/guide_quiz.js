@@ -56,6 +56,19 @@
 .uwq-hint { font-size:0.78rem; opacity:0.55; flex-basis:100%; margin:4px 0 0; }
 .uwq-err { padding:14px; border-radius:10px; background:rgba(255,90,90,0.1); color:#ff9b9b; font-size:0.9rem; }
 .uwq-loading { padding:14px; opacity:0.5; font-size:0.9rem; }
+/* links + auto-embeds (any prompt / text block / description) */
+.uwq a.uwq-link { color:#5eeef8; word-break:break-all; }
+.uwq-embeds { display:flex; flex-direction:column; gap:10px; margin:10px 0 4px; }
+.uwq-embed-frame { position:relative; width:100%; max-width:560px; aspect-ratio:16/9; }
+.uwq-embed-frame iframe { position:absolute; inset:0; width:100%; height:100%; border:0; border-radius:10px; }
+.uwq-embed-img { display:block; max-width:100%; max-height:320px; border-radius:10px; }
+/* text block — content between questions, not a question */
+.uwq-text-body { font-size:0.95rem; line-height:1.65; }
+/* per-question explanation (revealed after answering) */
+.uwq-expl { margin-top:7px; font-size:0.85rem; line-height:1.5; padding:7px 11px; border-left:3px solid rgba(94,238,200,0.55); background:rgba(94,238,200,0.06); border-radius:0 8px 8px 0; }
+/* attempt limit / cooldown notice */
+.uwq-gate { flex-basis:100%; margin:6px 0 0; padding:9px 12px; border-radius:9px; background:rgba(255,200,90,0.1); color:#ffd28a; font-size:0.85rem; }
+.uwq-attempts { font-size:0.78rem; opacity:0.55; flex-basis:100%; margin:4px 0 0; }
 /* fill in the blank */
 .uwq-blank { display:inline-block; width:120px; padding:3px 8px; margin:0 3px; border:none; border-bottom:2px solid rgba(94,238,248,0.55); background:rgba(255,255,255,0.06); color:inherit; font-size:0.95rem; outline:none; border-radius:4px 4px 0 0; }
 .uwq-blank:focus { border-bottom-color:#5eeec8; }
@@ -156,6 +169,45 @@
         document.head.appendChild(style);
     }
 
+    // ── link auto-embedding ─────────────────────────────────────────────────
+    // YouTube / Vimeo URLs → player iframe src; anything else → null.
+    function videoEmbedUrl(url) {
+        let m = url.match(/(?:youtube\.com\/(?:watch\?[^\s]*?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+        if (m) return 'https://www.youtube-nocookie.com/embed/' + m[1];
+        m = url.match(/vimeo\.com\/(\d+)/);
+        if (m) return 'https://player.vimeo.com/video/' + m[1];
+        return null;
+    }
+
+    // Escape text, turn URLs into anchors, keep newlines, and collect media
+    // embeds (video players / images) to render below the text.
+    function linkifyParts(text) {
+        const src = String(text == null ? '' : text);
+        const embeds = [];
+        const re = /https?:\/\/[^\s<>"']+/g;
+        let html = '';
+        let last = 0;
+        let m;
+        while ((m = re.exec(src)) !== null) {
+            const url = m[0].replace(/[.,;:!?)\]]+$/, '');
+            html += esc(src.slice(last, m.index));
+            html += '<a class="uwq-link" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>';
+            last = m.index + url.length;
+            const v = videoEmbedUrl(url);
+            if (v) {
+                embeds.push('<div class="uwq-embed-frame"><iframe src="' + esc(v) + '" loading="lazy" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe></div>');
+            } else if (/\.(png|jpe?g|gif|webp|svg)([?#]|$)/i.test(url)) {
+                embeds.push('<img class="uwq-embed-img" src="' + esc(url) + '" alt="" loading="lazy">');
+            }
+        }
+        html += esc(src.slice(last));
+        return { html: html.replace(/\n/g, '<br>'), embeds: embeds };
+    }
+
+    function embedsHtml(embeds) {
+        return embeds.length ? '<div class="uwq-embeds">' + embeds.join('') + '</div>' : '';
+    }
+
     function cellHtml(cell) {
         if (cell && cell.kind === 'image' && cell.image_url) {
             return '<img class="uwq-cell-img" src="' + esc(cell.image_url) + '" alt="' + esc(cell.text || '') + '">'
@@ -185,13 +237,21 @@
         el._sel = {};     // matching: qid -> currently picked leftId
         el._fc = {};      // flashcards: qid -> {queue:[cardId,...], flipped:bool}
         let html = '<div class="uwq"><div class="uwq-head"><i class="fas fa-clipboard-check"></i><h3>' + esc(quiz.title) + '</h3></div>';
-        if (quiz.description) html += '<p class="uwq-desc">' + esc(quiz.description) + '</p>';
+        if (quiz.description) {
+            const d = linkifyParts(quiz.description);
+            html += '<p class="uwq-desc">' + d.html + '</p>' + embedsHtml(d.embeds);
+        }
         html += '<form class="uwq-form">';
-        (quiz.questions || []).forEach((q, qi) => { html += renderQuestion(q, qi); });
-        // A quiz with nothing gradable (reflections/flashcards only) reads as
-        // a save form, not a test.
+        // Text blocks are content, not questions — they don't get a number.
+        let qnum = 0;
+        (quiz.questions || []).forEach(q => {
+            html += renderQuestion(q, q.question_type === 'text' ? 0 : ++qnum);
+        });
+        // A quiz with nothing gradable (reflections/flashcards/text only)
+        // reads as a save form, not a test.
         const hasGraded = (quiz.questions || []).some(q =>
-            q.question_type !== 'reflection' && q.question_type !== 'flashcards');
+            q.question_type !== 'reflection' && q.question_type !== 'flashcards' &&
+            q.question_type !== 'text');
         html += '<div class="uwq-actions"><button type="submit" class="uwq-submit">'
               + (hasGraded ? 'Submit' : 'Save') + '</button><span class="uwq-score"></span></div>';
         html += '</form></div>';
@@ -219,6 +279,31 @@
                 renderFlashcards(el, q);
             }
         });
+
+        // Attempt limits: surface usage, and gate the form when exhausted or
+        // cooling down (the server enforces this regardless).
+        const actionsRow = el.querySelector('.uwq-actions');
+        const submitBtn = el.querySelector('.uwq-submit');
+        if (quiz.max_attempts) {
+            const hint = document.createElement('p');
+            hint.className = 'uwq-attempts';
+            hint.textContent = 'Attempts used: ' + (quiz.attempts_used || 0) + ' / ' + quiz.max_attempts;
+            actionsRow.appendChild(hint);
+        }
+        if (quiz.attempts_left === 0) {
+            submitBtn.disabled = true;
+            const g = document.createElement('p');
+            g.className = 'uwq-gate';
+            g.textContent = 'You\'ve used all ' + quiz.max_attempts + ' attempts for this quiz.';
+            actionsRow.appendChild(g);
+        } else if (quiz.cooldown_seconds > 0) {
+            submitBtn.disabled = true;
+            const g = document.createElement('p');
+            g.className = 'uwq-gate';
+            g.textContent = 'Next attempt available in about ' + Math.max(1, Math.ceil(quiz.cooldown_seconds / 60)) + ' min.';
+            actionsRow.appendChild(g);
+            setTimeout(() => { submitBtn.disabled = false; g.remove(); }, quiz.cooldown_seconds * 1000);
+        }
 
         const form = el.querySelector('.uwq-form');
         form.addEventListener('submit', ev => { ev.preventDefault(); submit(el, quiz); });
@@ -303,14 +388,20 @@
         });
     }
 
-    function renderQuestion(q, qi) {
+    function renderQuestion(q, num) {
         const t = q.question_type;
         let h = '<div class="uwq-q" data-qid="' + q.id + '" data-qtype="' + t + '">';
-        if (t === 'fill_blank') {
-            h += '<p class="uwq-prompt uwq-blank-prompt"><span class="uwq-num">' + (qi + 1) + '</span><span>' + blankPromptHtml(q) + '</span></p>';
-        } else {
-            h += '<p class="uwq-prompt"><span class="uwq-num">' + (qi + 1) + '</span>' + esc(q.prompt) + '</p>';
+        const rich = linkifyParts(q.prompt);
+        if (t === 'text') {
+            // Content block — no number, no inputs, nothing to grade.
+            return h + '<div class="uwq-text-body">' + rich.html + '</div>' + embedsHtml(rich.embeds) + '</div>';
         }
+        if (t === 'fill_blank') {
+            h += '<p class="uwq-prompt uwq-blank-prompt"><span class="uwq-num">' + num + '</span><span>' + blankPromptHtml(q) + '</span></p>';
+        } else {
+            h += '<p class="uwq-prompt"><span class="uwq-num">' + num + '</span><span>' + rich.html + '</span></p>';
+        }
+        h += embedsHtml(rich.embeds);
         if (t === 'short_text') {
             h += '<input type="text" class="uwq-text" name="q' + q.id + '" autocomplete="off">';
         } else if (t === 'single_choice' || t === 'multi_choice' || t === 'true_false') {
@@ -358,7 +449,7 @@
         const parts = String(q.prompt || '').split(/_{3,}/);
         let h = '';
         parts.forEach((seg, i) => {
-            h += esc(seg);
+            h += linkifyParts(seg).html;
             if (i < parts.length - 1) {
                 h += '<input type="text" class="uwq-blank" data-bi="' + i + '" autocomplete="off">';
             }
@@ -650,7 +741,18 @@
                 body: JSON.stringify({ answers: answers, guide_node_id: window.UW_GUIDE_NODE_ID || null })
             })).json();
         } catch (e) { btn.disabled = false; btn.textContent = 'Submit'; return; }
-        if (!data || !data.success) { btn.disabled = false; btn.textContent = 'Submit'; return; }
+        if (!data || !data.success) {
+            btn.disabled = false; btn.textContent = 'Submit';
+            // Attempt limit / cooldown rejection — surface the server's message.
+            if (data && data.message) {
+                const actions = el.querySelector('.uwq-actions');
+                let g = actions.querySelector('.uwq-gate');
+                if (!g) { g = document.createElement('p'); g.className = 'uwq-gate'; actions.appendChild(g); }
+                g.textContent = data.message;
+                if (data.error === 'attempt_limit') btn.disabled = true;
+            }
+            return;
+        }
         showResults(el, quiz, data);
     }
 
@@ -714,7 +816,9 @@
             const fb = qEl.querySelector('.uwq-fb');
             if (fb) {
                 fb.style.display = 'block';
-                let txt = r.correct ? '<span class="uwq-ok">Correct</span>' : '<span class="uwq-no">Incorrect</span>';
+                let txt = r.correct ? '<span class="uwq-ok">Correct</span>'
+                        : (r.earned > 0 ? '<span style="color:#ffd28a;font-weight:700;">Partially correct · ' + r.earned + ' / ' + q.points + ' pts</span>'
+                                        : '<span class="uwq-no">Incorrect</span>');
                 if (t === 'fill_blank' && Array.isArray(r.blank_results)) {
                     const got = r.blank_results.filter(Boolean).length;
                     txt += ' · ' + got + ' / ' + r.blank_results.length + ' blanks';
@@ -727,6 +831,12 @@
                     txt += ' · Accepted: ' + r.accepted.map(esc).join(', ');
                 }
                 fb.innerHTML = txt;
+                // Explanation — present when passed, or on correctly answered
+                // questions (the server withholds it otherwise).
+                if (r.explanation) {
+                    const ex = linkifyParts(r.explanation);
+                    fb.innerHTML += '<div class="uwq-expl">' + ex.html + '</div>' + embedsHtml(ex.embeds);
+                }
             }
         });
 
@@ -772,6 +882,26 @@
         btn.disabled = false;
         btn.textContent = 'Retake';
         btn.type = 'button';
+        // Attempt limits: no retake once attempts run out; note the cooldown
+        // otherwise (the server enforces both on submit regardless).
+        let gate = actions.querySelector('.uwq-gate');
+        if (gate) gate.remove();
+        if (quiz.max_attempts && data.attempts_left != null) {
+            const at = actions.querySelector('.uwq-attempts');
+            if (at) at.textContent = 'Attempts used: ' + (quiz.max_attempts - data.attempts_left) + ' / ' + quiz.max_attempts;
+        }
+        if (data.attempts_left === 0) {
+            btn.style.display = 'none';
+            gate = document.createElement('p');
+            gate.className = 'uwq-gate';
+            gate.textContent = 'No attempts remaining for this quiz.';
+            actions.appendChild(gate);
+        } else if (data.cooldown_seconds > 0 && !passed) {
+            gate = document.createElement('p');
+            gate.className = 'uwq-gate';
+            gate.textContent = 'You can try again in about ' + Math.max(1, Math.ceil(data.cooldown_seconds / 60)) + ' min.';
+            actions.appendChild(gate);
+        }
         btn.onclick = () => {
             // Preserve typed code and reflection text across a retake — coders
             // iterate on the same solution, and reflections stay viewable and

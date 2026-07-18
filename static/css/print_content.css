@@ -97,6 +97,9 @@ html, body {
 .print-quiz-title { font-size: 1.2rem; margin: 18px 0 10px; }
 .print-q { margin: 0 0 14px; break-inside: avoid; }
 .print-q-prompt { margin: 0 0 6px; }
+.print-text-block { margin: 0 0 6px; line-height: 1.55; }
+.print-nameline { display: flex; justify-content: space-between; gap: 24px; margin: 14px 0 18px; }
+.print-expl { color: #555; font-size: 0.85rem; margin-top: 3px; font-style: italic; }
 .print-q-points { color: #777; font-weight: 400; font-size: 0.85rem; }
 .print-q-meta { color: #555; font-size: 0.85rem; margin: 2px 0; }
 .print-opts, .print-order { list-style: none; padding-left: 8px; margin: 4px 0; }

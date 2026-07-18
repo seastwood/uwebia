@@ -164,11 +164,24 @@
                         <a href="{{ url_for('admin_quiz_editor', qid=q.id) }}" class="pa-btn pa-btn-primary">
                             <i class="fas fa-tasks"></i> Edit Questions
                         </a>
+                        <a href="{{ url_for('admin_quiz_attempts_csv', qid=q.id) }}" class="pa-btn pa-btn-secondary" title="Export attempts (CSV)">
+                            <i class="fas fa-file-csv"></i>
+                        </a>
+                        {% if q.questions.filter_by(question_type='reflection').count() %}
+                        <button class="pa-btn pa-btn-secondary" title="View reflections"
+                                onclick='openReflections({{ q.id }}, {{ q.title | tojson }})'>
+                            <i class="fas fa-comment-dots"></i>
+                        </button>
+                        {% endif %}
                         {% endif %}
                         {% if user_has_perm('quizzes.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }})'>
+                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }})'>
                             <i class="fas fa-cog"></i>
+                        </button>
+                        <button class="pa-btn pa-btn-secondary" title="Duplicate quiz"
+                                onclick='duplicateQuiz({{ q.id }})'>
+                            <i class="fas fa-copy"></i>
                         </button>
                         <button class="pa-btn pa-btn-danger"
                                 onclick='confirmQuizDelete({{ q.id }}, {{ q.title | tojson }})'>
@@ -252,6 +265,22 @@
                         <span style="opacity:0.55;font-size:0.85rem;">%</span>
                     </label>
                     <p style="margin:8px 0 0;font-size:0.78rem;color:rgba(255,255,255,0.45);">When this quiz is embedded in a lesson, the reader must reach at least this score for the lesson to count as complete.</p>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:0.9rem;font-weight:normal;">
+                        <span style="flex:1;">Max attempts <span style="opacity:0.5;font-size:0.8rem;">(blank = unlimited)</span></span>
+                        <input type="number" id="quizModalMaxAttempts" min="1" step="1" placeholder="∞"
+                               style="width:84px;padding:7px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);color:inherit;">
+                    </label>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:0.9rem;font-weight:normal;">
+                        <span style="flex:1;">Wait between attempts <span style="opacity:0.5;font-size:0.8rem;">(minutes; blank = none)</span></span>
+                        <input type="number" id="quizModalCooldown" min="1" step="1" placeholder="0"
+                               style="width:84px;padding:7px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);color:inherit;">
+                    </label>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:0.9rem;font-weight:normal;">
+                        <span style="flex:1;">Question bank: ask only <span style="opacity:0.5;font-size:0.8rem;">(random questions per attempt; blank = all)</span></span>
+                        <input type="number" id="quizModalDraw" min="1" step="1" placeholder="all"
+                               style="width:84px;padding:7px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);color:inherit;">
+                    </label>
+                    <p style="margin:8px 0 0;font-size:0.78rem;color:rgba(255,255,255,0.45);">Text blocks, reflections and flash cards are always shown; the random draw only applies to scored questions.</p>
                 </div>
             </div>
             <div id="quizModalError" role="alert" style="display:none;color:#ff6b6b;font-size:0.85rem;padding:0 20px 4px;"></div>
@@ -345,9 +374,69 @@
     </div>
 </div>
 
+<!-- Reflections review modal -->
+<div class="uw-overlay" id="reflOverlay" style="display:none;" onclick="if(event.target===this)closeReflections()">
+    <div class="uw-modal" role="dialog" aria-modal="true" style="max-width:640px;">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="reflTitle">Reflections</h3>
+            <button class="uw-modal-close" onclick="closeReflections()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body" id="reflBody" style="max-height:62vh;overflow-y:auto;"></div>
+    </div>
+</div>
+
 <script>
 let _qdelId = null;
 let _catDelId = null;
+
+// ── Duplicate quiz ──────────────────────────────────────────────────────────
+async function duplicateQuiz(id) {
+    try {
+        const r = await fetch(`/admin/quizzes/${id}/duplicate`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) location.reload();
+        else alert(d.error || 'Failed to duplicate');
+    } catch (e) { alert('Request failed'); }
+}
+
+// ── Reflections review ──────────────────────────────────────────────────────
+function _reflEsc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function openReflections(id, title) {
+    document.getElementById('reflTitle').textContent = `Reflections — ${title}`;
+    const body = document.getElementById('reflBody');
+    body.innerHTML = '<p style="opacity:0.5;">Loading…</p>';
+    document.getElementById('reflOverlay').style.display = 'flex';
+    let d;
+    try { d = await (await fetch(`/admin/quizzes/${id}/reflections`)).json(); }
+    catch (e) { body.innerHTML = '<p style="color:#ff6b6b;">Failed to load.</p>'; return; }
+    if (!d || !d.success) { body.innerHTML = `<p style="color:#ff6b6b;">${_reflEsc((d && d.error) || 'Failed to load.')}</p>`; return; }
+    let h = '';
+    (d.questions || []).forEach(q => {
+        h += `<div style="margin:0 0 20px;">`;
+        h += `<p style="margin:0 0 10px;font-weight:700;color:#fff;">${_reflEsc(q.prompt)}</p>`;
+        if (!(q.responses || []).length) {
+            h += '<p style="opacity:0.45;font-size:0.85rem;margin:0;">No responses yet.</p>';
+        }
+        (q.responses || []).forEach(rsp => {
+            const when = rsp.date ? new Date(rsp.date).toLocaleDateString() : '';
+            h += `<div style="border:1px solid rgba(255,255,255,0.1);border-radius:9px;padding:10px 12px;margin:0 0 8px;background:rgba(255,255,255,0.03);">
+                <p style="margin:0 0 5px;font-size:0.78rem;color:#5eeec8;font-weight:700;">${_reflEsc(rsp.user)}
+                    <span style="color:rgba(255,255,255,0.35);font-weight:400;">· ${_reflEsc(when)}</span></p>
+                <p style="margin:0;font-size:0.88rem;color:rgba(255,255,255,0.85);white-space:pre-wrap;">${_reflEsc(rsp.text)}</p>
+            </div>`;
+        });
+        h += '</div>';
+    });
+    body.innerHTML = h || '<p style="opacity:0.5;">This quiz has no reflection questions.</p>';
+}
+
+function closeReflections() {
+    document.getElementById('reflOverlay').style.display = 'none';
+}
 
 function _setQuizModalError(msg) {
     const el = document.getElementById('quizModalError');
@@ -373,13 +462,16 @@ function openQuizModal() {
     setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
 }
 
-function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId) {
+function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount) {
     document.getElementById('quizModalId').value = id;
     document.getElementById('quizModalTitleInput').value = title;
     document.getElementById('quizModalDesc').value = desc;
     document.getElementById('quizModalShuffle').checked = !!shuffle;
     document.getElementById('quizModalPass').value = Math.round((passThreshold == null ? 0.9 : passThreshold) * 100);
     document.getElementById('quizModalCategory').value = categoryId ? String(categoryId) : '';
+    document.getElementById('quizModalMaxAttempts').value = maxAttempts || '';
+    document.getElementById('quizModalCooldown').value = cooldownMin || '';
+    document.getElementById('quizModalDraw').value = drawCount || '';
     _setQuizModalError('');
     document.getElementById('quizModalExtraFields').style.display = 'block';
     document.getElementById('quizModalTitle').textContent = 'Quiz Settings';
@@ -409,6 +501,9 @@ async function submitQuizModal(e) {
         body.shuffle_questions = document.getElementById('quizModalShuffle').checked;
         const pct = parseInt(document.getElementById('quizModalPass').value, 10);
         body.pass_threshold = isNaN(pct) ? 0.9 : Math.max(0, Math.min(100, pct)) / 100;
+        body.max_attempts = parseInt(document.getElementById('quizModalMaxAttempts').value, 10) || 0;
+        body.retake_cooldown_minutes = parseInt(document.getElementById('quizModalCooldown').value, 10) || 0;
+        body.draw_count = parseInt(document.getElementById('quizModalDraw').value, 10) || 0;
     }
     const url = id ? `/admin/quizzes/${id}/update` : '/admin/quizzes/create';
     try {
