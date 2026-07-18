@@ -420,3 +420,21 @@ function toggleGlobalColorPalette() {
     enableDraggingFromColorInputs();
     makeGlobalColorPaletteDraggable();
 }
+
+// ── Fast hover labels ────────────────────────────────────────────────────
+// Native `title` tooltips take ~1s to appear and the delay isn't tunable.
+// Move each nav icon's title into data-tip so the CSS tooltip (150ms) shows
+// instead; keep the text available to screen readers via aria-label.
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll(
+        '.navbar .nav-link-btn[title], .navbar .nav-messages[title], ' +
+        '.navbar .photo-library-btn[title], .navbar .base-navbar-home-button[title], ' +
+        '.navbar .pages-btn[title], .navbar .profile-icon[title]'
+    ).forEach(el => {
+        const label = el.getAttribute('title');
+        if (!label) return;
+        el.setAttribute('data-tip', label);
+        if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', label);
+        el.removeAttribute('title');
+    });
+});

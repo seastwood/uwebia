@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+    .recovery-page {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #1f1f22;
+        color: #ffffff;
+    }
+    .recovery-card {
+        width: min(420px, 100%);
+        background: #2a2a2f;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 18px;
+        padding: 26px 24px;
+        box-shadow: 0 18px 45px rgba(0,0,0,0.35);
+        text-align: center;
+    }
+    .recovery-card .confirm-icon { font-size: 1.9rem; color: #7ee2cc; margin-bottom: 12px; }
+    .recovery-card h1 { margin: 0 0 8px; font-size: 1.4rem; }
+    .recovery-card p { color: rgba(255,255,255,0.68); line-height: 1.55; margin: 0 0 20px; }
+    .recovery-card .confirm-name { color: #fff; font-weight: 850; }
+    .recovery-card button {
+        width: 100%; padding: 13px;
+        border: 0; border-radius: 12px;
+        background: #7ee2cc; color: #10201c;
+        font-weight: 850; font-size: 0.95rem; cursor: pointer;
+    }
+    .recovery-card button:hover { opacity: 0.9; }
+    .confirm-hint { margin: 14px 0 0; font-size: 0.8rem; color: rgba(255,255,255,0.45); }
+</style>
+
+<div class="recovery-page">
+    <form class="recovery-card" method="POST" action="{{ confirm_url }}">
+        <div class="confirm-icon"><i class="fas fa-user-shield"></i></div>
+
+        <h1>Confirm admin sign-in</h1>
+
+        <p>
+            Continue to the admin dashboard as
+            <span class="confirm-name">{{ display_name }}</span>.
+            {% if will_need_code %}
+            You'll be asked for a verification code next.
+            {% endif %}
+        </p>
+
+        <button type="submit">
+            <i class="fas fa-arrow-right"></i>
+            Continue
+        </button>
+
+        <p class="confirm-hint">
+            Wasn't you? You can safely close this page — nothing happens until you continue.
+        </p>
+    </form>
+</div>
+
+{% endblock %}

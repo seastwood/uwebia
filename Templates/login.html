@@ -75,6 +75,13 @@
     margin-top: 14px;
     font-size: 0.86rem;
     color: #888;
+    text-align: center;
+}
+
+.login-magic-link {
+    display: block;
+    text-align: center;
+    margin-bottom: 10px;
 }
 
 .login-recovery-links a {
@@ -129,6 +136,10 @@
         });
         </script>
         <div class="login-recovery-links">
+    <a class="login-magic-link" href="{% if admin_key %}{{ url_for('admin_login_link_request', admin_key=admin_key) }}{% else %}{{ url_for('admin_login_link_request') }}{% endif %}">
+        <i class="fas fa-magic" style="margin-right:5px;"></i>Email me a sign-in link
+    </a>
+
     <a href="{% if admin_key %}{{ url_for('forgot_password', admin_key=admin_key) }}{% else %}{{ url_for('forgot_password') }}{% endif %}">
         Forgot password?
     </a>

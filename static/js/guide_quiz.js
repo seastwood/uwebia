@@ -7,7 +7,9 @@
  *
  * Question types: single_choice, multi_choice, true_false, short_text,
  * fill_blank (partial credit), matching (tap-to-place, mobile friendly),
- * ordering (move up/down), image_choice (image options).
+ * ordering (move up/down), image_choice (image options), coding,
+ * reflection (ungraded free writing, saved + prefilled on return),
+ * flashcards (ungraded study stack with got-it / didn't-get-it sorting).
  *
  * Set `window.UW_GUIDE_NODE_ID` before this script runs to attribute attempts
  * to a lesson (used for progress context). Self-contained: injects its own CSS.
@@ -111,6 +113,42 @@
 .uwq-code-test.is-pass { border-color:rgba(94,238,200,0.45); background:rgba(94,238,200,0.06); }
 .uwq-code-test.is-fail { border-color:rgba(255,90,90,0.4); background:rgba(255,90,90,0.05); }
 .uwq-code-test-head { font-size:0.85rem; font-weight:700; }
+/* reflection */
+.uwq-reflect { width:100%; min-height:110px; padding:11px 13px; border-radius:10px; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.06); color:inherit; font:inherit; font-size:0.93rem; line-height:1.55; outline:none; resize:vertical; box-sizing:border-box; }
+.uwq-reflect:focus { border-color:rgba(94,238,248,0.5); }
+.uwq-reflect-note { font-size:0.78rem; opacity:0.55; margin:6px 0 0; }
+.uwq-reflect-note i { color:#5eeec8; margin-right:5px; }
+/* flashcards */
+.uwq-fc { max-width:440px; }
+.uwq-fc-bar { display:flex; align-items:center; gap:10px; margin-bottom:10px; font-size:0.82rem; opacity:0.85; }
+.uwq-fc-restart { margin-left:auto; padding:4px 12px; border-radius:99px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.06); color:inherit; font-size:0.76rem; font-weight:700; cursor:pointer; }
+.uwq-fc-restart:hover { border-color:rgba(94,238,248,0.5); }
+.uwq-fc-stage { position:relative; perspective:1000px; height:200px; }
+/* The rest of the stack: each under-card is a real, opaque card — solid
+   background occluding the one beneath, crisp edge, a touch of rotation like
+   a hand-stacked deck. Depth fades by darkening, not transparency. */
+.uwq-fc-under { position:absolute; inset:0; border-radius:14px; border:1px solid rgba(255,255,255,0.22); background:#161c25; box-shadow:0 3px 9px rgba(0,0,0,0.4); transition:transform 0.3s ease, opacity 0.3s ease; }
+.uwq-fc-under.u1 { transform:translateY(9px) rotate(-1.6deg) scale(0.99); background:#141a22; }
+.uwq-fc-under.u2 { transform:translateY(17px) rotate(-3.2deg) scale(0.98); background:#10151c; border-color:rgba(255,255,255,0.18); opacity:0.9; }
+@keyframes uwqFcIn { from { opacity:0; transform:translateY(10px) scale(0.98); } to { opacity:1; transform:none; } }
+.uwq-fc-card { position:absolute; inset:0; cursor:pointer; transform-style:preserve-3d; transition:transform 0.45s cubic-bezier(0.4,0.2,0.2,1); animation:uwqFcIn 0.25s ease; }
+.uwq-fc-card.is-flipped { transform:rotateY(180deg); }
+.uwq-fc-face { position:absolute; inset:0; backface-visibility:hidden; -webkit-backface-visibility:hidden; display:flex; align-items:center; justify-content:center; text-align:center; padding:18px 20px 26px; border-radius:14px; font-size:1rem; line-height:1.5; overflow:auto; color:#e8edf2; box-shadow:0 8px 22px rgba(0,0,0,0.35); }
+.uwq-fc-front { background:linear-gradient(rgba(94,238,248,0.1), rgba(94,238,248,0.1)), #151b23; border:1px solid rgba(94,238,248,0.35); }
+.uwq-fc-back { background:linear-gradient(rgba(94,238,200,0.12), rgba(94,238,200,0.12)), #151b23; border:1px solid rgba(94,238,200,0.4); transform:rotateY(180deg); }
+.uwq-fc-hint { position:absolute; bottom:8px; left:0; right:0; text-align:center; font-size:0.66rem; letter-spacing:0.07em; text-transform:uppercase; opacity:0.45; }
+.uwq-fc-media { display:flex; flex-direction:column; align-items:center; gap:8px; max-width:100%; }
+.uwq-fc-img { max-width:100%; max-height:120px; object-fit:contain; border-radius:8px; }
+.uwq-fc-cap { font-size:0.9rem; opacity:0.88; }
+.uwq-fc-judge { display:flex; gap:10px; margin-top:26px; }
+.uwq-fc-btn { flex:1; padding:10px 0; border-radius:10px; font-weight:800; font-size:0.88rem; cursor:pointer; border:1px solid; background:transparent; color:inherit; transition:opacity 0.15s, transform 0.15s; }
+.uwq-fc-btn:disabled { opacity:0.35; cursor:default; }
+.uwq-fc-btn:not(:disabled):hover { transform:translateY(-1px); }
+.uwq-fc-no { border-color:rgba(255,150,90,0.5); color:#ffb27a; }
+.uwq-fc-yes { border-color:rgba(94,238,200,0.55); color:#5eeec8; }
+.uwq-fc-done { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:200px; border-radius:14px; border:1px dashed rgba(94,238,200,0.4); background:rgba(94,238,200,0.05); text-align:center; }
+.uwq-fc-done i { font-size:1.7rem; color:#5eeec8; }
+.uwq-fc-done p { margin:0; font-weight:700; }
 `;
         const style = document.createElement('style');
         style.id = 'uwq-styles';
@@ -145,11 +183,17 @@
         el._mstate = {};  // matching: qid -> {leftId: rightId}
         el._ostate = {};  // ordering: qid -> [itemId,...]
         el._sel = {};     // matching: qid -> currently picked leftId
+        el._fc = {};      // flashcards: qid -> {queue:[cardId,...], flipped:bool}
         let html = '<div class="uwq"><div class="uwq-head"><i class="fas fa-clipboard-check"></i><h3>' + esc(quiz.title) + '</h3></div>';
         if (quiz.description) html += '<p class="uwq-desc">' + esc(quiz.description) + '</p>';
         html += '<form class="uwq-form">';
         (quiz.questions || []).forEach((q, qi) => { html += renderQuestion(q, qi); });
-        html += '<div class="uwq-actions"><button type="submit" class="uwq-submit">Submit</button><span class="uwq-score"></span></div>';
+        // A quiz with nothing gradable (reflections/flashcards only) reads as
+        // a save form, not a test.
+        const hasGraded = (quiz.questions || []).some(q =>
+            q.question_type !== 'reflection' && q.question_type !== 'flashcards');
+        html += '<div class="uwq-actions"><button type="submit" class="uwq-submit">'
+              + (hasGraded ? 'Submit' : 'Save') + '</button><span class="uwq-score"></span></div>';
         html += '</form></div>';
         el.innerHTML = html;
 
@@ -171,12 +215,24 @@
                 }
                 el._mstate[q.id] = map;
                 renderMatching(el, q);
+            } else if (q.question_type === 'flashcards') {
+                renderFlashcards(el, q);
             }
         });
 
         const form = el.querySelector('.uwq-form');
         form.addEventListener('submit', ev => { ev.preventDefault(); submit(el, quiz); });
         if (draft) applyDraft(el, quiz, draft);
+        // Reflections: when the draft doesn't already carry text, prefill from
+        // the reader's most recent submitted response (server-provided).
+        if (quiz.reflections) {
+            (quiz.questions || []).forEach(q => {
+                if (q.question_type !== 'reflection') return;
+                const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
+                const saved = quiz.reflections[String(q.id)];
+                if (ta && !ta.value && typeof saved === 'string') ta.value = saved;
+            });
+        }
         form.addEventListener('input', () => scheduleDraftSave(el, quiz));
         form.addEventListener('change', () => {
             (quiz.questions || []).forEach(q => { if (q.question_type === 'image_choice') syncImgPicked(el, q); });
@@ -287,6 +343,11 @@
             h += '<p class="uwq-code-meta"><span class="uwq-code-lang">' + esc(langLabel) + '</span> ' + esc(modeNote) + '</p>';
             h += '<textarea class="uwq-code" data-lang="' + esc(q.language) + '" spellcheck="false">' + esc(q.starter_code || '') + '</textarea>';
             h += '<div class="uwq-code-results" style="display:none;"></div>';
+        } else if (t === 'reflection') {
+            h += '<textarea class="uwq-reflect" name="q' + q.id + '" placeholder="Write your thoughts…"></textarea>';
+            h += '<p class="uwq-reflect-note"><i class="fas fa-comment-dots"></i>Reflection — there\'s no right or wrong answer. Your response is saved with your submission and will be here when you come back.</p>';
+        } else if (t === 'flashcards') {
+            h += '<div class="uwq-fc" data-qid="' + q.id + '"></div>';
         }
         h += '<div class="uwq-fb" style="display:none;"></div></div>';
         return h;
@@ -303,6 +364,91 @@
             }
         });
         return h;
+    }
+
+    // ── flashcards ──────────────────────────────────────────────────────────
+    // A card side is a cell: text, or an image with an optional caption.
+    // (Legacy payloads may still carry plain strings.)
+    function fcFaceHtml(side) {
+        if (typeof side === 'string') return '<span>' + esc(side) + '</span>';
+        if (side && side.kind === 'image' && side.image_url) {
+            return '<span class="uwq-fc-media">'
+                + '<img class="uwq-fc-img" src="' + esc(side.image_url) + '" alt="' + esc(side.text || '') + '">'
+                + (side.text ? '<span class="uwq-fc-cap">' + esc(side.text) + '</span>' : '')
+                + '</span>';
+        }
+        return '<span>' + esc((side && side.text) || '') + '</span>';
+    }
+
+    function shuffledIds(cards) {
+        const ids = (cards || []).map(c => c.id);
+        for (let i = ids.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const t = ids[i]; ids[i] = ids[j]; ids[j] = t;
+        }
+        return ids;
+    }
+
+    function renderFlashcards(el, q) {
+        const wrap = el.querySelector('.uwq-fc[data-qid="' + q.id + '"]');
+        if (!wrap) return;
+        const cards = q.cards || [];
+        const byId = {};
+        cards.forEach(c => { byId[c.id] = c; });
+        let st = el._fc[q.id];
+        if (!st) st = el._fc[q.id] = { queue: shuffledIds(cards), flipped: false };
+        const remaining = st.queue.length;
+
+        let h = '<div class="uwq-fc-bar"><span>' + (cards.length - remaining) + ' / ' + cards.length + ' cleared</span>'
+              + '<button type="button" class="uwq-fc-restart"><i class="fas fa-undo"></i> Restart</button></div>';
+
+        if (!remaining) {
+            h += '<div class="uwq-fc-done"><i class="fas fa-check-circle"></i>'
+               + '<p>All cards cleared!</p>'
+               + '<span style="font-size:0.8rem;opacity:0.6;">Restart the stack to run through them again.</span></div>';
+        } else {
+            const cur = byId[st.queue[0]] || { front: '', back: '' };
+            h += '<div class="uwq-fc-stage">'
+               + (remaining > 2 ? '<div class="uwq-fc-under u2"></div>' : '')
+               + (remaining > 1 ? '<div class="uwq-fc-under u1"></div>' : '')
+               + '<div class="uwq-fc-card' + (st.flipped ? ' is-flipped' : '') + '">'
+               + '<div class="uwq-fc-face uwq-fc-front">' + fcFaceHtml(cur.front) + '<span class="uwq-fc-hint">Tap to flip</span></div>'
+               + '<div class="uwq-fc-face uwq-fc-back">' + fcFaceHtml(cur.back) + '<span class="uwq-fc-hint">Did you know it?</span></div>'
+               + '</div></div>'
+               + '<div class="uwq-fc-judge">'
+               + '<button type="button" class="uwq-fc-btn uwq-fc-no"' + (st.flipped ? '' : ' disabled') + '><i class="fas fa-times"></i> Didn\'t get it</button>'
+               + '<button type="button" class="uwq-fc-btn uwq-fc-yes"' + (st.flipped ? '' : ' disabled') + '><i class="fas fa-check"></i> Got it</button>'
+               + '</div>';
+        }
+        wrap.innerHTML = h;
+
+        const restart = wrap.querySelector('.uwq-fc-restart');
+        if (restart) restart.addEventListener('click', () => {
+            el._fc[q.id] = { queue: shuffledIds(cards), flipped: false };
+            renderFlashcards(el, q);
+        });
+        const cardEl = wrap.querySelector('.uwq-fc-card');
+        if (cardEl) cardEl.addEventListener('click', () => {
+            st.flipped = !st.flipped;
+            cardEl.classList.toggle('is-flipped', st.flipped);
+            wrap.querySelectorAll('.uwq-fc-btn').forEach(b => { b.disabled = !st.flipped; });
+        });
+        const noBtn = wrap.querySelector('.uwq-fc-no');
+        if (noBtn) noBtn.addEventListener('click', () => {
+            // Back into the stack at a random depth (never the very top, so the
+            // reader sees at least one other card first when there is one).
+            const id = st.queue.shift();
+            const pos = st.queue.length ? 1 + Math.floor(Math.random() * st.queue.length) : 0;
+            st.queue.splice(pos, 0, id);
+            st.flipped = false;
+            renderFlashcards(el, q);
+        });
+        const yesBtn = wrap.querySelector('.uwq-fc-yes');
+        if (yesBtn) yesBtn.addEventListener('click', () => {
+            st.queue.shift();          // cleared — out of the stack
+            st.flipped = false;
+            renderFlashcards(el, q);
+        });
     }
 
     // ── matching ────────────────────────────────────────────────────────────
@@ -424,7 +570,11 @@
             } else if (t === 'coding') {
                 const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-code');
                 answers[q.id] = ta ? (ta._cm ? ta._cm.getValue() : ta.value) : '';
+            } else if (t === 'reflection') {
+                const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
+                answers[q.id] = ta ? ta.value : '';
             }
+            // flashcards: a study widget — nothing to submit.
         });
         return answers;
     }
@@ -456,6 +606,9 @@
                 // Set the textarea now; CodeMirror inherits it when it inits.
                 const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-code');
                 if (ta && typeof val === 'string') { if (ta._cm) ta._cm.setValue(val); else ta.value = val; }
+            } else if (t === 'reflection') {
+                const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
+                if (ta && typeof val === 'string') ta.value = val;
             }
             // matching / ordering already seeded from draft in renderQuiz.
         });
@@ -508,9 +661,21 @@
             const qEl = el.querySelector('.uwq-q[data-qid="' + q.id + '"]');
             const r = byId[q.id];
             if (!qEl || !r) return;
+            const t = q.question_type;
+            if (r.ungraded) {
+                // No right/wrong to paint. Reflections confirm the save.
+                qEl.classList.remove('is-correct', 'is-wrong');
+                const ufb = qEl.querySelector('.uwq-fb');
+                if (t === 'reflection' && ufb) {
+                    ufb.style.display = 'block';
+                    ufb.innerHTML = r.reflection_saved
+                        ? '<span class="uwq-ok">✓ Response saved</span>'
+                        : '<span style="opacity:0.6;">No response written — you can add one and resubmit any time.</span>';
+                }
+                return;
+            }
             qEl.classList.remove('is-correct', 'is-wrong');
             qEl.classList.add(r.correct ? 'is-correct' : 'is-wrong');
-            const t = q.question_type;
 
             if (t === 'single_choice' || t === 'multi_choice' || t === 'true_false') {
                 paintChoice(qEl, r, '.uwq-opt', 'input');
@@ -566,11 +731,26 @@
         });
 
         const scoreEl = el.querySelector('.uwq-score');
+        const actionsBox = el.querySelector('.uwq-actions');
+        if (!data.max_score) {
+            // Nothing gradable — no score or pass/fail theater. The button
+            // stays a live Save so responses can be revised and resaved.
+            scoreEl.textContent = 'Saved ✓';
+            const p0 = actionsBox.querySelector('.uwq-status'); if (p0) p0.remove();
+            const h0 = actionsBox.querySelector('.uwq-hint'); if (h0) h0.remove();
+            const sbtn = el.querySelector('.uwq-submit');
+            sbtn.disabled = false;
+            sbtn.textContent = 'Save';
+            if (data.progress) {
+                document.dispatchEvent(new CustomEvent('uwq-progress', { detail: data.progress }));
+            }
+            return;
+        }
         let s = 'Score: ' + data.score + ' / ' + data.max_score;
         if (data.best_score != null) s += ' · Best: ' + data.best_score;
         scoreEl.textContent = s;
 
-        const actions = el.querySelector('.uwq-actions');
+        const actions = actionsBox;
         let pill = actions.querySelector('.uwq-status');
         if (!pill) {
             pill = document.createElement('span');
@@ -593,14 +773,17 @@
         btn.textContent = 'Retake';
         btn.type = 'button';
         btn.onclick = () => {
-            // Preserve typed code across a retake so coders can iterate on the
-            // same solution; other question types reset to blank as before.
+            // Preserve typed code and reflection text across a retake — coders
+            // iterate on the same solution, and reflections stay viewable and
+            // editable. Other question types reset to blank as before.
             const prev = collect(el, quiz);
-            const codeDraft = {};
+            const keepDraft = {};
             (quiz.questions || []).forEach(q => {
-                if (q.question_type === 'coding' && (q.id in prev)) codeDraft[q.id] = prev[q.id];
+                if ((q.question_type === 'coding' || q.question_type === 'reflection') && (q.id in prev)) {
+                    keepDraft[q.id] = prev[q.id];
+                }
             });
-            renderQuiz(el, quiz, Object.keys(codeDraft).length ? codeDraft : undefined);
+            renderQuiz(el, quiz, Object.keys(keepDraft).length ? keepDraft : undefined);
         };
 
         if (data.progress) {

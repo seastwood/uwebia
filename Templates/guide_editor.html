@@ -67,6 +67,16 @@
 .ql-snow .ql-stroke { stroke: rgba(255,255,255,0.6); }
 .ql-snow .ql-fill { fill: rgba(255,255,255,0.6); }
 .ql-snow .ql-picker { color: rgba(255,255,255,0.6); }
+/* Dropdown panels: Quill ships these white — repaint dark so the options are
+   readable (same fix as the post/page/newsletter editors). */
+.ql-snow .ql-picker-options { background: #1e1e2e; border-color: rgba(255,255,255,0.15); }
+.ql-snow .ql-picker-item { color: rgba(255,255,255,0.75); }
+.ql-snow .ql-picker-item:hover { color: #fff; }
+.ql-snow .ql-picker.ql-expanded .ql-picker-label { color: #5eeef8; border-color: rgba(255,255,255,0.2); }
+.ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke { stroke: #5eeef8; }
+/* Color picker swatches — keep the grid wide enough */
+.ql-snow .ql-picker.ql-color .ql-picker-options,
+.ql-snow .ql-picker.ql-background .ql-picker-options { width: 152px; }
 .ql-snow.ql-toolbar button:hover .ql-stroke,
 .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #5eeef8; }
 .ql-snow.ql-toolbar button:hover .ql-fill,

@@ -664,3 +664,35 @@
     color: rgba(255,200,100,0.6);
 }
 
+
+/* ── Fast hover labels ─────────────────────────────────────────────────────
+   Native `title` tooltips wait ~1s (browser-fixed, not tunable). navbar.js
+   moves each nav icon's title into data-tip so this styled label can appear
+   after just 150ms instead. */
+.navbar [data-tip] { position: relative; }
+.navbar [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-3px);
+    background: rgba(18, 20, 30, 0.97);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 10000;
+}
+.navbar [data-tip]:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    transition-delay: 0.15s;
+}

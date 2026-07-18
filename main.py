@@ -2831,7 +2831,17 @@ class QuizQuestion(db.Model):
             out['mode'] = cfg.get('mode', 'run')
             out['starter_code'] = cfg.get('starter_code', '')
             out['test_count'] = len(cfg.get('test_cases') or [])
-        # short_text exposes nothing beyond the prompt itself.
+        elif self.question_type == 'flashcards':
+            # Both sides are study material — nothing here is an "answer".
+            # Sides are cells (text or image); legacy string sides are coerced.
+            def _fc_pub(v):
+                if isinstance(v, str):
+                    return {'kind': 'text', 'text': v}
+                return _quiz_side_public(v)
+            out['cards'] = [{'id': c.get('id'), 'front': _fc_pub(c.get('front')),
+                             'back': _fc_pub(c.get('back'))}
+                            for c in (cfg.get('cards') or [])]
+        # short_text / reflection expose nothing beyond the prompt itself.
         return out
 
 
@@ -7100,7 +7110,8 @@ def require_admin_url_key_for_admin_routes():
         'forgot_password',
         'reset_password',
         'emergency_login',
-        'request_username'
+        'request_username',
+        'admin_login_link_request'
     }
 
     if request.endpoint in public_endpoints:
@@ -7613,6 +7624,58 @@ def login(admin_key=None):
         show_captcha=rl['needs_captcha'],
         captcha_question=captcha_question,
     )
+
+
+@app.route('/admin/login-link', methods=['GET', 'POST'])
+@app.route('/admin/login-link/<admin_key>', methods=['GET', 'POST'])
+def admin_login_link_request(admin_key=None):
+    """Passwordless admin sign-in, step 1: email a single-use link that logs
+    into the admin dashboard. Mirrors the public flow — generic no-enumeration
+    message, 60s resend cooldown, IP lockout honored — and the link only
+    stands in for a correct password: 2FA-protected admins still get the same
+    code step /admin/login gives them."""
+    if User.query.count() == 0:
+        return redirect(url_for('register'))
+
+    admin_user = get_main_admin()
+    if admin_url_key_required_for_user(admin_user):
+        if admin_key != admin_user.admin_url_key:
+            return "Not Found", 404
+
+    _login_url = (url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    if request.method == 'POST':
+        login_value = (request.form.get('login') or '').strip().lower()
+
+        ip = get_request_ip()
+        rl = _rl_check(ip, login_value)
+        if rl['locked']:
+            mins = max(1, int((rl['locked_until'] - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds() / 60) + 1)
+            flash(f'Too many attempts. Try again in {mins} minute{"s" if mins != 1 else ""}.', 'error')
+            return redirect(_login_url)
+
+        user = User.query.filter(or_(
+            User.username == login_value,
+            User.email == login_value,
+        )).first()
+
+        if user:
+            _now = datetime.now(timezone.utc).replace(tzinfo=None)
+            recently_sent = (
+                user.login_link_sent_at and
+                (_now - user.login_link_sent_at).total_seconds() < 60
+            )
+            if not recently_sent:
+                try:
+                    send_admin_login_link_email(user, None, dest='admin')
+                except Exception as e:
+                    print(f'Admin magic sign-in link email failed: {e}')
+
+        flash('If that matches an admin account and email sending is configured, '
+              'a sign-in link is on its way. It expires in 15 minutes.', 'success')
+        return redirect(_login_url)
+
+    return render_template('admin_login_link.html', admin_key=admin_key)
 
 
 @app.route('/admin/logout')
@@ -11254,6 +11317,12 @@ def _delete_website_all(website):
         {'website_id': None}, synchronize_session=False)
     PostCollection.query.filter_by(website_id=wid).update(
         {'website_id': None}, synchronize_session=False)
+    # Review boards (and their reviews) are user-scoped like Calendars —
+    # keep them, just clear the website reference.
+    ReviewBoard.query.filter_by(website_id=wid).update(
+        {'website_id': None}, synchronize_session=False)
+    Review.query.filter_by(website_id=wid).update(
+        {'website_id': None}, synchronize_session=False)
 
     # Forum (unlikely for a draft, but safe to include)
     ForumReplyVote.query.filter_by(website_id=wid).delete(synchronize_session=False)
@@ -11292,6 +11361,11 @@ def _delete_website_all(website):
     # Comments / messages / users / visits
     PageCommentLike.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PageComment.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    # Post/PostComment cascade at the DB level (ondelete='CASCADE') but
+    # PostCommentLike doesn't — its plain FKs to post_comment/website/
+    # public_user block the cascade, so delete likes (then comments) here.
+    PostCommentLike.query.filter_by(website_id=wid).delete(synchronize_session=False)
+    PostComment.query.filter_by(website_id=wid).delete(synchronize_session=False)
     ContactMessage.query.filter_by(website_id=wid).delete(synchronize_session=False)
     PublicUser.query.filter_by(website_id=wid).delete(synchronize_session=False)
     # PublicUserRole FKs website.id but has no ondelete=CASCADE at the DB level,
@@ -14117,6 +14191,8 @@ def _serialize_backup(uid):
                       'public_approval_required': w.public_approval_required,
                       'public_email_verification_enabled': w.public_email_verification_enabled,
                       'public_email_verification_required': w.public_email_verification_required,
+                      'reviews_enabled': w.reviews_enabled,
+                      'guides_show_my_training': w.guides_show_my_training,
                       'ksa_level_labels': w.ksa_level_labels,
                       'ksa_types': w.ksa_types,
                       'division_label_singular': w.division_label_singular,
@@ -14726,6 +14802,7 @@ def _serialize_backup(uid):
                               'name': c.name, 'slug': c.slug,
                               'description': c.description, 'color': c.color,
                               'icon': c.icon, 'sort_order': c.sort_order,
+                              'is_learning_path': c.is_learning_path,
                               'created_at': c.created_at.isoformat() if c.created_at else None,
                               } for c in guide_categories],
         'guides': [{'id': g.id, 'website_id': g.website_id, 'category_id': g.category_id,
@@ -15128,6 +15205,8 @@ def import_backup():
                             public_approval_required=wd.get('public_approval_required', False),
                             public_email_verification_enabled=wd.get('public_email_verification_enabled', False),
                             public_email_verification_required=wd.get('public_email_verification_required', False),
+                            reviews_enabled=wd.get('reviews_enabled', False),
+                            guides_show_my_training=wd.get('guides_show_my_training', False),
                             ksa_level_labels=wd.get('ksa_level_labels'),
                             ksa_types=wd.get('ksa_types'),
                             division_label_singular=wd.get('division_label_singular'),
@@ -15671,6 +15750,7 @@ def import_backup():
                     website_id=new_wid, name=cd['name'], slug=cd['slug'],
                     description=cd.get('description'), color=cd.get('color'),
                     icon=cd.get('icon'), sort_order=cd.get('sort_order', 0),
+                    is_learning_path=bool(cd.get('is_learning_path')),
                     created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None)
                 db.session.add(gc)
                 db.session.flush()
@@ -24521,11 +24601,60 @@ def public_login_link(token):
     establishes the session. For admins the link stands in for a correct
     password — 2FA-protected admins still get the same code step the public
     login form gives them."""
-    public_user, admin, website_id, next_url, error = verify_login_link_token(token)
+    public_user, admin, website_id, next_url, dest, error = verify_login_link_token(token)
 
     if error:
         flash(error, 'error')
         return redirect(url_for('public_login'))
+
+    # ── Admin-dashboard links (requested from /admin/login-link) ─────────
+    if admin and dest == 'admin':
+        anchor = get_main_admin()
+        akey = anchor.admin_url_key if admin_url_key_required_for_user(anchor) else None
+        _login_url = url_for('login', admin_key=akey) if akey else url_for('login')
+
+        if request.method != 'POST':
+            return render_template(
+                'admin_login_confirm.html',
+                display_name=admin.username,
+                confirm_url=request.path,
+                will_need_code=bool(admin_requires_2fa(admin)),
+            )
+
+        # Burn the nonce — the link stood in for the password and is spent.
+        admin.login_link_nonce = None
+        db.session.commit()
+
+        if admin_requires_2fa(admin):
+            two_fa_email = _admin_two_fa_email(admin)
+            if not two_fa_email:
+                flash('Your account requires two-factor verification, but no '
+                      '2FA email is configured.', 'error')
+                return redirect(_login_url)
+            if not (_session_has_pending_2fa(admin.id) and _2fa_recently_sent(admin.id)):
+                code = generate_two_factor_code()
+                set_pending_two_factor_code(admin.id, code, 'login')
+                try:
+                    send_two_factor_email(two_fa_email, code, purpose='login')
+                except Exception as e:
+                    clear_pending_two_factor_code()
+                    flash(f'Could not send 2FA login code: {e}', 'error')
+                    return redirect(_login_url)
+            session['pre_2fa_user_id'] = admin.id
+            session['pre_2fa_admin_key'] = akey
+            return redirect(url_for('two_factor_login', admin_key=akey)
+                            if akey else url_for('two_factor_login'))
+
+        login_user(admin)
+        # Org-wide admin URL key: the link was minted through the key-gated
+        # request page, so mark this session's path verified (same as the
+        # 2FA route does on success).
+        if admin_url_key_required_for_user(anchor) or admin_url_key_required_for_user(admin):
+            session['admin_path_verified'] = True
+        _rl_record(get_request_ip(), admin.email or '', success=True)
+        _stamp_login(admin)
+        flash('Logged in successfully', 'success')
+        return redirect(url_for('dashboard'))
 
     website = public_user.website if public_user else (
         db.session.get(Website, website_id) if website_id else None)
@@ -26199,10 +26328,11 @@ def generate_public_user_login_link_token(public_user, next_url=''):
     )
 
 
-def generate_admin_login_link_token(admin, website, next_url=''):
-    """Magic-login token for an admin signing in on the *public* site. Same
-    single-use nonce scheme as the public-user variant; website_id records
-    which site the request came from so the login lands back there."""
+def generate_admin_login_link_token(admin, website, next_url='', dest='public'):
+    """Magic-login token for an admin. Same single-use nonce scheme as the
+    public-user variant. dest='public' signs them in on the public site
+    (website_id records which site so the login lands back there);
+    dest='admin' signs them in to the admin dashboard."""
     serializer = get_recovery_serializer()
 
     admin.login_link_nonce = secrets.token_urlsafe(24)
@@ -26214,6 +26344,7 @@ def generate_admin_login_link_token(admin, website, next_url=''):
             'website_id': website.id if website else None,
             'nonce': admin.login_link_nonce,
             'next': next_url or '',
+            'dest': dest,
             'purpose': 'admin_magic_login'
         },
         salt='uwebia-public-user-magic-login'
@@ -26221,12 +26352,12 @@ def generate_admin_login_link_token(admin, website, next_url=''):
 
 
 def verify_login_link_token(token, max_age_seconds=900):
-    """Returns (public_user, admin, website_id, next_url, error). Exactly one
-    of public_user/admin is set on success. Any failure yields a generic error
-    so the token can't be probed for what exactly went wrong."""
+    """Returns (public_user, admin, website_id, next_url, dest, error). Exactly
+    one of public_user/admin is set on success. Any failure yields a generic
+    error so the token can't be probed for what exactly went wrong."""
     serializer = get_recovery_serializer()
 
-    _invalid = (None, None, None, '', 'This sign-in link is invalid.')
+    _invalid = (None, None, None, '', 'public', 'This sign-in link is invalid.')
 
     try:
         data = serializer.loads(
@@ -26235,12 +26366,13 @@ def verify_login_link_token(token, max_age_seconds=900):
             max_age=max_age_seconds
         )
     except SignatureExpired:
-        return None, None, None, '', 'This sign-in link has expired. Request a new one from the login page.'
+        return None, None, None, '', 'public', 'This sign-in link has expired. Request a new one from the login page.'
     except BadSignature:
         return _invalid
 
     purpose = data.get('purpose')
     next_url = data.get('next') or ''
+    dest = data.get('dest') if data.get('dest') in ('public', 'admin') else 'public'
     used_error = 'This sign-in link has already been used or was replaced by a newer one.'
 
     if purpose == 'public_user_magic_login':
@@ -26253,16 +26385,16 @@ def verify_login_link_token(token, max_age_seconds=900):
         # Single-use enforcement: the nonce is cleared on login and replaced
         # when a newer link is requested, killing this one either way.
         if not public_user.login_link_nonce or public_user.login_link_nonce != data.get('nonce'):
-            return None, None, None, '', used_error
-        return public_user, None, data.get('website_id'), next_url, None
+            return None, None, None, '', 'public', used_error
+        return public_user, None, data.get('website_id'), next_url, 'public', None
 
     if purpose == 'admin_magic_login':
         admin = db.session.get(User, data.get('user_id'))
         if not admin:
             return _invalid
         if not admin.login_link_nonce or admin.login_link_nonce != data.get('nonce'):
-            return None, None, None, '', used_error
-        return None, admin, data.get('website_id'), next_url, None
+            return None, None, None, '', 'public', used_error
+        return None, admin, data.get('website_id'), next_url, dest, None
 
     return _invalid
 
@@ -26296,8 +26428,8 @@ your account without this link.
     db.session.commit()
 
 
-def send_admin_login_link_email(admin, website, next_url=''):
-    token = generate_admin_login_link_token(admin, website, next_url)
+def send_admin_login_link_email(admin, website, next_url='', dest='public'):
+    token = generate_admin_login_link_token(admin, website, next_url, dest=dest)
 
     login_url = url_for(
         'public_login_link',
@@ -26306,8 +26438,14 @@ def send_admin_login_link_email(admin, website, next_url=''):
         _scheme=_email_link_scheme()
     )
 
-    site_name = website.name if website else 'the site'
-    subject = f'Your {site_name} sign-in link'
+    if dest == 'admin':
+        anchor = get_main_admin()
+        brand = (getattr(anchor, 'admin_brand_name', None) or 'Uwebia') if anchor else 'Uwebia'
+        site_name = f'the {brand} admin dashboard'
+        subject = f'Your {brand} admin sign-in link'
+    else:
+        site_name = website.name if website else 'the site'
+        subject = f'Your {site_name} sign-in link'
 
     extra = ''
     if admin_requires_2fa(admin):
@@ -33364,8 +33502,9 @@ def _render_quiz_print_html(quiz, include_answers):
         cfg = q._config()
         t = q.question_type
         parts.append('<div class="print-q">')
-        parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_e(q.prompt)} '
-                     f'<span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span></p>')
+        _pts = (f' <span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span>'
+                if q.points else '')
+        parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_e(q.prompt)}{_pts}</p>')
 
         # Answer-key entries are stored as already-safe HTML (so image cells can
         # render as <img>), then emitted without re-escaping below.
@@ -33446,6 +33585,23 @@ def _render_quiz_print_html(quiz, include_answers):
                 cases = cfg.get('test_cases') or []
                 ans = '; '.join(esc(f'in={c.get("stdin","")!r} -> out={c.get("expected","")!r}') for c in cases)
                 answer_rows.append((idx, ans or '(compiles cleanly)'))
+        elif t == 'reflection':
+            parts.append('<p class="print-q-meta">Reflection — write your thoughts below.</p>')
+            for _ in range(4):
+                parts.append('<div class="print-blank-line"></div>')
+            if include_answers:
+                answer_rows.append((idx, '(open reflection — no correct answer)'))
+        elif t == 'flashcards':
+            cards = cfg.get('cards') or []
+            _fc_cell = lambda v: _quiz_cell_html(v if isinstance(v, dict)
+                                                 else {'kind': 'text', 'text': v or ''})
+            parts.append('<table class="print-match"><tbody>')
+            for c in cards:
+                parts.append(f'<tr><td><strong>{_fc_cell(c.get("front"))}</strong></td>'
+                             f'<td>{_fc_cell(c.get("back"))}</td></tr>')
+            parts.append('</tbody></table>')
+            if include_answers:
+                answer_rows.append((idx, '(study cards — no correct answer)'))
         parts.append('</div>')
 
     if include_answers and answer_rows:
@@ -33561,7 +33717,13 @@ def admin_quiz_print(qid):
 # ════════════════════════════════════════════════════════════════════════════
 
 _QUIZ_QUESTION_TYPES = ('single_choice', 'multi_choice', 'true_false', 'short_text',
-                        'fill_blank', 'matching', 'ordering', 'image_choice', 'coding')
+                        'fill_blank', 'matching', 'ordering', 'image_choice', 'coding',
+                        'reflection', 'flashcards')
+
+# Ungraded types: they carry no correct answer, score no points, and never
+# count toward max_score. Reflections save the reader's written response;
+# flashcards are a self-study widget.
+_QUIZ_UNGRADED_TYPES = ('reflection', 'flashcards')
 
 
 def _quiz_side_public(side):
@@ -33687,6 +33849,32 @@ def _normalize_quiz_config(question_type, config, prompt=''):
         for i, it in enumerate(items):
             it['id'] = ids[i]
         return {'items': items, 'answer_order': [it['id'] for it in items]}, None
+
+    if question_type == 'reflection':
+        # No correct answer by design — the prompt is the whole configuration.
+        return {}, None
+
+    if question_type == 'flashcards':
+        # Each side is a cell (text or image + optional caption), same shape as
+        # matching/ordering. Legacy plain-string sides are coerced to text cells.
+        def _fc_side(v):
+            if isinstance(v, str):
+                v = {'kind': 'text', 'text': v}
+            return _normalize_quiz_side(v)
+        cards = []
+        for c in (config.get('cards') or []):
+            if not isinstance(c, dict):
+                continue
+            front = _fc_side(c.get('front'))
+            back = _fc_side(c.get('back'))
+            if not front or not back:
+                continue
+            cards.append({'front': front, 'back': back})
+        if not cards:
+            return None, 'Add at least one card with both a front and a back (text or image).'
+        for i, c in enumerate(cards):
+            c['id'] = i + 1
+        return {'cards': cards[:100]}, None
 
     if question_type == 'coding':
         language = (config.get('language') or '').strip().lower()
@@ -35299,6 +35487,8 @@ def admin_quiz_question_save(qid):
         points = max(1, int(data.get('points') or 1))
     except (ValueError, TypeError):
         points = 1
+    if qtype in _QUIZ_UNGRADED_TYPES:
+        points = 0
     qq_id = data.get('id')
     if qq_id:
         qq = QuizQuestion.query.filter_by(id=int(qq_id), quiz_id=qid).first_or_404()
@@ -35540,9 +35730,18 @@ def _grade_quiz(quiz, submitted):
         return _runner['url']
 
     for q in quiz.questions.order_by(QuizQuestion.sort_order):
-        max_score += q.points
         cfg = q._config()
         ans = submitted.get(str(q.id), submitted.get(q.id))
+        # Ungraded types: never counted in score/max_score. Reflections keep
+        # the submitted text in the attempt's raw answers for later viewing.
+        if q.question_type in _QUIZ_UNGRADED_TYPES:
+            detail = {'question_id': q.id, 'correct': None, 'earned': 0,
+                      'ungraded': True}
+            if q.question_type == 'reflection':
+                detail['reflection_saved'] = bool(isinstance(ans, str) and ans.strip())
+            results.append(detail)
+            continue
+        max_score += q.points
         detail = {'question_id': q.id}
         correct = False
         earned = None  # set explicitly only for partial-credit types
@@ -35729,9 +35928,32 @@ def public_quiz_get(qid):
     visitor_hash = hash_asset_visitor_id(visitor_id)
     draft = _quiz_draft_for(quiz.id, public_user, visitor_hash)
 
+    # Most recent saved reflection responses for this identity, so readers can
+    # revisit (and revise) what they wrote on an earlier attempt.
+    reflections = {}
+    reflection_qids = [q.id for q in quiz.questions.filter_by(question_type='reflection')]
+    if reflection_qids:
+        aq = QuizAttempt.query.filter_by(quiz_id=quiz.id)
+        if public_user:
+            aq = aq.filter(db.or_(QuizAttempt.public_user_id == public_user.id,
+                                  QuizAttempt.visitor_id_hash == visitor_hash))
+        else:
+            aq = aq.filter(QuizAttempt.visitor_id_hash == visitor_hash)
+        for att in aq.order_by(QuizAttempt.created_at.desc()).limit(20):
+            answers = att.answers or {}
+            for rqid in reflection_qids:
+                if rqid in reflections:
+                    continue
+                val = answers.get(str(rqid), answers.get(rqid))
+                if isinstance(val, str) and val.strip():
+                    reflections[rqid] = val
+            if len(reflections) == len(reflection_qids):
+                break
+
     resp = _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
         'questions': questions,
+        'reflections': {str(k): v for k, v in reflections.items()},
         'draft': (draft.answers or {}) if draft else None}})
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -35797,9 +36019,11 @@ def _lesson_quiz_ids(node):
 
 
 def _quiz_passed(quiz, score, max_score):
-    """True iff `score` clears this quiz's pass_threshold * max_score."""
+    """True iff `score` clears this quiz's pass_threshold * max_score. A quiz
+    with nothing gradable (only reflections/flashcards, or no questions)
+    passes on submission — there is no bar to clear."""
     if not max_score:
-        return False
+        return True
     thresh = quiz.pass_threshold if quiz.pass_threshold is not None else 0.9
     return (score / max_score) >= thresh
 
@@ -35812,7 +36036,9 @@ _SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results',
                      # coding: the learner's own output/compiler errors and
                      # per-test pass flags are safe (their `tests_expected` is
                      # the revealing part and is dropped).
-                     'tests', 'compile_output', 'runner_error', 'language', 'mode'}
+                     'tests', 'compile_output', 'runner_error', 'language', 'mode',
+                     # ungraded types have no answers to reveal.
+                     'ungraded', 'reflection_saved'}
 
 
 def _strip_answers_from_results(results):
