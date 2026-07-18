@@ -108,6 +108,8 @@
             <button class="qe-mini-btn" onclick="newQuestion('ordering')"><i class="fas fa-sort"></i> Ordering</button>
             <button class="qe-mini-btn" onclick="newQuestion('image_choice')"><i class="fas fa-images"></i> Image</button>
             <button class="qe-mini-btn" onclick="newQuestion('coding')"><i class="fas fa-code"></i> Code</button>
+            <button class="qe-mini-btn" onclick="newQuestion('reflection')"><i class="fas fa-comment-dots"></i> Reflection</button>
+            <button class="qe-mini-btn" onclick="newQuestion('flashcards')"><i class="fas fa-layer-group"></i> Flash cards</button>
         </div>
         <ul class="qe-qlist" id="qList"></ul>
         <div class="qe-empty" id="qEmpty" style="display:none;">No questions yet. Add one above.</div>
@@ -175,6 +177,8 @@ const TYPE_LABELS = {
     ordering:      'Ordering',
     image_choice:  'Image choice',
     coding:        'Coding challenge',
+    reflection:    'Reflection',
+    flashcards:    'Flash cards',
 };
 
 const CODE_LANGS = { python: 'Python', javascript: 'JavaScript', java: 'Java', c: 'C', cpp: 'C++' };
@@ -226,7 +230,8 @@ function qItemEl(q) {
 
 function shortType(t) {
     return { single_choice: 'Single', multi_choice: 'Multi', true_false: 'T/F', short_text: 'Text',
-             fill_blank: 'Blank', matching: 'Match', ordering: 'Order', image_choice: 'Image', coding: 'Code' }[t] || t;
+             fill_blank: 'Blank', matching: 'Match', ordering: 'Order', image_choice: 'Image', coding: 'Code',
+             reflection: 'Reflect', flashcards: 'Cards' }[t] || t;
 }
 
 function persistOrder() {
@@ -253,6 +258,8 @@ function blankConfig(type) {
     if (type === 'ordering') return { items: [emptyCell(), emptyCell()] };
     if (type === 'image_choice') return { multiple: false, options: [{ image_url: '', caption: '', correct: true }, { image_url: '', caption: '', correct: false }] };
     if (type === 'coding') return { language: 'python', mode: 'run', starter_code: '', test_cases: [{ stdin: '', expected: '' }] };
+    if (type === 'reflection') return {};
+    if (type === 'flashcards') return { cards: [{ front: emptyCell(), back: emptyCell() }, { front: emptyCell(), back: emptyCell() }] };
     return { options: [{ id: 1, text: '', correct: true }, { id: 2, text: '', correct: false }] };
 }
 
@@ -278,9 +285,15 @@ function showForm() {
     document.getElementById('qForm').style.display = 'block';
     document.getElementById('qId').value = _editing.id || '';
     document.getElementById('qType').value = _editing.question_type;
-    document.getElementById('qTypeLabel').textContent = TYPE_LABELS[_editing.question_type] + ' — prompt';
+    const _tlabel = (_editing.question_type === 'reflection') ? ' — prompt to reflect on'
+                  : (_editing.question_type === 'flashcards') ? ' — instructions shown above the stack'
+                  : ' — prompt';
+    document.getElementById('qTypeLabel').textContent = TYPE_LABELS[_editing.question_type] + _tlabel;
     document.getElementById('qPrompt').value = _editing.prompt || '';
     document.getElementById('qPoints').value = _editing.points || 1;
+    // Ungraded types score no points — hide the field entirely.
+    const _ungraded = (_editing.question_type === 'reflection' || _editing.question_type === 'flashcards');
+    document.getElementById('qPoints').closest('.qe-field').style.display = _ungraded ? 'none' : '';
     document.getElementById('qDeleteBtn').style.display = _editing.id ? 'inline-flex' : 'none';
     // Fill-blank: live-sync the blank rows as the prompt's ___ markers change.
     document.getElementById('qPrompt').oninput = (_editing.question_type === 'fill_blank') ? renderBody : null;
@@ -305,6 +318,38 @@ function renderBody() {
         html += '<button type="button" class="qe-mini-btn" onclick="addAccepted()" style="margin-top:4px;"><i class="fas fa-plus"></i> Add answer</button>';
         html += '</div>';
         html += `<label class="qe-check-row" style="margin-top:8px;"><input type="checkbox" id="qCaseSensitive" ${cfg.case_sensitive ? 'checked' : ''}> Case sensitive</label>`;
+        body.innerHTML = html;
+        return;
+    }
+
+    if (t === 'reflection') {
+        body.innerHTML =
+            '<div class="qe-field"><p class="qe-correct-hint" style="margin:0;">' +
+            '<i class="fas fa-comment-dots" style="color:#5eeec8;margin-right:6px;"></i>' +
+            'Open reflection — there is no correct answer and no points. The reader writes a ' +
+            'response to think through the material; it is saved with their submission and shown ' +
+            'back to them the next time they open this quiz.</p></div>';
+        return;
+    }
+
+    if (t === 'flashcards') {
+        // Sides are cells (text or image + optional caption) — coerce any
+        // legacy string sides from older saves before rendering.
+        (cfg.cards || []).forEach(c => {
+            if (typeof c.front === 'string') c.front = { kind: 'text', text: c.front, image_url: '' };
+            if (typeof c.back === 'string') c.back = { kind: 'text', text: c.back, image_url: '' };
+        });
+        let html = '<div class="qe-field"><label class="qe-label">Cards</label>';
+        html += '<p class="qe-correct-hint">Readers study these as a stack: flip a card, then mark ' +
+                '"Got it" (removed) or "Didn\'t get it" (shuffled back in). Either side can be ' +
+                'text or an image with an optional caption. No points are scored.</p>';
+        (cfg.cards || []).forEach((c, i) => {
+            html += `<div class="qe-pair"><div>${cellEditorHtml(c.front, 'f', i, 'front')}</div>
+                <div class="qe-pair-arrow"><i class="fas fa-sync-alt" title="flips to"></i></div>
+                <div>${cellEditorHtml(c.back, 'f', i, 'back')}</div>
+                <button type="button" class="qe-opt-remove" onclick="removeFcCard(${i})">&times;</button></div>`;
+        });
+        html += '</div><button type="button" class="qe-mini-btn" onclick="addFcCard()"><i class="fas fa-plus"></i> Add card</button>';
         body.innerHTML = html;
         return;
     }
@@ -442,6 +487,13 @@ function acceptedRow(val, i) {
 function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
 function escHtmlText(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+// ── flash card handlers ─────────────────────────────────────────────────────
+function addFcCard() { _editing.config.cards.push({ front: emptyCell(), back: emptyCell() }); renderBody(); }
+function removeFcCard(i) {
+    if (_editing.config.cards.length <= 1) { alert('Keep at least one card.'); return; }
+    _editing.config.cards.splice(i, 1); renderBody();
+}
+
 // ── coding question handlers ────────────────────────────────────────────────
 function onCodeLang(v) { _editing.config.language = v; renderBody(); }
 function onCodeMode(v) {
@@ -505,6 +557,7 @@ function _cellRef(kind, i, side) {
     if (kind === 'm') return _editing.config.pairs[i][side];
     if (kind === 'o') return _editing.config.items[i];
     if (kind === 'i') return _editing.config.options[i];
+    if (kind === 'f') return _editing.config.cards[i][side];
     return null;
 }
 function cellEditorHtml(cell, kind, i, side) {
@@ -664,6 +717,15 @@ async function saveQuestion() {
         if (!_editing.config.multiple && cc !== 1) { alert('Pick exactly one correct image.'); return; }
         if (_editing.config.multiple && cc < 1) { alert('Mark at least one correct image.'); return; }
         config = { multiple: !!_editing.config.multiple, options: opts };
+    } else if (t === 'reflection') {
+        config = {};
+    } else if (t === 'flashcards') {
+        const _fcClean = v => cleanCell(typeof v === 'string' ? { kind: 'text', text: v } : v);
+        const cards = (_editing.config.cards || [])
+            .map(c => ({ front: _fcClean(c.front), back: _fcClean(c.back) }))
+            .filter(c => c.front && c.back);
+        if (!cards.length) { alert('Add at least one card with both a front and a back (text or image).'); return; }
+        config = { cards };
     } else if (t === 'coding') {
         const language = _editing.config.language;
         if (!CODE_LANGS[language]) { alert('Choose a language.'); return; }
