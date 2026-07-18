@@ -110,6 +110,7 @@
             <button class="qe-mini-btn" onclick="newQuestion('coding')"><i class="fas fa-code"></i> Code</button>
             <button class="qe-mini-btn" onclick="newQuestion('reflection')"><i class="fas fa-comment-dots"></i> Reflection</button>
             <button class="qe-mini-btn" onclick="newQuestion('flashcards')"><i class="fas fa-layer-group"></i> Flash cards</button>
+            <button class="qe-mini-btn" onclick="newQuestion('text')"><i class="fas fa-align-left"></i> Text block</button>
         </div>
         <ul class="qe-qlist" id="qList"></ul>
         <div class="qe-empty" id="qEmpty" style="display:none;">No questions yet. Add one above.</div>
@@ -128,12 +129,17 @@
                 <textarea id="qPrompt" class="qe-textarea" placeholder="Write the question…"></textarea>
             </div>
             <div id="qBody"></div>
+            <div class="qe-field" id="qExplField">
+                <label class="qe-label">Explanation <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional)</span></label>
+                <textarea id="qExplanation" class="qe-textarea" style="min-height:54px;" placeholder="Why this answer is right — shown to readers after they answer correctly (or pass the quiz). Links auto-embed."></textarea>
+            </div>
             <div class="qe-field" style="max-width:140px;">
                 <label class="qe-label">Points</label>
                 <input type="number" id="qPoints" class="qe-input" min="1" value="1">
             </div>
             <div class="qe-actions">
                 <button class="qe-btn qe-btn-primary" onclick="saveQuestion()"><i class="fas fa-check"></i> Save question</button>
+                <button class="qe-btn" id="qDupBtn" onclick="duplicateQuestion()" style="display:none;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.15);"><i class="fas fa-copy"></i> Duplicate</button>
                 <button class="qe-btn qe-btn-danger" id="qDeleteBtn" onclick="deleteQuestion()" style="display:none;"><i class="fas fa-trash"></i> Delete</button>
             </div>
         </div>
@@ -179,6 +185,7 @@ const TYPE_LABELS = {
     coding:        'Coding challenge',
     reflection:    'Reflection',
     flashcards:    'Flash cards',
+    text:          'Text block',
 };
 
 const CODE_LANGS = { python: 'Python', javascript: 'JavaScript', java: 'Java', c: 'C', cpp: 'C++' };
@@ -231,7 +238,7 @@ function qItemEl(q) {
 function shortType(t) {
     return { single_choice: 'Single', multi_choice: 'Multi', true_false: 'T/F', short_text: 'Text',
              fill_blank: 'Blank', matching: 'Match', ordering: 'Order', image_choice: 'Image', coding: 'Code',
-             reflection: 'Reflect', flashcards: 'Cards' }[t] || t;
+             reflection: 'Reflect', flashcards: 'Cards', text: 'Info' }[t] || t;
 }
 
 function persistOrder() {
@@ -258,7 +265,7 @@ function blankConfig(type) {
     if (type === 'ordering') return { items: [emptyCell(), emptyCell()] };
     if (type === 'image_choice') return { multiple: false, options: [{ image_url: '', caption: '', correct: true }, { image_url: '', caption: '', correct: false }] };
     if (type === 'coding') return { language: 'python', mode: 'run', starter_code: '', test_cases: [{ stdin: '', expected: '' }] };
-    if (type === 'reflection') return {};
+    if (type === 'reflection' || type === 'text') return {};
     if (type === 'flashcards') return { cards: [{ front: emptyCell(), back: emptyCell() }, { front: emptyCell(), back: emptyCell() }] };
     return { options: [{ id: 1, text: '', correct: true }, { id: 2, text: '', correct: false }] };
 }
@@ -287,14 +294,22 @@ function showForm() {
     document.getElementById('qType').value = _editing.question_type;
     const _tlabel = (_editing.question_type === 'reflection') ? ' — prompt to reflect on'
                   : (_editing.question_type === 'flashcards') ? ' — instructions shown above the stack'
+                  : (_editing.question_type === 'text') ? ' — content shown to the reader'
                   : ' — prompt';
     document.getElementById('qTypeLabel').textContent = TYPE_LABELS[_editing.question_type] + _tlabel;
     document.getElementById('qPrompt').value = _editing.prompt || '';
+    document.getElementById('qPrompt').placeholder = (_editing.question_type === 'text')
+        ? 'Write the text… (links are clickable; YouTube/Vimeo/image links embed automatically)'
+        : 'Write the question…';
     document.getElementById('qPoints').value = _editing.points || 1;
     // Ungraded types score no points — hide the field entirely.
-    const _ungraded = (_editing.question_type === 'reflection' || _editing.question_type === 'flashcards');
+    const _ungraded = (_editing.question_type === 'reflection' || _editing.question_type === 'flashcards'
+                       || _editing.question_type === 'text');
     document.getElementById('qPoints').closest('.qe-field').style.display = _ungraded ? 'none' : '';
+    document.getElementById('qExplanation').value = (_editing.config && _editing.config.explanation) || '';
+    document.getElementById('qExplField').style.display = _ungraded ? 'none' : '';
     document.getElementById('qDeleteBtn').style.display = _editing.id ? 'inline-flex' : 'none';
+    document.getElementById('qDupBtn').style.display = _editing.id ? 'inline-flex' : 'none';
     // Fill-blank: live-sync the blank rows as the prompt's ___ markers change.
     document.getElementById('qPrompt').oninput = (_editing.question_type === 'fill_blank') ? renderBody : null;
     renderBody();
@@ -319,6 +334,17 @@ function renderBody() {
         html += '</div>';
         html += `<label class="qe-check-row" style="margin-top:8px;"><input type="checkbox" id="qCaseSensitive" ${cfg.case_sensitive ? 'checked' : ''}> Case sensitive</label>`;
         body.innerHTML = html;
+        return;
+    }
+
+    if (t === 'text') {
+        body.innerHTML =
+            '<div class="qe-field"><p class="qe-correct-hint" style="margin:0;">' +
+            '<i class="fas fa-align-left" style="color:#5eeec8;margin-right:6px;"></i>' +
+            'Text block — not a question. It appears between questions as instructions or ' +
+            'reading material (great for worksheets). It has no number, no answer and no ' +
+            'points. Links become clickable automatically, and YouTube, Vimeo and image ' +
+            'links are embedded in place.</p></div>';
         return;
     }
 
@@ -717,7 +743,7 @@ async function saveQuestion() {
         if (!_editing.config.multiple && cc !== 1) { alert('Pick exactly one correct image.'); return; }
         if (_editing.config.multiple && cc < 1) { alert('Mark at least one correct image.'); return; }
         config = { multiple: !!_editing.config.multiple, options: opts };
-    } else if (t === 'reflection') {
+    } else if (t === 'reflection' || t === 'text') {
         config = {};
     } else if (t === 'flashcards') {
         const _fcClean = v => cleanCell(typeof v === 'string' ? { kind: 'text', text: v } : v);
@@ -748,6 +774,8 @@ async function saveQuestion() {
         if (t === 'multi_choice' && correctCount < 1) { alert('Mark at least one option correct.'); return; }
         config = { options: opts };
     }
+    const expl = document.getElementById('qExplanation').value.trim();
+    if (expl && t !== 'reflection' && t !== 'flashcards' && t !== 'text') config.explanation = expl;
     const body = {
         id: _editing.id, question_type: t, prompt, config,
         points: parseInt(document.getElementById('qPoints').value) || 1,
@@ -766,6 +794,16 @@ async function saveQuestion() {
     renderList();
     showForm();
     return true;
+}
+
+async function duplicateQuestion() {
+    if (!_editing || !_editing.id) return;
+    // Copy whatever is in the form right now and save it as a new question
+    // (appended at the end of the list).
+    _editing = JSON.parse(JSON.stringify(_editing));
+    _editing.id = null;
+    document.getElementById('qId').value = '';
+    await saveQuestion();
 }
 
 async function deleteQuestion() {

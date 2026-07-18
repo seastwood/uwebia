@@ -15,6 +15,9 @@
 
     <div class="print-wrap">
         <h1 class="print-doc-title">{{ quiz.title }}</h1>
+        {% if worksheet %}
+        <p class="print-nameline"><span>Name: ______________________________</span><span>Date: ______________</span></p>
+        {% endif %}
         {% if quiz.description %}<p class="print-doc-sub">{{ quiz.description }}</p>{% endif %}
         {{ quiz_html | safe }}
     </div>
