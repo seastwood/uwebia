@@ -228,6 +228,35 @@
         {% endif %}
         {% if d.description %}<p class="da-div-desc">{{ d.description }}</p>{% endif %}
 
+        {# ── Combined divisions: shared members, separable later ── #}
+        {% set _partners = combined_with_by_division.get(d.id, []) %}
+        {% if _partners or (can_edit_div and divisions|length > 1) %}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            {% if _partners %}
+            <span class="da-shared-tag" title="Members stay in sync across combined {{ div_plural|lower }} — adding, removing or changing a member's status in one applies to all. Separate to let them diverge.">
+                <i class="fas fa-object-group"></i> Combined with {{ _partners | map(attribute='name') | join(', ') }}
+            </span>
+            {% if can_edit_div %}
+            <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;"
+                    onclick='separateDivision({{ d.id }}, {{ d.name|tojson }})'>
+                <i class="fas fa-object-ungroup"></i> Separate
+            </button>
+            {% endif %}
+            {% elif can_edit_div %}
+            <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="Combine this {{ div_singular|lower }} with another: their member lists merge and stay in sync (adds, removals and status changes apply to all) until you separate them. Each keeps its own roles and KSAs.">
+                <i class="fas fa-object-group" style="opacity:0.5;"></i> combine with
+                <select onchange="combineDivision({{ d.id }}, this.value, {{ d.name|tojson }}, this)"
+                        style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:3px 6px;font-size:0.78rem;">
+                    <option value="">— choose —</option>
+                    {% for other in divisions %}{% if other.id != d.id %}
+                    <option value="{{ other.id }}">{{ other.name }}</option>
+                    {% endif %}{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {# ── Roles: part of the group itself, independent of KSAs ── #}
         {% set _droles = roles_by_division.get(d.id, []) %}
         <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
@@ -1010,6 +1039,35 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 });
+
+// ── Combined divisions ──────────────────────────────────────────────────────
+async function combineDivision(did, otherId, name, sel) {
+    if (!otherId) return;
+    const otherName = sel.options[sel.selectedIndex].text;
+    if (!confirm(`Combine "${name}" with "${otherName}"?\n\nTheir member lists will merge and stay in sync — adding, removing or changing a member's status in one applies to both — until you separate them. Each keeps its own roles and KSAs.`)) {
+        sel.value = '';
+        return;
+    }
+    try {
+        const r = await fetch(`/admin/divisions/${did}/combine`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ with_division_id: parseInt(otherId) }),
+        });
+        const d = await r.json();
+        if (d.success) location.reload();
+        else { alert(d.error || 'Failed to combine'); sel.value = ''; }
+    } catch (e) { alert('Request failed'); sel.value = ''; }
+}
+
+async function separateDivision(did, name) {
+    if (!confirm(`Separate "${name}" from its combined group?\n\nIt keeps its current members, but they will no longer stay in sync with the other group(s).`)) return;
+    try {
+        const r = await fetch(`/admin/divisions/${did}/separate`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) location.reload();
+        else alert(d.error || 'Failed to separate');
+    } catch (e) { alert('Request failed'); }
+}
 
 async function setRoleParent(roleId, parentId) {
     try {

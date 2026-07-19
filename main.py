@@ -1101,15 +1101,36 @@ def _division_word(website, plural=False):
     return p if plural else s
 
 
+def _combined_division_ids(division):
+    """Ids of every division combined with this one, itself included. A
+    division outside any merge group is a group of one."""
+    if not division or not division.merge_group_id:
+        return [division.id] if division else []
+    return [d.id for d in Division.query.filter_by(
+        website_id=division.website_id,
+        merge_group_id=division.merge_group_id).all()]
+
+
 def _ensure_division_membership(public_user_id, division_id, status='active'):
     """Idempotently make a public user a member of a division — used when a
-    division-scoped role is assigned. Never downgrades an existing membership."""
+    division-scoped role is assigned. Never downgrades an existing membership.
+    Combined divisions share members, so the row is mirrored into the rest of
+    the group."""
     m = DivisionMembership.query.filter_by(
         public_user_id=public_user_id, division_id=division_id).first()
     if not m:
         m = DivisionMembership(public_user_id=public_user_id,
                                division_id=division_id, status=status)
         db.session.add(m)
+    d = db.session.get(Division, division_id)
+    if d and d.merge_group_id:
+        for did in _combined_division_ids(d):
+            if did == division_id:
+                continue
+            if not DivisionMembership.query.filter_by(
+                    public_user_id=public_user_id, division_id=did).first():
+                db.session.add(DivisionMembership(
+                    public_user_id=public_user_id, division_id=did, status=status))
     return m
 
 
@@ -1340,13 +1361,20 @@ class Division(db.Model):
     color       = db.Column(db.String(20), nullable=True)
     icon        = db.Column(db.String(60), nullable=True)
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Combined divisions: divisions sharing the same non-null tag act as one
+    # for MEMBERSHIP — member rows exist in each and are kept in sync while
+    # combined (e.g. Build + Electrical). Separating just clears the tag; each
+    # keeps its rows and they diverge freely from then on. Plain integer (the
+    # id of the first division in the group), deliberately not a FK.
+    merge_group_id = db.Column(db.Integer, nullable=True, index=True)
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_division_site_slug'),)
 
     def to_dict(self):
         return {'id': self.id, 'name': self.name, 'slug': self.slug,
                 'description': self.description or '', 'color': self.color or '',
-                'icon': self.icon or '', 'sort_order': self.sort_order}
+                'icon': self.icon or '', 'sort_order': self.sort_order,
+                'merge_group_id': self.merge_group_id}
 
 
 class RoleType(db.Model):
@@ -14531,6 +14559,7 @@ def _serialize_backup(uid):
         'divisions': [{'id': d.id, 'website_id': d.website_id, 'name': d.name, 'slug': d.slug,
                        'description': d.description, 'color': d.color, 'icon': d.icon,
                        'sort_order': d.sort_order,
+                       'merge_group_id': d.merge_group_id,
                        'created_at': d.created_at.isoformat() if d.created_at else None,
                        } for d in divisions],
         'division_memberships': [{'id': m.id, 'public_user_id': m.public_user_id,
@@ -16431,6 +16460,15 @@ def import_backup():
                 db.session.flush()
                 if dd.get('id'):
                     division_map[dd['id']] = dv.id
+            # Second pass: combined-division tags. The group tag is the id of
+            # a division in the group, so remap it through division_map.
+            for dd in data.get('divisions', []):
+                if dd.get('merge_group_id') and dd.get('id'):
+                    new_id = division_map.get(dd['id'])
+                    new_g = division_map.get(dd['merge_group_id'])
+                    if new_id and new_g:
+                        Division.query.filter_by(id=new_id).update(
+                            {'merge_group_id': new_g}, synchronize_session=False)
 
             # Guides, quizzes and divisions are created AFTER sub-admins &
             # permission groups, so their id-scoped permission lists still hold
@@ -34429,6 +34467,7 @@ def admin_divisions_page():
     divisions, ksas_by_division, roles_by_division = [], {}, {}
     shared_ksas_by_division, share_count_by_ksa, div_names = {}, {}, {}
     shared_groups_by_division = {}
+    combined_with_by_division = {}
     active_members_by_division = {}
     folders_by_division, ksa_groups_by_division, folders_json = {}, {}, {}
     if website:
@@ -34437,6 +34476,14 @@ def admin_divisions_page():
         # Per-division scope: a restricted sub-admin only sees granted divisions.
         divisions = [d for d in divisions if can_access_division(d.id)]
         div_names = {d.id: d.name for d in divisions}
+        # Combined-division partners (names from ALL divisions, since a
+        # restricted admin can be combined with one they can't open).
+        _all_divs = Division.query.filter_by(website_id=website.id).all()
+        for d in divisions:
+            if d.merge_group_id:
+                combined_with_by_division[d.id] = [
+                    o for o in _all_divs
+                    if o.merge_group_id == d.merge_group_id and o.id != d.id]
         if divisions:
             for did, cnt in db.session.query(
                     DivisionMembership.division_id, db.func.count(DivisionMembership.id)) \
@@ -34517,6 +34564,7 @@ def admin_divisions_page():
                            active_members_by_division=active_members_by_division,
                            shared_ksas_by_division=shared_ksas_by_division,
                            shared_groups_by_division=shared_groups_by_division,
+                           combined_with_by_division=combined_with_by_division,
                            share_count_by_ksa=share_count_by_ksa, div_names=div_names,
                            roles_by_division=roles_by_division,
                            ksa_types=_ksa_types(website), ksa_level_labels=_ksa_level_labels(website),
@@ -34591,6 +34639,71 @@ def admin_divisions_update(did):
         d.icon = (data.get('icon') or '').strip() or None
     db.session.commit()
     return _utf8_json({'success': True, 'division': d.to_dict()})
+
+
+@app.route('/admin/divisions/<int:did>/combine', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_division_combine(did):
+    """Combine this division with another: both (and anything either is
+    already combined with) join one merge group, and their member lists are
+    unioned — real rows in every division, kept in sync from here on."""
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    data = request.get_json() or {}
+    try:
+        other = db.session.get(Division, int(data.get('with_division_id')))
+    except (TypeError, ValueError):
+        other = None
+    if not other or other.website_id != website.id or other.id == d.id:
+        return _utf8_json({'success': False, 'error': 'Pick another ' + _division_word(website).lower() + ' to combine with.'}, 400)
+    if not can_access_division(other.id):
+        return _utf8_json({'success': False, 'error': "You don't have access to that " + _division_word(website).lower() + '.'}, 403)
+
+    group = other.merge_group_id or d.merge_group_id or other.id
+    ids = set(_combined_division_ids(d)) | set(_combined_division_ids(other))
+    Division.query.filter(Division.id.in_(ids)).update(
+        {'merge_group_id': group}, synchronize_session=False)
+
+    # Union memberships across the whole group. A member active anywhere is
+    # active everywhere; otherwise their existing status carries over.
+    status_by_user = {}
+    users_by_div = {}
+    for m in DivisionMembership.query.filter(DivisionMembership.division_id.in_(ids)).all():
+        users_by_div.setdefault(m.division_id, set()).add(m.public_user_id)
+        cur = status_by_user.get(m.public_user_id)
+        status_by_user[m.public_user_id] = 'active' if ('active' in (cur, m.status)) else m.status
+    for div_id in ids:
+        have = users_by_div.get(div_id, set())
+        for uid, st in status_by_user.items():
+            if uid not in have:
+                db.session.add(DivisionMembership(
+                    public_user_id=uid, division_id=div_id, status=st))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/divisions/<int:did>/separate', methods=['POST'])
+@login_required
+@require_perm('divisions.edit')
+def admin_division_separate(did):
+    """Detach this division from its merge group. Its membership rows are its
+    own real rows, so it keeps its current members and diverges freely."""
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    if not d.merge_group_id:
+        return _utf8_json({'success': False, 'error': 'Not combined with anything.'}, 400)
+    group = d.merge_group_id
+    d.merge_group_id = None
+    db.session.flush()
+    # A group of one is meaningless — clear the last remaining tag.
+    rest = Division.query.filter_by(website_id=website.id, merge_group_id=group).all()
+    if len(rest) == 1:
+        rest[0].merge_group_id = None
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 @app.route('/admin/divisions/<int:did>/delete', methods=['POST'])
@@ -35221,6 +35334,13 @@ def admin_membership_status(mid):
     if status not in ('active', 'alumni'):
         return _utf8_json({'success': False, 'error': 'Invalid status.'}, 400)
     m.status = status
+    # Combined divisions share members — mirror the status across the group.
+    d = db.session.get(Division, m.division_id)
+    if d and d.merge_group_id:
+        DivisionMembership.query.filter(
+            DivisionMembership.public_user_id == m.public_user_id,
+            DivisionMembership.division_id.in_(_combined_division_ids(d)),
+        ).update({'status': status}, synchronize_session=False)
     db.session.commit()
     return _utf8_json({'success': True, 'status': m.status})
 
@@ -35232,6 +35352,14 @@ def admin_membership_remove(mid):
     website, m = _membership_owned_or_403(mid)
     if m is None:
         return website
+    # Combined divisions share members — removal applies across the group.
+    d = db.session.get(Division, m.division_id)
+    if d and d.merge_group_id:
+        DivisionMembership.query.filter(
+            DivisionMembership.public_user_id == m.public_user_id,
+            DivisionMembership.division_id.in_(_combined_division_ids(d)),
+            DivisionMembership.id != m.id,
+        ).delete(synchronize_session=False)
     db.session.delete(m)
     db.session.commit()
     return _utf8_json({'success': True})
