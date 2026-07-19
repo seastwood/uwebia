@@ -98,6 +98,10 @@ html, body {
 .print-q { margin: 0 0 14px; break-inside: avoid; }
 .print-q-prompt { margin: 0 0 6px; }
 .print-text-block { margin: 0 0 6px; line-height: 1.55; }
+.print-text-block img { max-width: 100%; height: auto; }
+.print-text-block iframe { max-width: 100%; }
+.print-text-block blockquote { border-left: 3px solid #bbb; margin: 8px 0; padding: 2px 0 2px 12px; color: #555; }
+.print-text-block pre { background: #f4f4f4; border: 1px solid #ddd; padding: 10px; border-radius: 6px; overflow-x: auto; }
 .print-nameline { display: flex; justify-content: space-between; gap: 24px; margin: 14px 0 18px; }
 .print-expl { color: #555; font-size: 0.85rem; margin-top: 3px; font-style: italic; }
 .print-q-points { color: #777; font-weight: 400; font-size: 0.85rem; }

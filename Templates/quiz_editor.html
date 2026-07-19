@@ -3,7 +3,9 @@
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+<link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 
 <style>
 .qe-page { display: grid; grid-template-columns: 300px 1fr; gap: 24px; max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; align-items: start; }
@@ -72,6 +74,40 @@
 .qe-blank-row { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 9px; margin-bottom: 8px; }
 .qe-blank-tag { font-size: 0.7rem; font-weight: 700; color: #5eeec8; text-transform: uppercase; letter-spacing: 0.05em; }
 
+/* Rich text editor for text blocks — same dark Quill skin as the lesson
+   editor (guide_editor.html). */
+#qRichEditor { background: rgba(255,255,255,0.03); color: #fff; border-radius: 0 0 10px 10px; min-height: 180px; }
+.ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
+.ql-toolbar.ql-snow { flex-wrap: wrap; }
+.ql-container { border-color: rgba(255,255,255,0.12) !important; border-radius: 0 0 10px 10px; }
+.ql-editor { color: #f0f0f0; font-size: 0.95rem; line-height: 1.7; min-height: 160px; }
+.ql-editor.ql-blank::before { color: rgba(255,255,255,0.25); font-style: normal; }
+.ql-snow .ql-stroke { stroke: rgba(255,255,255,0.6); }
+.ql-snow .ql-fill { fill: rgba(255,255,255,0.6); }
+.ql-snow .ql-picker { color: rgba(255,255,255,0.6); }
+.ql-snow .ql-picker-options { background: #1e1e2e; border-color: rgba(255,255,255,0.15); }
+.ql-snow .ql-picker-item { color: rgba(255,255,255,0.75); }
+.ql-snow .ql-picker-item:hover { color: #fff; }
+.ql-snow .ql-picker.ql-expanded .ql-picker-label { color: #5eeef8; border-color: rgba(255,255,255,0.2); }
+.ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke { stroke: #5eeef8; }
+.ql-snow .ql-picker.ql-color .ql-picker-options,
+.ql-snow .ql-picker.ql-background .ql-picker-options { width: 152px; }
+.ql-snow.ql-toolbar button:hover .ql-stroke,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #5eeef8; }
+.ql-snow.ql-toolbar button:hover .ql-fill,
+.ql-snow.ql-toolbar button.ql-active .ql-fill { fill: #5eeef8; }
+
+/* Reader-input toolbar buttons + placeholder chips in the editor */
+.ql-toolbar .ql-uwinput-btn { width: 28px; }
+.ql-toolbar .ql-uwinput-btn::after { content: "␣"; font-weight: 800; color: rgba(255,255,255,0.6); }
+.ql-toolbar .ql-uwinput-btn:hover::after { color: #5eeef8; }
+.ql-toolbar .ql-uwanswer-btn { width: 28px; }
+.ql-toolbar .ql-uwanswer-btn::after { content: "▭"; font-weight: 800; color: rgba(255,255,255,0.6); }
+.ql-toolbar .ql-uwanswer-btn:hover::after { color: #5eeef8; }
+.ql-editor .uwq-winput { display: inline-block; min-width: 120px; height: 1.15em; vertical-align: baseline; border-bottom: 2px dashed rgba(94,238,248,0.65); background: rgba(94,238,248,0.09); border-radius: 4px 4px 0 0; }
+.ql-editor .uwq-wtext { display: block; min-height: 70px; margin: 8px 0; border: 1px dashed rgba(94,238,248,0.5); border-radius: 9px; background: rgba(94,238,248,0.05); position: relative; }
+.ql-editor .uwq-wtext::after { content: "Answer box — readers write here"; position: absolute; top: 8px; left: 12px; font-size: 0.75rem; color: rgba(94,238,248,0.55); }
+
 /* Image picker modal */
 .qp-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; align-items: center; justify-content: center; }
 .qp-modal { width: min(640px, 92vw); max-height: 82vh; display: flex; flex-direction: column; background: #16161f; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; overflow: hidden; }
@@ -127,6 +163,9 @@
             <div class="qe-field">
                 <label class="qe-label" id="qTypeLabel"></label>
                 <textarea id="qPrompt" class="qe-textarea" placeholder="Write the question…"></textarea>
+                <div id="qRichWrap" style="display:none;">
+                    <div id="qRichEditor"></div>
+                </div>
             </div>
             <div id="qBody"></div>
             <div class="qe-field" id="qExplField">
@@ -190,6 +229,126 @@ const TYPE_LABELS = {
 
 const CODE_LANGS = { python: 'Python', javascript: 'JavaScript', java: 'Java', c: 'C', cpp: 'C++' };
 
+// ── Rich text editor for text blocks (same toolbar family as guide lessons) ─
+let _quill = null;
+
+// Reader-input placeholders authors can drop into a text block: an inline
+// input line and a multi-line answer box. Stored in the block's HTML as empty
+// marker elements; the public player swaps them for real inputs whose values
+// save with the reader's submission (ungraded, like reflections).
+function _registerQuizBlots() {
+    const InlineEmbed = Quill.import('blots/embed');
+    class UwInputBlot extends InlineEmbed {
+        static create() {
+            const node = super.create();
+            node.setAttribute('contenteditable', 'false');
+            return node;
+        }
+        static value() { return true; }
+    }
+    UwInputBlot.blotName = 'uwinput';
+    UwInputBlot.tagName = 'span';
+    UwInputBlot.className = 'uwq-winput';
+    Quill.register(UwInputBlot);
+
+    const BlockEmbed = Quill.import('blots/block/embed');
+    class UwAnswerBoxBlot extends BlockEmbed {
+        static create() {
+            const node = super.create();
+            node.setAttribute('contenteditable', 'false');
+            return node;
+        }
+        static value() { return true; }
+    }
+    UwAnswerBoxBlot.blotName = 'uwanswerbox';
+    UwAnswerBoxBlot.tagName = 'div';
+    UwAnswerBoxBlot.className = 'uwq-wtext';
+    Quill.register(UwAnswerBoxBlot);
+}
+
+function ensureQuill() {
+    if (_quill) return _quill;
+    _registerQuizBlots();
+    const toolbarOptions = [
+        [{ 'header': [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike', { 'color': [] }, { 'background': [] }],
+        [{ 'align': [] }, { 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+        ['blockquote', 'code-block'],
+        ['link', 'image', 'video', 'clean'],
+    ];
+    _quill = new Quill('#qRichEditor', {
+        theme: 'snow',
+        placeholder: 'Write the text… shown between questions as instructions or reading material.',
+        modules: {
+            toolbar: {
+                container: toolbarOptions,
+                handlers: {
+                    image: function () {
+                        openQuizImagePicker(url => {
+                            const range = _quill.getSelection(true);
+                            _quill.insertEmbed(range ? range.index : 0, 'image', url, 'user');
+                        });
+                    },
+                    // Same URL normalization as the lesson editor: paste a
+                    // YouTube/Vimeo page URL, get a playable embed.
+                    video: function () {
+                        const url = prompt('Enter video URL (YouTube, Vimeo, direct MP4…):');
+                        if (!url) return;
+                        let embedUrl = url;
+                        const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+                        if (yt) embedUrl = `https://www.youtube.com/embed/${yt[1]}`;
+                        const vi = url.match(/vimeo\.com\/(\d+)/);
+                        if (vi) embedUrl = `https://player.vimeo.com/video/${vi[1]}`;
+                        const range = _quill.getSelection(true);
+                        _quill.insertEmbed(range ? range.index : 0, 'video', embedUrl, 'user');
+                    },
+                },
+            }
+        }
+    });
+    _quill.on('text-change', (d, o, source) => { if (source === 'user') _dirty = true; });
+
+    // Custom toolbar group: insert reader-input placeholders.
+    const tb = document.querySelector('#qRichWrap .ql-toolbar');
+    if (tb) {
+        const group = document.createElement('span');
+        group.className = 'ql-formats';
+        const mkBtn = (title, cls, fn) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.title = title;
+            b.className = cls;
+            b.addEventListener('click', fn);
+            group.appendChild(b);
+        };
+        mkBtn('Insert input line — readers type a short answer here', 'ql-uwinput-btn', () => {
+            const r = _quill.getSelection(true);
+            _quill.insertEmbed(r.index, 'uwinput', true, 'user');
+            _quill.setSelection(r.index + 1);
+            _dirty = true;
+        });
+        mkBtn('Insert answer box — readers write a longer response here', 'ql-uwanswer-btn', () => {
+            const r = _quill.getSelection(true);
+            _quill.insertEmbed(r.index, 'uwanswerbox', true, 'user');
+            _quill.setSelection(r.index + 1);
+            _dirty = true;
+        });
+        tb.appendChild(group);
+    }
+    return _quill;
+}
+
+// Plain text for the question list — a rich text block previews as its
+// visible text, not its markup.
+function promptPreview(q) {
+    if (q.question_type === 'text' && q.config && q.config.format === 'html') {
+        const d = document.createElement('div');
+        d.innerHTML = q.prompt || '';
+        return d.textContent.replace(/\s+/g, ' ').trim() || '(text block)';
+    }
+    return q.prompt || '(no prompt)';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     renderList();
     // Any edit inside the question form (typed or toggled) marks it unsaved.
@@ -230,7 +389,7 @@ function qItemEl(q) {
         `<i class="fas fa-grip-vertical qe-handle"></i>` +
         `<span class="qe-qtype">${shortType(q.question_type)}</span>` +
         `<span class="qe-qprompt"></span>`;
-    li.querySelector('.qe-qprompt').textContent = q.prompt || '(no prompt)';
+    li.querySelector('.qe-qprompt').textContent = promptPreview(q);
     li.addEventListener('click', e => { if (!e.target.classList.contains('qe-handle')) editQuestion(q.id); });
     return li;
 }
@@ -298,9 +457,19 @@ function showForm() {
                   : ' — prompt';
     document.getElementById('qTypeLabel').textContent = TYPE_LABELS[_editing.question_type] + _tlabel;
     document.getElementById('qPrompt').value = _editing.prompt || '';
-    document.getElementById('qPrompt').placeholder = (_editing.question_type === 'text')
-        ? 'Write the text… (links are clickable; YouTube/Vimeo/image links embed automatically)'
-        : 'Write the question…';
+    // Text blocks edit in the rich (Quill) editor; everything else keeps the
+    // plain prompt textarea.
+    const _isRich = (_editing.question_type === 'text');
+    document.getElementById('qPrompt').style.display = _isRich ? 'none' : '';
+    document.getElementById('qRichWrap').style.display = _isRich ? 'block' : 'none';
+    if (_isRich) {
+        ensureQuill();
+        if ((_editing.config || {}).format === 'html') {
+            _quill.root.innerHTML = _editing.prompt || '';
+        } else {
+            _quill.setText(_editing.prompt || '');   // legacy plain-text block
+        }
+    }
     document.getElementById('qPoints').value = _editing.points || 1;
     // Ungraded types score no points — hide the field entirely.
     const _ungraded = (_editing.question_type === 'reflection' || _editing.question_type === 'flashcards'
@@ -343,8 +512,11 @@ function renderBody() {
             '<i class="fas fa-align-left" style="color:#5eeec8;margin-right:6px;"></i>' +
             'Text block — not a question. It appears between questions as instructions or ' +
             'reading material (great for worksheets). It has no number, no answer and no ' +
-            'points. Links become clickable automatically, and YouTube, Vimeo and image ' +
-            'links are embedded in place.</p></div>';
+            'points. Use the toolbar for headings, formatting, links, images and video; ' +
+            'bare URLs in the text still auto-link and embed on the public page. The ' +
+            'two rightmost buttons (␣ / ▭) insert reader inputs: an inline answer line ' +
+            'and a multi-line answer box. What readers type is saved with their ' +
+            'submission (ungraded) and shows up in the attempts CSV export.</p></div>';
         return;
     }
 
@@ -705,9 +877,13 @@ function qpRender(folders, assets, inFolder) {
 function qpPick(u) { const cb = _qpCb; closeQuizPicker(); if (cb) cb(u); }
 
 async function saveQuestion() {
-    const prompt = document.getElementById('qPrompt').value.trim();
-    if (!prompt) { alert('Question prompt is required'); return; }
     const t = _editing.question_type;
+    let prompt = document.getElementById('qPrompt').value.trim();
+    if (t === 'text' && _quill) {
+        const hasContent = _quill.getText().trim() || _quill.root.querySelector('img, iframe, video, .uwq-winput, .uwq-wtext');
+        if (!hasContent) { alert('Write some content for the text block.'); return; }
+        prompt = _quill.root.innerHTML;
+    } else if (!prompt) { alert('Question prompt is required'); return; }
     let config;
     if (t === 'short_text') {
         const accepted = (_editing.config.accepted || []).map(a => (a || '').trim()).filter(Boolean);
@@ -743,8 +919,10 @@ async function saveQuestion() {
         if (!_editing.config.multiple && cc !== 1) { alert('Pick exactly one correct image.'); return; }
         if (_editing.config.multiple && cc < 1) { alert('Mark at least one correct image.'); return; }
         config = { multiple: !!_editing.config.multiple, options: opts };
-    } else if (t === 'reflection' || t === 'text') {
+    } else if (t === 'reflection') {
         config = {};
+    } else if (t === 'text') {
+        config = { format: 'html' };
     } else if (t === 'flashcards') {
         const _fcClean = v => cleanCell(typeof v === 'string' ? { kind: 'text', text: v } : v);
         const cards = (_editing.config.cards || [])

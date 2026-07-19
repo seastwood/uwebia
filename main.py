@@ -2838,6 +2838,11 @@ class QuizQuestion(db.Model):
             out['mode'] = cfg.get('mode', 'run')
             out['starter_code'] = cfg.get('starter_code', '')
             out['test_count'] = len(cfg.get('test_cases') or [])
+        elif self.question_type == 'text':
+            # Rich blocks are rendered as HTML by the player; plain ones are
+            # escaped + auto-linkified there.
+            if cfg.get('format') == 'html':
+                out['format'] = 'html'
         elif self.question_type == 'flashcards':
             # Both sides are study material — nothing here is an "answer".
             # Sides are cells (text or image); legacy string sides are coerced.
@@ -33584,8 +33589,25 @@ def _render_quiz_print_html(quiz, include_answers):
         if t == 'text':
             # Not a question — instructional text between questions. No number,
             # no answer-key row; links stay clickable (and get QR codes).
-            parts.append(f'<div class="print-q"><p class="print-text-block">'
-                         f'{_quiz_linkify_html(q.prompt)}</p></div>')
+            # Rich (Quill HTML) blocks print their markup directly, same trust
+            # as lesson content; legacy plain blocks are escaped + linkified.
+            if cfg.get('format') == 'html':
+                block_html = q.prompt or ''
+                # Reader-input placeholders print as blanks to write on.
+                if 'uwq-winput' in block_html or 'uwq-wtext' in block_html:
+                    _soup = BeautifulSoup(block_html, 'html.parser')
+                    for sp in _soup.select('span.uwq-winput'):
+                        sp.replace_with('_______________________')
+                    for dv in _soup.select('div.uwq-wtext'):
+                        box = _soup.new_tag('div')
+                        for _ in range(3):
+                            box.append(_soup.new_tag('div', attrs={'class': 'print-blank-line'}))
+                        dv.replace_with(box)
+                    block_html = str(_soup)
+                parts.append(f'<div class="print-q print-text-block">{block_html}</div>')
+            else:
+                parts.append(f'<div class="print-q"><p class="print-text-block">'
+                             f'{_quiz_linkify_html(q.prompt)}</p></div>')
             continue
         idx += 1
         parts.append('<div class="print-q">')
@@ -33942,9 +33964,14 @@ def _normalize_quiz_config(question_type, config, prompt=''):
             it['id'] = ids[i]
         return {'items': items, 'answer_order': [it['id'] for it in items]}, None
 
-    if question_type in ('reflection', 'text'):
+    if question_type == 'reflection':
         # No correct answer by design — the prompt is the whole configuration.
         return {}, None
+
+    if question_type == 'text':
+        # Rich (Quill HTML) blocks mark themselves so renderers know not to
+        # escape; legacy plain-text blocks carry no format key.
+        return ({'format': 'html'} if config.get('format') == 'html' else {}), None
 
     if question_type == 'flashcards':
         # Each side is a cell (text or image + optional caption), same shape as
@@ -35665,6 +35692,11 @@ def _format_attempt_answer(q, ans):
         return ' → '.join(seq)
     if t in ('short_text', 'reflection', 'coding'):
         return str(ans)
+    if t == 'text':
+        # Reader inputs inside a rich block, in document order.
+        if isinstance(ans, list):
+            return '; '.join(str(x).strip() for x in ans if str(x).strip())
+        return ''
     return json.dumps(ans) if not isinstance(ans, str) else ans
 
 
@@ -35686,6 +35718,9 @@ def admin_quiz_attempts_csv(qid):
     n = 0
     for q in questions:
         if q.question_type == 'text':
+            # Unnumbered, but text blocks with reader inputs carry responses.
+            if 'uwq-winput' in (q.prompt or '') or 'uwq-wtext' in (q.prompt or ''):
+                numbered.append((None, q))
             continue
         n += 1
         if q.question_type == 'flashcards':
@@ -35696,8 +35731,13 @@ def admin_quiz_attempts_csv(qid):
     labels = _quiz_identity_labels(attempts)
     buf = _io.StringIO()
     w = _csv.writer(buf)
+    def _col_label(n, q):
+        if n:
+            return f'Q{n}: {q.prompt[:80]}'
+        text = BeautifulSoup(q.prompt or '', 'html.parser').get_text(' ', strip=True)
+        return f'Inputs: {text[:80]}'
     w.writerow(['date', 'user', 'score', 'max_score', 'percent', 'passed'] +
-               [f'Q{n}: {q.prompt[:80]}' for n, q in numbered])
+               [_col_label(n, q) for n, q in numbered])
     for a in attempts:
         answers = a.answers or {}
         row = [a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '',
@@ -36045,6 +36085,10 @@ def _grade_quiz(quiz, submitted):
                       'ungraded': True}
             if q.question_type == 'reflection':
                 detail['reflection_saved'] = bool(isinstance(ans, str) and ans.strip())
+            elif q.question_type == 'text':
+                # Reader inputs inside a rich block — saved with the attempt.
+                detail['inputs_saved'] = bool(isinstance(ans, list) and any(
+                    isinstance(v, str) and v.strip() for v in ans))
             results.append(detail)
             continue
         max_score += q.points
@@ -36298,10 +36342,14 @@ def public_quiz_get(qid):
     visitor_hash = hash_asset_visitor_id(visitor_id)
     draft = _quiz_draft_for(quiz.id, public_user, visitor_hash)
 
-    # Most recent saved reflection responses for this identity, so readers can
-    # revisit (and revise) what they wrote on an earlier attempt.
+    # Most recent saved reflection / text-block-input responses for this
+    # identity, so readers can revisit (and revise) earlier writing.
     reflections = {}
-    reflection_qids = [q.id for q in quiz.questions.filter_by(question_type='reflection')]
+    def _has_reader_inputs(q):
+        return 'uwq-winput' in (q.prompt or '') or 'uwq-wtext' in (q.prompt or '')
+    reflection_qids = [q.id for q in quiz.questions
+                       if q.question_type == 'reflection'
+                       or (q.question_type == 'text' and _has_reader_inputs(q))]
     if reflection_qids:
         aq = QuizAttempt.query.filter_by(quiz_id=quiz.id)
         if public_user:
@@ -36315,7 +36363,8 @@ def public_quiz_get(qid):
                 if rqid in reflections:
                     continue
                 val = answers.get(str(rqid), answers.get(rqid))
-                if isinstance(val, str) and val.strip():
+                if (isinstance(val, str) and val.strip()) or \
+                        (isinstance(val, list) and any(isinstance(v, str) and v.strip() for v in val)):
                     reflections[rqid] = val
             if len(reflections) == len(reflection_qids):
                 break
@@ -36412,7 +36461,7 @@ _SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results',
                      # the revealing part and is dropped).
                      'tests', 'compile_output', 'runner_error', 'language', 'mode',
                      # ungraded types have no answers to reveal.
-                     'ungraded', 'reflection_saved'}
+                     'ungraded', 'reflection_saved', 'inputs_saved'}
 
 
 def _strip_answers_from_results(results):
