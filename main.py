@@ -32896,6 +32896,43 @@ def admin_guide_categories_reorder():
     return _utf8_json({'success': True})
 
 
+@app.route('/admin/guides/reorder', methods=['POST'])
+@login_required
+@require_perm('guides.manage')
+def admin_guides_reorder():
+    """Persist the drag-and-drop layout from the admin guides page: a global
+    display order plus (optionally) a new category per guide, so cards can be
+    dragged between category groups. This order is what the public guides
+    index renders."""
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    if not _guide_unrestricted():
+        return _utf8_json({'success': False, 'error': "You can't reorder guides."}, 403)
+    data = request.get_json() or {}
+    by_id = {g.id: g for g in Guide.query.filter_by(website_id=website.id).all()}
+    cat_ids = {c.id for c in GuideCategory.query.filter_by(website_id=website.id).all()}
+    for it in (data.get('items') or []):
+        try:
+            g = by_id.get(int(it.get('id')))
+        except (TypeError, ValueError):
+            continue
+        if not g:
+            continue
+        try:
+            g.sort_order = int(it.get('sort_order', 0))
+        except (TypeError, ValueError):
+            pass
+        if 'category_id' in it:
+            raw = it.get('category_id')
+            try:
+                g.category_id = int(raw) if raw and int(raw) in cat_ids else None
+            except (TypeError, ValueError):
+                g.category_id = None
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 @app.route('/admin/guides')
 @login_required
 @require_perm('guides.view')
