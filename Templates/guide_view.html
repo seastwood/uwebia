@@ -102,6 +102,15 @@
 /* Desktop: the header is purely decorative (progress bar). When the guide
    has no progress tracking, hide the empty header entirely. */
 @media (min-width: 821px) {
+    /* The public navbar is position:fixed, so a viewport-relative sticky top
+       must clear it or the sidebar header slides underneath while scrolling.
+       Cap the height too: a long TOC scrolls inside the card rather than
+       running past the bottom of the viewport. */
+    .gv-sidebar {
+        top: calc(var(--navbar-page-offset, 58px) + 16px);
+        max-height: calc(100svh - var(--navbar-page-offset, 58px) - 32px);
+        overflow-y: auto;
+    }
     .gv-toggle { cursor: default; pointer-events: none; padding: 18px 18px 6px; }
     .gv-chev { display: none; }
     .gv-toggle-default { display: none; }

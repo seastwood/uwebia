@@ -359,9 +359,20 @@ function initQuill() {
         const ph = document.createElement('div');
         ph.style.display = 'none';
         toolbar.insertAdjacentElement('afterend', ph);
-        let stuck = false, origTop = null;
+        let stuck = false;
+        function unstick() {
+            stuck = false; ph.style.display = 'none'; toolbar.classList.remove('is-stuck'); toolbar.removeAttribute('style');
+        }
         function updateToolbar() {
-            if (origTop === null) origTop = (stuck ? ph : toolbar).getBoundingClientRect().top + window.scrollY;
+            // Measure fresh every time — caching the offset goes stale as soon
+            // as anything above the editor changes height (images loading,
+            // Quill reflow, panels expanding), which made the bar stick far
+            // too early. When stuck, the placeholder marks the natural spot.
+            const rect = (stuck ? ph : toolbar).getBoundingClientRect();
+            // Editor pane hidden (no lesson open yet): rects read 0×0 at
+            // (0,0), which would pin the bar to the viewport corner.
+            if (!rect.width) { if (stuck) unstick(); return; }
+            const origTop = rect.top + window.scrollY;
             const shouldStick = window.scrollY + NAV_H >= origTop;
             if (shouldStick && !stuck) {
                 stuck = true;
@@ -370,12 +381,13 @@ function initQuill() {
                 const r = ph.getBoundingClientRect();
                 Object.assign(toolbar.style, { position: 'fixed', top: NAV_H + 'px', left: r.left + 'px', width: ph.offsetWidth + 'px', zIndex: '9000' });
             } else if (!shouldStick && stuck) {
-                stuck = false; ph.style.display = 'none'; toolbar.classList.remove('is-stuck'); toolbar.removeAttribute('style');
+                unstick();
             }
         }
         function updateWidth() { if (!stuck) return; const r = ph.getBoundingClientRect(); toolbar.style.left = r.left + 'px'; toolbar.style.width = ph.offsetWidth + 'px'; }
         window.addEventListener('scroll', updateToolbar, { passive: true });
-        window.addEventListener('resize', updateWidth, { passive: true });
+        window.addEventListener('resize', () => { updateToolbar(); updateWidth(); }, { passive: true });
+        updateToolbar();
     })();
 
     // Wire image-resize whenever the editor DOM changes.
