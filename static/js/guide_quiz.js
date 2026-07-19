@@ -64,6 +64,26 @@
 .uwq-embed-img { display:block; max-width:100%; max-height:320px; border-radius:10px; }
 /* text block — content between questions, not a question */
 .uwq-text-body { font-size:0.95rem; line-height:1.65; }
+/* rich (Quill HTML) text blocks */
+.uwq-rich h1, .uwq-rich h2, .uwq-rich h3 { font-weight:700; margin:0.8em 0 0.4em; }
+.uwq-rich h1 { font-size:1.4rem; } .uwq-rich h2 { font-size:1.2rem; } .uwq-rich h3 { font-size:1.05rem; }
+.uwq-rich p { margin:0 0 0.6em; }
+.uwq-rich p:last-child { margin-bottom:0; }
+.uwq-rich a { color:#5eeef8; }
+.uwq-rich img { max-width:100%; height:auto; border-radius:8px; }
+.uwq-rich iframe.ql-video { width:100%; max-width:560px; aspect-ratio:16/9; border:0; border-radius:10px; }
+.uwq-rich blockquote { border-left:3px solid rgba(94,238,248,0.5); margin:0.6em 0; padding:4px 0 4px 14px; opacity:0.85; }
+.uwq-rich pre { background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem; }
+.uwq-rich ul, .uwq-rich ol { padding-left:1.5em; margin:0 0 0.6em; }
+.uwq-rich .ql-align-center { text-align:center; }
+.uwq-rich .ql-align-right { text-align:right; }
+.uwq-rich .ql-align-justify { text-align:justify; }
+.uwq-rich .ql-indent-1 { padding-left:2em; } .uwq-rich .ql-indent-2 { padding-left:4em; }
+/* reader inputs inside rich text blocks */
+.uwq-winput-line { display:inline-block; width:170px; max-width:100%; padding:3px 8px; margin:0 3px; border:none; border-bottom:2px solid rgba(94,238,248,0.55); background:rgba(255,255,255,0.06); color:inherit; font:inherit; font-size:0.93rem; outline:none; border-radius:4px 4px 0 0; vertical-align:baseline; }
+.uwq-winput-line:focus { border-bottom-color:#5eeec8; }
+.uwq-winput-area { display:block; width:100%; min-height:90px; margin:8px 0; padding:10px 12px; border:1px solid rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.06); color:inherit; font:inherit; font-size:0.93rem; line-height:1.55; outline:none; resize:vertical; box-sizing:border-box; }
+.uwq-winput-area:focus { border-color:rgba(94,238,248,0.5); }
 /* per-question explanation (revealed after answering) */
 .uwq-expl { margin-top:7px; font-size:0.85rem; line-height:1.5; padding:7px 11px; border-left:3px solid rgba(94,238,200,0.55); background:rgba(94,238,200,0.06); border-radius:0 8px 8px 0; }
 /* attempt limit / cooldown notice */
@@ -212,6 +232,61 @@
         return embeds.length ? '<div class="uwq-embeds">' + embeds.join('') + '</div>' : '';
     }
 
+    // Rich (Quill HTML) text block: bare URLs typed as plain text still become
+    // links + media embeds, like plain blocks. Author-made links, code and
+    // existing embeds are left alone.
+    function enrichRichBlock(box) {
+        const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, {
+            acceptNode: n => (n.parentElement && n.parentElement.closest('a, pre, code'))
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+        });
+        const nodes = [];
+        while (walker.nextNode()) {
+            if (/https?:\/\//.test(walker.currentNode.nodeValue)) nodes.push(walker.currentNode);
+        }
+        const embeds = [];
+        nodes.forEach(node => {
+            const parts = linkifyParts(node.nodeValue);
+            embeds.push.apply(embeds, parts.embeds);
+            const span = document.createElement('span');
+            span.innerHTML = parts.html;
+            node.parentNode.replaceChild(span, node);
+        });
+        if (embeds.length) {
+            const div = document.createElement('div');
+            div.className = 'uwq-embeds';
+            div.innerHTML = embeds.join('');
+            box.appendChild(div);
+        }
+    }
+
+    // Swap the author-placed input placeholders in a rich text block for real
+    // fields. Identified by DOM order (content is static, so order is stable
+    // between draft save and restore).
+    function hydrateRichInputs(box, q) {
+        box.querySelectorAll('.uwq-winput, .uwq-wtext').forEach(node => {
+            let inp;
+            if (node.classList.contains('uwq-wtext')) {
+                inp = document.createElement('textarea');
+                inp.className = 'uwq-winput-area';
+                inp.placeholder = 'Write your answer…';
+            } else {
+                inp = document.createElement('input');
+                inp.type = 'text';
+                inp.className = 'uwq-winput-line';
+                inp.autocomplete = 'off';
+            }
+            inp.name = 'wq' + q.id;
+            node.replaceWith(inp);
+        });
+    }
+
+    function richInputFields(el, q) {
+        return Array.from(el.querySelectorAll(
+            '.uwq-q[data-qid="' + q.id + '"] .uwq-winput-line, ' +
+            '.uwq-q[data-qid="' + q.id + '"] .uwq-winput-area'));
+    }
+
     function cellHtml(cell) {
         if (cell && cell.kind === 'image' && cell.image_url) {
             return '<img class="uwq-cell-img" src="' + esc(cell.image_url) + '" alt="' + esc(cell.text || '') + '">'
@@ -261,6 +336,15 @@
               + (hasGraded ? 'Submit' : 'Save') + '</button><span class="uwq-score"></span></div>';
         html += '</form></div>';
         el.innerHTML = html;
+
+        // Rich text blocks: auto-link bare URLs, then bring any reader-input
+        // placeholders to life (before applyDraft, which restores their values).
+        (quiz.questions || []).forEach(q => {
+            if (q.question_type === 'text' && q.format === 'html') {
+                const box = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-rich');
+                if (box) { enrichRichBlock(box); hydrateRichInputs(box, q); }
+            }
+        });
 
         // Seed interactive widget state (from draft when present) then paint.
         (quiz.questions || []).forEach(q => {
@@ -313,14 +397,19 @@
         const form = el.querySelector('.uwq-form');
         form.addEventListener('submit', ev => { ev.preventDefault(); submit(el, quiz); });
         if (draft) applyDraft(el, quiz, draft);
-        // Reflections: when the draft doesn't already carry text, prefill from
-        // the reader's most recent submitted response (server-provided).
+        // Reflections + text-block inputs: when the draft doesn't already carry
+        // a value, prefill from the reader's most recent submission.
         if (quiz.reflections) {
             (quiz.questions || []).forEach(q => {
-                if (q.question_type !== 'reflection') return;
-                const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
                 const saved = quiz.reflections[String(q.id)];
-                if (ta && !ta.value && typeof saved === 'string') ta.value = saved;
+                if (q.question_type === 'reflection') {
+                    const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
+                    if (ta && !ta.value && typeof saved === 'string') ta.value = saved;
+                } else if (q.question_type === 'text' && Array.isArray(saved)) {
+                    richInputFields(el, q).forEach((f, i) => {
+                        if (!f.value && saved[i] != null) f.value = saved[i];
+                    });
+                }
             });
         }
         form.addEventListener('input', () => scheduleDraftSave(el, quiz));
@@ -396,11 +485,19 @@
     function renderQuestion(q, num) {
         const t = q.question_type;
         let h = '<div class="uwq-q" data-qid="' + q.id + '" data-qtype="' + t + '">';
-        const rich = linkifyParts(q.prompt);
         if (t === 'text') {
-            // Content block — no number, no inputs, nothing to grade.
-            return h + '<div class="uwq-text-body">' + rich.html + '</div>' + embedsHtml(rich.embeds) + '</div>';
+            // Content block — no number, nothing to grade. Rich (Quill HTML)
+            // blocks render their markup; enrichRichBlock later auto-links
+            // bare URLs and hydrateRichInputs turns any author-placed input
+            // placeholders into live fields. Plain blocks escape + linkify.
+            if (q.format === 'html') {
+                return h + '<div class="uwq-text-body uwq-rich">' + q.prompt + '</div>'
+                     + '<div class="uwq-fb" style="display:none;"></div></div>';
+            }
+            const plain = linkifyParts(q.prompt);
+            return h + '<div class="uwq-text-body">' + plain.html + '</div>' + embedsHtml(plain.embeds) + '</div>';
         }
+        const rich = linkifyParts(q.prompt);
         if (t === 'fill_blank') {
             h += '<p class="uwq-prompt uwq-blank-prompt"><span class="uwq-num">' + num + '</span><span>' + blankPromptHtml(q) + '</span></p>';
         } else {
@@ -673,6 +770,10 @@
             } else if (t === 'reflection') {
                 const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
                 answers[q.id] = ta ? ta.value : '';
+            } else if (t === 'text') {
+                // Reader inputs inside a rich block, by DOM order.
+                const fields = richInputFields(el, q);
+                if (fields.length) answers[q.id] = fields.map(f => f.value);
             }
             // flashcards: a study widget — nothing to submit.
         });
@@ -709,6 +810,11 @@
             } else if (t === 'reflection') {
                 const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-reflect');
                 if (ta && typeof val === 'string') ta.value = val;
+            } else if (t === 'text') {
+                const fields = richInputFields(el, q);
+                (Array.isArray(val) ? val : []).forEach((v, i) => {
+                    if (fields[i] && v != null) fields[i].value = v;
+                });
             }
             // matching / ordering already seeded from draft in renderQuiz.
         });
@@ -803,6 +909,10 @@
                     ufb.innerHTML = r.reflection_saved
                         ? '<span class="uwq-ok">✓ Response saved</span>'
                         : '<span style="opacity:0.6;">No response written — you can add one and resubmit any time.</span>';
+                }
+                if (t === 'text' && ufb && r.inputs_saved) {
+                    ufb.style.display = 'block';
+                    ufb.innerHTML = '<span class="uwq-ok">✓ Responses saved</span>';
                 }
                 return;
             }
