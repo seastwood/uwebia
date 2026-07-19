@@ -3,8 +3,17 @@
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
 <style>
+/* Drag-to-organize (guides.manage, unrestricted) */
+.ga-drag { cursor: grab; color: rgba(255,255,255,0.3); font-size: 0.85rem; flex-shrink: 0; padding-top: 4px; }
+.ga-drag:hover { color: #fff; }
+.pa-card.sortable-ghost { opacity: 0.35; border: 1px dashed rgba(94,238,248,0.6); }
+.ga-cat-chip.sortable-ghost { opacity: 0.35; }
+.ga-order-hint { font-size: 0.78rem; color: rgba(255,255,255,0.4); margin: -18px 0 18px; }
+.ga-order-hint i { font-size: 0.75rem; margin: 0 2px; }
+.pa-card-top .pa-card-name { flex: 1; min-width: 0; }
 .pa-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
 .pa-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 12px; }
 .pa-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
@@ -136,6 +145,9 @@
     {% endif %}
 
     {% if guides %}
+    {% if user_has_perm('guides.manage') and not guides_restricted %}
+    <p class="ga-order-hint"><i class="fas fa-grip-vertical"></i> Drag the grip on a card to reorder guides or move them into another category, and drag the category chips above to reorder sections — this is exactly the order visitors see on the public guides page.</p>
+    {% endif %}
     <div id="guideGrid">
         {% for grp in grouped_guides %}
         <div class="ga-group">
@@ -148,10 +160,13 @@
                 {% endif %}
                 <span class="ga-group-count">{{ grp.guides|length }}</span>
             </h3>
-            <div class="pa-grid">
+            <div class="pa-grid" data-cat="{{ grp.category.id if grp.category else '' }}">
                 {% for g in grp.guides %}
                 <div class="pa-card" id="guideCard-{{ g.id }}">
                     <div class="pa-card-top">
+                        {% if user_has_perm('guides.manage') and not guides_restricted %}
+                        <i class="fas fa-grip-vertical ga-drag" title="Drag to reorder / move category"></i>
+                        {% endif %}
                         <h2 class="pa-card-name">{{ g.title }}</h2>
                         <span class="pa-status pa-status--{{ g.status }}">{{ g.status }}</span>
                     </div>
@@ -781,5 +796,63 @@ async function doCategoryDelete() {
         btn.disabled = false;
     }
 }
+
+{% if user_has_perm('guides.manage') and not guides_restricted %}
+// ── Drag-to-organize: category chips + guide cards ─────────────────────────
+// The saved order (and any cross-group category move) is what the public
+// guides index renders.
+document.addEventListener('DOMContentLoaded', function () {
+    if (!window.Sortable) return;
+
+    const catList = document.getElementById('categoriesList');
+    if (catList) {
+        Sortable.create(catList, {
+            animation: 150,
+            filter: 'button',
+            preventOnFilter: false,
+            onEnd: function () {
+                const items = Array.from(catList.querySelectorAll('.ga-cat-chip'))
+                    .map((el, i) => ({ id: parseInt(el.id.replace('catChip-', '')), sort_order: i }));
+                fetch('/admin/guides/categories/reorder', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ items }),
+                }).then(r => r.json()).then(d => { if (!d.success) alert(d.error || 'Failed to save order'); })
+                  .catch(() => alert('Failed to save order'));
+            },
+        });
+    }
+
+    function persistGuideOrder() {
+        const items = [];
+        let i = 0;
+        document.querySelectorAll('#guideGrid .pa-grid').forEach(grid => {
+            const cat = grid.dataset.cat ? parseInt(grid.dataset.cat) : null;
+            grid.querySelectorAll('.pa-card').forEach(card => {
+                items.push({ id: parseInt(card.id.replace('guideCard-', '')),
+                             sort_order: i++, category_id: cat });
+            });
+        });
+        fetch('/admin/guides/reorder', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+        }).then(r => r.json()).then(d => { if (!d.success) alert(d.error || 'Failed to save order'); })
+          .catch(() => alert('Failed to save order'));
+        // Keep the per-section counts honest after a cross-category move.
+        document.querySelectorAll('#guideGrid .ga-group').forEach(gr => {
+            const c = gr.querySelector('.ga-group-count');
+            if (c) c.textContent = gr.querySelectorAll('.pa-card').length;
+        });
+    }
+
+    document.querySelectorAll('#guideGrid .pa-grid').forEach(grid => {
+        Sortable.create(grid, {
+            group: 'guides',
+            animation: 150,
+            handle: '.ga-drag',
+            onEnd: persistGuideOrder,
+        });
+    });
+});
+{% endif %}
 </script>
 {% endblock %}

@@ -51,6 +51,11 @@
 .gv-content h1, .gv-content h2, .gv-content h3 { font-weight: 700; margin: 1.4em 0 0.5em; }
 .gv-content pre { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; overflow: auto; }
 .gv-content blockquote { border-left: 3px solid rgba(94,238,248,0.5); margin: 1em 0; padding: 4px 0 4px 16px; opacity: 0.85; }
+/* Links: the public base sets `a { color: inherit }`, which leaves lesson
+   links white — recolor them, and disable skip-ink so the underline runs
+   unbroken under slashes and descenders in URLs. */
+.gv-content a { color: #5eeef8; text-decoration: underline; text-decoration-skip-ink: none; }
+.gv-content a:hover { color: #9df5fb; }
 
 .gv-start-btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 10px; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; font-weight: 700; text-decoration: none; }
 .gv-start-btn:hover { opacity: 0.88; }
