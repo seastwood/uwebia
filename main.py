@@ -1369,6 +1369,12 @@ class PublicUserRole(db.Model):
                              nullable=True, index=True)
     division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='SET NULL'),
                             nullable=True, index=True)
+    # "Builds on" chain: this role inherits every KSA requirement of its parent
+    # (and transitively up the chain) — e.g. 2nd yr builds on 1st yr. A role's
+    # own requirement for the same KSA can raise the level, never lower it.
+    parent_role_id = db.Column(db.Integer,
+                               db.ForeignKey('public_user_role.id', ondelete='SET NULL'),
+                               nullable=True, index=True)
     name       = db.Column(db.String(50), nullable=False)
     color      = db.Column(db.String(20), nullable=False, default='#5eeef8')
     # Optional job description — what this role is/does. Shown to members.
@@ -1394,6 +1400,7 @@ class PublicUserRole(db.Model):
     def to_dict(self):
         return {'id': self.id, 'name': self.name, 'color': self.color,
                 'division_id': self.division_id, 'description': self.description or '',
+                'parent_role_id': self.parent_role_id,
                 'exclude_from_directory': self.exclude_from_directory}
 
 
@@ -14491,6 +14498,7 @@ def _serialize_backup(uid):
         'public_user_roles': [{'id': r.id, 'website_id': r.website_id,
                                'name': r.name, 'color': r.color, 'role_type_id': r.role_type_id,
                                'division_id': r.division_id, 'description': r.description,
+                               'parent_role_id': r.parent_role_id,
                                'exclude_from_directory': r.exclude_from_directory,
                                'created_at': r.created_at.isoformat() if r.created_at else None,
                                } for r in public_user_roles],
@@ -16488,6 +16496,14 @@ def import_backup():
                 db.session.flush()
                 if rd.get('id'):
                     public_role_map[rd['id']] = pur.id
+            # Second pass: builds-on links, now that every role has a new id.
+            for rd in data.get('public_user_roles', []):
+                if rd.get('parent_role_id') and rd.get('id'):
+                    new_id = public_role_map.get(rd['id'])
+                    new_parent = public_role_map.get(rd['parent_role_id'])
+                    if new_id and new_parent:
+                        PublicUserRole.query.filter_by(id=new_id).update(
+                            {'parent_role_id': new_parent}, synchronize_session=False)
             for ra in data.get('public_user_role_assignments', []):
                 new_pu = pub_user_map.get(ra.get('public_user_id'))
                 new_r  = public_role_map.get(ra.get('role_id'))
@@ -34952,6 +34968,31 @@ def admin_division_role_update(rid):
         role.color = data['color'].strip()
     if 'description' in data:
         role.description = (data.get('description') or '').strip() or None
+    if 'parent_role_id' in data:
+        raw = data.get('parent_role_id')
+        if raw in (None, '', 0, '0'):
+            role.parent_role_id = None
+        else:
+            try:
+                parent = db.session.get(PublicUserRole, int(raw))
+            except (TypeError, ValueError):
+                parent = None
+            if (not parent or parent.website_id != role.website_id
+                    or parent.division_id != role.division_id or parent.id == role.id):
+                return _utf8_json({'success': False,
+                                   'error': 'Pick another role from the same ' + _division_word(website) + '.'}, 400)
+            # Walk the candidate's chain — reaching this role would be a loop
+            # (1st yr builds on 4th yr builds on … 1st yr).
+            cur, seen = parent, set()
+            while cur:
+                if cur.id == role.id:
+                    return _utf8_json({'success': False,
+                                       'error': f'That would create a loop — {parent.name} already builds on {role.name}.'}, 400)
+                if cur.id in seen:
+                    break
+                seen.add(cur.id)
+                cur = db.session.get(PublicUserRole, cur.parent_role_id) if cur.parent_role_id else None
+            role.parent_role_id = parent.id
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -35115,11 +35156,22 @@ def admin_role_ksa_requirements_get(role_id):
         catalog.append(d)
     reqs = {str(rk.ksa_id): {'level': rk.required_level, 'required': rk.required,
                              'priority': rk.priority} for rk in role.ksa_requirements.all()}
+    # Requirements inherited from the builds-on chain (parent + its ancestors).
+    # These are a floor: this role's own entry can only raise the level.
+    inherited = {}
+    if role.parent_role_id:
+        parent = db.session.get(PublicUserRole, role.parent_role_id)
+        if parent:
+            for kid, spec in _effective_role_requirements([parent])[parent.id].items():
+                inherited[str(kid)] = {'level': spec['level'], 'required': spec['required'],
+                                       'priority': spec['priority'],
+                                       'from': spec['inherited_from'] or parent.name}
     div = db.session.get(Division, role.division_id)
     return _utf8_json({'success': True, 'role': role.to_dict(),
                        'division': div.to_dict() if div else None,
                        'folders': [{'id': f.id, 'name': f.name} for f in folders],
-                       'catalog': catalog, 'requirements': reqs})
+                       'catalog': catalog, 'requirements': reqs,
+                       'inherited': inherited})
 
 
 _KSA_PRIORITIES = ('core', 'high', 'medium', 'low')
@@ -35241,6 +35293,58 @@ def admin_ksa_resources_save(kid):
 
 # ── KSA matrix Phase 4: the members × KSAs grid ──────────────────────────────
 
+_KSA_PRIO_RANK = {'core': 0, 'high': 1, 'medium': 2, 'low': 3}
+
+
+def _effective_role_requirements(roles):
+    """{role_id: {ksa_id: spec}} for the given PublicUserRole objects, where
+    each spec is {'level', 'required', 'priority', 'inherited_from'} and
+    includes everything inherited up the role's builds-on chain (2nd yr must
+    know everything 1st yr must). On overlap the stricter value wins: max
+    level, required beats recommended, higher priority. inherited_from is the
+    nearest ancestor's name, or None when the role defines the KSA itself.
+    Cycle-safe."""
+    by_id = {r.id: r for r in roles}
+    frontier = [r.parent_role_id for r in roles
+                if r.parent_role_id and r.parent_role_id not in by_id]
+    while frontier:
+        fetched = PublicUserRole.query.filter(PublicUserRole.id.in_(frontier)).all()
+        for r in fetched:
+            by_id[r.id] = r
+        frontier = [r.parent_role_id for r in fetched
+                    if r.parent_role_id and r.parent_role_id not in by_id]
+    reqs_raw = {}
+    if by_id:
+        for rk in RoleKSA.query.filter(RoleKSA.role_id.in_(list(by_id.keys()))).all():
+            reqs_raw.setdefault(rk.role_id, []).append(rk)
+    out = {}
+    for r in roles:
+        chain, seen = [], set()
+        cur = r
+        while cur and cur.id not in seen:
+            chain.append(cur)
+            seen.add(cur.id)
+            cur = by_id.get(cur.parent_role_id) if cur.parent_role_id else None
+        merged = {}
+        for node in reversed(chain):          # farthest ancestor first, self last
+            for rk in reqs_raw.get(node.id, []):
+                src = None if node.id == r.id else node.name
+                slot = merged.get(rk.ksa_id)
+                if slot is None:
+                    merged[rk.ksa_id] = {'level': rk.required_level,
+                                         'required': rk.required,
+                                         'priority': rk.priority,
+                                         'inherited_from': src}
+                    continue
+                slot['level'] = max(slot['level'], rk.required_level)
+                slot['required'] = slot['required'] or rk.required
+                if _KSA_PRIO_RANK.get(rk.priority, 2) < _KSA_PRIO_RANK.get(slot['priority'], 2):
+                    slot['priority'] = rk.priority
+                slot['inherited_from'] = src    # nearest definition attributes
+        out[r.id] = merged
+    return out
+
+
 @app.route('/admin/divisions/<int:did>/matrix')
 @login_required
 @require_perm('ksa.view')
@@ -35256,14 +35360,13 @@ def admin_division_matrix(did):
     matrix_folder_groups = [{'name': g['name'], 'count': len(g['ksas']), 'shared': g['shared']}
                             for g in ksa_groups]
 
-    # Division roles + their requirements (role_id -> {ksa_id: required_level}).
+    # Division roles + their requirements (role_id -> {ksa_id: required_level}),
+    # including everything inherited via each role's builds-on chain.
     div_roles = PublicUserRole.query.filter_by(website_id=website.id, division_id=d.id) \
         .order_by(PublicUserRole.name).all()
     div_role_ids = {r.id for r in div_roles}
-    req_by_role = {}
-    if div_role_ids:
-        for rk in RoleKSA.query.filter(RoleKSA.role_id.in_(div_role_ids)).all():
-            req_by_role.setdefault(rk.role_id, {})[rk.ksa_id] = rk.required_level
+    req_by_role = {rid: {kid: spec['level'] for kid, spec in specs.items()}
+                   for rid, specs in _effective_role_requirements(div_roles).items()}
 
     role_filter = request.args.get('role', type=int)
     # Default to active members only; "All members" is an explicit choice.
@@ -36963,13 +37066,14 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
         # Aggregate this member's requirements per KSA across their division roles.
         req_map = {}
         if full:
+            eff = _effective_role_requirements(roles)
             for r in roles:
-                for rk in r.ksa_requirements.all():
-                    slot = req_map.setdefault(rk.ksa_id, {'level': 0, 'required': False,
-                                                          'prank': 3, '_role_ids': set(), 'roles': []})
-                    slot['level'] = max(slot['level'], rk.required_level)
-                    slot['required'] = slot['required'] or rk.required
-                    slot['prank'] = min(slot['prank'], {'core': 0, 'high': 1, 'medium': 2, 'low': 3}.get(rk.priority, 2))
+                for kid, spec in eff.get(r.id, {}).items():
+                    slot = req_map.setdefault(kid, {'level': 0, 'required': False,
+                                                    'prank': 3, '_role_ids': set(), 'roles': []})
+                    slot['level'] = max(slot['level'], spec['level'])
+                    slot['required'] = slot['required'] or spec['required']
+                    slot['prank'] = min(slot['prank'], _KSA_PRIO_RANK.get(spec['priority'], 2))
                     # Remember which of the member's roles require this KSA so the
                     # profile can show role attribution and filter by role.
                     if r.id not in slot['_role_ids']:
