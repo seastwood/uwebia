@@ -1141,7 +1141,16 @@ def _division_ksa_folder_groups(division_id):
     if unfiled:
         groups.append({'name': None, 'shared': False, 'ksas': unfiled})
     if shared:
-        groups.append({'name': 'Shared', 'shared': True, 'ksas': shared})
+        # One group per source division ("Shared from Everyone"), so borrowed
+        # KSAs file under where they come from instead of one flat bucket.
+        by_src = {}
+        for k in shared:
+            by_src.setdefault(k.division_id, []).append(k)
+        src_names = {d.id: d.name for d in
+                     Division.query.filter(Division.id.in_(by_src.keys())).all()}
+        for src_id in sorted(by_src.keys(), key=lambda i: (src_names.get(i) or '').lower()):
+            groups.append({'name': f'Shared from {src_names.get(src_id, "another division")}',
+                           'shared': True, 'ksas': by_src[src_id]})
     return groups
 
 
@@ -34331,6 +34340,7 @@ def admin_divisions_page():
     website = get_admin_website()
     divisions, ksas_by_division, roles_by_division = [], {}, {}
     shared_ksas_by_division, share_count_by_ksa, div_names = {}, {}, {}
+    shared_groups_by_division = {}
     active_members_by_division = {}
     folders_by_division, ksa_groups_by_division, folders_json = {}, {}, {}
     if website:
@@ -34374,6 +34384,19 @@ def admin_divisions_page():
             if k:
                 shared_ksas_by_division.setdefault(s.division_id, []).append(k)
                 share_count_by_ksa[s.ksa_id] = share_count_by_ksa.get(s.ksa_id, 0) + 1
+        # Borrowed KSAs grouped by their source division, for "Shared from X"
+        # folder headers. Source names come from ALL divisions (a restricted
+        # sub-admin can borrow from a division they can't open).
+        _all_div_names = {d.id: d.name for d in
+                          Division.query.filter_by(website_id=website.id).all()}
+        for did, klist in shared_ksas_by_division.items():
+            by_src = {}
+            for k in klist:
+                by_src.setdefault(k.division_id, []).append(k)
+            shared_groups_by_division[did] = [
+                {'name': _all_div_names.get(src, 'another division'), 'ksas': ks}
+                for src, ks in sorted(by_src.items(),
+                                      key=lambda kv: (_all_div_names.get(kv[0]) or '').lower())]
         for r in PublicUserRole.query.filter_by(website_id=website.id).order_by(PublicUserRole.name).all():
             if r.division_id:
                 roles_by_division.setdefault(r.division_id, []).append(r)
@@ -34405,6 +34428,7 @@ def admin_divisions_page():
                            folders_by_division=folders_by_division, folders_json=folders_json,
                            active_members_by_division=active_members_by_division,
                            shared_ksas_by_division=shared_ksas_by_division,
+                           shared_groups_by_division=shared_groups_by_division,
                            share_count_by_ksa=share_count_by_ksa, div_names=div_names,
                            roles_by_division=roles_by_division,
                            ksa_types=_ksa_types(website), ksa_level_labels=_ksa_level_labels(website),
