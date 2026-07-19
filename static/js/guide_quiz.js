@@ -69,6 +69,10 @@
 /* attempt limit / cooldown notice */
 .uwq-gate { flex-basis:100%; margin:6px 0 0; padding:9px 12px; border-radius:9px; background:rgba(255,200,90,0.1); color:#ffd28a; font-size:0.85rem; }
 .uwq-attempts { font-size:0.78rem; opacity:0.55; flex-basis:100%; margin:4px 0 0; }
+/* locked (submitted) form — answers frozen until Retake */
+.uwq-locked .uwq-opt, .uwq-locked .uwq-img-opt, .uwq-locked .uwq-chip, .uwq-locked .uwq-target { cursor:default; }
+.uwq-locked .uwq-opt:hover { background:none; }
+.uwq-locked .uwq-chip { opacity:0.75; }
 /* fill in the blank */
 .uwq-blank { display:inline-block; width:120px; padding:3px 8px; margin:0 3px; border:none; border-bottom:2px solid rgba(94,238,248,0.55); background:rgba(255,255,255,0.06); color:inherit; font-size:0.95rem; outline:none; border-radius:4px 4px 0 0; }
 .uwq-blank:focus { border-bottom-color:#5eeec8; }
@@ -232,6 +236,7 @@
 
     function renderQuiz(el, quiz, draft) {
         el._quiz = quiz;
+        el._locked = false;   // a fresh form is editable (Retake unlocks this way)
         el._mstate = {};  // matching: qid -> {leftId: rightId}
         el._ostate = {};  // ordering: qid -> [itemId,...]
         el._sel = {};     // matching: qid -> currently picked leftId
@@ -573,6 +578,7 @@
         wrap.querySelectorAll('.uwq-chip[data-placed="1"]').forEach(chip => {
             chip.addEventListener('click', ev => {
                 ev.stopPropagation();
+                if (el._locked) return;
                 const lid = parseInt(chip.dataset.lid);
                 delete el._mstate[q.id][lid];      // back to pool
                 el._sel[q.id] = null;
@@ -581,6 +587,7 @@
         });
         wrap.querySelectorAll('.uwq-match-pool .uwq-chip').forEach(chip => {
             chip.addEventListener('click', () => {
+                if (el._locked) return;
                 const lid = parseInt(chip.dataset.lid);
                 el._sel[q.id] = (el._sel[q.id] === lid) ? null : lid;
                 renderMatching(el, q);
@@ -588,6 +595,7 @@
         });
         wrap.querySelectorAll('.uwq-target').forEach(tg => {
             tg.addEventListener('click', () => {
+                if (el._locked) return;
                 const picked = el._sel[q.id];
                 if (picked == null) return;
                 const rid = parseInt(tg.dataset.rid);
@@ -623,6 +631,7 @@
         wrap.innerHTML = h;
         wrap.querySelectorAll('.uwq-move').forEach(btn => {
             btn.addEventListener('click', () => {
+                if (el._locked) return;
                 const row = btn.closest('.uwq-order-row');
                 const id = parseInt(row.dataset.id);
                 const dir = parseInt(btn.dataset.dir);
@@ -707,6 +716,25 @@
         (quiz.questions || []).forEach(q => { if (q.question_type === 'image_choice') syncImgPicked(el, q); });
     }
 
+    // After a graded submit the answers are the record of the attempt — freeze
+    // every answer control so edits can only happen through Retake (which
+    // re-renders a fresh, unlocked form). Flashcards stay usable: they're a
+    // study widget, not an answer.
+    function lockQuiz(el, quiz) {
+        el._locked = true;
+        const box = el.querySelector('.uwq');
+        if (box) box.classList.add('uwq-locked');
+        el.querySelectorAll('.uwq-form input, .uwq-form textarea, .uwq-form select').forEach(inp => {
+            inp.disabled = true;
+        });
+        el.querySelectorAll('.uwq-move').forEach(b => { b.disabled = true; });
+        (quiz.questions || []).forEach(q => {
+            if (q.question_type !== 'coding') return;
+            const ta = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-code');
+            if (ta && ta._cm) ta._cm.setOption('readOnly', true);
+        });
+    }
+
     function syncImgPicked(el, q) {
         el.querySelectorAll('.uwq-q[data-qid="' + q.id + '"] .uwq-img-opt').forEach(lab => {
             const inp = lab.querySelector('input');
@@ -715,7 +743,9 @@
     }
 
     function scheduleDraftSave(el, quiz) {
-        if (!quiz) return;
+        // A submitted (locked) form must not autosave — the attempt is the
+        // record now, and a stray draft would prefill stale answers next visit.
+        if (!quiz || el._locked) return;
         clearTimeout(el._uwqDraftTimer);
         el._uwqDraftTimer = setTimeout(() => saveDraft(el, quiz), 700);
     }
@@ -856,6 +886,10 @@
             }
             return;
         }
+        // Graded attempt recorded — freeze the answers. Only Retake (below)
+        // unlocks, by rendering a fresh form.
+        lockQuiz(el, quiz);
+
         let s = 'Score: ' + data.score + ' / ' + data.max_score;
         if (data.best_score != null) s += ' · Best: ' + data.best_score;
         scoreEl.textContent = s;
