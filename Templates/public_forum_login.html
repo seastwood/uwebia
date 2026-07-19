@@ -151,6 +151,11 @@ Forum Login
             <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
         </div>
 
+        <label style="display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:0.86rem;cursor:pointer;opacity:0.9;">
+            <input type="checkbox" name="remember" value="1" style="width:15px;height:15px;accent-color:#5eeec8;cursor:pointer;">
+            Keep me logged in on this browser
+        </label>
+
         {% if show_captcha %}
         <div style="margin:14px 0 6px;padding:14px;background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;">
             <label style="font-size:0.83rem;display:block;margin-bottom:8px;color:rgba(255,255,255,0.7);">
