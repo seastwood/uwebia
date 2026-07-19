@@ -354,15 +354,21 @@
                     </div>
                     {% endfor %}
                     {% endfor %}
-                    {% for k in _shared %}
-                    <div class="da-ksa-row is-shared" title="Owned by {{ div_names.get(k.division_id, 'another ' + div_singular|lower) }} — edit it there">
+                    {% for sgrp in shared_groups_by_division.get(d.id, []) %}
+                    <div class="da-folder-head">
+                        <i class="fas fa-share-alt"></i> <span class="da-folder-name">Shared from {{ sgrp.name }}</span>
+                        <span class="da-ksa-meta">{{ sgrp.ksas|length }}</span>
+                    </div>
+                    {% for k in sgrp.ksas %}
+                    <div class="da-ksa-row is-shared in-folder" title="Owned by {{ sgrp.name }} — edit it there">
                         <span class="da-ksa-type">{{ k.ksa_type }}</span>
                         <div>
-                            <div class="da-ksa-name">{{ k.name }} <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from {{ div_names.get(k.division_id, 'another ' + div_singular|lower) }}</span></div>
+                            <div class="da-ksa-name">{{ k.name }} <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from {{ sgrp.name }}</span></div>
                             {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
                         </div>
                         <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
                     </div>
+                    {% endfor %}
                     {% endfor %}
                     {% if not _owned and not _shared %}
                     <div class="da-ksa-empty">No KSAs in this {{ div_singular|lower }} yet.</div>
@@ -1037,24 +1043,47 @@ async function openReqModal(roleId, name) {
         let opts = '<option value="">All folders</option>';
         _reqFolders.forEach(f => { opts += `<option value="${f.id}">${_escH(f.name)}</option>`; });
         if (_reqCatalog.some(k => !k.shared && !k.folder_id)) opts += '<option value="__unfiled">Unfiled</option>';
-        if (_reqCatalog.some(k => k.shared)) opts += '<option value="__shared">Shared</option>';
+        _reqSharedSources().forEach(src => {
+            opts += `<option value="__shared:${_escH(src)}">Shared from ${_escH(src)}</option>`;
+        });
         document.getElementById('reqFolderFilter').innerHTML = opts;
         document.getElementById('reqSearch').value = '';
         renderReqFiltered();
     } catch (e) { document.getElementById('reqList').innerHTML = '<p style="color:#ff8a8a;">Failed to load.</p>'; }
 }
 function closeReqModal() { document.getElementById('reqOverlay').style.display = 'none'; }
-function _reqGroupKey(k) { return k.shared ? '__shared' : (k.folder_id ? String(k.folder_id) : '__unfiled'); }
+// Shared KSAs group per source division ("Shared from Everyone").
+function _reqSharedSources() {
+    const seen = [];
+    _reqCatalog.forEach(k => {
+        if (k.shared) {
+            const src = k.owner_division || 'another division';
+            if (seen.indexOf(src) < 0) seen.push(src);
+        }
+    });
+    return seen.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+function _reqGroupKey(k) {
+    if (k.shared) return '__shared:' + (k.owner_division || 'another division');
+    return k.folder_id ? String(k.folder_id) : '__unfiled';
+}
 // Merge whatever is currently shown into _reqState before we re-render or save.
+// State is kept even at level 0 so a "Req'd" tick or priority choice made
+// before picking a level survives filtering/re-renders (saveReq only submits
+// entries with level >= 1).
 function _captureReq() {
     document.querySelectorAll('#reqList .da-req-row').forEach(row => {
         const kid = row.dataset.ksa;
-        const lv = parseInt(row.querySelector('.rq-level').value);
-        if (lv >= 1) _reqState[kid] = { level: lv,
+        _reqState[kid] = { level: parseInt(row.querySelector('.rq-level').value) || 0,
             required: row.querySelector('.rq-required').checked,
             priority: row.querySelector('.rq-priority').value };
-        else delete _reqState[kid];
     });
+}
+// Ticking "Req'd" on a row still at "Not required" bumps it to level 1 —
+// required at level 0 wouldn't save anything.
+function _onReqFlag(cb) {
+    const lv = cb.closest('.da-req-row').querySelector('.rq-level');
+    if (cb.checked && (parseInt(lv.value) || 0) < 1) lv.value = '1';
 }
 function renderReqFiltered() {
     _captureReq();
@@ -1063,8 +1092,8 @@ function renderReqFiltered() {
     let items = _reqCatalog.slice();
     if (q) items = items.filter(k => (k.name || '').toLowerCase().includes(q));
     if (ff === '__unfiled') items = items.filter(k => !k.shared && !k.folder_id);
-    else if (ff === '__shared') items = items.filter(k => k.shared);
-    else if (ff) items = items.filter(k => String(k.folder_id) === ff);
+    else if (ff.startsWith('__shared:')) items = items.filter(k => _reqGroupKey(k) === ff);
+    else if (ff) items = items.filter(k => !k.shared && String(k.folder_id) === ff);
     renderReq(items);
 }
 function _reqRowHtml(k) {
@@ -1088,7 +1117,7 @@ function _reqRowHtml(k) {
         <span class="da-member-name" style="flex:1;">${_escH(k.name)}${sharedTag}${inhTag}</span>
         <div class="da-req-controls">
             <select class="rq-level" title="Required level">${lvlOpts}</select>
-            <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="rq-required" ${req?'checked':''}> Req'd</label>
+            <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="rq-required" onchange="_onReqFlag(this)" ${req?'checked':''}> Req'd</label>
             <select class="rq-priority" title="Priority">${prioOpts}</select>
         </div>
     </div>`;
@@ -1100,15 +1129,19 @@ function renderReq(catalog) {
     const order = [], labelFor = {};
     _reqFolders.forEach(f => { order.push(String(f.id)); labelFor[String(f.id)] = f.name; });
     order.push('__unfiled'); labelFor['__unfiled'] = 'Unfiled';
-    order.push('__shared'); labelFor['__shared'] = 'Shared';
+    _reqSharedSources().forEach(src => {
+        const key = '__shared:' + src;
+        order.push(key); labelFor[key] = 'Shared from ' + src;
+    });
     const groups = {};
     catalog.forEach(k => { const key = _reqGroupKey(k); (groups[key] = groups[key] || []).push(k); });
     let html = '';
     order.forEach(key => {
         const list = groups[key]; if (!list || !list.length) return;
-        const showHeader = _reqFolders.length > 0 || key === '__shared';
+        const isShared = key.startsWith('__shared:');
+        const showHeader = _reqFolders.length > 0 || isShared;
         if (showHeader) {
-            const icon = key === '__shared' ? 'fa-share-alt' : (key === '__unfiled' ? 'fa-inbox' : 'fa-folder');
+            const icon = isShared ? 'fa-share-alt' : (key === '__unfiled' ? 'fa-inbox' : 'fa-folder');
             html += `<div class="da-folder-head${key==='__unfiled'?' is-unfiled':''}"><i class="fas ${icon}"></i> ${_escH(labelFor[key])} <span class="da-ksa-meta">${list.length}</span></div>`;
         }
         list.forEach(k => { html += _reqRowHtml(k); });
