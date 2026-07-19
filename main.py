@@ -87,7 +87,17 @@ uploads_folder = os.path.join(static_folder, 'uploads')
 os.makedirs(uploads_folder, exist_ok=True)
 
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
-app.secret_key = 'your_secret_key'  # Secret key for session management
+# Session/cookie signing key. Set UWEBIA_SECRET_KEY in the environment for
+# production — the fallback is a known placeholder, which makes every signed
+# cookie forgeable. NOTE: stored credentials (Stripe/SMS keys) are encrypted
+# with a key derived from this value, so changing it means re-entering those.
+app.secret_key = os.environ.get('UWEBIA_SECRET_KEY') or 'your_secret_key'
+
+# "Keep me logged in" (admin logins, via Flask-Login's remember cookie).
+from datetime import timedelta as _timedelta
+app.config['REMEMBER_COOKIE_DURATION'] = _timedelta(days=30)
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
 # ── Database configuration ────────────────────────────────────────────────────
 # Priority: db_config.json (set via admin UI) > DATABASE_URL env var > SQLite default
@@ -7462,7 +7472,7 @@ def two_factor_login(admin_key=None):
             flash('Invalid verification code.', 'error')
             return redirect(request.path)
 
-        login_user(user)
+        login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
 
         # The admin URL key is org-wide (on the anchor); they reached this 2FA
         # step through the gated login flow, so mark the path verified.
@@ -7534,6 +7544,7 @@ def login(admin_key=None):
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
+        remember = bool(request.form.get('remember'))
 
         # Rate limit check
         rl = _rl_check(ip, username)
@@ -7592,6 +7603,7 @@ def login(admin_key=None):
                 if _session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id):
                     session['pre_2fa_user_id'] = user.id
                     session['pre_2fa_admin_key'] = admin_key
+                    session['pre_2fa_remember'] = remember
                     return redirect(
                         url_for('two_factor_login', admin_key=admin_key)
                         if admin_key else url_for('two_factor_login'))
@@ -7618,11 +7630,12 @@ def login(admin_key=None):
 
                 session['pre_2fa_user_id'] = user.id
                 session['pre_2fa_admin_key'] = admin_key
+                session['pre_2fa_remember'] = remember
 
                 return redirect(
                     url_for('two_factor_login', admin_key=admin_key) if admin_key else url_for('two_factor_login'))
 
-            login_user(user)
+            login_user(user, remember=remember)
 
             if admin_url_key_required_for_user(user):
                 session['admin_path_verified'] = True
@@ -24375,6 +24388,7 @@ def public_login():
     if request.method == 'POST':
         login_value = (request.form.get('login') or '').strip().lower()
         password = request.form.get('password') or ''
+        remember = bool(request.form.get('remember'))
 
         # Rate limit check
         rl = _rl_check(ip, login_value)
@@ -24434,6 +24448,7 @@ def public_login():
                     session['pre_2fa_user_id'] = admin.id
                     session['pre_2fa_public_next_url'] = next_q
                     session['pre_2fa_public_website_prefix'] = website_prefix or ''
+                    session['pre_2fa_remember'] = remember
                     # Clear out any stale admin-login admin_key so the success
                     # branch in `public_admin_2fa` doesn't think this came from
                     # /admin/login.
@@ -24463,7 +24478,7 @@ def public_login():
                     _rl_record(ip, login_value, success=True)
                     return redirect(url_for('public_admin_2fa'))
 
-                login_user(admin)
+                login_user(admin, remember=remember)
                 _stamp_login(admin)
                 mirror = ensure_admin_public_mirror(admin, website)
                 if mirror:
@@ -24511,6 +24526,7 @@ def public_login():
 
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
+            session['pub_pending_remember'] = remember
             _pub_2fa_set_pending(public_user.id, code, 'login', next_url)
             try:
                 send_public_user_2fa_email(public_user, code, purpose='login')
@@ -24520,7 +24536,7 @@ def public_login():
             return redirect(url_for('public_2fa'))
 
         _rl_record(ip, login_value, success=True)
-        public_user_login(public_user)
+        public_user_login(public_user, remember=remember)
         return redirect(next_url)
 
     content = {
@@ -26177,7 +26193,8 @@ def public_2fa():
         if not public_user or public_user.is_banned or not public_user.is_active_public:
             flash('Account is no longer accessible.', 'error')
             return redirect(url_for('public_login'))
-        public_user_login(public_user)
+        public_user_login(public_user,
+                          remember=bool(session.pop('pub_pending_remember', False)))
         return redirect(next_url)
     return render_template('public_2fa.html', website=website, public_user=None)
 
@@ -26237,7 +26254,7 @@ def public_admin_2fa():
             flash('Invalid verification code.', 'error')
             return redirect(url_for('public_admin_2fa'))
 
-        login_user(user)
+        login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
         if admin_url_key_required_for_user(user):
             session['admin_path_verified'] = True
         _stamp_login(user)
@@ -27062,6 +27079,11 @@ def get_public_user():
         if pu:
             return pu
 
+    # Session expired or absent — a "keep me logged in" cookie can restore it.
+    pu = _public_user_from_remember_cookie()
+    if pu:
+        return pu
+
     # No real public session matched. If an admin is authenticated, surface
     # their public-side mirror for the website the request is hitting.
     try:
@@ -27125,9 +27147,12 @@ def inject_public_account_context():
     }
 
 
-def public_user_login(public_user):
+def public_user_login(public_user, remember=False):
     session['public_user_id'] = public_user.id
     session['public_user_website_id'] = public_user.website_id
+    if remember:
+        # Cookie is written by _public_remember_cookies on this response.
+        session['_pub_remember_set'] = True
     public_user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     _store_merge_guest_cart(public_user)
@@ -27136,6 +27161,69 @@ def public_user_login(public_user):
 def public_user_logout():
     session.pop('public_user_id', None)
     session.pop('public_user_website_id', None)
+    session['_pub_remember_clear'] = True
+
+
+# ── "Keep me logged in" for public users ─────────────────────────────────────
+# Public sessions are plain Flask session keys (browser-session cookie), and
+# that cookie is shared with the admin login — so public persistence gets its
+# own signed cookie instead of session.permanent. The token carries the user
+# id, website id, and a fragment of the password hash so changing the password
+# invalidates every remembered browser.
+_PUB_REMEMBER_COOKIE = 'uwebia_public_remember'
+_PUB_REMEMBER_DAYS = 30
+
+
+def _public_remember_serializer():
+    return URLSafeTimedSerializer(app.secret_key, salt='public-remember-v1')
+
+
+def _public_remember_fragment(pu):
+    return (pu.password_hash or 'passwordless')[-16:]
+
+
+@app.after_request
+def _public_remember_cookies(resp):
+    try:
+        if session.pop('_pub_remember_clear', None):
+            resp.delete_cookie(_PUB_REMEMBER_COOKIE)
+        elif session.pop('_pub_remember_set', None):
+            uid = session.get('public_user_id')
+            pu = db.session.get(PublicUser, uid) if uid else None
+            if pu:
+                token = _public_remember_serializer().dumps(
+                    {'u': pu.id, 'w': pu.website_id, 'p': _public_remember_fragment(pu)})
+                resp.set_cookie(_PUB_REMEMBER_COOKIE, token,
+                                max_age=_PUB_REMEMBER_DAYS * 86400, httponly=True,
+                                samesite='Lax', secure=request.is_secure)
+    except Exception:
+        pass
+    return resp
+
+
+def _public_user_from_remember_cookie():
+    """Silently restore a public login from the remember cookie: validate the
+    signature + age, the account's status, and the password-hash fragment,
+    then repopulate the session. Returns the PublicUser or None."""
+    token = request.cookies.get(_PUB_REMEMBER_COOKIE)
+    if not token:
+        return None
+    try:
+        data = _public_remember_serializer().loads(
+            token, max_age=_PUB_REMEMBER_DAYS * 86400)
+    except (SignatureExpired, BadSignature, Exception):
+        return None
+    if not isinstance(data, dict):
+        return None
+    pu = PublicUser.query.filter_by(id=data.get('u'), website_id=data.get('w'),
+                                    is_banned=False, is_active_public=True).first()
+    if not pu or pu.is_admin_mirror:
+        return None
+    if data.get('p') != _public_remember_fragment(pu):
+        return None
+    session['public_user_id'] = pu.id
+    session['public_user_website_id'] = pu.website_id
+    return pu
 
 
 def get_request_ip():
