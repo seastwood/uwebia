@@ -542,11 +542,12 @@
 }
 
 .public-navbar-right > a,
-.public-navbar-right > .public-navbar-dropdown > button {
+/* Group toggles: label + chevron stay on one line. Covers both variants —
+   the <button> (group without a URL) and the <a.public-navbar-group-link>
+   (group whose label is itself a link). */
+.public-navbar-right > .public-navbar-dropdown > button,
+.public-navbar-right > .public-navbar-dropdown > .public-navbar-group-link {
     white-space: nowrap;
-}
-
-.public-navbar-right > .public-navbar-dropdown > button {
     display: inline-flex;
     align-items: center;
     gap: 4px;
