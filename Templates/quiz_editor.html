@@ -80,7 +80,9 @@
 .ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
 .ql-toolbar.ql-snow { flex-wrap: wrap; }
 .ql-container { border-color: rgba(255,255,255,0.12) !important; border-radius: 0 0 10px 10px; }
-.ql-editor { color: #f0f0f0; font-size: 0.95rem; line-height: 1.7; min-height: 160px; }
+/* Cap the writing area and scroll inside it, so the toolbar stays on top
+   however long the block gets. */
+.ql-editor { color: #f0f0f0; font-size: 0.95rem; line-height: 1.7; min-height: 160px; max-height: min(480px, 55vh); overflow-y: auto; }
 .ql-editor.ql-blank::before { color: rgba(255,255,255,0.25); font-style: normal; }
 .ql-snow .ql-stroke { stroke: rgba(255,255,255,0.6); }
 .ql-snow .ql-fill { fill: rgba(255,255,255,0.6); }
