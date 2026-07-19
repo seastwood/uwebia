@@ -146,12 +146,15 @@
 
     {% if guides %}
     {% if user_has_perm('guides.manage') and not guides_restricted %}
-    <p class="ga-order-hint"><i class="fas fa-grip-vertical"></i> Drag the grip on a card to reorder guides or move them into another category, and drag the category chips above to reorder sections — this is exactly the order visitors see on the public guides page.</p>
+    <p class="ga-order-hint"><i class="fas fa-grip-vertical"></i> Drag the grip on a card to reorder guides or move them into another category. Drag the grip on a category heading (or the chips above) to reorder whole sections. This is exactly the order visitors see on the public guides page — Uncategorized always appears last.</p>
     {% endif %}
     <div id="guideGrid">
         {% for grp in grouped_guides %}
-        <div class="ga-group">
+        <div class="ga-group" data-catid="{{ grp.category.id if grp.category else '' }}">
             <h3 class="ga-group-title">
+                {% if user_has_perm('guides.manage') and not guides_restricted and grp.category %}
+                <i class="fas fa-grip-vertical ga-drag" title="Drag to reorder this category"></i>
+                {% endif %}
                 {% if grp.category %}
                 {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
                 {{ grp.category.name }}
@@ -805,19 +808,66 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!window.Sortable) return;
 
     const catList = document.getElementById('categoriesList');
+    const guideGrid = document.getElementById('guideGrid');
+
+    function saveCategoryOrder(orderedIds) {
+        const items = orderedIds.map((id, i) => ({ id: id, sort_order: i }));
+        fetch('/admin/guides/categories/reorder', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+        }).then(r => r.json()).then(d => { if (!d.success) alert(d.error || 'Failed to save order'); })
+          .catch(() => alert('Failed to save order'));
+    }
+
+    // Keep the two views of category order in sync without a reload: the chip
+    // row up top and the grouped sections below. Uncategorized always trails
+    // (the public page pins it last regardless).
+    function syncChipsTo(orderedIds) {
+        if (!catList) return;
+        orderedIds.forEach(id => {
+            const chip = document.getElementById('catChip-' + id);
+            if (chip) catList.appendChild(chip);
+        });
+    }
+    function syncGroupsTo(orderedIds) {
+        if (!guideGrid) return;
+        orderedIds.forEach(id => {
+            const grp = guideGrid.querySelector('.ga-group[data-catid="' + id + '"]');
+            if (grp) guideGrid.appendChild(grp);
+        });
+        const uncat = guideGrid.querySelector('.ga-group[data-catid=""]');
+        if (uncat) guideGrid.appendChild(uncat);
+    }
+
     if (catList) {
         Sortable.create(catList, {
             animation: 150,
             filter: 'button',
             preventOnFilter: false,
             onEnd: function () {
-                const items = Array.from(catList.querySelectorAll('.ga-cat-chip'))
-                    .map((el, i) => ({ id: parseInt(el.id.replace('catChip-', '')), sort_order: i }));
-                fetch('/admin/guides/categories/reorder', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ items }),
-                }).then(r => r.json()).then(d => { if (!d.success) alert(d.error || 'Failed to save order'); })
-                  .catch(() => alert('Failed to save order'));
+                const ids = Array.from(catList.querySelectorAll('.ga-cat-chip'))
+                    .map(el => parseInt(el.id.replace('catChip-', '')));
+                saveCategoryOrder(ids);
+                syncGroupsTo(ids);
+            },
+        });
+    }
+
+    // Whole category sections are draggable too (by the grip in their title) —
+    // the most direct way to arrange how sections appear on the public page.
+    if (guideGrid) {
+        Sortable.create(guideGrid, {
+            animation: 150,
+            draggable: '.ga-group',
+            handle: '.ga-group-title .ga-drag',
+            onEnd: function () {
+                const ids = Array.from(guideGrid.querySelectorAll('.ga-group'))
+                    .map(el => el.dataset.catid).filter(Boolean).map(Number);
+                saveCategoryOrder(ids);
+                syncChipsTo(ids);
+                // Keep Uncategorized visually last, mirroring the public page.
+                const uncat = guideGrid.querySelector('.ga-group[data-catid=""]');
+                if (uncat) guideGrid.appendChild(uncat);
             },
         });
     }
