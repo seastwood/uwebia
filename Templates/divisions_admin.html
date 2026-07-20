@@ -542,6 +542,11 @@
             <div class="uw-modal-body">
                 <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
                     <input type="text" id="folderModalName" required placeholder="e.g. 1st year, 2nd year, Core"></div>
+                <div class="uw-field" id="folderModalDivField" style="display:none;">
+                    <label>{{ div_singular }}</label>
+                    <select id="folderModalDivision" onchange="_folderModalDivChanged()"></select>
+                    <p style="font-size:0.76rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">Moving a folder takes its subfolders and every KSA inside to the new {{ div_singular|lower }} (levels, resources and shares travel with them). Requirements in {{ div_plural|lower }} that can no longer see those KSAs are removed.</p>
+                </div>
                 <div class="uw-field"><label>Inside <span style="opacity:0.5;">(optional — makes this a subfolder)</span></label>
                     <select id="folderModalParent"></select></div>
                 <p style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin:4px 0 0;">Folders group this division's KSAs and can nest. You can also drag folders and KSAs directly in the list.</p>
@@ -901,6 +906,17 @@ function openFolderModal(divId, id, name, parentId) {
     psel.innerHTML = '<option value="">— top level —</option>' +
         folders.filter(f => !blocked.has(f.id))
                .map(f => `<option value="${f.id}"${parentId && f.id === parentId ? ' selected' : ''}>${_escH(f.name)}</option>`).join('');
+    // Editing: show (and allow changing) the division this folder lives in.
+    const dfield = document.getElementById('folderModalDivField');
+    const dsel = document.getElementById('folderModalDivision');
+    if (id && DIV_LIST.length > 1) {
+        dfield.style.display = '';
+        dsel.innerHTML = DIV_LIST.map(dv =>
+            `<option value="${dv.id}"${dv.id === divId ? ' selected' : ''}>${_escH(dv.name)}</option>`).join('');
+    } else {
+        dfield.style.display = 'none';
+        dsel.innerHTML = '';
+    }
     document.getElementById('folderModalTitle').textContent = id ? 'Edit folder' : 'New folder';
     document.getElementById('folderModalSubmit').textContent = id ? 'Save' : 'Create';
     _err('folderModalError', '');
@@ -908,6 +924,15 @@ function openFolderModal(divId, id, name, parentId) {
     setTimeout(() => document.getElementById('folderModalName').focus(), 60);
 }
 function closeFolderModal() { document.getElementById('folderModalOverlay').style.display = 'none'; }
+// Division changed in the folder modal: reload the parent options from the
+// destination division (the server re-validates and blocks cycles).
+function _folderModalDivChanged() {
+    const nd = document.getElementById('folderModalDivision').value;
+    const psel = document.getElementById('folderModalParent');
+    const folders = FOLDERS_BY_DIV[String(nd)] || [];
+    psel.innerHTML = '<option value="">— top level —</option>' +
+        folders.map(f => `<option value="${f.id}">${_escH(f.name)}</option>`).join('');
+}
 async function submitFolderModal(e) {
     e.preventDefault();
     const id = document.getElementById('folderModalId').value;
@@ -916,9 +941,13 @@ async function submitFolderModal(e) {
     if (!name) { _err('folderModalError', 'Name is required'); return; }
     const url = id ? `/admin/folders/${id}/update` : `/admin/divisions/${divId}/folders/create`;
     const parent_id = document.getElementById('folderModalParent').value || null;
+    const body = { name, parent_id };
+    if (id && document.getElementById('folderModalDivField').style.display !== 'none') {
+        body.division_id = document.getElementById('folderModalDivision').value || null;
+    }
     const btn = document.getElementById('folderModalSubmit'); btn.disabled = true;
     try {
-        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parent_id }) });
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const d = await r.json();
         if (d.success) location.reload(); else { _err('folderModalError', d.error || 'Failed'); btn.disabled = false; }
     } catch (err) { _err('folderModalError', 'Request failed'); btn.disabled = false; }
