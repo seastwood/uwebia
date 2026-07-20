@@ -253,6 +253,24 @@
                     <button type="button" class="da-btn da-btn-secondary" style="margin-top:4px;" onclick="addKsaType()"><i class="fas fa-plus"></i> Add type</button>
                 </div>
             </div>
+            <label class="da-ksa-selfreport" style="display:flex;align-items:flex-start;gap:10px;margin-top:16px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                <input type="checkbox" id="ksaSelfReport" {% if website.ksa_self_report_enabled %}checked{% endif %} style="width:16px;height:16px;margin-top:2px;accent-color:#5eeef8;">
+                <span>Let members self-report their proficiency
+                    <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.45);font-weight:400;margin-top:2px;">Members can set their own level on the Explore tab and in their training tab. Admin-verified levels stay locked either way. Turn off to make all levels admin-set only.</span>
+                </span>
+            </label>
+            <label class="da-ksa-selfreport" style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                <input type="checkbox" id="ksaPublicProgress" {% if website.ksa_public_progress %}checked{% endif %} style="width:16px;height:16px;margin-top:2px;accent-color:#5eeef8;">
+                <span>Let members see each other's requirements &amp; progress
+                    <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.45);font-weight:400;margin-top:2px;">On another member's profile, show their full training roadmap — required levels, targets and gaps — not just the skills they hold. Read-only; only they can change their own levels. Off keeps others' profiles to the held-skills showcase.</span>
+                </span>
+            </label>
+            <label class="da-ksa-selfreport" style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                <input type="checkbox" id="ksaPublicExplore" {% if website.ksa_public_explore %}checked{% endif %} style="width:16px;height:16px;margin-top:2px;accent-color:#5eeef8;">
+                <span>Public "Explore skills" page (no login)
+                    <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.45);font-weight:400;margin-top:2px;">Anyone — including visitors without an account — can browse the whole KSA catalog by {{ div_singular|lower }} and folder at <code>/skills</code>, and open the linked guides, quizzes and resources. A link appears on the public guides page. No levels or progress are shown.</span>
+                </span>
+            </label>
             <div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
                 <button class="da-btn da-btn-primary" onclick="saveKsaSettings()"><i class="fas fa-check"></i> Save settings</button>
                 <span id="settingsStatus" style="font-size:0.82rem;"></span>
@@ -1049,9 +1067,12 @@ function addKsaType() { document.getElementById('ksaTypes').appendChild(_chipRow
 async function saveKsaSettings() {
     const level_labels = Array.from(document.querySelectorAll('#levelLabels input')).map(i => i.value.trim());
     const types = Array.from(document.querySelectorAll('#ksaTypes input')).map(i => i.value.trim()).filter(Boolean);
+    const self_report_enabled = document.getElementById('ksaSelfReport').checked;
+    const public_progress = document.getElementById('ksaPublicProgress').checked;
+    const public_explore = document.getElementById('ksaPublicExplore').checked;
     const st = document.getElementById('settingsStatus'); st.textContent = 'Saving…'; st.style.color = 'rgba(255,255,255,0.6)';
     try {
-        const r = await fetch('/admin/ksa/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level_labels, types }) });
+        const r = await fetch('/admin/ksa/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level_labels, types, self_report_enabled, public_progress, public_explore }) });
         const d = await r.json();
         if (d.success) { st.textContent = 'Saved.'; st.style.color = '#5eeec8'; setTimeout(() => location.reload(), 500); }
         else { st.textContent = d.error || 'Failed.'; st.style.color = '#ff8a8a'; }

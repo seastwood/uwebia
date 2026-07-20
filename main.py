@@ -53,7 +53,12 @@ from flask import send_file
 
 from bs4 import BeautifulSoup
 
-logging.basicConfig(level=logging.DEBUG)
+# INFO by default — DEBUG surfaces a flood of third-party noise (urllib3
+# connection logs on every webhook/HTTP call, etc.). Set UWEBIA_LOG_LEVEL=DEBUG
+# to opt back into verbose logging when troubleshooting.
+logging.basicConfig(level=getattr(logging, os.environ.get('UWEBIA_LOG_LEVEL', 'INFO').upper(), logging.INFO))
+# These libraries are chatty at DEBUG and never useful in normal operation.
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 # Set the template folder path
 template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Templates')
@@ -2301,6 +2306,19 @@ class Website(db.Model):
     # type labels. Both NULL fall back to module defaults.
     ksa_level_labels = db.Column(db.JSON, nullable=True)
     ksa_types        = db.Column(db.JSON, nullable=True)
+    # When on, members may self-report their proficiency (Explore tab + their
+    # own training tab). Off makes all levels admin-set only.
+    ksa_self_report_enabled = db.Column(db.Boolean, nullable=False, default=True,
+                                        server_default=_sa_true())
+    # When on, members can see OTHER members' full training requirements &
+    # progress (targets, gaps) — not just the held-skills showcase. Off keeps
+    # others' profiles to the showcase view only.
+    ksa_public_progress = db.Column(db.Boolean, nullable=False, default=False,
+                                    server_default=_sa_false())
+    # When on, a public "Explore skills" page (/skills) lets anyone — no login —
+    # browse the KSA catalog by division/folder and open the learning resources.
+    ksa_public_explore = db.Column(db.Boolean, nullable=False, default=False,
+                                   server_default=_sa_false())
     # What "Division" is called on this site (e.g. Guild, Department, Squad).
     # NULL falls back to the default "Division" / "Divisions".
     division_label_singular = db.Column(db.String(40), nullable=True)
@@ -7080,7 +7098,7 @@ _RESERVED_URL_PREFIXES = frozenset({
     'forgot-password', 'reset-password', 'verify-email', 'resend-verification',
     # Public content
     'posts', 'products', 'shop', 'store', 'forum', 'calendar', 'guides', 'quizzes',
-    'members', 'quiz', 'page', 'section', 'comment', 'upload', 'asset',
+    'members', 'quiz', 'skills', 'page', 'section', 'comment', 'upload', 'asset',
     'preview-page', 'preview-navbar', 'preview_page', 'preview_navbar',
     # Admin CRUD prefixes (top-level)
     'create-website', 'create_website', 'delete-website', 'delete_website',
@@ -14447,6 +14465,9 @@ def _serialize_backup(uid):
                       'guides_show_my_training': w.guides_show_my_training,
                       'ksa_level_labels': w.ksa_level_labels,
                       'ksa_types': w.ksa_types,
+                      'ksa_self_report_enabled': w.ksa_self_report_enabled,
+                      'ksa_public_progress': w.ksa_public_progress,
+                      'ksa_public_explore': w.ksa_public_explore,
                       'division_label_singular': w.division_label_singular,
                       'division_label_plural': w.division_label_plural,
                       } for w in websites],
@@ -15363,6 +15384,21 @@ def import_backup():
                 db.session.delete(nl)
             StorageConnection.query.filter_by(user_id=uid).delete(synchronize_session=False)
             OAuthAppCredentials.query.delete(synchronize_session=False)
+            # Notification channels/rules are user-scoped and the import
+            # recreates them — without this wipe each import ADDS another full
+            # set of (webhook-less) channel shells, which then spam the event
+            # scheduler with "no decryptable webhook URL" every scan.
+            _nc_ids = [c.id for c in NotificationChannel.query.filter_by(user_id=uid).all()]
+            if _nc_ids:
+                _nr_ids = [r.id for r in NotificationRule.query.filter(
+                    NotificationRule.channel_id.in_(_nc_ids)).all()]
+                if _nr_ids:
+                    NotificationDelivery.query.filter(
+                        NotificationDelivery.rule_id.in_(_nr_ids)).delete(synchronize_session=False)
+                    NotificationRule.query.filter(
+                        NotificationRule.id.in_(_nr_ids)).delete(synchronize_session=False)
+                NotificationChannel.query.filter(
+                    NotificationChannel.id.in_(_nc_ids)).delete(synchronize_session=False)
 
             # ── Sub-admins + their permission groups (deleted LAST) ───────────
             # By now every root-owned row that referenced a sub-admin (assets'
@@ -15478,6 +15514,9 @@ def import_backup():
                             guides_show_my_training=wd.get('guides_show_my_training', False),
                             ksa_level_labels=wd.get('ksa_level_labels'),
                             ksa_types=wd.get('ksa_types'),
+                            ksa_self_report_enabled=wd.get('ksa_self_report_enabled', True),
+                            ksa_public_progress=wd.get('ksa_public_progress', False),
+                            ksa_public_explore=wd.get('ksa_public_explore', False),
                             division_label_singular=wd.get('division_label_singular'),
                             division_label_plural=wd.get('division_label_plural'))
                 db.session.add(w);
@@ -35450,10 +35489,19 @@ def admin_ksa_settings():
         if not types:
             return _utf8_json({'success': False, 'error': 'Provide at least one KSA type.'}, 400)
         website.ksa_types = types[:12]
+    if 'self_report_enabled' in data:
+        website.ksa_self_report_enabled = bool(data.get('self_report_enabled'))
+    if 'public_progress' in data:
+        website.ksa_public_progress = bool(data.get('public_progress'))
+    if 'public_explore' in data:
+        website.ksa_public_explore = bool(data.get('public_explore'))
     db.session.commit()
     return _utf8_json({'success': True,
                        'level_labels': _ksa_level_labels(website),
-                       'types': _ksa_types(website)})
+                       'types': _ksa_types(website),
+                       'self_report_enabled': bool(website.ksa_self_report_enabled),
+                       'public_progress': bool(website.ksa_public_progress),
+                       'public_explore': bool(website.ksa_public_explore)})
 
 
 @app.route('/admin/divisions/settings', methods=['POST'])
@@ -37828,21 +37876,23 @@ def _ksa_dev_resources(ksa, website, guide_cache=None, quiz_cache=None, completi
     return items
 
 
-def _browse_all_skills(website, viewer, group_by_folder=False):
-    """A self-development catalog of EVERY KSA on the website, grouped by its
-    owning division, annotated with the viewer's current level and the learning
-    resources attached to each — so a member can pick up any skill, even ones
-    outside their own divisions/roles. group_by_folder=False → a single flat
-    list per division (no folder headers); True → grouped by folder."""
+def _browse_all_skills(website, viewer=None, group_by_folder=False):
+    """A catalog of EVERY KSA on the website, grouped by its owning division and
+    folder, with each KSA's learning resources. When `viewer` is a member, each
+    KSA is annotated with their current level (for the logged-in Explore tab);
+    when `viewer` is None (public /skills page) no personal state is included.
+    group_by_folder=False → a single flat list per division; True → by folder."""
     ksas = KSA.query.filter_by(website_id=website.id).all()
     if not ksas:
         return []
     divisions = {d.id: d for d in Division.query.filter_by(website_id=website.id).all()}
-    recs = {uk.ksa_id: uk for uk in UserKSA.query.filter(
-        UserKSA.public_user_id == viewer.id,
-        UserKSA.ksa_id.in_([k.id for k in ksas])).all()}
+    recs, comp = {}, None
+    if viewer:
+        recs = {uk.ksa_id: uk for uk in UserKSA.query.filter(
+            UserKSA.public_user_id == viewer.id,
+            UserKSA.ksa_id.in_([k.id for k in ksas])).all()}
+        comp = _ksa_user_completions(viewer, website)
     gc, qc = {}, {}
-    comp = _ksa_user_completions(viewer, website)
     folders_by_div = {}
     for f in KSAFolder.query.filter_by(website_id=website.id).all():
         folders_by_div.setdefault(f.division_id, []).append(f)
@@ -37940,11 +37990,12 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
                         slot['roles'].append({'id': r.id, 'name': r.name, 'color': r.color})
         fgroups = _division_ksa_folder_groups(d.id)
         ksas = [k for g in fgroups for k in g['ksas']]
-        levels = {}
+        levels, self_rep = {}, {}
         if ksas:
             for uk in UserKSA.query.filter(UserKSA.public_user_id == target_user.id,
                                            UserKSA.ksa_id.in_([k.id for k in ksas])).all():
                 levels[uk.ksa_id] = uk.level
+                self_rep[uk.ksa_id] = bool(uk.self_reported)
 
         def _mk_item(k):
             lv = levels.get(k.id, 0)
@@ -37961,6 +38012,10 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
                 'required': (req['required'] if req else None),
                 'priority': (_KSA_PRIO_NAMES[req['prank']] if req else None),
                 'met': (target == 0) or (lv >= target),
+                # verified = an admin set this level (member can't change it);
+                # self_reported = the member set it themselves.
+                'verified': bool(lv > 0 and not self_rep.get(k.id)),
+                'self_reported': bool(lv > 0 and self_rep.get(k.id)),
                 'resources': _resources_for(k) if full else [],
                 'roles': (req['roles'] if req else []),
             }
@@ -38163,6 +38218,26 @@ def public_member_profile(user_id, prefix=None):
     return _render_member_profile(prefix, user_id)
 
 
+@app.route('/skills', defaults={'prefix': None})
+@app.route('/<string:prefix>/skills')
+def public_skills_explore(prefix=None):
+    """Public, no-login catalog of every KSA grouped by division/folder, so
+    visitors can browse skills and open the linked guides/quizzes/resources.
+    Gated by the admin's ksa_public_explore setting."""
+    website = get_live_website(url_prefix=prefix) if prefix else get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    if not website.is_live:
+        return render_template('site_offline.html', website=website), 503
+    if not getattr(website, 'ksa_public_explore', False):
+        abort(404)
+    catalog = _browse_all_skills(website, viewer=None, group_by_folder=True)
+    resp = make_response(render_template(
+        'public_skills_explore.html', website=website, catalog=catalog,
+        public_user=_public_user_for_website(website)))
+    return resp
+
+
 @app.route('/skills/<int:ksa_id>/level', defaults={'prefix': None}, methods=['POST'])
 @app.route('/<string:prefix>/skills/<int:ksa_id>/level', methods=['POST'])
 def public_set_own_skill_level(ksa_id, prefix=None):
@@ -38173,6 +38248,9 @@ def public_set_own_skill_level(ksa_id, prefix=None):
     website, viewer, short = _require_member_area(prefix)
     if short is not None:
         return short
+    if not getattr(website, 'ksa_self_report_enabled', True):
+        return _utf8_json({'success': False,
+                           'error': 'Self-reporting skills is turned off for this site.'}, 403)
     ksa = KSA.query.filter_by(id=ksa_id, website_id=website.id).first()
     if not ksa:
         return _utf8_json({'success': False, 'error': 'Skill not found.'}, 404)
@@ -38252,10 +38330,14 @@ def _render_member_profile(prefix, user_id):
         public_user_id=target.id, is_hidden=False).count()
 
     is_self = (viewer.id == target.id)
+    # Full roadmap (requirements + progress/gaps) shows for your own profile
+    # always, and for others' profiles when the admin has opted in. Otherwise
+    # others see only the held-skills showcase. Editing controls stay self-only.
+    show_progress = is_self or bool(getattr(website, 'ksa_public_progress', False))
     forum_items = _member_forum_activity(target, website, q) if tab == 'forum' else None
     guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
-    ksa_profile = _member_ksa_profile(target, website, full=is_self, group_by_folder=_by_folder) if tab == 'ksas' else None
-    other_skills = _member_other_skills(target, website, full=is_self) if tab == 'ksas' else None
+    ksa_profile = _member_ksa_profile(target, website, full=show_progress, group_by_folder=_by_folder) if tab == 'ksas' else None
+    other_skills = _member_other_skills(target, website, full=show_progress) if tab == 'ksas' else None
     # "Explore" is a self-only catalog of every KSA on the site (any division).
     all_skills = _browse_all_skills(website, viewer, group_by_folder=_by_folder) if (tab == 'explore' and is_self) else None
     # Cheap counts for the tab labels (computed regardless of active tab).
@@ -38306,12 +38388,13 @@ def _render_member_profile(prefix, user_id):
                            ksa_view=ksa_view,
                            all_skills=all_skills, all_skills_count=all_skills_count,
                            ksa_level_labels=(_ksa_level_labels(website) if is_self else None),
+                           ksa_self_report=(is_self and bool(getattr(website, 'ksa_self_report_enabled', True))),
                            skill_level_base=(('/' + website.url_prefix + '/skills/')
                                              if website.url_prefix else '/skills/'),
                            resource_toggle_base=(('/' + website.url_prefix + '/skills/resource/')
                                                  if website.url_prefix else '/skills/resource/'),
                            site_roles=site_roles, division_role_groups=division_role_groups,
-                           ksa_full=is_self,
+                           ksa_full=show_progress,
                            is_self=is_self,
                            training_guides=training_guides,
                            members_base=_members_base_url(website),
@@ -42425,13 +42508,16 @@ def _fire_rule(rule, embed, subject_key):
         app.logger.warning(f'[notifications] rule {rule.id} has no channel; skipping')
         return
     if not channel.is_active:
-        app.logger.info(
+        app.logger.debug(
             f'[notifications] rule {rule.id} channel={channel.id} is inactive; skipping')
         return
     cfg = channel.config or {}
     webhook_url = decrypt_api_key(cfg.get('webhook_url') or '')
     if not webhook_url:
-        app.logger.warning(
+        # Persistent config state (e.g. a channel restored from a backup that
+        # stripped its secret) — debug, not a per-scan warning, or the event
+        # scheduler floods the log every couple of minutes.
+        app.logger.debug(
             f'[notifications] rule {rule.id} channel={channel.id} has no decryptable webhook URL; skipping')
         return
 
