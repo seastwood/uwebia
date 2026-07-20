@@ -34657,7 +34657,7 @@ def admin_division_combine(did):
     except (TypeError, ValueError):
         other = None
     if not other or other.website_id != website.id or other.id == d.id:
-        return _utf8_json({'success': False, 'error': 'Pick another ' + _division_word(website).lower() + ' to combine with.'}, 400)
+        return _utf8_json({'success': False, 'error': 'Pick another ' + _division_word(website).lower() + ' to merge with.'}, 400)
     if not can_access_division(other.id):
         return _utf8_json({'success': False, 'error': "You don't have access to that " + _division_word(website).lower() + '.'}, 403)
 
@@ -34694,7 +34694,7 @@ def admin_division_separate(did):
     if d is None:
         return website
     if not d.merge_group_id:
-        return _utf8_json({'success': False, 'error': 'Not combined with anything.'}, 400)
+        return _utf8_json({'success': False, 'error': 'Not merged with anything.'}, 400)
     group = d.merge_group_id
     d.merge_group_id = None
     db.session.flush()

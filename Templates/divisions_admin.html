@@ -228,23 +228,23 @@
         {% endif %}
         {% if d.description %}<p class="da-div-desc">{{ d.description }}</p>{% endif %}
 
-        {# ── Combined divisions: shared members, separable later ── #}
+        {# ── Merged divisions: shared members, unmergeable later ── #}
         {% set _partners = combined_with_by_division.get(d.id, []) %}
         {% if _partners or (can_edit_div and divisions|length > 1) %}
         <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
             {% if _partners %}
-            <span class="da-shared-tag" title="Members stay in sync across combined {{ div_plural|lower }} — adding, removing or changing a member's status in one applies to all. Separate to let them diverge.">
-                <i class="fas fa-object-group"></i> Combined with {{ _partners | map(attribute='name') | join(', ') }}
+            <span class="da-shared-tag" title="Members stay in sync across merged {{ div_plural|lower }} — adding, removing or changing a member's status in one applies to all. Unmerge to let them diverge.">
+                <i class="fas fa-object-group"></i> Merged with {{ _partners | map(attribute='name') | join(', ') }}
             </span>
             {% if can_edit_div %}
             <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;"
                     onclick='separateDivision({{ d.id }}, {{ d.name|tojson }})'>
-                <i class="fas fa-object-ungroup"></i> Separate
+                <i class="fas fa-object-ungroup"></i> Unmerge
             </button>
             {% endif %}
             {% elif can_edit_div %}
-            <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="Combine this {{ div_singular|lower }} with another: their member lists merge and stay in sync (adds, removals and status changes apply to all) until you separate them. Each keeps its own roles and KSAs.">
-                <i class="fas fa-object-group" style="opacity:0.5;"></i> combine with
+            <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="Merge this {{ div_singular|lower }} with another: their member lists combine and stay in sync (adds, removals and status changes apply to all) until you unmerge them. Each keeps its own roles and KSAs.">
+                <i class="fas fa-object-group" style="opacity:0.5;"></i> merge with
                 <select onchange="combineDivision({{ d.id }}, this.value, {{ d.name|tojson }}, this)"
                         style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:3px 6px;font-size:0.78rem;">
                     <option value="">— choose —</option>
@@ -728,13 +728,32 @@ async function submitKsaModal(e) {
 let _delAction = null;
 // onDone: optional callback run after a successful POST instead of a full
 // page reload (used by the inline members panel so it doesn't collapse).
-function _openDel(title, msg, action, onDone) {
+function _openDel(title, msg, action, onDone, opts) {
+    opts = opts || {};
     document.getElementById('delTitle').textContent = title;
     document.getElementById('delMsg').textContent = msg;
     _delAction = action;
-    document.getElementById('delConfirm').onclick = async () => {
-        const btn = document.getElementById('delConfirm'); btn.disabled = true;
-        try { const r = await fetch(_delAction, { method: 'POST' }); const d = await r.json();
+    const btn = document.getElementById('delConfirm');
+    btn.textContent = opts.label || 'Delete';
+    // Neutral (non-destructive) confirmations swap the red for the accent.
+    if (opts.neutral) {
+        btn.style.background = 'rgba(94,238,248,0.15)';
+        btn.style.color = '#5eeef8';
+        btn.style.border = '1px solid rgba(94,238,248,0.4)';
+    } else {
+        btn.style.background = 'rgba(255,80,80,0.2)';
+        btn.style.color = '#ff6b6b';
+        btn.style.border = '1px solid rgba(255,80,80,0.35)';
+    }
+    btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+            const fo = { method: 'POST' };
+            if (opts.body) {
+                fo.headers = { 'Content-Type': 'application/json' };
+                fo.body = JSON.stringify(opts.body);
+            }
+            const r = await fetch(_delAction, fo); const d = await r.json();
             if (d.success) { closeDel(); if (onDone) await onDone(); else location.reload(); }
             else { alert(d.error || 'Failed'); btn.disabled = false; }
         } catch (e) { alert('Request failed'); btn.disabled = false; }
@@ -1040,33 +1059,22 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
-// ── Combined divisions ──────────────────────────────────────────────────────
-async function combineDivision(did, otherId, name, sel) {
+// ── Merged divisions ────────────────────────────────────────────────────────
+function combineDivision(did, otherId, name, sel) {
     if (!otherId) return;
     const otherName = sel.options[sel.selectedIndex].text;
-    if (!confirm(`Combine "${name}" with "${otherName}"?\n\nTheir member lists will merge and stay in sync — adding, removing or changing a member's status in one applies to both — until you separate them. Each keeps its own roles and KSAs.`)) {
-        sel.value = '';
-        return;
-    }
-    try {
-        const r = await fetch(`/admin/divisions/${did}/combine`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ with_division_id: parseInt(otherId) }),
-        });
-        const d = await r.json();
-        if (d.success) location.reload();
-        else { alert(d.error || 'Failed to combine'); sel.value = ''; }
-    } catch (e) { alert('Request failed'); sel.value = ''; }
+    sel.value = '';    // reset now; a successful merge reloads anyway
+    _openDel('Merge ' + DIV_SINGULAR + 's',
+        `Merge "${name}" with "${otherName}"? Their member lists combine and stay in sync — adding, removing or changing a member's status in one applies to both — until you unmerge them. Each keeps its own roles and KSAs.`,
+        `/admin/divisions/${did}/combine`, null,
+        { label: 'Merge', neutral: true, body: { with_division_id: parseInt(otherId) } });
 }
 
-async function separateDivision(did, name) {
-    if (!confirm(`Separate "${name}" from its combined group?\n\nIt keeps its current members, but they will no longer stay in sync with the other group(s).`)) return;
-    try {
-        const r = await fetch(`/admin/divisions/${did}/separate`, { method: 'POST' });
-        const d = await r.json();
-        if (d.success) location.reload();
-        else alert(d.error || 'Failed to separate');
-    } catch (e) { alert('Request failed'); }
+function separateDivision(did, name) {
+    _openDel('Unmerge',
+        `Unmerge "${name}"? It keeps its current members, but they will no longer stay in sync with the ${DIV_SINGULAR.toLowerCase()}(s) it was merged with.`,
+        `/admin/divisions/${did}/separate`, null,
+        { label: 'Unmerge', neutral: true });
 }
 
 async function setRoleParent(roleId, parentId) {
