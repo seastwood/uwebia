@@ -365,10 +365,6 @@
         <div class="forum-actions">
             {% if public_user %}
                 <a class="forum-button" href="{{ url_for('public_forum_new_thread', prefix=website.url_prefix or none) }}">Start Thread</a>
-
-                <form action="{{ url_for('public_logout') }}" method="POST">
-                    <button class="forum-button" type="submit">Log Out</button>
-                </form>
             {% else %}
                 <a class="forum-button" href="{{ url_for('public_login', website_prefix=website.url_prefix) }}">Log In</a>
                 <a class="forum-button" href="{{ url_for('public_register', website_prefix=website.url_prefix) }}">Create Account</a>
