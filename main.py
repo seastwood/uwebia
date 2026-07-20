@@ -1151,22 +1151,65 @@ def _division_effective_ksas(division_id):
     return owned, shared
 
 
+def _ksa_folder_tree(division_id):
+    """A division's folders as a nested tree:
+    [{'folder': f, 'children': [...]}, ...], (sort_order, name)-ordered at each
+    level. Folders whose parent is missing (or cyclic) surface at the root."""
+    folders = KSAFolder.query.filter_by(division_id=division_id).all()
+    by_id = {f.id: f for f in folders}
+    kids = {}
+    placed = set()
+    for f in folders:
+        # Guard against cycles: walking up must terminate at a root.
+        pid = f.parent_id if f.parent_id in by_id else None
+        seen, cur = {f.id}, pid
+        while cur is not None:
+            if cur in seen:
+                pid = None
+                break
+            seen.add(cur)
+            cur = by_id[cur].parent_id if by_id[cur].parent_id in by_id else None
+        kids.setdefault(pid, []).append(f)
+        placed.add(f.id)
+
+    def build(pid):
+        return [{'folder': f, 'children': build(f.id)}
+                for f in sorted(kids.get(pid, []),
+                                key=lambda x: (x.sort_order, (x.name or '').lower()))]
+    return build(None)
+
+
+def _ksa_folder_flat(division_id):
+    """Depth-first flattened folders with breadcrumb labels:
+    [(folder, 'Parent / Child', depth), ...]."""
+    out = []
+
+    def walk(nodes, prefix, depth):
+        for n in nodes:
+            f = n['folder']
+            label = (prefix + ' / ' if prefix else '') + (f.name or '')
+            out.append((f, label, depth))
+            walk(n['children'], label, depth + 1)
+    walk(_ksa_folder_tree(division_id), '', 0)
+    return out
+
+
 def _division_ksa_folder_groups(division_id):
     """A division's effective KSAs grouped by folder for display: owned KSAs by
-    their folder (folder sort_order, then an 'Unfiled' group), then a trailing
-    'Shared' group for KSAs shared in from other divisions. Returns ordered
-    group dicts: {'name': str|None, 'shared': bool, 'ksas': [KSA, ...]}."""
+    their folder in tree (depth-first) order with breadcrumb names, then an
+    'Unfiled' group, then trailing 'Shared from X' groups for KSAs shared in
+    from other divisions. Returns ordered group dicts:
+    {'name': str|None, 'shared': bool, 'ksas': [KSA, ...]}."""
     owned, shared = _division_effective_ksas(division_id)
-    folders = sorted(KSAFolder.query.filter_by(division_id=division_id).all(),
-                     key=lambda f: (f.sort_order, (f.name or '').lower()))
+    flat = _ksa_folder_flat(division_id)
     by_folder = {}
     for k in owned:
         by_folder.setdefault(k.folder_id, []).append(k)
-    valid_ids = {f.id for f in folders}
+    valid_ids = {f.id for f, _, _ in flat}
     groups = []
-    for f in folders:
+    for f, label, _depth in flat:
         if by_folder.get(f.id):
-            groups.append({'name': f.name, 'shared': False, 'ksas': by_folder[f.id]})
+            groups.append({'name': label, 'shared': False, 'ksas': by_folder[f.id]})
     unfiled = []
     for fid, klist in by_folder.items():
         if fid is None or fid not in valid_ids:
@@ -1483,6 +1526,10 @@ class KSAFolder(db.Model):
                             nullable=False, index=True)
     division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='CASCADE'),
                             nullable=False, index=True)
+    # Subfolders: folders nest via parent_id. Deleting a parent roots its
+    # children (SET NULL) rather than cascading.
+    parent_id   = db.Column(db.Integer, db.ForeignKey('ksa_folder.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
     name        = db.Column(db.String(120), nullable=False)
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
@@ -1490,7 +1537,7 @@ class KSAFolder(db.Model):
                                                                  cascade='all, delete-orphan'))
 
     def to_dict(self):
-        return {'id': self.id, 'division_id': self.division_id,
+        return {'id': self.id, 'division_id': self.division_id, 'parent_id': self.parent_id,
                 'name': self.name, 'sort_order': self.sort_order}
 
 
@@ -13653,6 +13700,17 @@ def lookup_ip_location(ip_address):
         return {}
 
 
+# User-agent fragments that mean "not a human visitor": health checks, uptime
+# monitors, CLI tools and crawlers. Matched case-insensitively as substrings.
+_ANALYTICS_SKIP_UA = (
+    'curl/', 'wget/', 'python-requests', 'python-httpx', 'python-urllib',
+    'go-http-client', 'java/', 'okhttp', 'libwww',
+    'uptimerobot', 'uptime-kuma', 'pingdom', 'statuscake', 'site24x7',
+    'kube-probe', 'healthcheck', 'monitor', 'headlesschrome',
+    'bot', 'spider', 'crawl',
+)
+
+
 def track_page_visit(website, page, visitor_id):
     import threading
 
@@ -13660,6 +13718,14 @@ def track_page_visit(website, page, visitor_id):
     ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
     if ip_address and ',' in ip_address:
         ip_address = ip_address.split(',')[0].strip()
+
+    # Local health checks / monitors polling from the box itself, and requests
+    # with tooling/bot user agents (or none at all), aren't page views.
+    if ip_address and (ip_address == '::1' or ip_address.startswith('127.')):
+        return
+    _ua = (request.headers.get('User-Agent') or '').lower()
+    if not _ua or any(t in _ua for t in _ANALYTICS_SKIP_UA):
+        return
 
     path = request.path
     referrer = request.referrer
@@ -14569,6 +14635,7 @@ def _serialize_backup(uid):
                                   'created_at': m.created_at.isoformat() if m.created_at else None,
                                   } for m in division_memberships],
         'ksa_folders': [{'id': f.id, 'website_id': f.website_id, 'division_id': f.division_id,
+                         'parent_id': f.parent_id,
                          'name': f.name, 'sort_order': f.sort_order} for f in ksa_folders],
         'ksas': [{'id': k.id, 'website_id': k.website_id, 'division_id': k.division_id,
                   'folder_id': k.folder_id,
@@ -16598,6 +16665,14 @@ def import_backup():
                 db.session.flush()
                 if fd.get('id'):
                     folder_map[fd['id']] = f.id
+            # Second pass: folder nesting, now that every folder has a new id.
+            for fd in data.get('ksa_folders', []):
+                if fd.get('parent_id') and fd.get('id'):
+                    new_id = folder_map.get(fd['id'])
+                    new_p = folder_map.get(fd['parent_id'])
+                    if new_id and new_p:
+                        KSAFolder.query.filter_by(id=new_id).update(
+                            {'parent_id': new_p}, synchronize_session=False)
             ksa_map = {}
             for kd in data.get('ksas', []):
                 new_wid = website_map.get(kd.get('website_id'))
@@ -34472,7 +34547,7 @@ def admin_divisions_page():
     shared_groups_by_division = {}
     combined_with_by_division = {}
     active_members_by_division = {}
-    folders_by_division, ksa_groups_by_division, folders_json = {}, {}, {}
+    folders_by_division, ksa_tree_by_division, folders_json = {}, {}, {}
     if website:
         divisions = Division.query.filter_by(website_id=website.id).order_by(
             Division.sort_order, Division.name).all()
@@ -34508,23 +34583,52 @@ def admin_divisions_page():
         for f in KSAFolder.query.filter_by(website_id=website.id).order_by(
                 KSAFolder.sort_order, KSAFolder.name).all():
             folders_by_division.setdefault(f.division_id, []).append(f)
-            folders_json.setdefault(str(f.division_id), []).append({'id': f.id, 'name': f.name})
         all_ksas = KSA.query.filter_by(website_id=website.id).order_by(
             KSA.sort_order, KSA.name).all()
         ksa_by_id = {k.id: k for k in all_ksas}
         for k in all_ksas:
             ksas_by_division.setdefault(k.division_id, []).append(k)
-        # Owned KSAs grouped by folder (folders in order, then "Unfiled" last).
+        # The catalog as a display tree per division: folders nest, and folders
+        # + KSAs interleave at each level by (sort_order, name) so drag-and-drop
+        # arrangements render back exactly as dropped.
         for d in divisions:
             owned = ksas_by_division.get(d.id, [])
-            groups = []
-            for f in folders_by_division.get(d.id, []):
-                fk = [k for k in owned if k.folder_id == f.id]
-                groups.append({'folder': f, 'ksas': fk})
-            unfiled = [k for k in owned if not k.folder_id]
-            if unfiled or not groups:
-                groups.append({'folder': None, 'ksas': unfiled})
-            ksa_groups_by_division[d.id] = groups
+            all_f = folders_by_division.get(d.id, [])
+            f_ids = {f.id for f in all_f}
+            by_id = {f.id: f for f in all_f}
+            by_parent, ksas_by_folder = {}, {}
+            for f in all_f:
+                pid = f.parent_id if f.parent_id in f_ids else None
+                seen, cur = {f.id}, pid          # cycle-safe rooting
+                while cur is not None:
+                    if cur in seen:
+                        pid = None
+                        break
+                    seen.add(cur)
+                    cur = by_id[cur].parent_id if by_id[cur].parent_id in f_ids else None
+                by_parent.setdefault(pid, []).append(f)
+            for k in owned:
+                fid = k.folder_id if k.folder_id in f_ids else None
+                ksas_by_folder.setdefault(fid, []).append(k)
+
+            def _entries(pid, _bp=by_parent, _bk=ksas_by_folder):
+                mixed = ([('folder', f) for f in _bp.get(pid, [])]
+                         + [('ksa', k) for k in _bk.get(pid, [])])
+                mixed.sort(key=lambda t: (t[1].sort_order, (t[1].name or '').lower()))
+                out = []
+                for kind, obj in mixed:
+                    if kind == 'folder':
+                        out.append({'kind': 'folder', 'folder': obj,
+                                    'entries': _entries(obj.id)})
+                    else:
+                        out.append({'kind': 'ksa', 'ksa': obj})
+                return out
+            ksa_tree_by_division[d.id] = _entries(None)
+            # Folder pickers (KSA modal + folder-parent select) show
+            # breadcrumb labels in tree order.
+            folders_json[str(d.id)] = [
+                {'id': f.id, 'name': label, 'parent_id': f.parent_id}
+                for f, label, _ in _ksa_folder_flat(d.id)]
         # KSAs lent in from other divisions (read-only in the borrowing division),
         # plus how many divisions each owned KSA is shared into.
         for s in DivisionKSAShare.query.join(KSA, DivisionKSAShare.ksa_id == KSA.id) \
@@ -34574,7 +34678,7 @@ def admin_divisions_page():
     return render_template('divisions_admin.html', website=website,
                            current_website=website, role_types=role_types,
                            divisions=divisions, ksas_by_division=ksas_by_division,
-                           ksa_groups_by_division=ksa_groups_by_division,
+                           ksa_tree_by_division=ksa_tree_by_division,
                            folders_by_division=folders_by_division, folders_json=folders_json,
                            active_members_by_division=active_members_by_division,
                            shared_ksas_by_division=shared_ksas_by_division,
@@ -34868,15 +34972,39 @@ def admin_folder_create(did):
     website, d = _division_owned_or_403(did)
     if d is None:
         return website
-    name = ((request.get_json() or {}).get('name') or '').strip()
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
     if not name:
         return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    parent_id = _valid_parent_folder(data.get('parent_id'), d.id)
     max_sort = db.session.query(db.func.max(KSAFolder.sort_order)).filter_by(division_id=d.id).scalar()
     f = KSAFolder(website_id=website.id, division_id=d.id, name=name,
-                  sort_order=(max_sort or 0) + 1)
+                  parent_id=parent_id, sort_order=(max_sort or 0) + 1)
     db.session.add(f)
     db.session.commit()
     return _utf8_json({'success': True, 'folder': f.to_dict()}, 201)
+
+
+def _valid_parent_folder(raw, division_id, folder_id=None):
+    """A folder's parent must be another folder of the same division, and (when
+    editing `folder_id`) must not be itself or one of its descendants."""
+    if raw in (None, '', 0, '0'):
+        return None
+    try:
+        pid = int(raw)
+    except (TypeError, ValueError):
+        return None
+    p = KSAFolder.query.filter_by(id=pid, division_id=division_id).first()
+    if not p or (folder_id and p.id == folder_id):
+        return None
+    if folder_id:
+        seen, cur = set(), p
+        while cur and cur.parent_id:
+            if cur.parent_id == folder_id or cur.parent_id in seen:
+                return None
+            seen.add(cur.id)
+            cur = KSAFolder.query.filter_by(id=cur.parent_id, division_id=division_id).first()
+    return p.id
 
 
 @app.route('/admin/folders/<int:fid>/update', methods=['POST'])
@@ -34886,12 +35014,75 @@ def admin_folder_update(fid):
     website, f = _folder_owned_or_403(fid)
     if f is None:
         return website
-    name = ((request.get_json() or {}).get('name') or '').strip()
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
     if not name:
         return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
     f.name = name
+    if 'parent_id' in data:
+        f.parent_id = _valid_parent_folder(data.get('parent_id'), f.division_id, folder_id=f.id)
     db.session.commit()
     return _utf8_json({'success': True, 'folder': f.to_dict()})
+
+
+@app.route('/admin/divisions/<int:did>/ksa-tree', methods=['POST'])
+@login_required
+@require_perm('ksa.manage')
+def admin_division_ksa_tree(did):
+    """Persist a drag-and-drop rearrangement of the KSA catalog: folder
+    nesting + ordering and each KSA's folder + position, in one payload
+    mirroring the DOM tree."""
+    website, d = _division_owned_or_403(did)
+    if d is None:
+        return website
+    data = request.get_json() or {}
+    folders = {f.id: f for f in KSAFolder.query.filter_by(division_id=d.id).all()}
+    ksas = {k.id: k for k in KSA.query.filter_by(division_id=d.id).all()}
+    for it in (data.get('folders') or []):
+        try:
+            f = folders.get(int(it.get('id')))
+        except (TypeError, ValueError):
+            continue
+        if not f:
+            continue
+        try:
+            f.sort_order = int(it.get('sort_order', 0))
+        except (TypeError, ValueError):
+            pass
+        raw = it.get('parent_id')
+        try:
+            pid = int(raw) if raw else None
+        except (TypeError, ValueError):
+            pid = None
+        f.parent_id = pid if (pid and pid in folders and pid != f.id) else None
+    # Cycle guard: any folder whose parent chain loops back gets rooted.
+    for f in folders.values():
+        seen, cur = set(), f
+        while cur and cur.parent_id:
+            if cur.parent_id == f.id or cur.parent_id in seen:
+                f.parent_id = None
+                break
+            seen.add(cur.id)
+            cur = folders.get(cur.parent_id)
+    for it in (data.get('ksas') or []):
+        try:
+            k = ksas.get(int(it.get('id')))
+        except (TypeError, ValueError):
+            continue
+        if not k:
+            continue
+        try:
+            k.sort_order = int(it.get('sort_order', 0))
+        except (TypeError, ValueError):
+            pass
+        raw = it.get('folder_id')
+        try:
+            fid = int(raw) if raw else None
+        except (TypeError, ValueError):
+            fid = None
+        k.folder_id = fid if (fid and fid in folders) else None
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 @app.route('/admin/folders/<int:fid>/delete', methods=['POST'])
@@ -35393,9 +35584,9 @@ def admin_role_ksa_requirements_get(role_id):
                            'division': None, 'catalog': [], 'requirements': {}})
     owned, shared = _division_effective_ksas(role.division_id)
     div_names = {d.id: d.name for d in Division.query.filter_by(website_id=website.id).all()}
-    folders = KSAFolder.query.filter_by(division_id=role.division_id).order_by(
-        KSAFolder.sort_order, KSAFolder.name).all()
-    folder_names = {f.id: f.name for f in folders}
+    # Depth-first with breadcrumb labels so subfolders read "Parent / Child".
+    folders_flat = _ksa_folder_flat(role.division_id)
+    folder_names = {f.id: label for f, label, _ in folders_flat}
     catalog = []
     for k in owned:
         d = k.to_dict()
@@ -35425,7 +35616,7 @@ def admin_role_ksa_requirements_get(role_id):
     div = db.session.get(Division, role.division_id)
     return _utf8_json({'success': True, 'role': role.to_dict(),
                        'division': div.to_dict() if div else None,
-                       'folders': [{'id': f.id, 'name': f.name} for f in folders],
+                       'folders': [{'id': f.id, 'name': label} for f, label, _ in folders_flat],
                        'catalog': catalog, 'requirements': reqs,
                        'inherited': inherited})
 
