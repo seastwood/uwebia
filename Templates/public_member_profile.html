@@ -108,17 +108,15 @@
 .mp-ksa-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .mp-ksa-num { font-weight: 500; color: rgba(255,255,255,0.4); }
 /* progress meter (right zone) — uniform across every item */
-.mp-prog { justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 108px; }
-.mp-prog-text { font-size: 0.82rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
-.mp-prog-num { font-weight: 500; color: rgba(255,255,255,0.4); font-size: 0.78rem; }
-.mp-prog-tgt { font-size: 0.72rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
+.mp-prog { justify-self: end; display: flex; flex-direction: column; align-items: stretch; gap: 5px; width: 150px; }
+.mp-prog-text { font-size: 0.8rem; font-weight: 700; color: #aef7e8; line-height: 1.3; text-align: right; }
+.mp-prog-tgt { font-weight: 700; color: #aef7e8; }
 .mp-prog.is-gap .mp-prog-tgt { color: #ffb27a; }
-.mp-prog-bar { position: relative; width: 104px; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.1); }
-.mp-prog-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 99px; background: linear-gradient(90deg,#5eeef8,#5eeec8); }
+.mp-prog-bar { position: relative; width: 100%; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.1); }
+.mp-prog-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 99px; background: linear-gradient(90deg,#5eeef8,#5eeec8); transition: width 0.35s ease; }
 .mp-prog.is-gap .mp-prog-fill { background: linear-gradient(90deg,#ff9b7a,#ffce6b); }
 .mp-prog.is-met .mp-prog-fill { background: linear-gradient(90deg,#5eeec8,#aef7e8); }
 .mp-prog-tick { position: absolute; top: -2.5px; width: 2px; height: 10px; border-radius: 2px; background: #fff; opacity: 0.75; transform: translateX(-1px); }
-@media (max-width: 460px) { .mp-prog { min-width: 90px; } .mp-prog-bar { width: 82px; } }
 .mp-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin: 10px 0 0; }
 .mp-roadmap { display: block; padding: 0; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.07); }
 .mp-roadmap.is-gap { border-color: rgba(255,120,90,0.4); }
@@ -167,6 +165,21 @@
 .mp-role-filter:hover { filter: brightness(1.25); }
 .mp-role-filter.is-active { box-shadow: 0 0 0 2px currentColor inset; filter: brightness(1.3); }
 .mp-div-block.mp-filtering .mp-role-filter:not(.is-active) { opacity: 0.45; }
+
+/* Mobile: stack the two zones so the title gets the full width instead of
+   being squeezed beside the fixed-width meter. Kept at the end of the sheet so
+   it overrides the base grid rules (media queries add no specificity, so
+   source order decides). The meter reflows full-width below, laid out
+   horizontally; the chevron pins to the top-right corner. */
+@media (max-width: 600px) {
+    .mp-roadmap summary, .mp-ksa-item { grid-template-columns: 1fr; row-gap: 9px; }
+    .mp-roadmap summary { position: relative; padding-right: 30px; }
+    /* Meter goes full-width below the title, still a label line with the bar
+       beneath it (just left-aligned and wider). */
+    .mp-prog { justify-self: stretch; width: 100%; }
+    .mp-prog-text { text-align: left; }
+    .mp-roadmap .mp-chev { position: absolute; top: 14px; right: 12px; margin: 0; }
+}
 </style>
 {% endblock %}
 
@@ -176,7 +189,7 @@
 {# Render a KSA's learning resources with completion state. Guides/quizzes are
    auto-marked from progress; links are member-tickable; demonstrations are
    admin-signed-off. #}
-{% macro render_resources(resources) %}
+{% macro render_resources(resources, read_only=false) %}
     {% if resources %}
     {% for res in resources %}
     {% if res.type == 'demo' %}
@@ -189,11 +202,14 @@
         {% else %}<span class="mp-res-pending"><i class="fas fa-user-clock"></i> Staff sign-off</span>{% endif %}
     </div>
     {% else %}
-    <div class="mp-res-row">
+    <div class="mp-res-row{% if read_only and res.completed %} is-done{% endif %}">
         <a class="mp-res-link mp-res-{{ res.type }}" href="{{ res.url }}"{% if res.type == 'link' %} target="_blank" rel="noopener"{% endif %}>
             <i class="fas {% if res.type == 'guide' %}fa-book-open{% elif res.type == 'quiz' %}fa-clipboard-check{% else %}fa-external-link-alt{% endif %}"></i> {{ res.label }}
         </a>
-        {% if res.manual %}
+        {% if read_only %}
+            {# Viewing someone else — completion is shown, never editable. #}
+            {% if res.completed %}<span class="mp-res-done-tag"><i class="fas fa-circle-check"></i> {{ 'Passed' if res.type == 'quiz' else 'Completed' }}</span>{% endif %}
+        {% elif res.manual %}
         <button type="button" class="mp-res-check{% if res.completed %} is-done{% endif %}" data-rid="{{ res.resource_id }}" onclick="toggleResource(this)">
             <i class="fas {% if res.completed %}fa-circle-check{% else %}fa-circle{% endif %}"></i> <span>{{ 'Done' if res.completed else 'Mark done' }}</span>
         </button>
@@ -211,10 +227,29 @@
 {# Uniform right-hand progress meter: current level, optional target, and a
    bar showing level/max with a tick at the target. #}
 {% macro mp_prog(it) %}
-<div class="mp-prog{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}">
-    <div class="mp-prog-text">{{ it.label }} <span class="mp-prog-num">{{ it.level }}/{{ it.max }}</span></div>
-    {% if it.target %}<div class="mp-prog-tgt">→ {{ it.target_label }}</div>{% endif %}
+<div class="mp-prog{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}" data-max="{{ it.max }}" data-target="{{ it.target or 0 }}">
+    <div class="mp-prog-text" title="Level {{ it.level }} of {{ it.max }}">{{ it.label }}{% if it.target %} <span class="mp-prog-tgt">→ {{ it.target_label }}</span>{% endif %}</div>
     {% if it.max %}<div class="mp-prog-bar"><span class="mp-prog-fill" style="width:{{ (100 * it.level / it.max)|round(0,'floor')|int }}%;"></span>{% if it.target %}<span class="mp-prog-tick" style="left:{{ (100 * it.target / it.max)|round(0,'floor')|int }}%;"></span>{% endif %}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# "Your level" control: a self-report dropdown when the site allows it,
+   otherwise a read-only display. Admin-verified levels are always read-only. #}
+{% macro skill_setlevel(it, self_report, labels) %}
+<div class="mp-skill-setlevel">
+    <span class="mp-skill-setlevel-label">Your level</span>
+    {% if it.verified %}
+    <span class="mp-skill-verified"><i class="fas fa-circle-check"></i> {{ it.label }} <em>· verified by staff</em></span>
+    {% elif self_report %}
+    <select class="mp-skill-select" data-ksa="{{ it.id }}" onchange="setOwnSkillLevel(this)">
+        {% for lvl in range(0, it.max + 1) %}
+        <option value="{{ lvl }}"{% if lvl == it.level %} selected{% endif %}>{{ labels[lvl] if labels and lvl < labels|length else ('Level ' ~ lvl) }}</option>
+        {% endfor %}
+    </select>
+    <span class="mp-skill-status" data-ksa-status="{{ it.id }}">{% if it.self_reported %}self-reported{% endif %}</span>
+    {% else %}
+    <span class="mp-skill-verified" style="color:rgba(255,255,255,0.75);">{{ it.label }}{% if it.self_reported %} <em>· self-reported</em>{% endif %}</span>
+    {% endif %}
 </div>
 {% endmacro %}
 
@@ -335,6 +370,9 @@
         {% endif %}
 
         {% elif tab == 'ksas' %}
+        {% if not is_self and ksa_full %}
+        <p style="font-size:0.82rem;color:rgba(255,255,255,0.5);margin:0 0 14px;display:flex;align-items:center;gap:7px;"><i class="fas fa-eye" style="color:#aef7e8;"></i> Viewing {{ target.effective_display_name }}'s training requirements and progress.</p>
+        {% endif %}
         {% if training_guides %}
         {# In-progress guides with one-click resume — own profile only. #}
         <div class="mp-train-continue">
@@ -403,8 +441,9 @@
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
+                        {% if is_self and (ksa_self_report or it.verified) %}{{ skill_setlevel(it, ksa_self_report, ksa_level_labels) }}{% endif %}
                         {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
-                        {{ render_resources(it.resources) }}
+                        {{ render_resources(it.resources, read_only=not is_self) }}
                     </div>
                 </details>
                 {% else %}
@@ -439,8 +478,9 @@
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
+                        {% if is_self and (ksa_self_report or it.verified) %}{{ skill_setlevel(it, ksa_self_report, ksa_level_labels) }}{% endif %}
                         {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
-                        {{ render_resources(it.resources) }}
+                        {{ render_resources(it.resources, read_only=not is_self) }}
                     </div>
                 </details>
                 {% else %}
@@ -494,21 +534,9 @@
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
-                        <div class="mp-skill-setlevel">
-                            <span class="mp-skill-setlevel-label">Your level</span>
-                            {% if it.verified %}
-                            <span class="mp-skill-verified"><i class="fas fa-circle-check"></i> {{ it.label }} <em>· verified by staff</em></span>
-                            {% else %}
-                            <select class="mp-skill-select" data-ksa="{{ it.id }}" onchange="setOwnSkillLevel(this)">
-                                {% for lvl in range(0, it.max + 1) %}
-                                <option value="{{ lvl }}"{% if lvl == it.level %} selected{% endif %}>{{ ksa_level_labels[lvl] if ksa_level_labels and lvl < ksa_level_labels|length else ('Level ' ~ lvl) }}</option>
-                                {% endfor %}
-                            </select>
-                            <span class="mp-skill-status" data-ksa-status="{{ it.id }}">{% if it.self_reported %}self-reported{% endif %}</span>
-                            {% endif %}
-                        </div>
+                        {{ skill_setlevel(it, ksa_self_report, ksa_level_labels) }}
                         {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
-                        {{ render_resources(it.resources) }}
+                        {{ render_resources(it.resources, read_only=not is_self) }}
                     </div>
                 </details>
                 {% endfor %}
@@ -566,6 +594,7 @@ async function setOwnSkillLevel(sel) {
                 status.textContent = level > 0 ? 'self-reported' : '';
                 status.style.color = '';
             }
+            updateProgMeter(sel.closest('.mp-ksa-item'), level, d.label);
         } else {
             sel.value = prev;
             if (status) { status.textContent = d.error || 'Could not save.'; status.style.color = '#f88'; }
@@ -575,6 +604,33 @@ async function setOwnSkillLevel(sel) {
         if (status) { status.textContent = 'Network error.'; status.style.color = '#f88'; }
     }
     sel.disabled = false;
+}
+// Live-update a KSA's experience bar when its level changes, without a reload:
+// refill the bar, relabel the level line, and recolour gap/met (the meter and
+// the item border) when the item has a target.
+function updateProgMeter(item, level, label) {
+    if (!item) return;
+    const prog = item.querySelector('.mp-prog');
+    if (!prog) return;
+    const max = parseInt(prog.dataset.max, 10) || 0;
+    const target = parseInt(prog.dataset.target, 10) || 0;
+    const fill = prog.querySelector('.mp-prog-fill');
+    if (fill && max) fill.style.width = Math.floor(100 * level / max) + '%';
+    const textEl = prog.querySelector('.mp-prog-text');
+    if (textEl) {
+        if (max) textEl.setAttribute('title', 'Level ' + level + ' of ' + max);
+        // Replace the leading label text node, preserving the "→ target" span.
+        const first = textEl.firstChild;
+        const hasTgt = !!textEl.querySelector('.mp-prog-tgt');
+        if (first && first.nodeType === 3) first.nodeValue = (label || '') + (hasTgt ? ' ' : '');
+    }
+    if (target) {
+        const met = level >= target;
+        prog.classList.toggle('is-met', met);
+        prog.classList.toggle('is-gap', !met);
+        item.classList.toggle('is-met', met);
+        item.classList.toggle('is-gap', !met);
+    }
 }
 document.querySelectorAll('.mp-skill-select').forEach(s => s.setAttribute('data-prev', s.value));
 

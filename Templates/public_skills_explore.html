@@ -1,0 +1,133 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Explore skills — {{ website.name if website else 'Skills' }}{% endblock %}
+
+{% block head %}
+<style>
+.se-wrap { max-width: 940px; margin: 0 auto; padding: 40px 20px 80px; }
+.se-back { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; opacity: 0.6; text-decoration: none; color: inherit; margin-bottom: 18px; }
+.se-back:hover { opacity: 1; }
+.se-title { font-size: 2rem; font-weight: 800; margin: 0 0 6px; display: flex; align-items: center; gap: 12px; }
+.se-title i { color: #5eeec8; }
+.se-sub { opacity: 0.6; font-size: 0.95rem; line-height: 1.55; margin: 0 0 24px; max-width: 640px; }
+.se-search { width: 100%; box-sizing: border-box; padding: 11px 14px; margin: 0 0 26px; border-radius: 10px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.13); color: #fff; font-size: 0.95rem; outline: none; }
+.se-search:focus { border-color: rgba(94,238,248,0.45); }
+
+.se-div-block { margin: 0 0 34px; }
+.se-div-name { font-size: 1.3rem; font-weight: 800; margin: 0 0 4px; display: flex; align-items: center; gap: 9px; }
+.se-div-desc { opacity: 0.55; font-size: 0.88rem; line-height: 1.5; margin: 0 0 14px; }
+.se-folder { margin: 0 0 14px; }
+.se-folder-head { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.42); margin: 14px 0 6px; display: flex; align-items: center; gap: 7px; }
+.se-list { display: flex; flex-direction: column; gap: 7px; }
+
+.se-item { display: block; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; background: rgba(255,255,255,0.03); }
+/* Flex row: the title takes the middle and wraps within it; the resource
+   count and chevron stay pinned at the right end and never reflow below. */
+.se-item summary { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.se-item summary::-webkit-details-marker { display: none; }
+.se-type { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 8px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; white-space: nowrap; flex-shrink: 0; align-self: flex-start; margin-top: 1px; }
+.se-name { font-weight: 600; font-size: 0.95rem; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.se-rescount { font-size: 0.72rem; font-weight: 700; color: rgba(94,238,200,0.85); white-space: nowrap; flex-shrink: 0; }
+.se-chev { opacity: 0.4; font-size: 0.75rem; transition: transform 0.2s; flex-shrink: 0; margin-left: 2px; }
+.se-item[open] .se-chev { transform: rotate(180deg); }
+
+.se-body { padding: 2px 14px 14px; display: flex; flex-direction: column; gap: 7px; }
+.se-desc { font-size: 0.88rem; line-height: 1.55; color: rgba(255,255,255,0.7); margin: 2px 0 6px; white-space: pre-wrap; }
+.se-res { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; text-decoration: none; color: #aef7e8;
+    background: rgba(94,238,248,0.06); border: 1px solid rgba(94,238,248,0.18); font-size: 0.88rem; font-weight: 600; }
+.se-res:hover { background: rgba(94,238,248,0.14); }
+.se-res-go { margin-left: auto; font-size: 0.78rem; opacity: 0.6; }
+.se-res-demo { align-items: flex-start; color: #d9bcff; background: rgba(180,140,255,0.07); border-color: rgba(180,140,255,0.22); cursor: default; }
+.se-res-demo-desc { margin: 4px 0 0; font-size: 0.82rem; line-height: 1.5; color: rgba(255,255,255,0.7); white-space: pre-wrap; font-weight: 400; }
+.se-res-note { display: inline-block; margin-top: 4px; font-size: 0.7rem; font-weight: 700; color: rgba(217,188,255,0.8); }
+.se-res-empty { font-size: 0.82rem; opacity: 0.4; margin: 2px 0; }
+.se-empty { text-align: center; opacity: 0.55; padding: 60px 20px; }
+
+</style>
+{% endblock %}
+
+{% block content %}
+{% set _guides_url = ('/' + website.url_prefix + '/guides') if website.url_prefix else '/guides' %}
+<div class="se-wrap">
+    <a class="se-back" href="{{ _guides_url }}"><i class="fas fa-arrow-left"></i> Back to guides</a>
+    <h1 class="se-title"><i class="fas fa-compass"></i> Explore skills</h1>
+    <p class="se-sub">Browse every skill by {{ dlabel(website)|lower }} and folder, and open the guides, links and quizzes that help you build them — no account needed.</p>
+
+    {% if not catalog %}
+    <div class="se-empty"><p>No skills have been published yet.</p></div>
+    {% else %}
+    <input type="text" id="seSearch" class="se-search" placeholder="Search skills…" oninput="seFilter()" autocomplete="off">
+    <div id="seCatalog">
+    {% for grp in catalog %}
+        <section class="se-div-block">
+            <h2 class="se-div-name">{% if grp.division.icon %}<i class="fas {{ grp.division.icon }}" style="{% if grp.division.color %}color:{{ grp.division.color }};{% endif %}"></i>{% endif %} {{ grp.division.name }}</h2>
+            {% if grp.division.description %}<p class="se-div-desc">{{ grp.division.description }}</p>{% endif %}
+            {% for fg in grp.ksa_groups %}
+            <div class="se-folder">
+                {% if fg.name %}<div class="se-folder-head"><i class="fas fa-folder"></i> {{ fg.name }}</div>{% endif %}
+                <div class="se-list">
+                    {% for it in fg['items'] %}
+                    <details class="se-item" data-name="{{ it.name|lower }}">
+                        <summary>
+                            <span class="se-type">{{ it.type }}</span>
+                            <span class="se-name">{{ it.name }}</span>
+                            {% if it.resources %}<span class="se-rescount">{{ it.resources|length }} resource{{ '' if it.resources|length == 1 else 's' }}</span>{% endif %}
+                            <i class="fas fa-chevron-down se-chev"></i>
+                        </summary>
+                        <div class="se-body">
+                            {% if it.description %}<p class="se-desc">{{ it.description }}</p>{% endif %}
+                            {% if it.resources %}
+                                {% for res in it.resources %}
+                                {% if res.type == 'demo' %}
+                                <div class="se-res se-res-demo">
+                                    <i class="fas fa-hand-sparkles"></i>
+                                    <div><strong>{{ res.label }}</strong>{% if res.description %}<p class="se-res-demo-desc">{{ res.description }}</p>{% endif %}<span class="se-res-note">Demonstrate to staff</span></div>
+                                </div>
+                                {% else %}
+                                <a class="se-res se-res-link" href="{{ res.url }}"{% if res.type == 'link' %} target="_blank" rel="noopener"{% endif %}>
+                                    <i class="fas {% if res.type == 'guide' %}fa-book-open{% elif res.type == 'quiz' %}fa-clipboard-check{% else %}fa-external-link-alt{% endif %}"></i> {{ res.label }}
+                                    <i class="fas fa-arrow-right se-res-go"></i>
+                                </a>
+                                {% endif %}
+                                {% endfor %}
+                            {% else %}
+                                <p class="se-res-empty">No resources linked to this skill yet.</p>
+                            {% endif %}
+                        </div>
+                    </details>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+    {% endfor %}
+    </div>
+    <p class="se-res-empty" id="seNoMatch" style="display:none;text-align:center;padding:30px;">No skills match your search.</p>
+    {% endif %}
+</div>
+
+<script>
+function seFilter() {
+    const q = (document.getElementById('seSearch').value || '').trim().toLowerCase();
+    let anyVisible = false;
+    document.querySelectorAll('#seCatalog .se-div-block').forEach(block => {
+        let anyDiv = false;
+        block.querySelectorAll('.se-folder').forEach(folder => {
+            let anyF = false;
+            folder.querySelectorAll('.se-item').forEach(it => {
+                const m = !q || (it.getAttribute('data-name') || '').includes(q);
+                it.style.display = m ? '' : 'none';
+                if (m) anyF = true;
+            });
+            folder.style.display = anyF ? '' : 'none';
+            if (anyF) anyDiv = true;
+        });
+        block.style.display = anyDiv ? '' : 'none';
+        if (anyDiv) anyVisible = true;
+    });
+    const nm = document.getElementById('seNoMatch');
+    if (nm) nm.style.display = anyVisible ? 'none' : 'block';
+}
+</script>
+{% endblock %}
