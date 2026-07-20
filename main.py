@@ -38235,6 +38235,7 @@ def _render_members_directory(prefix):
     _user_by_id = {u.id: u for u in pagination.items}
     if _mids:
         _dc = {}
+        _raw = {}   # uid -> [(Division, status, [roles]), ...]
         for ms in DivisionMembership.query.filter(DivisionMembership.public_user_id.in_(_mids)).all():
             d = _dc.get(ms.division_id)
             if d is None:
@@ -38243,10 +38244,32 @@ def _render_members_directory(prefix):
             if d and d.website_id == website.id:
                 u = _user_by_id.get(ms.public_user_id)
                 d_roles = [r for r in (u.roles or []) if r.division_id == d.id] if u else []
-                member_divisions.setdefault(ms.public_user_id, []).append(
-                    {'name': d.name, 'color': d.color or '#5eeef8',
-                     'icon': d.icon or '', 'status': ms.status,
-                     'roles': [{'name': r.name, 'color': r.color} for r in d_roles]})
+                _raw.setdefault(ms.public_user_id, []).append((d, ms.status, d_roles))
+        # Merged divisions share members + mirror roles, so collapse them into
+        # one badge ("Build | Electrical · Mentor") with roles de-duped by name.
+        for uid, entries in _raw.items():
+            groups = {}
+            for d, status, d_roles in entries:
+                key = ('m', d.merge_group_id) if d.merge_group_id else ('s', d.id)
+                g = groups.get(key)
+                if g is None:
+                    g = groups[key] = {'divs': [], 'status': status, 'roles': [], '_seen': set()}
+                g['divs'].append(d)
+                if status == 'active':
+                    g['status'] = 'active'
+                for r in d_roles:
+                    nk = (r.name or '').lower()
+                    if nk not in g['_seen']:
+                        g['_seen'].add(nk)
+                        g['roles'].append({'name': r.name, 'color': r.color})
+            group_list = list(groups.values())
+            for g in group_list:
+                g['divs'].sort(key=lambda x: (x.sort_order, (x.name or '').lower()))
+            group_list.sort(key=lambda g: (g['divs'][0].sort_order, (g['divs'][0].name or '').lower()))
+            member_divisions[uid] = [{
+                'divisions': [{'name': d.name, 'icon': d.icon or ''} for d in g['divs']],
+                'color': g['divs'][0].color or '#5eeef8',
+                'status': g['status'], 'roles': g['roles']} for g in group_list]
     # Each shown member's level for the active skill (for a badge on the card),
     # plus whether that level is self-reported (vs admin-verified).
     member_skill_levels = {}

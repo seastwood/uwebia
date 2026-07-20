@@ -22,6 +22,7 @@
 .mb-badge-staff { background: rgba(123,47,247,0.15); color: #c79aff; border: 1px solid rgba(123,47,247,0.4); }
 .mb-badge-div { border-radius: 99px; gap: 4px; }
 .mb-divrole-chip { padding: 0 6px; border-radius: 99px; font-size: 0.6rem; font-weight: 700; }
+.mb-divrole-sep { opacity: 0.5; font-weight: 400; }
 .mb-roles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; }
 .mb-role-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 99px; font-size: 0.82rem; font-weight: 600; text-decoration: none; color: inherit; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.04); transition: border-color 0.15s, background 0.15s; }
 .mb-role-chip:hover { border-color: rgba(255,255,255,0.32); }
@@ -154,7 +155,7 @@
                 <div class="mb-badges">
                     {% if m.staff_badge_label %}<span class="mb-badge mb-badge-staff">{{ m.staff_badge_label }}</span>{% endif %}
                     {% for role in m.roles if not role.division_id %}<span class="mb-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
-                    {% for dv in _mdivs %}<span class="mb-badge mb-badge-div" style="background:{{ dv.color }}1a;color:{{ dv.color }};border:1px solid {{ dv.color }}55;{% if dv.status == 'alumni' %}opacity:0.6;{% endif %}" title="{{ dlabel(website) }}{% if dv.status == 'alumni' %} · alumni{% endif %}">{% if dv.icon %}<i class="fas {{ dv.icon }}" style="margin-right:3px;"></i>{% endif %}{{ dv.name }}{% for r in dv.roles %}<span class="mb-divrole-chip" style="background:{{ r.color }}26;color:{{ r.color }};">{{ r.name }}</span>{% endfor %}</span>{% endfor %}
+                    {% for dv in _mdivs %}<span class="mb-badge mb-badge-div" style="background:{{ dv.color }}1a;color:{{ dv.color }};border:1px solid {{ dv.color }}55;{% if dv.status == 'alumni' %}opacity:0.6;{% endif %}" title="{{ dlabel(website) }}{% if dv.status == 'alumni' %} · alumni{% endif %}">{% for d in dv.divisions %}{% if not loop.first %} <span class="mb-divrole-sep">|</span> {% endif %}{% if d.icon %}<i class="fas {{ d.icon }}" style="margin-right:3px;"></i>{% endif %}{{ d.name }}{% endfor %}{% for r in dv.roles %}<span class="mb-divrole-chip" style="background:{{ r.color }}26;color:{{ r.color }};">{{ r.name }}</span>{% endfor %}</span>{% endfor %}
                 </div>
                 {% endif %}
             </div>
