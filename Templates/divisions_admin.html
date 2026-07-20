@@ -75,6 +75,8 @@
 .ksa-grip { cursor: grab; color: rgba(255,255,255,0.25); font-size: 0.8rem; flex-shrink: 0; }
 .ksa-grip:hover { color: #fff; }
 .da-ksa-tree .sortable-ghost { opacity: 0.4; outline: 1px dashed rgba(94,238,248,0.6); border-radius: 8px; }
+/* Requirements modal: room for name + level/req'd/priority controls per row. */
+@media (min-width: 1000px) { .da-req-modal { max-width: min(920px, 92vw); } }
 /* While dragging: folder bodies become visible, roomier drop zones… */
 .da-ksa-tree.is-dragging .da-folder:not(.collapsed) > .da-folder-children { min-height: 22px; background: rgba(94,238,248,0.03); border-left: 1px dashed rgba(94,238,248,0.35); }
 /* …and hovering a folder header means "drop INTO this folder". */
@@ -339,7 +341,7 @@
             <div class="da-role-row">
                 <span class="da-role-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>
                 <div class="da-role-info">
-                    {% if can_view_ksa %}<span class="da-ksa-meta">{{ role.ksa_requirements.count() }} required KSA{{ '' if role.ksa_requirements.count() == 1 else 's' }}</span>{% endif %}
+                    {% if can_view_ksa %}{% set _frc = role.ksa_folder_rules.count() %}<span class="da-ksa-meta">{{ role.ksa_requirements.count() }} required KSA{{ '' if role.ksa_requirements.count() == 1 else 's' }}{% if _frc %} + {{ _frc }} folder{{ '' if _frc == 1 else 's' }}{% endif %}</span>{% endif %}
                     {% if can_edit_div and _droles|length > 1 %}
                     <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="This role inherits every KSA requirement of the role it builds on (and anything that role builds on). Its own requirements can raise levels, never lower them.">
                         <i class="fas fa-layer-group" style="opacity:0.5;"></i> builds on
@@ -600,7 +602,7 @@
 
 <!-- Role requirements modal -->
 <div class="uw-overlay" id="reqOverlay" style="display:none;" onclick="if(event.target===this)closeReqModal()">
-    <div class="uw-modal" role="dialog" aria-modal="true">
+    <div class="uw-modal uw-modal--wide da-req-modal" role="dialog" aria-modal="true">
         <div class="uw-modal-header">
             <h3 class="uw-modal-title" id="reqTitle">Requirements</h3>
             <button class="uw-modal-close" onclick="closeReqModal()">&times;</button>
@@ -1144,7 +1146,8 @@ function removeMember(did, mid) {
 // ── Role requirements modal ──
 // Selections live in _reqState (keyed by KSA id) so search / folder filtering
 // can hide rows without losing edits made to filtered-out KSAs.
-let _reqRoleId = null, _reqCatalog = [], _reqFolders = [], _reqState = {}, _reqInherited = {};
+let _reqRoleId = null, _reqCatalog = [], _reqFolders = [], _reqState = {}, _reqInherited = {},
+    _reqFolderRules = {}, _reqMaxLvl = 4;
 // Collapsible sections start closed (lists get big) but remember what you had
 // open across the frequent full-page reloads this page does after edits.
 document.addEventListener('DOMContentLoaded', function () {
@@ -1341,6 +1344,13 @@ async function openReqModal(roleId, name) {
         _reqCatalog = d.catalog || [];
         _reqFolders = d.folders || [];
         _reqInherited = d.inherited || {};
+        _reqFolderRules = {};
+        Object.entries(d.folder_rules || {}).forEach(([fid, spec]) => {
+            _reqFolderRules[fid] = { level: parseInt(spec.level || 0),
+                                     required: spec.required !== false,
+                                     priority: spec.priority || 'medium' };
+        });
+        _reqMaxLvl = (d.catalog || []).reduce((m, k) => Math.max(m, k.max_level || 0), 4);
         _reqState = {};
         Object.entries(d.requirements || {}).forEach(([kid, spec]) => {
             _reqState[kid] = { level: parseInt(spec.level || 0),
@@ -1380,18 +1390,24 @@ function _reqGroupKey(k) {
 // before picking a level survives filtering/re-renders (saveReq only submits
 // entries with level >= 1).
 function _captureReq() {
-    document.querySelectorAll('#reqList .da-req-row').forEach(row => {
+    document.querySelectorAll('#reqList .da-req-row[data-ksa]').forEach(row => {
         const kid = row.dataset.ksa;
         _reqState[kid] = { level: parseInt(row.querySelector('.rq-level').value) || 0,
             required: row.querySelector('.rq-required').checked,
             priority: row.querySelector('.rq-priority').value };
     });
+    document.querySelectorAll('#reqList .da-req-frule[data-folder]').forEach(row => {
+        _reqFolderRules[row.dataset.folder] = {
+            level: parseInt(row.querySelector('.fr-level').value) || 0,
+            required: row.querySelector('.fr-required').checked,
+            priority: row.querySelector('.fr-priority').value };
+    });
 }
 // Ticking "Req'd" on a row still at "Not required" bumps it to level 1 —
 // required at level 0 wouldn't save anything.
 function _onReqFlag(cb) {
-    const lv = cb.closest('.da-req-row').querySelector('.rq-level');
-    if (cb.checked && (parseInt(lv.value) || 0) < 1) lv.value = '1';
+    const lv = cb.closest('.da-req-row, .da-req-frule').querySelector('.rq-level, .fr-level');
+    if (cb.checked && lv && (parseInt(lv.value) || 0) < 1) lv.value = '1';
 }
 function renderReqFiltered() {
     _captureReq();
@@ -1430,6 +1446,30 @@ function _reqRowHtml(k) {
         </div>
     </div>`;
 }
+// Folder-wide rule row: require EVERYTHING in the folder (+ subfolders), now
+// and in the future. A KSA's own row overrides the rule for that KSA.
+function _folderRuleRowHtml(key) {
+    const rule = _reqFolderRules[key] || {};
+    const rl = parseInt(rule.level || 0);
+    const rreq = rule.required === true;
+    const rprio = rule.priority || 'medium';
+    let lvlOpts = `<option value="0"${rl===0?' selected':''}>Not required</option>`;
+    for (let v = 1; v <= _reqMaxLvl; v++) {
+        const lbl = KSA_LEVEL_LABELS[v] || ('Level ' + v);
+        lvlOpts += `<option value="${v}"${rl===v?' selected':''}>${_escH(lbl)} (${v})</option>`;
+    }
+    const prioOpts = ['core','high','medium','low'].map(p => `<option value="${p}"${rprio===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('');
+    return `<div class="da-req-row da-req-frule" data-folder="${key}" title="Requires every KSA in this folder and its subfolders — including KSAs added later — at this level (capped at each KSA's own max). A KSA's individual row overrides this for that KSA.">
+        <span class="da-ksa-type" style="opacity:0.75;"><i class="fas fa-folder-open"></i> all</span>
+        <span class="da-member-name" style="flex:1;font-style:italic;opacity:0.85;">Everything in this folder</span>
+        <div class="da-req-controls">
+            <select class="fr-level" title="Required level for the whole folder">${lvlOpts}</select>
+            <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="fr-required" onchange="_onReqFlag(this)" ${rreq?'checked':''}> Req'd</label>
+            <select class="fr-priority" title="Priority">${prioOpts}</select>
+        </div>
+    </div>`;
+}
+
 function renderReq(catalog) {
     const box = document.getElementById('reqList');
     if (!_reqCatalog.length) { box.innerHTML = '<p style="opacity:0.5;font-size:0.85rem;">This role\'s division has no KSAs yet. Add some in the catalog first.</p>'; return; }
@@ -1444,14 +1484,20 @@ function renderReq(catalog) {
     const groups = {};
     catalog.forEach(k => { const key = _reqGroupKey(k); (groups[key] = groups[key] || []).push(k); });
     let html = '';
+    const q = (document.getElementById('reqSearch').value || '').trim();
     order.forEach(key => {
-        const list = groups[key]; if (!list || !list.length) return;
+        const list = groups[key] || [];
         const isShared = key.startsWith('__shared:');
+        const isFolder = /^\d+$/.test(key);
+        // Empty folders still render (unless searching) so a folder-wide rule
+        // can be set before any KSAs are filed there.
+        if (!list.length && !(isFolder && !q)) return;
         const showHeader = _reqFolders.length > 0 || isShared;
         if (showHeader) {
             const icon = isShared ? 'fa-share-alt' : (key === '__unfiled' ? 'fa-inbox' : 'fa-folder');
             html += `<div class="da-folder-head${key==='__unfiled'?' is-unfiled':''}"><i class="fas ${icon}"></i> ${_escH(labelFor[key])} <span class="da-ksa-meta">${list.length}</span></div>`;
         }
+        if (isFolder) html += _folderRuleRowHtml(key);
         list.forEach(k => { html += _reqRowHtml(k); });
     });
     box.innerHTML = html;
@@ -1460,10 +1506,12 @@ async function saveReq() {
     _captureReq();
     const requirements = {};
     Object.entries(_reqState).forEach(([kid, s]) => { if (s.level >= 1) requirements[kid] = s; });
+    const folder_rules = {};
+    Object.entries(_reqFolderRules).forEach(([fid, s]) => { if (s.level >= 1) folder_rules[fid] = s; });
     const btn = document.getElementById('reqSubmit'); btn.disabled = true;
     try {
         const r = await fetch(`/admin/roles/${_reqRoleId}/ksa-requirements`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirements }) });
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirements, folder_rules }) });
         const d = await r.json();
         if (d.success) location.reload(); else _err('reqError', d.error || 'Failed to save');
     } catch (e) { _err('reqError', 'Request failed'); } finally { btn.disabled = false; }
