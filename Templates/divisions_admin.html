@@ -63,6 +63,10 @@
 .ksa-grip { cursor: grab; color: rgba(255,255,255,0.25); font-size: 0.8rem; flex-shrink: 0; }
 .ksa-grip:hover { color: #fff; }
 .da-ksa-tree .sortable-ghost { opacity: 0.4; outline: 1px dashed rgba(94,238,248,0.6); border-radius: 8px; }
+/* While dragging: folder bodies become visible, roomier drop zones… */
+.da-ksa-tree.is-dragging .da-folder:not(.collapsed) > .da-folder-children { min-height: 22px; background: rgba(94,238,248,0.03); border-left: 1px dashed rgba(94,238,248,0.35); }
+/* …and hovering a folder header means "drop INTO this folder". */
+.da-folder.drop-target > .da-folder-head { background: rgba(94,238,248,0.14); outline: 1px dashed rgba(94,238,248,0.6); border-radius: 8px; }
 .da-page { max-width: 980px; margin: 0 auto; padding: 32px 20px 70px; }
 .da-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
 .da-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
@@ -1172,10 +1176,16 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (e) {}
     });
     {% if can_manage_ksa %}
-    // Drag-and-drop: KSAs and folders share one tree per division — reorder,
-    // move KSAs between folders (or to the root = unfiled), and nest folders
-    // by dropping them into another folder.
+    // Drag-and-drop: KSAs and folders share one tree per division. Reordering
+    // works Sortable-style; NESTING works file-manager style — hover a folder's
+    // header (it highlights) and drop to put the item inside. Dropping into an
+    // expanded folder's body also works; drop zones grow while dragging.
     if (!window.Sortable) return;
+    let _dropFolder = null;
+    function _clearDropTarget() {
+        document.querySelectorAll('.da-folder.drop-target').forEach(el => el.classList.remove('drop-target'));
+        _dropFolder = null;
+    }
     document.querySelectorAll('.da-ksa-tree').forEach(root => {
         const divId = root.dataset.div;
         const containers = [root].concat(Array.from(root.querySelectorAll('.da-folder-children')));
@@ -1186,9 +1196,43 @@ document.addEventListener('DOMContentLoaded', function () {
                 handle: '.ksa-grip',
                 animation: 150,
                 fallbackOnBody: true,
-                // A folder must never be dropped inside itself.
-                onMove: evt => !evt.dragged.contains(evt.to),
-                onEnd: () => persistKsaTree(divId),
+                onStart: () => root.classList.add('is-dragging'),
+                onMove: function (evt, oe) {
+                    // A folder must never be dropped inside itself.
+                    if (evt.dragged.contains(evt.to)) return false;
+                    _clearDropTarget();
+                    const rel = evt.related;
+                    // Hovering a folder's HEADER arms drop-into mode: the item
+                    // won't reorder around the folder, it will drop into it.
+                    if (rel && rel.classList && rel.classList.contains('da-folder')
+                            && rel !== evt.dragged && !evt.dragged.contains(rel)) {
+                        const head = rel.querySelector(':scope > .da-folder-head');
+                        if (head) {
+                            const r = head.getBoundingClientRect();
+                            const y = oe.touches && oe.touches.length ? oe.touches[0].clientY : oe.clientY;
+                            if (y >= r.top && y <= r.bottom) {
+                                rel.classList.add('drop-target');
+                                _dropFolder = rel;
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                },
+                onEnd: function (evt) {
+                    root.classList.remove('is-dragging');
+                    if (_dropFolder && !evt.item.contains(_dropFolder) && _dropFolder !== evt.item) {
+                        const ch = _dropFolder.querySelector(':scope > .da-folder-children');
+                        if (ch) {
+                            ch.appendChild(evt.item);
+                            // Reveal where it landed.
+                            _dropFolder.classList.remove('collapsed');
+                            try { localStorage.removeItem('uwKsaFold:' + _dropFolder.dataset.folderId); } catch (e) {}
+                        }
+                    }
+                    _clearDropTarget();
+                    persistKsaTree(divId);
+                },
             });
         });
     });
