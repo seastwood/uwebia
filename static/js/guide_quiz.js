@@ -49,6 +49,13 @@
 .uwq-actions { display:flex; align-items:center; gap:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; }
 .uwq-submit { padding:9px 22px; border-radius:9px; border:none; cursor:pointer; font-weight:700; background:linear-gradient(135deg,#5eeef8,#5eeec8); color:#111; }
 .uwq-submit:disabled { opacity:0.6; cursor:default; }
+.uwq-savebtn { padding:9px 18px; border-radius:9px; cursor:pointer; font-weight:700; font-size:0.9rem; background:transparent; color:inherit; border:1px solid rgba(255,255,255,0.2); }
+.uwq-savebtn:hover { border-color:rgba(94,238,248,0.55); color:#5eeef8; }
+.uwq-savebtn:disabled { opacity:0.5; cursor:default; }
+.uwq-savestate { font-size:0.8rem; opacity:0.7; display:inline-flex; align-items:center; gap:6px; }
+.uwq-savestate.is-saved { color:#5eeec8; opacity:0.9; }
+.uwq-savestate.is-saving { opacity:0.6; }
+.uwq-savestate.is-error { color:#ffab76; opacity:0.95; }
 .uwq-score { font-size:0.9rem; font-weight:600; opacity:0.85; }
 .uwq-status { padding:3px 12px; border-radius:99px; font-size:0.74rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; }
 .uwq-status.is-pass { background:rgba(94,238,200,0.18); color:#5eeec8; }
@@ -312,6 +319,11 @@
     function renderQuiz(el, quiz, draft) {
         el._quiz = quiz;
         el._locked = false;   // a fresh form is editable (Retake unlocks this way)
+        // Re-render (e.g. Retake) tears down the previous autosave loop.
+        clearInterval(el._uwqAutosave);
+        clearTimeout(el._uwqDraftTimer);
+        el._dirtySinceSave = false;
+        el._lastDraftJson = null;
         el._mstate = {};  // matching: qid -> {leftId: rightId}
         el._ostate = {};  // ordering: qid -> [itemId,...]
         el._sel = {};     // matching: qid -> currently picked leftId
@@ -332,8 +344,13 @@
         const hasGraded = (quiz.questions || []).some(q =>
             q.question_type !== 'reflection' && q.question_type !== 'flashcards' &&
             q.question_type !== 'text');
+        // Graded quizzes also get an explicit "Save & finish later" so readers
+        // can keep progress without submitting an attempt; save-only quizzes
+        // already save as their primary action.
         html += '<div class="uwq-actions"><button type="submit" class="uwq-submit">'
-              + (hasGraded ? 'Submit' : 'Save') + '</button><span class="uwq-score"></span></div>';
+              + (hasGraded ? 'Submit' : 'Save') + '</button>'
+              + (hasGraded ? '<button type="button" class="uwq-savebtn">Save &amp; finish later</button>' : '')
+              + '<span class="uwq-score"></span><span class="uwq-savestate"></span></div>';
         html += '</form></div>';
         el.innerHTML = html;
 
@@ -417,6 +434,38 @@
             (quiz.questions || []).forEach(q => { if (q.question_type === 'image_choice') syncImgPicked(el, q); });
             scheduleDraftSave(el, quiz);
         });
+
+        // Explicit "Save & finish later" — saves the draft now (no attempt) and
+        // confirms visibly.
+        const saveBtn = el.querySelector('.uwq-savebtn');
+        if (saveBtn) saveBtn.addEventListener('click', () => saveDraft(el, quiz, { explicit: true }));
+
+        // Periodic safety-net autosave: every 20s, persist if anything changed
+        // since the last save (input-debounced saves already cover active
+        // typing; this catches idle-then-navigate and long sessions).
+        el._uwqAutosave = setInterval(() => {
+            if (!el._locked && el._dirtySinceSave) saveDraft(el, quiz);
+        }, 20000);
+
+        // Save on the way out — a reliable beacon so nothing in-progress is lost
+        // when the tab is hidden or closed.
+        if (!el._uwqLeaveHooked) {
+            el._uwqLeaveHooked = true;
+            const flush = () => {
+                if (el._locked || !el._dirtySinceSave) return;
+                try {
+                    const body = new Blob([JSON.stringify({
+                        answers: collect(el, el._quiz),
+                        guide_node_id: window.UW_GUIDE_NODE_ID || null })], { type: 'application/json' });
+                    navigator.sendBeacon('/api/quizzes/' + el._quiz.id + '/draft', body);
+                    el._dirtySinceSave = false;
+                } catch (e) { /* ignore */ }
+            };
+            window.addEventListener('pagehide', flush);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') flush();
+            });
+        }
         // Upgrade coding textareas to CodeMirror once it has loaded (the plain
         // textarea works as a fallback meanwhile). Done after applyDraft so the
         // editor inherits any restored draft text.
@@ -424,6 +473,11 @@
             const langs = (quiz.questions || []).filter(q => q.question_type === 'coding').map(q => q.language);
             ensureCodeMirror(langs).then(() => initCodeEditors(el, quiz)).catch(() => {});
         }
+        // Baseline the current answers so autosave only fires on real edits —
+        // and, when a draft was restored, tell the reader it's remembered.
+        el._lastDraftJson = JSON.stringify({ answers: collect(el, quiz), guide_node_id: window.UW_GUIDE_NODE_ID || null });
+        el._dirtySinceSave = false;
+        if (draft) setSaveState(el, '<i class="fas fa-check"></i> Progress restored', 'is-saved');
     }
 
     // ── coding: CodeMirror lazy loader + editor init ─────────────────────────
@@ -828,8 +882,12 @@
     // study widget, not an answer.
     function lockQuiz(el, quiz) {
         el._locked = true;
+        clearInterval(el._uwqAutosave);
+        clearTimeout(el._uwqDraftTimer);
         const box = el.querySelector('.uwq');
         if (box) box.classList.add('uwq-locked');
+        const sbtn = el.querySelector('.uwq-savebtn');
+        if (sbtn) sbtn.style.display = 'none';   // no draft once an attempt exists
         el.querySelectorAll('.uwq-form input, .uwq-form textarea, .uwq-form select').forEach(inp => {
             inp.disabled = true;
         });
@@ -848,25 +906,57 @@
         });
     }
 
+    function setSaveState(el, text, cls) {
+        const s = el.querySelector('.uwq-savestate');
+        if (!s) return;
+        s.className = 'uwq-savestate' + (cls ? ' ' + cls : '');
+        s.innerHTML = text;
+    }
+
+    function _fmtTime(d) {
+        try { return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+        catch (e) { return ''; }
+    }
+
     function scheduleDraftSave(el, quiz) {
         // A submitted (locked) form must not autosave — the attempt is the
         // record now, and a stray draft would prefill stale answers next visit.
         if (!quiz || el._locked) return;
+        el._dirtySinceSave = true;
+        setSaveState(el, 'Editing…', '');
         clearTimeout(el._uwqDraftTimer);
-        el._uwqDraftTimer = setTimeout(() => saveDraft(el, quiz), 700);
+        el._uwqDraftTimer = setTimeout(() => saveDraft(el, quiz), 900);
     }
 
-    function saveDraft(el, quiz) {
-        try {
-            fetch('/api/quizzes/' + quiz.id + '/draft', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ answers: collect(el, quiz), guide_node_id: window.UW_GUIDE_NODE_ID || null })
-            });
-        } catch (e) { /* ignore */ }
+    function saveDraft(el, quiz, opts) {
+        opts = opts || {};
+        if (el._locked) return Promise.resolve();
+        clearTimeout(el._uwqDraftTimer);
+        const json = JSON.stringify({ answers: collect(el, quiz), guide_node_id: window.UW_GUIDE_NODE_ID || null });
+        // Skip a redundant write when nothing changed — unless the reader asked
+        // explicitly (they expect confirmation either way).
+        if (!opts.explicit && json === el._lastDraftJson) {
+            el._dirtySinceSave = false;
+            return Promise.resolve();
+        }
+        setSaveState(el, '<i class="fas fa-spinner fa-spin"></i> Saving…', 'is-saving');
+        return fetch('/api/quizzes/' + quiz.id + '/draft', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: json
+        }).then(r => {
+            if (!r.ok) throw new Error('save failed');
+            el._lastDraftJson = json;
+            el._dirtySinceSave = false;
+            setSaveState(el, '<i class="fas fa-check"></i> Saved ' + _fmtTime(new Date()), 'is-saved');
+        }).catch(() => {
+            el._dirtySinceSave = true;   // leave dirty so the next tick retries
+            setSaveState(el, 'Not saved — will retry', 'is-error');
+        });
     }
 
     async function submit(el, quiz) {
         clearTimeout(el._uwqDraftTimer);
+        clearInterval(el._uwqAutosave);   // the attempt supersedes the draft
+        setSaveState(el, '', '');
         const answers = collect(el, quiz);
         const btn = el.querySelector('.uwq-submit');
         btn.disabled = true; btn.textContent = 'Checking…';
