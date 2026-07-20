@@ -1204,7 +1204,7 @@ function removeMember(did, mid) {
 // Selections live in _reqState (keyed by KSA id) so search / folder filtering
 // can hide rows without losing edits made to filtered-out KSAs.
 let _reqRoleId = null, _reqCatalog = [], _reqFolders = [], _reqState = {}, _reqInherited = {},
-    _reqFolderRules = {}, _reqMaxLvl = 4;
+    _reqFolderRules = {}, _reqMaxLvl = 4, _reqFolderParent = null;
 // Collapsible sections start closed (lists get big) but remember what you had
 // open across the frequent full-page reloads this page does after edits.
 document.addEventListener('DOMContentLoaded', function () {
@@ -1401,12 +1401,13 @@ async function openReqModal(roleId, name) {
         const d = await (await fetch(`/admin/roles/${roleId}/ksa-requirements`)).json();
         _reqCatalog = d.catalog || [];
         _reqFolders = d.folders || [];
+        _reqFolderParent = null;   // rebuilt lazily from _reqFolders
         _reqInherited = d.inherited || {};
         _reqFolderRules = {};
         Object.entries(d.folder_rules || {}).forEach(([fid, spec]) => {
+            // Folder rules carry level + required only; priority is per-KSA.
             _reqFolderRules[fid] = { level: parseInt(spec.level || 0),
-                                     required: spec.required !== false,
-                                     priority: spec.priority || 'medium' };
+                                     required: spec.required !== false };
         });
         _reqMaxLvl = (d.catalog || []).reduce((m, k) => Math.max(m, k.max_level || 0), 4);
         _reqState = {};
@@ -1455,10 +1456,10 @@ function _captureReq() {
             priority: row.querySelector('.rq-priority').value };
     });
     document.querySelectorAll('#reqList .da-req-frule[data-folder]').forEach(row => {
+        // Folder rules set level + required only — priority is per-KSA.
         _reqFolderRules[row.dataset.folder] = {
             level: parseInt(row.querySelector('.fr-level').value) || 0,
-            required: row.querySelector('.fr-required').checked,
-            priority: row.querySelector('.fr-priority').value };
+            required: row.querySelector('.fr-required').checked };
     });
 }
 // Ticking "Req'd" on a row still at "Not required" bumps it to level 1 —
@@ -1466,6 +1467,37 @@ function _captureReq() {
 function _onReqFlag(cb) {
     const lv = cb.closest('.da-req-row, .da-req-frule').querySelector('.rq-level, .fr-level');
     if (cb.checked && lv && (parseInt(lv.value) || 0) < 1) lv.value = '1';
+}
+// A KSA inside a folder that has a rule is already required at the folder's
+// level. Changing its priority/Req'd here must persist as an explicit
+// override — but that only saves with a level >= 1, so seed the level from
+// the covering folder rule when the admin touches this row and left it unset.
+function _onReqRowTouch(el) {
+    const row = el.closest('.da-req-row[data-ksa]');
+    if (!row) return;
+    const lv = row.querySelector('.rq-level');
+    if ((parseInt(lv.value) || 0) >= 1) return;
+    const cov = parseInt(row.dataset.folderLevel || 0);
+    if (cov >= 1) lv.value = String(cov);
+}
+// Effective folder-rule requirement covering a KSA: the nearest ancestor
+// folder (self folder first) that has a rule with level >= 1. Returns the
+// rule's level or 0.
+function _folderRuleLevelFor(k) {
+    if (!_reqFolderParent) {
+        _reqFolderParent = {};
+        _reqFolders.forEach(f => { _reqFolderParent[String(f.id)] = f.parent_id ? String(f.parent_id) : null; });
+    }
+    let fid = k.folder_id ? String(k.folder_id) : null;
+    const guard = new Set();
+    let best = 0;
+    while (fid && !guard.has(fid)) {
+        guard.add(fid);
+        const rule = _reqFolderRules[fid];
+        if (rule && (parseInt(rule.level) || 0) >= 1) best = Math.max(best, parseInt(rule.level));
+        fid = _reqFolderParent[fid] || null;
+    }
+    return best;
 }
 function renderReqFiltered() {
     _captureReq();
@@ -1494,36 +1526,38 @@ function _reqRowHtml(k) {
     const sharedTag = k.shared ? ` <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from ${_escH(k.owner_division || 'another division')}</span>` : '';
     const inh = _reqInherited[String(k.id)];
     const inhTag = inh ? ` <span class="da-shared-tag" title="Inherited from the role this one builds on. The effective requirement is the higher of the inherited level and anything set here — setting a lower level has no effect."><i class="fas fa-layer-group"></i> Lv ${parseInt(inh.level)} from ${_escH(inh.from)}</span>` : '';
-    return `<div class="da-req-row" data-ksa="${k.id}">
+    // Covered by a folder rule: already required at that level. Setting a
+    // level/priority here overrides just this KSA (see _onReqRowTouch).
+    const folderLvl = _folderRuleLevelFor(k);
+    const covTag = folderLvl ? ` <span class="da-shared-tag" title="Required at level ${folderLvl} by this folder's rule. Set a level here to override just this KSA; changing its priority overrides too."><i class="fas fa-folder-open"></i> folder: Lv ${folderLvl}</span>` : '';
+    return `<div class="da-req-row" data-ksa="${k.id}" data-folder-level="${folderLvl}">
         <span class="da-ksa-type">${_escH(k.ksa_type)}</span>
-        <span class="da-member-name" style="flex:1;">${_escH(k.name)}${sharedTag}${inhTag}</span>
+        <span class="da-member-name" style="flex:1;">${_escH(k.name)}${sharedTag}${inhTag}${covTag}</span>
         <div class="da-req-controls">
             <select class="rq-level" title="Required level">${lvlOpts}</select>
-            <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="rq-required" onchange="_onReqFlag(this)" ${req?'checked':''}> Req'd</label>
-            <select class="rq-priority" title="Priority">${prioOpts}</select>
+            <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="rq-required" onchange="_onReqRowTouch(this);_onReqFlag(this)" ${req?'checked':''}> Req'd</label>
+            <select class="rq-priority" title="Priority" onchange="_onReqRowTouch(this)">${prioOpts}</select>
         </div>
     </div>`;
 }
 // Folder-wide rule row: require EVERYTHING in the folder (+ subfolders), now
-// and in the future. A KSA's own row overrides the rule for that KSA.
+// and in the future, at one level. Priority is intentionally NOT here — it's a
+// per-KSA property; each KSA's own row (or default) carries it.
 function _folderRuleRowHtml(key) {
     const rule = _reqFolderRules[key] || {};
     const rl = parseInt(rule.level || 0);
     const rreq = rule.required === true;
-    const rprio = rule.priority || 'medium';
     let lvlOpts = `<option value="0"${rl===0?' selected':''}>Not required</option>`;
     for (let v = 1; v <= _reqMaxLvl; v++) {
         const lbl = KSA_LEVEL_LABELS[v] || ('Level ' + v);
         lvlOpts += `<option value="${v}"${rl===v?' selected':''}>${_escH(lbl)} (${v})</option>`;
     }
-    const prioOpts = ['core','high','medium','low'].map(p => `<option value="${p}"${rprio===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('');
-    return `<div class="da-req-row da-req-frule" data-folder="${key}" title="Requires every KSA in this folder and its subfolders — including KSAs added later — at this level (capped at each KSA's own max). A KSA's individual row overrides this for that KSA.">
+    return `<div class="da-req-row da-req-frule" data-folder="${key}" title="Requires every KSA in this folder and its subfolders — including KSAs added later — at this level (capped at each KSA's own max). Set a KSA's own priority (or level) on its row to override just that KSA.">
         <span class="da-ksa-type" style="opacity:0.75;"><i class="fas fa-folder-open"></i> all</span>
-        <span class="da-member-name" style="flex:1;font-style:italic;opacity:0.85;">Everything in this folder</span>
+        <span class="da-member-name" style="flex:1;font-style:italic;opacity:0.85;">Everything in this folder <span style="opacity:0.6;font-style:normal;">— set priority on each KSA's row</span></span>
         <div class="da-req-controls">
             <select class="fr-level" title="Required level for the whole folder">${lvlOpts}</select>
             <label class="rq-flag" title="Must-have vs recommended"><input type="checkbox" class="fr-required" onchange="_onReqFlag(this)" ${rreq?'checked':''}> Req'd</label>
-            <select class="fr-priority" title="Priority">${prioOpts}</select>
         </div>
     </div>`;
 }

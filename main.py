@@ -35947,7 +35947,8 @@ def admin_role_ksa_requirements_get(role_id):
     div = db.session.get(Division, role.division_id)
     return _utf8_json({'success': True, 'role': role.to_dict(),
                        'division': div.to_dict() if div else None,
-                       'folders': [{'id': f.id, 'name': label} for f, label, _ in folders_flat],
+                       'folders': [{'id': f.id, 'name': label, 'parent_id': f.parent_id}
+                                   for f, label, _ in folders_flat],
                        'catalog': catalog, 'requirements': reqs,
                        'folder_rules': folder_rules,
                        'inherited': inherited})
@@ -37382,7 +37383,9 @@ def public_quiz_save_draft(qid):
     they can resume the quiz later. Upserts one row per quiz per identity."""
     quiz = Quiz.query.get_or_404(qid)
     website = _live_website_for(quiz)
-    data = request.get_json() or {}
+    # silent=True so a navigator.sendBeacon on page-hide (which may arrive with
+    # a text/plain content-type) still parses rather than 400-ing.
+    data = request.get_json(silent=True) or {}
     answers = data.get('answers')
     if not isinstance(answers, dict):
         answers = {}
