@@ -1113,6 +1113,74 @@ def _combined_division_ids(division):
         merge_group_id=division.merge_group_id).all()]
 
 
+def _mirror_merged_division_roles(division):
+    """For a merged division group: every division carries a counterpart role
+    (same RoleType) for every role present anywhere in the group, builds-on
+    links mirror (matched by role type), and member role assignments are
+    unioned so a member holds the counterpart everywhere. Requirements stay
+    per-division (each division's catalog differs). No-op when unmerged.
+    Caller commits."""
+    if not division or not division.merge_group_id:
+        return
+    ids = _combined_division_ids(division)
+    if len(ids) < 2:
+        return
+    roles = PublicUserRole.query.filter(PublicUserRole.division_id.in_(ids)).all()
+    by_type = {}
+    for r in roles:
+        if r.role_type_id:
+            by_type.setdefault(r.role_type_id, {})[r.division_id] = r
+    # 1. Every division gets a counterpart for every role type in the group.
+    for rtid, per_div in by_type.items():
+        proto = next(iter(per_div.values()))
+        for did in ids:
+            if did not in per_div:
+                nr = PublicUserRole(website_id=division.website_id, division_id=did,
+                                    role_type_id=rtid, name=proto.name, color=proto.color,
+                                    description=proto.description,
+                                    exclude_from_directory=proto.exclude_from_directory)
+                db.session.add(nr)
+                per_div[did] = nr
+    db.session.flush()
+    role_type_of = {r.id: r.role_type_id for per in by_type.values() for r in per.values()}
+    # 2. Builds-on links: where one division's role builds on a type, its
+    #    counterparts without a parent adopt the counterpart parent.
+    for rtid, per_div in by_type.items():
+        parent_types = {role_type_of.get(r.parent_role_id)
+                        for r in per_div.values() if r.parent_role_id}
+        parent_types.discard(None)
+        if len(parent_types) == 1:
+            ptid = parent_types.pop()
+            if ptid in by_type and ptid != rtid:
+                for did, r in per_div.items():
+                    cp = by_type[ptid].get(did)
+                    if cp and not r.parent_role_id:
+                        r.parent_role_id = cp.id
+    # 3. Assignment union: holding a role type anywhere in the group means
+    #    holding its counterpart everywhere.
+    all_role_ids = [r.id for per in by_type.values() for r in per.values()]
+    if not all_role_ids:
+        return
+    rows = db.session.execute(
+        public_user_role_assignment.select().where(
+            public_user_role_assignment.c.role_id.in_(all_role_ids))).fetchall()
+    holds = {(row.user_id, row.role_id) for row in rows}
+    held_types = {}
+    for uid_, rid_ in holds:
+        rtid = role_type_of.get(rid_)
+        if rtid:
+            held_types.setdefault(uid_, set()).add(rtid)
+    inserts = []
+    for uid_, types in held_types.items():
+        for rtid in types:
+            for r in by_type[rtid].values():
+                if (uid_, r.id) not in holds:
+                    inserts.append({'user_id': uid_, 'role_id': r.id})
+                    holds.add((uid_, r.id))
+    if inserts:
+        db.session.execute(public_user_role_assignment.insert(), inserts)
+
+
 def _ensure_division_membership(public_user_id, division_id, status='active'):
     """Idempotently make a public user a member of a division — used when a
     division-scoped role is assigned. Never downgrades an existing membership.
@@ -34886,6 +34954,9 @@ def admin_division_combine(did):
             if uid not in have:
                 db.session.add(DivisionMembership(
                     public_user_id=uid, division_id=div_id, status=st))
+    db.session.flush()
+    # Roles mirror across the group too (counterpart rows + assignments).
+    _mirror_merged_division_roles(d)
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -35133,6 +35204,65 @@ def admin_folder_update(fid):
     if not name:
         return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
     f.name = name
+    # Division move — the folder, its whole subtree and every KSA filed inside
+    # relocate together. Handled before parent_id so the parent validates
+    # against the new division.
+    if 'division_id' in data:
+        try:
+            new_did = int(data.get('division_id') or 0)
+        except (TypeError, ValueError):
+            new_did = 0
+        if new_did and new_did != f.division_id:
+            nd = Division.query.filter_by(id=new_did, website_id=website.id).first()
+            if not nd:
+                return _utf8_json({'success': False, 'error': 'Unknown ' + _division_word(website).lower() + '.'}, 400)
+            if not can_access_division(nd.id):
+                return _utf8_json({'success': False, 'error': "You don't have access to that " + _division_word(website).lower() + '.'}, 403)
+            kids = {}
+            for x in KSAFolder.query.filter_by(division_id=f.division_id).all():
+                kids.setdefault(x.parent_id, []).append(x.id)
+            subtree, queue, seen = [], [f.id], set()
+            while queue:
+                cur = queue.pop(0)
+                if cur in seen:
+                    continue
+                seen.add(cur)
+                subtree.append(cur)
+                queue.extend(kids.get(cur, []))
+            ksa_ids = [k.id for k in KSA.query.filter(KSA.folder_id.in_(subtree)).all()]
+            KSAFolder.query.filter(KSAFolder.id.in_(subtree)).update(
+                {'division_id': nd.id}, synchronize_session=False)
+            f.division_id = nd.id
+            f.parent_id = None            # roots in its new division
+            if ksa_ids:
+                KSA.query.filter(KSA.id.in_(ksa_ids)).update(
+                    {'division_id': nd.id}, synchronize_session=False)
+                # The new owner can't also borrow these.
+                DivisionKSAShare.query.filter(
+                    DivisionKSAShare.ksa_id.in_(ksa_ids),
+                    DivisionKSAShare.division_id == nd.id).delete(synchronize_session=False)
+                # Requirement rows from roles in divisions that can no longer
+                # see each KSA (not owner, not shared-in) go stale — remove.
+                shares_by_ksa = {}
+                for s in DivisionKSAShare.query.filter(DivisionKSAShare.ksa_id.in_(ksa_ids)).all():
+                    shares_by_ksa.setdefault(s.ksa_id, set()).add(s.division_id)
+                role_div = {r.id: r.division_id for r in
+                            PublicUserRole.query.filter_by(website_id=website.id).all()}
+                for rk in RoleKSA.query.filter(RoleKSA.ksa_id.in_(ksa_ids)).all():
+                    rdiv = role_div.get(rk.role_id)
+                    if rdiv and rdiv not in ({nd.id} | shares_by_ksa.get(rk.ksa_id, set())):
+                        db.session.delete(rk)
+            # Borrowing divisions that had filed shares INTO moved folders lose
+            # that filing (their folder left); the share itself stays.
+            DivisionKSAShare.query.filter(
+                DivisionKSAShare.folder_id.in_(subtree),
+                DivisionKSAShare.division_id != nd.id).update(
+                {'folder_id': None}, synchronize_session=False)
+            # Folder rules from roles outside the new division are stale.
+            for fr in RoleKSAFolderRule.query.filter(RoleKSAFolderRule.folder_id.in_(subtree)).all():
+                r = db.session.get(PublicUserRole, fr.role_id)
+                if not r or r.division_id != nd.id:
+                    db.session.delete(fr)
     if 'parent_id' in data:
         f.parent_id = _valid_parent_folder(data.get('parent_id'), f.division_id, folder_id=f.id)
     db.session.commit()
@@ -35428,6 +35558,9 @@ def admin_division_role_create(did):
                           name=rt.name, color=rt.color, description=rt.description,
                           exclude_from_directory=rt.exclude_from_directory)
     db.session.add(role)
+    db.session.flush()
+    # Merged divisions mirror their role lists.
+    _mirror_merged_division_roles(d)
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()}, 201)
 
@@ -35559,6 +35692,24 @@ def admin_division_role_update(rid):
                 seen.add(cur.id)
                 cur = db.session.get(PublicUserRole, cur.parent_role_id) if cur.parent_role_id else None
             role.parent_role_id = parent.id
+        # Merged divisions mirror builds-on links via role types.
+        d_obj = db.session.get(Division, role.division_id) if role.division_id else None
+        if d_obj and d_obj.merge_group_id and role.role_type_id:
+            partner_ids = [x for x in _combined_division_ids(d_obj) if x != d_obj.id]
+            parent_tid = None
+            if role.parent_role_id:
+                p = db.session.get(PublicUserRole, role.parent_role_id)
+                parent_tid = p.role_type_id if p else None
+            for pr in PublicUserRole.query.filter(
+                    PublicUserRole.division_id.in_(partner_ids),
+                    PublicUserRole.role_type_id == role.role_type_id).all():
+                if role.parent_role_id is None:
+                    pr.parent_role_id = None
+                elif parent_tid:
+                    cp = PublicUserRole.query.filter_by(
+                        division_id=pr.division_id, role_type_id=parent_tid).first()
+                    if cp:
+                        pr.parent_role_id = cp.id
     db.session.commit()
     return _utf8_json({'success': True, 'role': role.to_dict()})
 
@@ -35570,6 +35721,15 @@ def admin_division_role_delete(rid):
     website, role = _division_role_or_403(rid)
     if role is None:
         return website
+    # Merged divisions mirror role lists — removing here removes counterparts.
+    d_obj = db.session.get(Division, role.division_id) if role.division_id else None
+    if d_obj and d_obj.merge_group_id and role.role_type_id:
+        partner_ids = [x for x in _combined_division_ids(d_obj) if x != d_obj.id]
+        if partner_ids:
+            for pr in PublicUserRole.query.filter(
+                    PublicUserRole.division_id.in_(partner_ids),
+                    PublicUserRole.role_type_id == role.role_type_id).all():
+                db.session.delete(pr)
     db.session.delete(role)  # RoleKSA + assignments cascade
     db.session.commit()
     return _utf8_json({'success': True})
@@ -35598,6 +35758,17 @@ def admin_division_member_roles(did, uid):
     # keep everything that isn't a role of THIS division, swap in the selection
     u.roles = [r for r in (u.roles or []) if r.division_id != d.id] + selected
     _ensure_division_membership(u.id, d.id)
+    # Merged divisions mirror role assignments: replace the member's roles in
+    # every partner division with the counterparts (same role type) of the
+    # selection — a REPLACE, so removals mirror too.
+    if d.merge_group_id:
+        partner_ids = [x for x in _combined_division_ids(d) if x != d.id]
+        if partner_ids:
+            sel_types = {r.role_type_id for r in selected if r.role_type_id}
+            counterparts = [r for r in PublicUserRole.query.filter(
+                                PublicUserRole.division_id.in_(partner_ids)).all()
+                            if r.role_type_id in sel_types]
+            u.roles = [r for r in (u.roles or []) if r.division_id not in partner_ids] + counterparts
     db.session.commit()
     return _utf8_json({'success': True, 'role_ids': [r.id for r in selected]})
 
