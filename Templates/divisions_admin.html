@@ -1,10 +1,68 @@
 {% extends 'base.html' %}
+
+{# ── KSA catalog tree macros (folders nest; folders + KSAs interleave) ── #}
+{% macro ksa_row(k, d) %}
+{% set _sc = share_count_by_ksa.get(k.id, 0) %}
+<div class="da-ksa-row da-draggable{% if k.folder_id %} in-folder{% endif %}" id="ksaRow-{{ k.id }}" data-ksa-id="{{ k.id }}">
+    {% if can_manage_ksa %}<i class="fas fa-grip-vertical ksa-grip" title="Drag to reorder or move into a folder"></i>{% endif %}
+    <span class="da-ksa-type">{{ k.ksa_type }}</span>
+    <div>
+        <div class="da-ksa-name">{{ k.name }}{% if _sc %} <span class="da-shared-tag" title="Shared into {{ _sc }} other {{ div_singular|lower }}{{ '' if _sc == 1 else 's' }}"><i class="fas fa-share-alt"></i> shared ×{{ _sc }}</span>{% endif %}</div>
+        {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
+    </div>
+    <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+    {% if can_manage_ksa %}
+    <div class="da-ksa-actions">
+        <button class="da-icon-btn{% if _sc %} is-active{% endif %}" title="Share with other {{ div_plural|lower }}"
+                onclick='openShareModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-share-alt"></i></button>
+        <button class="da-icon-btn" title="Learning resources (links / guides / quizzes)"
+                onclick='openResourcesModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-book-reader"></i></button>
+        <button class="da-icon-btn" title="Edit"
+                onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }}, {{ k.folder_id or 0 }})'><i class="fas fa-pencil-alt"></i></button>
+        <button class="da-icon-btn is-danger" title="Delete"
+                onclick='confirmKsaDelete({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-trash"></i></button>
+    </div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{% macro ksa_folder_node(node, d) %}
+<div class="da-folder da-draggable" data-folder-id="{{ node.folder.id }}">
+    <div class="da-folder-head">
+        {% if can_manage_ksa %}<i class="fas fa-grip-vertical ksa-grip" title="Drag to reorder or nest under another folder"></i>{% endif %}
+        <button type="button" class="da-fold-toggle" onclick="toggleKsaFolder(this)" title="Collapse / expand"><i class="fas fa-chevron-down"></i></button>
+        <i class="fas fa-folder"></i> <span class="da-folder-name">{{ node.folder.name }}</span>
+        <span class="da-ksa-meta">{{ node.entries | selectattr('kind', 'equalto', 'ksa') | list | length }}</span>
+        {% if can_manage_ksa %}
+        <div class="da-folder-actions">
+            <button class="da-icon-btn" title="Rename / move folder" onclick='openFolderModal({{ d.id }}, {{ node.folder.id }}, {{ node.folder.name|tojson }}, {{ node.folder.parent_id or 0 }})'><i class="fas fa-pencil-alt"></i></button>
+            <button class="da-icon-btn is-danger" title="Delete folder" onclick='confirmFolderDelete({{ node.folder.id }}, {{ node.folder.name|tojson }})'><i class="fas fa-times"></i></button>
+        </div>
+        {% endif %}
+    </div>
+    <div class="da-folder-children">
+        {% for it in node.entries %}{% if it.kind == 'folder' %}{{ ksa_folder_node(it, d) }}{% else %}{{ ksa_row(it.ksa, d) }}{% endif %}{% endfor %}
+    </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
 <style>
+/* KSA catalog tree: nested folders, drag grips, collapse chevrons */
+.da-ksa-tree .da-folder { display: flex; flex-direction: column; }
+.da-folder-children { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px 16px; padding: 2px 0 2px 10px; border-left: 1px dashed rgba(255,255,255,0.1); min-height: 8px; }
+.da-folder.collapsed > .da-folder-children { display: none; }
+.da-fold-toggle { background: none; border: none; color: rgba(255,255,255,0.45); cursor: pointer; padding: 2px 5px; flex-shrink: 0; }
+.da-fold-toggle i { transition: transform 0.15s ease; font-size: 0.72rem; }
+.da-folder.collapsed .da-folder-head .da-fold-toggle i { transform: rotate(-90deg); }
+.ksa-grip { cursor: grab; color: rgba(255,255,255,0.25); font-size: 0.8rem; flex-shrink: 0; }
+.ksa-grip:hover { color: #fff; }
+.da-ksa-tree .sortable-ghost { opacity: 0.4; outline: 1px dashed rgba(94,238,248,0.6); border-radius: 8px; }
 .da-page { max-width: 980px; margin: 0 auto; padding: 32px 20px 70px; }
 .da-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
 .da-kicker { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 0 0 4px; }
@@ -69,8 +127,21 @@
 .da-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 50px 20px; }
 .da-modal-error { display:none; color:#ff6b6b; font-size:0.85rem; padding:0 20px 4px; }
 .da-roles { display: flex; flex-direction: column; gap: 6px; }
-.da-role-row { display: flex; align-items: center; gap: 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); }
-.da-role-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.da-role-row { display: flex; align-items: center; gap: 8px 10px; padding: 7px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); flex-wrap: wrap; }
+/* Info cluster (KSA count, builds-on) rides right, against the actions.
+   Rows without an info cluster (role catalog modal) push the actions right
+   themselves; the sibling rule turns that off when the cluster is present. */
+.da-role-info { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.da-role-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+.da-role-info ~ .da-role-actions { margin-left: 0; }
+@media (max-width: 600px) {
+    /* Narrow screens: the builds-on select can't force the row wider than the
+       card, and the action buttons drop to their own right-aligned line. */
+    .da-role-row select { max-width: 44vw; }
+    .da-role-info { width: 100%; margin-left: 0; }
+    .da-role-actions { width: 100%; justify-content: flex-end; }
+}
+.da-role-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .da-rolechip { padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: filter 0.12s; }
 .da-rolechip:hover { filter: brightness(1.2); }
 .da-member-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -184,7 +255,7 @@
                     <span class="da-role-badge" style="background:{{ rt.color }}22;color:{{ rt.color }};border:1px solid {{ rt.color }}44;">{{ rt.name }}</span>
                     {% if rt.exclude_from_directory %}<span class="da-ksa-meta"><i class="fas fa-eye-slash"></i> hidden</span>{% endif %}
                     <span class="da-ksa-meta">{{ rt.uses }} in use</span>
-                    <div style="margin-left:auto;display:flex;gap:6px;">
+                    <div class="da-role-actions">
                         <button class="da-icon-btn" title="Edit role" onclick="openRoleTypeModal({{ rt.id }})"><i class="fas fa-pen"></i></button>
                         <button class="da-icon-btn is-danger" title="Delete role" onclick="deleteRoleType({{ rt.id }})"><i class="fas fa-times"></i></button>
                     </div>
@@ -228,32 +299,13 @@
         {% endif %}
         {% if d.description %}<p class="da-div-desc">{{ d.description }}</p>{% endif %}
 
-        {# ── Merged divisions: shared members, unmergeable later ── #}
+        {# ── Merged divisions: badge only; merge/unmerge lives in the edit modal ── #}
         {% set _partners = combined_with_by_division.get(d.id, []) %}
-        {% if _partners or (can_merge_div and divisions|length > 1) %}
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
-            {% if _partners %}
-            <span class="da-shared-tag" title="Members stay in sync across merged {{ div_plural|lower }} — adding, removing or changing a member's status in one applies to all. Unmerge to let them diverge.">
+        {% if _partners %}
+        <div style="margin-top:8px;">
+            <span class="da-shared-tag" title="Members stay in sync across merged {{ div_plural|lower }} — adding, removing or changing a member's status in one applies to all. Unmerge from the edit ({{ div_singular|lower }} pencil) dialog.">
                 <i class="fas fa-object-group"></i> Merged with {{ _partners | map(attribute='name') | join(', ') }}
             </span>
-            {% if can_merge_div %}
-            <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;"
-                    onclick='separateDivision({{ d.id }}, {{ d.name|tojson }})'>
-                <i class="fas fa-object-ungroup"></i> Unmerge
-            </button>
-            {% endif %}
-            {% elif can_merge_div %}
-            <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="Merge this {{ div_singular|lower }} with another: their member lists combine and stay in sync (adds, removals and status changes apply to all) until you unmerge them. Each keeps its own roles and KSAs.">
-                <i class="fas fa-object-group" style="opacity:0.5;"></i> merge with
-                <select onchange='combineDivision({{ d.id }}, this.value, {{ d.name|tojson }}, this)'
-                        style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:3px 6px;font-size:0.78rem;">
-                    <option value="">— choose —</option>
-                    {% for other in divisions %}{% if other.id != d.id %}
-                    <option value="{{ other.id }}">{{ other.name }}</option>
-                    {% endif %}{% endfor %}
-                </select>
-            </label>
-            {% endif %}
         </div>
         {% endif %}
 
@@ -270,23 +322,25 @@
             {% for role in _droles %}
             <div class="da-role-row">
                 <span class="da-role-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>
-                {% if can_view_ksa %}<span class="da-ksa-meta">{{ role.ksa_requirements.count() }} required KSA{{ '' if role.ksa_requirements.count() == 1 else 's' }}</span>{% endif %}
-                {% if can_edit_div and _droles|length > 1 %}
-                <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="This role inherits every KSA requirement of the role it builds on (and anything that role builds on). Its own requirements can raise levels, never lower them.">
-                    <i class="fas fa-layer-group" style="opacity:0.5;"></i> builds on
-                    <select onchange="setRoleParent({{ role.id }}, this.value)"
-                            style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:3px 6px;font-size:0.78rem;">
-                        <option value="">— nothing —</option>
-                        {% for other in _droles %}{% if other.id != role.id %}
-                        <option value="{{ other.id }}"{% if role.parent_role_id == other.id %} selected{% endif %}>{{ other.name }}</option>
-                        {% endif %}{% endfor %}
-                    </select>
-                </label>
-                {% elif role.parent_role_id %}
-                {% set _parent = (_droles | selectattr('id', 'equalto', role.parent_role_id) | list | first) %}
-                {% if _parent %}<span class="da-ksa-meta" title="Inherits every KSA requirement of {{ _parent.name }}."><i class="fas fa-layer-group" style="opacity:0.5;"></i> builds on {{ _parent.name }}</span>{% endif %}
-                {% endif %}
-                <div style="margin-left:auto;display:flex;gap:6px;">
+                <div class="da-role-info">
+                    {% if can_view_ksa %}<span class="da-ksa-meta">{{ role.ksa_requirements.count() }} required KSA{{ '' if role.ksa_requirements.count() == 1 else 's' }}</span>{% endif %}
+                    {% if can_edit_div and _droles|length > 1 %}
+                    <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="This role inherits every KSA requirement of the role it builds on (and anything that role builds on). Its own requirements can raise levels, never lower them.">
+                        <i class="fas fa-layer-group" style="opacity:0.5;"></i> builds on
+                        <select onchange="setRoleParent({{ role.id }}, this.value)"
+                                style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:3px 6px;font-size:0.78rem;">
+                            <option value="">— nothing —</option>
+                            {% for other in _droles %}{% if other.id != role.id %}
+                            <option value="{{ other.id }}"{% if role.parent_role_id == other.id %} selected{% endif %}>{{ other.name }}</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                    </label>
+                    {% elif role.parent_role_id %}
+                    {% set _parent = (_droles | selectattr('id', 'equalto', role.parent_role_id) | list | first) %}
+                    {% if _parent %}<span class="da-ksa-meta" title="Inherits every KSA requirement of {{ _parent.name }}."><i class="fas fa-layer-group" style="opacity:0.5;"></i> builds on {{ _parent.name }}</span>{% endif %}
+                    {% endif %}
+                </div>
+                <div class="da-role-actions">
                     {% if can_manage_ksa %}<button class="da-btn da-btn-secondary" style="padding:5px 11px;" onclick='openReqModal({{ role.id }}, {{ role.name|tojson }})'>Requirements</button>{% endif %}
                     {% if can_edit_div %}
                     <button class="da-icon-btn is-danger" title="Remove from this {{ div_singular|lower }}" onclick='confirmRoleDelete({{ role.id }}, {{ role.name|tojson }})'><i class="fas fa-times"></i></button>
@@ -334,8 +388,7 @@
         {% if can_view_ksa %}
         {% set _owned = ksas_by_division.get(d.id, []) %}
         {% set _shared = shared_ksas_by_division.get(d.id, []) %}
-        {% set _groups = ksa_groups_by_division.get(d.id, []) %}
-        {% set _has_folders = folders_by_division.get(d.id, [])|length > 0 %}
+        {% set _tree = ksa_tree_by_division.get(d.id, []) %}
         <details class="da-members-panel da-ksa-module" data-persist="ksam-{{ d.id }}">
             <summary>
                 <i class="fas fa-graduation-cap"></i> KSAs &amp; competency
@@ -343,46 +396,14 @@
                 <i class="fas fa-chevron-down da-mp-chev"></i>
             </summary>
             <div class="da-mp-body">
-                <div class="da-ksa-list">
-                    {% for grp in _groups %}
-                    {% if grp.folder %}
-                    <div class="da-folder-head">
-                        <i class="fas fa-folder"></i> <span class="da-folder-name">{{ grp.folder.name }}</span>
-                        <span class="da-ksa-meta">{{ grp.ksas|length }}</span>
-                        {% if can_manage_ksa %}
-                        <div class="da-folder-actions">
-                            <button class="da-icon-btn" title="Rename folder" onclick='openFolderModal({{ d.id }}, {{ grp.folder.id }}, {{ grp.folder.name|tojson }})'><i class="fas fa-pencil-alt"></i></button>
-                            <button class="da-icon-btn is-danger" title="Delete folder" onclick='confirmFolderDelete({{ grp.folder.id }}, {{ grp.folder.name|tojson }})'><i class="fas fa-times"></i></button>
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% elif _has_folders %}
-                    <div class="da-folder-head is-unfiled"><i class="fas fa-inbox"></i> <span class="da-folder-name">Unfiled</span> <span class="da-ksa-meta">{{ grp.ksas|length }}</span></div>
-                    {% endif %}
-                    {% for k in grp.ksas %}
-                    {% set _sc = share_count_by_ksa.get(k.id, 0) %}
-                    <div class="da-ksa-row{% if grp.folder %} in-folder{% endif %}" id="ksaRow-{{ k.id }}">
-                        <span class="da-ksa-type">{{ k.ksa_type }}</span>
-                        <div>
-                            <div class="da-ksa-name">{{ k.name }}{% if _sc %} <span class="da-shared-tag" title="Shared into {{ _sc }} other {{ div_singular|lower }}{{ '' if _sc == 1 else 's' }}"><i class="fas fa-share-alt"></i> shared ×{{ _sc }}</span>{% endif %}</div>
-                            {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
-                        </div>
-                        <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
-                        {% if can_manage_ksa %}
-                        <div class="da-ksa-actions">
-                            <button class="da-icon-btn{% if _sc %} is-active{% endif %}" title="Share with other {{ div_plural|lower }}"
-                                    onclick='openShareModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-share-alt"></i></button>
-                            <button class="da-icon-btn" title="Learning resources (links / guides / quizzes)"
-                                    onclick='openResourcesModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-book-reader"></i></button>
-                            <button class="da-icon-btn" title="Edit"
-                                    onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }}, {{ k.folder_id or 0 }})'><i class="fas fa-pencil-alt"></i></button>
-                            <button class="da-icon-btn is-danger" title="Delete"
-                                    onclick='confirmKsaDelete({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-trash"></i></button>
-                        </div>
-                        {% endif %}
-                    </div>
+                <div class="da-ksa-list da-ksa-tree" data-div="{{ d.id }}">
+                    {% for it in _tree %}
+                    {% if it.kind == 'folder' %}{{ ksa_folder_node(it, d) }}{% else %}{{ ksa_row(it.ksa, d) }}{% endif %}
                     {% endfor %}
-                    {% endfor %}
+                </div>
+                {# Shared-in KSAs live outside the sortable tree — they're
+                   organized (and dragged) in their owning division. #}
+                <div class="da-ksa-list" style="margin-top:6px;">
                     {% for sgrp in shared_groups_by_division.get(d.id, []) %}
                     <div class="da-folder-head">
                         <i class="fas fa-share-alt"></i> <span class="da-folder-name">Shared from {{ sgrp.name }}</span>
@@ -443,6 +464,12 @@
                     <div style="width:90px;"><label>Color</label>
                         <input type="color" id="divModalColor" value="#5eeef8" style="width:100%;height:40px;border:none;background:transparent;cursor:pointer;"></div>
                 </div>
+                {% if can_merge_div %}
+                <div class="uw-field" id="divModalMerge" style="display:none;">
+                    <label>Merge <span style="opacity:0.5;">(member lists combine and stay in sync until unmerged; roles &amp; KSAs stay separate)</span></label>
+                    <div id="divModalMergeState" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"></div>
+                </div>
+                {% endif %}
             </div>
             <div id="divModalError" class="da-modal-error"></div>
             <div class="uw-modal-footer">
@@ -499,7 +526,9 @@
             <div class="uw-modal-body">
                 <div class="uw-field"><label>Name <span style="color:#ff6b6b;">*</span></label>
                     <input type="text" id="folderModalName" required placeholder="e.g. 1st year, 2nd year, Core"></div>
-                <p style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin:4px 0 0;">Folders group this division's KSAs. Assign a KSA to a folder from its Edit dialog.</p>
+                <div class="uw-field"><label>Inside <span style="opacity:0.5;">(optional — makes this a subfolder)</span></label>
+                    <select id="folderModalParent"></select></div>
+                <p style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin:4px 0 0;">Folders group this division's KSAs and can nest. You can also drag folders and KSAs directly in the list.</p>
             </div>
             <div id="folderModalError" class="da-modal-error"></div>
             <div class="uw-modal-footer">
@@ -646,6 +675,10 @@ const KSA_LEVEL_LABELS = {{ ksa_level_labels | tojson }};
 const FOLDERS_BY_DIV = {{ folders_json | tojson }};
 const DIV_SINGULAR = {{ div_singular | tojson }};
 const DIV_PLURAL = {{ div_plural | tojson }};
+// For the edit modal's Merge section: every accessible division, and the
+// partner names of anything currently merged.
+const DIV_LIST = [{% for d in divisions %}{ id: {{ d.id }}, name: {{ d.name|tojson }} }{{ ',' if not loop.last }}{% endfor %}];
+const DIV_MERGED = { {% for did, ps in combined_with_by_division.items() %}{{ did }}: {{ ps | map(attribute='name') | join(', ') | tojson }}{{ ',' if not loop.last }}{% endfor %} };
 
 function _err(id, msg) { const e = document.getElementById(id); if (!e) return; if (msg) { e.textContent = msg; e.style.display = 'block'; } else { e.style.display = 'none'; e.textContent = ''; } }
 
@@ -658,11 +691,49 @@ function openDivisionModal(id, name, desc, color, icon) {
     document.getElementById('divModalIcon').value = icon || '';
     document.getElementById('divModalTitle').textContent = (id ? 'Edit ' : 'New ') + DIV_SINGULAR;
     document.getElementById('divModalSubmit').textContent = id ? 'Save' : 'Create';
+    _renderDivModalMerge(id);
     _err('divModalError', '');
     document.getElementById('divModalOverlay').style.display = 'flex';
     setTimeout(() => document.getElementById('divModalName').focus(), 60);
 }
 function closeDivisionModal() { document.getElementById('divModalOverlay').style.display = 'none'; }
+
+// Merge section inside the edit modal: a "merge with" picker, or the current
+// merge partners + an Unmerge button. Hidden on create (no id yet).
+function _renderDivModalMerge(id) {
+    const box = document.getElementById('divModalMerge');
+    if (!box) return;   // no divisions.merge permission
+    const state = document.getElementById('divModalMergeState');
+    const others = DIV_LIST.filter(d => d.id !== id);
+    if (!id || !others.length) { box.style.display = 'none'; state.innerHTML = ''; return; }
+    box.style.display = '';
+    const merged = DIV_MERGED[id];
+    if (merged) {
+        state.innerHTML = `<span class="da-shared-tag"><i class="fas fa-object-group"></i> Merged with ${_escH(merged)}</span>
+            <button type="button" class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;" onclick="_modalUnmerge(${id})">
+                <i class="fas fa-object-ungroup"></i> Unmerge</button>`;
+    } else {
+        let opts = '<option value="">— merge with… —</option>';
+        others.forEach(d => { opts += `<option value="${d.id}">${_escH(d.name)}</option>`; });
+        state.innerHTML = `<select data-did="${id}" onchange="_modalMerge(this)"
+            style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:6px 8px;font-size:0.85rem;">${opts}</select>`;
+    }
+}
+
+function _modalMerge(sel) {
+    const did = parseInt(sel.dataset.did);
+    const name = (DIV_LIST.find(d => d.id === did) || {}).name || '';
+    const v = sel.value;
+    if (!v) return;
+    closeDivisionModal();   // the confirm dialog takes over; success reloads
+    combineDivision(did, v, name, sel);
+}
+
+function _modalUnmerge(did) {
+    const name = (DIV_LIST.find(d => d.id === did) || {}).name || '';
+    closeDivisionModal();
+    separateDivision(did, name);
+}
 async function submitDivisionModal(e) {
     e.preventDefault();
     const id = document.getElementById('divModalId').value;
@@ -767,11 +838,31 @@ function confirmKsaDelete(id, name) { _openDel('Delete KSA', `Delete "${name}"? 
 function confirmFolderDelete(id, name) { _openDel('Delete folder', `Delete the "${name}" folder? Its KSAs are kept but become unfiled.`, `/admin/folders/${id}/delete`); }
 
 // ── Folder modal ──
-function openFolderModal(divId, id, name) {
+function openFolderModal(divId, id, name, parentId) {
     document.getElementById('folderModalDivId').value = divId || '';
     document.getElementById('folderModalId').value = id || '';
     document.getElementById('folderModalName').value = name || '';
-    document.getElementById('folderModalTitle').textContent = id ? 'Rename folder' : 'New folder';
+    // Parent picker: any folder in the division except itself and its own
+    // descendants (nesting into those would loop).
+    const folders = FOLDERS_BY_DIV[String(divId)] || [];
+    const blocked = new Set();
+    if (id) {
+        blocked.add(id);
+        let grew = true;
+        while (grew) {
+            grew = false;
+            folders.forEach(f => {
+                if (f.parent_id && blocked.has(f.parent_id) && !blocked.has(f.id)) {
+                    blocked.add(f.id); grew = true;
+                }
+            });
+        }
+    }
+    const psel = document.getElementById('folderModalParent');
+    psel.innerHTML = '<option value="">— top level —</option>' +
+        folders.filter(f => !blocked.has(f.id))
+               .map(f => `<option value="${f.id}"${parentId && f.id === parentId ? ' selected' : ''}>${_escH(f.name)}</option>`).join('');
+    document.getElementById('folderModalTitle').textContent = id ? 'Edit folder' : 'New folder';
     document.getElementById('folderModalSubmit').textContent = id ? 'Save' : 'Create';
     _err('folderModalError', '');
     document.getElementById('folderModalOverlay').style.display = 'flex';
@@ -785,9 +876,10 @@ async function submitFolderModal(e) {
     const name = document.getElementById('folderModalName').value.trim();
     if (!name) { _err('folderModalError', 'Name is required'); return; }
     const url = id ? `/admin/folders/${id}/update` : `/admin/divisions/${divId}/folders/create`;
+    const parent_id = document.getElementById('folderModalParent').value || null;
     const btn = document.getElementById('folderModalSubmit'); btn.disabled = true;
     try {
-        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parent_id }) });
         const d = await r.json();
         if (d.success) location.reload(); else { _err('folderModalError', d.error || 'Failed'); btn.disabled = false; }
     } catch (err) { _err('folderModalError', 'Request failed'); btn.disabled = false; }
@@ -1058,6 +1150,81 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 });
+
+// ── KSA catalog tree: collapse + drag-and-drop ──────────────────────────────
+function toggleKsaFolder(btn) {
+    const f = btn.closest('.da-folder');
+    f.classList.toggle('collapsed');
+    try {
+        const key = 'uwKsaFold:' + f.dataset.folderId;
+        if (f.classList.contains('collapsed')) localStorage.setItem(key, '1');
+        else localStorage.removeItem(key);
+    } catch (e) {}
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Restore remembered collapse state.
+    document.querySelectorAll('.da-folder[data-folder-id]').forEach(f => {
+        try {
+            if (localStorage.getItem('uwKsaFold:' + f.dataset.folderId) === '1') {
+                f.classList.add('collapsed');
+            }
+        } catch (e) {}
+    });
+    {% if can_manage_ksa %}
+    // Drag-and-drop: KSAs and folders share one tree per division — reorder,
+    // move KSAs between folders (or to the root = unfiled), and nest folders
+    // by dropping them into another folder.
+    if (!window.Sortable) return;
+    document.querySelectorAll('.da-ksa-tree').forEach(root => {
+        const divId = root.dataset.div;
+        const containers = [root].concat(Array.from(root.querySelectorAll('.da-folder-children')));
+        containers.forEach(c => {
+            Sortable.create(c, {
+                group: 'ksatree-' + divId,
+                draggable: '.da-draggable',
+                handle: '.ksa-grip',
+                animation: 150,
+                fallbackOnBody: true,
+                // A folder must never be dropped inside itself.
+                onMove: evt => !evt.dragged.contains(evt.to),
+                onEnd: () => persistKsaTree(divId),
+            });
+        });
+    });
+    {% endif %}
+});
+
+function persistKsaTree(divId) {
+    const root = document.querySelector('.da-ksa-tree[data-div="' + divId + '"]');
+    if (!root) return;
+    const folders = [], ksas = [];
+    function walk(container, parentId) {
+        let i = 0;
+        Array.from(container.children).forEach(el => {
+            if (el.classList.contains('da-folder')) {
+                const fid = parseInt(el.dataset.folderId);
+                if (!fid) return;
+                folders.push({ id: fid, parent_id: parentId, sort_order: i++ });
+                const ch = el.querySelector(':scope > .da-folder-children');
+                if (ch) walk(ch, fid);
+            } else if (el.dataset && el.dataset.ksaId) {
+                ksas.push({ id: parseInt(el.dataset.ksaId), folder_id: parentId, sort_order: i++ });
+            }
+        });
+        // Keep each folder's visible KSA count honest after a move.
+        if (container.classList.contains('da-folder-children')) {
+            const head = container.parentElement.querySelector(':scope > .da-folder-head .da-ksa-meta');
+            if (head) head.textContent = container.querySelectorAll(':scope > .da-ksa-row').length;
+        }
+    }
+    walk(root, null);
+    fetch('/admin/divisions/' + divId + '/ksa-tree', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folders: folders, ksas: ksas }),
+    }).then(r => r.json()).then(d => { if (!d.success) alert(d.error || 'Failed to save arrangement'); })
+      .catch(() => alert('Failed to save arrangement'));
+}
 
 // ── Merged divisions ────────────────────────────────────────────────────────
 function combineDivision(did, otherId, name, sel) {
