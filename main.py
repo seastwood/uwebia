@@ -37775,11 +37775,13 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
             }
 
         def _sort_items(items):
+            # Stable sort + no name tie-break: items arrive in the admin
+            # catalog's (drag-and-drop) order, so within the same gap status
+            # and priority they keep the order the admin placed them in.
             if full:
                 items.sort(key=lambda x: (
                     0 if (x['target'] and not x['met']) else (1 if x['target'] else 2),
-                    {'core': 0, 'high': 1, 'medium': 2, 'low': 3}.get(x['priority'], 4),
-                    x['name'].lower()))
+                    {'core': 0, 'high': 1, 'medium': 2, 'low': 3}.get(x['priority'], 4)))
             return items
 
         # Group the division's KSAs by their folder so the roadmap mirrors the
