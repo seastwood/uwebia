@@ -230,22 +230,22 @@
 
         {# ── Merged divisions: shared members, unmergeable later ── #}
         {% set _partners = combined_with_by_division.get(d.id, []) %}
-        {% if _partners or (can_edit_div and divisions|length > 1) %}
+        {% if _partners or (can_merge_div and divisions|length > 1) %}
         <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
             {% if _partners %}
             <span class="da-shared-tag" title="Members stay in sync across merged {{ div_plural|lower }} — adding, removing or changing a member's status in one applies to all. Unmerge to let them diverge.">
                 <i class="fas fa-object-group"></i> Merged with {{ _partners | map(attribute='name') | join(', ') }}
             </span>
-            {% if can_edit_div %}
+            {% if can_merge_div %}
             <button class="da-btn da-btn-secondary" style="padding:4px 10px;font-size:0.78rem;"
                     onclick='separateDivision({{ d.id }}, {{ d.name|tojson }})'>
                 <i class="fas fa-object-ungroup"></i> Unmerge
             </button>
             {% endif %}
-            {% elif can_edit_div %}
+            {% elif can_merge_div %}
             <label class="da-ksa-meta" style="display:inline-flex;align-items:center;gap:5px;" title="Merge this {{ div_singular|lower }} with another: their member lists combine and stay in sync (adds, removals and status changes apply to all) until you unmerge them. Each keeps its own roles and KSAs.">
                 <i class="fas fa-object-group" style="opacity:0.5;"></i> merge with
-                <select onchange="combineDivision({{ d.id }}, this.value, {{ d.name|tojson }}, this)"
+                <select onchange='combineDivision({{ d.id }}, this.value, {{ d.name|tojson }}, this)'
                         style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:7px;padding:3px 6px;font-size:0.78rem;">
                     <option value="">— choose —</option>
                     {% for other in divisions %}{% if other.id != d.id %}
