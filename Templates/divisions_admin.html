@@ -26,6 +26,18 @@
 </div>
 {% endmacro %}
 
+{% macro ksa_shared_row(k, src) %}
+<div class="da-ksa-row is-shared in-folder da-draggable" data-shared-ksa-id="{{ k.id }}" title="Owned by {{ src }} — edit it there. Drag to file it in one of this division's folders.">
+    {% if can_manage_ksa %}<i class="fas fa-grip-vertical ksa-grip" title="Drag to file this shared KSA"></i>{% endif %}
+    <span class="da-ksa-type">{{ k.ksa_type }}</span>
+    <div>
+        <div class="da-ksa-name">{{ k.name }} <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from {{ src }}</span></div>
+        {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
+    </div>
+    <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+</div>
+{% endmacro %}
+
 {% macro ksa_folder_node(node, d) %}
 <div class="da-folder da-draggable" data-folder-id="{{ node.folder.id }}">
     <div class="da-folder-head">
@@ -41,7 +53,7 @@
         {% endif %}
     </div>
     <div class="da-folder-children">
-        {% for it in node.entries %}{% if it.kind == 'folder' %}{{ ksa_folder_node(it, d) }}{% else %}{{ ksa_row(it.ksa, d) }}{% endif %}{% endfor %}
+        {% for it in node.entries %}{% if it.kind == 'folder' %}{{ ksa_folder_node(it, d) }}{% elif it.kind == 'shared' %}{{ ksa_shared_row(it.ksa, it.src) }}{% else %}{{ ksa_row(it.ksa, d) }}{% endif %}{% endfor %}
     </div>
 </div>
 {% endmacro %}
@@ -402,26 +414,19 @@
             <div class="da-mp-body">
                 <div class="da-ksa-list da-ksa-tree" data-div="{{ d.id }}">
                     {% for it in _tree %}
-                    {% if it.kind == 'folder' %}{{ ksa_folder_node(it, d) }}{% else %}{{ ksa_row(it.ksa, d) }}{% endif %}
+                    {% if it.kind == 'folder' %}{{ ksa_folder_node(it, d) }}{% elif it.kind == 'shared' %}{{ ksa_shared_row(it.ksa, it.src) }}{% else %}{{ ksa_row(it.ksa, d) }}{% endif %}
                     {% endfor %}
                 </div>
-                {# Shared-in KSAs live outside the sortable tree — they're
-                   organized (and dragged) in their owning division. #}
-                <div class="da-ksa-list" style="margin-top:6px;">
+                {# Shared-in KSAs not yet filed into a local folder — drag one
+                   into the tree above to organize it. #}
+                <div class="da-ksa-list da-shared-pool" data-div="{{ d.id }}" style="margin-top:6px;">
                     {% for sgrp in shared_groups_by_division.get(d.id, []) %}
                     <div class="da-folder-head">
                         <i class="fas fa-share-alt"></i> <span class="da-folder-name">Shared from {{ sgrp.name }}</span>
                         <span class="da-ksa-meta">{{ sgrp.ksas|length }}</span>
                     </div>
                     {% for k in sgrp.ksas %}
-                    <div class="da-ksa-row is-shared in-folder" title="Owned by {{ sgrp.name }} — edit it there">
-                        <span class="da-ksa-type">{{ k.ksa_type }}</span>
-                        <div>
-                            <div class="da-ksa-name">{{ k.name }} <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from {{ sgrp.name }}</span></div>
-                            {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
-                        </div>
-                        <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
-                    </div>
+                    {{ ksa_shared_row(k, sgrp.name) }}
                     {% endfor %}
                     {% endfor %}
                     {% if not _owned and not _shared %}
@@ -1189,6 +1194,21 @@ document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.da-ksa-tree').forEach(root => {
         const divId = root.dataset.div;
         const containers = [root].concat(Array.from(root.querySelectorAll('.da-folder-children')));
+        // The "Shared from X" pool participates too, but only shared rows may
+        // be dropped back into it.
+        const pool = document.querySelector('.da-shared-pool[data-div="' + divId + '"]');
+        if (pool) {
+            Sortable.create(pool, {
+                group: { name: 'ksatree-' + divId,
+                         put: (to, from, dragEl) => !!dragEl.dataset.sharedKsaId },
+                draggable: '.da-draggable',
+                handle: '.ksa-grip',
+                animation: 150,
+                fallbackOnBody: true,
+                onStart: () => root.classList.add('is-dragging'),
+                onEnd: () => { root.classList.remove('is-dragging'); _clearDropTarget(); persistKsaTree(divId); },
+            });
+        }
         containers.forEach(c => {
             Sortable.create(c, {
                 group: 'ksatree-' + divId,
@@ -1242,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', function () {
 function persistKsaTree(divId) {
     const root = document.querySelector('.da-ksa-tree[data-div="' + divId + '"]');
     if (!root) return;
-    const folders = [], ksas = [];
+    const folders = [], ksas = [], shared = [];
     function walk(container, parentId) {
         let i = 0;
         Array.from(container.children).forEach(el => {
@@ -1252,6 +1272,8 @@ function persistKsaTree(divId) {
                 folders.push({ id: fid, parent_id: parentId, sort_order: i++ });
                 const ch = el.querySelector(':scope > .da-folder-children');
                 if (ch) walk(ch, fid);
+            } else if (el.dataset && el.dataset.sharedKsaId) {
+                shared.push({ ksa_id: parseInt(el.dataset.sharedKsaId), folder_id: parentId, sort_order: i++ });
             } else if (el.dataset && el.dataset.ksaId) {
                 ksas.push({ id: parseInt(el.dataset.ksaId), folder_id: parentId, sort_order: i++ });
             }
@@ -1263,9 +1285,17 @@ function persistKsaTree(divId) {
         }
     }
     walk(root, null);
+    // Shared rows sitting in the "Shared from X" pool are unfiled.
+    const pool = document.querySelector('.da-shared-pool[data-div="' + divId + '"]');
+    if (pool) {
+        let i = 0;
+        pool.querySelectorAll('.da-ksa-row[data-shared-ksa-id]').forEach(el => {
+            shared.push({ ksa_id: parseInt(el.dataset.sharedKsaId), folder_id: null, sort_order: i++ });
+        });
+    }
     fetch('/admin/divisions/' + divId + '/ksa-tree', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folders: folders, ksas: ksas }),
+        body: JSON.stringify({ folders: folders, ksas: ksas, shared: shared }),
     }).then(r => r.json()).then(d => { if (!d.success) alert(d.error || 'Failed to save arrangement'); })
       .catch(() => alert('Failed to save arrangement'));
 }
@@ -1331,9 +1361,10 @@ async function openReqModal(roleId, name) {
 function closeReqModal() { document.getElementById('reqOverlay').style.display = 'none'; }
 // Shared KSAs group per source division ("Shared from Everyone").
 function _reqSharedSources() {
+    // Only shared KSAs NOT filed into a local folder bucket under their source.
     const seen = [];
     _reqCatalog.forEach(k => {
-        if (k.shared) {
+        if (k.shared && !k.folder_id) {
             const src = k.owner_division || 'another division';
             if (seen.indexOf(src) < 0) seen.push(src);
         }
@@ -1341,7 +1372,7 @@ function _reqSharedSources() {
     return seen.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 }
 function _reqGroupKey(k) {
-    if (k.shared) return '__shared:' + (k.owner_division || 'another division');
+    if (k.shared && !k.folder_id) return '__shared:' + (k.owner_division || 'another division');
     return k.folder_id ? String(k.folder_id) : '__unfiled';
 }
 // Merge whatever is currently shown into _reqState before we re-render or save.
@@ -1370,7 +1401,7 @@ function renderReqFiltered() {
     if (q) items = items.filter(k => (k.name || '').toLowerCase().includes(q));
     if (ff === '__unfiled') items = items.filter(k => !k.shared && !k.folder_id);
     else if (ff.startsWith('__shared:')) items = items.filter(k => _reqGroupKey(k) === ff);
-    else if (ff) items = items.filter(k => !k.shared && String(k.folder_id) === ff);
+    else if (ff) items = items.filter(k => String(k.folder_id) === ff);
     renderReq(items);
 }
 function _reqRowHtml(k) {

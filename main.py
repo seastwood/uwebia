@@ -1202,10 +1202,21 @@ def _division_ksa_folder_groups(division_id):
     {'name': str|None, 'shared': bool, 'ksas': [KSA, ...]}."""
     owned, shared = _division_effective_ksas(division_id)
     flat = _ksa_folder_flat(division_id)
+    valid_ids = {f.id for f, _, _ in flat}
     by_folder = {}
     for k in owned:
         by_folder.setdefault(k.folder_id, []).append(k)
-    valid_ids = {f.id for f, _, _ in flat}
+    # A shared KSA the borrowing division filed into one of ITS folders lists
+    # inside that folder; the rest fall to the "Shared from X" buckets.
+    share_rows = {s.ksa_id: s for s in
+                  DivisionKSAShare.query.filter_by(division_id=division_id).all()}
+    foldered_shared_ids = set()
+    for k in shared:
+        s = share_rows.get(k.id)
+        if s and s.folder_id in valid_ids:
+            by_folder.setdefault(s.folder_id, []).append(k)
+            foldered_shared_ids.add(k.id)
+    shared = [k for k in shared if k.id not in foldered_shared_ids]
     groups = []
     for f, label, _depth in flat:
         if by_folder.get(f.id):
@@ -1671,6 +1682,11 @@ class DivisionKSAShare(db.Model):
                             nullable=False, index=True)
     ksa_id      = db.Column(db.Integer, db.ForeignKey('ksa.id', ondelete='CASCADE'),
                             nullable=False, index=True)
+    # Where the BORROWING division files this shared KSA (a folder of its own).
+    # Purely organizational; NULL = the trailing "Shared from X" bucket.
+    folder_id   = db.Column(db.Integer, db.ForeignKey('ksa_folder.id', ondelete='SET NULL'),
+                            nullable=True)
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     division    = db.relationship('Division', backref=db.backref('ksa_shares', lazy='dynamic',
                                                                  cascade='all, delete-orphan'))
@@ -14659,7 +14675,8 @@ def _serialize_backup(uid):
                                       'completed_at': c.completed_at.isoformat() if c.completed_at else None}
                                      for c in KSAResourceCompletion.query.filter(
                                          KSAResourceCompletion.resource_id.in_([r.id for r in ksa_resources])).all()] if ksa_resources else [],
-        'ksa_shares': [{'id': s.id, 'division_id': s.division_id, 'ksa_id': s.ksa_id}
+        'ksa_shares': [{'id': s.id, 'division_id': s.division_id, 'ksa_id': s.ksa_id,
+                        'folder_id': s.folder_id, 'sort_order': s.sort_order}
                        for s in ksa_shares],
         'public_user_addresses': [{'id': a.id, 'public_user_id': a.public_user_id,
                                    'label': a.label, 'name': a.name,
@@ -16736,7 +16753,10 @@ def import_backup():
                 new_k = ksa_map.get(sh.get('ksa_id'))
                 if not new_dv or not new_k:
                     continue
-                db.session.add(DivisionKSAShare(division_id=new_dv, ksa_id=new_k))
+                db.session.add(DivisionKSAShare(
+                    division_id=new_dv, ksa_id=new_k,
+                    folder_id=folder_map.get(sh['folder_id']) if sh.get('folder_id') else None,
+                    sort_order=sh.get('sort_order', 0)))
 
             # ── PublicUserAddress ─────────────────────────────────────────────
             for ad in data.get('public_user_addresses', []):
@@ -34588,15 +34608,47 @@ def admin_divisions_page():
         ksa_by_id = {k.id: k for k in all_ksas}
         for k in all_ksas:
             ksas_by_division.setdefault(k.division_id, []).append(k)
-        # The catalog as a display tree per division: folders nest, and folders
-        # + KSAs interleave at each level by (sort_order, name) so drag-and-drop
-        # arrangements render back exactly as dropped.
+        # KSAs lent in from other divisions (read-only in the borrowing division),
+        # plus how many divisions each owned KSA is shared into.
+        for s in DivisionKSAShare.query.join(KSA, DivisionKSAShare.ksa_id == KSA.id) \
+                .filter(KSA.website_id == website.id).all():
+            k = ksa_by_id.get(s.ksa_id)
+            if k:
+                shared_ksas_by_division.setdefault(s.division_id, []).append(k)
+                share_count_by_ksa[s.ksa_id] = share_count_by_ksa.get(s.ksa_id, 0) + 1
+        # Borrowed KSAs: ones the borrowing division filed into its own folder
+        # join that division's tree (handled below); the rest group under
+        # "Shared from X" headers. Source names come from ALL divisions (a
+        # restricted sub-admin can borrow from a division they can't open).
+        _all_div_names = {d.id: d.name for d in
+                          Division.query.filter_by(website_id=website.id).all()}
+        _share_rows_by_division = {}
+        for s in DivisionKSAShare.query.join(Division, DivisionKSAShare.division_id == Division.id) \
+                .filter(Division.website_id == website.id).all():
+            _share_rows_by_division.setdefault(s.division_id, {})[s.ksa_id] = s
+        for did, klist in shared_ksas_by_division.items():
+            _valid_fids = {f.id for f in folders_by_division.get(did, [])}
+            _rows = _share_rows_by_division.get(did, {})
+            by_src = {}
+            for k in klist:
+                s = _rows.get(k.id)
+                if s and s.folder_id in _valid_fids:
+                    continue    # filed in a folder — rendered inside the tree
+                by_src.setdefault(k.division_id, []).append(k)
+            shared_groups_by_division[did] = [
+                {'name': _all_div_names.get(src, 'another division'), 'ksas': ks}
+                for src, ks in sorted(by_src.items(),
+                                      key=lambda kv: (_all_div_names.get(kv[0]) or '').lower())]
+        # The catalog as a display tree per division: folders nest; folders,
+        # owned KSAs and foldered shared KSAs interleave at each level by
+        # (sort_order, name) so drag-and-drop arrangements render back exactly
+        # as dropped.
         for d in divisions:
             owned = ksas_by_division.get(d.id, [])
             all_f = folders_by_division.get(d.id, [])
             f_ids = {f.id for f in all_f}
             by_id = {f.id: f for f in all_f}
-            by_parent, ksas_by_folder = {}, {}
+            by_parent, ksas_by_folder, shared_by_folder = {}, {}, {}
             for f in all_f:
                 pid = f.parent_id if f.parent_id in f_ids else None
                 seen, cur = {f.id}, pid          # cycle-safe rooting
@@ -34610,16 +34662,25 @@ def admin_divisions_page():
             for k in owned:
                 fid = k.folder_id if k.folder_id in f_ids else None
                 ksas_by_folder.setdefault(fid, []).append(k)
+            _rows = _share_rows_by_division.get(d.id, {})
+            for k in shared_ksas_by_division.get(d.id, []):
+                s = _rows.get(k.id)
+                if s and s.folder_id in f_ids:
+                    shared_by_folder.setdefault(s.folder_id, []).append((k, s))
 
-            def _entries(pid, _bp=by_parent, _bk=ksas_by_folder):
-                mixed = ([('folder', f) for f in _bp.get(pid, [])]
-                         + [('ksa', k) for k in _bk.get(pid, [])])
-                mixed.sort(key=lambda t: (t[1].sort_order, (t[1].name or '').lower()))
+            def _entries(pid, _bp=by_parent, _bk=ksas_by_folder, _bs=shared_by_folder):
+                mixed = ([('folder', f, f.sort_order, f.name) for f in _bp.get(pid, [])]
+                         + [('ksa', k, k.sort_order, k.name) for k in _bk.get(pid, [])]
+                         + [('shared', ks, s.sort_order, ks.name) for ks, s in _bs.get(pid, [])])
+                mixed.sort(key=lambda t: (t[2], (t[3] or '').lower()))
                 out = []
-                for kind, obj in mixed:
+                for kind, obj, _so, _nm in mixed:
                     if kind == 'folder':
                         out.append({'kind': 'folder', 'folder': obj,
                                     'entries': _entries(obj.id)})
+                    elif kind == 'shared':
+                        out.append({'kind': 'shared', 'ksa': obj,
+                                    'src': _all_div_names.get(obj.division_id, 'another division')})
                     else:
                         out.append({'kind': 'ksa', 'ksa': obj})
                 return out
@@ -34629,27 +34690,6 @@ def admin_divisions_page():
             folders_json[str(d.id)] = [
                 {'id': f.id, 'name': label, 'parent_id': f.parent_id}
                 for f, label, _ in _ksa_folder_flat(d.id)]
-        # KSAs lent in from other divisions (read-only in the borrowing division),
-        # plus how many divisions each owned KSA is shared into.
-        for s in DivisionKSAShare.query.join(KSA, DivisionKSAShare.ksa_id == KSA.id) \
-                .filter(KSA.website_id == website.id).all():
-            k = ksa_by_id.get(s.ksa_id)
-            if k:
-                shared_ksas_by_division.setdefault(s.division_id, []).append(k)
-                share_count_by_ksa[s.ksa_id] = share_count_by_ksa.get(s.ksa_id, 0) + 1
-        # Borrowed KSAs grouped by their source division, for "Shared from X"
-        # folder headers. Source names come from ALL divisions (a restricted
-        # sub-admin can borrow from a division they can't open).
-        _all_div_names = {d.id: d.name for d in
-                          Division.query.filter_by(website_id=website.id).all()}
-        for did, klist in shared_ksas_by_division.items():
-            by_src = {}
-            for k in klist:
-                by_src.setdefault(k.division_id, []).append(k)
-            shared_groups_by_division[did] = [
-                {'name': _all_div_names.get(src, 'another division'), 'ksas': ks}
-                for src, ks in sorted(by_src.items(),
-                                      key=lambda kv: (_all_div_names.get(kv[0]) or '').lower())]
         for r in PublicUserRole.query.filter_by(website_id=website.id).order_by(PublicUserRole.name).all():
             if r.division_id:
                 roles_by_division.setdefault(r.division_id, []).append(r)
@@ -35081,6 +35121,26 @@ def admin_division_ksa_tree(did):
         except (TypeError, ValueError):
             fid = None
         k.folder_id = fid if (fid and fid in folders) else None
+    # Shared-in KSAs: the borrowing division files them via its share row.
+    share_rows = {s.ksa_id: s for s in
+                  DivisionKSAShare.query.filter_by(division_id=d.id).all()}
+    for it in (data.get('shared') or []):
+        try:
+            s = share_rows.get(int(it.get('ksa_id')))
+        except (TypeError, ValueError):
+            continue
+        if not s:
+            continue
+        try:
+            s.sort_order = int(it.get('sort_order', 0))
+        except (TypeError, ValueError):
+            pass
+        raw = it.get('folder_id')
+        try:
+            fid = int(raw) if raw else None
+        except (TypeError, ValueError):
+            fid = None
+        s.folder_id = fid if (fid and fid in folders) else None
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -35592,12 +35652,17 @@ def admin_role_ksa_requirements_get(role_id):
         d = k.to_dict()
         d['folder_name'] = folder_names.get(k.folder_id)
         catalog.append(d)
+    # A shared KSA's own folder belongs to its OWNER division — but the
+    # borrowing division may have filed it into one of ITS folders via the
+    # share row, and then it groups under that folder here too.
+    _share_rows = {s.ksa_id: s for s in
+                   DivisionKSAShare.query.filter_by(division_id=role.division_id).all()}
     for k in shared:
         d = k.to_dict()
-        # A shared KSA's folder belongs to its OWNER division, not this one —
-        # don't file it under a local folder; group it under "Shared" instead.
-        d['folder_id'] = None
-        d['folder_name'] = None
+        s = _share_rows.get(k.id)
+        local_fid = s.folder_id if (s and s.folder_id in folder_names) else None
+        d['folder_id'] = local_fid
+        d['folder_name'] = folder_names.get(local_fid)
         d['shared'] = True
         d['owner_division'] = div_names.get(k.division_id, '')
         catalog.append(d)
@@ -35801,7 +35866,8 @@ def admin_division_matrix(did):
         abort(403)
     ksa_groups = _division_ksa_folder_groups(d.id)
     ksas = [k for g in ksa_groups for k in g['ksas']]
-    shared_ksa_ids = {k.id for g in ksa_groups if g['shared'] for k in g['ksas']}
+    # Per-KSA, not per-group — a shared KSA can be filed inside a normal folder.
+    shared_ksa_ids = {s.ksa_id for s in DivisionKSAShare.query.filter_by(division_id=d.id).all()}
     ksa_ids = [k.id for k in ksas]
     # Folder header spans for the matrix table (one <th> per group).
     matrix_folder_groups = [{'name': g['name'], 'count': len(g['ksas']), 'shared': g['shared']}
