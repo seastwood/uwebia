@@ -95,16 +95,35 @@
 .mp-vt { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 7px; font-size: 0.8rem; font-weight: 700; text-decoration: none; color: rgba(255,255,255,0.55); }
 .mp-vt:hover { color: rgba(255,255,255,0.85); }
 .mp-vt.is-active { background: rgba(94,238,200,0.16); color: #aef7e8; }
-.mp-ksa-item { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); }
-.mp-ksa-type { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; }
-.mp-ksa-name { font-weight: 600; font-size: 0.9rem; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.mp-ksa-level { margin-left: auto; font-size: 0.85rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
+/* Each KSA is a two-zone row: a left title/meta zone that can wrap, and a
+   fixed-width right progress zone that stays put regardless of title length. */
+.mp-ksa-item { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; column-gap: 12px; row-gap: 6px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.03); }
+.mp-ksa-type { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; align-self: flex-start; margin-top: 1px; }
+.mp-ksa-lead { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.mp-ksa-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.mp-ksa-name { font-weight: 600; font-size: 0.9rem; min-width: 0; overflow-wrap: anywhere;
+    /* Clamp to two lines when collapsed; the full title shows once opened. */
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mp-roadmap[open] .mp-ksa-name { -webkit-line-clamp: unset; overflow: visible; }
+.mp-ksa-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .mp-ksa-num { font-weight: 500; color: rgba(255,255,255,0.4); }
+/* progress meter (right zone) — uniform across every item */
+.mp-prog { justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 108px; }
+.mp-prog-text { font-size: 0.82rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
+.mp-prog-num { font-weight: 500; color: rgba(255,255,255,0.4); font-size: 0.78rem; }
+.mp-prog-tgt { font-size: 0.72rem; font-weight: 700; color: #aef7e8; white-space: nowrap; }
+.mp-prog.is-gap .mp-prog-tgt { color: #ffb27a; }
+.mp-prog-bar { position: relative; width: 104px; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.1); }
+.mp-prog-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 99px; background: linear-gradient(90deg,#5eeef8,#5eeec8); }
+.mp-prog.is-gap .mp-prog-fill { background: linear-gradient(90deg,#ff9b7a,#ffce6b); }
+.mp-prog.is-met .mp-prog-fill { background: linear-gradient(90deg,#5eeec8,#aef7e8); }
+.mp-prog-tick { position: absolute; top: -2.5px; width: 2px; height: 10px; border-radius: 2px; background: #fff; opacity: 0.75; transform: translateX(-1px); }
+@media (max-width: 460px) { .mp-prog { min-width: 90px; } .mp-prog-bar { width: 82px; } }
 .mp-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin: 10px 0 0; }
 .mp-roadmap { display: block; padding: 0; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.07); }
 .mp-roadmap.is-gap { border-color: rgba(255,120,90,0.4); }
 .mp-roadmap.is-met { border-color: rgba(94,238,200,0.35); }
-.mp-roadmap summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 9px 12px; cursor: pointer; list-style: none; }
+.mp-roadmap summary { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; column-gap: 12px; row-gap: 6px; padding: 10px 12px; cursor: pointer; list-style: none; }
 .mp-roadmap summary::-webkit-details-marker { display: none; }
 .mp-roadmap .mp-chev { margin-left: 6px; opacity: 0.4; font-size: 0.75rem; transition: transform 0.2s; }
 .mp-roadmap[open] .mp-chev { transform: rotate(180deg); }
@@ -116,7 +135,6 @@
 .mp-prio-high { background: rgba(255,90,90,0.16); color: #ff8a8a; }
 .mp-prio-medium { background: rgba(255,200,80,0.15); color: #ffce6b; }
 .mp-prio-low { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
-.mp-target { color: #aef7e8; font-weight: 700; }
 .mp-res { padding: 4px 12px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
 .mp-res-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 8px; background: rgba(94,238,248,0.06); border: 1px solid rgba(94,238,248,0.18); text-decoration: none; color: #aef7e8; font-size: 0.85rem; font-weight: 600; }
 .mp-res-link:hover { background: rgba(94,238,248,0.14); }
@@ -136,10 +154,6 @@
 .mp-res-demo.is-done { border-color: rgba(94,238,200,0.4); }
 .mp-ksa-desc { font-size: 0.86rem; line-height: 1.55; color: rgba(255,255,255,0.7); margin: 0 0 4px; padding: 0 2px; white-space: pre-wrap; }
 .mp-ksa-role { font-size: 0.6rem; font-weight: 700; padding: 1px 6px; border-radius: 5px; border: 1px solid transparent; white-space: nowrap; }
-/* Group the role chips together and the status/priority tags together, with a
-   thin vertical divider between them, so the summary row reads as two capsules. */
-.mp-meta-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-.mp-meta-sep { flex: 0 0 auto; width: 1px; height: 15px; background: rgba(255,255,255,0.22); }
 .mp-skill-flag { font-size: 0.78rem; opacity: 0.5; }
 .mp-skill-flag-ok { color: #5eeec8; opacity: 1; }
 .mp-skill-setlevel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 4px 2px 12px; }
@@ -192,6 +206,16 @@
     {% else %}
     <p class="mp-res-empty">No learning resources linked to this skill yet.</p>
     {% endif %}
+{% endmacro %}
+
+{# Uniform right-hand progress meter: current level, optional target, and a
+   bar showing level/max with a tick at the target. #}
+{% macro mp_prog(it) %}
+<div class="mp-prog{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}">
+    <div class="mp-prog-text">{{ it.label }} <span class="mp-prog-num">{{ it.level }}/{{ it.max }}</span></div>
+    {% if it.target %}<div class="mp-prog-tgt">→ {{ it.target_label }}</div>{% endif %}
+    {% if it.max %}<div class="mp-prog-bar"><span class="mp-prog-fill" style="width:{{ (100 * it.level / it.max)|round(0,'floor')|int }}%;"></span>{% if it.target %}<span class="mp-prog-tick" style="left:{{ (100 * it.target / it.max)|round(0,'floor')|int }}%;"></span>{% endif %}</div>{% endif %}
+</div>
 {% endmacro %}
 
 <div class="mp-wrap">
@@ -360,26 +384,22 @@
                 {% if ksa_full %}
                 <details class="mp-ksa-item mp-roadmap{% if it.target and not it.met %} is-gap{% elif it.target %} is-met{% endif %}" data-role-ids="{{ it.roles|map(attribute='id')|join(',') }}">
                     <summary>
-                        <span class="mp-ksa-type">{{ it.type }}</span>
-                        <span class="mp-ksa-name">{{ it.name }}</span>
-                        {% set _has_status = (it.required is not none) or (it.priority and not it.met) %}
-                        {% if it.roles %}
-                        <span class="mp-meta-group">
-                            {% for r in it.roles %}<span class="mp-ksa-role" style="background:{{ r.color }}22;color:{{ r.color }};border-color:{{ r.color }}55;" title="Part of the {{ r.name }} role">{{ r.name }}</span>{% endfor %}
-                        </span>
-                        {% endif %}
-                        {% if it.roles and _has_status %}<span class="mp-meta-sep"></span>{% endif %}
-                        {% if _has_status %}
-                        <span class="mp-meta-group">
-                            {% if it.required is not none %}
-                                {% if it.met %}<span class="mp-tag mp-tag-sat"><i class="fas fa-check" style="margin-right:3px;"></i>Satisfied</span>
-                                {% elif it.required %}<span class="mp-tag mp-tag-req">Needed</span>
-                                {% else %}<span class="mp-tag mp-tag-rec">Recommended</span>{% endif %}
+                        <div class="mp-ksa-lead">
+                            <div class="mp-ksa-title"><span class="mp-ksa-type">{{ it.type }}</span><span class="mp-ksa-name" title="{{ it.name }}">{{ it.name }}</span></div>
+                            {% set _has_status = (it.required is not none) or (it.priority and not it.met) %}
+                            {% if it.roles or _has_status %}
+                            <div class="mp-ksa-meta">
+                                {% for r in it.roles %}<span class="mp-ksa-role" style="background:{{ r.color }}22;color:{{ r.color }};border-color:{{ r.color }}55;" title="Part of the {{ r.name }} role">{{ r.name }}</span>{% endfor %}
+                                {% if it.required is not none %}
+                                    {% if it.met %}<span class="mp-tag mp-tag-sat"><i class="fas fa-check" style="margin-right:3px;"></i>Satisfied</span>
+                                    {% elif it.required %}<span class="mp-tag mp-tag-req">Needed</span>
+                                    {% else %}<span class="mp-tag mp-tag-rec">Recommended</span>{% endif %}
+                                {% endif %}
+                                {% if it.priority and not it.met %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
+                            </div>
                             {% endif %}
-                            {% if it.priority and not it.met %}<span class="mp-tag mp-prio-{{ it.priority }}">{{ it.priority|capitalize }}</span>{% endif %}
-                        </span>
-                        {% endif %}
-                        <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span>{% if it.target %}<span class="mp-target"> → {{ it.target_label }}</span>{% endif %}</span>
+                        </div>
+                        {{ mp_prog(it) }}
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
@@ -389,9 +409,8 @@
                 </details>
                 {% else %}
                 <div class="mp-ksa-item">
-                    <span class="mp-ksa-type">{{ it.type }}</span>
-                    <span class="mp-ksa-name">{{ it.name }}</span>
-                    <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                    <div class="mp-ksa-lead"><div class="mp-ksa-title"><span class="mp-ksa-type">{{ it.type }}</span><span class="mp-ksa-name" title="{{ it.name }}">{{ it.name }}</span></div></div>
+                    {{ mp_prog(it) }}
                 </div>
                 {% endif %}
                 {% endfor %}
@@ -415,9 +434,8 @@
                 {% if ksa_full %}
                 <details class="mp-ksa-item mp-roadmap">
                     <summary>
-                        <span class="mp-ksa-type">{{ it.type }}</span>
-                        <span class="mp-ksa-name">{{ it.name }}</span>
-                        <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                        <div class="mp-ksa-lead"><div class="mp-ksa-title"><span class="mp-ksa-type">{{ it.type }}</span><span class="mp-ksa-name" title="{{ it.name }}">{{ it.name }}</span></div></div>
+                        {{ mp_prog(it) }}
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
@@ -427,9 +445,8 @@
                 </details>
                 {% else %}
                 <div class="mp-ksa-item">
-                    <span class="mp-ksa-type">{{ it.type }}</span>
-                    <span class="mp-ksa-name">{{ it.name }}</span>
-                    <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                    <div class="mp-ksa-lead"><div class="mp-ksa-title"><span class="mp-ksa-type">{{ it.type }}</span><span class="mp-ksa-name" title="{{ it.name }}">{{ it.name }}</span></div></div>
+                    {{ mp_prog(it) }}
                 </div>
                 {% endif %}
                 {% endfor %}
@@ -465,11 +482,15 @@
                 {% for it in fg['items'] %}
                 <details class="mp-ksa-item mp-roadmap mp-skill-item" data-name="{{ it.name|lower }}">
                     <summary>
-                        <span class="mp-ksa-type">{{ it.type }}</span>
-                        <span class="mp-ksa-name">{{ it.name }}</span>
-                        {% if it.verified %}<i class="fas fa-circle-check mp-skill-flag mp-skill-flag-ok" title="Verified by staff"></i>
-                        {% elif it.self_reported %}<i class="fas fa-user-pen mp-skill-flag" title="Self-reported"></i>{% endif %}
-                        <span class="mp-ksa-level">{{ it.label }} <span class="mp-ksa-num">({{ it.level }}/{{ it.max }})</span></span>
+                        <div class="mp-ksa-lead">
+                            <div class="mp-ksa-title">
+                                <span class="mp-ksa-type">{{ it.type }}</span>
+                                <span class="mp-ksa-name" title="{{ it.name }}">{{ it.name }}</span>
+                                {% if it.verified %}<i class="fas fa-circle-check mp-skill-flag mp-skill-flag-ok" title="Verified by staff"></i>
+                                {% elif it.self_reported %}<i class="fas fa-user-pen mp-skill-flag" title="Self-reported"></i>{% endif %}
+                            </div>
+                        </div>
+                        {{ mp_prog(it) }}
                         <i class="fas fa-chevron-down mp-chev"></i>
                     </summary>
                     <div class="mp-res">
