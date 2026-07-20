@@ -1604,6 +1604,29 @@ class RoleKSA(db.Model):
     __table_args__ = (db.UniqueConstraint('role_id', 'ksa_id', name='uq_role_ksa'),)
 
 
+class RoleKSAFolderRule(db.Model):
+    """A folder-level requirement: holding `role_id` requires EVERY KSA in
+    `folder_id` (and its subfolders — owned or shared-in and filed there) at
+    `required_level`, clamped to each KSA's own max. Expands at read time, so
+    KSAs added to the folder later are covered automatically. An explicit
+    RoleKSA row for the same KSA overrides the expanded spec."""
+    __tablename__ = 'role_ksa_folder_rule'
+    id             = db.Column(db.Integer, primary_key=True)
+    role_id        = db.Column(db.Integer, db.ForeignKey('public_user_role.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    folder_id      = db.Column(db.Integer, db.ForeignKey('ksa_folder.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    required_level = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    required       = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    priority       = db.Column(db.String(10), nullable=False, default='medium',
+                               server_default="'medium'")
+    role           = db.relationship('PublicUserRole', backref=db.backref('ksa_folder_rules', lazy='dynamic',
+                                                                          cascade='all, delete-orphan'))
+    folder         = db.relationship('KSAFolder', backref=db.backref('role_rules', lazy='dynamic',
+                                                                     cascade='all, delete-orphan'))
+    __table_args__ = (db.UniqueConstraint('role_id', 'folder_id', name='uq_role_ksa_folder_rule'),)
+
+
 class KSAResource(db.Model):
     """A learning resource attached to a KSA: an external link, an internal
     Guide, or a Quiz. Powers the self-learning roadmap — clicking a skill shows
@@ -14171,6 +14194,9 @@ def _serialize_backup(uid):
     ksas = KSA.query.filter(KSA.website_id.in_(website_ids)).all() if website_ids else []
     _ksa_ids = [k.id for k in ksas]
     role_ksas = RoleKSA.query.filter(RoleKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
+    _folder_ids = [f.id for f in ksa_folders]
+    role_ksa_folder_rules = RoleKSAFolderRule.query.filter(
+        RoleKSAFolderRule.folder_id.in_(_folder_ids)).all() if _folder_ids else []
     user_ksas = UserKSA.query.filter(UserKSA.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
     ksa_resources = KSAResource.query.filter(KSAResource.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
     ksa_shares = DivisionKSAShare.query.filter(DivisionKSAShare.ksa_id.in_(_ksa_ids)).all() if _ksa_ids else []
@@ -14662,6 +14688,9 @@ def _serialize_backup(uid):
         'role_ksas': [{'id': rk.id, 'role_id': rk.role_id, 'ksa_id': rk.ksa_id,
                        'required_level': rk.required_level, 'required': rk.required,
                        'priority': rk.priority} for rk in role_ksas],
+        'role_ksa_folder_rules': [{'id': fr.id, 'role_id': fr.role_id, 'folder_id': fr.folder_id,
+                                   'required_level': fr.required_level, 'required': fr.required,
+                                   'priority': fr.priority} for fr in role_ksa_folder_rules],
         'user_ksas': [{'id': uk.id, 'public_user_id': uk.public_user_id, 'ksa_id': uk.ksa_id,
                        'level': uk.level, 'note': uk.note,
                        'self_reported': bool(uk.self_reported),
@@ -16715,6 +16744,15 @@ def import_backup():
                                        required_level=rk.get('required_level', 1),
                                        required=rk.get('required', True),
                                        priority=rk.get('priority', 'medium')))
+            for fr in data.get('role_ksa_folder_rules', []):
+                new_r = public_role_map.get(fr.get('role_id'))
+                new_f = folder_map.get(fr.get('folder_id'))
+                if not new_r or not new_f:
+                    continue
+                db.session.add(RoleKSAFolderRule(role_id=new_r, folder_id=new_f,
+                                                 required_level=fr.get('required_level', 1),
+                                                 required=fr.get('required', True),
+                                                 priority=fr.get('priority', 'medium')))
             for uk in data.get('user_ksas', []):
                 new_pu = pub_user_map.get(uk.get('public_user_id'))
                 new_k = ksa_map.get(uk.get('ksa_id'))
@@ -35678,11 +35716,16 @@ def admin_role_ksa_requirements_get(role_id):
                 inherited[str(kid)] = {'level': spec['level'], 'required': spec['required'],
                                        'priority': spec['priority'],
                                        'from': spec['inherited_from'] or parent.name}
+    # Folder-level rules: require everything in a folder (+ subfolders).
+    folder_rules = {str(fr.folder_id): {'level': fr.required_level, 'required': fr.required,
+                                        'priority': fr.priority}
+                    for fr in RoleKSAFolderRule.query.filter_by(role_id=role.id).all()}
     div = db.session.get(Division, role.division_id)
     return _utf8_json({'success': True, 'role': role.to_dict(),
                        'division': div.to_dict() if div else None,
                        'folders': [{'id': f.id, 'name': label} for f, label, _ in folders_flat],
                        'catalog': catalog, 'requirements': reqs,
+                       'folder_rules': folder_rules,
                        'inherited': inherited})
 
 
@@ -35717,6 +35760,25 @@ def admin_role_ksa_requirements_save(role_id):
         db.session.add(RoleKSA(role_id=role.id, ksa_id=kid,
                                required_level=min(lvl, valid[kid].max_level),
                                required=required, priority=priority))
+    # Folder-level rules — replaced wholesale, like the per-KSA rows.
+    incoming_rules = (request.get_json() or {}).get('folder_rules') or {}
+    RoleKSAFolderRule.query.filter_by(role_id=role.id).delete(synchronize_session=False)
+    valid_folders = {f.id for f in KSAFolder.query.filter_by(division_id=role.division_id).all()}
+    for fid, spec in incoming_rules.items():
+        try:
+            fid = int(fid)
+            lvl = int(spec.get('level') if isinstance(spec, dict) else spec)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if fid not in valid_folders or lvl < 1:
+            continue
+        priority = (spec.get('priority') if isinstance(spec, dict) else 'medium')
+        if priority not in _KSA_PRIORITIES:
+            priority = 'medium'
+        required = bool(spec.get('required', True)) if isinstance(spec, dict) else True
+        db.session.add(RoleKSAFolderRule(role_id=role.id, folder_id=fid,
+                                         required_level=lvl, required=required,
+                                         priority=priority))
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -35825,10 +35887,68 @@ def _effective_role_requirements(roles):
             by_id[r.id] = r
         frontier = [r.parent_role_id for r in fetched
                     if r.parent_role_id and r.parent_role_id not in by_id]
-    reqs_raw = {}
-    if by_id:
-        for rk in RoleKSA.query.filter(RoleKSA.role_id.in_(list(by_id.keys()))).all():
+    all_ids = list(by_id.keys())
+    reqs_raw, folder_rules = {}, {}
+    if all_ids:
+        for rk in RoleKSA.query.filter(RoleKSA.role_id.in_(all_ids)).all():
             reqs_raw.setdefault(rk.role_id, []).append(rk)
+        for fr in RoleKSAFolderRule.query.filter(RoleKSAFolderRule.role_id.in_(all_ids)).all():
+            folder_rules.setdefault(fr.role_id, []).append(fr)
+
+    # Folder rules expand to every KSA currently in the folder's subtree —
+    # owned KSAs filed there plus shared-in KSAs the division filed there.
+    _div_cache, _members_cache = {}, {}
+
+    def _folder_members(division_id, folder_id):
+        key = (division_id, folder_id)
+        if key in _members_cache:
+            return _members_cache[key]
+        if division_id not in _div_cache:
+            kids = {}
+            for f in KSAFolder.query.filter_by(division_id=division_id).all():
+                kids.setdefault(f.parent_id, []).append(f.id)
+            owned, shared_in = _division_effective_ksas(division_id)
+            shares = {s.ksa_id: s for s in
+                      DivisionKSAShare.query.filter_by(division_id=division_id).all()}
+            by_folder = {}
+            for k in owned:
+                by_folder.setdefault(k.folder_id, []).append(k)
+            for k in shared_in:
+                s = shares.get(k.id)
+                if s and s.folder_id:
+                    by_folder.setdefault(s.folder_id, []).append(k)
+            _div_cache[division_id] = (kids, by_folder)
+        kids, by_folder = _div_cache[division_id]
+        queue, seen, members = [folder_id], set(), []
+        while queue:
+            fid = queue.pop(0)
+            if fid in seen:
+                continue
+            seen.add(fid)
+            members.extend(by_folder.get(fid, []))
+            queue.extend(kids.get(fid, []))
+        _members_cache[key] = members
+        return members
+
+    _own_cache = {}
+
+    def _own_specs(node):
+        """{ksa_id: spec} a role defines itself: folder rules expanded first,
+        explicit per-KSA rows override."""
+        if node.id in _own_cache:
+            return _own_cache[node.id]
+        specs = {}
+        if node.division_id:
+            for fr in folder_rules.get(node.id, []):
+                for k in _folder_members(node.division_id, fr.folder_id):
+                    specs[k.id] = {'level': min(fr.required_level, k.max_level or fr.required_level),
+                                   'required': fr.required, 'priority': fr.priority}
+        for rk in reqs_raw.get(node.id, []):
+            specs[rk.ksa_id] = {'level': rk.required_level, 'required': rk.required,
+                                'priority': rk.priority}
+        _own_cache[node.id] = specs
+        return specs
+
     out = {}
     for r in roles:
         chain, seen = [], set()
@@ -35839,19 +35959,17 @@ def _effective_role_requirements(roles):
             cur = by_id.get(cur.parent_role_id) if cur.parent_role_id else None
         merged = {}
         for node in reversed(chain):          # farthest ancestor first, self last
-            for rk in reqs_raw.get(node.id, []):
-                src = None if node.id == r.id else node.name
-                slot = merged.get(rk.ksa_id)
+            src = None if node.id == r.id else node.name
+            for ksa_id, sp in _own_specs(node).items():
+                slot = merged.get(ksa_id)
                 if slot is None:
-                    merged[rk.ksa_id] = {'level': rk.required_level,
-                                         'required': rk.required,
-                                         'priority': rk.priority,
-                                         'inherited_from': src}
+                    merged[ksa_id] = {'level': sp['level'], 'required': sp['required'],
+                                      'priority': sp['priority'], 'inherited_from': src}
                     continue
-                slot['level'] = max(slot['level'], rk.required_level)
-                slot['required'] = slot['required'] or rk.required
-                if _KSA_PRIO_RANK.get(rk.priority, 2) < _KSA_PRIO_RANK.get(slot['priority'], 2):
-                    slot['priority'] = rk.priority
+                slot['level'] = max(slot['level'], sp['level'])
+                slot['required'] = slot['required'] or sp['required']
+                if _KSA_PRIO_RANK.get(sp['priority'], 2) < _KSA_PRIO_RANK.get(slot['priority'], 2):
+                    slot['priority'] = sp['priority']
                 slot['inherited_from'] = src    # nearest definition attributes
         out[r.id] = merged
     return out
