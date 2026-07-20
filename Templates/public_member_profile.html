@@ -15,14 +15,16 @@
 .mp-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
 .mp-badge-staff { background: rgba(123,47,247,0.15); color: #c79aff; border: 1px solid rgba(123,47,247,0.4); }
 /* A division's roles encapsulated together: [Division | role role] */
-.mp-divrole { display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px 2px 8px; border-radius: 7px; border: 1px solid; }
+.mp-divrole { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 2px 4px 2px 8px; border-radius: 7px; border: 1px solid; }
 .mp-divrole-name { font-size: 0.7rem; font-weight: 800; display: inline-flex; align-items: center; gap: 4px; }
 .mp-divrole-chip { padding: 2px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; }
 /* Roles tab: per-division grouped block */
 .mp-role-section-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.4); margin: 0 0 10px; }
 .mp-role-group { border: 1px solid; border-radius: 12px; padding: 14px 16px; margin-top: 16px; background: rgba(255,255,255,0.02); }
-.mp-role-group-head { display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; text-decoration: none; margin-bottom: 12px; }
-.mp-role-group-head:hover { text-decoration: underline; }
+.mp-role-group-head { display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; text-decoration: none; margin-bottom: 12px; flex-wrap: wrap; }
+.mp-role-group-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.mp-role-group-link:hover { text-decoration: underline; }
+.mp-divrole-sep { opacity: 0.4; font-weight: 400; }
 .mp-role-list { display: flex; flex-direction: column; gap: 10px; }
 .mp-role-entry .mp-role-chip { display: inline-block; }
 .mp-role-desc { margin: 6px 0 0; font-size: 0.84rem; line-height: 1.5; color: rgba(255,255,255,0.62); white-space: pre-wrap; }
@@ -266,8 +268,9 @@
                 {% if target.staff_badge_label %}<span class="mp-badge mp-badge-staff">{{ target.staff_badge_label }}</span>{% endif %}
                 {% for role in site_roles %}<span class="mp-badge" style="background:{{ role.color }}22;color:{{ role.color }};border:1px solid {{ role.color }}44;">{{ role.name }}</span>{% endfor %}
                 {% for grp in division_role_groups %}
-                <span class="mp-divrole" style="border-color:{{ (grp.division.color or '#5eeef8') }}55;">
-                    <span class="mp-divrole-name" style="color:{{ grp.division.color or '#aef7e8' }};">{% if grp.division.icon %}<i class="fas {{ grp.division.icon }}"></i> {% endif %}{{ grp.division.name }}</span>
+                {% set _c0 = grp.divisions[0].color %}
+                <span class="mp-divrole" style="border-color:{{ (_c0 or '#5eeef8') }}55;">
+                    <span class="mp-divrole-name" style="color:{{ _c0 or '#aef7e8' }};">{% for d in grp.divisions %}{% if not loop.first %} <span class="mp-divrole-sep">|</span> {% endif %}{% if d.icon %}<i class="fas {{ d.icon }}"></i> {% endif %}{{ d.name }}{% endfor %}</span>
                     {% for r in grp.roles %}<span class="mp-divrole-chip" style="background:{{ r.color }}26;color:{{ r.color }};">{{ r.name }}</span>{% endfor %}
                 </span>
                 {% endfor %}
@@ -353,10 +356,11 @@
         </div>
         {% endif %}
         {% for grp in division_role_groups %}
-        <div class="mp-role-group" style="border-color:{{ (grp.division.color or '#5eeef8') }}33;">
-            <a class="mp-role-group-head" href="{{ division_member_url(grp.division.id) }}" style="color:{{ grp.division.color or '#aef7e8' }};">
-                {% if grp.division.icon %}<i class="fas {{ grp.division.icon }}"></i>{% endif %}{{ grp.division.name }}
-            </a>
+        {% set _c0 = grp.divisions[0].color %}
+        <div class="mp-role-group" style="border-color:{{ (_c0 or '#5eeef8') }}33;">
+            <div class="mp-role-group-head" style="color:{{ _c0 or '#aef7e8' }};">
+                {% for d in grp.divisions %}{% if not loop.first %}<span class="mp-divrole-sep">|</span>{% endif %}<a class="mp-role-group-link" href="{{ division_member_url(d.id) }}">{% if d.icon %}<i class="fas {{ d.icon }}"></i>{% endif %}{{ d.name }}</a>{% endfor %}
+            </div>
             <div class="mp-role-list">
                 {% for r in grp.roles %}
                 <div class="mp-role-entry">

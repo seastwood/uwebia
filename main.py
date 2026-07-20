@@ -38453,12 +38453,34 @@ def _render_member_profile(prefix, user_id):
     for r in _all_roles:
         if r.division_id:
             _roles_by_div.setdefault(r.division_id, []).append(r)
+    # Merged divisions mirror their roles, so the member holds the same role in
+    # each — group them into one entry ("Build | Electrical · Mentor") and
+    # de-dupe the shared roles by their catalog type instead of showing the
+    # role once per division.
     division_role_groups = []
     if _roles_by_div:
-        _divs = Division.query.filter(Division.id.in_(_roles_by_div.keys()),
-                                      Division.website_id == website.id).all()
-        for d in sorted(_divs, key=lambda x: (x.sort_order, (x.name or '').lower())):
-            division_role_groups.append({'division': d, 'roles': _roles_by_div[d.id]})
+        _divs = {d.id: d for d in Division.query.filter(
+            Division.id.in_(_roles_by_div.keys()),
+            Division.website_id == website.id).all()}
+        _groups = {}
+        for div_id, roles in _roles_by_div.items():
+            d = _divs.get(div_id)
+            if not d:
+                continue
+            key = ('m', d.merge_group_id) if d.merge_group_id else ('s', d.id)
+            g = _groups.setdefault(key, {'divisions': [], 'roles': [], '_seen': set()})
+            g['divisions'].append(d)
+            for r in roles:
+                tkey = r.role_type_id if r.role_type_id else ('n', (r.name or '').lower())
+                if tkey not in g['_seen']:
+                    g['_seen'].add(tkey)
+                    g['roles'].append(r)
+        for g in _groups.values():
+            g['divisions'].sort(key=lambda x: (x.sort_order, (x.name or '').lower()))
+            g['roles'].sort(key=lambda r: (r.name or '').lower())
+            division_role_groups.append({'divisions': g['divisions'], 'roles': g['roles']})
+        division_role_groups.sort(
+            key=lambda grp: (grp['divisions'][0].sort_order, (grp['divisions'][0].name or '').lower()))
 
     def _forum_thread_url(thread_id):
         return (url_for('public_forum_thread', thread_id=thread_id, prefix=website.url_prefix)
