@@ -1203,20 +1203,23 @@ def _division_ksa_folder_groups(division_id):
     owned, shared = _division_effective_ksas(division_id)
     flat = _ksa_folder_flat(division_id)
     valid_ids = {f.id for f, _, _ in flat}
-    by_folder = {}
+    # Per-folder lists interleave owned KSAs (by their sort_order) with shared
+    # KSAs the borrowing division filed there (by the share row's sort_order) —
+    # matching the admin tree's drag-and-drop arrangement exactly.
+    _pairs = {}
     for k in owned:
-        by_folder.setdefault(k.folder_id, []).append(k)
-    # A shared KSA the borrowing division filed into one of ITS folders lists
-    # inside that folder; the rest fall to the "Shared from X" buckets.
+        _pairs.setdefault(k.folder_id, []).append(((k.sort_order, (k.name or '').lower()), k))
     share_rows = {s.ksa_id: s for s in
                   DivisionKSAShare.query.filter_by(division_id=division_id).all()}
     foldered_shared_ids = set()
     for k in shared:
         s = share_rows.get(k.id)
         if s and s.folder_id in valid_ids:
-            by_folder.setdefault(s.folder_id, []).append(k)
+            _pairs.setdefault(s.folder_id, []).append(((s.sort_order, (k.name or '').lower()), k))
             foldered_shared_ids.add(k.id)
     shared = [k for k in shared if k.id not in foldered_shared_ids]
+    by_folder = {fid: [k for _, k in sorted(pairs, key=lambda p: p[0])]
+                 for fid, pairs in _pairs.items()}
     groups = []
     for f, label, _depth in flat:
         if by_folder.get(f.id):
@@ -34714,8 +34717,13 @@ def admin_divisions_page():
                 out = []
                 for kind, obj, _so, _nm in mixed:
                     if kind == 'folder':
+                        child_entries = _entries(obj.id)
+                        # Total KSAs inside: direct (owned + shared) plus
+                        # everything in subfolders.
+                        cnt = (sum(1 for e in child_entries if e['kind'] in ('ksa', 'shared'))
+                               + sum(e['count'] for e in child_entries if e['kind'] == 'folder'))
                         out.append({'kind': 'folder', 'folder': obj,
-                                    'entries': _entries(obj.id)})
+                                    'entries': child_entries, 'count': cnt})
                     elif kind == 'shared':
                         out.append({'kind': 'shared', 'ksa': obj,
                                     'src': _all_div_names.get(obj.division_id, 'another division')})
@@ -34997,6 +35005,34 @@ def admin_ksa_update(kid):
             k.max_level = max(1, min(10, int(data.get('max_level') or 4)))
         except (ValueError, TypeError):
             pass
+    if 'division_id' in data:
+        try:
+            new_did = int(data.get('division_id') or 0)
+        except (TypeError, ValueError):
+            new_did = 0
+        if new_did and new_did != k.division_id:
+            nd = Division.query.filter_by(id=new_did, website_id=website.id).first()
+            if not nd:
+                return _utf8_json({'success': False, 'error': 'Unknown ' + _division_word(website).lower() + '.'}, 400)
+            if not can_access_division(nd.id):
+                return _utf8_json({'success': False, 'error': "You don't have access to that " + _division_word(website).lower() + '.'}, 403)
+            k.division_id = nd.id
+            k.folder_id = None   # folders are division-scoped (re-set below if sent)
+            # The owner can't also borrow it — drop any share into the new home.
+            DivisionKSAShare.query.filter_by(ksa_id=k.id, division_id=nd.id) \
+                .delete(synchronize_session=False)
+            # Requirement rows from roles in divisions that can no longer see
+            # this KSA (not owner, not shared-in) would go stale — remove them.
+            eff_divs = {nd.id} | {s.division_id for s in
+                                  DivisionKSAShare.query.filter_by(ksa_id=k.id).all()}
+            stale_role_ids = [r.id for r in PublicUserRole.query.filter(
+                PublicUserRole.website_id == website.id,
+                PublicUserRole.division_id.isnot(None),
+                ~PublicUserRole.division_id.in_(eff_divs)).all()]
+            if stale_role_ids:
+                RoleKSA.query.filter(RoleKSA.ksa_id == k.id,
+                                     RoleKSA.role_id.in_(stale_role_ids)) \
+                    .delete(synchronize_session=False)
     if 'folder_id' in data:
         k.folder_id = _valid_folder_id(data.get('folder_id'), k.division_id)
     db.session.commit()
@@ -37635,29 +37671,30 @@ def _browse_all_skills(website, viewer, group_by_folder=False):
             'self_reported': bool(uk and uk.self_reported),
             'resources': _ksa_dev_resources(k, website, gc, qc, comp),
         }
-    _name_key = lambda x: ((x.ksa_type or ''), (x.name or '').lower())
-
+    _order_key = lambda k: (k.sort_order, (k.name or '').lower())
     out = []
     for d in sorted(divisions.values(), key=lambda x: (x.sort_order, (x.name or '').lower())):
         klist = by_div.get(d.id)
         if not klist:
             continue
-        folders = sorted(folders_by_div.get(d.id, []),
-                         key=lambda f: (f.sort_order, (f.name or '').lower()))
-        valid = {f.id for f in folders}
+        # Folders in tree (depth-first) order with breadcrumb names; KSAs in
+        # the admin catalog's drag-and-drop order.
+        folders_flat = _ksa_folder_flat(d.id)
+        valid = {f.id for f, _, _ in folders_flat}
         kbf = {}
         for k in klist:
             kbf.setdefault(k.folder_id, []).append(k)
         groups = []
-        for f in folders:
+        for f, label, _depth in folders_flat:
             if kbf.get(f.id):
-                groups.append({'name': f.name, 'items': [_mk(k) for k in sorted(kbf[f.id], key=_name_key)]})
+                groups.append({'name': label,
+                               'items': [_mk(k) for k in sorted(kbf[f.id], key=_order_key)]})
         unfiled = []
         for fid, kl in kbf.items():
             if fid is None or fid not in valid:
                 unfiled.extend(kl)
         if unfiled:
-            groups.append({'name': None, 'items': [_mk(k) for k in sorted(unfiled, key=_name_key)]})
+            groups.append({'name': None, 'items': [_mk(k) for k in sorted(unfiled, key=_order_key)]})
         if not group_by_folder:
             flat = [it for g in groups for it in g['items']]
             flat.sort(key=lambda x: ((x['type'] or ''), (x['name'] or '').lower()))
@@ -37746,13 +37783,15 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
             return items
 
         # Group the division's KSAs by their folder so the roadmap mirrors the
-        # admin's folder organisation. Empty folders (after the level≥1 filter in
-        # showcase mode) are dropped.
+        # admin's folder organisation — folders in tree order, KSAs in the
+        # admin catalog's (drag-and-drop) order, which is how admins express
+        # priority. Empty folders (after the level≥1 filter in showcase mode)
+        # are dropped.
         ksa_groups = []
         for g in fgroups:
             g_items = [it for it in (_mk_item(k) for k in g['ksas']) if it is not None]
             if g_items:
-                ksa_groups.append({'name': g['name'], 'items': _sort_items(g_items)})
+                ksa_groups.append({'name': g['name'], 'items': g_items})
         if not group_by_folder:
             # Flat "hopper" view: one unnamed group, gap/priority sorted across
             # all folders (renders without folder headers — the old default).
