@@ -6,11 +6,11 @@
 <div class="da-ksa-row da-draggable{% if k.folder_id %} in-folder{% endif %}" id="ksaRow-{{ k.id }}" data-ksa-id="{{ k.id }}">
     {% if can_manage_ksa %}<i class="fas fa-grip-vertical ksa-grip" title="Drag to reorder or move into a folder"></i>{% endif %}
     <span class="da-ksa-type">{{ k.ksa_type }}</span>
-    <div>
+    <div class="da-ksa-main">
         <div class="da-ksa-name">{{ k.name }}{% if _sc %} <span class="da-shared-tag" title="Shared into {{ _sc }} other {{ div_singular|lower }}{{ '' if _sc == 1 else 's' }}"><i class="fas fa-share-alt"></i> shared ×{{ _sc }}</span>{% endif %}</div>
         {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
     </div>
-    <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+    <span class="da-ksa-meta da-ksa-max" style="margin-left:8px;">max {{ k.max_level }}</span>
     {% if can_manage_ksa %}
     <div class="da-ksa-actions">
         <button class="da-icon-btn{% if _sc %} is-active{% endif %}" title="Share with other {{ div_plural|lower }}"
@@ -30,11 +30,11 @@
 <div class="da-ksa-row is-shared in-folder da-draggable" data-shared-ksa-id="{{ k.id }}" title="Owned by {{ src }} — edit it there. Drag to file it in one of this division's folders.">
     {% if can_manage_ksa %}<i class="fas fa-grip-vertical ksa-grip" title="Drag to file this shared KSA"></i>{% endif %}
     <span class="da-ksa-type">{{ k.ksa_type }}</span>
-    <div>
+    <div class="da-ksa-main">
         <div class="da-ksa-name">{{ k.name }} <span class="da-shared-tag"><i class="fas fa-share-alt"></i> from {{ src }}</span></div>
         {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
     </div>
-    <span class="da-ksa-meta" style="margin-left:8px;">max {{ k.max_level }}</span>
+    <span class="da-ksa-meta da-ksa-max" style="margin-left:8px;">max {{ k.max_level }}</span>
 </div>
 {% endmacro %}
 
@@ -125,18 +125,35 @@
 .da-ksa-list::-webkit-scrollbar { width: 8px; }
 .da-ksa-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
 .da-ksa-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); }
-.da-ksa-type { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; }
-.da-ksa-name { font-weight: 600; font-size: 0.9rem; }
+.da-ksa-type { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; background: rgba(94,238,248,0.14); color: #5eeef8; flex-shrink: 0; align-self: flex-start; margin-top: 1px; }
+/* Middle column takes the slack and shrinks so the row never overflows the
+   card — long names wrap instead of pushing the actions off-screen. */
+.da-ksa-main { flex: 1 1 auto; min-width: 0; }
+.da-ksa-name { font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
 .da-ksa-meta { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
-.da-ksa-actions { margin-left: auto; display: flex; gap: 2px; }
+.da-ksa-max { flex-shrink: 0; }
+.da-ksa-actions { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
 .da-ksa-empty { font-size: 0.82rem; color: rgba(255,255,255,0.35); padding: 8px 2px; }
 .da-ksa-row.is-shared { border-style: dashed; background: rgba(199,155,240,0.05); }
 .da-ksa-row.in-folder { margin-left: 16px; }
 .da-folder-head { display: flex; align-items: center; gap: 8px; padding: 8px 4px 4px; font-size: 0.8rem; font-weight: 700; color: #f0c674; letter-spacing: 0.02em; }
 .da-folder-head.is-unfiled { color: rgba(255,255,255,0.4); }
-.da-folder-head .da-ksa-meta { font-weight: 600; }
-.da-folder-name { text-transform: none; }
-.da-folder-actions { margin-left: auto; display: flex; gap: 2px; }
+.da-folder-head .da-ksa-meta { font-weight: 600; flex-shrink: 0; }
+.da-folder-name { text-transform: none; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.da-folder-actions { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
+/* Mobile: stack each KSA into two rows — the type badge (left) and the action
+   buttons (right) on top, then the name/description filling the width below. */
+@media (max-width: 600px) {
+    .da-ksa-row { flex-wrap: wrap; gap: 6px 7px; padding: 9px 10px; }
+    .da-ksa-row.in-folder { margin-left: 8px; }
+    .da-folder-children { margin-left: 8px; padding-left: 8px; }
+    .da-ksa-max { display: none; }          /* max level shows in the edit dialog */
+    .da-ksa-row .ksa-grip { order: 0; align-self: center; }
+    .da-ksa-type { order: 1; align-self: center; margin-top: 0; }
+    .da-ksa-actions { order: 2; margin-left: auto; gap: 2px; }
+    .da-ksa-main { order: 3; flex-basis: 100%; }
+    .da-ksa-actions .da-icon-btn, .da-folder-actions .da-icon-btn { padding: 6px 8px; }
+}
 .da-shared-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.66rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: rgba(199,155,240,0.14); color: #c79bf0; white-space: nowrap; }
 .da-icon-btn.is-active { color: #c79bf0; }
 .da-share-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.07); margin-bottom: 6px; }

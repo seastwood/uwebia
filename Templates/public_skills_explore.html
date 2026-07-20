@@ -44,25 +44,71 @@
 .se-res-empty { font-size: 0.82rem; opacity: 0.4; margin: 2px 0; }
 .se-empty { text-align: center; opacity: 0.55; padding: 60px 20px; }
 
+/* Division + role picker */
+.se-rolepick { border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(255,255,255,0.03); padding: 16px 18px; margin: 0 0 22px; }
+.se-rolepick-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.se-rolepick label { display: flex; flex-direction: column; gap: 5px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); flex: 1 1 180px; }
+.se-rolepick select { padding: 9px 11px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.16); color: #fff; font-size: 0.9rem; font-weight: 600; color-scheme: dark; outline: none; }
+.se-rolepick select:focus { border-color: rgba(94,238,248,0.45); }
+.se-clearrole { flex: 0 0 auto; padding: 9px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.82rem; font-weight: 700; white-space: nowrap; }
+.se-clearrole:hover { border-color: rgba(94,238,248,0.45); color: #aef7e8; }
+.se-rolepick-hint { font-size: 0.78rem; opacity: 0.5; margin: 10px 0 0; }
+
+/* Role requirements header + per-KSA target badge */
+.se-req-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 1.05rem; font-weight: 700; margin: 0 0 16px; }
+.se-req-badge { padding: 3px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 800; }
+.se-target { font-size: 0.72rem; font-weight: 800; color: #aef7e8; white-space: nowrap; flex-shrink: 0; padding: 2px 8px; border-radius: 5px; background: rgba(94,238,200,0.14); }
+.se-target.is-rec { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
+
 </style>
 {% endblock %}
 
 {% block content %}
 {% set _guides_url = ('/' + website.url_prefix + '/guides') if website.url_prefix else '/guides' %}
+{% set _skills_url = ('/' + website.url_prefix + '/skills') if website.url_prefix else '/skills' %}
 <div class="se-wrap">
     <a class="se-back" href="{{ _guides_url }}"><i class="fas fa-arrow-left"></i> Back to guides</a>
     <h1 class="se-title"><i class="fas fa-compass"></i> Explore skills</h1>
     <p class="se-sub">Browse every skill by {{ dlabel(website)|lower }} and folder, and open the guides, links and quizzes that help you build them — no account needed.</p>
 
+    {% if div_roles %}
+    <div class="se-rolepick">
+        <div class="se-rolepick-row">
+            <label>{{ dlabel(website) }}
+                <select id="seDivSel" onchange="seOnDiv()">
+                    <option value="">— choose —</option>
+                    {% for dr in div_roles %}<option value="{{ dr.division.id }}"{% if selected_division and selected_division.id == dr.division.id %} selected{% endif %}>{{ dr.division.name }}</option>{% endfor %}
+                </select>
+            </label>
+            <label>Role
+                <select id="seRoleSel" onchange="seOnRole()">
+                    <option value="">— choose —</option>
+                </select>
+            </label>
+            {% if selected_role %}<a class="se-clearrole" href="{{ _skills_url }}"><i class="fas fa-times"></i> Clear</a>{% endif %}
+        </div>
+        <p class="se-rolepick-hint">Pick a {{ dlabel(website)|lower }} and role to see the skills it requires and at what level — or browse everything below.</p>
+    </div>
+    {% endif %}
+
+    {% if selected_role %}
+    <div class="se-req-head">
+        <span class="se-req-badge" style="background:{{ selected_role.color }}22;color:{{ selected_role.color }};border:1px solid {{ selected_role.color }}55;">{{ selected_role.name }}</span>
+        <span>Required skills{% if selected_division %} in {{ selected_division.name }}{% endif %}</span>
+    </div>
+    {% endif %}
+
     {% if not catalog %}
-    <div class="se-empty"><p>No skills have been published yet.</p></div>
+    <div class="se-empty"><p>{% if selected_role %}This role has no required skills set yet.{% else %}No skills have been published yet.{% endif %}</p></div>
     {% else %}
     <input type="text" id="seSearch" class="se-search" placeholder="Search skills…" oninput="seFilter()" autocomplete="off">
     <div id="seCatalog">
     {% for grp in catalog %}
         <section class="se-div-block">
+            {% if not selected_role %}
             <h2 class="se-div-name">{% if grp.division.icon %}<i class="fas {{ grp.division.icon }}" style="{% if grp.division.color %}color:{{ grp.division.color }};{% endif %}"></i>{% endif %} {{ grp.division.name }}</h2>
             {% if grp.division.description %}<p class="se-div-desc">{{ grp.division.description }}</p>{% endif %}
+            {% endif %}
             {% for fg in grp.ksa_groups %}
             <div class="se-folder">
                 {% if fg.name %}<div class="se-folder-head"><i class="fas fa-folder"></i> {{ fg.name }}</div>{% endif %}
@@ -72,6 +118,7 @@
                         <summary>
                             <span class="se-type">{{ it.type }}</span>
                             <span class="se-name">{{ it.name }}</span>
+                            {% if it.target %}<span class="se-target{% if not it.required %} is-rec{% endif %}" title="{% if it.required %}Required{% else %}Recommended{% endif %} level">→ {{ it.target_label }}</span>{% endif %}
                             {% if it.resources %}<span class="se-rescount">{{ it.resources|length }} resource{{ '' if it.resources|length == 1 else 's' }}</span>{% endif %}
                             <i class="fas fa-chevron-down se-chev"></i>
                         </summary>
@@ -108,6 +155,38 @@
 </div>
 
 <script>
+// ── Division → role picker ───────────────────────────────────────────────
+const SE_DIV_ROLES = [
+{% for dr in div_roles %}{ id: {{ dr.division.id }}, roles: [{% for r in dr.roles %}{ id: {{ r.id }}, name: {{ r.name|tojson }} }{{ ',' if not loop.last }}{% endfor %}] }{{ ',' if not loop.last }}
+{% endfor %}];
+const SE_SKILLS_URL = {{ _skills_url|tojson }};
+const SE_SELECTED_ROLE = {{ selected_role.id if selected_role else 'null' }};
+
+function _seRolesFor(divId) {
+    const d = SE_DIV_ROLES.find(x => x.id === parseInt(divId));
+    return d ? d.roles : [];
+}
+function seOnDiv(keepRole) {
+    const rs = document.getElementById('seRoleSel');
+    const roles = _seRolesFor(document.getElementById('seDivSel').value);
+    let html = '<option value="">— choose —</option>';
+    roles.forEach(r => {
+        const sel = (keepRole && r.id === SE_SELECTED_ROLE) ? ' selected' : '';
+        html += '<option value="' + r.id + '"' + sel + '>' + r.name.replace(/</g, '&lt;') + '</option>';
+    });
+    rs.innerHTML = html;
+}
+function seOnRole() {
+    const rid = document.getElementById('seRoleSel').value;
+    if (rid) window.location = SE_SKILLS_URL + '?role=' + rid;
+    else window.location = SE_SKILLS_URL;
+}
+// On load: if a division is preselected (role view), fill its roles and keep
+// the current role selected.
+if (document.getElementById('seDivSel') && document.getElementById('seDivSel').value) {
+    seOnDiv(true);
+}
+
 function seFilter() {
     const q = (document.getElementById('seSearch').value || '').trim().toLowerCase();
     let anyVisible = false;

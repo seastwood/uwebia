@@ -37876,6 +37876,66 @@ def _ksa_dev_resources(ksa, website, guide_cache=None, quiz_cache=None, completi
     return items
 
 
+def _public_role_requirements(website, role):
+    """Public, no-login view of a role's required skills: every KSA the role
+    requires (own + folder rules + builds-on inheritance), at its target level,
+    grouped by the role's division folders exactly like the Explore catalog.
+    Returns [{'name': folder_label|None, 'items': [item, ...]}]."""
+    eff = _effective_role_requirements([role]).get(role.id, {})
+    if not eff:
+        return []
+    ksas = {k.id: k for k in KSA.query.filter(KSA.id.in_(list(eff.keys()))).all()}
+    folders_flat = _ksa_folder_flat(role.division_id)
+    valid = {f.id for f, _, _ in folders_flat}
+    share_rows = {s.ksa_id: s for s in
+                  DivisionKSAShare.query.filter_by(division_id=role.division_id).all()}
+
+    def _folder_of(k):
+        # Owned KSAs use their own folder; shared-in KSAs use where this
+        # division filed them.
+        if k.division_id == role.division_id:
+            return k.folder_id if k.folder_id in valid else None
+        s = share_rows.get(k.id)
+        return s.folder_id if (s and s.folder_id in valid) else None
+
+    def _sort_key(k):
+        if k.division_id != role.division_id:
+            s = share_rows.get(k.id)
+            if s:
+                return (s.sort_order, (k.name or '').lower())
+        return (k.sort_order, (k.name or '').lower())
+
+    by_folder = {}
+    for kid, spec in eff.items():
+        k = ksas.get(kid)
+        if k:
+            by_folder.setdefault(_folder_of(k), []).append((k, spec))
+    gc, qc = {}, {}
+
+    def _mk(k, spec):
+        tgt = spec['level']
+        return {
+            'id': k.id, 'name': k.name, 'type': k.ksa_type,
+            'description': k.description or '',
+            'target': tgt, 'target_label': _ksa_level_label(website, tgt),
+            'max': k.max_level, 'required': spec.get('required', True),
+            'priority': spec.get('priority', 'medium'),
+            'resources': _ksa_dev_resources(k, website, gc, qc, None),
+        }
+
+    groups = []
+    for f, label, _depth in folders_flat:
+        lst = by_folder.get(f.id)
+        if lst:
+            lst.sort(key=lambda ks: _sort_key(ks[0]))
+            groups.append({'name': label, 'items': [_mk(k, s) for k, s in lst]})
+    unfiled = by_folder.get(None)
+    if unfiled:
+        unfiled.sort(key=lambda ks: _sort_key(ks[0]))
+        groups.append({'name': None, 'items': [_mk(k, s) for k, s in unfiled]})
+    return groups
+
+
 def _browse_all_skills(website, viewer=None, group_by_folder=False):
     """A catalog of EVERY KSA on the website, grouped by its owning division and
     folder, with each KSA's learning resources. When `viewer` is a member, each
@@ -38231,9 +38291,38 @@ def public_skills_explore(prefix=None):
         return render_template('site_offline.html', website=website), 503
     if not getattr(website, 'ksa_public_explore', False):
         abort(404)
-    catalog = _browse_all_skills(website, viewer=None, group_by_folder=True)
+
+    # Division + role selectors: every division that has roles, so a visitor
+    # can pick a role and see exactly what it requires.
+    div_roles = []
+    for d in Division.query.filter_by(website_id=website.id).order_by(
+            Division.sort_order, Division.name).all():
+        roles = PublicUserRole.query.filter_by(
+            website_id=website.id, division_id=d.id).order_by(PublicUserRole.name).all()
+        if roles:
+            div_roles.append({'division': d, 'roles': roles})
+
+    selected_role = None
+    selected_division = None
+    role_id = request.args.get('role', type=int)
+    if role_id:
+        r = PublicUserRole.query.filter_by(id=role_id, website_id=website.id).first()
+        if r and r.division_id:
+            selected_role = r
+            selected_division = db.session.get(Division, r.division_id)
+
+    if selected_role:
+        # Wrap in the same shape as the browse catalog (one division block)
+        # so the template renders both views identically.
+        _groups = _public_role_requirements(website, selected_role)
+        catalog = [{'division': selected_division, 'ksa_groups': _groups}] if _groups else []
+    else:
+        catalog = _browse_all_skills(website, viewer=None, group_by_folder=True)
+
     resp = make_response(render_template(
         'public_skills_explore.html', website=website, catalog=catalog,
+        div_roles=div_roles, selected_role=selected_role,
+        selected_division=selected_division,
         public_user=_public_user_for_website(website)))
     return resp
 
