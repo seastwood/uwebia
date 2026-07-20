@@ -28715,6 +28715,23 @@ def _run_startup_migrations_inner():
             db.session.rollback()
             print(f'[migrate] warning: RoleType backfill: {_e}')
 
+    # ── Step 8: reconcile merged-division role mirrors. Idempotent, so it also
+    # covers groups merged before role mirroring existed (they only synced once
+    # a mirror-triggering action ran) and heals any later drift.
+    try:
+        seen_groups = set()
+        for d in Division.query.filter(Division.merge_group_id.isnot(None)).all():
+            if d.merge_group_id in seen_groups:
+                continue
+            seen_groups.add(d.merge_group_id)
+            _mirror_merged_division_roles(d)
+        if seen_groups:
+            db.session.commit()
+            print(f'[migrate] reconciled role mirrors for {len(seen_groups)} merged division group(s)')
+    except Exception as _e:
+        db.session.rollback()
+        print(f'[migrate] warning: merged-division role mirror: {_e}')
+
 
 # Flag set to True when the configured database is unreachable at startup.
 # The before_request hook below uses it to gate all routes in maintenance mode.
