@@ -81,7 +81,7 @@
                                     <button class="btn-sync-small" onclick="syncSubscription({{ cal.id }}, {{ sub.id }})" id="syncSubBtn-{{ sub.id }}" title="Sync now">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
-                                    <button class="btn-icon" onclick="openCopySubModal({{ cal.id }}, {{ sub.id }}, {{ (sub.name or sub.url) | tojson }})" title="Copy to another calendar">
+                                    <button class="btn-icon" onclick='openCopySubModal({{ cal.id }}, {{ sub.id }}, {{ (sub.name or sub.url) | tojson }})' title="Copy to another calendar">
                                         <i class="fas fa-copy"></i>
                                     </button>
                                     <button class="btn-icon btn-danger-icon" onclick="deleteSubscription({{ cal.id }}, {{ sub.id }})" title="Remove">

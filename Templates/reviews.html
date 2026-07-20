@@ -91,10 +91,10 @@
                     <button class="btn-rv" onclick="rvOpenImportModal({{ board.id }})"><i class="fas fa-file-import"></i> Import</button>
                     {% endif %}
                     {% if user_has_perm('reviews.edit') %}
-                    <button class="btn-rv" onclick="rvOpenBoardModal({{ board.id }}, {{ board.name|tojson }}, {{ (board.description or '')|tojson }})"><i class="fas fa-pen"></i></button>
+                    <button class="btn-rv" onclick='rvOpenBoardModal({{ board.id }}, {{ board.name|tojson }}, {{ (board.description or "")|tojson }})'><i class="fas fa-pen"></i></button>
                     {% endif %}
                     {% if user_has_perm('reviews.delete') %}
-                    <button class="btn-rv btn-rv-danger" onclick="rvDeleteBoard({{ board.id }}, {{ board.name|tojson }})"><i class="fas fa-trash"></i></button>
+                    <button class="btn-rv btn-rv-danger" onclick='rvDeleteBoard({{ board.id }}, {{ board.name|tojson }})'><i class="fas fa-trash"></i></button>
                     {% endif %}
                 </div>
             </div>

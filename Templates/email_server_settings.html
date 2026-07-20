@@ -102,7 +102,7 @@
                     <i class="fas fa-pen"></i> Edit
                 </button>
                 {% if email_servers | length > 1 %}
-                <button class="es-btn es-btn-danger" onclick="esDelete({{ s.id }}, {{ (s.label or 'Email Server') | tojson }})">
+                <button class="es-btn es-btn-danger" onclick='esDelete({{ s.id }}, {{ (s.label or "Email Server") | tojson }})'>
                     <i class="fas fa-trash"></i>
                 </button>
                 {% endif %}

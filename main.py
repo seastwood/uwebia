@@ -310,6 +310,8 @@ class PermissionGroup(db.Model):
 # site settings can also reach the settings page to do so).
 PERMISSION_IMPLIES = {
     'settings.view': ('settings.edit', 'settings.email', 'settings.2fa', 'settings.backup'),
+    # Holding merge rights means you can see the divisions page to use them.
+    'divisions.view': ('divisions.merge',),
 }
 
 
@@ -21183,6 +21185,7 @@ ADMIN_PERMISSIONS = {
         'view': 'View divisions/groups, their members and roles',
         'edit': 'Edit a division’s details and its roles',
         'members': 'Add/remove members and assign division roles',
+        'merge': 'Merge divisions (shared member lists) and unmerge them',
         'create_delete': 'Create new divisions and delete existing ones',
     }},
     'ksa': {'label': 'KSAs (Competencies)', 'actions': {
@@ -34475,6 +34478,17 @@ def admin_divisions_page():
             Division.sort_order, Division.name).all()
         # Per-division scope: a restricted sub-admin only sees granted divisions.
         divisions = [d for d in divisions if can_access_division(d.id)]
+        # Merged divisions list next to each other: every division in a merge
+        # group adopts the group's best (lowest) sort position as its primary
+        # key, keeping its own order within the group.
+        _grp_key = {}
+        for d in divisions:
+            g = d.merge_group_id or f'solo-{d.id}'
+            k = (d.sort_order, (d.name or '').lower())
+            if g not in _grp_key or k < _grp_key[g]:
+                _grp_key[g] = k
+        divisions.sort(key=lambda d: (_grp_key[d.merge_group_id or f'solo-{d.id}'],
+                                      d.sort_order, (d.name or '').lower()))
         div_names = {d.id: d.name for d in divisions}
         # Combined-division partners (names from ALL divisions, since a
         # restricted admin can be combined with one they can't open).
@@ -34541,6 +34555,7 @@ def admin_divisions_page():
     can_edit_div = (not is_sub) or _p('divisions.edit')
     can_members_div = (not is_sub) or _p('divisions.members')
     can_delete_div = (not is_sub) or _p('divisions.create_delete')
+    can_merge_div = (not is_sub) or _p('divisions.merge')
     can_view_ksa = (not is_sub) or _p('ksa.view')
     can_manage_ksa = (not is_sub) or _p('ksa.manage')
     div_singular, div_plural = _division_labels(website)
@@ -34570,6 +34585,7 @@ def admin_divisions_page():
                            ksa_types=_ksa_types(website), ksa_level_labels=_ksa_level_labels(website),
                            can_create_div=can_create_div, can_edit_div=can_edit_div,
                            can_members_div=can_members_div, can_delete_div=can_delete_div,
+                           can_merge_div=can_merge_div,
                            can_view_ksa=can_view_ksa, can_manage_ksa=can_manage_ksa,
                            div_singular=div_singular, div_plural=div_plural,
                            page_id=None)
@@ -34643,7 +34659,7 @@ def admin_divisions_update(did):
 
 @app.route('/admin/divisions/<int:did>/combine', methods=['POST'])
 @login_required
-@require_perm('divisions.edit')
+@require_perm('divisions.merge')
 def admin_division_combine(did):
     """Combine this division with another: both (and anything either is
     already combined with) join one merge group, and their member lists are
@@ -34657,7 +34673,7 @@ def admin_division_combine(did):
     except (TypeError, ValueError):
         other = None
     if not other or other.website_id != website.id or other.id == d.id:
-        return _utf8_json({'success': False, 'error': 'Pick another ' + _division_word(website).lower() + ' to combine with.'}, 400)
+        return _utf8_json({'success': False, 'error': 'Pick another ' + _division_word(website).lower() + ' to merge with.'}, 400)
     if not can_access_division(other.id):
         return _utf8_json({'success': False, 'error': "You don't have access to that " + _division_word(website).lower() + '.'}, 403)
 
@@ -34686,7 +34702,7 @@ def admin_division_combine(did):
 
 @app.route('/admin/divisions/<int:did>/separate', methods=['POST'])
 @login_required
-@require_perm('divisions.edit')
+@require_perm('divisions.merge')
 def admin_division_separate(did):
     """Detach this division from its merge group. Its membership rows are its
     own real rows, so it keeps its current members and diverges freely."""
@@ -34694,7 +34710,7 @@ def admin_division_separate(did):
     if d is None:
         return website
     if not d.merge_group_id:
-        return _utf8_json({'success': False, 'error': 'Not combined with anything.'}, 400)
+        return _utf8_json({'success': False, 'error': 'Not merged with anything.'}, 400)
     group = d.merge_group_id
     d.merge_group_id = None
     db.session.flush()
