@@ -317,6 +317,16 @@ PERMISSION_IMPLIES = {
     'settings.view': ('settings.edit', 'settings.email', 'settings.2fa', 'settings.backup'),
     # Holding merge rights means you can see the divisions page to use them.
     'divisions.view': ('divisions.merge',),
+    # Public-user management split out of admin_users. Backward compat: the old
+    # admin_users.* grants still cover the same public-user actions they did
+    # before, and any public_users management action implies being able to view.
+    'public_users.view': ('public_users.approve', 'public_users.edit',
+                          'public_users.ban', 'public_users.delete',
+                          'admin_users.view', 'admin_users.edit', 'admin_users.delete'),
+    'public_users.approve': ('admin_users.edit',),
+    'public_users.edit': ('admin_users.edit',),
+    'public_users.ban': ('admin_users.edit',),
+    'public_users.delete': ('admin_users.delete',),
 }
 
 
@@ -21523,6 +21533,13 @@ ADMIN_PERMISSIONS = {
         'promote': 'Promote a public user to a sub-admin & assign their permission group',
         'demote': 'Demote a sub-admin back to a regular public user',
     }},
+    'public_users': {'label': 'Public Users (Members)', 'actions': {
+        'view': 'View public users / members',
+        'approve': 'Approve pending members (activate / deactivate accounts)',
+        'edit': 'Edit member details and assign their roles',
+        'ban': 'Ban / unban members',
+        'delete': 'Delete members',
+    }},
 }
 
 
@@ -21657,8 +21674,8 @@ def admin_users_page():
 @login_required
 def admin_public_users_page():
     if current_user.is_sub_admin:
-        if not current_user.has_permission('admin_users.view'):
-            flash("You don't have permission to view admin users.", 'permission_denied')
+        if not current_user.has_permission('public_users.view'):
+            flash("You don't have permission to view members.", 'permission_denied')
             return redirect(url_for('dashboard'))
     root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
     live_websites = Website.query.filter_by(user_id=root_id, is_draft=False).order_by(Website.id).all()
@@ -21697,6 +21714,7 @@ def admin_public_users_page():
         permission_groups = [g for g in permission_groups if g.id in _assignable]
     permission_groups_dicts = [g.to_dict() for g in permission_groups]
     can_promote_staff = (not current_user.is_sub_admin) or current_user.has_permission('admin_users.promote')
+    _sub = current_user.is_sub_admin
     return render_template('admin_public_users.html',
                            live_websites=live_websites,
                            user_counts_by_website=user_counts_by_website,
@@ -21705,7 +21723,11 @@ def admin_public_users_page():
                            selected_website_id=selected_website_id,
                            permission_groups_dicts=permission_groups_dicts,
                            promote_requires_group=(_assignable is not None),
-                           can_promote_staff=can_promote_staff)
+                           can_promote_staff=can_promote_staff,
+                           can_approve_members=((not _sub) or current_user.has_permission('public_users.approve')),
+                           can_edit_members=((not _sub) or current_user.has_permission('public_users.edit')),
+                           can_ban_members=((not _sub) or current_user.has_permission('public_users.ban')),
+                           can_delete_members=((not _sub) or current_user.has_permission('public_users.delete')))
 
 
 _PUBLIC_USERS_LIST_SORTS = {
@@ -21722,7 +21744,7 @@ _PUBLIC_USERS_LIST_FILTERS = {
 @app.route('/admin/users/public/list')
 @login_required
 def admin_public_users_list():
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.view'):
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.view'):
         return _utf8_json({'error': 'Permission denied'}, 403)
 
     root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
@@ -21937,7 +21959,7 @@ def _reject_if_admin_mirror(public_user):
 @app.route('/admin/users/public/<int:user_id>/toggle-active', methods=['POST'])
 @login_required
 def admin_public_user_toggle_active(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.approve'):
         return _utf8_json({'error': 'Permission denied'}, 403)
     u = _get_owned_public_user(user_id)
     blocked = _reject_if_admin_mirror(u)
@@ -21951,7 +21973,7 @@ def admin_public_user_toggle_active(user_id):
 @app.route('/admin/users/public/<int:user_id>/toggle-ban', methods=['POST'])
 @login_required
 def admin_public_user_toggle_ban(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.ban'):
         return _utf8_json({'error': 'Permission denied'}, 403)
     u = _get_owned_public_user(user_id)
     blocked = _reject_if_admin_mirror(u)
@@ -21965,7 +21987,7 @@ def admin_public_user_toggle_ban(user_id):
 @app.route('/admin/users/public/<int:user_id>/update', methods=['POST'])
 @login_required
 def admin_public_user_update(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.edit'):
         return _utf8_json({'error': 'Permission denied'}, 403)
     u = _get_owned_public_user(user_id)
     blocked = _reject_if_admin_mirror(u)
@@ -22005,7 +22027,7 @@ def admin_public_user_update(user_id):
 @app.route('/admin/users/public/<int:user_id>/delete', methods=['POST'])
 @login_required
 def admin_public_user_delete(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.delete'):
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.delete'):
         return _utf8_json({'error': 'Permission denied'}, 403)
     u = _get_owned_public_user(user_id)
     blocked = _reject_if_admin_mirror(u)
@@ -22135,7 +22157,7 @@ def admin_public_role_delete(role_id):
 @app.route('/admin/users/public/<int:user_id>/set-roles', methods=['POST'])
 @login_required
 def admin_public_user_set_roles(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.edit'):
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.edit'):
         return _utf8_json({'error': 'Permission denied'}, 403)
     u = _get_owned_public_user(user_id)
     data = request.get_json() or {}

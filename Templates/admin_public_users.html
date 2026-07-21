@@ -488,6 +488,10 @@ const _websiteLoaded = {};       // websiteId → true once first fetch is done
 const _searchTimers = {};        // websiteId → debounce timer
 
 const CAN_PROMOTE_STAFF = {{ can_promote_staff | tojson }};
+const CAN_APPROVE_MEMBERS = {{ can_approve_members | tojson }};
+const CAN_EDIT_MEMBERS = {{ can_edit_members | tojson }};
+const CAN_BAN_MEMBERS = {{ can_ban_members | tojson }};
+const CAN_DELETE_MEMBERS = {{ can_delete_members | tojson }};
 const PERMISSION_GROUPS = {{ (permission_groups_dicts or []) | tojson }};
 var _promoteUserId = null;
 
@@ -600,8 +604,7 @@ function buildUserRow(websiteId, u) {
         ? `<span class="pu-badge" style="background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="This is the public-facing mirror of an admin account. It auto-syncs with the admin's username and cannot be removed from here.">Admin</span>`
         : '';
 
-    let stateBtn, banBtn, deleteBtn, editBtn, roleBtn, promoteBtn;
-    promoteBtn = '';
+    let stateBtn = '', banBtn = '', deleteBtn = '', editBtn = '', roleBtn = '', promoteBtn = '';
     if (u.is_admin_mirror) {
         // Auth lives on the admin User row, so account-level actions are locked.
         // Roles are still assignable: the "Admin" badge is auto-derived, and
@@ -610,24 +613,28 @@ function buildUserRow(websiteId, u) {
         stateBtn  = `<button class="pu-btn pu-btn-disable" disabled style="opacity:0.45;cursor:not-allowed;" title="${lockTitle}"><i class="fas fa-lock"></i> Locked</button>`;
         banBtn    = '';
         deleteBtn = '';
-        editBtn   = `<button class="pu-btn pu-btn-edit" disabled style="opacity:0.45;cursor:not-allowed;" title="${lockTitle}"><i class="fas fa-lock"></i> Edit</button>`;
-        roleBtn   = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
+        if (CAN_EDIT_MEMBERS) {
+            editBtn = `<button class="pu-btn pu-btn-edit" disabled style="opacity:0.45;cursor:not-allowed;" title="${lockTitle}"><i class="fas fa-lock"></i> Edit</button>`;
+            roleBtn = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
                 <button class="pu-btn pu-btn-edit" onclick="toggleRoleDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-tag"></i> Roles</button>
                 <div class="pu-role-dropdown-menu" id="roleMenu-${u.id}"></div>
             </div>`;
+        }
     } else {
-        stateBtn = (u.is_active_public && !u.is_banned)
+        if (CAN_APPROVE_MEMBERS) stateBtn = (u.is_active_public && !u.is_banned)
             ? `<button class="pu-btn pu-btn-disable" id="btn-active-${u.id}" onclick="toggleActive(${u.id})"><i class="fas fa-user-slash"></i> Disable</button>`
             : `<button class="pu-btn pu-btn-approve" id="btn-active-${u.id}" onclick="toggleActive(${u.id})"><i class="fas fa-user-check"></i> Approve</button>`;
-        banBtn = u.is_banned
+        if (CAN_BAN_MEMBERS) banBtn = u.is_banned
             ? `<button class="pu-btn pu-btn-unban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-unlock"></i> Unban</button>`
             : `<button class="pu-btn pu-btn-ban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-ban"></i> Ban</button>`;
-        deleteBtn = `<button class="pu-btn pu-btn-delete" onclick='confirmDelete(${u.id}, ${JSON.stringify(u.username)})'><i class="fas fa-trash"></i></button>`;
-        editBtn   = `<button class="pu-btn pu-btn-edit" onclick='openEdit(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)}, ${JSON.stringify(u.first_name || "")}, ${JSON.stringify(u.last_name || "")})'><i class="fas fa-pencil-alt"></i> Edit</button>`;
-        roleBtn   = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
+        if (CAN_DELETE_MEMBERS) deleteBtn = `<button class="pu-btn pu-btn-delete" onclick='confirmDelete(${u.id}, ${JSON.stringify(u.username)})'><i class="fas fa-trash"></i></button>`;
+        if (CAN_EDIT_MEMBERS) {
+            editBtn = `<button class="pu-btn pu-btn-edit" onclick='openEdit(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)}, ${JSON.stringify(u.first_name || "")}, ${JSON.stringify(u.last_name || "")})'><i class="fas fa-pencil-alt"></i> Edit</button>`;
+            roleBtn = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
                 <button class="pu-btn pu-btn-edit" onclick="toggleRoleDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-tag"></i> Roles</button>
                 <div class="pu-role-dropdown-menu" id="roleMenu-${u.id}"></div>
             </div>`;
+        }
         if (CAN_PROMOTE_STAFF) {
             // Mirrors are filtered out by the outer branch; the server still
             // re-checks (rejecting passwordless / social-only accounts).
