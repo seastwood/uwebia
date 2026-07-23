@@ -59,6 +59,12 @@
 
 .gv-start-btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 10px; background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; font-weight: 700; text-decoration: none; }
 .gv-start-btn:hover { opacity: 0.88; }
+.gv-prereq-banner { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 24px; padding: 14px 16px; border-radius: 12px; background: rgba(94,238,248,0.08); border: 1px solid rgba(94,238,248,0.25); }
+.gv-prereq-banner > i { font-size: 1.1rem; color: #5eeef8; margin-top: 2px; }
+.gv-prereq-banner strong { font-size: 0.9rem; }
+.gv-prereq-banner p { margin: 3px 0 0; font-size: 0.88rem; opacity: 0.75; line-height: 1.5; }
+.gv-prereq-banner a { color: #5eeef8; text-decoration: none; font-weight: 600; }
+.gv-prereq-banner a:hover { text-decoration: underline; }
 
 .gv-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 48px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; }
 .gv-finish { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding: 18px 20px; border-radius: 14px; border: 1px solid rgba(94,238,200,0.32); background: rgba(94,238,200,0.07); }
@@ -225,7 +231,18 @@
         {% if guide.cover_image_url %}<img class="gv-cover" src="{{ guide.cover_image_url }}" alt="{{ guide.title }}">{% endif %}
         <h1 class="gv-h1">{{ guide.title }}</h1>
         {% if guide.description %}<p class="gv-guide-desc">{{ guide.description }}</p>{% endif %}
-        {% if start_node %}
+        {% if recommended_prereqs %}
+        <div class="gv-prereq-banner">
+            <i class="fas fa-diagram-project"></i>
+            <div>
+                <strong>Recommended first</strong>
+                <p>These guides build up to this one:
+                    {% for p in recommended_prereqs %}<a href="{{ _base }}/{{ p.slug }}">{{ p.title }}</a>{{ ', ' if not loop.last }}{% endfor %}
+                </p>
+            </div>
+        </div>
+        {% endif %}
+        {% if start_node and guide.show_start_button %}
         <a class="gv-start-btn" href="{{ node_url(start_node.slug) }}"><i class="fas fa-play"></i> Start</a>
         {% endif %}
         {% endif %}

@@ -51,6 +51,17 @@
         <link rel="icon" type="image/svg+xml" href="/static/uwebia-icon.svg">
     {% endif %}
 
+    {# iOS "Add to Home Screen" uses apple-touch-icon for the app icon. iOS
+       ignores SVG, so we serve a rasterized PNG of the site icon from a route
+       (/apple-touch-icon.png) rather than linking the raw icon file. #}
+    {% set _atouch = ('/' + website.url_prefix + '/apple-touch-icon.png') if (website and website.url_prefix) else '/apple-touch-icon.png' %}
+    <link rel="apple-touch-icon" href="{{ _atouch }}?v={{ site_icon_version(website) }}">
+    <meta name="apple-mobile-web-app-title" content="{{ website.name if website else 'Home' }}">
+    <meta name="application-name" content="{{ website.name if website else 'Home' }}">
+    {# Web app manifest — Android's "Add to Home Screen" reads the icon + name
+       from here (per-site, so it's built dynamically). #}
+    <link rel="manifest" href="{{ ('/' + website.url_prefix + '/manifest.webmanifest') if (website and website.url_prefix) else '/manifest.webmanifest' }}">
+
     {% set nav_style = website.public_navbar_style or {} %}
     {% set navbar_margin = nav_style.get('margin', 0)|int %}
     {% set navbar_anchor_offset = 78 + navbar_margin %}

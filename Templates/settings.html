@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/navbar.html' %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
 <style>
     body {
@@ -721,38 +722,44 @@
     {% if can_edit_settings %}
     <div class="settings-card" style="margin-top:20px;">
         <h2 class="settings-section-title">Admin Navbar</h2>
-        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar for <strong>everyone</strong>. Disabled items are hidden across all admins.</p>
+        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar for <strong>everyone</strong>, and <strong>drag the grip</strong> to set their order. Disabled items are hidden across all admins.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
             {% set _nd = anchor_navbar_disabled or [] %}
-            {# Top-level (non-store) items. #}
-            {% for key, label, icon in [
-                ('posts',         'Posts',                       'fa-newspaper'),
-                ('guides',        'Guides',                      'fa-book-open'),
-                ('quizzes',       'Quizzes',                     'fa-clipboard-check'),
-                ('divisions',     dlabel(plural=True, cap=True), 'fa-sitemap'),
-                ('newsletters',   'Newsletters',                 'fa-envelope-open-text'),
-                ('forum',         'Forum',                       'fa-comments'),
-                ('calendars',     'Calendars',                   'fa-calendar-alt'),
-                ('reviews',       'Reviews',                     'fa-star'),
-                ('messages',      'Messages',                    'fa-envelope'),
-                ('palette',       'Color Palette',               'fa-palette'),
-                ('storage',       'External Drives',             'fa-cloud'),
-                ('notifications', 'Notifications',               'fa-bell'),
-                ('ai_agents',     'AI Agents',                   'fa-robot'),
-                ('plugins',       'Plugins',                     'fa-puzzle-piece'),
+            {% set _no = anchor_navbar_order or [] %}
+            {# Top-level (non-store) items, rendered in the saved order (unsaved
+               keys keep their default position after the ordered ones). #}
+            {% set _defs = [
+                {'key':'posts',         'label':'Posts',                       'icon':'fa-newspaper'},
+                {'key':'guides',        'label':'Guides',                      'icon':'fa-book-open'},
+                {'key':'quizzes',       'label':'Quizzes',                     'icon':'fa-clipboard-check'},
+                {'key':'divisions',     'label':dlabel(plural=True, cap=True), 'icon':'fa-sitemap'},
+                {'key':'newsletters',   'label':'Newsletters',                 'icon':'fa-envelope-open-text'},
+                {'key':'forum',         'label':'Forum',                       'icon':'fa-comments'},
+                {'key':'calendars',     'label':'Calendars',                   'icon':'fa-calendar-alt'},
+                {'key':'reviews',       'label':'Reviews',                     'icon':'fa-star'},
+                {'key':'messages',      'label':'Messages',                    'icon':'fa-envelope'},
+                {'key':'palette',       'label':'Color Palette',               'icon':'fa-palette'},
+                {'key':'storage',       'label':'External Drives',             'icon':'fa-cloud'},
+                {'key':'notifications', 'label':'Notifications',               'icon':'fa-bell'},
+                {'key':'ai_agents',     'label':'AI Agents',                   'icon':'fa-robot'},
+                {'key':'plugins',       'label':'Plugins',                     'icon':'fa-puzzle-piece'},
             ] %}
-            <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);">
-                <input type="checkbox" class="nav-vis-check" data-key="{{ key }}"
-                       {% if key not in _nd %}checked{% endif %}
+            {% for _it in _defs %}{% set _ = _it.update({'ord': (_no.index(_it.key) if _it.key in _no else 900)}) %}{% endfor %}
+            {% for it in _defs | sort(attribute='ord') %}
+            <label data-navkey="{{ it.key }}" class="nav-vis-row" style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:7px 11px;">
+                <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;" title="Drag to reorder"></i>
+                <input type="checkbox" class="nav-vis-check" data-key="{{ it.key }}"
+                       {% if it.key not in _nd %}checked{% endif %}
                        style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
-                <i class="fas {{ icon }}" style="width:16px;text-align:center;color:rgba(255,255,255,0.5);"></i>
-                {{ label }}
+                <i class="fas {{ it.icon }}" style="width:16px;text-align:center;color:rgba(255,255,255,0.5);"></i>
+                {{ it.label }}
             </label>
             {% endfor %}
 
             {# Store dropdown — master toggle + per-item under a divider. #}
-            <div style="margin-top:14px;padding:12px 14px;background:rgba(94,238,248,0.05);border:1px solid rgba(94,238,248,0.15);border-radius:10px;">
-                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);font-weight:600;">
+            <div data-navkey="store" style="padding:12px 14px;background:rgba(94,238,248,0.05);border:1px solid rgba(94,238,248,0.15);border-radius:10px;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);font-weight:600;">
+                    <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;font-weight:400;" title="Drag to reorder"></i>
                     <input type="checkbox" class="nav-vis-check" data-key="store"
                            {% if 'store' not in _nd %}checked{% endif %}
                            onchange="onStoreMasterToggle(this)"
@@ -990,21 +997,40 @@
         }
 
         async function saveNavbarVisibility() {
-            const checks = document.querySelectorAll('.nav-vis-check');
+            const form = document.getElementById('navbarVisibilityForm');
             const disabled = [];
-            checks.forEach(c => { if (!c.checked) disabled.push(c.dataset.key); });
+            form.querySelectorAll('.nav-vis-check').forEach(c => { if (!c.checked) disabled.push(c.dataset.key); });
+            // Order = the current top-level row sequence (drag reorders these).
+            const order = Array.from(form.querySelectorAll(':scope > [data-navkey]')).map(el => el.dataset.navkey);
             const status = document.getElementById('navVisStatus');
             try {
                 const r = await fetch('/admin/settings/navbar-visibility', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ disabled })
+                    body: JSON.stringify({ disabled, order })
                 });
                 const d = await r.json();
                 status.style.color = d.ok ? '#5eeec8' : '#f55';
                 status.textContent = d.ok ? 'Saved — reload the page to see changes.' : 'Save failed.';
             } catch { status.style.color = '#f55'; status.textContent = 'Request failed.'; }
         }
+
+        // Drag-to-reorder the navbar item rows. The store card renders last, so
+        // move it into its saved order slot, then enable Sortable.
+        (function initNavReorder() {
+            const form = document.getElementById('navbarVisibilityForm');
+            if (!form) return;
+            const NAV_ORDER = {{ (anchor_navbar_order or []) | tojson }};
+            if (NAV_ORDER.length) {
+                const idx = k => { const i = NAV_ORDER.indexOf(k); return i === -1 ? 900 : i; };
+                Array.from(form.querySelectorAll(':scope > [data-navkey]'))
+                    .sort((a, b) => idx(a.dataset.navkey) - idx(b.dataset.navkey))
+                    .forEach(r => form.appendChild(r));
+            }
+            if (window.Sortable) {
+                Sortable.create(form, { handle: '.nav-vis-grip', draggable: '[data-navkey]', animation: 150 });
+            }
+        })();
 
         function copyAdminLoginUrl() {
             const element = document.getElementById('adminLoginUrlValue');

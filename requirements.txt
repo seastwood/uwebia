@@ -31,3 +31,4 @@ psycopg2-binary
 smbprotocol
 stripe
 markdown
+cairosvg==2.9.0

@@ -9,6 +9,8 @@
     <div class="da-ksa-main">
         <div class="da-ksa-name">{{ k.name }}{% if _sc %} <span class="da-shared-tag" title="Shared into {{ _sc }} other {{ div_singular|lower }}{{ '' if _sc == 1 else 's' }}"><i class="fas fa-share-alt"></i> shared ×{{ _sc }}</span>{% endif %}</div>
         {% if k.description %}<div class="da-ksa-meta">{{ k.description }}</div>{% endif %}
+        {% set _pre = (k.prerequisite_ksa_ids or []) | map('int') | select('in', ksa_name_by_id) | list %}
+        {% if _pre %}<div class="da-ksa-meta" style="opacity:0.6;"><i class="fas fa-diagram-project" style="font-size:0.72rem;"></i> builds on: {% for pid in _pre %}{{ ksa_name_by_id[pid] }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
     </div>
     <span class="da-ksa-meta da-ksa-max" style="margin-left:8px;">max {{ k.max_level }}</span>
     {% if can_manage_ksa %}
@@ -18,7 +20,7 @@
         <button class="da-icon-btn" title="Learning resources (links / guides / quizzes)"
                 onclick='openResourcesModal({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-book-reader"></i></button>
         <button class="da-icon-btn" title="Edit"
-                onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }}, {{ k.folder_id or 0 }})'><i class="fas fa-pencil-alt"></i></button>
+                onclick='openKsaModal({{ d.id }}, {{ k.id }}, {{ k.ksa_type|tojson }}, {{ k.name|tojson }}, {{ (k.description or "")|tojson }}, {{ k.max_level }}, {{ k.folder_id or 0 }}, {{ (k.prerequisite_ksa_ids or [])|tojson }})'><i class="fas fa-pencil-alt"></i></button>
         <button class="da-icon-btn is-danger" title="Delete"
                 onclick='confirmKsaDelete({{ k.id }}, {{ k.name|tojson }})'><i class="fas fa-trash"></i></button>
     </div>
@@ -554,6 +556,10 @@
                 </div>
                 <div class="uw-field"><label>Folder <span style="opacity:0.5;">(optional)</span></label>
                     <select id="ksaModalFolder" class="uw-input" style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;"></select></div>
+                <div class="uw-field"><label>Builds on <span style="opacity:0.5;">(prerequisites, optional)</span></label>
+                    <p style="font-size:0.76rem;color:rgba(255,255,255,0.45);margin:0 0 6px;">Other skills this one builds on. Shown as "builds on" and used to order the roadmap — nothing is blocked.</p>
+                    <div id="ksaModalPrereqList" style="max-height:160px;overflow:auto;border:1px solid rgba(255,255,255,0.13);border-radius:8px;padding:6px 8px;background:rgba(0,0,0,0.18);"></div>
+                </div>
             </div>
             <div id="ksaModalError" class="da-modal-error"></div>
             <div class="uw-modal-footer">
@@ -729,6 +735,7 @@
 const KSA_TYPES = {{ ksa_types | tojson }};
 const KSA_LEVEL_LABELS = {{ ksa_level_labels | tojson }};
 const FOLDERS_BY_DIV = {{ folders_json | tojson }};
+const KSAS_BY_DIV = {{ ksas_json | tojson }};
 const DIV_SINGULAR = {{ div_singular | tojson }};
 const DIV_PLURAL = {{ div_plural | tojson }};
 // For the edit modal's Merge section: every accessible division, and the
@@ -810,7 +817,24 @@ async function submitDivisionModal(e) {
 }
 
 // ── KSA modal ──
-function openKsaModal(divId, id, type, name, desc, maxLevel, folderId) {
+// Render the "builds on" prerequisite checkbox list from the given division's
+// KSAs (excluding `currentId`), pre-checking `selected` (array of ksa ids).
+function _renderKsaPrereqList(divId, currentId, selected) {
+    const box = document.getElementById('ksaModalPrereqList');
+    const sel = new Set((selected || []).map(Number));
+    const list = (KSAS_BY_DIV[String(divId)] || []).filter(k => k.id !== currentId);
+    if (!list.length) {
+        box.innerHTML = '<p style="font-size:0.82rem;color:rgba(255,255,255,0.4);margin:4px 2px;">No other skills in this ' + _escH(DIV_SINGULAR.toLowerCase()) + ' yet.</p>';
+        return;
+    }
+    box.innerHTML = list.map(k =>
+        `<label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+            <input type="checkbox" class="ksaPrereqCb" value="${k.id}"${sel.has(k.id) ? ' checked' : ''} style="width:15px;height:15px;accent-color:#5eeef8;">
+            <span>${_escH(k.name)}${k.type ? ` <span style="opacity:0.45;font-size:0.8rem;">${_escH(k.type)}</span>` : ''}</span>
+         </label>`).join('');
+}
+
+function openKsaModal(divId, id, type, name, desc, maxLevel, folderId, prereqIds) {
     document.getElementById('ksaModalDivId').value = divId;
     document.getElementById('ksaModalId').value = id || '';
     document.getElementById('ksaModalName').value = name || '';
@@ -823,6 +847,7 @@ function openKsaModal(divId, id, type, name, desc, maxLevel, folderId) {
     const fid = folderId ? String(folderId) : '';
     fsel.innerHTML = '<option value="">No folder</option>' +
         folders.map(f => `<option value="${f.id}"${String(f.id) === fid ? ' selected' : ''}>${_escH(f.name)}</option>`).join('');
+    _renderKsaPrereqList(divId, id || 0, prereqIds || []);
     // Editing: show which division owns this KSA, changeable (folders follow).
     const dfield = document.getElementById('ksaModalDivField');
     const dsel = document.getElementById('ksaModalDivision');
@@ -849,6 +874,10 @@ function _ksaModalDivChanged() {
     const folders = FOLDERS_BY_DIV[String(nd)] || [];
     fsel.innerHTML = '<option value="">No folder</option>' +
         folders.map(f => `<option value="${f.id}">${_escH(f.name)}</option>`).join('');
+    // Prerequisite candidates are division-scoped too — reload for the new home
+    // (selection resets, since the old division's skills no longer apply).
+    const curId = parseInt(document.getElementById('ksaModalId').value, 10) || 0;
+    _renderKsaPrereqList(nd, curId, []);
 }
 async function submitKsaModal(e) {
     e.preventDefault();
@@ -860,6 +889,8 @@ async function submitKsaModal(e) {
         ksa_type: document.getElementById('ksaModalType').value,
         max_level: parseInt(document.getElementById('ksaModalMax').value, 10) || 4,
         folder_id: document.getElementById('ksaModalFolder').value || null,
+        prerequisite_ksa_ids: Array.from(document.querySelectorAll('.ksaPrereqCb:checked'))
+            .map(cb => parseInt(cb.value, 10)),
     };
     if (id && document.getElementById('ksaModalDivField').style.display !== 'none') {
         body.division_id = document.getElementById('ksaModalDivision').value || null;

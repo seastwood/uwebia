@@ -153,6 +153,9 @@
 .mp-res-demo-desc { margin: 0; font-size: 0.82rem; line-height: 1.5; color: rgba(255,255,255,0.7); white-space: pre-wrap; }
 .mp-res-demo.is-done { border-color: rgba(94,238,200,0.4); }
 .mp-ksa-desc { font-size: 0.86rem; line-height: 1.55; color: rgba(255,255,255,0.7); margin: 0 0 4px; padding: 0 2px; white-space: pre-wrap; }
+.mp-ksa-prereq { font-size: 0.8rem; line-height: 1.5; color: rgba(174,247,232,0.85); margin: 0 0 8px; padding: 0 2px; }
+.mp-ksa-prereq i { font-size: 0.72rem; opacity: 0.8; margin-right: 4px; }
+.mp-ksa-prereq span { font-weight: 600; }
 .mp-ksa-role { font-size: 0.6rem; font-weight: 700; padding: 1px 6px; border-radius: 5px; border: 1px solid transparent; white-space: nowrap; }
 .mp-skill-flag { font-size: 0.78rem; opacity: 0.5; }
 .mp-skill-flag-ok { color: #5eeec8; opacity: 1; }
@@ -182,6 +185,65 @@
     .mp-prog-text { text-align: left; }
     .mp-roadmap .mp-chev { position: absolute; top: 14px; right: 12px; margin: 0; }
 }
+
+/* ── Skill-tree map ─────────────────────────────────────────────────────── */
+.ksa-map-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 14px; font-size: 0.78rem; color: rgba(255,255,255,0.65); }
+.kml { display: inline-flex; align-items: center; gap: 6px; }
+.kml-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.kml-core { background: #ff6b6b; } .kml-high { background: #ffa94d; }
+.kml-medium { background: #5eb0ef; } .kml-low { background: #8ce99a; }
+.kml-none { background: #7a8290; }
+.kml-tick { width: 3px; height: 13px; border-radius: 2px; background: #fff; display: inline-block; }
+.ksa-map-section { margin: 0 0 22px; }
+.ksa-map-sec-head { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 800; margin: 0 0 8px; }
+.ksa-map-canvas { position: relative; overflow: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background:
+    radial-gradient(circle at 20% 15%, rgba(94,238,248,0.06), transparent 45%),
+    radial-gradient(circle at 80% 85%, rgba(174,247,232,0.05), transparent 45%),
+    rgba(12,14,20,0.6); -webkit-overflow-scrolling: touch; }
+.ksa-map-canvas svg { display: block; }
+.ksa-map-edge { fill: none; stroke: rgba(200,214,235,0.55); stroke-width: 2.4; }
+.ksa-map-edge.is-met { stroke: rgba(140,233,154,0.9); stroke-width: 2.8; }
+.ksa-map-node { cursor: pointer; }
+.ksa-map-node .kmn-track { fill: none; stroke: rgba(255,255,255,0.14); }
+.ksa-map-node .kmn-prog { fill: none; stroke-linecap: round; transition: stroke-dashoffset 0.4s ease; }
+.ksa-map-node .kmn-disc { transition: filter 0.15s ease; }
+.ksa-map-node:hover .kmn-disc { filter: brightness(1.25); }
+.ksa-map-node .kmn-label { fill: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+.ksa-map-node .kmn-icon { fill: #fff; font-size: 13px; font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.ksa-map-node .kmn-target { stroke: #fff; stroke-width: 2.6; stroke-linecap: round; }
+.ksa-map-node .kmn-badge { fill: #8ce99a; }
+.ksa-map-node .kmn-badge-chk { fill: none; stroke: #0c1611; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ksa-map-empty { padding: 30px; text-align: center; color: rgba(255,255,255,0.4); font-size: 0.85rem; }
+
+/* Detail modal */
+.kmm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 200002; padding: 16px; }
+.kmm-overlay.is-open { display: flex; }
+.kmm-modal { width: min(460px, 96vw); max-height: 88vh; overflow-y: auto; background: #14161f; border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; padding: 22px; }
+.kmm-head { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 12px; }
+.kmm-badge { position: relative; width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #fff; font-size: 0.9rem; }
+.kmm-badge-chk { position: absolute; top: -3px; right: -3px; width: 17px; height: 17px; border-radius: 50%; background: #8ce99a; color: #0c1611; display: flex; align-items: center; justify-content: center; font-size: 9px; border: 2px solid #14161f; }
+.kmm-type { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.55; }
+.kmm-name { font-size: 1.15rem; font-weight: 800; margin: 2px 0 0; line-height: 1.2; }
+.kmm-close { margin-left: auto; background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.5rem; cursor: pointer; line-height: 1; }
+.kmm-close:hover { color: #fff; }
+.kmm-prog { margin: 0 0 12px; }
+.kmm-prog-text { font-size: 0.86rem; margin: 0 0 5px; }
+.kmm-prog-tgt { color: #5eeef8; }
+.kmm-bar-wrap { position: relative; }
+.kmm-bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,0.1); overflow: hidden; }
+.kmm-bar-fill { height: 100%; border-radius: 99px; }
+.kmm-bar-tick { position: absolute; top: -3px; width: 2px; height: 14px; border-radius: 2px; background: #fff; opacity: 0.85; transform: translateX(-1px); }
+.kmm-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.kmm-tag { font-size: 0.72rem; padding: 3px 9px; border-radius: 99px; font-weight: 700; }
+.kmm-desc { font-size: 0.88rem; line-height: 1.55; color: rgba(255,255,255,0.75); margin: 0 0 12px; white-space: pre-wrap; }
+.kmm-sec-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.5; margin: 14px 0 6px; }
+.kmm-prereq { font-size: 0.85rem; color: rgba(174,247,232,0.9); margin: 0 0 10px; }
+.kmm-res { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-radius: 9px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); text-decoration: none; color: #fff; font-size: 0.86rem; margin-bottom: 6px; }
+.kmm-res:hover { background: rgba(255,255,255,0.09); }
+.kmm-res.is-done { opacity: 0.65; }
+.kmm-res i.kmm-res-ic { color: #5eeef8; }
+.kmm-setlevel { margin: 6px 0 12px; }
+.kmm-setlevel select { width: 100%; padding: 9px 12px; border-radius: 9px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #fff; font-size: 0.9rem; }
 </style>
 {% endblock %}
 
@@ -233,6 +295,13 @@
     <div class="mp-prog-text" title="Level {{ it.level }} of {{ it.max }}">{{ it.label }}{% if it.target %} <span class="mp-prog-tgt">→ {{ it.target_label }}</span>{% endif %}</div>
     {% if it.max %}<div class="mp-prog-bar"><span class="mp-prog-fill" style="width:{{ (100 * it.level / it.max)|round(0,'floor')|int }}%;"></span>{% if it.target %}<span class="mp-prog-tick" style="left:{{ (100 * it.target / it.max)|round(0,'floor')|int }}%;"></span>{% endif %}</div>{% endif %}
 </div>
+{% endmacro %}
+
+{# "Builds on" — a KSA's informational prerequisites (nothing is blocked). #}
+{% macro mp_prereqs(it) %}
+{% if it.prerequisites %}
+<p class="mp-ksa-prereq"><i class="fas fa-diagram-project"></i> Builds on: {% for p in it.prerequisites %}<span>{{ p.name }}</span>{{ ', ' if not loop.last }}{% endfor %}</p>
+{% endif %}
 {% endmacro %}
 
 {# "Your level" control: a self-report dropdown when the site allows it,
@@ -402,10 +471,24 @@
         {% else %}
         {% if ksa_profile %}
         <div class="mp-viewtoggle">
-            <a href="{{ profile_base }}?tab=ksas" class="mp-vt{% if ksa_view != 'categories' %} is-active{% endif %}"><i class="fas fa-fire"></i> Priority</a>
+            <a href="{{ profile_base }}?tab=ksas" class="mp-vt{% if ksa_view == 'priority' %} is-active{% endif %}"><i class="fas fa-fire"></i> Priority</a>
             <a href="{{ profile_base }}?tab=ksas&ksaview=categories" class="mp-vt{% if ksa_view == 'categories' %} is-active{% endif %}"><i class="fas fa-folder-tree"></i> Categories</a>
+            <a href="{{ profile_base }}?tab=ksas&ksaview=map" class="mp-vt{% if ksa_view == 'map' %} is-active{% endif %}"><i class="fas fa-sitemap"></i> Map</a>
         </div>
         {% endif %}
+        {% if ksa_view == 'map' %}
+        {# ── Skill-tree map ── #}
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 14px;"><i class="fas fa-diagram-project"></i> Skill map — each circle is a competency; the ring shows your progress and the colour shows priority. Lines link a skill to what it builds on. Click any circle for details.</p>
+        <div class="ksa-map-legend">
+            <span class="kml"><span class="kml-dot kml-core"></span> Core</span>
+            <span class="kml"><span class="kml-dot kml-high"></span> High</span>
+            <span class="kml"><span class="kml-dot kml-medium"></span> Medium</span>
+            <span class="kml"><span class="kml-dot kml-low"></span> Low</span>
+            <span class="kml"><span class="kml-dot kml-none"></span> No target</span>
+            <span class="kml"><span class="kml-tick"></span> Target level</span>
+        </div>
+        <div id="ksaMapRoot"></div>
+        {% else %}
         {% if ksa_full %}<p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 16px;"><i class="fas fa-route"></i> Your learning roadmap — click a skill to see guides, links and quizzes that help you reach its target level. Tap a role chip to focus on just that role's skills.</p>{% endif %}
         {% for grp in ksa_profile %}
         <div class="mp-div-block">
@@ -447,6 +530,7 @@
                     <div class="mp-res">
                         {% if is_self and (ksa_self_report or it.verified) %}{{ skill_setlevel(it, ksa_self_report, ksa_level_labels) }}{% endif %}
                         {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
+                        {{ mp_prereqs(it) }}
                         {{ render_resources(it.resources, read_only=not is_self) }}
                     </div>
                 </details>
@@ -484,6 +568,7 @@
                     <div class="mp-res">
                         {% if is_self and (ksa_self_report or it.verified) %}{{ skill_setlevel(it, ksa_self_report, ksa_level_labels) }}{% endif %}
                         {% if it.description %}<p class="mp-ksa-desc">{{ it.description }}</p>{% endif %}
+                        {{ mp_prereqs(it) }}
                         {{ render_resources(it.resources, read_only=not is_self) }}
                     </div>
                 </details>
@@ -497,6 +582,7 @@
             </div>
         </div>
         {% endif %}
+        {% endif %}{# end map vs list #}
         {% endif %}
 
         {% elif tab == 'explore' %}
@@ -555,6 +641,12 @@
         {% endif %}
     </div>
 </div>
+
+{% if tab == 'ksas' and ksa_view == 'map' %}
+<div class="kmm-overlay" id="ksaMapModal" onclick="if(event.target===this)closeKsaMapModal()">
+    <div class="kmm-modal" id="ksaMapModalBody"></div>
+</div>
+{% endif %}
 
 <script>
 const SKILL_LEVEL_BASE = "{{ skill_level_base }}";
@@ -689,5 +781,336 @@ function mpFilterRole(chip) {
     });
     block.querySelectorAll('.mp-ksa-folder').forEach(_mpHideEmptyFolder);
 }
+
+{% if tab == 'ksas' and ksa_view == 'map' %}
+// ── Skill-tree map ─────────────────────────────────────────────────────────
+const KSA_MAP_SECTIONS = {{ ksa_map_sections | tojson }};
+const KSA_MAP_SELF = {{ (is_self and ksa_self_report) | tojson }};
+const KSA_LEVEL_LABELS = {{ (ksa_level_labels or []) | tojson }};
+const PRIO_COLOR = { core: '#ff6b6b', high: '#ffa94d', medium: '#5eb0ef', low: '#8ce99a' };
+const SVGNS = 'http://www.w3.org/2000/svg';
+const NODE_BY_ID = {};
+const R = 26, SW = 6, H = 132, V = 148, PAD = 46;
+
+function _esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _nodeColor(n) { return n.priority ? PRIO_COLOR[n.priority] : '#7a8290'; }
+function _pct(n) { return (n.max && n.level) ? Math.max(0, Math.min(1, n.level / n.max)) : 0; }
+// "Done" = target reached when there is a target; otherwise only when the
+// member has hit the KSA's TOP level (a skill with no requirement isn't
+// "complete" just because it's held).
+function _isDone(n) { return n.target ? (n.level || 0) >= n.target : (n.max > 0 && (n.level || 0) >= n.max); }
+function _svg(tag, attrs) { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+// ── Layered graph layout (Sugiyama-style) ─────────────────────────────────
+// Keeps prerequisites above their dependents, clusters connected skills, and
+// minimises line crossings. Pipeline: split into connected components → layer
+// each by longest-path depth → order within layers by the barycenter heuristic
+// → place x by isotonic regression so nodes hug their neighbours without
+// overlapping. Unconnected skills flow into a tidy grid underneath.
+
+// Assign x to the ordered nodes of one layer as close to `desired` as possible
+// while preserving their order and a minimum gap H (pool-adjacent-violators).
+function _isotonicX(L, desired) {
+    const blocks = [];
+    for (let i = 0; i < L.length; i++) {
+        blocks.push({ sum: desired[L[i].id] - i * H, count: 1 });
+        while (blocks.length > 1) {
+            const a = blocks[blocks.length - 2], c = blocks[blocks.length - 1];
+            if (a.sum / a.count > c.sum / c.count) { a.sum += c.sum; a.count += c.count; blocks.pop(); }
+            else break;
+        }
+    }
+    const x = {}; let idx = 0;
+    blocks.forEach(b => { const base = b.sum / b.count; for (let k = 0; k < b.count; k++) { x[L[idx].id] = base + idx * H; idx++; } });
+    return x;
+}
+
+function _layoutComponent(comp, preIn, sucIn) {
+    const inSet = {}; comp.forEach(n => inSet[n.id] = n);
+    const depth = {}, vis = {};
+    function d(n) {
+        if (depth[n.id] !== undefined) return depth[n.id];
+        if (vis[n.id]) return 0; vis[n.id] = true;
+        let best = 0; preIn(n).forEach(p => { best = Math.max(best, d(inSet[p]) + 1); });
+        vis[n.id] = false; return depth[n.id] = best;
+    }
+    comp.forEach(n => d(n));
+    let maxD = 0; comp.forEach(n => maxD = Math.max(maxD, depth[n.id]));
+    const layers = []; for (let i = 0; i <= maxD; i++) layers.push([]);
+    // Initial order: DFS from roots so each subtree stays contiguous.
+    const seen = {}, order = [];
+    function visit(n) { if (seen[n.id]) return; seen[n.id] = true; order.push(n); sucIn(n).forEach(s => { if (!seen[s]) visit(inSet[s]); }); }
+    comp.filter(n => preIn(n).length === 0).forEach(visit);
+    comp.forEach(n => { if (!seen[n.id]) visit(n); });   // any leftover (cycles)
+    order.forEach(n => layers[depth[n.id]].push(n));
+    const idx = {}; const reindex = () => layers.forEach(Lr => Lr.forEach((n, i) => idx[n.id] = i));
+    reindex();
+    const up = {}, dn = {};
+    comp.forEach(n => { up[n.id] = preIn(n); dn[n.id] = sucIn(n).slice(); });
+    const med = (ids, self) => { if (!ids.length) return idx[self]; const a = ids.map(i => idx[i]).sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+    function crossings() {
+        let c = 0;
+        for (let l = 0; l < layers.length - 1; l++) {
+            const e = [];
+            layers[l + 1].forEach(n => up[n.id].forEach(p => e.push([idx[p], idx[n.id]])));
+            for (let a = 0; a < e.length; a++) for (let b = a + 1; b < e.length; b++)
+                if ((e[a][0] - e[b][0]) * (e[a][1] - e[b][1]) < 0) c++;
+        }
+        return c;
+    }
+    let best = layers.map(l => l.slice()), bestC = crossings();
+    for (let it = 0; it < 10; it++) {
+        if (it % 2 === 0) for (let l = 1; l < layers.length; l++) layers[l].sort((a, b) => med(up[a.id], a.id) - med(up[b.id], b.id));
+        else for (let l = layers.length - 2; l >= 0; l--) layers[l].sort((a, b) => med(dn[a.id], a.id) - med(dn[b.id], b.id));
+        reindex();
+        const c = crossings();
+        if (c < bestC) { bestC = c; best = layers.map(l => l.slice()); }
+    }
+    for (let l = 0; l < layers.length; l++) layers[l] = best[l];
+    // X-coordinates: iterate barycenter of both neighbour sets, then pack.
+    const x = {}; layers.forEach(L => L.forEach((n, i) => x[n.id] = i * H));
+    for (let it = 0; it < 24; it++) {
+        const seq = it % 2 === 0 ? layers : layers.slice().reverse();
+        seq.forEach(L => {
+            const desired = {};
+            L.forEach(n => { const nb = up[n.id].concat(dn[n.id]); desired[n.id] = nb.length ? nb.reduce((s, i2) => s + x[i2], 0) / nb.length : x[n.id]; });
+            const nx = _isotonicX(L, desired);
+            L.forEach(n => x[n.id] = nx[n.id]);
+        });
+    }
+    let minX = Infinity, maxX = -Infinity;
+    comp.forEach(n => { minX = Math.min(minX, x[n.id]); maxX = Math.max(maxX, x[n.id]); });
+    const pos = {};
+    comp.forEach(n => { pos[n.id] = { x: x[n.id] - minX + R, y: PAD + R + depth[n.id] * V }; });
+    return { pos, width: (maxX - minX) + 2 * R };
+}
+
+function _layoutSection(nodes) {
+    const inSet = {}; nodes.forEach(n => inSet[n.id] = n);
+    const preOf = n => (n.prerequisites || []).map(p => p.id).filter(id => inSet[id]);
+    const suc = {}; nodes.forEach(n => suc[n.id] = []);
+    nodes.forEach(n => preOf(n).forEach(p => suc[p].push(n.id)));
+    const sucOf = n => suc[n.id];
+    // Connected components via union-find over the prerequisite edges.
+    const par = {}; nodes.forEach(n => par[n.id] = n.id);
+    const find = a => { while (par[a] !== a) { par[a] = par[par[a]]; a = par[a]; } return a; };
+    nodes.forEach(n => preOf(n).forEach(p => { par[find(n.id)] = find(p); }));
+    const groups = {}; nodes.forEach(n => { const r = find(n.id); (groups[r] = groups[r] || []).push(n); });
+    const comps = Object.values(groups);
+    const multi = comps.filter(c => c.length > 1).sort((a, b) => b.length - a.length);
+    const singles = comps.filter(c => c.length === 1).map(c => c[0]);
+    const pos = {}; const GAP = H; let xCur = PAD;
+    multi.forEach(c => {
+        const lay = _layoutComponent(c, preOf, sucOf);
+        for (const id in lay.pos) pos[id] = { x: xCur + lay.pos[id].x, y: lay.pos[id].y };
+        xCur += lay.width + GAP;
+    });
+    const connWidth = Math.max(xCur - GAP + PAD, PAD * 2);
+    // Standalone skills (no links either way) sit ABOVE the tree roots — they're
+    // starting points, not leftovers — in a tidy grid; the trees then drop below.
+    let treeShift = 0;
+    if (singles.length) {
+        // Spread them into a wide-ish grid (at least a few columns even when the
+        // trees below are narrow) so they read as a row of starting points.
+        const gridW = Math.max(connWidth, 6 * H);
+        const cols = Math.max(1, Math.min(singles.length, Math.floor((gridW - PAD * 2) / H) || 1));
+        const rowH = Math.round(V * 0.8);
+        const rows = Math.ceil(singles.length / cols);
+        singles.forEach((n, i) => {
+            pos[n.id] = { x: PAD + R + (i % cols) * H, y: PAD + R + Math.floor(i / cols) * rowH };
+        });
+        treeShift = multi.length ? rows * rowH + Math.round(V * 0.5) : 0;
+        if (treeShift) multi.forEach(c => c.forEach(n => { pos[n.id].y += treeShift; }));
+    }
+    let maxX = 0, botY = 0;
+    nodes.forEach(n => { maxX = Math.max(maxX, pos[n.id].x); botY = Math.max(botY, pos[n.id].y); });
+    return { pos, preOf, width: Math.max(maxX + PAD + R, connWidth), height: botY + PAD + R + 22 };
+}
+
+function _renderSection(sec) {
+    const nodes = sec.nodes || [];
+    nodes.forEach(n => NODE_BY_ID[n.id] = n);
+    const { pos, preOf, width, height } = _layoutSection(nodes);
+    const svg = _svg('svg', { width: width, height: height, viewBox: `0 0 ${width} ${height}` });
+    // Edges first (behind nodes).
+    nodes.forEach(n => {
+        const p2 = pos[n.id];
+        preOf(n).forEach(pid => {
+            const p1 = pos[pid]; if (!p1) return;
+            const src = NODE_BY_ID[pid];
+            const met = src && _isDone(src);
+            const my = (p1.y + R + (p2.y - R)) / 2;
+            const path = _svg('path', {
+                d: `M${p1.x},${p1.y + R} C${p1.x},${my} ${p2.x},${my} ${p2.x},${p2.y - R}`,
+                class: 'ksa-map-edge' + (met ? ' is-met' : '') });
+            svg.appendChild(path);
+        });
+    });
+    // Nodes.
+    const circ = 2 * Math.PI * R;
+    nodes.forEach(n => {
+        const p = pos[n.id], color = _nodeColor(n), pct = _pct(n);
+        const g = _svg('g', { class: 'ksa-map-node', transform: `translate(${p.x},${p.y})`,
+                              'data-id': n.id, tabindex: '0', role: 'button' });
+        g.appendChild(_svg('circle', { class: 'kmn-track', r: R, 'stroke-width': SW }));
+        const prog = _svg('circle', { class: 'kmn-prog', r: R, 'stroke-width': SW, stroke: color,
+            'stroke-dasharray': circ, 'stroke-dashoffset': circ * (1 - pct),
+            transform: 'rotate(-90)' });
+        g.appendChild(prog);
+        // Target-level notch on the ring (mirrors the "→ target" tick in the list
+        // views): a small white mark at the target's position around the circle.
+        if (n.target && n.max && n.target <= n.max) {
+            const th = 2 * Math.PI * (n.target / n.max);
+            const dx = Math.sin(th), dy = -Math.cos(th);
+            const ri = R - SW / 2 - 2, ro = R + SW / 2 + 2;
+            g.appendChild(_svg('line', { class: 'kmn-target', x1: dx * ri, y1: dy * ri, x2: dx * ro, y2: dy * ro }));
+        }
+        g.appendChild(_svg('circle', { class: 'kmn-disc', r: R - SW, fill: color,
+            'fill-opacity': n.level ? 0.9 : 0.35, stroke: color, 'stroke-opacity': 0.6 }));
+        // The KSA type initial always stays; completion is shown by a small
+        // check badge tucked on the rim (top-right) instead of hiding the letter.
+        const t = _svg('text', { class: 'kmn-icon', y: 1 });
+        t.textContent = (n.type || '?').trim().charAt(0).toUpperCase();
+        g.appendChild(t);
+        if (_isDone(n)) {
+            const bx = R * 0.72, by = -R * 0.72, br = 9;
+            g.appendChild(_svg('circle', { cx: bx, cy: by, r: br + 2, fill: '#12161b' }));
+            g.appendChild(_svg('circle', { class: 'kmn-badge', cx: bx, cy: by, r: br }));
+            g.appendChild(_svg('path', { class: 'kmn-badge-chk',
+                d: `M${bx - 3.4},${by} L${bx - 0.9},${by + 2.7} L${bx + 3.6},${by - 2.9}` }));
+        }
+        const label = _svg('text', { class: 'kmn-label', y: R + 18 });
+        const nm = n.name || '';
+        label.textContent = nm.length > 16 ? nm.slice(0, 15) + '…' : nm;
+        const title = _svg('title'); title.textContent = nm; g.appendChild(title);
+        g.appendChild(label);
+        g.addEventListener('click', () => openKsaMapModal(n.id));
+        g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openKsaMapModal(n.id); } });
+        svg.appendChild(g);
+    });
+    const canvas = document.createElement('div');
+    canvas.className = 'ksa-map-canvas';
+    canvas.style.maxHeight = '70vh';
+    canvas.appendChild(svg);
+    return canvas;
+}
+
+function renderKsaMap() {
+    const root = document.getElementById('ksaMapRoot');
+    if (!root) return;
+    root.innerHTML = '';
+    (KSA_MAP_SECTIONS || []).forEach(sec => {
+        const wrap = document.createElement('div');
+        wrap.className = 'ksa-map-section';
+        const head = document.createElement('div');
+        head.className = 'ksa-map-sec-head';
+        head.innerHTML = (sec.division.icon ? `<i class="fas ${_esc(sec.division.icon)}" style="color:${_esc(sec.division.color)};"></i> ` : '') + _esc(sec.division.name);
+        wrap.appendChild(head);
+        if (!sec.nodes || !sec.nodes.length) {
+            const em = document.createElement('div'); em.className = 'ksa-map-empty'; em.textContent = 'No skills here yet.';
+            wrap.appendChild(em);
+        } else {
+            wrap.appendChild(_renderSection(sec));
+        }
+        root.appendChild(wrap);
+    });
+}
+
+function _tag(text, color) { return `<span class="kmm-tag" style="background:${color}22;color:${color};border:1px solid ${color}55;">${_esc(text)}</span>`; }
+
+function openKsaMapModal(id) {
+    const n = NODE_BY_ID[id]; if (!n) return;
+    const color = _nodeColor(n), pct = Math.round(_pct(n) * 100), done = _isDone(n);
+    let tags = '';
+    if (n.required === true || n.required === false) {
+        if (n.met) tags += _tag('Satisfied', '#8ce99a');
+        else if (n.required) tags += _tag('Needed', '#ff6b6b');
+        else tags += _tag('Recommended', '#5eb0ef');
+    } else if (done) {
+        tags += _tag('Mastered', '#8ce99a');   // no requirement → completed only at top level
+    }
+    if (n.priority && !n.met) tags += _tag(n.priority.charAt(0).toUpperCase() + n.priority.slice(1), color);
+    if (n.verified) tags += _tag('Verified by staff', '#8ce99a');
+    else if (n.self_reported) tags += _tag('Self-reported', '#aef7e8');
+    (n.roles || []).forEach(r => { tags += _tag(r.name, r.color || '#5eeef8'); });
+
+    let html = '';
+    html += `<div class="kmm-head">
+        <div class="kmm-badge" style="background:${color};">${_esc((n.type||'?').trim().charAt(0).toUpperCase())}${done ? '<span class="kmm-badge-chk"><i class="fas fa-check"></i></span>' : ''}</div>
+        <div style="flex:1;min-width:0;"><div class="kmm-type">${_esc(n.type||'')}</div><h3 class="kmm-name">${_esc(n.name)}</h3></div>
+        <button class="kmm-close" onclick="closeKsaMapModal()" aria-label="Close">&times;</button>
+    </div>`;
+    const tgtPct = (n.target && n.max) ? Math.round(100 * n.target / n.max) : null;
+    html += `<div class="kmm-prog">
+        <div class="kmm-prog-text">${_esc(n.label || '')}${n.target_label ? ` <span class="kmm-prog-tgt">→ ${_esc(n.target_label)}</span>` : ''}</div>
+        <div class="kmm-bar-wrap">
+            <div class="kmm-bar"><div class="kmm-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+            ${tgtPct !== null ? `<span class="kmm-bar-tick" style="left:${tgtPct}%;" title="Target"></span>` : ''}
+        </div>
+    </div>`;
+    if (tags) html += `<div class="kmm-tags">${tags}</div>`;
+
+    if (KSA_MAP_SELF && !n.verified) {
+        let opts = '';
+        for (let lv = 0; lv <= (n.max || 0); lv++) {
+            const lbl = (KSA_LEVEL_LABELS && lv < KSA_LEVEL_LABELS.length) ? KSA_LEVEL_LABELS[lv] : ('Level ' + lv);
+            opts += `<option value="${lv}"${lv === n.level ? ' selected' : ''}>${_esc(lbl)}</option>`;
+        }
+        html += `<div class="kmm-setlevel"><div class="kmm-sec-label">Your level</div>
+            <select onchange="mapSetLevel(this, ${n.id})">${opts}</select>
+            <div class="kmm-sec-label" id="kmmSetStatus" style="margin:6px 0 0;"></div></div>`;
+    }
+    if (n.description) html += `<p class="kmm-desc">${_esc(n.description)}</p>`;
+    if (n.prerequisites && n.prerequisites.length) {
+        html += `<div class="kmm-sec-label">Builds on</div><p class="kmm-prereq"><i class="fas fa-diagram-project"></i> ${n.prerequisites.map(p => _esc(p.name)).join(', ')}</p>`;
+    }
+    if (n.resources && n.resources.length) {
+        html += `<div class="kmm-sec-label">Learning resources</div>`;
+        n.resources.forEach(res => {
+            const icon = res.type === 'guide' ? 'fa-book-open' : res.type === 'quiz' ? 'fa-clipboard-check' : res.type === 'demo' ? 'fa-hand-sparkles' : 'fa-external-link-alt';
+            if (res.type === 'demo' || !res.url) {
+                html += `<div class="kmm-res${res.completed ? ' is-done' : ''}"><i class="fas ${icon} kmm-res-ic"></i><span>${_esc(res.label)}${res.description ? ' — ' + _esc(res.description) : ''}</span></div>`;
+            } else {
+                const ext = res.type === 'link' ? ' target="_blank" rel="noopener"' : '';
+                html += `<a class="kmm-res${res.completed ? ' is-done' : ''}" href="${_esc(res.url)}"${ext}><i class="fas ${icon} kmm-res-ic"></i><span>${_esc(res.label)}</span>${res.completed ? ' <i class="fas fa-circle-check" style="color:#8ce99a;margin-left:auto;"></i>' : ''}</a>`;
+            }
+        });
+    }
+    document.getElementById('ksaMapModalBody').innerHTML = html;
+    document.getElementById('ksaMapModal').classList.add('is-open');
+}
+function closeKsaMapModal() { const m = document.getElementById('ksaMapModal'); if (m) m.classList.remove('is-open'); }
+
+// Self-report a level from inside the map modal, then refresh the node + modal.
+async function mapSetLevel(sel, id) {
+    const n = NODE_BY_ID[id]; if (!n) return;
+    const level = parseInt(sel.value, 10);
+    const status = document.getElementById('kmmSetStatus');
+    sel.disabled = true;
+    if (status) status.textContent = 'Saving…';
+    try {
+        const r = await fetch(SKILL_LEVEL_BASE + id + '/level', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ level: level }) });
+        const d = await r.json();
+        if (d.success) {
+            n.level = level;
+            n.label = d.label || n.label;
+            n.self_reported = level > 0;
+            if (n.target) n.met = level >= n.target;
+            renderKsaMap();
+            openKsaMapModal(id);   // rebuild modal with the new state
+        } else {
+            if (status) { status.textContent = d.error || 'Could not save.'; status.style.color = '#f88'; }
+            sel.disabled = false;
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Network error.'; status.style.color = '#f88'; }
+        sel.disabled = false;
+    }
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeKsaMapModal(); });
+renderKsaMap();
+{% endif %}
 </script>
 {% endblock %}
