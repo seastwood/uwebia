@@ -203,7 +203,7 @@
                         {% endif %}
                         {% if user_has_perm('guides.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }})'>
+                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }}, {{ g.show_start_button | tojson }}, {{ (g.prerequisite_guide_ids or []) | tojson }}, {{ g.prereq_lock | tojson }})'>
                             <i class="fas fa-cog"></i>
                         </button>
                         <button class="pa-btn pa-btn-danger"
@@ -278,6 +278,27 @@
                         <input type="checkbox" id="guideModalTrackProgress" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
                         Track reader progress
                     </label>
+                    <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;margin-top:10px;">
+                        <input type="checkbox" id="guideModalShowStart" style="width:16px;height:16px;margin-top:2px;cursor:pointer;accent-color:#5eeef8;">
+                        <span>Show cover page with a "Start" button
+                            <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.45);margin-top:2px;">On: opening the guide shows a cover page, then Start goes to the first lesson. Off: opening the guide jumps straight to the first lesson (good for reference guides or resource lists). Single-lesson guides always skip the cover.</span>
+                        </span>
+                    </label>
+                    <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.08);padding-top:14px;">
+                        <label style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 4px;">Prerequisites</label>
+                        <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:0 0 8px;">Guides the reader should complete before this one.</p>
+                        <div id="guideModalPrereqList" style="max-height:170px;overflow:auto;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px;background:rgba(0,0,0,0.18);"></div>
+                        <div id="guideModalPrereqMode" style="display:none;margin-top:10px;">
+                            <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:0.88rem;font-weight:normal;">
+                                <input type="radio" name="gPrereqMode" value="recommend" checked style="margin-top:3px;accent-color:#5eeef8;">
+                                <span>Just recommend <span style="color:rgba(255,255,255,0.45);">— show a banner, but let readers open it anyway</span></span>
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:0.88rem;font-weight:normal;margin-top:6px;">
+                                <input type="radio" name="gPrereqMode" value="lock" style="margin-top:3px;accent-color:#5eeef8;">
+                                <span>Lock until completed <span style="color:rgba(255,255,255,0.45);">— hide the content until every prerequisite is finished (needs progress tracking on those guides)</span></span>
+                            </label>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div id="guideModalError" role="alert" style="display:none;color:#ff6b6b;font-size:0.85rem;padding:0 20px 4px;"></div>
@@ -520,6 +541,37 @@ function gpRenderPicker(folders, assets, folderId, folder) {
 }
 function gpPickCover(url) { _gpSetCover(url); gpClosePicker(); }
 
+// Every guide on this site, for the prerequisite picker (the current guide is
+// filtered out when the list is rendered).
+const ALL_GUIDES = [{% for g in guides %}{ id: {{ g.id }}, title: {{ g.title|tojson }} }{{ ',' if not loop.last }}{% endfor %}];
+
+// Render the prerequisite checkbox list, excluding `currentId`, with `selected`
+// (an array of guide ids) pre-checked. Shows the lock/recommend radios only when
+// at least one prerequisite is picked.
+function _renderPrereqList(currentId, selected, lockMode) {
+    const box = document.getElementById('guideModalPrereqList');
+    const sel = new Set((selected || []).map(Number));
+    const others = ALL_GUIDES.filter(g => g.id !== currentId);
+    if (!others.length) {
+        box.innerHTML = '<p style="font-size:0.82rem;color:rgba(255,255,255,0.4);margin:4px 2px;">No other guides yet.</p>';
+    } else {
+        box.innerHTML = others.map(g =>
+            `<label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
+                <input type="checkbox" class="gPrereqCb" value="${g.id}"${sel.has(g.id) ? ' checked' : ''} onchange="_syncPrereqMode()" style="width:15px;height:15px;accent-color:#5eeef8;">
+                <span>${gpEsc(g.title)}</span>
+             </label>`).join('');
+    }
+    const modeRadios = document.getElementsByName('gPrereqMode');
+    for (const r of modeRadios) r.checked = (r.value === (lockMode ? 'lock' : 'recommend'));
+    _syncPrereqMode();
+}
+
+// The lock/recommend choice only matters when something is selected.
+function _syncPrereqMode() {
+    const any = document.querySelectorAll('.gPrereqCb:checked').length > 0;
+    document.getElementById('guideModalPrereqMode').style.display = any ? 'block' : 'none';
+}
+
 function _setGuideModalError(msg) {
     const el = document.getElementById('guideModalError');
     if (!el) return;
@@ -544,13 +596,15 @@ function openGuideModal() {
     setTimeout(() => document.getElementById('guideModalTitleInput').focus(), 60);
 }
 
-function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId) {
+function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId, showStart, prereqIds, prereqLock) {
     document.getElementById('guideModalId').value = id;
     document.getElementById('guideModalTitleInput').value = title;
     document.getElementById('guideModalDesc').value = desc;
     document.getElementById('guideModalRequireLogin').checked = !!requireLogin;
     document.getElementById('guideModalTrackProgress').checked = !!trackProgress;
+    document.getElementById('guideModalShowStart').checked = (showStart === undefined ? true : !!showStart);
     document.getElementById('guideModalCategory').value = categoryId ? String(categoryId) : '';
+    _renderPrereqList(id, prereqIds || [], !!prereqLock);
     _gpSetCover(coverUrl || '');
     _setGuideModalError('');
     document.getElementById('guideModalExtraFields').style.display = 'block';
@@ -582,7 +636,12 @@ async function submitGuideModal(e) {
     if (id) {
         body.require_login_to_view = document.getElementById('guideModalRequireLogin').checked;
         body.track_progress = document.getElementById('guideModalTrackProgress').checked;
+        body.show_start_button = document.getElementById('guideModalShowStart').checked;
         body.cover_image_url = document.getElementById('guideModalCoverUrl').value || '';
+        body.prerequisite_guide_ids = Array.from(document.querySelectorAll('.gPrereqCb:checked'))
+            .map(cb => parseInt(cb.value, 10));
+        const _mode = document.querySelector('input[name="gPrereqMode"]:checked');
+        body.prereq_lock = !!(_mode && _mode.value === 'lock');
     }
     const url = id ? `/admin/guides/${id}/update` : '/admin/guides/create';
     try {

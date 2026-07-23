@@ -48,6 +48,18 @@
 .gi-desc { font-size: 0.88rem; opacity: 0.6; line-height: 1.5; margin: 0; }
 .gi-empty { opacity: 0.45; text-align: center; padding: 80px 20px; }
 
+/* Prerequisite state */
+.gi-card-locked { cursor: not-allowed; }
+.gi-card-locked:hover { transform: none; border-color: rgba(255,255,255,0.1); }
+.gi-card-locked .gi-cover, .gi-card-locked .gi-cover-empty { filter: grayscale(0.7) brightness(0.55); }
+.gi-lock-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; color: rgba(255,255,255,0.85); }
+.gi-prereq { display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; font-size: 0.78rem; line-height: 1.45; color: rgba(255,255,255,0.55); }
+.gi-prereq i { margin-top: 2px; font-size: 0.72rem; opacity: 0.8; flex-shrink: 0; }
+.gi-prereq a, .gi-prereq b { color: #5eeef8; text-decoration: none; font-weight: 700; }
+.gi-prereq a:hover { text-decoration: underline; }
+.gi-prereq-lock { color: rgba(255,180,120,0.9); }
+.gi-prereq-lock a, .gi-prereq-lock b { color: #ffc38a; }
+
 /* Completion display on each card */
 .gi-badge { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(94,238,200,0.95); color: #0c1611; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
 .gi-progress-mini { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
@@ -146,8 +158,33 @@
     {% set comp = completion_by_guide.get(g.id) if completion_by_guide else None %}
     {% set is_done = comp and comp.total > 0 and comp.completed >= comp.total %}
     {% set in_progress = comp and comp.completed > 0 and not is_done %}
+    {# Single-lesson guides skip the cover and open their one lesson directly. #}
+    {% set _entry = single_lesson_entry.get(g.id) if single_lesson_entry else None %}
+    {# Prerequisite state: {unmet:[...], locked:bool}. Locked cards can't be opened. #}
+    {% set _pq = prereq_state.get(g.id) if prereq_state else None %}
+    {% if _pq and _pq.locked %}
+    <div class="gi-card gi-card-locked" title="Complete the prerequisite guides first">
+        <div class="gi-cover-wrap">
+            {% if g.cover_image_url %}
+            <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
+            {% else %}
+            <div class="gi-cover-empty"><i class="fas fa-book-open"></i></div>
+            {% endif %}
+            <span class="gi-lock-overlay"><i class="fas fa-lock"></i></span>
+        </div>
+        <div class="gi-body">
+            <h2 class="gi-title">{{ g.title }}</h2>
+            <div class="gi-prereq gi-prereq-lock">
+                <i class="fas fa-lock"></i>
+                <span>Complete first:
+                    {% for p in _pq.unmet %}<a href="{{ ('/' + website.url_prefix + '/guides/' + p.slug) if website.url_prefix else ('/guides/' + p.slug) }}">{{ p.title }}</a>{{ ', ' if not loop.last }}{% endfor %}
+                </span>
+            </div>
+        </div>
+    </div>
+    {% else %}
     {# In-progress guides resume at the first incomplete lesson instead of the cover. #}
-    <a class="gi-card" href="{{ (_gurl + '/' + comp.next_slug) if (in_progress and comp.next_slug) else _gurl }}">
+    <a class="gi-card" href="{{ (_gurl + '/' + comp.next_slug) if (in_progress and comp.next_slug) else ((_gurl + '/' + _entry) if _entry else _gurl) }}">
         <div class="gi-cover-wrap">
             {% if g.cover_image_url %}
             <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
@@ -161,6 +198,16 @@
         <div class="gi-body">
             <h2 class="gi-title">{{ g.title }}</h2>
             {% if g.description %}<p class="gi-desc">{{ g.description }}</p>{% endif %}
+            {% if _pq and _pq.unmet %}
+            {# Plain text (no links) — this card is itself an <a>, so nested
+               anchors would be invalid HTML. #}
+            <div class="gi-prereq">
+                <i class="fas fa-diagram-project"></i>
+                <span>Recommended first:
+                    {% for p in _pq.unmet %}<b>{{ p.title }}</b>{{ ', ' if not loop.last }}{% endfor %}
+                </span>
+            </div>
+            {% endif %}
             {% if in_progress %}
             <div class="gi-progress-mini">
                 <div class="gi-progress-track"><div class="gi-progress-fill" style="width: {{ comp.percent }}%;"></div></div>
@@ -170,6 +217,7 @@
             {% endif %}
         </div>
     </a>
+    {% endif %}
 {%- endmacro %}
 
 {% macro progress_mini(comp) -%}

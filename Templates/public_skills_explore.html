@@ -34,6 +34,9 @@
 
 .se-body { padding: 2px 14px 14px; display: flex; flex-direction: column; gap: 7px; }
 .se-desc { font-size: 0.88rem; line-height: 1.55; color: rgba(255,255,255,0.7); margin: 2px 0 6px; white-space: pre-wrap; }
+.se-prereq { font-size: 0.82rem; line-height: 1.5; color: rgba(174,247,232,0.85); margin: 0 0 8px; }
+.se-prereq i { font-size: 0.72rem; opacity: 0.8; margin-right: 4px; }
+.se-prereq span { font-weight: 600; }
 .se-res { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; text-decoration: none; color: #aef7e8;
     background: rgba(94,238,248,0.06); border: 1px solid rgba(94,238,248,0.18); font-size: 0.88rem; font-weight: 600; }
 .se-res:hover { background: rgba(94,238,248,0.14); }
@@ -124,6 +127,7 @@
                         </summary>
                         <div class="se-body">
                             {% if it.description %}<p class="se-desc">{{ it.description }}</p>{% endif %}
+                            {% if it.prerequisites %}<p class="se-prereq"><i class="fas fa-diagram-project"></i> Builds on: {% for p in it.prerequisites %}<span>{{ p.name }}</span>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
                             {% if it.resources %}
                                 {% for res in it.resources %}
                                 {% if res.type == 'demo' %}

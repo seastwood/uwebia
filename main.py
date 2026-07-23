@@ -394,6 +394,9 @@ class User(UserMixin, db.Model):
     timezone = db.Column(db.String(100), nullable=False, default='America/Chicago')
     date_format = db.Column(db.String(50), nullable=False, default='%b %d, %Y %I:%M %p')
     admin_navbar_disabled = db.Column(db.JSON, nullable=True, default=list)
+    # Org-wide order of admin navbar items (list of item keys). Items missing
+    # from the list keep their default position (rendered after the ordered ones).
+    admin_navbar_order = db.Column(db.JSON, nullable=True, default=list)
     # Org-wide admin branding (lives on the anchor). NULL falls back to the
     # default "uwebia" name / icon. Shown on the admin navbar & admin login page.
     admin_brand_name = db.Column(db.String(80), nullable=True)
@@ -1657,6 +1660,10 @@ class KSA(db.Model):
     description = db.Column(db.Text, nullable=True)
     max_level   = db.Column(db.Integer, nullable=False, default=4, server_default='4')
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Prerequisite KSAs (a JSON list of ksa ids this one "builds on"). Purely
+    # informational — orders the learning roadmap and shows "builds on: X".
+    # Nothing is blocked.
+    prerequisite_ksa_ids = db.Column(db.JSON, nullable=True, default=list)
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     division    = db.relationship('Division', backref=db.backref('ksas', lazy='dynamic',
                                                                  cascade='all, delete-orphan'))
@@ -1665,7 +1672,8 @@ class KSA(db.Model):
         return {'id': self.id, 'division_id': self.division_id, 'ksa_type': self.ksa_type,
                 'folder_id': self.folder_id,
                 'name': self.name, 'description': self.description or '',
-                'max_level': self.max_level, 'sort_order': self.sort_order}
+                'max_level': self.max_level, 'sort_order': self.sort_order,
+                'prerequisite_ksa_ids': self.prerequisite_ksa_ids or []}
 
 
 class RoleKSA(db.Model):
@@ -2889,6 +2897,18 @@ class Guide(db.Model):
     # Opt-in anonymous + logged-in progress tracking (wired in Phase 3).
     track_progress  = db.Column(db.Boolean, nullable=False, default=True,
                                 server_default=_sa_true())
+    # When False the guide is treated as a reference/resource collection rather
+    # than a sequential course: the cover page hides its "Start" button and the
+    # index card links straight to the guide instead of staging a Start step.
+    show_start_button = db.Column(db.Boolean, nullable=False, default=True,
+                                  server_default=_sa_true())
+    # Prerequisite guides: a JSON list of guide ids the reader is expected to
+    # finish first. `prereq_lock` decides enforcement — True hard-locks this
+    # guide until every prerequisite is completed, False only shows a
+    # "recommended first" banner (the reader can still open it).
+    prerequisite_guide_ids = db.Column(db.JSON, nullable=True, default=list)
+    prereq_lock            = db.Column(db.Boolean, nullable=False, default=False,
+                                       server_default=_sa_false())
     sort_order      = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     # Optional category grouping ("department"). ondelete=SET NULL so removing
     # a category just orphans its guides — they fall back to "Uncategorized".
@@ -8154,6 +8174,7 @@ def inject_current_website():
     # Org-wide setting: always read from the primary owner (the anchor).
     _nd_root = db.session.get(User, current_user.root_user_id)
     disabled = (_nd_root.admin_navbar_disabled if _nd_root else None) or []
+    nav_order = (_nd_root.admin_navbar_order if _nd_root else None) or []
 
     # All live websites for the switcher in the navbar
     if current_user.is_sub_admin:
@@ -8171,6 +8192,7 @@ def inject_current_website():
         'current_draft_website_pages': draft_pages,
         'current_draft_website_folders': draft_folders,
         'admin_navbar_disabled': disabled,
+        'admin_navbar_order': nav_order,
         'all_live_websites': _all_live,
     }
 
@@ -9213,6 +9235,14 @@ def save_navbar_visibility():
     root = db.session.get(User, current_user.root_user_id)
     if root:
         root.admin_navbar_disabled = disabled
+        if 'order' in data:
+            # Ordered list of valid keys, de-duplicated, preserving given order.
+            _seen, order = set(), []
+            for k in (data.get('order') or []):
+                if k in valid and k not in _seen:
+                    _seen.add(k)
+                    order.append(k)
+            root.admin_navbar_order = order
         db.session.commit()
     return jsonify({'ok': True})
 
@@ -10311,6 +10341,117 @@ def get_live_website(url_prefix=None):
     Never returns a draft website."""
     prefix = (url_prefix or '').strip('/') or None
     return Website.query.filter_by(is_draft=False, url_prefix=prefix).first()
+
+
+@app.route('/manifest.webmanifest', defaults={'prefix': None})
+@app.route('/<string:prefix>/manifest.webmanifest')
+def public_web_manifest(prefix=None):
+    """Web app manifest so Android's "Add to Home Screen" uses the site's own
+    icon and name (iOS reads apple-touch-icon instead — see public_base.html)."""
+    website = get_live_website(url_prefix=prefix) if prefix else get_live_website()
+    if not website:
+        abort(404)
+    start = ('/' + website.url_prefix + '/') if website.url_prefix else '/'
+    name = website.name or 'Home'
+    _v = _site_icon_version(website)
+    manifest = {
+        'name': name,
+        'short_name': name[:24],
+        'start_url': start,
+        'scope': start,
+        'display': 'standalone',
+        'background_color': website.background_color or '#111111',
+        'theme_color': website.background_color or '#111111',
+        # PNG icons (rasterized from the site icon) so Android shows a crisp
+        # home-screen icon and can offer "Install app".
+        'icons': [
+            {'src': start + 'apple-touch-icon-192x192.png?v=' + _v, 'sizes': '192x192',
+             'type': 'image/png', 'purpose': 'any'},
+            {'src': start + 'apple-touch-icon-512x512.png?v=' + _v, 'sizes': '512x512',
+             'type': 'image/png', 'purpose': 'any'},
+        ],
+    }
+    resp = app.response_class(json.dumps(manifest), mimetype='application/manifest+json')
+    resp.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+    return resp
+
+
+def _navbar_tile_color(website):
+    """Opaque RGB tuple for the home-screen icon tile — the public navbar
+    background (where the site icon actually sits), so the icon reads as one
+    piece with the header. Alpha is dropped (the tile must be opaque); falls
+    back to the dark navbar default."""
+    import re as _re
+    nav = (getattr(website, 'public_navbar_style', None) or {}) if website else {}
+    raw = str(nav.get('background') or 'rgba(20,20,20,0.9)').strip()
+    m = _re.match(r'rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)', raw)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    hm = _re.fullmatch(r'#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})', raw)
+    if hm:
+        h = hm.group(1)
+        if len(h) == 3:
+            h = ''.join(c * 2 for c in h)
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    return (20, 20, 20)
+
+
+def _build_site_icon_png(website, size=180):
+    """Rasterize a website's icon to a square PNG of `size` px, on a tile that
+    matches the public navbar background (where the icon sits), so it works as
+    an iOS apple-touch-icon / Android manifest icon — iOS ignores SVG. Returns
+    PNG bytes, or None when there's no usable local source."""
+    icon = (_get_site_icon_url(website) if website else None) or '/static/uwebia-icon.svg'
+    if not icon.startswith('/static/'):
+        return None   # external URL — can't rasterize locally
+    rel = icon.split('?', 1)[0][len('/static/'):].lstrip('/')
+    path = os.path.join(app.static_folder, rel)
+    if not os.path.isfile(path):
+        return None
+    ext = path.rsplit('.', 1)[-1].lower()
+    tile = _navbar_tile_color(website)
+    tile_hex = '#%02x%02x%02x' % tile
+    try:
+        if ext == 'svg':
+            import cairosvg
+            return cairosvg.svg2png(url=path, output_width=size, output_height=size,
+                                    background_color=tile_hex)
+        im = Image.open(path).convert('RGBA')
+        im.thumbnail((size, size), Image.LANCZOS)
+        canvas = Image.new('RGB', (size, size), tile)
+        canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2), im)
+        buf = io.BytesIO()
+        canvas.save(buf, 'PNG')
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _apple_icon_response(prefix, size=180):
+    website = (get_live_website(url_prefix=prefix) if prefix else get_live_website()) \
+        or get_live_website()
+    png = _build_site_icon_png(website, size=max(16, min(int(size), 1024)))
+    if not png:
+        abort(404)
+    resp = app.response_class(png, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+    return resp
+
+
+@app.route('/apple-touch-icon.png', defaults={'prefix': None})
+@app.route('/apple-touch-icon-precomposed.png', defaults={'prefix': None})
+@app.route('/<string:prefix>/apple-touch-icon.png')
+@app.route('/<string:prefix>/apple-touch-icon-precomposed.png')
+def public_apple_touch_icon(prefix=None):
+    return _apple_icon_response(prefix, size=180)
+
+
+@app.route('/apple-touch-icon-<int:w>x<int:h>.png', defaults={'prefix': None})
+@app.route('/apple-touch-icon-<int:w>x<int:h>-precomposed.png', defaults={'prefix': None})
+@app.route('/<string:prefix>/apple-touch-icon-<int:w>x<int:h>.png')
+def public_apple_touch_icon_sized(w, h, prefix=None):
+    # iOS probes specific sizes (120/152/167/180); serve the requested size.
+    return _apple_icon_response(prefix, size=w)
 
 
 def _get_store_website():
@@ -14061,6 +14202,7 @@ def settings_page():
         can_store_settings=current_user.has_permission('store.settings'),
         can_moderate_posts=current_user.has_permission('posts.settings'),
         anchor_navbar_disabled=_anchor.admin_navbar_disabled or [],
+        anchor_navbar_order=_anchor.admin_navbar_order or [],
         admin_brand_name_raw=_anchor.admin_brand_name or '',
         admin_brand_has_custom_icon=bool(_anchor.admin_brand_icon_url),
         email_settings=get_email_settings(),
@@ -14424,6 +14566,7 @@ def _serialize_backup(uid):
         # timezone) are intentionally excluded.
         'owner_settings': {
             'admin_navbar_disabled': _owner.admin_navbar_disabled or [],
+            'admin_navbar_order': _owner.admin_navbar_order or [],
             'admin_url_key': _owner.admin_url_key,
             'admin_url_key_enabled': bool(_owner.admin_url_key_enabled),
             'org_require_2fa': bool(_owner.org_require_2fa),
@@ -14785,6 +14928,7 @@ def _serialize_backup(uid):
                   'folder_id': k.folder_id,
                   'ksa_type': k.ksa_type, 'name': k.name, 'description': k.description,
                   'max_level': k.max_level, 'sort_order': k.sort_order,
+                  'prerequisite_ksa_ids': k.prerequisite_ksa_ids or [],
                   'created_at': k.created_at.isoformat() if k.created_at else None,
                   } for k in ksas],
         'role_ksas': [{'id': rk.id, 'role_id': rk.role_id, 'ksa_id': rk.ksa_id,
@@ -15099,7 +15243,10 @@ def _serialize_backup(uid):
                     'title': g.title, 'slug': g.slug, 'description': g.description,
                     'cover_image_url': g.cover_image_url, 'status': g.status,
                     'require_login_to_view': g.require_login_to_view,
-                    'track_progress': g.track_progress, 'sort_order': g.sort_order,
+                    'track_progress': g.track_progress,
+                    'show_start_button': g.show_start_button,
+                    'prerequisite_guide_ids': g.prerequisite_guide_ids or [],
+                    'prereq_lock': g.prereq_lock, 'sort_order': g.sort_order,
                     'created_at': g.created_at.isoformat() if g.created_at else None,
                     'updated_at': g.updated_at.isoformat() if g.updated_at else None,
                     'published_at': g.published_at.isoformat() if g.published_at else None,
@@ -15861,6 +16008,7 @@ def import_backup():
                 _owner = db.session.get(User, uid)
                 if _owner:
                     _owner.admin_navbar_disabled = _owner_settings.get('admin_navbar_disabled') or []
+                    _owner.admin_navbar_order = _owner_settings.get('admin_navbar_order') or []
                     _owner.admin_url_key = _owner_settings.get('admin_url_key')
                     _owner.admin_url_key_enabled = bool(_owner_settings.get('admin_url_key_enabled'))
                     _owner.org_require_2fa = bool(_owner_settings.get('org_require_2fa'))
@@ -16086,6 +16234,8 @@ def import_backup():
                     status=gd.get('status', 'draft'),
                     require_login_to_view=gd.get('require_login_to_view', False),
                     track_progress=gd.get('track_progress', True),
+                    show_start_button=gd.get('show_start_button', True),
+                    prereq_lock=gd.get('prereq_lock', False),
                     sort_order=gd.get('sort_order', 0),
                     created_at=datetime.fromisoformat(gd['created_at']) if gd.get('created_at') else None,
                     updated_at=datetime.fromisoformat(gd['updated_at']) if gd.get('updated_at') else None,
@@ -16093,6 +16243,17 @@ def import_backup():
                 db.session.add(g)
                 db.session.flush()
                 guide_map[gd['id']] = g.id
+
+            # Second pass: remap prerequisite guide ids now that every guide has
+            # a new id (prereqs reference sibling guides in the same export).
+            for gd in data.get('guides', []):
+                new_gid = guide_map.get(gd['id'])
+                old_prereqs = gd.get('prerequisite_guide_ids') or []
+                if not new_gid or not old_prereqs:
+                    continue
+                remapped = [guide_map[p] for p in old_prereqs if p in guide_map]
+                Guide.query.filter_by(id=new_gid).update(
+                    {'prerequisite_guide_ids': remapped}, synchronize_session=False)
 
             for nd in data.get('guide_nodes', []):
                 new_gid = guide_map.get(nd['guide_id'])
@@ -16855,6 +17016,15 @@ def import_backup():
                 db.session.flush()
                 if kd.get('id'):
                     ksa_map[kd['id']] = k.id
+            # Second pass: remap prerequisite KSA ids once every KSA has a new id.
+            for kd in data.get('ksas', []):
+                new_kid = ksa_map.get(kd.get('id'))
+                old_pre = kd.get('prerequisite_ksa_ids') or []
+                if not new_kid or not old_pre:
+                    continue
+                remapped = [ksa_map[p] for p in old_pre if p in ksa_map]
+                KSA.query.filter_by(id=new_kid).update(
+                    {'prerequisite_ksa_ids': remapped}, synchronize_session=False)
             for rk in data.get('role_ksas', []):
                 new_r = public_role_map.get(rk.get('role_id'))
                 new_k = ksa_map.get(rk.get('ksa_id'))
@@ -27709,6 +27879,19 @@ def _get_site_icon_url(website):
 app.jinja_env.globals['get_site_icon_url'] = _get_site_icon_url
 
 
+def _site_icon_version(website):
+    """Short token that changes when the rasterized home-screen icon changes —
+    appended to the apple-touch-icon / manifest icon URLs so a re-add (or a
+    fresh browser) fetches the new PNG instead of a cached one. Keyed on the
+    icon URL AND the navbar tile color, plus a salt bumped when the rendering
+    logic itself changes."""
+    icon = _get_site_icon_url(website) or 'default'
+    nav = (getattr(website, 'public_navbar_style', None) or {}).get('background', '') if website else ''
+    return hashlib.md5(('%s|%s|tile2' % (icon, nav)).encode('utf-8')).hexdigest()[:10]
+
+app.jinja_env.globals['site_icon_version'] = _site_icon_version
+
+
 def _profanity_filter_text(text, website):
     """Apply profanity word replacement to text. Returns (filtered_text, was_blocked).
     was_blocked=True means the text contains banned words AND action is 'block'."""
@@ -33472,6 +33655,28 @@ def admin_guides_create():
     }}, 201)
 
 
+def _sanitize_prereq_guide_ids(raw, website_id, exclude_id=None):
+    """Coerce a submitted prerequisite list to valid, de-duplicated guide ids
+    belonging to this website (dropping self-references). Returns a list."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    seen, out = set(), []
+    for v in raw:
+        try:
+            gid = int(v)
+        except (TypeError, ValueError):
+            continue
+        if gid in seen or gid == exclude_id:
+            continue
+        seen.add(gid)
+        out.append(gid)
+    if not out:
+        return []
+    valid = {g.id for g in Guide.query.filter(
+        Guide.website_id == website_id, Guide.id.in_(out)).all()}
+    return [gid for gid in out if gid in valid]
+
+
 @app.route('/admin/guides/<int:gid>/update', methods=['POST'])
 @login_required
 @require_perm('guides.manage')
@@ -33494,6 +33699,13 @@ def admin_guides_update(gid):
         guide.require_login_to_view = bool(data['require_login_to_view'])
     if 'track_progress' in data:
         guide.track_progress = bool(data['track_progress'])
+    if 'show_start_button' in data:
+        guide.show_start_button = bool(data['show_start_button'])
+    if 'prereq_lock' in data:
+        guide.prereq_lock = bool(data['prereq_lock'])
+    if 'prerequisite_guide_ids' in data:
+        guide.prerequisite_guide_ids = _sanitize_prereq_guide_ids(
+            data.get('prerequisite_guide_ids'), website.id, exclude_id=guide.id)
     if 'category_id' in data:
         raw = data.get('category_id')
         if raw in (None, '', 0):
@@ -33519,6 +33731,9 @@ def admin_guides_update(gid):
         'cover_image_url': guide.cover_image_url or '',
         'require_login_to_view': guide.require_login_to_view,
         'track_progress': guide.track_progress,
+        'show_start_button': guide.show_start_button,
+        'prereq_lock': guide.prereq_lock,
+        'prerequisite_guide_ids': guide.prerequisite_guide_ids or [],
         'category_id': guide.category_id,
     }})
 
@@ -33833,6 +34048,25 @@ def public_guides_index(prefix=None):
         g.id: (_guide_progress_summary(g, public_user, visitor_hash) if g.track_progress else None)
         for g in guides
     }
+    # Guides that skip the cover page open their first lesson directly from the
+    # index card. Maps guide id -> first lesson slug. Two cases skip the cover:
+    #   - single-lesson guides (the cover is a dead interstitial), and
+    #   - guides with the "Start" button turned off (reference/resource guides
+    #     the author wants to jump straight into rather than staging a cover).
+    single_lesson_entry = {}
+    for g in guides:
+        order = _guide_reading_order(g)
+        if order and (len(order) == 1 or not g.show_start_button):
+            single_lesson_entry[g.id] = order[0].slug
+    # Prerequisite state per guide: which prereq guides this reader still needs
+    # and whether that hard-locks the card. Keyed by guide id -> {unmet, locked}.
+    guides_by_id = {g.id: g for g in guides}
+    prereq_state = {}
+    for g in guides:
+        if g.prerequisite_guide_ids:
+            unmet, locked = _guide_prereqs_status(g, guides_by_id, public_user, visitor_hash)
+            if unmet:
+                prereq_state[g.id] = {'unmet': unmet, 'locked': locked}
     # Group guides by category for the index page. Categories are ordered by
     # their own sort_order/name; guides without a category fall into a trailing
     # "Uncategorized" bucket so they stay visible.
@@ -33848,7 +34082,8 @@ def public_guides_index(prefix=None):
         grouped_guides.append({'category': None, 'guides': uncategorized})
     resp = make_response(render_template(
         'guides_index.html', website=website, guides=guides,
-        grouped_guides=grouped_guides,
+        grouped_guides=grouped_guides, single_lesson_entry=single_lesson_entry,
+        prereq_state=prereq_state,
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -33867,6 +34102,21 @@ def _resolve_public_guide(guide_slug, prefix):
     if guide.require_login_to_view and not public_user:
         return None, None, redirect(url_for('public_login',
                                             website_prefix=website.url_prefix, next=request.url))
+    # Hard-locked prerequisites: block the cover page and every lesson until the
+    # reader has completed the required guides. "Recommend only" guides fall
+    # through (the banner is shown on the cover instead).
+    if guide.prereq_lock and guide.prerequisite_guide_ids:
+        visitor_id, _scc = get_or_create_asset_visitor_id()
+        visitor_hash = hash_asset_visitor_id(visitor_id)
+        prereqs = Guide.query.filter(
+            Guide.website_id == website.id, Guide.status == 'published',
+            Guide.id.in_(guide.prerequisite_guide_ids)).all()
+        unmet, locked = _guide_prereqs_status(
+            guide, {g.id: g for g in prereqs}, public_user, visitor_hash)
+        if locked:
+            return None, None, (render_template(
+                'guide_locked.html', website=website, guide=guide,
+                unmet_prereqs=unmet, public_user=public_user), 403)
     return website, guide, None
 
 
@@ -33878,9 +34128,30 @@ def public_guide_view(guide_slug, prefix=None):
         return short
     public_user = _public_user_for_website(website)
     order = _guide_reading_order(guide)
+    # Skip the cover page and open the first lesson directly when either the
+    # guide is single-lesson (the cover is a dead interstitial) or its "Start"
+    # button is turned off (author wants readers to land straight in the content).
+    if order and (len(order) == 1 or not guide.show_start_button):
+        if prefix:
+            return redirect(url_for('public_guide_node', prefix=prefix,
+                                    guide_slug=guide.slug, node_slug=order[0].slug))
+        return redirect(url_for('public_guide_node',
+                                guide_slug=guide.slug, node_slug=order[0].slug))
+    # "Recommend only" prerequisites still unmet → surface a banner on the cover
+    # (hard-locked guides never reach here — the resolver already blocked them).
+    recommended_prereqs = []
+    if guide.prerequisite_guide_ids and not guide.prereq_lock:
+        visitor_id, _scc = get_or_create_asset_visitor_id()
+        visitor_hash = hash_asset_visitor_id(visitor_id)
+        prereqs = Guide.query.filter(
+            Guide.website_id == website.id, Guide.status == 'published',
+            Guide.id.in_(guide.prerequisite_guide_ids)).all()
+        recommended_prereqs, _ = _guide_prereqs_status(
+            guide, {g.id: g for g in prereqs}, public_user, visitor_hash)
     return render_template('guide_view.html', website=website, guide=guide,
                            toc=_guide_published_tree(guide), node=None,
                            start_node=(order[0] if order else None),
+                           recommended_prereqs=recommended_prereqs,
                            prev_node=None, next_node=None, public_user=public_user)
 
 
@@ -34755,6 +35026,8 @@ def admin_divisions_page():
     combined_with_by_division = {}
     active_members_by_division = {}
     folders_by_division, ksa_tree_by_division, folders_json = {}, {}, {}
+    ksas_json = {}
+    ksa_name_by_id = {}
     if website:
         divisions = Division.query.filter_by(website_id=website.id).order_by(
             Division.sort_order, Division.name).all()
@@ -34793,6 +35066,7 @@ def admin_divisions_page():
         all_ksas = KSA.query.filter_by(website_id=website.id).order_by(
             KSA.sort_order, KSA.name).all()
         ksa_by_id = {k.id: k for k in all_ksas}
+        ksa_name_by_id = {k.id: k.name for k in all_ksas}
         for k in all_ksas:
             ksas_by_division.setdefault(k.division_id, []).append(k)
         # KSAs lent in from other divisions (read-only in the borrowing division),
@@ -34882,6 +35156,15 @@ def admin_divisions_page():
             folders_json[str(d.id)] = [
                 {'id': f.id, 'name': label, 'parent_id': f.parent_id}
                 for f, label, _ in _ksa_folder_flat(d.id)]
+            # Prerequisite picker candidates for KSAs in this division: its own
+            # KSAs plus any shared in (so a borrowed skill can be a prerequisite).
+            _cand, _seen_k = [], set()
+            for k in list(owned) + list(shared_ksas_by_division.get(d.id, [])):
+                if k.id in _seen_k:
+                    continue
+                _seen_k.add(k.id)
+                _cand.append({'id': k.id, 'name': k.name, 'type': k.ksa_type})
+            ksas_json[str(d.id)] = _cand
         for r in PublicUserRole.query.filter_by(website_id=website.id).order_by(PublicUserRole.name).all():
             if r.division_id:
                 roles_by_division.setdefault(r.division_id, []).append(r)
@@ -34912,6 +35195,7 @@ def admin_divisions_page():
                            divisions=divisions, ksas_by_division=ksas_by_division,
                            ksa_tree_by_division=ksa_tree_by_division,
                            folders_by_division=folders_by_division, folders_json=folders_json,
+                           ksas_json=ksas_json, ksa_name_by_id=ksa_name_by_id,
                            active_members_by_division=active_members_by_division,
                            shared_ksas_by_division=shared_ksas_by_division,
                            shared_groups_by_division=shared_groups_by_division,
@@ -35115,8 +35399,34 @@ def admin_ksa_create(did):
             folder_id=_valid_folder_id(data.get('folder_id'), d.id),
             max_level=max_level, sort_order=(max_sort or 0) + 1)
     db.session.add(k)
+    db.session.flush()
+    if 'prerequisite_ksa_ids' in data:
+        k.prerequisite_ksa_ids = _sanitize_prereq_ksa_ids(
+            data.get('prerequisite_ksa_ids'), website.id, exclude_id=k.id)
     db.session.commit()
     return _utf8_json({'success': True, 'ksa': k.to_dict()}, 201)
+
+
+def _sanitize_prereq_ksa_ids(raw, website_id, exclude_id=None):
+    """Coerce a submitted prerequisite list to valid, de-duplicated KSA ids on
+    this website (dropping self-references). Returns a list."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    seen, out = set(), []
+    for v in raw:
+        try:
+            kid = int(v)
+        except (TypeError, ValueError):
+            continue
+        if kid in seen or kid == exclude_id:
+            continue
+        seen.add(kid)
+        out.append(kid)
+    if not out:
+        return []
+    valid = {k.id for k in KSA.query.filter(
+        KSA.website_id == website_id, KSA.id.in_(out)).all()}
+    return [kid for kid in out if kid in valid]
 
 
 def _valid_folder_id(raw, division_id):
@@ -35184,6 +35494,9 @@ def admin_ksa_update(kid):
                     .delete(synchronize_session=False)
     if 'folder_id' in data:
         k.folder_id = _valid_folder_id(data.get('folder_id'), k.division_id)
+    if 'prerequisite_ksa_ids' in data:
+        k.prerequisite_ksa_ids = _sanitize_prereq_ksa_ids(
+            data.get('prerequisite_ksa_ids'), website.id, exclude_id=k.id)
     db.session.commit()
     return _utf8_json({'success': True, 'ksa': k.to_dict()})
 
@@ -37672,6 +37985,36 @@ def _guide_progress_summary(guide, public_user, visitor_hash):
             'next_title': resume.title if resume else None}
 
 
+def _guide_is_completed_by(guide, public_user, visitor_hash):
+    """True when `guide` has published lessons and this reader has finished all
+    of them. Guides that don't track progress (or have no lessons) return None —
+    completion is unknowable, so callers treat them as non-blocking."""
+    if not guide.track_progress:
+        return None
+    s = _guide_progress_summary(guide, public_user, visitor_hash)
+    if s['total'] == 0:
+        return None
+    return s['completed'] >= s['total']
+
+
+def _guide_prereqs_status(guide, guides_by_id, public_user, visitor_hash):
+    """Resolve a guide's prerequisite guides for a specific reader. Returns
+    (unmet, locked): `unmet` is a list of {id,title,slug} prerequisite guides the
+    reader hasn't completed yet (stale ids and unmeasurable guides are dropped),
+    and `locked` is True when the guide is set to hard-lock and any remain unmet."""
+    ids = guide.prerequisite_guide_ids or []
+    unmet = []
+    for pid in ids:
+        pg = guides_by_id.get(pid)
+        if pg is None or pg.id == guide.id:
+            continue
+        done = _guide_is_completed_by(pg, public_user, visitor_hash)
+        if done is False:   # None = unmeasurable → don't block
+            unmet.append({'id': pg.id, 'title': pg.title, 'slug': pg.slug})
+    locked = bool(guide.prereq_lock) and len(unmet) > 0
+    return unmet, locked
+
+
 def _resolve_published_guide_or_404(gid):
     guide = Guide.query.get_or_404(gid)
     website = _live_website_for(guide)
@@ -37967,6 +38310,7 @@ def _browse_all_skills(website, viewer=None, group_by_folder=False):
     ksas = KSA.query.filter_by(website_id=website.id).all()
     if not ksas:
         return []
+    name_by_id = {k.id: k.name for k in ksas}
     divisions = {d.id: d for d in Division.query.filter_by(website_id=website.id).all()}
     recs, comp = {}, None
     if viewer:
@@ -37993,6 +38337,8 @@ def _browse_all_skills(website, viewer=None, group_by_folder=False):
             'verified': bool(uk and lv > 0 and not uk.self_reported),
             'self_reported': bool(uk and uk.self_reported),
             'resources': _ksa_dev_resources(k, website, gc, qc, comp),
+            'prerequisites': [{'id': pid, 'name': name_by_id[pid]}
+                              for pid in (k.prerequisite_ksa_ids or []) if pid in name_by_id],
         }
     _order_key = lambda k: (k.sort_order, (k.name or '').lower())
     out = []
@@ -38045,6 +38391,8 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
     target_roles = target_user.roles or []
     _guide_cache, _quiz_cache = {}, {}
     _completions = _ksa_user_completions(target_user, website) if full else None
+    # Site-wide id→name so "builds on" can resolve prerequisites in any division.
+    _ksa_names = {kk.id: kk.name for kk in KSA.query.filter_by(website_id=website.id).all()}
 
     def _resources_for(ksa):
         return _ksa_dev_resources(ksa, website, _guide_cache, _quiz_cache, _completions)
@@ -38100,6 +38448,8 @@ def _member_ksa_profile(target_user, website, full=False, group_by_folder=False)
                 'self_reported': bool(lv > 0 and self_rep.get(k.id)),
                 'resources': _resources_for(k) if full else [],
                 'roles': (req['roles'] if req else []),
+                'prerequisites': [{'id': pid, 'name': _ksa_names[pid]}
+                                  for pid in (k.prerequisite_ksa_ids or []) if pid in _ksa_names],
             }
 
         def _sort_items(items):
@@ -38146,6 +38496,7 @@ def _member_other_skills(target_user, website, full=False):
         return []
     gc, qc = {}, {}
     comp = _ksa_user_completions(target_user, website) if full else None
+    _names = {kk.id: kk.name for kk in KSA.query.filter_by(website_id=website.id).all()}
     items = []
     for uk in rows:
         k = db.session.get(KSA, uk.ksa_id)
@@ -38156,6 +38507,8 @@ def _member_other_skills(target_user, website, full=False):
             'description': k.description or '',
             'label': _ksa_level_label(website, uk.level), 'max': k.max_level,
             'resources': _ksa_dev_resources(k, website, gc, qc, comp) if full else [],
+            'prerequisites': [{'id': pid, 'name': _names[pid]}
+                              for pid in (k.prerequisite_ksa_ids or []) if pid in _names],
         })
     items.sort(key=lambda x: ((x['type'] or ''), x['name'].lower()))
     return items
@@ -38454,8 +38807,11 @@ def _render_member_profile(prefix, user_id):
     if tab not in ('forum', 'guides', 'roles', 'ksas', 'explore'):
         tab = 'forum'
     q = (request.args.get('q') or '').strip()
-    # Competency layout: 'priority' (flat hopper, default) or 'categories' (folders).
-    ksa_view = 'categories' if request.args.get('ksaview') == 'categories' else 'priority'
+    # Competency layout: 'priority' (flat hopper, default), 'categories' (folders),
+    # or 'map' (skill-tree graph linked by prerequisites).
+    ksa_view = request.args.get('ksaview')
+    if ksa_view not in ('categories', 'map'):
+        ksa_view = 'priority'
     _by_folder = (ksa_view == 'categories')
 
     thread_count = ForumThread.query.filter_by(website_id=website.id,
@@ -38472,6 +38828,24 @@ def _render_member_profile(prefix, user_id):
     guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
     ksa_profile = _member_ksa_profile(target, website, full=show_progress, group_by_folder=_by_folder) if tab == 'ksas' else None
     other_skills = _member_other_skills(target, website, full=show_progress) if tab == 'ksas' else None
+    # Skill-tree ("map") view: flatten the roadmap into per-division node lists
+    # (each node carries its prerequisites, so the client can draw the links).
+    ksa_map_sections = None
+    if tab == 'ksas' and ksa_view == 'map':
+        ksa_map_sections = []
+        for block in (ksa_profile or []):
+            d = block['division']
+            nodes = [it for g in block['ksa_groups'] for it in g['items']]
+            if nodes:
+                ksa_map_sections.append({
+                    'division': {'id': d.id, 'name': d.name,
+                                 'color': d.color or '#5eeef8', 'icon': d.icon or ''},
+                    'nodes': nodes})
+        if other_skills:
+            ksa_map_sections.append({
+                'division': {'id': 0, 'name': 'Other skills',
+                             'color': '#aef7e8', 'icon': 'fa-star'},
+                'nodes': other_skills})
     # "Explore" is a self-only catalog of every KSA on the site (any division).
     all_skills = _browse_all_skills(website, viewer, group_by_folder=_by_folder) if (tab == 'explore' and is_self) else None
     # Cheap counts for the tab labels (computed regardless of active tab).
@@ -38541,7 +38915,7 @@ def _render_member_profile(prefix, user_id):
                            forum_items=forum_items, guide_items=guide_items,
                            ksa_profile=ksa_profile, division_count=division_count,
                            other_skills=other_skills, show_ksa_tab=show_ksa_tab,
-                           ksa_view=ksa_view,
+                           ksa_view=ksa_view, ksa_map_sections=ksa_map_sections,
                            all_skills=all_skills, all_skills_count=all_skills_count,
                            ksa_level_labels=(_ksa_level_labels(website) if is_self else None),
                            ksa_self_report=(is_self and bool(getattr(website, 'ksa_self_report_enabled', True))),
