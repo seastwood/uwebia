@@ -199,7 +199,7 @@
 .ksa-map-canvas { position: relative; overflow: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background:
     radial-gradient(circle at 20% 15%, rgba(94,238,248,0.06), transparent 45%),
     radial-gradient(circle at 80% 85%, rgba(174,247,232,0.05), transparent 45%),
-    rgba(12,14,20,0.6); -webkit-overflow-scrolling: touch; }
+    rgba(12,14,20,0.6); -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
 .ksa-map-canvas svg { display: block; }
 .ksa-map-edge { fill: none; stroke: rgba(200,214,235,0.55); stroke-width: 2.4; }
 .ksa-map-edge.is-met { stroke: rgba(140,233,154,0.9); stroke-width: 2.8; }
@@ -478,7 +478,7 @@
         {% endif %}
         {% if ksa_view == 'map' %}
         {# ── Skill-tree map ── #}
-        <p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 14px;"><i class="fas fa-diagram-project"></i> Skill map — each circle is a competency; the ring shows your progress and the colour shows priority. Lines link a skill to what it builds on. Click any circle for details.</p>
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin:0 0 14px;"><i class="fas fa-diagram-project"></i> Skill map — each circle is a competency; the ring shows your progress and the colour shows priority. Lines link a skill to what it builds on. Click any circle for details. <span style="white-space:nowrap;opacity:0.8;"><i class="fas fa-magnifying-glass-plus"></i> Ctrl/⌘‑scroll or pinch to zoom.</span></p>
         <div class="ksa-map-legend">
             <span class="kml"><span class="kml-dot kml-core"></span> Core</span>
             <span class="kml"><span class="kml-dot kml-high"></span> High</span>
@@ -992,7 +992,55 @@ function _renderSection(sec) {
     canvas.className = 'ksa-map-canvas';
     canvas.style.maxHeight = '70vh';
     canvas.appendChild(svg);
+    _attachMapZoom(canvas, svg, width, height);
     return canvas;
+}
+
+// Zoom the map with ctrl/⌘+scroll (also fires for trackpad pinch) or a two-finger
+// pinch on touch. We scale the SVG's rendered width/height (keeping its viewBox) so
+// the scrollable canvas grows with it, and keep the point under the cursor/pinch
+// fixed while zooming.
+function _mapTouchDist(t) {
+    return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+}
+function _attachMapZoom(canvas, svg, baseW, baseH) {
+    let zoom = 1;
+    const MIN = 0.35, MAX = 4;
+    function applyZoom(next, cx, cy) {
+        next = Math.max(MIN, Math.min(MAX, next));
+        if (Math.abs(next - zoom) < 0.0005) return;
+        const contentX = (canvas.scrollLeft + cx) / zoom;
+        const contentY = (canvas.scrollTop + cy) / zoom;
+        zoom = next;
+        svg.setAttribute('width', baseW * zoom);
+        svg.setAttribute('height', baseH * zoom);
+        canvas.scrollLeft = contentX * zoom - cx;
+        canvas.scrollTop = contentY * zoom - cy;
+    }
+    canvas.addEventListener('wheel', function (e) {
+        if (!(e.ctrlKey || e.metaKey)) return;   // plain scroll pans; ctrl/⌘ zooms
+        e.preventDefault();
+        const r = canvas.getBoundingClientRect();
+        applyZoom(zoom * (1 - e.deltaY * 0.0016), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    let pDist = 0, pcx = 0, pcy = 0;
+    canvas.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 2) {
+            pDist = _mapTouchDist(e.touches);
+            const r = canvas.getBoundingClientRect();
+            pcx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+            pcy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+        }
+    }, { passive: true });
+    canvas.addEventListener('touchmove', function (e) {
+        if (e.touches.length === 2 && pDist) {
+            e.preventDefault();
+            const d = _mapTouchDist(e.touches);
+            applyZoom(zoom * (d / pDist), pcx, pcy);
+            pDist = d;
+        }
+    }, { passive: false });
+    canvas.addEventListener('touchend', function (e) { if (e.touches.length < 2) pDist = 0; });
 }
 
 function renderKsaMap() {
