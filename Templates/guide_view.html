@@ -48,6 +48,16 @@
 .gv-main { min-width: 0; }
 .gv-cover { width: 100%; max-height: 360px; object-fit: cover; border-radius: 16px; margin-bottom: 28px; }
 .gv-h1 { font-size: 2rem; font-weight: 800; margin: 0 0 10px; }
+/* "Lesson X of Y" position indicator shown just under the lesson title. */
+.gv-h1-lesson {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 0 0 24px; padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(94,238,248,0.1);
+    border: 1px solid rgba(94,238,248,0.25);
+    color: #9df3fb; font-size: 0.8rem; font-weight: 700;
+}
+.gv-h1-lesson i { font-size: 0.72rem; }
 .gv-guide-desc { opacity: 0.6; font-size: 1rem; line-height: 1.6; margin: 0 0 28px; }
 .gv-content { font-size: 1rem; line-height: 1.75; }
 .gv-content img { max-width: 100%; height: auto; border-radius: 8px; }
@@ -258,7 +268,7 @@
             <div class="gv-toggle-content">
                 {% if guide.track_progress %}
                 <div class="gv-progress" id="gvProgress" style="display:none;">
-                    <div class="gv-progress-label"><span id="gvProgressText">0 of 0 lessons</span><span id="gvProgressPct">0%</span></div>
+                    <div class="gv-progress-label"><span id="gvProgressText">0 of 0 lessons completed</span><span id="gvProgressPct">0%</span></div>
                     <div class="gv-progress-track"><div class="gv-progress-fill" id="gvProgressFill"></div></div>
                 </div>
                 {% endif %}
@@ -312,6 +322,9 @@
     <main class="gv-main">
         {% if node %}
         <h1 class="gv-h1">{{ node.title }}</h1>
+        {% if lesson_index %}
+        <div class="gv-h1-lesson"><i class="fas fa-location-dot"></i> Lesson {{ lesson_index }} of {{ lesson_total }}</div>
+        {% endif %}
         <div class="gv-content">{{ node.content | safe }}</div>
 
         <nav class="gv-nav">
@@ -432,7 +445,7 @@ function gvToggleSidebar() {
             document.querySelectorAll('.gv-toggle-default, .gv-toggle-default-sub')
                 .forEach(el => { el.style.display = 'none'; });
             document.getElementById('gvProgressText').textContent =
-                d.completed + ' of ' + d.total + ' lesson' + (d.total === 1 ? '' : 's');
+                d.completed + ' of ' + d.total + ' lesson' + (d.total === 1 ? '' : 's') + ' completed';
             document.getElementById('gvProgressPct').textContent = d.percent + '%';
             document.getElementById('gvProgressFill').style.width = d.percent + '%';
         }
