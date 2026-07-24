@@ -19587,6 +19587,8 @@ def edit_public_navbar_style(website_id):
         'margin': margin,
         'dropdown_mode': dropdown_mode,
         'side_panel_use_navbar_background': side_panel_use_navbar_background,
+        # Dock the navbar to the bottom edge on mobile (top on desktop).
+        'dock_bottom_mobile': bool(data.get('dock_bottom_mobile', False)),
     }
 
     db.session.commit()
@@ -34167,8 +34169,12 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
     order = _guide_reading_order(guide)
     prev_node = next_node = None
     ids = [n.id for n in order]
+    # 1-based position of the current lesson (for the collapsed progress ring).
+    lesson_index = None
+    lesson_total = len(order)
     if node.id in ids:
         i = ids.index(node.id)
+        lesson_index = i + 1
         prev_node = order[i - 1] if i > 0 else None
         next_node = order[i + 1] if i < len(order) - 1 else None
     # On the last lesson, keep the momentum going: offer the next guide in the
@@ -34188,6 +34194,7 @@ def public_guide_node(guide_slug, node_slug, prefix=None):
     return render_template('guide_view.html', website=website, guide=guide,
                            next_guide=next_guide,
                            toc=_guide_published_tree(guide), node=node, start_node=None,
+                           lesson_index=lesson_index, lesson_total=lesson_total,
                            prev_node=prev_node, next_node=next_node, public_user=public_user)
 
 

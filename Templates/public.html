@@ -7,6 +7,16 @@
     {# Declare both color schemes so iOS Safari doesn't apply its own dark
        overlay (which can mask theme-color and paint chrome black). #}
     <meta name="color-scheme" content="light dark">
+    {# Home-screen "app" mode: launch full-screen (removes the Safari chrome that
+       ate the top/bottom edges). `default` keeps the status bar above the
+       content so the navbar layout is untouched. Mirrors public_base.html. #}
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="{{ website.name if website else 'Home' }}">
+    {% set _atouch = ('/' + website.url_prefix + '/apple-touch-icon.png') if (website and website.url_prefix) else '/apple-touch-icon.png' %}
+    <link rel="apple-touch-icon" href="{{ _atouch }}?v={{ site_icon_version(website) }}">
+    <link rel="manifest" href="{{ ('/' + website.url_prefix + '/manifest.webmanifest') if (website and website.url_prefix) else '/manifest.webmanifest' }}">
     {# FOUC mask — the head pulls several blocking external assets
        (Bootstrap/Leaflet/FullCalendar/FontAwesome/Google Fonts), and on
        refresh the page briefly renders unstyled until they arrive. Hide
@@ -195,6 +205,21 @@
     .public-page-body {
         padding-top: var(--navbar-page-offset, 58px);
     }
+
+    /* Installed home-screen app: add the status-bar clearance to match the
+       navbar's standalone offset, and drop the bottom safe-area painter so the
+       background reaches the bottom edge (no solid bar). Standalone only. */
+    @media (display-mode: standalone) {
+        .public-page-body {
+            padding-top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px));
+        }
+    }
+
+    /* The bottom safe-area "border" strip sits ABOVE the content (z-index 5) and
+       covers it in the home-indicator / translucent-URL-bar zone. It only ever
+       has height where a safe area exists (0 elsewhere), so hide it everywhere —
+       the full-screen background flows to the bottom behind the bar instead. */
+    .site-safe-area-painter.bottom { display: none !important; }
 
     html,
     body {
@@ -2003,7 +2028,7 @@ html {
 
 body.public-page-body {
     position: relative;
-    min-height: 100svh;
+    min-height: 100dvh;
     background: transparent !important;
     /* See the html,body rule above — clip preserves position:fixed
        behavior on iOS Safari. */
@@ -2012,11 +2037,15 @@ body.public-page-body {
 }
 
 .site-fixed-background {
-    position: fixed;
+    /* Images stay FIXED (parallax); gradients/solids are ABSOLUTE so they span
+       the whole document and scroll with the page, instead of a fixed viewport
+       gradient parking a flat colour band behind the bottom URL bar. */
+    position: {% if website.background_image_url %}fixed{% else %}absolute{% endif %};
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    transform: translateZ(0);
+    /* No translateZ(0): forcing this fixed layer onto its own GPU layer makes
+       iOS Safari paint it OVER content in the bottom URL-bar zone. */
 }
 
 /* Only the actual page content sits above the fixed background */
@@ -4251,11 +4280,12 @@ color: {{ website.text_color or '#000000' }};
    bottom = last. The bottom strip is independently suppressed via the
    `no_bottom_border` website-style option so the background image can
    extend through the home-indicator safe-area. #}
-{% if _borders_on %}
+{# Top border strip only when the navbar is docked to the very top (margin 0),
+   where it backs the status bar. For a FLOATING navbar (margin > 0) it would sit
+   behind the phone icons as a border, so drop it and let the scrolling
+   background flow up through the top. Bottom painter removed entirely. #}
+{% if _borders_on and navbar_margin == 0 %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
-{% if not website.public_navbar_no_bottom_border %}
-<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
-{% endif %}
 {% endif %}
 
     {% include 'components/public_navbar.html' %}
