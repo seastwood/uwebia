@@ -666,7 +666,7 @@
         {% if website %}
         <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.95rem;color:rgba(255,255,255,0.85);padding:6px 0;">
             <input type="checkbox" id="publicStoreEnabled"
-                   {% if website.store_enabled %}checked{% endif %}
+                   {% if store_enabled %}checked{% endif %}
                    onchange="togglePublicStore(this)"
                    style="width:18px;height:18px;cursor:pointer;accent-color:#5eeef8;">
             <i class="fas fa-store" style="color:#5eeef8;width:16px;text-align:center;"></i>
@@ -674,8 +674,8 @@
                 <span style="display:block;font-weight:600;">Public store</span>
                 <span style="display:block;font-size:0.78rem;color:rgba(255,255,255,0.5);margin-top:2px;">When off, visitors can't browse products, open the cart, or check out. The public shop link is removed too.</span>
             </span>
-            <span id="publicStoreStatus" style="font-size:0.74rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;{% if website.store_enabled %}color:#5eeec8;{% else %}color:#ff8c8c;{% endif %}">
-                {% if website.store_enabled %}On{% else %}Off{% endif %}
+            <span id="publicStoreStatus" style="font-size:0.74rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;{% if store_enabled %}color:#5eeec8;{% else %}color:#ff8c8c;{% endif %}">
+                {% if store_enabled %}On{% else %}Off{% endif %}
             </span>
         </label>
         <div id="siteFeaturesStatus" style="margin-top:6px;font-size:0.82rem;min-height:1em;"></div>

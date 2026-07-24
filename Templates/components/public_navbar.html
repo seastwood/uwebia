@@ -522,30 +522,51 @@
        slide the bar back open, then opens the menu. Only the brand + right group
        collapse; the hamburger stays. Gated on there being a hamburger at all. */
     @media (max-width: 800px) {
-        .public-navbar { transition: right 0.34s ease; }
+        .public-navbar { transition: left 0.34s ease; }
         .public-navbar-brand,
         .public-navbar-right { transition: opacity 0.2s ease; }
-        /* Narrow the bar down to just the hamburger: its left edge stays put and
-           the right edge slides left to a ~54px-wide pill, clipping the rest. */
+        /* Collapse to a snug rounded pill on the RIGHT (the right edge stays put,
+           the LEFT edge slides right). 60px = the 44px hamburger + 8px each side,
+           so it's centered in the pill. */
         .public-navbar.is-collapsed {
-            right: calc(100% - {{ navbar_margin }}px - 54px) !important;
+            left: calc(100% - {{ navbar_margin }}px - 60px) !important;
+            border-radius: 999px !important;
             overflow: hidden !important;
         }
-        .public-navbar.is-collapsed .public-navbar-brand,
-        .public-navbar.is-collapsed .public-navbar-right {
+        .public-navbar.is-collapsed::before { border-radius: 999px !important; }
+        /* While the menu is open, let it escape the pill's clip so it can drop out
+           of the hamburger (the pill stays collapsed — it no longer expands). */
+        .public-navbar.is-collapsed:has(.public-navbar-menu.show) { overflow: visible !important; }
+        /* Fade the brand (icon + title) out — collapsed shows only the hamburger,
+           plus the cart or the guide progress ring if present. */
+        .public-navbar.is-collapsed .public-navbar-brand {
             opacity: 0 !important;
             pointer-events: none !important;
         }
-        /* Guide pages: a progress-ring pill segment butts against the RIGHT of the
-           collapsed hamburger (guide_view.html adds html.gv-nav-merge). Match its
-           52px width and round only the LEFT end so hamburger + ring read as one
-           HORIZONTAL pill. */
+        /* Remove the (left) profile from the flex flow entirely — opacity:0 alone
+           still holds its slot, which shoves the cart right onto the hamburger.
+           Keep the cart + hamburger. */
+        .public-navbar.is-collapsed .public-navbar-right > .public-account-dropdown {
+            display: none !important;
+        }
+        /* Store enabled: widen the pill so the cart stays visible left of the
+           hamburger. */
+        .public-navbar:has(.public-cart-btn).is-collapsed {
+            left: calc(100% - {{ navbar_margin }}px - 108px) !important;
+        }
+        /* Guide pages: the progress ring takes the slot left of the hamburger, so
+           hide the cart there and fuse flat-left with the ring (52px, rounded only
+           on the right). More specific than the :has(cart) rule, so it wins. */
         html.gv-nav-merge .public-navbar.is-collapsed {
-            right: calc(100% - {{ navbar_margin }}px - 52px) !important;
-            border-radius: 999px 0 0 999px !important;
+            left: calc(100% - {{ navbar_margin }}px - 52px) !important;
+            border-radius: 0 999px 999px 0 !important;
         }
         html.gv-nav-merge .public-navbar.is-collapsed::before {
-            border-radius: 999px 0 0 999px !important;
+            border-radius: 0 999px 999px 0 !important;
+        }
+        html.gv-nav-merge .public-navbar.is-collapsed .public-navbar-right > .public-cart-btn {
+            opacity: 0 !important;
+            pointer-events: none !important;
         }
     }
     {% endif %}
@@ -624,9 +645,13 @@
         transition: background 0.2s ease, transform 0.2s ease;
     }
 
-    .public-navbar-toggle:hover {
-        background: rgba(255, 255, 255, 0.16);
-        transform: translateY(-1px);
+    /* Only on real hover devices — otherwise the highlight sticks after a tap on
+       touchscreens until you tap elsewhere. */
+    @media (hover: hover) {
+        .public-navbar-toggle:hover {
+            background: rgba(255, 255, 255, 0.16);
+            transform: translateY(-1px);
+        }
     }
 
     .public-navbar-toggle:active {
@@ -723,12 +748,18 @@
         width: 260px;
         background: rgba(20, 20, 20, 0.98);
         padding: 10px;
-        border-radius: 12px;
+        border-radius: 12px 4px 12px 12px;   /* pinched near the hamburger (top-right) */
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+        transform-origin: top right;         /* grow OUT of the hamburger */
     }
 
     .public-navbar.dropdown-mode-dropdown .public-navbar-menu.show {
         display: block;
+        animation: navMenuDrop 0.2s ease;
+    }
+    @keyframes navMenuDrop {
+        from { opacity: 0; transform: scale(0.8) translateY(-6px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
     }
 
     .public-navbar-menu a {
@@ -1588,6 +1619,70 @@
     }
 }
 
+{% if navbar_items or navbar_public_accounts_enabled %}
+/* ═══ Swapped layout (mobile): profile icon on the LEFT; cart + hamburger on the
+   RIGHT (cart just left of the hamburger). CSS-only, so the DOM order + overflow
+   JS are untouched. Each icon is positioned individually relative to the navbar
+   (navbar-right is dropped as a positioning context), so account/cart can sit on
+   opposite sides. ═══ */
+@media (max-width: 800px) {
+    /* navbar-right stays absolute but SPANS from the left edge to just before the
+       hamburger, and lays its icons out with flex: profile at the LEFT (normal
+       flow), cart pushed to the RIGHT via margin-left:auto. Keeping them in flow
+       (not individually absolute) is what makes the profile reliably land on the
+       left. pointer-events pass through the empty middle so the title is clickable. */
+    .public-navbar-right {
+        left: 8px !important;
+        right: 60px !important;
+        justify-content: flex-start !important;
+        pointer-events: none !important;
+    }
+    .public-navbar-right > * { pointer-events: auto; }
+
+    /* Profile icon is hidden on mobile — it's already in the hamburger menu, and
+       the title takes over that left space. */
+    .public-navbar-right > .public-account-dropdown { display: none !important; }
+
+    /* Cart → pushed to the RIGHT end (works whether or not a profile is present). */
+    .public-navbar-right > .public-cart-btn {
+        display: inline-flex !important;
+        position: static !important;
+        order: 2;
+        margin-left: auto;
+    }
+
+    /* Hamburger → far RIGHT. Centered with auto margins (NOT transform) so the
+       :hover/:active translateY nudges don't knock it out of vertical center. */
+    .public-navbar-toggle {
+        position: absolute !important;
+        right: 8px; top: 0; bottom: 0;
+        margin-top: auto; margin-bottom: auto;
+        z-index: 10045;
+    }
+    /* Its dropdown opens below the hamburger (right), not on the left. */
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu {
+        left: auto !important;
+        right: 12px !important;
+    }
+
+    /* Brand: no profile on the left anymore, so the title runs to the far LEFT;
+       only reserve the RIGHT for the hamburger (+ cart if present). */
+    .public-navbar-brand.title-align-left,
+    .public-navbar-brand.title-align-right {
+        left: 14px !important;
+        right: 58px !important;
+    }
+    .public-navbar:has(.public-cart-btn) .public-navbar-brand.title-align-left,
+    .public-navbar:has(.public-cart-btn) .public-navbar-brand.title-align-right {
+        right: 106px !important;
+    }
+}
+{% endif %}
+
+/* Inside a guide (any screen size), hide the store/cart icon from the public
+   navbar — html.gv-guide is set by guide_view.html on guide lesson pages. */
+html.gv-guide .public-cart-btn { display: none !important; }
+
 .public-navbar-brand,
 .public-navbar-brand:link,
 .public-navbar-brand:visited,
@@ -2044,16 +2139,16 @@
 
     {% if nav_style.get('sticky', True) and (navbar_items or navbar_public_accounts_enabled) %}
     // Collapse-on-scroll (mobile): slide the bar shut to just the hamburger once
-    // the reader scrolls down; keep it open while the menu is open or at the top.
+    // the reader scrolls down. Opening the menu no longer expands the bar — the
+    // hamburger stays put and the menu just drops out of it (see CSS). Collapse
+    // depends only on scroll position now.
     (function () {
         const navbar = document.querySelector('.public-navbar');
         if (!navbar) return;
-        const menu = document.getElementById('publicNavbarMenu');
-        const COLLAPSE_AT = 80;   // px scrolled before the bar collapses
+        const COLLAPSE_AT = 200;   // px scrolled before the bar collapses
         const isMobile = () => window.matchMedia('(max-width: 800px)').matches;
         function update() {
-            const menuOpen = !!(menu && menu.classList.contains('show'));
-            const collapse = isMobile() && !menuOpen && window.scrollY > COLLAPSE_AT;
+            const collapse = isMobile() && window.scrollY > COLLAPSE_AT;
             navbar.classList.toggle('is-collapsed', collapse);
         }
         window.__publicNavbarCollapseUpdate = update;

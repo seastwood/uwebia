@@ -14184,8 +14184,14 @@ def settings_page():
     _org_requires_2fa()  # runs the email-fingerprint auto-disable before display
     _anchor = get_main_admin() or current_user
     _auto_backup = _get_auto_backup_settings(current_user.root_user_id)
+    # The public store is a single global store. Show the flag off the PRIMARY
+    # public site (what `/shop` reads) so the switch reflects the public reality —
+    # not get_admin_website()'s (the site you're editing), which can differ and
+    # make the toggle look like it reverts on reload.
+    _store_web = get_live_website() or _store_website()
     return render_template(
         'settings.html',
+        store_enabled=bool(getattr(_store_web, 'store_enabled', False)),
         auto_backup=_auto_backup,
         timezone_choices=timezone_choices,
         selected_timezone=current_user.timezone or 'America/Chicago',
@@ -32654,12 +32660,23 @@ def store_save_settings():
 @login_required
 @require_perm('store.settings')
 def store_toggle_enabled():
-    website = _store_website()
+    # Base the flip on the PRIMARY public site (what `/shop` + the display read),
+    # falling back to the canonical store site.
+    website = get_live_website() or _store_website()
     if not website:
         return _utf8_json({'error': 'No website found'}, 400)
-    website.store_enabled = not website.store_enabled
+    new_val = not website.store_enabled
+    # The public store is ONE global store shared across all of the org's sites,
+    # but `store_enabled` is a per-website column and different entry points read
+    # it off different sites: the public navbar off the CURRENT site, `/shop` off
+    # the PRIMARY (get_live_website()), the page renderer + settings off the
+    # canonical `_store_website()`. Keep every site in sync so the single toggle
+    # actually shows/hides the store everywhere (and doesn't drift when a draft is
+    # later published).
+    for w in Website.query.all():
+        w.store_enabled = new_val
     db.session.commit()
-    return _utf8_json({'store_enabled': website.store_enabled})
+    return _utf8_json({'store_enabled': new_val})
 
 
 @app.route('/admin/store/toggle-in-store-only', methods=['POST'])
