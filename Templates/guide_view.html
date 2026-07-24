@@ -15,6 +15,9 @@
 /* Sidebar header — clickable on mobile, passive on desktop. Holds the
    progress bar (when tracking) or a fallback "Contents" label. */
 .gv-toggle { display: flex; width: 100%; align-items: center; gap: 12px; padding: 14px 18px; background: none; border: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+/* The progress-ring circle is ONLY for the collapsed mobile pill — hide it by
+   default so it doesn't leak into the desktop header next to the progress bar. */
+.gv-ring { display: none; }
 .gv-toggle-content { flex: 1; min-width: 0; }
 .gv-toggle-default { font-size: 0.85rem; font-weight: 700; }
 .gv-toggle-default-sub { font-size: 0.74rem; font-weight: 600; opacity: 0.5; margin-top: 2px; }
@@ -45,6 +48,16 @@
 .gv-main { min-width: 0; }
 .gv-cover { width: 100%; max-height: 360px; object-fit: cover; border-radius: 16px; margin-bottom: 28px; }
 .gv-h1 { font-size: 2rem; font-weight: 800; margin: 0 0 10px; }
+/* "Lesson X of Y" position indicator shown just under the lesson title. */
+.gv-h1-lesson {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 0 0 24px; padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(94,238,248,0.1);
+    border: 1px solid rgba(94,238,248,0.25);
+    color: #9df3fb; font-size: 0.8rem; font-weight: 700;
+}
+.gv-h1-lesson i { font-size: 0.72rem; }
 .gv-guide-desc { opacity: 0.6; font-size: 1rem; line-height: 1.6; margin: 0 0 28px; }
 .gv-content { font-size: 1rem; line-height: 1.75; }
 .gv-content img { max-width: 100%; height: auto; border-radius: 8px; }
@@ -93,11 +106,117 @@
    sitting just below the public navbar. Tap the header (which shows the
    progress bar or a "Contents" label) to reveal the TOC + back link. ── */
 @media (max-width: 820px) {
+    /* The progress/navigator bar is position:fixed in BOTH states (expanded bar
+       AND collapsed pill), so it never leaves the flow: the content keeps a
+       constant top clearance and can't jump when it collapses, and the bar's
+       geometry (top/left/right/radius) animates smoothly between the two. It's
+       styled as a continuation of the public navbar (same material, width, radius)
+       so together they read as the navbar "expanded down" with progress embedded. */
     .gv-layout { grid-template-columns: 1fr; gap: 14px; padding: 14px 12px 60px; }
-    .gv-sidebar { position: sticky; top: var(--navbar-page-offset, 58px); z-index: 60; border-radius: 0; border-left: none; border-right: none; margin: -14px -12px 0; background: rgba(18,18,28,0.94); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-    .gv-sidebar-body { display: none; max-height: 65vh; overflow-y: auto; }
+    /* Reserve the fixed bar's height by padding the SHELL (a normal block) — the
+       navbar's own clearance PLUS the bar height — so page content (the lesson
+       title) always starts below the bar. Done here rather than on the flex
+       flash-wrap, whose empty margins don't reliably reserve space. */
+    .public-page-shell {
+        padding-top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px)
+                          + var(--navbar-page-offset, 58px) - var(--navbar-margin, 0px));
+    }
+    .public-flash-wrap { margin-top: 0; }
+
+    .gv-sidebar {
+        position: fixed; z-index: 60;
+        top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px));
+        left: var(--navbar-margin, 0px);
+        right: var(--navbar-margin, 0px);
+        height: calc(var(--navbar-page-offset, 58px) - var(--navbar-margin, 0px));   /* = navbar height */
+        margin: 0; border: none;
+        border-radius: 0 0 var(--navbar-radius, 0px) var(--navbar-radius, 0px);
+        background: var(--navbar-background, rgba(18,18,28,0.94));
+        backdrop-filter: var(--navbar-blur, blur(14px));
+        -webkit-backdrop-filter: var(--navbar-blur, blur(14px));
+        box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        overflow: hidden;
+        transition: top 0.34s ease, left 0.34s ease, right 0.34s ease, border-radius 0.34s ease;
+    }
+    .gv-toggle { height: calc(var(--navbar-page-offset, 58px) - var(--navbar-margin, 0px)); align-items: center; }
+    /* Open contents: the bar grows downward into a scrollable panel. */
+    .gv-sidebar.is-open { height: auto; max-height: 82vh; overflow-y: auto; }
+    .gv-sidebar-body { display: none; }
     .gv-sidebar.is-open .gv-sidebar-body { display: block; }
+
+    /* Progress ring — shown only in the collapsed pill. */
+    .gv-ring { display: none; position: relative; width: 40px; height: 40px; flex-shrink: 0; }
+    .gv-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+    .gv-ring-track { fill: none; stroke: rgba(255,255,255,0.16); stroke-width: 4; }
+    .gv-ring-fill { fill: none; stroke: #5eeef8; stroke-width: 4; stroke-linecap: round;
+        stroke-dasharray: 106.8; stroke-dashoffset: 106.8; transition: stroke-dashoffset 0.45s ease; }
+    .gv-ring-num { position: absolute; inset: 0; display: flex; align-items: center;
+        justify-content: center; font-size: 0.86rem; font-weight: 800; line-height: 1; }
+
+    /* Collapsed: the bar's bottom + left sweep up-and-right into a horizontal pill
+       butting the LEFT of the navbar's collapsed hamburger (now on the right) —
+       one horizontal pill [ring | hamburger]. Only top/left/right/radius change,
+       so it animates. */
+    .gv-sidebar.gv-collapsed {
+        top: calc(var(--navbar-margin, 0px) + env(safe-area-inset-top, 0px));
+        left: calc(100% - var(--navbar-margin, 0px) - 103px);
+        right: calc(var(--navbar-margin, 0px) + 51px);   /* 52px wide, 1px overlap left of the hamburger */
+        border-radius: 999px 0 0 999px;   /* rounded-left (outer), flat-right fuses with the pill */
+    }
+    .gv-sidebar.gv-collapsed .gv-toggle { padding: 0 0 0 4px; justify-content: center; }
+    .gv-sidebar.gv-collapsed .gv-toggle-content,
+    .gv-sidebar.gv-collapsed .gv-chev { display: none; }
+    .gv-sidebar.gv-collapsed .gv-ring { display: block; }
+
+    /* Collapsed AND open: the ring pill STAYS in place (so tapping it again from
+       that same spot closes it); the contents drop as a fixed panel below it
+       rather than expanding the pill. */
+    .gv-sidebar.gv-collapsed.is-open {
+        height: calc(var(--navbar-page-offset, 58px) - var(--navbar-margin, 0px)) !important;
+        overflow: visible !important;
+    }
+    .gv-sidebar.gv-collapsed.is-open .gv-sidebar-body {
+        display: block;
+        /* The pill has backdrop-filter, so it's this fixed panel's containing
+           block — position relative to the pill: drop just below it, right-aligned
+           to its edge, and grow OUT of the circle (transform-origin top-right). */
+        position: fixed;
+        top: calc(100% + 3px);
+        right: 0;
+        left: auto;
+        width: min(330px, 84vw);
+        max-height: 72vh;
+        overflow-y: auto;
+        margin: 0;
+        background: rgba(18,18,28,0.98);
+        -webkit-backdrop-filter: blur(12px);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 16px 8px 16px 16px;   /* pinched near the ring (top-right) */
+        box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+        padding: 12px 14px;
+        z-index: 59;
+        transform-origin: top right;
+        animation: gvDropIn 0.2s ease;
+    }
+    @keyframes gvDropIn {
+        from { opacity: 0; transform: scale(0.8) translateY(-6px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    /* Highlight the ring pill while its panel is open. */
+    .gv-sidebar.gv-collapsed.is-open .gv-ring-track { stroke: rgba(94,238,248,0.35); }
 }
+
+/* "Lesson X of Y" indicator in the contents panel. */
+.gv-lesson-count {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 2px 0 10px; padding: 4px 11px;
+    border-radius: 999px;
+    background: rgba(94,238,248,0.12);
+    border: 1px solid rgba(94,238,248,0.28);
+    color: #9df3fb; font-size: 0.78rem; font-weight: 700;
+}
+.gv-lesson-count i { font-size: 0.72rem; }
 
 /* "Log in to save your progress" offer, shown to signed-out readers when the
    site has public accounts and this guide tracks progress. */
@@ -137,10 +256,19 @@
     <aside class="gv-sidebar {% if not guide.track_progress %}no-progress{% endif %}" id="gvSidebar">
         <button type="button" class="gv-toggle" id="gvToggleBtn" onclick="gvToggleSidebar()"
                 aria-expanded="false" aria-controls="gvSidebarBody">
+            {# Collapsed state only (mobile, scrolled): a progress ring with the
+               current lesson number, tucked under the navbar hamburger. #}
+            <span class="gv-ring" aria-hidden="true">
+                <svg viewBox="0 0 40 40">
+                    <circle class="gv-ring-track" cx="20" cy="20" r="17"></circle>
+                    <circle class="gv-ring-fill" cx="20" cy="20" r="17" id="gvRingFill"></circle>
+                </svg>
+                <span class="gv-ring-num" id="gvRingNum">{{ lesson_index or '·' }}</span>
+            </span>
             <div class="gv-toggle-content">
                 {% if guide.track_progress %}
                 <div class="gv-progress" id="gvProgress" style="display:none;">
-                    <div class="gv-progress-label"><span id="gvProgressText">0 of 0 lessons</span><span id="gvProgressPct">0%</span></div>
+                    <div class="gv-progress-label"><span id="gvProgressText">0 of 0 lessons completed</span><span id="gvProgressPct">0%</span></div>
                     <div class="gv-progress-track"><div class="gv-progress-fill" id="gvProgressFill"></div></div>
                 </div>
                 {% endif %}
@@ -153,6 +281,9 @@
         <div class="gv-sidebar-body" id="gvSidebarBody">
             <a class="gv-back-link" href="{{ _base }}"><i class="fas fa-arrow-left"></i> All guides</a>
             <h2 class="gv-guide-title"><a href="{{ _base }}/{{ guide.slug }}">{{ guide.title }}</a></h2>
+            {% if lesson_index %}
+            <div class="gv-lesson-count"><i class="fas fa-location-dot"></i> Lesson {{ lesson_index }} of {{ lesson_total }}</div>
+            {% endif %}
             <a class="gv-back-link" href="{{ _base }}/{{ guide.slug }}/print" target="_blank" rel="noopener"><i class="fas fa-file-pdf"></i> Save as PDF</a>
             {% if guide.track_progress and navbar_public_accounts_enabled and not navbar_public_user %}
             {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
@@ -191,6 +322,9 @@
     <main class="gv-main">
         {% if node %}
         <h1 class="gv-h1">{{ node.title }}</h1>
+        {% if lesson_index %}
+        <div class="gv-h1-lesson"><i class="fas fa-location-dot"></i> Lesson {{ lesson_index }} of {{ lesson_total }}</div>
+        {% endif %}
         <div class="gv-content">{{ node.content | safe }}</div>
 
         <nav class="gv-nav">
@@ -251,13 +385,48 @@
 
 <script>
 window.UW_GUIDE_NODE_ID = {{ node.id if node else 'null' }};
+function gvSetSidebarOpen(open) {
+    const s = document.getElementById('gvSidebar');
+    if (!s) return;
+    s.classList.toggle('is-open', open);
+    const btn = document.getElementById('gvToggleBtn');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (window.__gvCollapseUpdate) window.__gvCollapseUpdate();
+}
 function gvToggleSidebar() {
     const s = document.getElementById('gvSidebar');
     if (!s) return;
-    const open = s.classList.toggle('is-open');
-    const btn = document.getElementById('gvToggleBtn');
-    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    gvSetSidebarOpen(!s.classList.contains('is-open'));
 }
+
+// Collapse-on-scroll for the progress/navigator bar, mirroring the navbar.
+(function () {
+    const s = document.getElementById('gvSidebar');
+    if (!s) return;
+    // Click/tap anywhere outside the bar (or its dropdown) closes the contents.
+    document.addEventListener('click', function (e) {
+        if (!s.classList.contains('is-open')) return;
+        if (s.contains(e.target)) return;   // the pill/toggle or the panel itself
+        gvSetSidebarOpen(false);
+    });
+    // Mark the page so the navbar squares its bottom to fuse with the embedded
+    // progress bar (CSS gates the effect to mobile).
+    document.documentElement.classList.add('gv-guide');
+    const isMobile = () => window.matchMedia('(max-width: 820px)').matches;
+    function update() {
+        // Stay collapsed (the ring pill) even while the contents are open, so the
+        // ring keeps its spot as the open/close toggle (the contents drop from it).
+        const collapse = isMobile() && window.scrollY > 200;
+        s.classList.toggle('gv-collapsed', collapse);
+        // Tell the navbar a progress circle is tucked under it, so its collapsed
+        // hamburger pill squares off its bottom to merge into one capsule.
+        document.documentElement.classList.toggle('gv-nav-merge', collapse);
+    }
+    window.__gvCollapseUpdate = update;
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+})();
 </script>
 <script src="{{ url_for('static', filename='js/guide_quiz.js') }}"></script>
 {% if guide.track_progress %}
@@ -276,10 +445,13 @@ function gvToggleSidebar() {
             document.querySelectorAll('.gv-toggle-default, .gv-toggle-default-sub')
                 .forEach(el => { el.style.display = 'none'; });
             document.getElementById('gvProgressText').textContent =
-                d.completed + ' of ' + d.total + ' lesson' + (d.total === 1 ? '' : 's');
+                d.completed + ' of ' + d.total + ' lesson' + (d.total === 1 ? '' : 's') + ' completed';
             document.getElementById('gvProgressPct').textContent = d.percent + '%';
             document.getElementById('gvProgressFill').style.width = d.percent + '%';
         }
+        // Collapsed progress-ring: circumference 2·π·17 ≈ 106.8.
+        const ring = document.getElementById('gvRingFill');
+        if (ring) ring.style.strokeDashoffset = (106.8 * (1 - (d.percent || 0) / 100)).toFixed(1);
         const done = new Set(d.completed_node_ids || []);
         document.querySelectorAll('.gv-toc-link[data-node-id]').forEach(a => {
             if (done.has(parseInt(a.getAttribute('data-node-id')))) a.classList.add('is-done');
