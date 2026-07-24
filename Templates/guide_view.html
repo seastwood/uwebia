@@ -8,9 +8,13 @@
 
 {% block head %}
 <style>
+/* The guide progress bar / navigator has its OWN consistent surface — a dark
+   grey→black gradient — so it looks good regardless of the site's navbar colour. */
+:root { --gv-surface: linear-gradient(165deg, #212129 0%, #191920 55%, #141418 100%); }
+
 .gv-layout { display: grid; grid-template-columns: 270px 1fr; gap: 36px; max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; align-items: start; }
 
-.gv-sidebar { position: sticky; top: 20px; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background: rgba(20,20,30,0.92); overflow: hidden; padding: 0; }
+.gv-sidebar { position: sticky; top: 20px; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background: var(--gv-surface); overflow: hidden; padding: 0; }
 
 /* Sidebar header — clickable on mobile, passive on desktop. Holds the
    progress bar (when tracking) or a fallback "Contents" label. */
@@ -131,10 +135,13 @@
         height: calc(var(--navbar-page-offset, 58px) - var(--navbar-margin, 0px));   /* = navbar height */
         margin: 0; border: none;
         border-radius: 0 0 var(--navbar-radius, 0px) var(--navbar-radius, 0px);
-        background: var(--navbar-background, rgba(18,18,28,0.94));
-        backdrop-filter: var(--navbar-blur, blur(14px));
-        -webkit-backdrop-filter: var(--navbar-blur, blur(14px));
-        box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        background: var(--gv-surface);
+        /* Keep a backdrop-filter so the collapsed pill is the contents panel's
+           containing block (the panel drops relative to it) — the opaque gradient
+           hides the blur itself. */
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: 0 6px 18px rgba(0,0,0,0.3);
         overflow: hidden;
         transition: top 0.34s ease, left 0.34s ease, right 0.34s ease, border-radius 0.34s ease;
     }
@@ -188,9 +195,7 @@
         max-height: 72vh;
         overflow-y: auto;
         margin: 0;
-        background: rgba(18,18,28,0.98);
-        -webkit-backdrop-filter: blur(12px);
-        backdrop-filter: blur(12px);
+        background: var(--gv-surface);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 16px 8px 16px 16px;   /* pinched near the ring (top-right) */
         box-shadow: 0 12px 30px rgba(0,0,0,0.4);
