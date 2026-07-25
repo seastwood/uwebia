@@ -2,6 +2,10 @@
 
 A self-hosted, single-user CMS — Flask + PostgreSQL, with a drag-and-drop page editor, public navbar, posts, calendar, store, and forum.
 
+<a href="https://buymeacoffee.com/eastwoodsee"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
+
+If you find Uwebia useful, consider [buying me a coffee](https://buymeacoffee.com/eastwoodsee) ☕
+
 You can run it three ways:
 
 1. **Docker Compose with the prebuilt image** — fastest, no build step.
