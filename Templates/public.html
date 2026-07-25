@@ -2040,7 +2040,20 @@ body.public-page-body {
        the whole document and scroll with the page, instead of a fixed viewport
        gradient parking a flat colour band behind the bottom URL bar. */
     position: {% if website.background_image_url %}fixed{% else %}absolute{% endif %};
+{% if website.background_image_url %}
+    /* Anchor to the top and size to the LARGE viewport. A fixed `bottom: 0`
+       sticks to the SMALL-viewport bottom on iOS Safari (the top of the bottom
+       URL bar), so the image stopped there and the html background showed
+       through behind the URL bar / home-indicator as a bottom "border". Sizing
+       to `lvh` (the URL-bar-hidden height) makes the image reach the physical
+       bottom edge. `vh` is the pre-lvh fallback (already the large viewport on
+       older iOS). */
+    top: 0; left: 0; right: 0; bottom: auto;
+    height: 100vh;
+    height: 100lvh;
+{% else %}
     inset: 0;
+{% endif %}
     z-index: 0;
     pointer-events: none;
     /* No translateZ(0): forcing this fixed layer onto its own GPU layer makes
