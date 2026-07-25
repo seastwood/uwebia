@@ -2052,6 +2052,10 @@ body.public-page-body {
 .content-area {
     position: relative;
     z-index: 1;
+    /* Small breathing room below the fixed navbar so the first section never sits
+       under it — static padding (part of the initial layout), so it can't affect
+       scrolling. JS above refines it to the navbar's real height. */
+    padding-top: 10px;
 }
 
 /* Navbar must always sit above public groups/rows/sections */
@@ -5394,6 +5398,7 @@ box-sizing: border-box;
                                             </div>
                                             {% endif %}
                                             {% if r.title %}<div class="rv-card-title">{{ r.title }}</div>{% endif %}
+                                            <div class="rv-card-scroll">
                                             {% if r.body %}<p class="rv-card-body">{{ r.body }}</p>{% endif %}
                                             {% if r.owner_reply %}
                                             <div class="rv-reply">
@@ -5401,6 +5406,8 @@ box-sizing: border-box;
                                                 <p>{{ r.owner_reply }}</p>
                                             </div>
                                             {% endif %}
+                                            </div>
+                                            <span class="rv-scroll-cue" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
                                         </article>
                                         {% endfor %}
                                     </div>
@@ -5439,7 +5446,7 @@ box-sizing: border-box;
                                     {% endif %}
                                 </div>
                                 <style>
-                                #rv-section-{{ section.id }} { margin: 8px 0; }
+                                #rv-section-{{ section.id }} { margin: 8px 0; scroll-margin-top: var(--navbar-anchor-offset, 78px); }
                                 /* Summary strip: average + stars + count */
                                 #rv-section-{{ section.id }} .rv-summary { display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
                                 #rv-section-{{ section.id }} .rv-sum-num { font-size:1.9rem; font-weight:800; line-height:1; }
@@ -5470,7 +5477,23 @@ box-sizing: border-box;
                                 #rv-section-{{ section.id }} .rv-spot-dot { width:9px; height:9px; padding:0; border-radius:50%; border:none; background:rgba(127,127,127,0.35); cursor:pointer; transition:background .2s ease, transform .2s ease; }
                                 #rv-section-{{ section.id }} .rv-spot-dot.on { background:var(--rv-accent); transform:scale(1.25); }
                                 /* Card */
-                                #rv-section-{{ section.id }} .rv-card { display:flex; flex-direction:column; background:rgba(127,127,127,0.09); border:1px solid rgba(127,127,127,0.2); border-radius:14px; padding:20px 22px; box-shadow:0 2px 10px rgba(0,0,0,0.07); transition:transform .18s ease, box-shadow .18s ease; }
+                                #rv-section-{{ section.id }} .rv-card { display:flex; flex-direction:column; height:var(--rv-card-h,320px); background:rgba(127,127,127,0.09); border:1px solid rgba(127,127,127,0.2); border-radius:14px; padding:20px 22px; box-shadow:0 2px 10px rgba(0,0,0,0.07); transition:transform .18s ease, box-shadow .18s ease; }
+                                /* Fixed card height so a long review doesn't stretch the section — the head,
+                                   rating and title stay pinned and the body/reply scroll inside. */
+                                #rv-section-{{ section.id }} .rv-card-head,
+                                #rv-section-{{ section.id }} .rv-meta,
+                                #rv-section-{{ section.id }} .rv-card-title { flex:0 0 auto; }
+                                #rv-section-{{ section.id }} .rv-card-scroll { flex:1 1 auto; min-height:0; overflow-y:auto; overflow-wrap:anywhere; scrollbar-width:thin; scrollbar-color:rgba(127,127,127,0.45) transparent; margin-right:-8px; padding-right:8px; }
+                                #rv-section-{{ section.id }} .rv-card-scroll::-webkit-scrollbar { width:6px; }
+                                #rv-section-{{ section.id }} .rv-card-scroll::-webkit-scrollbar-thumb { background:rgba(127,127,127,0.4); border-radius:3px; }
+                                #rv-section-{{ section.id }} .rv-card-scroll::-webkit-scrollbar-track { background:transparent; }
+                                /* "Scroll for more" cue: fade the bottom of the body + a bouncing chevron,
+                                   shown only when the body actually overflows (JS toggles .rv-more). */
+                                #rv-section-{{ section.id }} .rv-card { position:relative; }
+                                #rv-section-{{ section.id }} .rv-card.rv-more .rv-card-scroll { -webkit-mask-image:linear-gradient(to bottom,#000 76%,transparent); mask-image:linear-gradient(to bottom,#000 76%,transparent); }
+                                #rv-section-{{ section.id }} .rv-scroll-cue { position:absolute; left:0; right:0; bottom:6px; text-align:center; color:var(--rv-accent); font-size:0.82rem; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+                                #rv-section-{{ section.id }} .rv-card.rv-more .rv-scroll-cue { opacity:0.9; animation:rvCue{{ section.id }} 1.5s ease-in-out infinite; }
+                                @keyframes rvCue{{ section.id }} { 0%,100% { transform:translateY(0); } 50% { transform:translateY(3px); } }
                                 #rv-section-{{ section.id }} .rv-grid.rv-style-cards .rv-card:hover,
                                 #rv-section-{{ section.id }} .rv-grid.rv-style-carousel .rv-card:hover { transform:translateY(-3px); box-shadow:0 10px 26px rgba(0,0,0,0.13); }
                                 #rv-section-{{ section.id }} .rv-card { text-align:left; }
@@ -7644,6 +7667,45 @@ async function rvSubmitReview(event, sectionId) {
     }
     return false;
 }
+
+/* ── Reviews: show a "scroll for more" cue when a card's body overflows ── */
+document.querySelectorAll('.rv-card').forEach(function (card) {
+    const sc = card.querySelector('.rv-card-scroll');
+    if (!sc) return;
+    function upd() {
+        card.classList.toggle('rv-more', sc.scrollHeight - sc.clientHeight - sc.scrollTop > 6);
+    }
+    upd();
+    sc.addEventListener('scroll', upd, { passive: true });
+    window.addEventListener('resize', upd);
+    window.addEventListener('load', upd);
+    setTimeout(upd, 350);   // after fonts/images settle the height
+});
+</script>
+
+<script>
+/* Clear the fixed navbar off the top of the content. Only the content-area's
+   PADDING is touched (never the body/scroll-root and never a margin — those broke
+   scrolling). padding-top does NOT move the content-area's border box, so
+   measuring its top can't feed back into the value → no loop, no scroll impact.
+   Falls back to the 30px static CSS if JS is off. */
+(function () {
+    const nav = document.querySelector('.public-navbar');
+    const ca = document.querySelector('.content-area');
+    if (!nav || !ca) return;
+    function sync() {
+        const navBottom = nav.getBoundingClientRect().bottom;             // fixed bar's bottom edge (viewport)
+        const caTop = ca.getBoundingClientRect().top + window.scrollY;    // content-area's DOCUMENT top (scroll-independent)
+        let pad = Math.ceil(navBottom - caTop + 8);                       // clear the bar + a small gap
+        if (pad < 10) pad = 10;                                 // keep a little base spacing
+        if (pad > 220) pad = 10;                                // ignore implausible reads
+        ca.style.paddingTop = pad + 'px';
+    }
+    sync();
+    window.addEventListener('load', sync);
+    window.addEventListener('resize', sync);
+    setTimeout(sync, 350);   // after web fonts change the bar height
+})();
 </script>
 </body>
 
