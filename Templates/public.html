@@ -215,14 +215,10 @@
         }
     }
 
-    /* The bottom safe-area "border" strip sits ABOVE the content (z-index 5) and
-       covers it in the home-indicator / translucent-URL-bar zone. With NO
-       background image we hide it so the background flows to the bottom behind
-       the bar. When a background image IS set we keep it: it forms a fixed
-       bottom border the content scrolls behind (matching the top). */
-    {% if not website.background_image_url %}
+    /* The bottom safe-area "border" strip is never used: with a background image
+       the fixed image now fills the bottom safe-area, and without one the solid
+       background flows to the bottom behind the URL bar. Hide it everywhere. */
     .site-safe-area-painter.bottom { display: none !important; }
-    {% endif %}
 
     html,
     body {
@@ -2049,6 +2045,16 @@ body.public-page-body {
     pointer-events: none;
     /* No translateZ(0): forcing this fixed layer onto its own GPU layer makes
        iOS Safari paint it OVER content in the bottom URL-bar zone. */
+}
+
+/* Inner image layer. Fills the fixed parent (so it reaches every screen edge,
+   safe-areas included) and carries the optional blur/scale here — on a NON-fixed
+   element — so the composited-fixed safe-area clip never applies. */
+.site-fixed-background-img {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
 }
 
 /* Only the actual page content sits above the fixed background */
@@ -4176,9 +4182,17 @@ body.public-page-body {
 color: {{ website.text_color or '#000000' }};
 ">
 {% set bg_blur = website.background_image_blur or 0 %}
-<div class="site-fixed-background" aria-hidden="true" style="
-
+<div class="site-fixed-background" aria-hidden="true">
     {% if website.background_image_url %}
+    {# The image (and its blur/scale) live on an INNER absolutely-positioned
+       layer, NOT on the fixed parent. A filter/transform applied directly to a
+       position:fixed element makes iOS Safari promote it to a composited layer
+       that is clipped OUT of the top/bottom safe-areas — so a blurred image
+       stops short of the screen edges and the solid html background shows
+       through there as a "border". Keeping the fixed parent transform-free lets
+       it fill the whole screen; the inner layer (absolute, not fixed) carries
+       the blur/scale without triggering that clip. #}
+    <div class="site-fixed-background-img" style="
         background-image: url('{{ website.background_image_url }}');
 
         {% set bg_zoom = website.background_image_zoom or 100 %}
@@ -4198,23 +4212,21 @@ color: {{ website.text_color or '#000000' }};
         {% else %}
             background-repeat: no-repeat;
             background-position: center center;
-            {# Previously sized as `<zoom>% auto`, which left bands at the
-               top/bottom on landscape images because the height was
-               auto-scaled to match width. `cover` scales the image to
-               fill the entire viewport (including iOS status-bar /
-               home-indicator safe-areas) with aspect preserved,
-               cropping as needed. The zoom slider is no longer applied
-               in no-repeat mode — it still controls the tile size when
-               either repeat option is on. #}
+            {# `cover` scales the image to fill the entire viewport (including
+               iOS status-bar / home-indicator safe-areas) with aspect
+               preserved, cropping as needed. The zoom slider is not applied in
+               no-repeat mode — it still controls the tile size when a repeat
+               option is on. #}
             background-size: cover;
         {% endif %}
 
         {% if bg_blur > 0 %}
             filter: blur({{ bg_blur }}px);
-            transform: translateZ(0) scale(1.08);
+            transform: scale(1.08);
         {% endif %}
+    "></div>
     {% endif %}
-"></div>
+</div>
 
 {% set overlay_color = website.background_image_overlay_color %}
 {% set overlay_opacity = (website.background_image_overlay_opacity or 0) | int %}
@@ -4274,7 +4286,7 @@ color: {{ website.text_color or '#000000' }};
 {% if website.background_image_url and website.background_image_repeat and website.background_image_mobile_cover %}
 <style>
 @media (max-width: 760px) {
-    .site-fixed-background {
+    .site-fixed-background-img {
         background-repeat: no-repeat !important;
         background-position: center center !important;
         background-size: cover !important;
@@ -4296,13 +4308,12 @@ color: {{ website.text_color or '#000000' }};
      the very top (margin 0), where it backs the status bar. For a FLOATING
      navbar (margin > 0) it would sit behind the phone icons, so it's dropped
      and the background flows up through the top. Bottom strip stays off. #}
-{% if website.background_image_url %}
-  {# Image set: frame BOTH edges so content scrolls behind them. This applies
-     even when the navbar uses transparent/floating chrome (_borders_on false) —
-     the user always wants the fixed border frame when a background image is set. #}
-<div class="site-safe-area-painter top" aria-hidden="true"></div>
-<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
-{% elif _borders_on and navbar_margin == 0 %}
+{# When a background IMAGE is set, render NO painters — the fixed image layer
+   now fills the entire screen (safe-areas included, see the blur fix on the
+   inner image layer), so an opaque strip would only cover it back up. Painters
+   exist solely to back the status bar with the solid background color on
+   image-less sites with a top-docked navbar. #}
+{% if not website.background_image_url and _borders_on and navbar_margin == 0 %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
 {% endif %}
 
