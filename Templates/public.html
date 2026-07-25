@@ -216,10 +216,13 @@
     }
 
     /* The bottom safe-area "border" strip sits ABOVE the content (z-index 5) and
-       covers it in the home-indicator / translucent-URL-bar zone. It only ever
-       has height where a safe area exists (0 elsewhere), so hide it everywhere —
-       the full-screen background flows to the bottom behind the bar instead. */
+       covers it in the home-indicator / translucent-URL-bar zone. With NO
+       background image we hide it so the background flows to the bottom behind
+       the bar. When a background image IS set we keep it: it forms a fixed
+       bottom border the content scrolls behind (matching the top). */
+    {% if not website.background_image_url %}
     .site-safe-area-painter.bottom { display: none !important; }
+    {% endif %}
 
     html,
     body {
@@ -4284,12 +4287,22 @@ color: {{ website.text_color or '#000000' }};
    bottom = last. The bottom strip is independently suppressed via the
    `no_bottom_border` website-style option so the background image can
    extend through the home-indicator safe-area. #}
-{# Top border strip only when the navbar is docked to the very top (margin 0),
-   where it backs the status bar. For a FLOATING navbar (margin > 0) it would sit
-   behind the phone icons as a border, so drop it and let the scrolling
-   background flow up through the top. Bottom painter removed entirely. #}
-{% if _borders_on and navbar_margin == 0 %}
+{# Safe-area border strips (fixed, sit ABOVE the page content).
+   • Background IMAGE set: frame BOTH edges. The content — including the fixed
+     background image — scrolls BEHIND these strips, so the top/bottom borders
+     read as a clean fixed frame the page slides under (rather than the content
+     stopping in front of them).
+   • No image: original behavior — top strip only when the navbar is docked to
+     the very top (margin 0), where it backs the status bar. For a FLOATING
+     navbar (margin > 0) it would sit behind the phone icons, so it's dropped
+     and the background flows up through the top. Bottom strip stays off. #}
+{% if _borders_on %}
+  {% if website.background_image_url %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
+<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
+  {% elif navbar_margin == 0 %}
+<div class="site-safe-area-painter top" aria-hidden="true"></div>
+  {% endif %}
 {% endif %}
 
     {% include 'components/public_navbar.html' %}
