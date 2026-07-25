@@ -4296,13 +4296,14 @@ color: {{ website.text_color or '#000000' }};
      the very top (margin 0), where it backs the status bar. For a FLOATING
      navbar (margin > 0) it would sit behind the phone icons, so it's dropped
      and the background flows up through the top. Bottom strip stays off. #}
-{% if _borders_on %}
-  {% if website.background_image_url %}
+{% if website.background_image_url %}
+  {# Image set: frame BOTH edges so content scrolls behind them. This applies
+     even when the navbar uses transparent/floating chrome (_borders_on false) —
+     the user always wants the fixed border frame when a background image is set. #}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
 <div class="site-safe-area-painter bottom" aria-hidden="true"></div>
-  {% elif navbar_margin == 0 %}
+{% elif _borders_on and navbar_margin == 0 %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
-  {% endif %}
 {% endif %}
 
     {% include 'components/public_navbar.html' %}
