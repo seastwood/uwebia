@@ -3,13 +3,18 @@
 
 <head>
     <meta charset="UTF-8">
+    {# viewport-fit=cover so content extends edge-to-edge and the top/bottom
+       safe-area zones exist (env(safe-area-inset-*) are non-zero). The navbar
+       backs the top zone and the .site-safe-area-painter strips back the bottom
+       (and top, regardless of navbar margin) — all composited via backdrop-filter
+       so they paint over content from the first frame. #}
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     {# Declare both color schemes so iOS Safari doesn't apply its own dark
        overlay (which can mask theme-color and paint chrome black). #}
     <meta name="color-scheme" content="light dark">
-    {# Home-screen "app" mode: launch full-screen (removes the Safari chrome that
-       ate the top/bottom edges). `default` keeps the status bar above the
-       content so the navbar layout is untouched. Mirrors public_base.html. #}
+    {# Home-screen "app" mode. Keep `default` so the browser/OS chrome uses its
+       native translucent ("liquid glass") appearance — `black-translucent`
+       forced a solid dark bar. #}
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -113,6 +118,10 @@
     {% set _border_top        = _site_bg_solid_top if _has_explicit_bg else (_img_edge_top or _site_bg_solid_top) %}
     {% set _border_bot        = _site_bg_solid_bot if _has_explicit_bg else (_img_edge_bot or _site_bg_solid_bot) %}
     {% set _borders_on        = not website.public_navbar_transparent_chrome %}
+    {# Navbar background + blur, reused for the safe-area strips so the bottom
+       zone matches the top (which is backed by the navbar's own ::before). #}
+    {% set _nav_bg            = (website.public_navbar_style or {}).get('background', 'rgba(20,20,20,0.9)') %}
+    {% set _nav_blur          = (website.public_navbar_style or {}).get('blur', 14) %}
     {# When mobile-cover is enabled, the user explicitly wants the image
        to fill the *entire* mobile screen including the URL bar area. The
        opaque URL bar can't be removed, but suppressing theme-color on
@@ -120,23 +129,34 @@
        translucent in compact/scrolled mode), which is the closest we
        can get to "image fills everything". On larger screens the bar
        still tints to the first gradient stop as configured. #}
-    {% if _borders_on %}
+    {# Only tint the browser chrome when there is NO background image. On
+       image pages we leave theme-color unset so the address bar keeps its
+       native translucent "liquid glass" look instead of a solid tinted bar. #}
+    {% if _borders_on and not website.background_image_url %}
     <meta name="theme-color" content="{{ _border_top }}">
     <script>
       (function(){
-        // iOS Safari sometimes paints the URL bar with a stale color on
-        // initial load (bfcache, reload) and only updates after the user
-        // scrolls. Re-set the meta on DOMContentLoaded to force re-read.
+        // iOS Safari often leaves the status bar / URL bar chrome UNPAINTED
+        // with the theme-color at load (content shows through) and only applies
+        // it after the first scroll. Force a repaint by toggling the meta to a
+        // near-identical shade and back — repeated across load/pageshow plus a
+        // couple of delayed retries, since a single early toggle is frequently
+        // dropped. The alt shade differs by one low-nibble step so there's no
+        // visible flash.
+        var m=document.querySelector('meta[name="theme-color"]');
+        if(!m)return;
+        var v=m.getAttribute('content');
+        var alt=(v&&v.length===7)?(v.slice(0,6)+(v.charAt(6).toLowerCase()==='a'?'b':'a')):'#000001';
         function tickle(){
-          var m=document.querySelector('meta[name="theme-color"]');
-          if(!m)return;
-          var v=m.getAttribute('content');
-          m.setAttribute('content','#ffffff');
+          m.setAttribute('content',alt);
           requestAnimationFrame(function(){ m.setAttribute('content',v); });
         }
+        function run(){ tickle(); setTimeout(tickle,150); setTimeout(tickle,500); }
         if(document.readyState==='loading'){
-          document.addEventListener('DOMContentLoaded',tickle,{once:true});
-        }else{tickle();}
+          document.addEventListener('DOMContentLoaded',run,{once:true});
+        }else{ run(); }
+        window.addEventListener('load',run);
+        window.addEventListener('pageshow',run);
       })();
     </script>
     {% endif %}
@@ -166,6 +186,13 @@
         right: 0;
         pointer-events: none;
         z-index: 5;
+        /* backdrop-filter forces this fixed strip onto its own compositing layer,
+           so iOS paints it ABOVE content from the first frame — the SAME
+           mechanism the navbar's ::before uses to back the top status bar
+           correctly at load. Plain fixed strips (no filter) render BELOW content
+           until a scroll, which is the bug earlier attempts kept hitting. */
+        backdrop-filter: blur({{ _nav_blur }}px);
+        -webkit-backdrop-filter: blur({{ _nav_blur }}px);
       }
       {% if website.public_navbar_bottom_border_blend %}
       /* Soft-fade variant: both borders are gradient strips. Top fades
@@ -187,8 +214,20 @@
         background: linear-gradient(to bottom, transparent 0%, {{ _border_bot }} 100%);
       }
       {% else %}
-      .site-safe-area-painter.top    { top: 0;    height: env(safe-area-inset-top, 0px);    background: {{ _border_top }}; }
-      .site-safe-area-painter.bottom { bottom: 0; height: env(safe-area-inset-bottom, 0px); background: {{ _border_bot }}; }
+      .site-safe-area-painter.top    { top: 0; height: env(safe-area-inset-top, 0px); background: {{ _nav_bg }}; }
+      /* Bottom: env(safe-area-inset-bottom) is 0 while the address bar is
+         EXPANDED, so a bare env-height strip is invisible at load and only
+         appears when the bar shrinks. Size it to the current address-bar overlap
+         instead — (100lvh - 100dvh) is the bar's height now (full at load,
+         shrinking to 0 as you scroll) — plus the home-indicator inset. Anchor
+         from the top via lvh because a fixed `bottom:0` sticks to the SMALL
+         viewport (the top of the bar), not the physical bottom. */
+      .site-safe-area-painter.bottom {
+        top: calc(100dvh - env(safe-area-inset-bottom, 0px));
+        bottom: auto;
+        height: calc(100lvh - 100dvh + env(safe-area-inset-bottom, 0px));
+        background: {{ _nav_bg }};
+      }
       {% endif %}
     </style>
 </head>
@@ -207,18 +246,23 @@
     }
 
     /* Installed home-screen app: add the status-bar clearance to match the
-       navbar's standalone offset, and drop the bottom safe-area painter so the
-       background reaches the bottom edge (no solid bar). Standalone only. */
+       navbar's standalone offset. With a background image the status bar is
+       black-translucent (see the head meta), so the fixed image spans the whole
+       screen top-to-bottom with no borders. Standalone only. */
     @media (display-mode: standalone) {
         .public-page-body {
             padding-top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px));
         }
+        /* The installed app has no browser chrome to frame — hide the strips. */
+        .site-safe-area-painter { display: none !important; }
     }
 
-    /* The bottom safe-area "border" strip is never used: with a background image
-       the fixed image now fills the bottom safe-area, and without one the solid
-       background flows to the bottom behind the URL bar. Hide it everywhere. */
+    /* Bottom strip: on image-less sites it's unused (background flows to the
+       bottom), so hide it. On image sites it's the composited bottom safe-area
+       frame that matches the top. */
+    {% if not website.background_image_url %}
     .site-safe-area-painter.bottom { display: none !important; }
+    {% endif %}
 
     html,
     body {
@@ -4312,20 +4356,12 @@ color: {{ website.text_color or '#000000' }};
    bottom = last. The bottom strip is independently suppressed via the
    `no_bottom_border` website-style option so the background image can
    extend through the home-indicator safe-area. #}
-{# Safe-area border strips (fixed, sit ABOVE the page content).
-   • Background IMAGE set: frame BOTH edges. The content — including the fixed
-     background image — scrolls BEHIND these strips, so the top/bottom borders
-     read as a clean fixed frame the page slides under (rather than the content
-     stopping in front of them).
-   • No image: original behavior — top strip only when the navbar is docked to
-     the very top (margin 0), where it backs the status bar. For a FLOATING
-     navbar (margin > 0) it would sit behind the phone icons, so it's dropped
-     and the background flows up through the top. Bottom strip stays off. #}
-{# When a background IMAGE is set, render NO painters — the fixed image layer
-   now fills the entire screen (safe-areas included, see the blur fix on the
-   inner image layer), so an opaque strip would only cover it back up. Painters
-   exist solely to back the status bar with the solid background color on
-   image-less sites with a top-docked navbar. #}
+{# Safe-area frame strips (fixed, composited via backdrop-filter — see the CSS).
+   • Background IMAGE → NO strips. Both edges are left open so content flows
+     through the top and bottom edges, and the address bar keeps its native
+     translucent "liquid glass" look (a solid strip behind it would tint it dark).
+   • No image → original behavior: top strip only when the navbar is docked to
+     the very top (margin 0). #}
 {% if not website.background_image_url and _borders_on and navbar_margin == 0 %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
 {% endif %}
