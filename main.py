@@ -19595,6 +19595,8 @@ def edit_public_navbar_style(website_id):
         'side_panel_use_navbar_background': side_panel_use_navbar_background,
         # Dock the navbar to the bottom edge on mobile (top on desktop).
         'dock_bottom_mobile': bool(data.get('dock_bottom_mobile', False)),
+        # Collapse the mobile navbar to just the hamburger on scroll-down.
+        'collapse_on_scroll': bool(data.get('collapse_on_scroll', True)),
     }
 
     db.session.commit()
