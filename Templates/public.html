@@ -3,11 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    {# viewport-fit=cover so content extends edge-to-edge and the top/bottom
-       safe-area zones exist (env(safe-area-inset-*) are non-zero). The navbar
-       backs the top zone and the .site-safe-area-painter strips back the bottom
-       (and top, regardless of navbar margin) — all composited via backdrop-filter
-       so they paint over content from the first frame. #}
+    {# viewport-fit=cover so content extends edge-to-edge into the safe areas.
+       The mobile safe-area zones (status bar / address bar) are colored by the
+       browser's own chrome via the theme-color meta below (native, reliable). #}
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     {# Declare both color schemes so iOS Safari doesn't apply its own dark
        overlay (which can mask theme-color and paint chrome black). #}
@@ -128,11 +126,14 @@
        zone matches the top (which is backed by the navbar's own ::before). #}
     {% set _nav_bg            = (website.public_navbar_style or {}).get('background', 'rgba(20,20,20,0.9)') %}
     {% set _nav_blur          = (website.public_navbar_style or {}).get('blur', 14) %}
-    {# Only tint the browser chrome when there is NO background image (i.e.
-       _borders_on). On image pages we leave theme-color unset so the address
-       bar keeps its native translucent "liquid glass" look. #}
-    {% if _borders_on %}
-    <meta name="theme-color" content="{{ _border_top }}">
+    {# NATIVE CHROME: tint the browser's own status/address bars via theme-color.
+       This is the reliable way to color the mobile safe-area zones (iOS Safari
+       won't reliably paint custom fixed strips over content there). iOS uses ONE
+       theme-color for both the top status bar and the bottom address bar, so we
+       pick a single color: the admin's top safe-area color, else the bottom, else
+       the first background color. #}
+    {% set _chrome_color = (website.safe_area_top_color or website.safe_area_bottom_color or _site_bg_solid_top) | opaque_hex %}
+    <meta name="theme-color" content="{{ _chrome_color }}">
     <script>
       (function(){
         // iOS Safari often leaves the status bar / URL bar chrome UNPAINTED
@@ -158,7 +159,6 @@
         window.addEventListener('pageshow',run);
       })();
     </script>
-    {% endif %}
     <style>
       :root {
         --site-bg-color:     {{ _site_bg_raw }};
@@ -173,39 +173,6 @@
       .site-fixed-background {
         background: var(--site-bg-color);
         background-color: var(--site-bg-solid-top);
-      }
-      /* Mobile-browser border painter strips. Rendered only when borders
-         are enabled; one pinned to the top safe-area inset (first stop)
-         and one to the bottom (last stop). Sit above the image+overlay
-         so they cleanly cover whatever's underneath. z-index is below
-         the navbar (which is 100000+). */
-      .site-safe-area-painter {
-        position: fixed;
-        left: 0;
-        right: 0;
-        pointer-events: none;
-        z-index: 5;
-        /* backdrop-filter forces this fixed strip onto its own compositing layer,
-           so iOS paints it ABOVE content from the first frame — the SAME
-           mechanism the navbar's ::before uses to back the top status bar
-           correctly at load. Plain fixed strips (no filter) render BELOW content
-           until a scroll, which is the bug earlier attempts kept hitting. */
-        backdrop-filter: blur({{ _nav_blur }}px);
-        -webkit-backdrop-filter: blur({{ _nav_blur }}px);
-      }
-      .site-safe-area-painter.top    { top: 0; height: env(safe-area-inset-top, 0px); background: {{ _border_top }}; }
-      /* Bottom: env(safe-area-inset-bottom) is 0 while the address bar is
-         EXPANDED, so a bare env-height strip is invisible at load and only
-         appears when the bar shrinks. Size it to the current address-bar overlap
-         instead — (100lvh - 100dvh) is the bar's height now (full at load,
-         shrinking to 0 as you scroll) — plus the home-indicator inset. Anchor
-         from the top via lvh because a fixed `bottom:0` sticks to the SMALL
-         viewport (the top of the bar), not the physical bottom. */
-      .site-safe-area-painter.bottom {
-        top: calc(100dvh - env(safe-area-inset-bottom, 0px));
-        bottom: auto;
-        height: calc(100lvh - 100dvh + env(safe-area-inset-bottom, 0px));
-        background: {{ _border_bot }};
       }
     </style>
 </head>
@@ -224,23 +191,12 @@
     }
 
     /* Installed home-screen app: add the status-bar clearance to match the
-       navbar's standalone offset. With a background image the status bar is
-       black-translucent (see the head meta), so the fixed image spans the whole
-       screen top-to-bottom with no borders. Standalone only. */
+       navbar's standalone offset. */
     @media (display-mode: standalone) {
         .public-page-body {
             padding-top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px));
         }
-        /* The installed app has no browser chrome to frame — hide the strips. */
-        .site-safe-area-painter { display: none !important; }
     }
-
-    /* Bottom strip: on image-less sites it's unused (background flows to the
-       bottom), so hide it. On image sites it's the composited bottom safe-area
-       frame that matches the top. */
-    {% if not website.background_image_url %}
-    .site-safe-area-painter.bottom { display: none !important; }
-    {% endif %}
 
     html,
     body {
@@ -4340,10 +4296,10 @@ color: {{ website.text_color or '#000000' }};
      query), so the image itself extends edge-to-edge into the safe areas.
    • NO background image → no strips at all; the background color is what shows in
      the safe-area zones and content scrolls through the screen edges over it. #}
-{% if website.background_image_url %}
-<div class="site-safe-area-painter top" aria-hidden="true"></div>
-<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
-{% endif %}
+{# Safe-area frame strips are rendered at the END of the body (see just before
+   </body>) — placing them AFTER the scrolling content in the DOM is what makes
+   iOS Safari paint them ABOVE the content from the first frame instead of
+   below-until-scroll. #}
 
     {% include 'components/public_navbar.html' %}
     <!-- {% if content.is_preview %}

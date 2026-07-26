@@ -2227,6 +2227,13 @@ class Website(db.Model):
     background_image_blur = db.Column(db.Integer, nullable=True, default=0)
     background_image_overlay_color = db.Column(db.String(20), nullable=True)
     background_image_overlay_opacity = db.Column(db.Integer, nullable=True, default=0)
+    # Explicit, opaque solid colors for the mobile safe-area frame strips (the
+    # bars behind the status bar / home-indicator on image pages). When set they
+    # are the ONLY color used for the top/bottom strips — independent of the
+    # background gradient and never affected by the image overlay. When null the
+    # strips fall back to the first background color.
+    safe_area_top_color = db.Column(db.String(20), nullable=True)
+    safe_area_bottom_color = db.Column(db.String(20), nullable=True)
 
     public_navbar_items = db.Column(db.JSON, default=list)
     public_navbar_style = db.Column(db.JSON, default=dict)
@@ -10713,6 +10720,11 @@ def edit_website_style(website_id):
     except (ValueError, TypeError):
         website.background_image_overlay_opacity = 0
 
+    # Explicit safe-area frame strip colors (top/bottom). Empty → null → the
+    # strips fall back to the first background color at render time.
+    website.safe_area_top_color = data.get('safe_area_top_color') or None
+    website.safe_area_bottom_color = data.get('safe_area_bottom_color') or None
+
     # Mobile safe-area / chrome behavior (transparent_chrome, no_bottom_border,
     # bottom_border_blend) is now AUTOMATED from whether a background image is set
     # — no longer settable from the UI. The columns remain for backup round-trip.
@@ -14591,6 +14603,8 @@ def _serialize_backup(uid):
                       'background_image_repeat_x': w.background_image_repeat_x,
                       'background_image_mobile_cover': w.background_image_mobile_cover,
                       'background_image_zoom': w.background_image_zoom,
+                      'safe_area_top_color': w.safe_area_top_color,
+                      'safe_area_bottom_color': w.safe_area_bottom_color,
                       'public_navbar_items': w.public_navbar_items,
                       'public_navbar_style': w.public_navbar_style,
                       'public_navbar_show_search': w.public_navbar_show_search,
@@ -15644,6 +15658,8 @@ def import_backup():
                             background_image_repeat_x=wd.get('background_image_repeat_x', False),
                             background_image_mobile_cover=wd.get('background_image_mobile_cover', False),
                             background_image_zoom=wd.get('background_image_zoom', 100),
+                            safe_area_top_color=wd.get('safe_area_top_color'),
+                            safe_area_bottom_color=wd.get('safe_area_bottom_color'),
                             public_navbar_items=wd.get('public_navbar_items') or [],
                             public_navbar_style=wd.get('public_navbar_style') or {},
                             public_navbar_show_search=wd.get('public_navbar_show_search', False),
