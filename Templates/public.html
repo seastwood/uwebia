@@ -89,15 +89,15 @@
             edge-to-edge. The overlay masks to the image's alpha so the
             overlay color ONLY tints the image, never the bare background.
          3. Mobile-browser "borders" (the strips behind the URL bar / home
-            indicator on iOS) are an optional feature toggled by
-            `public_navbar_transparent_chrome`:
-               - toggle ON  → no borders, image fills full height including
-                              behind the URL bar and home indicator.
-               - toggle OFF → two fixed-positioned painter strips cover the
-                              top/bottom safe-area zones with the FIRST and
-                              LAST stops of the gradient (or the solid color
-                              if not a gradient). `theme-color` is also set
-                              so the URL bar itself tints to match.
+            indicator on iOS) are AUTOMATED from whether a background image is
+            set (no manual toggle — `_borders_on = not background_image_url`):
+               - image set → no borders; the image fills full height including
+                             behind the URL bar and home indicator, and the
+                             chrome keeps its native "liquid glass" look.
+               - no image  → a fixed painter strip covers the top safe-area zone
+                             with the solid/gradient color (only when the navbar
+                             is docked at margin 0), and `theme-color` tints the
+                             URL bar to match.
     #}
     {% set _site_bg_raw       = website.background_color or '#ffffff' %}
     {% set _site_bg_solid_top = _site_bg_raw | solid_color('top') | opaque_hex %}
@@ -117,22 +117,21 @@
     {% set _has_explicit_bg   = website.background_color and website.background_color | trim and website.background_color | trim != '#ffffff' %}
     {% set _border_top        = _site_bg_solid_top if _has_explicit_bg else (_img_edge_top or _site_bg_solid_top) %}
     {% set _border_bot        = _site_bg_solid_bot if _has_explicit_bg else (_img_edge_bot or _site_bg_solid_bot) %}
-    {% set _borders_on        = not website.public_navbar_transparent_chrome %}
+    {# Borders / chrome behavior is AUTOMATED from whether a background image is
+       set (no manual toggles). With an image → extend edge-to-edge into the
+       safe areas (no solid strips, no theme-color tint, native "liquid glass"
+       chrome). Without an image → solid-color chrome (top status-bar strip +
+       theme-color tint). App-vs-browser differences are handled below via CSS
+       @media (display-mode: standalone) + env(safe-area-inset-*). #}
+    {% set _borders_on        = not website.background_image_url %}
     {# Navbar background + blur, reused for the safe-area strips so the bottom
        zone matches the top (which is backed by the navbar's own ::before). #}
     {% set _nav_bg            = (website.public_navbar_style or {}).get('background', 'rgba(20,20,20,0.9)') %}
     {% set _nav_blur          = (website.public_navbar_style or {}).get('blur', 14) %}
-    {# When mobile-cover is enabled, the user explicitly wants the image
-       to fill the *entire* mobile screen including the URL bar area. The
-       opaque URL bar can't be removed, but suppressing theme-color on
-       small screens lets it fall back to the system default (often
-       translucent in compact/scrolled mode), which is the closest we
-       can get to "image fills everything". On larger screens the bar
-       still tints to the first gradient stop as configured. #}
-    {# Only tint the browser chrome when there is NO background image. On
-       image pages we leave theme-color unset so the address bar keeps its
-       native translucent "liquid glass" look instead of a solid tinted bar. #}
-    {% if _borders_on and not website.background_image_url %}
+    {# Only tint the browser chrome when there is NO background image (i.e.
+       _borders_on). On image pages we leave theme-color unset so the address
+       bar keeps its native translucent "liquid glass" look. #}
+    {% if _borders_on %}
     <meta name="theme-color" content="{{ _border_top }}">
     <script>
       (function(){
@@ -194,27 +193,7 @@
         backdrop-filter: blur({{ _nav_blur }}px);
         -webkit-backdrop-filter: blur({{ _nav_blur }}px);
       }
-      {% if website.public_navbar_bottom_border_blend %}
-      /* Soft-fade variant: both borders are gradient strips. Top fades
-         from the border color (at the very top of the screen) down to
-         transparent (where the border meets the page) — and the bottom
-         is the mirror. Painted taller than the bare safe-area (~34px on
-         iPhone) so the fade has room to breathe. Border colors come
-         from `_border_top` / `_border_bot` — sampled from the image
-         edges when no explicit background color is set, otherwise the
-         gradient stops. */
-      .site-safe-area-painter.top {
-        top: 0;
-        height: calc(env(safe-area-inset-top, 0px) + 40px);
-        background: linear-gradient(to top, transparent 0%, {{ _border_top }} 100%);
-      }
-      .site-safe-area-painter.bottom {
-        bottom: 0;
-        height: calc(env(safe-area-inset-bottom, 0px) + 40px);
-        background: linear-gradient(to bottom, transparent 0%, {{ _border_bot }} 100%);
-      }
-      {% else %}
-      .site-safe-area-painter.top    { top: 0; height: env(safe-area-inset-top, 0px); background: {{ _nav_bg }}; }
+      .site-safe-area-painter.top    { top: 0; height: env(safe-area-inset-top, 0px); background: {{ _border_top }}; }
       /* Bottom: env(safe-area-inset-bottom) is 0 while the address bar is
          EXPANDED, so a bare env-height strip is invisible at load and only
          appears when the bar shrinks. Size it to the current address-bar overlap
@@ -226,9 +205,8 @@
         top: calc(100dvh - env(safe-area-inset-bottom, 0px));
         bottom: auto;
         height: calc(100lvh - 100dvh + env(safe-area-inset-bottom, 0px));
-        background: {{ _nav_bg }};
+        background: {{ _border_bot }};
       }
-      {% endif %}
     </style>
 </head>
 <style>
@@ -4352,18 +4330,19 @@ color: {{ website.text_color or '#000000' }};
 </style>
 {% endif %}
 
-{# Fixed top + bottom border painter strips. Top = first gradient stop,
-   bottom = last. The bottom strip is independently suppressed via the
-   `no_bottom_border` website-style option so the background image can
-   extend through the home-indicator safe-area. #}
 {# Safe-area frame strips (fixed, composited via backdrop-filter — see the CSS).
-   • Background IMAGE → NO strips. Both edges are left open so content flows
-     through the top and bottom edges, and the address bar keeps its native
-     translucent "liquid glass" look (a solid strip behind it would tint it dark).
-   • No image → original behavior: top strip only when the navbar is docked to
-     the very top (margin 0). #}
-{% if not website.background_image_url and _borders_on and navbar_margin == 0 %}
+   AUTOMATED (no manual toggles), keyed on whether a background image is set:
+   • Background IMAGE, in a BROWSER → solid top + bottom strips painted IN FRONT
+     of the content (z:5 > content z:1), framing the safe-area zones; the content
+     (and the background image) scrolls BEHIND them. Colors are sampled from the
+     image's top/bottom edges so the frame blends with it.
+   • Background IMAGE, in the APP (standalone) → strips are hidden (CSS media
+     query), so the image itself extends edge-to-edge into the safe areas.
+   • NO background image → no strips at all; the background color is what shows in
+     the safe-area zones and content scrolls through the screen edges over it. #}
+{% if website.background_image_url %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
+<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
 {% endif %}
 
     {% include 'components/public_navbar.html' %}
