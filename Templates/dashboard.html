@@ -4305,6 +4305,13 @@
                             Dock to bottom on mobile
                         </label>
 
+                        <label class="navbar-style-checkbox">
+                            <input type="checkbox" id="navbarCollapseOnScroll_{{ website.id }}" {% if
+                                (website.public_navbar_style or {}).get('collapse_on_scroll', True) %}checked{% endif %}
+                                onchange="updateFullNavbarPreview('{{ website.id }}')">
+                            Collapse to hamburger on scroll (mobile)
+                        </label>
+
                     </div>
                     <div class="navbar-style-card">
                         <label for="navbarMargin_{{ website.id }}">Navbar Margin</label>
@@ -4654,6 +4661,9 @@
                     document.getElementById(`navbarSidePanelUseNavbarBackground_${websiteId}`)?.checked || false;
                 const dockBottomMobile =
                     document.getElementById(`navbarDockBottomMobile_${websiteId}`)?.checked || false;
+                const collapseOnScrollEl =
+                    document.getElementById(`navbarCollapseOnScroll_${websiteId}`);
+                const collapseOnScroll = collapseOnScrollEl ? collapseOnScrollEl.checked : true;
 
                 console.log('Saving navbar background:', background);
 
@@ -4678,6 +4688,7 @@
                         dropdown_mode: dropdownMode,
                         side_panel_use_navbar_background: sidePanelUseNavbarBackground,
                         dock_bottom_mobile: dockBottomMobile,
+                        collapse_on_scroll: collapseOnScroll,
                         title_font_family: titleFontFamily,
                         title_font_size: titleFontSize,
                         title_bold: titleBold,

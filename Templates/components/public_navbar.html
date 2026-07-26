@@ -2168,11 +2168,12 @@ html.gv-guide .public-cart-btn { display: none !important; }
         }
     });
 
-    {% if nav_style.get('sticky', True) and (navbar_items or navbar_public_accounts_enabled) %}
+    {% if nav_style.get('sticky', True) and nav_style.get('collapse_on_scroll', True) and (navbar_items or navbar_public_accounts_enabled) %}
     // Collapse-on-scroll (mobile): slide the bar shut to just the hamburger once
     // the reader scrolls down. Opening the menu no longer expands the bar — the
     // hamburger stays put and the menu just drops out of it (see CSS). Collapse
-    // depends only on scroll position now.
+    // depends only on scroll position now. Gated by the admin's
+    // `collapse_on_scroll` navbar-style toggle (default on).
     (function () {
         const navbar = document.querySelector('.public-navbar');
         if (!navbar) return;
