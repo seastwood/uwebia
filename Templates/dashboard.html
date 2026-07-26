@@ -3793,33 +3793,10 @@
                             value="{{ website.background_color or '#ffffff' }}">
                     </div>
 
-                    <div class="color-option">
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                            <input type="checkbox"
-                                   id="websiteTransparentChrome_{{ website.id }}"
-                                   {% if website.public_navbar_transparent_chrome %}checked{% endif %}>
-                            Extend background into top + bottom safe areas
-                        </label>
-                        <small style="display:block;opacity:0.6;margin-top:4px;">When on, both mobile border strips are removed so the background image extends edge-to-edge of the phone screen — into where the URL-bar / home-indicator borders would be. Overrides the per-side options below.</small>
-                    </div>
-                    <div class="color-option">
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                            <input type="checkbox"
-                                   id="websiteNoBottomBorder_{{ website.id }}"
-                                   {% if website.public_navbar_no_bottom_border %}checked{% endif %}>
-                            Remove just the bottom mobile border
-                        </label>
-                        <small style="display:block;opacity:0.6;margin-top:4px;">When on, only the bottom border strip is hidden so the background image extends through the home-indicator safe-area. Top border still shows. Ignored if "extend into top + bottom" above is on.</small>
-                    </div>
-                    <div class="color-option">
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                            <input type="checkbox"
-                                   id="websiteBottomBorderBlend_{{ website.id }}"
-                                   {% if website.public_navbar_bottom_border_blend %}checked{% endif %}>
-                            Soft-fade background into top + bottom borders
-                        </label>
-                        <small style="display:block;opacity:0.6;margin-top:4px;">When on, both borders fade between transparent (inner edge) and the border color (outer screen edge), so the background image blends in. If no background color is set, the border color is sampled from the matching edge of the background image.</small>
-                    </div>
+                    {# Mobile safe-area / chrome behavior is now AUTOMATED from
+                       whether a background image is set (and app-vs-browser via
+                       CSS) — the old "extend into safe areas", "remove bottom
+                       border", and "soft-fade" toggles were removed. #}
 
                     <div class="color-option">
                         <label for="textColor_{{ website.id }}">Text Color</label>
@@ -5911,13 +5888,6 @@
                 const backgroundImageBlur = document.getElementById(`websiteBackgroundBlur_${websiteId}`)?.value || 0;
                 const backgroundImageOverlayColor = document.getElementById(`websiteBackgroundOverlayColor_${websiteId}`)?.value || '#000000';
                 const backgroundImageOverlayOpacity = document.getElementById(`websiteBackgroundOverlayOpacity_${websiteId}`)?.value || 0;
-                const bottomBorderBlendEl = document.getElementById(`websiteBottomBorderBlend_${websiteId}`);
-                const bottomBorderBlend   = bottomBorderBlendEl ? !!bottomBorderBlendEl.checked : false;
-                const noBottomBorderEl    = document.getElementById(`websiteNoBottomBorder_${websiteId}`);
-                const noBottomBorder      = noBottomBorderEl ? !!noBottomBorderEl.checked : false;
-                const transparentChromeEl = document.getElementById(`websiteTransparentChrome_${websiteId}`);
-                const transparentChrome   = transparentChromeEl ? !!transparentChromeEl.checked : false;
-
                 fetch(`/edit_website_style/${websiteId}`, {
                     method: 'POST',
                     headers: {
@@ -5934,10 +5904,7 @@
                         background_image_zoom: backgroundImageZoom,
                         background_image_blur: backgroundImageBlur,
                         background_image_overlay_color: backgroundImageOverlayColor,
-                        background_image_overlay_opacity: backgroundImageOverlayOpacity,
-                        public_navbar_bottom_border_blend: bottomBorderBlend,
-                        public_navbar_no_bottom_border: noBottomBorder,
-                        public_navbar_transparent_chrome: transparentChrome
+                        background_image_overlay_opacity: backgroundImageOverlayOpacity
                     })
                 })
                     .then(response => response.json())

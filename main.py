@@ -10713,12 +10713,9 @@ def edit_website_style(website_id):
     except (ValueError, TypeError):
         website.background_image_overlay_opacity = 0
 
-    if 'public_navbar_bottom_border_blend' in data:
-        website.public_navbar_bottom_border_blend = bool(data.get('public_navbar_bottom_border_blend'))
-    if 'public_navbar_no_bottom_border' in data:
-        website.public_navbar_no_bottom_border = bool(data.get('public_navbar_no_bottom_border'))
-    if 'public_navbar_transparent_chrome' in data:
-        website.public_navbar_transparent_chrome = bool(data.get('public_navbar_transparent_chrome'))
+    # Mobile safe-area / chrome behavior (transparent_chrome, no_bottom_border,
+    # bottom_border_blend) is now AUTOMATED from whether a background image is set
+    # — no longer settable from the UI. The columns remain for backup round-trip.
 
     db.session.commit()
 
