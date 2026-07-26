@@ -74,14 +74,14 @@
     {% set navbar_anchor_offset = 78 + navbar_margin %}
     {% set navbar_page_offset = 58 + navbar_margin %}
 
-    {# See Templates/public.html for the full background-system design.
-       Summary: html paints the bg color/gradient, image+overlay always
-       fill the viewport edge-to-edge, and when the admin opts into
-       mobile borders, two fixed painter strips cover the top/bottom
-       safe-area zones with the first/last gradient stops. #}
+    {# Mobile safe-area zones are colored by the browser's own chrome via the
+       theme-color meta below (native, reliable). See Templates/public.html. #}
     {% set _pb_bg_raw       = website.background_color or '#ffffff' %}
     {% set _pb_bg_solid_top = _pb_bg_raw | solid_color('top')    | opaque_hex %}
     {% set _pb_bg_solid_bot = _pb_bg_raw | solid_color('bottom') | opaque_hex %}
+    {# Single browser-chrome tint color: admin's top safe-area color, else the
+       bottom, else the first background color (iOS uses one theme-color). #}
+    {% set _pb_chrome_color = (website.safe_area_top_color or website.safe_area_bottom_color or _pb_bg_solid_top) | opaque_hex %}
     {# Image-edge sampling — see Templates/public.html for the rationale
        behind skipping the `opaque_hex` pipe (it would turn None into white
        and defeat the fallback chain). #}
@@ -91,12 +91,9 @@
     {% set _pb_border_top   = _pb_bg_solid_top if _pb_has_explicit_bg else (_pb_img_edge_top or _pb_bg_solid_top) %}
     {% set _pb_border_bot   = _pb_bg_solid_bot if _pb_has_explicit_bg else (_pb_img_edge_bot or _pb_bg_solid_bot) %}
     {# Chrome behavior is AUTOMATED from whether a background image is set (no
-       manual toggles). Image → extend into the safe areas (no strip, no tint,
-       native "liquid glass"); no image → solid-color chrome. See public.html. #}
-    {% set _pb_borders_on   = not website.background_image_url %}
-    {# Aliases kept for downstream rules that read these names. #}
+       manual toggles). #}
+    {# Alias kept for the html background-color fallback below. #}
     {% set _pb_chrome_top   = _pb_border_top %}
-    {% set _pb_chrome_bot   = _pb_border_bot %}
 
     <style>
         /* Native <select> dropdown panel: needs explicit colors so options aren't
@@ -205,47 +202,11 @@
         }
 
         /* Installed home-screen app: match the navbar's status-bar offset with
-           extra content clearance, and drop the bottom safe-area painter so the
-           page background reaches the bottom edge instead of a solid bar. Scoped
-           to standalone — the browser keeps its existing behaviour. */
+           extra content clearance. Scoped to standalone. */
         @media (display-mode: standalone) {
             .public-page-shell {
                 padding-top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px));
             }
-            /* The installed app has no browser chrome to frame — hide the strips
-               so a background image extends edge-to-edge into the safe areas. */
-            .site-safe-area-painter { display: none !important; }
-        }
-
-        /* No background image → no bottom strip (the background color itself shows
-           in the safe-area zones and content scrolls through). With an image the
-           bottom strip is an active frame. */
-        {% if not website.background_image_url %}
-        .site-safe-area-painter.bottom { display: none !important; }
-        {% endif %}
-
-        /* Mobile-border painter strips — see Templates/public.html. Sit
-           above the content (z:5, below the navbar 100000+). backdrop-filter
-           forces them onto a compositing layer so iOS paints them ABOVE content
-           from the first frame instead of below-until-scroll. */
-        .site-safe-area-painter {
-            position: fixed;
-            left: 0;
-            right: 0;
-            pointer-events: none;
-            z-index: 5;
-            backdrop-filter: var(--navbar-blur, blur(14px));
-            -webkit-backdrop-filter: var(--navbar-blur, blur(14px));
-        }
-        .site-safe-area-painter.top    { top: 0; height: env(safe-area-inset-top, 0px); background: {{ _pb_border_top }}; }
-        /* Bottom sized to the current address-bar overlap (100lvh - 100dvh, full
-           at load, shrinking on scroll) + the home-indicator inset; anchored from
-           the top via lvh since a fixed bottom:0 sticks to the small viewport. */
-        .site-safe-area-painter.bottom {
-            top: calc(100dvh - env(safe-area-inset-bottom, 0px));
-            bottom: auto;
-            height: calc(100lvh - 100dvh + env(safe-area-inset-bottom, 0px));
-            background: {{ _pb_border_bot }};
         }
 
         .public-navbar {
@@ -397,8 +358,8 @@
     {# Cart badge is populated by components/public_navbar.html (window.refreshCartBadge)
        so the count is consistent on every page, including the home page. #}
 
-    {% if _pb_borders_on %}
-    <meta name="theme-color" content="{{ _pb_chrome_top }}">
+    {# NATIVE CHROME: tint the browser's status/address bars via theme-color. #}
+    <meta name="theme-color" content="{{ _pb_chrome_color }}">
     <script>
       (function(){
         // See Templates/public.html for the iOS URL-bar re-read rationale.
@@ -414,7 +375,6 @@
         }else{tickle();}
       })();
     </script>
-    {% endif %}
 </head>
 
 <body class="public-page-body" style="
@@ -469,17 +429,6 @@
         -webkit-mask-size: {{ _mask_size }};
                 mask-size: {{ _mask_size }};
     "></div>
-    {% endif %}
-
-    {# Safe-area frame strips — see Templates/public.html for the full model.
-       Rendered only when a background image is set: solid top + bottom strips in
-       front of the content (frame the safe zones; content scrolls behind). Hidden
-       in the installed app (standalone) so the image extends edge-to-edge. With
-       NO image there are no strips — the background color shows in the safe zones
-       and content scrolls through the screen edges. #}
-    {% if website.background_image_url %}
-    <div class="site-safe-area-painter top" aria-hidden="true"></div>
-    <div class="site-safe-area-painter bottom" aria-hidden="true"></div>
     {% endif %}
 
     {% include 'components/public_navbar.html' %}
