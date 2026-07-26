@@ -7,12 +7,15 @@
     {# Declare both color schemes so iOS Safari doesn't apply its own dark
        overlay (which can mask theme-color and paint chrome black). #}
     <meta name="color-scheme" content="light dark">
-    {# Home-screen "app" mode: launch full-screen (removes the Safari chrome that
-       ate the top/bottom edges). `default` keeps the status bar above the
-       content so the navbar layout is untouched. Mirrors public_base.html. #}
+    {# Home-screen "app" mode. With a background IMAGE, use `black-translucent`
+       so the installed app's web view extends behind the status bar and home
+       indicator and the fixed image spans the whole screen top-to-bottom with no
+       borders (the standalone padding rule below adds env(safe-area-inset-top)
+       so the navbar still clears the status bar). Without an image, `default`
+       keeps the status bar as a solid strip above the content. #}
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-status-bar-style" content="{% if website.background_image_url %}black-translucent{% else %}default{% endif %}">
     <meta name="apple-mobile-web-app-title" content="{{ website.name if website else 'Home' }}">
     {% set _atouch = ('/' + website.url_prefix + '/apple-touch-icon.png') if (website and website.url_prefix) else '/apple-touch-icon.png' %}
     <link rel="apple-touch-icon" href="{{ _atouch }}?v={{ site_icon_version(website) }}">
@@ -166,6 +169,14 @@
         right: 0;
         pointer-events: none;
         z-index: 5;
+        /* Force onto a compositing layer from the first paint. Without this,
+           iOS Safari paints the fixed strip BELOW content until a scroll
+           recomposites it (the strips then appear IN FRONT). An element's own
+           transform only establishes a containing block for its DESCENDANTS —
+           these strips have none — so it can't clip the strip's own fixed
+           geometry (unlike the blurred background layer). */
+        transform: translateZ(0);
+        -webkit-transform: translateZ(0);
       }
       {% if website.public_navbar_bottom_border_blend %}
       /* Soft-fade variant: both borders are gradient strips. Top fades
@@ -207,18 +218,26 @@
     }
 
     /* Installed home-screen app: add the status-bar clearance to match the
-       navbar's standalone offset, and drop the bottom safe-area painter so the
-       background reaches the bottom edge (no solid bar). Standalone only. */
+       navbar's standalone offset. Also drop the frame strips entirely — in the
+       installed app the status bar is black-translucent (see the head meta), so
+       the fixed background image spans the whole screen top-to-bottom with no
+       solid borders. The frame is a Safari-only treatment. Standalone only. */
     @media (display-mode: standalone) {
         .public-page-body {
             padding-top: calc(var(--navbar-page-offset, 58px) + env(safe-area-inset-top, 0px));
         }
+        .site-safe-area-painter { display: none !important; }
     }
 
-    /* The bottom safe-area "border" strip is never used: with a background image
-       the fixed image now fills the bottom safe-area, and without one the solid
-       background flows to the bottom behind the URL bar. Hide it everywhere. */
+    /* Without a background image the bottom strip is unused (the solid
+       background flows to the bottom behind the URL bar), so hide it. With an
+       image it's an active bottom frame the content scrolls behind — sized to
+       exactly env(safe-area-inset-bottom) (the home-indicator zone), with no
+       extra height. At rest Safari's own URL bar backs the bottom; once it
+       collapses on scroll this strip covers the exposed home-indicator area. */
+    {% if not website.background_image_url %}
     .site-safe-area-painter.bottom { display: none !important; }
+    {% endif %}
 
     html,
     body {
@@ -4321,12 +4340,16 @@ color: {{ website.text_color or '#000000' }};
      the very top (margin 0), where it backs the status bar. For a FLOATING
      navbar (margin > 0) it would sit behind the phone icons, so it's dropped
      and the background flows up through the top. Bottom strip stays off. #}
-{# When a background IMAGE is set, render NO painters — the fixed image layer
-   now fills the entire screen (safe-areas included, see the blur fix on the
-   inner image layer), so an opaque strip would only cover it back up. Painters
-   exist solely to back the status bar with the solid background color on
-   image-less sites with a top-docked navbar. #}
-{% if not website.background_image_url and _borders_on and navbar_margin == 0 %}
+{# Solid-color frame strips (fixed, above the page content) at the top and
+   bottom safe-areas — the content scrolls BEHIND them, framing the page.
+   Rendered whenever a background image is set, independent of the navbar's
+   transparent-chrome setting, so it also applies to floating-navbar sites like
+   the live one. Without an image, keep the original single top strip that backs
+   the status bar on a top-docked navbar. #}
+{% if website.background_image_url %}
+<div class="site-safe-area-painter top" aria-hidden="true"></div>
+<div class="site-safe-area-painter bottom" aria-hidden="true"></div>
+{% elif _borders_on and navbar_margin == 0 %}
 <div class="site-safe-area-painter top" aria-hidden="true"></div>
 {% endif %}
 
