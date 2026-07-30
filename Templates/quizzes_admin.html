@@ -404,6 +404,13 @@ function _reflEsc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+// Question prompts are rich HTML now — show them as plain text in this compact
+// review (strip tags) so markup doesn't leak as literal characters.
+function _reflPromptText(s) {
+    const d = document.createElement('div');
+    d.innerHTML = s == null ? '' : String(s);
+    return (d.textContent || '').replace(/\s+/g, ' ').trim();
+}
 
 async function openReflections(id, title) {
     document.getElementById('reflTitle').textContent = `Reflections — ${title}`;
@@ -417,7 +424,7 @@ async function openReflections(id, title) {
     let h = '';
     (d.questions || []).forEach(q => {
         h += `<div style="margin:0 0 20px;">`;
-        h += `<p style="margin:0 0 10px;font-weight:700;color:#fff;">${_reflEsc(q.prompt)}</p>`;
+        h += `<p style="margin:0 0 10px;font-weight:700;color:#fff;">${_reflEsc(_reflPromptText(q.prompt))}</p>`;
         if (!(q.responses || []).length) {
             h += '<p style="opacity:0.45;font-size:0.85rem;margin:0;">No responses yet.</p>';
         }

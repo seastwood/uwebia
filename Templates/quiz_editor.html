@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script src="{{ url_for('static', filename='js/quill_paste_image.js') }}"></script>
 
 <style>
 .qe-page { display: grid; grid-template-columns: 300px 1fr; gap: 24px; max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; align-items: start; }
@@ -308,13 +309,17 @@ function ensureQuill() {
             }
         }
     });
-    _quill.on('text-change', (d, o, source) => { if (source === 'user') _dirty = true; });
+    _quill.on('text-change', (d, o, source) => {
+        if (source === 'user') _dirty = true;
+        // fill_blank: live-sync the blank rows as the prompt's ___ markers change.
+        if (_editing && _editing.question_type === 'fill_blank') renderBody();
+    });
 
     // Custom toolbar group: insert reader-input placeholders.
     const tb = document.querySelector('#qRichWrap .ql-toolbar');
     if (tb) {
         const group = document.createElement('span');
-        group.className = 'ql-formats';
+        group.className = 'ql-formats uwq-reader-input-group';
         const mkBtn = (title, cls, fn) => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -343,10 +348,13 @@ function ensureQuill() {
 // Plain text for the question list — a rich text block previews as its
 // visible text, not its markup.
 function promptPreview(q) {
-    if (q.question_type === 'text' && q.config && q.config.format === 'html') {
+    const cfg = q.config || {};
+    const isHtml = (q.question_type === 'text') ? cfg.format === 'html' : cfg.prompt_format === 'html';
+    if (isHtml) {
         const d = document.createElement('div');
         d.innerHTML = q.prompt || '';
-        return d.textContent.replace(/\s+/g, ' ').trim() || '(text block)';
+        return d.textContent.replace(/\s+/g, ' ').trim()
+            || (q.question_type === 'text' ? '(text block)' : '(no prompt)');
     }
     return q.prompt || '(no prompt)';
 }
@@ -459,18 +467,31 @@ function showForm() {
                   : ' — prompt';
     document.getElementById('qTypeLabel').textContent = TYPE_LABELS[_editing.question_type] + _tlabel;
     document.getElementById('qPrompt').value = _editing.prompt || '';
-    // Text blocks edit in the rich (Quill) editor; everything else keeps the
-    // plain prompt textarea.
-    const _isRich = (_editing.question_type === 'text');
-    document.getElementById('qPrompt').style.display = _isRich ? 'none' : '';
-    document.getElementById('qRichWrap').style.display = _isRich ? 'block' : 'none';
-    if (_isRich) {
-        ensureQuill();
-        if ((_editing.config || {}).format === 'html') {
-            _quill.root.innerHTML = _editing.prompt || '';
-        } else {
-            _quill.setText(_editing.prompt || '');   // legacy plain-text block
-        }
+    // EVERY question prompt now edits in the rich (Quill) editor — headings,
+    // formatting, links, images, video. The plain textarea is kept hidden as a
+    // fallback only. A prompt is HTML when: a text block flagged format:html, or
+    // any question flagged prompt_format:html; legacy plain prompts load as text.
+    const _t = _editing.question_type;
+    document.getElementById('qPrompt').style.display = 'none';
+    document.getElementById('qRichWrap').style.display = 'block';
+    ensureQuill();
+    // Contextual placeholder (Quill reads data-placeholder on the editor root).
+    _quill.root.dataset.placeholder = (_t === 'text')
+        ? 'Write the text… shown between questions as instructions or reading material.'
+        : (_t === 'reflection') ? 'Write the prompt to reflect on…'
+        : (_t === 'flashcards') ? 'Instructions shown above the flashcard stack…'
+        : 'Write the question… add formatting, links or an image with the toolbar.';
+    // The reader-input placeholder buttons (␣ / ▭) only make sense in text
+    // blocks — hide them for actual question prompts.
+    const _riGroup = document.querySelector('.uwq-reader-input-group');
+    if (_riGroup) _riGroup.style.display = (_t === 'text') ? '' : 'none';
+    const _promptIsHtml = (_t === 'text')
+        ? ((_editing.config || {}).format === 'html')
+        : ((_editing.config || {}).prompt_format === 'html');
+    if (_promptIsHtml && _editing.prompt) {
+        _quill.root.innerHTML = _editing.prompt;
+    } else {
+        _quill.setText(_editing.prompt || '');   // legacy plain-text prompt
     }
     document.getElementById('qPoints').value = _editing.points || 1;
     // Ungraded types score no points — hide the field entirely.
@@ -481,8 +502,8 @@ function showForm() {
     document.getElementById('qExplField').style.display = _ungraded ? 'none' : '';
     document.getElementById('qDeleteBtn').style.display = _editing.id ? 'inline-flex' : 'none';
     document.getElementById('qDupBtn').style.display = _editing.id ? 'inline-flex' : 'none';
-    // Fill-blank: live-sync the blank rows as the prompt's ___ markers change.
-    document.getElementById('qPrompt').oninput = (_editing.question_type === 'fill_blank') ? renderBody : null;
+    // Fill-blank live-syncs its blank rows from the Quill editor's text-change
+    // handler (see ensureQuill) now that the prompt lives in Quill.
     renderBody();
     _dirty = false;   // form now mirrors the saved/loaded question
 }
@@ -743,7 +764,8 @@ function removeAccepted(i) {
 
 // ── fill in the blank ───────────────────────────────────────────────────────
 function syncBlanksState() {
-    const prompt = document.getElementById('qPrompt').value || '';
+    // Count ___ markers in the editor's PLAIN text (the prompt is rich HTML now).
+    const prompt = _quill ? _quill.getText() : (document.getElementById('qPrompt').value || '');
     const n = (prompt.match(/_{3,}/g) || []).length;
     const blanks = _editing.config.blanks || (_editing.config.blanks = []);
     while (blanks.length < n) blanks.push({ accepted: [], case_sensitive: false });
@@ -880,19 +902,23 @@ function qpPick(u) { const cb = _qpCb; closeQuizPicker(); if (cb) cb(u); }
 
 async function saveQuestion() {
     const t = _editing.question_type;
-    let prompt = document.getElementById('qPrompt').value.trim();
-    if (t === 'text' && _quill) {
-        const hasContent = _quill.getText().trim() || _quill.root.querySelector('img, iframe, video, .uwq-winput, .uwq-wtext');
-        if (!hasContent) { alert('Write some content for the text block.'); return; }
-        prompt = _quill.root.innerHTML;
-    } else if (!prompt) { alert('Question prompt is required'); return; }
+    ensureQuill();
+    // The prompt comes from the rich editor for every type now: HTML markup for
+    // storage, plain text for emptiness/blank-marker checks.
+    const _plain = _quill.getText().trim();
+    const _hasEmbed = _quill.root.querySelector('img, iframe, video, .uwq-winput, .uwq-wtext');
+    if (!_plain && !_hasEmbed) {
+        alert(t === 'text' ? 'Write some content for the text block.' : 'Question prompt is required');
+        return;
+    }
+    const prompt = _quill.root.innerHTML;
     let config;
     if (t === 'short_text') {
         const accepted = (_editing.config.accepted || []).map(a => (a || '').trim()).filter(Boolean);
         if (!accepted.length) { alert('Add at least one accepted answer.'); return; }
         config = { accepted, case_sensitive: document.getElementById('qCaseSensitive').checked };
     } else if (t === 'fill_blank') {
-        const n = (prompt.match(/_{3,}/g) || []).length;
+        const n = (_quill.getText().match(/_{3,}/g) || []).length;
         if (n < 1) { alert('Mark at least one blank by typing 3+ underscores (___) in the prompt.'); return; }
         const blanks = [];
         for (let i = 0; i < n; i++) {
@@ -956,6 +982,9 @@ async function saveQuestion() {
     }
     const expl = document.getElementById('qExplanation').value.trim();
     if (expl && t !== 'reflection' && t !== 'flashcards' && t !== 'text') config.explanation = expl;
+    // Mark the prompt as rich HTML so renderers treat it as markup, not text.
+    // (Text blocks carry the equivalent flag in their own config.format = 'html'.)
+    if (t !== 'text') config.prompt_format = 'html';
     const body = {
         id: _editing.id, question_type: t, prompt, config,
         points: parseInt(document.getElementById('qPoints').value) || 1,

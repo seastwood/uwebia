@@ -97,6 +97,11 @@ html, body {
 .print-quiz-title { font-size: 1.2rem; margin: 18px 0 10px; }
 .print-q { margin: 0 0 14px; break-inside: avoid; }
 .print-q-prompt { margin: 0 0 6px; }
+/* Rich (HTML) question prompts: keep images/embeds within the page. */
+.print-q-rich { display: inline; }
+.print-q-rich img { max-width: 100%; height: auto; }
+.print-q-rich iframe { max-width: 100%; }
+.print-q-rich p { margin: 4px 0; }
 .print-text-block { margin: 0 0 6px; line-height: 1.55; }
 .print-text-block img { max-width: 100%; height: auto; }
 .print-text-block iframe { max-width: 100%; }

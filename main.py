@@ -3068,6 +3068,11 @@ class QuizQuestion(db.Model):
             'prompt': self.prompt,
             'points': self.points,
         }
+        # Rich (Quill HTML) prompts render as markup in the player; legacy
+        # plain prompts are escaped + auto-linkified there. (Text blocks use
+        # their own 'format' key below.)
+        if cfg.get('prompt_format') == 'html':
+            out['prompt_format'] = 'html'
         if self.question_type in ('single_choice', 'multi_choice', 'true_false'):
             out['options'] = [
                 {'id': o.get('id'), 'text': o.get('text', '')}
@@ -5305,6 +5310,21 @@ def asset_upload():
             'status': 'error',
             'error': f'Upload would exceed your storage limit. You have {format_bytes(max_total_bytes - used_bytes)} remaining.'
         }), 400
+
+    # Pasted images (and any client that doesn't know a folder id) can target a
+    # folder BY NAME — find-or-create a top-level folder for this pool. Used by
+    # the shared Quill paste-to-upload handler (folder_name='Pasted images').
+    folder_name = (request.form.get('folder_name') or '').strip()
+    if not folder_id and folder_name:
+        folder = AssetFolder.query.filter_by(
+            user_id=pool_user_id, name=folder_name, parent_id=None
+        ).first()
+        if not folder:
+            folder = AssetFolder(name=folder_name[:120], user_id=pool_user_id,
+                                 asset_type='image', parent_id=None)
+            db.session.add(folder)
+            db.session.commit()
+        folder_id = folder.id
 
     if folder_id:
         folder = AssetFolder.query.filter_by(
@@ -34396,7 +34416,14 @@ def _render_quiz_print_html(quiz, include_answers):
         parts.append('<div class="print-q">')
         _pts = (f' <span class="print-q-points">({q.points} pt{"s" if q.points != 1 else ""})</span>'
                 if q.points else '')
-        parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_quiz_linkify_html(q.prompt)}{_pts}</p>')
+        # Rich (Quill HTML) prompts print their markup directly (trusted admin
+        # content, same as lesson/text-block content); legacy plain prompts are
+        # escaped + linkified. Block markup goes in a div (can't nest in <p>).
+        if cfg.get('prompt_format') == 'html':
+            parts.append(f'<div class="print-q-prompt"><strong>{idx}.</strong> '
+                         f'<span class="print-q-rich">{q.prompt or ""}</span>{_pts}</div>')
+        else:
+            parts.append(f'<p class="print-q-prompt"><strong>{idx}.</strong> {_quiz_linkify_html(q.prompt)}{_pts}</p>')
 
         # Answer-key entries are stored as already-safe HTML (so image cells can
         # render as <img>), then emitted without re-escaping below.
@@ -37150,9 +37177,10 @@ def admin_quiz_attempts_csv(qid):
     buf = _io.StringIO()
     w = _csv.writer(buf)
     def _col_label(n, q):
-        if n:
-            return f'Q{n}: {q.prompt[:80]}'
+        # Prompts are rich HTML now — strip tags for the CSV column header.
         text = BeautifulSoup(q.prompt or '', 'html.parser').get_text(' ', strip=True)
+        if n:
+            return f'Q{n}: {text[:80]}'
         return f'Inputs: {text[:80]}'
     w.writerow(['date', 'user', 'score', 'max_score', 'percent', 'passed'] +
                [_col_label(n, q) for n, q in numbered])
@@ -37230,6 +37258,11 @@ def admin_quiz_question_save(qid):
     expl = (data.get('config') or {}).get('explanation')
     if isinstance(expl, str) and expl.strip() and qtype not in _QUIZ_UNGRADED_TYPES:
         cfg['explanation'] = expl.strip()[:2000]
+    # Rich (Quill HTML) prompt marker — re-attached after normalize (which drops
+    # unknown keys) so renderers know to treat q.prompt as trusted HTML. The
+    # 'text' block type carries its richness in its own 'format' key instead.
+    if (data.get('config') or {}).get('prompt_format') == 'html' and qtype != 'text':
+        cfg['prompt_format'] = 'html'
     try:
         points = max(1, int(data.get('points') or 1))
     except (ValueError, TypeError):
