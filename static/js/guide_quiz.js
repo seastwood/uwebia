@@ -33,6 +33,11 @@
 .uwq-q { padding:14px 0; border-top:1px solid rgba(255,255,255,0.08); }
 .uwq-q:first-of-type { border-top:none; }
 .uwq-prompt { font-weight:600; margin:0 0 10px; display:flex; gap:8px; align-items:baseline; }
+/* Rich (HTML) prompt: the number sits top-aligned beside a normal-weight rich body. */
+.uwq-prompt-rich { align-items:flex-start; font-weight:400; }
+.uwq-prompt-body { flex:1 1 auto; min-width:0; }
+.uwq-prompt-body > :first-child { margin-top:0; }
+.uwq-prompt-body > :last-child { margin-bottom:0; }
 .uwq-num { display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px; border-radius:50%; background:rgba(94,238,248,0.18); color:#5eeef8; font-size:0.75rem; font-weight:700; flex-shrink:0; }
 .uwq-opt { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background 0.12s; }
 .uwq-opt:hover { background:rgba(255,255,255,0.05); }
@@ -360,6 +365,14 @@
             if (q.question_type === 'text' && q.format === 'html') {
                 const box = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-rich');
                 if (box) { enrichRichBlock(box); hydrateRichInputs(box, q); }
+            } else if (q.prompt_format === 'html') {
+                // Rich question prompts: auto-link bare URLs. fill_blank prompts
+                // also get their ___ markers turned into inputs (before applyDraft).
+                const box = el.querySelector('.uwq-q[data-qid="' + q.id + '"] .uwq-prompt-body');
+                if (box) {
+                    if (box.dataset.blankwrap) hydrateBlankInputs(box);
+                    enrichRichBlock(box);
+                }
             }
         });
 
@@ -551,13 +564,27 @@
             const plain = linkifyParts(q.prompt);
             return h + '<div class="uwq-text-body">' + plain.html + '</div>' + embedsHtml(plain.embeds) + '</div>';
         }
-        const rich = linkifyParts(q.prompt);
+        // Rich (Quill HTML) prompts render their markup — headings, formatting,
+        // links, images, video — in a .uwq-rich box; enrichRichBlock (post-render)
+        // auto-links any bare URLs. Legacy plain prompts escape + linkify + embed.
+        const promptIsHtml = (q.prompt_format === 'html');
         if (t === 'fill_blank') {
-            h += '<p class="uwq-prompt uwq-blank-prompt"><span class="uwq-num">' + num + '</span><span>' + blankPromptHtml(q) + '</span></p>';
+            if (promptIsHtml) {
+                // Blanks are hydrated from the DOM after insert (hydrateBlankInputs).
+                h += '<div class="uwq-prompt uwq-blank-prompt uwq-prompt-rich"><span class="uwq-num">' + num
+                   + '</span><div class="uwq-rich uwq-prompt-body" data-blankwrap="1">' + q.prompt + '</div></div>';
+            } else {
+                h += '<p class="uwq-prompt uwq-blank-prompt"><span class="uwq-num">' + num + '</span><span>' + blankPromptHtml(q) + '</span></p>';
+                h += embedsHtml(linkifyParts(q.prompt).embeds);
+            }
+        } else if (promptIsHtml) {
+            h += '<div class="uwq-prompt uwq-prompt-rich"><span class="uwq-num">' + num
+               + '</span><div class="uwq-rich uwq-prompt-body">' + q.prompt + '</div></div>';
         } else {
+            const rich = linkifyParts(q.prompt);
             h += '<p class="uwq-prompt"><span class="uwq-num">' + num + '</span><span>' + rich.html + '</span></p>';
+            h += embedsHtml(rich.embeds);
         }
-        h += embedsHtml(rich.embeds);
         if (t === 'short_text') {
             h += '<input type="text" class="uwq-text" name="q' + q.id + '" autocomplete="off">';
         } else if (t === 'single_choice' || t === 'multi_choice' || t === 'true_false') {
@@ -611,6 +638,33 @@
             }
         });
         return h;
+    }
+
+    // fill_blank with a RICH (HTML) prompt: walk the rendered text nodes and
+    // swap each ___ run for a blank input, in document order (matching the
+    // server's blank order) — so images/formatting around the blanks survive.
+    function hydrateBlankInputs(box) {
+        const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, null);
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        let bi = 0;
+        nodes.forEach(node => {
+            if (!/_{3,}/.test(node.nodeValue)) return;
+            const frag = document.createDocumentFragment();
+            node.nodeValue.split(/(_{3,})/).forEach(part => {
+                if (/^_{3,}$/.test(part)) {
+                    const inp = document.createElement('input');
+                    inp.type = 'text';
+                    inp.className = 'uwq-blank';
+                    inp.setAttribute('data-bi', bi++);
+                    inp.autocomplete = 'off';
+                    frag.appendChild(inp);
+                } else if (part) {
+                    frag.appendChild(document.createTextNode(part));
+                }
+            });
+            node.parentNode.replaceChild(frag, node);
+        });
     }
 
     // ── flashcards ──────────────────────────────────────────────────────────

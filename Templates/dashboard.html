@@ -3767,28 +3767,20 @@
                             <span class="range-value">{{ website.background_image_overlay_opacity or 0 }}%</span>
                         </div>
 
-                        {# Mobile safe-area frame strips: the solid bars behind the
-                           status bar (top) and home-indicator/address-bar (bottom)
-                           on image pages. Independent of the background gradient and
-                           NEVER affected by the image overlay. When "custom" is off,
-                           they fall back to the first background color. #}
+                        {# Mobile browser bar (chrome) color: tints the phone
+                           browser's status bar + address bar via theme-color.
+                           iOS uses ONE color for both bars. Off = use the first
+                           background color. #}
                         <label style="margin-top:12px;display:flex;align-items:center;gap:8px;cursor:pointer;">
                             <input type="checkbox" id="safeAreaCustom_{{ website.id }}"
-                                {% if website.safe_area_top_color or website.safe_area_bottom_color %}checked{% endif %}>
-                            Custom mobile frame strip colors
+                                {% if website.safe_area_top_color %}checked{% endif %}>
+                            Custom mobile browser bar color
                         </label>
-                        <small style="display:block;opacity:0.6;margin:2px 0 6px;">Solid opaque colors for the top/bottom safe-area bars. Off = use the first background color.</small>
-                        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-                            <span style="display:flex;align-items:center;gap:6px;font-size:0.82rem;opacity:0.8;">
-                                Top
-                                <input type="color" id="safeAreaTopColor_{{ website.id }}"
-                                    value="{{ website.safe_area_top_color or website.background_color or '#000000' }}">
-                            </span>
-                            <span style="display:flex;align-items:center;gap:6px;font-size:0.82rem;opacity:0.8;">
-                                Bottom
-                                <input type="color" id="safeAreaBottomColor_{{ website.id }}"
-                                    value="{{ website.safe_area_bottom_color or website.background_color or '#000000' }}">
-                            </span>
+                        <small style="display:block;opacity:0.6;margin:2px 0 6px;">Tints the phone browser's status/address bars (via theme-color). Off = use the first background color.</small>
+                        <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;opacity:0.8;">
+                            Color
+                            <input type="color" id="safeAreaTopColor_{{ website.id }}"
+                                value="{{ website.safe_area_top_color or website.background_color or '#000000' }}">
                         </div>
                     </div>
                     <div class="color-option">
@@ -5912,13 +5904,13 @@
                 const backgroundImageBlur = document.getElementById(`websiteBackgroundBlur_${websiteId}`)?.value || 0;
                 const backgroundImageOverlayColor = document.getElementById(`websiteBackgroundOverlayColor_${websiteId}`)?.value || '#000000';
                 const backgroundImageOverlayOpacity = document.getElementById(`websiteBackgroundOverlayOpacity_${websiteId}`)?.value || 0;
-                // Safe-area frame strip colors: only sent when "custom" is on; else
-                // null so the server falls back to the first background color.
+                // Mobile browser bar (chrome) color: one color, sent only when
+                // "custom" is on; else null so the server falls back to the first
+                // background color. Bottom column is unused (iOS uses one color).
                 const safeAreaCustom = document.getElementById(`safeAreaCustom_${websiteId}`)?.checked || false;
                 const safeAreaTopColor = safeAreaCustom
                     ? (document.getElementById(`safeAreaTopColor_${websiteId}`)?.value || null) : null;
-                const safeAreaBottomColor = safeAreaCustom
-                    ? (document.getElementById(`safeAreaBottomColor_${websiteId}`)?.value || null) : null;
+                const safeAreaBottomColor = null;
                 fetch(`/edit_website_style/${websiteId}`, {
                     method: 'POST',
                     headers: {
