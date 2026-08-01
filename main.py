@@ -34336,6 +34336,47 @@ def public_guides_index(prefix=None):
     if quizzes_uncat:
         grouped_quizzes.append({'category': None, 'quizzes': quizzes_uncat})
     quiz_question_counts = {q.id: q.questions.count() for q in public_quizzes}
+    # Per-reader quiz status for the tab (best score, passed, in-progress). Keyed
+    # by quiz_id + identity, so attempts taken INSIDE a guide lesson count here
+    # too (they share the quiz_id). status: passed | in_progress | attempted | none.
+    quiz_status = {}
+    _quiz_ids = [q.id for q in public_quizzes]
+    if _quiz_ids:
+        _aq = QuizAttempt.query.filter(QuizAttempt.quiz_id.in_(_quiz_ids))
+        if public_user:
+            _aq = _aq.filter(db.or_(QuizAttempt.public_user_id == public_user.id,
+                                    QuizAttempt.visitor_id_hash == visitor_hash))
+        else:
+            _aq = _aq.filter(QuizAttempt.visitor_id_hash == visitor_hash)
+        _thr = {q.id: (q.pass_threshold or 0.9) for q in public_quizzes}
+        _agg = {}   # quiz_id -> {'passed': bool, 'percent': int}
+        for a in _aq.all():
+            pct = (a.score / a.max_score) if a.max_score else 0
+            st = _agg.setdefault(a.quiz_id, {'passed': False, 'percent': 0})
+            st['percent'] = max(st['percent'], round(pct * 100))
+            if pct >= _thr.get(a.quiz_id, 0.9):
+                st['passed'] = True
+        # In-progress = a saved (unsubmitted) draft for this identity.
+        _draft_ids = set()
+        _dq = QuizDraft.query.filter(QuizDraft.quiz_id.in_(_quiz_ids))
+        if public_user:
+            _dq = _dq.filter(db.or_(QuizDraft.public_user_id == public_user.id,
+                                    QuizDraft.visitor_id_hash == visitor_hash))
+        else:
+            _dq = _dq.filter(QuizDraft.visitor_id_hash == visitor_hash)
+        for d in _dq.with_entities(QuizDraft.quiz_id).all():
+            _draft_ids.add(d[0])
+        for q in public_quizzes:
+            agg = _agg.get(q.id)
+            if agg and agg['passed']:
+                status = 'passed'
+            elif q.id in _draft_ids:
+                status = 'in_progress'
+            elif agg:
+                status = 'attempted'
+            else:
+                status = 'none'
+            quiz_status[q.id] = {'status': status, 'percent': (agg['percent'] if agg else 0)}
     # Standalone public resources, grouped by ResourceCategory — powers the
     # "Resources" tab (files, links, videos, rich-text pages).
     public_resources = Resource.query.filter_by(website_id=website.id, is_public=True).order_by(
@@ -34355,6 +34396,7 @@ def public_guides_index(prefix=None):
         grouped_guides=grouped_guides, single_lesson_entry=single_lesson_entry,
         prereq_state=prereq_state,
         grouped_quizzes=grouped_quizzes, quiz_question_counts=quiz_question_counts,
+        quiz_status=quiz_status,
         grouped_resources=grouped_resources,
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
