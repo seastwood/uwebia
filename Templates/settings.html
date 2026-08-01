@@ -730,9 +730,6 @@
                keys keep their default position after the ordered ones). #}
             {% set _defs = [
                 {'key':'posts',         'label':'Posts',                       'icon':'fa-newspaper'},
-                {'key':'guides',        'label':'Guides',                      'icon':'fa-book-open'},
-                {'key':'quizzes',       'label':'Quizzes',                     'icon':'fa-clipboard-check'},
-                {'key':'divisions',     'label':dlabel(plural=True, cap=True), 'icon':'fa-sitemap'},
                 {'key':'newsletters',   'label':'Newsletters',                 'icon':'fa-envelope-open-text'},
                 {'key':'forum',         'label':'Forum',                       'icon':'fa-comments'},
                 {'key':'calendars',     'label':'Calendars',                   'icon':'fa-calendar-alt'},
@@ -755,6 +752,39 @@
                 {{ it.label }}
             </label>
             {% endfor %}
+
+            {# Education dropdown — master toggle + per-item under a divider. #}
+            <div data-navkey="education" style="padding:12px 14px;background:rgba(180,140,255,0.06);border:1px solid rgba(180,140,255,0.18);border-radius:10px;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);font-weight:600;">
+                    <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;font-weight:400;" title="Drag to reorder"></i>
+                    <input type="checkbox" class="nav-vis-check" data-key="education"
+                           {% if 'education' not in _nd %}checked{% endif %}
+                           onchange="onEducationMasterToggle(this)"
+                           style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                    <i class="fas fa-graduation-cap" style="width:16px;text-align:center;color:#c9a9ff;"></i>
+                    Education dropdown
+                    <span style="font-size:0.74rem;font-weight:400;opacity:0.55;margin-left:auto;">master toggle</span>
+                </label>
+                <p style="font-size:0.74rem;color:rgba(255,255,255,0.4);margin:6px 0 10px 28px;">
+                    Hides the whole Education dropdown (Guides, Quizzes, Resources, {{ dlabel(plural=True) }}) at once, or fine-tune individual items below.
+                </p>
+                <div style="display:flex;flex-direction:column;gap:8px;padding-left:14px;border-left:2px solid rgba(180,140,255,0.25);">
+                    {% for key, label, icon in [
+                        ('guides',    'Guides',                       'fa-book-open'),
+                        ('quizzes',   'Quizzes',                      'fa-clipboard-check'),
+                        ('resources', 'Resources',                    'fa-folder-open'),
+                        ('divisions', dlabel(plural=True, cap=True),  'fa-sitemap'),
+                    ] %}
+                    <label style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:0.86rem;color:rgba(255,255,255,0.75);">
+                        <input type="checkbox" class="nav-vis-check education-sub" data-key="{{ key }}"
+                               {% if key not in _nd %}checked{% endif %}
+                               style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                        <i class="fas {{ icon }}" style="width:16px;text-align:center;color:rgba(255,255,255,0.5);"></i>
+                        {{ label }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
 
             {# Store dropdown — master toggle + per-item under a divider. #}
             <div data-navkey="store" style="padding:12px 14px;background:rgba(94,238,248,0.05);border:1px solid rgba(94,238,248,0.15);border-radius:10px;">
@@ -959,10 +989,18 @@
             s.parentElement.style.opacity = cb.checked ? '1' : '0.4';
         });
     }
+    function onEducationMasterToggle(cb) {
+        document.querySelectorAll('.nav-vis-check.education-sub').forEach(s => {
+            s.disabled = !cb.checked;
+            s.parentElement.style.opacity = cb.checked ? '1' : '0.4';
+        });
+    }
     // Initial sync on page load.
     document.addEventListener('DOMContentLoaded', () => {
         const master = document.querySelector('.nav-vis-check[data-key="store"]');
         if (master) onStoreMasterToggle(master);
+        const eduMaster = document.querySelector('.nav-vis-check[data-key="education"]');
+        if (eduMaster) onEducationMasterToggle(eduMaster);
     });
     </script>
 

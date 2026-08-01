@@ -1,6 +1,7 @@
 {% extends 'public_base.html' %}
 
-{% block title %}Guides — {{ website.name if website else 'Guides' }}{% endblock %}
+{% set _learn_title = (website.guides_page_title or 'Education') if website else 'Education' %}
+{% block title %}{{ _learn_title }} — {{ website.name if website else _learn_title }}{% endblock %}
 
 {% block head %}
 <style>
@@ -62,6 +63,17 @@
 
 /* Completion display on each card */
 .gi-badge { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(94,238,200,0.95); color: #0c1611; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+.gi-badge-lock { background: rgba(0,0,0,0.62); color: #fff; }
+/* Guides | Quizzes tabs (theme-agnostic: uses currentColor + opacity) */
+.gi-tabs { display: flex; gap: 4px; margin: 0 0 28px; border-bottom: 1px solid rgba(127,127,127,0.28); flex-wrap: wrap; }
+.gi-tab { appearance: none; -webkit-appearance: none; background: none; border: none; color: inherit; opacity: 0.55; font: inherit; font-size: 1rem; font-weight: 800; padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
+.gi-tab:hover { opacity: 0.85; }
+.gi-tab.is-active { opacity: 1; border-bottom-color: currentColor; }
+.gi-tab-panel[hidden] { display: none; }
+.gi-quiz-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; opacity: 0.62; margin-top: 10px; font-weight: 600; }
+.gi-quiz-card .gi-cover-empty { background: linear-gradient(135deg, rgba(180,140,255,0.16), rgba(94,238,248,0.12)); }
+.gi-resource-card .gi-cover-empty { background: linear-gradient(135deg, rgba(255,196,120,0.18), rgba(94,238,200,0.1)); }
+.gi-rsc-type { position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 99px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; background: rgba(0,0,0,0.5); color: #fff; }
 .gi-progress-mini { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .gi-progress-track { flex: 1; height: 6px; background: rgba(255,255,255,0.12); border-radius: 99px; overflow: hidden; }
 .gi-progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
@@ -227,10 +239,45 @@
     </div>
 {%- endmacro %}
 
+{% macro quiz_card(q) -%}
+    {% set _qcount = quiz_question_counts.get(q.id, 0) %}
+    <a class="gi-card gi-quiz-card" href="{{ url_for('public_quiz_page', qid=q.id) }}">
+        <div class="gi-cover-wrap">
+            <div class="gi-cover-empty"><i class="fas fa-clipboard-check"></i></div>
+            {% if q.require_login_to_view %}<span class="gi-badge gi-badge-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
+        </div>
+        <div class="gi-body">
+            <h2 class="gi-title">{{ q.title }}</h2>
+            {% if q.description %}<p class="gi-desc">{{ q.description }}</p>{% endif %}
+            <span class="gi-quiz-meta"><i class="fas fa-list-ol"></i> {{ _qcount }} question{{ '' if _qcount == 1 else 's' }}</span>
+        </div>
+    </a>
+{%- endmacro %}
+
+{% macro resource_card(r) -%}
+    {% set _rt = r.resource_type %}
+    {% set _icon = r.icon or {'link': 'fa-link', 'file': 'fa-file-arrow-down', 'video': 'fa-play', 'page': 'fa-file-lines'}.get(_rt, 'fa-folder') %}
+    {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(_rt, '') %}
+    {% set _ticon = {'link': 'fa-external-link-alt', 'file': 'fa-download', 'video': 'fa-play', 'page': 'fa-book-open'}.get(_rt, 'fa-link') %}
+    {# All types route through /resource/<id> so the login gate applies; links &
+       files redirect from there (open in a new tab), videos & pages render on-site. #}
+    <a class="gi-card gi-resource-card" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
+        <div class="gi-cover-wrap">
+            <div class="gi-cover-empty"><i class="fas {{ _icon }}"></i></div>
+            <span class="gi-rsc-type"><i class="fas {{ _ticon }}"></i> {{ _tlabel }}</span>
+            {% if r.require_login_to_view %}<span class="gi-badge gi-badge-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
+        </div>
+        <div class="gi-body">
+            <h2 class="gi-title">{{ r.title }}</h2>
+            {% if r.description %}<p class="gi-desc">{{ r.description }}</p>{% endif %}
+        </div>
+    </a>
+{%- endmacro %}
+
 <div class="gi-wrap">
     <div class="gi-head-row">
         <div>
-            <h1 class="gi-heading">Guides</h1>
+            <h1 class="gi-heading">{{ _learn_title }}</h1>
             <p class="gi-sub">Browse training modules and reference material.</p>
         </div>
         <div class="gi-head-actions">
@@ -247,6 +294,18 @@
             {% endif %}
         </div>
     </div>
+
+    {# Guides | Quizzes | Resources tabs — only when there are standalone public
+       quizzes or resources; otherwise the guides render with no tab chrome. #}
+    {% if grouped_quizzes or grouped_resources %}
+    <div class="gi-tabs" role="tablist">
+        <button type="button" class="gi-tab is-active" data-tab="guides" role="tab" onclick="giSwitchTab('guides')"><i class="fas fa-book-open"></i> Guides</button>
+        {% if grouped_quizzes %}<button type="button" class="gi-tab" data-tab="quizzes" role="tab" onclick="giSwitchTab('quizzes')"><i class="fas fa-clipboard-check"></i> Quizzes</button>{% endif %}
+        {% if grouped_resources %}<button type="button" class="gi-tab" data-tab="resources" role="tab" onclick="giSwitchTab('resources')"><i class="fas fa-folder-open"></i> Resources</button>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="gi-tab-panel" data-tab="guides">
 
     {% if guides and navbar_public_accounts_enabled and not navbar_public_user and (guides|selectattr('track_progress')|list) %}
     {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
@@ -361,6 +420,91 @@
         {% endif %}
     </section>
     {% endfor %}
+    {% endif %}
+
+    </div>{# /gi-tab-panel guides #}
+
+    {% if grouped_quizzes %}
+    <div class="gi-tab-panel" data-tab="quizzes" hidden>
+        {% if grouped_quizzes|length == 1 and grouped_quizzes[0].category is none %}
+        <div class="gi-grid">
+            {% for q in grouped_quizzes[0].quizzes %}{{ quiz_card(q) }}{% endfor %}
+        </div>
+        {% else %}
+        {% for grp in grouped_quizzes %}
+        <section class="gi-section">
+            <header class="gi-section-head">
+                <h2 class="gi-section-title">
+                    {% if grp.category %}
+                    {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
+                    {{ grp.category.name }}
+                    {% else %}
+                    Uncategorized
+                    {% endif %}
+                </h2>
+                <span class="gi-section-count">{{ grp.quizzes|length }}</span>
+            </header>
+            {% if grp.category and grp.category.description %}
+            <p class="gi-section-desc">{{ grp.category.description }}</p>
+            {% endif %}
+            <div class="gi-grid">
+                {% for q in grp.quizzes %}{{ quiz_card(q) }}{% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+        {% endif %}
+    </div>{# /gi-tab-panel quizzes #}
+    {% endif %}
+
+    {% if grouped_resources %}
+    <div class="gi-tab-panel" data-tab="resources" hidden>
+        {% if grouped_resources|length == 1 and grouped_resources[0].category is none %}
+        <div class="gi-grid">
+            {% for r in grouped_resources[0].resources %}{{ resource_card(r) }}{% endfor %}
+        </div>
+        {% else %}
+        {% for grp in grouped_resources %}
+        <section class="gi-section">
+            <header class="gi-section-head">
+                <h2 class="gi-section-title">
+                    {% if grp.category %}
+                    {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
+                    {{ grp.category.name }}
+                    {% else %}
+                    Uncategorized
+                    {% endif %}
+                </h2>
+                <span class="gi-section-count">{{ grp.resources|length }}</span>
+            </header>
+            {% if grp.category and grp.category.description %}
+            <p class="gi-section-desc">{{ grp.category.description }}</p>
+            {% endif %}
+            <div class="gi-grid">
+                {% for r in grp.resources %}{{ resource_card(r) }}{% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+        {% endif %}
+    </div>{# /gi-tab-panel resources #}
+    {% endif %}
+
+    {% if grouped_quizzes or grouped_resources %}
+    <script>
+    function giSwitchTab(name) {
+        document.querySelectorAll('.gi-tab').forEach(function (b) {
+            b.classList.toggle('is-active', b.dataset.tab === name);
+        });
+        document.querySelectorAll('.gi-tab-panel').forEach(function (p) {
+            p.hidden = (p.dataset.tab !== name);
+        });
+        try { history.replaceState(null, '', '#' + name); } catch (e) {}
+    }
+    // Deep-link support: /guides#quizzes or #resources opens that tab directly.
+    (function () {
+        var h = (location.hash || '').replace('#', '');
+        if (h === 'quizzes' || h === 'resources') giSwitchTab(h);
+    })();
+    </script>
     {% endif %}
 </div>
 {% endblock %}

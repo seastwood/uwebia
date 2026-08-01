@@ -95,6 +95,13 @@
 
     {% if user_has_perm('guides.manage') and not guides_restricted and website %}
     <div class="ga-site-settings">
+        <div style="margin-bottom:14px;">
+            <label for="gaPageTitle" style="display:block;font-size:0.82rem;font-weight:700;margin-bottom:6px;">Public page title</label>
+            <input type="text" id="gaPageTitle" value="{{ website.guides_page_title or '' }}" placeholder="Education" maxlength="120"
+                   onchange="gaSavePageTitle(this)"
+                   style="width:100%;max-width:320px;padding:8px 11px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.06);color:#fff;font-size:0.9rem;">
+            <p style="font-size:0.76rem;opacity:0.5;margin:5px 0 0;">Heading on the public Guides / Quizzes / Resources page. Blank = “Education”.</p>
+        </div>
         <label class="ga-toggle" title="Adds a button on the public guides page that takes logged-in members to the Training tab of their profile.">
             <input type="checkbox" id="gaShowMyTraining"
                    {% if website.guides_show_my_training %}checked{% endif %}
@@ -479,6 +486,30 @@ async function gaSaveSiteSettings(cb) {
         show('Saved');
     } catch (e) {
         cb.checked = !cb.checked;   // revert the visual state on failure
+        show(e.message || 'Save failed', true);
+    }
+}
+
+async function gaSavePageTitle(inp) {
+    const status = document.getElementById('gaSiteSettingsStatus');
+    const show = (text, err) => {
+        if (!status) return;
+        status.textContent = text;
+        status.classList.toggle('is-error', !!err);
+        status.classList.add('is-visible');
+        clearTimeout(status._t);
+        status._t = setTimeout(() => status.classList.remove('is-visible'), 2200);
+    };
+    try {
+        const r = await fetch('/admin/guides/site-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page_title: inp.value }),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.success) throw new Error(j.error || 'Save failed');
+        show('Saved');
+    } catch (e) {
         show(e.message || 'Save failed', true);
     }
 }
