@@ -70,10 +70,29 @@
 .gi-tab:hover { opacity: 0.85; }
 .gi-tab.is-active { opacity: 1; border-bottom-color: currentColor; }
 .gi-tab-panel[hidden] { display: none; }
-.gi-quiz-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; opacity: 0.62; margin-top: 10px; font-weight: 600; }
-.gi-quiz-card .gi-cover-empty { background: linear-gradient(135deg, rgba(180,140,255,0.16), rgba(94,238,248,0.12)); }
-.gi-resource-card .gi-cover-empty { background: linear-gradient(135deg, rgba(255,196,120,0.18), rgba(94,238,200,0.1)); }
-.gi-rsc-type { position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 99px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; background: rgba(0,0,0,0.5); color: #fff; }
+/* Resources & Quizzes render as a compact list (not big cards) */
+.gi-rsc-list { display: flex; flex-direction: column; gap: 8px; }
+.gi-rsc-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.2); background: rgba(127,127,127,0.05); text-decoration: none; color: inherit; transition: background 0.15s, border-color 0.15s; }
+.gi-rsc-row:hover { background: rgba(127,127,127,0.11); border-color: rgba(127,127,127,0.4); }
+.gi-rsc-ic { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(255,196,120,0.2), rgba(94,238,200,0.12)); font-size: 1.05rem; }
+.gi-rsc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gi-rsc-title { font-weight: 700; font-size: 1rem; overflow-wrap: anywhere; }
+.gi-rsc-desc { font-size: 0.85rem; opacity: 0.62; margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }
+.gi-rsc-ic { align-self: flex-start; }
+.gi-rsc-tag { flex-shrink: 0; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 99px; background: rgba(127,127,127,0.2); opacity: 0.85; white-space: nowrap; }
+.gi-rsc-lock { flex-shrink: 0; align-self: flex-start; opacity: 0.55; font-size: 0.82rem; margin-top: 2px; }
+.gi-rsc-go { flex-shrink: 0; align-self: center; opacity: 0.4; font-size: 0.8rem; }
+.gi-quiz-ic { background: linear-gradient(135deg, rgba(180,140,255,0.2), rgba(94,238,248,0.14)); }
+.gi-quiz-row.is-passed { border-color: rgba(94,238,200,0.5); background: rgba(94,238,200,0.07); }
+.gi-quiz-row.is-passed .gi-rsc-ic { background: rgba(94,238,200,0.22); color: #5eeec8; }
+/* Quiz meta line: question count + status badge */
+.gi-q-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 5px; }
+.gi-q-count { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; opacity: 0.6; font-weight: 600; }
+.gi-q-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 800; padding: 2px 9px; border-radius: 99px; }
+.gi-q-passed { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.gi-q-resume { background: rgba(94,238,248,0.16); color: #5eeef8; }
+.gi-q-attempted { background: rgba(127,127,127,0.2); opacity: 0.85; }
+@media (max-width: 560px) { .gi-rsc-tag { display: none; } }
 .gi-progress-mini { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .gi-progress-track { flex: 1; height: 6px; background: rgba(255,255,255,0.12); border-radius: 99px; overflow: hidden; }
 .gi-progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
@@ -241,16 +260,23 @@
 
 {% macro quiz_card(q) -%}
     {% set _qcount = quiz_question_counts.get(q.id, 0) %}
-    <a class="gi-card gi-quiz-card" href="{{ url_for('public_quiz_page', qid=q.id) }}">
-        <div class="gi-cover-wrap">
-            <div class="gi-cover-empty"><i class="fas fa-clipboard-check"></i></div>
-            {% if q.require_login_to_view %}<span class="gi-badge gi-badge-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
-        </div>
-        <div class="gi-body">
-            <h2 class="gi-title">{{ q.title }}</h2>
-            {% if q.description %}<p class="gi-desc">{{ q.description }}</p>{% endif %}
-            <span class="gi-quiz-meta"><i class="fas fa-list-ol"></i> {{ _qcount }} question{{ '' if _qcount == 1 else 's' }}</span>
-        </div>
+    {% set _qs = quiz_status.get(q.id) if quiz_status else None %}
+    {% set _status = _qs.status if _qs else 'none' %}
+    <a class="gi-rsc-row gi-quiz-row{% if _status == 'passed' %} is-passed{% endif %}" href="{{ url_for('public_quiz_page', qid=q.id) }}">
+        <span class="gi-rsc-ic gi-quiz-ic">{% if _status == 'passed' %}<i class="fas fa-circle-check"></i>{% else %}<i class="fas fa-clipboard-check"></i>{% endif %}</span>
+        <span class="gi-rsc-main">
+            <span class="gi-rsc-title">{{ q.title }}</span>
+            {% if q.description %}<span class="gi-rsc-desc">{{ q.description }}</span>{% endif %}
+            <span class="gi-q-meta">
+                <span class="gi-q-count"><i class="fas fa-list-ol"></i> {{ _qcount }} question{{ '' if _qcount == 1 else 's' }}</span>
+                {% if _status == 'passed' %}<span class="gi-q-badge gi-q-passed"><i class="fas fa-check"></i> Passed{% if _qs.percent %} · {{ _qs.percent }}%{% endif %}</span>
+                {% elif _status == 'in_progress' %}<span class="gi-q-badge gi-q-resume"><i class="fas fa-play"></i> In progress</span>
+                {% elif _status == 'attempted' %}<span class="gi-q-badge gi-q-attempted">Best {{ _qs.percent }}%</span>
+                {% endif %}
+            </span>
+        </span>
+        {% if q.require_login_to_view %}<span class="gi-rsc-lock" title="Login required"><i class="fas fa-lock"></i></span>{% endif %}
+        <i class="fas fa-chevron-right gi-rsc-go"></i>
     </a>
 {%- endmacro %}
 
@@ -258,19 +284,17 @@
     {% set _rt = r.resource_type %}
     {% set _icon = r.icon or {'link': 'fa-link', 'file': 'fa-file-arrow-down', 'video': 'fa-play', 'page': 'fa-file-lines'}.get(_rt, 'fa-folder') %}
     {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(_rt, '') %}
-    {% set _ticon = {'link': 'fa-external-link-alt', 'file': 'fa-download', 'video': 'fa-play', 'page': 'fa-book-open'}.get(_rt, 'fa-link') %}
-    {# All types route through /resource/<id> so the login gate applies; links &
-       files redirect from there (open in a new tab), videos & pages render on-site. #}
-    <a class="gi-card gi-resource-card" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
-        <div class="gi-cover-wrap">
-            <div class="gi-cover-empty"><i class="fas {{ _icon }}"></i></div>
-            <span class="gi-rsc-type"><i class="fas {{ _ticon }}"></i> {{ _tlabel }}</span>
-            {% if r.require_login_to_view %}<span class="gi-badge gi-badge-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
-        </div>
-        <div class="gi-body">
-            <h2 class="gi-title">{{ r.title }}</h2>
-            {% if r.description %}<p class="gi-desc">{{ r.description }}</p>{% endif %}
-        </div>
+    {# Compact list row. All types route through /resource/<id> so the login gate
+       applies; links & files redirect (new tab), videos & pages render on-site. #}
+    <a class="gi-rsc-row" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
+        <span class="gi-rsc-ic"><i class="fas {{ _icon }}"></i></span>
+        <span class="gi-rsc-main">
+            <span class="gi-rsc-title">{{ r.title }}</span>
+            {% if r.description %}<span class="gi-rsc-desc">{{ r.description }}</span>{% endif %}
+        </span>
+        {% if r.require_login_to_view %}<span class="gi-rsc-lock" title="Login required"><i class="fas fa-lock"></i></span>{% endif %}
+        <span class="gi-rsc-tag">{{ _tlabel }}</span>
+        <i class="fas fa-chevron-right gi-rsc-go"></i>
     </a>
 {%- endmacro %}
 
@@ -426,8 +450,26 @@
 
     {% if grouped_quizzes %}
     <div class="gi-tab-panel" data-tab="quizzes" hidden>
+        {# Continue quizzes — in-progress (a saved draft) with one-click resume. #}
+        {% set _q_inprog = [] %}
+        {% for grp in grouped_quizzes %}{% for q in grp.quizzes %}
+            {% if quiz_status and quiz_status.get(q.id) and quiz_status.get(q.id).status == 'in_progress' %}{% set _ = _q_inprog.append(q) %}{% endif %}
+        {% endfor %}{% endfor %}
+        {% if _q_inprog %}
+        <div class="gi-continue">
+            <h2 class="gi-continue-title"><i class="fas fa-play-circle"></i> Continue quizzes</h2>
+            <div class="gi-continue-row">
+                {% for q in _q_inprog[:3] %}
+                <a class="gi-continue-card" href="{{ url_for('public_quiz_page', qid=q.id) }}">
+                    <div class="gi-continue-info"><span class="gi-continue-guide">{{ q.title }}</span></div>
+                    <span class="gi-continue-go"><i class="fas fa-arrow-right"></i></span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         {% if grouped_quizzes|length == 1 and grouped_quizzes[0].category is none %}
-        <div class="gi-grid">
+        <div class="gi-rsc-list">
             {% for q in grouped_quizzes[0].quizzes %}{{ quiz_card(q) }}{% endfor %}
         </div>
         {% else %}
@@ -447,7 +489,7 @@
             {% if grp.category and grp.category.description %}
             <p class="gi-section-desc">{{ grp.category.description }}</p>
             {% endif %}
-            <div class="gi-grid">
+            <div class="gi-rsc-list">
                 {% for q in grp.quizzes %}{{ quiz_card(q) }}{% endfor %}
             </div>
         </section>
@@ -459,7 +501,7 @@
     {% if grouped_resources %}
     <div class="gi-tab-panel" data-tab="resources" hidden>
         {% if grouped_resources|length == 1 and grouped_resources[0].category is none %}
-        <div class="gi-grid">
+        <div class="gi-rsc-list">
             {% for r in grouped_resources[0].resources %}{{ resource_card(r) }}{% endfor %}
         </div>
         {% else %}
@@ -479,7 +521,7 @@
             {% if grp.category and grp.category.description %}
             <p class="gi-section-desc">{{ grp.category.description }}</p>
             {% endif %}
-            <div class="gi-grid">
+            <div class="gi-rsc-list">
                 {% for r in grp.resources %}{{ resource_card(r) }}{% endfor %}
             </div>
         </section>
