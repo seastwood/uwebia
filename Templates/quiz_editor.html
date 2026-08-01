@@ -497,8 +497,12 @@ function showForm() {
         : ((_editing.config || {}).prompt_format === 'html');
     if (_promptIsHtml && _editing.prompt) {
         _quill.root.innerHTML = _editing.prompt;
+        // Flush the innerHTML load NOW as a SILENT change. Otherwise Quill's
+        // MutationObserver reports it as a 'user' edit on the next tick (after
+        // _dirty is reset below), falsely marking an untouched question dirty.
+        _quill.update('silent');
     } else {
-        _quill.setText(_editing.prompt || '');   // legacy plain-text prompt
+        _quill.setText(_editing.prompt || '');   // legacy plain-text prompt (source 'api')
     }
     document.getElementById('qPoints').value = _editing.points || 1;
     // Ungraded types score no points — hide the field entirely.
