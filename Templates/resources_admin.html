@@ -1,0 +1,463 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script src="{{ url_for('static', filename='js/quill_paste_image.js') }}"></script>
+
+<style>
+.ra-page { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+.ra-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+.ra-title { font-size: 1.9rem; font-weight: 800; color: #fff; margin: 0; }
+.ra-sub { font-size: 0.85rem; color: rgba(255,255,255,0.45); margin: 6px 0 0; }
+.ra-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.ra-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 0.88rem; border: none; cursor: pointer; text-decoration: none; }
+.ra-btn-primary { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+.ra-btn-secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); }
+.ra-btn:hover { opacity: 0.9; }
+.ra-section { margin-bottom: 34px; }
+.ra-section-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.ra-section-title { font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0; display: inline-flex; align-items: center; gap: 8px; }
+.ra-section-count { font-size: 0.7rem; font-weight: 700; opacity: 0.55; padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); }
+.ra-cat-edit { margin-left: auto; background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 0.85rem; }
+.ra-cat-edit:hover { color: #fff; }
+.ra-list { display: flex; flex-direction: column; gap: 8px; }
+.ra-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+.ra-item-icon { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(94,238,200,0.14); color: #5eeec8; font-size: 1rem; flex-shrink: 0; }
+.ra-item-main { flex: 1; min-width: 0; }
+.ra-item-title { font-weight: 700; color: #fff; font-size: 0.95rem; }
+.ra-item-desc { font-size: 0.82rem; color: rgba(255,255,255,0.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-item-tags { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.ra-tag { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.7); }
+.ra-tag.is-draft { background: rgba(255,180,90,0.16); color: #ffc27a; }
+.ra-tag.is-lock { background: rgba(120,160,255,0.16); color: #a9c2ff; }
+.ra-item-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.ra-icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.ra-icon-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+.ra-icon-btn.danger:hover { color: #ff7676; border-color: rgba(255,118,118,0.4); }
+.ra-empty { padding: 40px 20px; text-align: center; color: rgba(255,255,255,0.4); border: 1px dashed rgba(255,255,255,0.14); border-radius: 12px; }
+
+/* Modals */
+.ra-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: flex-start; justify-content: center; z-index: 200000; padding: 40px 16px; overflow-y: auto; }
+.ra-modal { background: #16161f; border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; width: 100%; max-width: 620px; color: #fff; }
+.ra-modal-head { padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 1.1rem; font-weight: 800; }
+.ra-modal-body { padding: 20px 22px; }
+.ra-modal-foot { padding: 14px 22px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: flex-end; gap: 10px; }
+.ra-field { margin-bottom: 16px; }
+.ra-label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); margin: 0 0 7px; }
+.ra-input, .ra-textarea, .ra-select { width: 100%; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); color: #fff; font-size: 0.92rem; outline: none; box-sizing: border-box; font-family: inherit; }
+.ra-textarea { resize: vertical; min-height: 60px; }
+.ra-input:focus, .ra-textarea:focus, .ra-select:focus { border-color: rgba(94,238,248,0.4); }
+.ra-typegrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ra-typebtn { padding: 12px 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.7); cursor: pointer; text-align: center; font-size: 0.78rem; font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ra-typebtn i { font-size: 1.1rem; }
+.ra-typebtn.is-active { border-color: #5eeef8; background: rgba(94,238,248,0.12); color: #fff; }
+.ra-check { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; cursor: pointer; margin-top: 12px; }
+.ra-check input { width: 16px; height: 16px; accent-color: #5eeef8; }
+.ra-file-row { display: flex; align-items: center; gap: 10px; }
+.ra-file-preview { flex: 1; min-width: 0; font-size: 0.85rem; color: rgba(255,255,255,0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-item-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ra-item-row .ra-item-url { flex: 2; }
+.ra-item-row .ra-item-label { flex: 1; }
+.ra-item-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); cursor: pointer; font-size: 1.1rem; line-height: 1; }
+.ra-item-remove:hover { color: #ff7676; border-color: rgba(255,118,118,0.4); }
+.ra-err { color: #ff6b6b; font-size: 0.85rem; margin: 4px 0 0; display: none; }
+/* The page editor previews the public site's real colours (background + text)
+   so authoring is WYSIWYG — it matches whatever scheme the public page uses. */
+#resPageEditor { background: {{ website.background_color or '#ffffff' }}; border-radius: 0 0 10px 10px; min-height: 180px; }
+#resPageWrap .ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
+#resPageWrap .ql-container { border-color: rgba(255,255,255,0.12) !important; border-radius: 0 0 10px 10px; }
+#resPageWrap .ql-editor { color: {{ website.text_color or '#111111' }}; min-height: 160px; max-height: min(440px, 50vh); overflow-y: auto; overflow-wrap: anywhere; }
+#resPageWrap .ql-editor.ql-blank::before { color: rgba(128,128,128,0.75); font-style: normal; }
+#resPageWrap .ql-editor img { max-width: 100%; height: auto; }
+
+/* Asset picker */
+.ra-ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.ra-ap-item { border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; overflow: hidden; cursor: pointer; background: rgba(255,255,255,0.04); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; padding: 6px; text-align: center; }
+.ra-ap-item:hover { border-color: #5eeef8; }
+.ra-ap-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
+.ra-ap-item .ra-ap-name { font-size: 0.66rem; color: rgba(255,255,255,0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ra-ap-folder { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #fff; cursor: pointer; margin: 0 8px 8px 0; font-size: 0.85rem; }
+.ra-ap-types { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+.ra-ap-type { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); cursor: pointer; font-size: 0.82rem; font-weight: 600; }
+.ra-ap-type:hover { color: #fff; }
+.ra-ap-type.is-active { border-color: #5eeef8; background: rgba(94,238,248,0.12); color: #fff; }
+</style>
+
+<div class="ra-page">
+    <div class="ra-header">
+        <div>
+            <h1 class="ra-title">Resources</h1>
+            <p class="ra-sub">Files, links, videos and pages — published on the public guides page's Resources tab, grouped by category.</p>
+        </div>
+        {% if user_has_perm('resources.manage') %}
+        <div class="ra-actions">
+            <button class="ra-btn ra-btn-secondary" onclick="openCategoryModal()"><i class="fas fa-folder-plus"></i> New category</button>
+            <button class="ra-btn ra-btn-primary" onclick="openResourceModal()"><i class="fas fa-plus"></i> New resource</button>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if resource_count == 0 %}
+    <div class="ra-empty">No resources yet. Create one to add it to the public Resources tab.</div>
+    {% endif %}
+
+    {% for grp in grouped %}
+    <section class="ra-section">
+        <div class="ra-section-head">
+            <h2 class="ra-section-title">
+                {% if grp.category %}
+                {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" {% if grp.category.color %}style="color:{{ grp.category.color }};"{% endif %}></i>{% endif %}
+                {{ grp.category.name }}
+                {% else %}Uncategorized{% endif %}
+            </h2>
+            <span class="ra-section-count">{{ grp.resources|length }}</span>
+            {% if grp.category and user_has_perm('resources.manage') %}
+            <button class="ra-cat-edit" onclick='openCategoryModal({{ grp.category.to_dict() | tojson }})'><i class="fas fa-cog"></i> Category</button>
+            {% endif %}
+        </div>
+        <div class="ra-list">
+            {% for r in grp.resources %}
+            <div class="ra-item">
+                <div class="ra-item-icon"><i class="fas {{ r.icon or {'link':'fa-link','file':'fa-file-arrow-down','video':'fa-play','page':'fa-file-lines'}.get(r.resource_type, 'fa-folder') }}"></i></div>
+                <div class="ra-item-main">
+                    <div class="ra-item-title">{{ r.title }}</div>
+                    {% if r.description %}<div class="ra-item-desc">{{ r.description }}</div>{% endif %}
+                    <div class="ra-item-tags">
+                        <span class="ra-tag">{{ {'link':'Link','file':'Download','video':'Video','page':'Article'}.get(r.resource_type, r.resource_type) }}</span>
+                        {% if not r.is_public %}<span class="ra-tag is-draft">Draft</span>{% endif %}
+                        {% if r.require_login_to_view %}<span class="ra-tag is-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
+                    </div>
+                </div>
+                <div class="ra-item-btns">
+                    <a class="ra-icon-btn" href="{{ url_for('public_resource_page', rid=r.id) }}" target="_blank" rel="noopener" title="Open"><i class="fas fa-external-link-alt"></i></a>
+                    {% if user_has_perm('resources.manage') %}
+                    <button class="ra-icon-btn" onclick='openResourceModal({{ r.to_dict() | tojson }})' title="Edit"><i class="fas fa-pen"></i></button>
+                    <button class="ra-icon-btn danger" onclick="deleteResource({{ r.id }}, {{ r.title | tojson }})" title="Delete"><i class="fas fa-trash"></i></button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+
+<!-- Resource modal -->
+<div class="ra-overlay" id="resOverlay" onclick="if(event.target===this)closeResourceModal()">
+    <div class="ra-modal">
+        <div class="ra-modal-head" id="resModalTitle">New resource</div>
+        <div class="ra-modal-body">
+            <input type="hidden" id="resId">
+            <div class="ra-field">
+                <label class="ra-label">Type</label>
+                <div class="ra-typegrid">
+                    <button type="button" class="ra-typebtn" data-type="link" onclick="setResourceType('link')"><i class="fas fa-link"></i> Link</button>
+                    <button type="button" class="ra-typebtn" data-type="file" onclick="setResourceType('file')"><i class="fas fa-file-arrow-down"></i> File</button>
+                    <button type="button" class="ra-typebtn" data-type="video" onclick="setResourceType('video')"><i class="fas fa-play"></i> Video</button>
+                    <button type="button" class="ra-typebtn" data-type="page" onclick="setResourceType('page')"><i class="fas fa-file-lines"></i> Page</button>
+                </div>
+            </div>
+            <div class="ra-field">
+                <label class="ra-label" for="resTitle">Title</label>
+                <input type="text" class="ra-input" id="resTitle" placeholder="e.g. Safety checklist (PDF)">
+            </div>
+            <div class="ra-field">
+                <label class="ra-label" for="resDesc">Description <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional)</span></label>
+                <textarea class="ra-textarea" id="resDesc" placeholder="Shown on the resource card"></textarea>
+            </div>
+
+            <div class="ra-field" id="resItemsField">
+                <label class="ra-label" id="resItemsLabel">Links</label>
+                <div id="resItemsList"></div>
+                <button type="button" class="ra-btn ra-btn-secondary" id="resAddItemBtn" style="margin-top:8px;padding:7px 12px;" onclick="addResItem()"><i class="fas fa-plus"></i> Add another</button>
+            </div>
+            <div class="ra-field" id="resPageField" style="display:none;">
+                <label class="ra-label">Page content</label>
+                <div id="resPageWrap"><div id="resPageEditor"></div></div>
+            </div>
+
+            <div class="ra-field">
+                <label class="ra-label" for="resCategory">Category</label>
+                <select class="ra-select" id="resCategory">
+                    <option value="">— Uncategorized —</option>
+                    {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <label class="ra-check"><input type="checkbox" id="resIsPublic" checked> List on the public Resources tab</label>
+            <label class="ra-check"><input type="checkbox" id="resRequireLogin"> Require login to open it</label>
+            <p class="ra-err" id="resErr"></p>
+        </div>
+        <div class="ra-modal-foot">
+            <button class="ra-btn ra-btn-secondary" onclick="closeResourceModal()">Cancel</button>
+            <button class="ra-btn ra-btn-primary" id="resSaveBtn" onclick="saveResource()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Category modal -->
+<div class="ra-overlay" id="catOverlay" onclick="if(event.target===this)closeCategoryModal()">
+    <div class="ra-modal" style="max-width:480px;">
+        <div class="ra-modal-head" id="catModalTitle">New category</div>
+        <div class="ra-modal-body">
+            <input type="hidden" id="catId">
+            <div class="ra-field"><label class="ra-label" for="catName">Name</label><input type="text" class="ra-input" id="catName" placeholder="e.g. Downloads"></div>
+            <div class="ra-field"><label class="ra-label" for="catDesc">Description <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional)</span></label><textarea class="ra-textarea" id="catDesc"></textarea></div>
+            <div class="ra-field" style="display:flex;gap:14px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:150px;"><label class="ra-label" for="catIcon">Icon <span style="opacity:0.5;text-transform:none;font-weight:400;">(FA class)</span></label><input type="text" class="ra-input" id="catIcon" placeholder="fa-folder-open"></div>
+                <div><label class="ra-label" for="catColor">Color</label><input type="color" id="catColor" value="#5eeec8" style="width:52px;height:42px;border:none;background:none;cursor:pointer;"></div>
+            </div>
+            <p class="ra-err" id="catErr"></p>
+        </div>
+        <div class="ra-modal-foot">
+            <button class="ra-btn ra-btn-secondary" id="catDeleteBtn" onclick="deleteCategory()" style="margin-right:auto;display:none;color:#ff7676;">Delete</button>
+            <button class="ra-btn ra-btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+            <button class="ra-btn ra-btn-primary" onclick="saveCategory()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Asset picker -->
+<div class="ra-overlay" id="apOverlay" onclick="if(event.target===this)closeAssetPicker()">
+    <div class="ra-modal" style="max-width:640px;">
+        <div class="ra-modal-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <span>Choose a file</span>
+            <span>
+                <input type="file" id="apUploadInput" style="display:none;" onchange="apUpload(this.files[0])">
+                <button class="ra-btn ra-btn-secondary" style="padding:7px 12px;" onclick="document.getElementById('apUploadInput').click()"><i class="fas fa-upload"></i> Upload</button>
+            </span>
+        </div>
+        <div style="padding:12px 22px 0;"><div class="ra-ap-types" id="apTypeBar"></div></div>
+        <div class="ra-modal-body" id="apBody" style="min-height:180px;">Loading…</div>
+        <div class="ra-modal-foot"><button class="ra-btn ra-btn-secondary" onclick="closeAssetPicker()">Cancel</button></div>
+    </div>
+</div>
+
+<script>
+let _resQuill = null, _resType = 'link', _apCb = null, _apFolder = null;
+let _resItems = [];   // [{url, label}] for link/file/video
+
+function _esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+function _escA(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function _showErr(id, msg) { const e = document.getElementById(id); if (msg) { e.textContent = msg; e.style.display = 'block'; } else { e.style.display = 'none'; } }
+
+// ── Resource modal ──────────────────────────────────────────────────────────
+function ensureResQuill() {
+    if (_resQuill) return _resQuill;
+    _resQuill = new Quill('#resPageEditor', {
+        theme: 'snow',
+        placeholder: 'Write the resource page… headings, formatting, links, images, video.',
+        modules: { toolbar: {
+            container: [
+                [{ header: [1, 2, 3, false] }],
+                ['bold', 'italic', 'underline', 'strike', { color: [] }],
+                [{ list: 'ordered' }, { list: 'bullet' }, { align: [] }],
+                ['blockquote', 'code-block'], ['link', 'image', 'video', 'clean'],
+            ],
+            handlers: {
+                image: function () { openAssetPicker(function (url) {
+                    const rng = _resQuill.getSelection(true);
+                    _resQuill.insertEmbed(rng ? rng.index : 0, 'image', url, 'user');
+                }); },
+                video: function () {
+                    const url = prompt('Video URL (YouTube, Vimeo, MP4…):'); if (!url) return;
+                    let e = url; let m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/); if (m) e = 'https://www.youtube.com/embed/' + m[1];
+                    m = url.match(/vimeo\.com\/(\d+)/); if (m) e = 'https://player.vimeo.com/video/' + m[1];
+                    const rng = _resQuill.getSelection(true); _resQuill.insertEmbed(rng ? rng.index : 0, 'video', e, 'user');
+                },
+            },
+        } },
+    });
+    return _resQuill;
+}
+
+function setResourceType(t) {
+    _resType = t;
+    document.querySelectorAll('.ra-typebtn').forEach(b => b.classList.toggle('is-active', b.dataset.type === t));
+    document.getElementById('resItemsField').style.display = (t === 'page') ? 'none' : 'block';
+    document.getElementById('resPageField').style.display = (t === 'page') ? 'block' : 'none';
+    document.getElementById('resItemsLabel').textContent = { link: 'Links', video: 'Videos', file: 'Files' }[t] || 'Items';
+    document.getElementById('resAddItemBtn').innerHTML = '<i class="fas fa-plus"></i> ' + ({ link: 'Add another link', video: 'Add another video', file: 'Add another file' }[t] || 'Add another');
+    if (t !== 'page' && !_resItems.length) _resItems = [{ url: '', label: '' }];
+    renderResItems();
+    if (t === 'page') ensureResQuill();
+}
+
+// Render the repeatable item rows for the current type.
+function renderResItems() {
+    const list = document.getElementById('resItemsList');
+    if (_resType === 'page') { list.innerHTML = ''; return; }
+    list.innerHTML = _resItems.map((it, i) => {
+        const label = `<input type="text" class="ra-input ra-item-label" value="${_escA(it.label || '')}" oninput="onResItemLabel(${i}, this.value)" placeholder="Label (optional)">`;
+        const rm = `<button type="button" class="ra-item-remove" onclick="removeResItem(${i})" title="Remove">&times;</button>`;
+        if (_resType === 'file') {
+            const name = it.url ? (it.url.split('/').pop() || it.url) : 'No file chosen';
+            return `<div class="ra-item-row">
+                <button type="button" class="ra-btn ra-btn-secondary" style="flex-shrink:0;padding:8px 12px;" onclick="pickResItemFile(${i})"><i class="fas fa-folder-open"></i> Choose</button>
+                <span class="ra-file-preview" style="flex:2;">${_esc(name)}</span>
+                ${label}${rm}</div>`;
+        }
+        const ph = _resType === 'video' ? 'https://youtube.com/… , Vimeo, or .mp4' : 'https://…';
+        return `<div class="ra-item-row">
+            <input type="text" class="ra-input ra-item-url" value="${_escA(it.url || '')}" oninput="onResItemUrl(${i}, this.value)" placeholder="${ph}">
+            ${label}${rm}</div>`;
+    }).join('');
+}
+function onResItemUrl(i, v) { if (_resItems[i]) _resItems[i].url = v; }
+function onResItemLabel(i, v) { if (_resItems[i]) _resItems[i].label = v; }
+function addResItem() { _resItems.push({ url: '', label: '' }); renderResItems(); }
+function removeResItem(i) { _resItems.splice(i, 1); if (!_resItems.length) _resItems = [{ url: '', label: '' }]; renderResItems(); }
+function pickResItemFile(i) { openAssetPicker(function (url) { if (_resItems[i]) _resItems[i].url = url; renderResItems(); }); }
+
+function openResourceModal(r) {
+    r = r || null;
+    document.getElementById('resId').value = r ? r.id : '';
+    document.getElementById('resModalTitle').textContent = r ? 'Edit resource' : 'New resource';
+    document.getElementById('resTitle').value = r ? r.title : '';
+    document.getElementById('resDesc').value = r ? (r.description || '') : '';
+    document.getElementById('resCategory').value = r && r.category_id ? String(r.category_id) : '';
+    document.getElementById('resIsPublic').checked = r ? !!r.is_public : true;
+    document.getElementById('resRequireLogin').checked = r ? !!r.require_login_to_view : false;
+    // Seed the item rows from the resource's items (server always returns a list).
+    if (r && r.resource_type !== 'page' && Array.isArray(r.items) && r.items.length) {
+        _resItems = r.items.map(it => ({ url: it.url || '', label: it.label || '' }));
+    } else {
+        _resItems = [{ url: '', label: '' }];
+    }
+    _showErr('resErr', '');
+    setResourceType(r ? r.resource_type : 'link');
+    if (r && r.resource_type === 'page') { ensureResQuill(); _resQuill.root.innerHTML = r.content || ''; }
+    else if (_resQuill) { _resQuill.setText(''); }
+    document.getElementById('resOverlay').style.display = 'flex';
+}
+function closeResourceModal() { document.getElementById('resOverlay').style.display = 'none'; }
+
+async function saveResource() {
+    const id = document.getElementById('resId').value;
+    const body = {
+        title: document.getElementById('resTitle').value.trim(),
+        description: document.getElementById('resDesc').value.trim(),
+        resource_type: _resType,
+        category_id: document.getElementById('resCategory').value || null,
+        is_public: document.getElementById('resIsPublic').checked,
+        require_login_to_view: document.getElementById('resRequireLogin').checked,
+    };
+    if (!body.title) { _showErr('resErr', 'Title is required.'); return; }
+    if (_resType === 'page') {
+        body.content = _resQuill ? _resQuill.root.innerHTML : '';
+    } else {
+        body.items = _resItems
+            .map(x => ({ url: (x.url || '').trim(), label: (x.label || '').trim() }))
+            .filter(x => x.url);
+        if (!body.items.length) {
+            _showErr('resErr', { link: 'Add at least one link.', video: 'Add at least one video.', file: 'Choose at least one file.' }[_resType] || 'Add at least one item.');
+            return;
+        }
+    }
+    const btn = document.getElementById('resSaveBtn'); btn.disabled = true;
+    try {
+        const url = id ? `/admin/resources/${id}/update` : '/admin/resources/create';
+        const d = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+        if (d.success) { location.reload(); } else { _showErr('resErr', d.error || 'Failed to save.'); }
+    } catch (e) { _showErr('resErr', 'Request failed.'); } finally { btn.disabled = false; }
+}
+
+async function deleteResource(id, title) {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    const d = await (await fetch(`/admin/resources/${id}/delete`, { method: 'POST' })).json();
+    if (d.success) location.reload(); else alert(d.error || 'Failed to delete.');
+}
+
+// ── Category modal ──────────────────────────────────────────────────────────
+function openCategoryModal(c) {
+    c = c || null;
+    document.getElementById('catId').value = c ? c.id : '';
+    document.getElementById('catModalTitle').textContent = c ? 'Edit category' : 'New category';
+    document.getElementById('catName').value = c ? c.name : '';
+    document.getElementById('catDesc').value = c ? (c.description || '') : '';
+    document.getElementById('catIcon').value = c ? (c.icon || '') : '';
+    document.getElementById('catColor').value = (c && c.color) ? c.color : '#5eeec8';
+    document.getElementById('catDeleteBtn').style.display = c ? 'inline-flex' : 'none';
+    _showErr('catErr', '');
+    document.getElementById('catOverlay').style.display = 'flex';
+}
+function closeCategoryModal() { document.getElementById('catOverlay').style.display = 'none'; }
+
+async function saveCategory() {
+    const id = document.getElementById('catId').value;
+    const body = {
+        name: document.getElementById('catName').value.trim(),
+        description: document.getElementById('catDesc').value.trim(),
+        icon: document.getElementById('catIcon').value.trim(),
+        color: document.getElementById('catColor').value,
+    };
+    if (!body.name) { _showErr('catErr', 'Name is required.'); return; }
+    const url = id ? `/admin/resources/categories/${id}/update` : '/admin/resources/categories/create';
+    const d = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (d.success) location.reload(); else _showErr('catErr', d.error || 'Failed to save.');
+}
+async function deleteCategory() {
+    const id = document.getElementById('catId').value; if (!id) return;
+    if (!confirm('Delete this category? Its resources become Uncategorized (not deleted).')) return;
+    const d = await (await fetch(`/admin/resources/categories/${id}/delete`, { method: 'POST' })).json();
+    if (d.success) location.reload(); else alert(d.error || 'Failed to delete.');
+}
+
+// ── Asset picker — mirrors the asset library's per-type organization ─────────
+const AP_TYPES = [
+    { key: 'image', label: 'Images', icon: 'fa-image' },
+    { key: 'audio', label: 'Audio', icon: 'fa-music' },
+    { key: 'video', label: 'Video', icon: 'fa-film' },
+    { key: 'pdf', label: 'PDFs', icon: 'fa-file-pdf' },
+    { key: 'document', label: 'Documents', icon: 'fa-file-lines' },
+    { key: 'misc', label: 'Other', icon: 'fa-file' },
+];
+let _apType = 'image';
+function apRenderTypeBar() {
+    document.getElementById('apTypeBar').innerHTML = AP_TYPES.map(function (t) {
+        return `<button type="button" class="ra-ap-type${t.key === _apType ? ' is-active' : ''}" onclick="apSetType('${t.key}')"><i class="fas ${t.icon}"></i> ${t.label}</button>`;
+    }).join('');
+}
+function apSetType(t) { _apType = t; apRenderTypeBar(); apLoadRoot(); }
+function openAssetPicker(cb) { _apCb = cb; document.getElementById('apOverlay').style.display = 'flex'; apRenderTypeBar(); apLoadRoot(); }
+function closeAssetPicker() { document.getElementById('apOverlay').style.display = 'none'; _apCb = null; }
+async function apLoadRoot() {
+    _apFolder = null; const b = document.getElementById('apBody'); b.innerHTML = 'Loading…';
+    try { const d = await (await fetch('/admin/assets/root?type=' + _apType)).json(); apRender(d.folders || [], d.assets || [], false); }
+    catch (e) { b.innerHTML = '<p style="color:#ff6b6b;">Failed to load.</p>'; }
+}
+async function apLoadFolder(id) {
+    _apFolder = id; const b = document.getElementById('apBody'); b.innerHTML = 'Loading…';
+    try { const d = await (await fetch('/admin/assets/folder/' + id + '?type=' + _apType)).json(); apRender([], d.assets || [], true); }
+    catch (e) { b.innerHTML = '<p style="color:#ff6b6b;">Failed to load.</p>'; }
+}
+function apRender(folders, assets, inFolder) {
+    const b = document.getElementById('apBody'); let h = '';
+    if (inFolder) h += '<button class="ra-ap-folder" onclick="apLoadRoot()"><i class="fas fa-arrow-left"></i> Back</button>';
+    folders.forEach(f => { h += `<button class="ra-ap-folder" onclick="apLoadFolder(${f.id})"><i class="fas fa-folder"></i> ${_esc(f.name)}</button>`; });
+    if (assets.length) {
+        h += '<div class="ra-ap-grid">';
+        assets.forEach(a => {
+            const isImg = (a.asset_type === 'image') || /\.(png|jpe?g|gif|webp|svg)$/i.test(a.url || '');
+            const inner = isImg ? `<img src="${_esc(a.thumbnail_url || a.url)}" alt="">`
+                : `<i class="fas fa-file" style="font-size:1.6rem;color:#5eeec8;"></i><span class="ra-ap-name">${_esc(a.original_filename || (a.url || '').split('/').pop())}</span>`;
+            h += `<div class="ra-ap-item" onclick='apPick(${JSON.stringify(a.url)})'>${inner}</div>`;
+        });
+        h += '</div>';
+    } else if (!folders.length) { h += '<p style="color:rgba(255,255,255,0.4);">No files here.</p>'; }
+    b.innerHTML = h;
+}
+function apPick(url) { const cb = _apCb; closeAssetPicker(); if (cb) cb(url); }
+async function apUpload(file) {
+    if (!file) return; const b = document.getElementById('apBody'); b.innerHTML = 'Uploading…';
+    const fd = new FormData(); fd.append('asset', file); if (_apFolder) fd.append('folder_id', _apFolder);
+    try {
+        const d = await (await fetch('/admin/assets/upload', { method: 'POST', body: fd })).json();
+        if (d.status === 'success' && d.assets && d.assets.length) { apPick(d.assets[0].url); }
+        else { b.innerHTML = '<p style="color:#ff6b6b;">' + _esc(d.error || 'Upload failed.') + '</p>'; }
+    } catch (e) { b.innerHTML = '<p style="color:#ff6b6b;">Upload failed.</p>'; }
+    document.getElementById('apUploadInput').value = '';
+}
+</script>
+{% endblock %}

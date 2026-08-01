@@ -82,14 +82,18 @@ document.addEventListener('DOMContentLoaded', function () {
         el.style.setProperty('--nav-mask-bot', canScrollDown ? '1' : '0');
     }
 
-    const storeBtn = document.querySelector('.store-dropdown-btn');
-    const storeDropdown = document.querySelector('.store-dropdown');
-    if (storeBtn && storeDropdown) {
-        storeBtn.addEventListener('click', function (e) {
+    // Inline umbrella dropdowns (Store, Education, …) — click to toggle, and
+    // opening one closes the others. Generalized to every .store-dropdown-btn.
+    document.querySelectorAll('.store-dropdown-btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
             e.stopPropagation();
-            storeDropdown.classList.toggle('open');
+            const dd = btn.closest('.store-dropdown');
+            document.querySelectorAll('.store-dropdown.open').forEach(function (o) {
+                if (o !== dd) o.classList.remove('open');
+            });
+            if (dd) dd.classList.toggle('open');
         });
-    }
+    });
 
     document.addEventListener('click', function () {
         if (profileDropdownContent) {
@@ -101,9 +105,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (toolsDropdown) {
             toolsDropdown.classList.remove('open');
         }
-        if (storeDropdown) {
-            storeDropdown.classList.remove('open');
-        }
+        document.querySelectorAll('.store-dropdown.open').forEach(function (o) {
+            o.classList.remove('open');
+        });
         const usersSubDropdown = document.getElementById('usersSubDropdown');
         if (usersSubDropdown) usersSubDropdown.classList.remove('open');
     });
@@ -307,6 +311,15 @@ function toggleNavStoreSubgroup(e) {
     if (el) el.classList.toggle('open');
 }
 
+// Generic collapsible subgroup toggle inside the hamburger dropdown (Education,
+// and any future group). Toggles the .nav-tools-subgroup the button lives in.
+function toggleNavSubgroup(e) {
+    if (e) e.stopPropagation();
+    const btn = e && e.currentTarget;
+    const grp = btn && btn.closest ? btn.closest('.nav-tools-subgroup') : null;
+    if (grp) grp.classList.toggle('open');
+}
+
 
     function updateUnreadMessagesBadge(count) {
         const badge = document.getElementById('unreadMessagesBadge');
@@ -339,18 +352,6 @@ function toggleNavStoreSubgroup(e) {
         // refresh every 10 seconds
         setInterval(fetchUnreadMessagesCount, 10000);
     });
-
-    function toggleGlobalColorPalette() {
-    const panel = document.getElementById('globalColorPalettePanel');
-    if (!panel) return;
-
-    panel.classList.toggle('open');
-
-    renderSavedColors('global_palette');
-    enableSavedColorDropZone('global_palette');
-    enableColorPickerDropTargets();
-    enableDraggingFromColorInputs();
-}
 
 function makeGlobalColorPaletteDraggable() {
     const panel = document.getElementById('globalColorPalettePanel');

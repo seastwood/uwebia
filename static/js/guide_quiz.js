@@ -198,6 +198,38 @@
 .uwq-fc-done { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:200px; border-radius:14px; border:1px dashed rgba(94,238,200,0.4); background:rgba(94,238,200,0.05); text-align:center; }
 .uwq-fc-done i { font-size:1.7rem; color:#5eeec8; }
 .uwq-fc-done p { margin:0; font-weight:700; }
+/* Embedded resources in guide lessons — inline content + card fallback */
+.uwr-embed { margin:16px 0; }
+.uwr-head { display:flex; align-items:center; gap:8px; font-weight:700; font-size:0.9rem; opacity:0.78; margin:0 0 8px; }
+.uwr-head i { color:#c9a9ff; }
+.uwr-loading { padding:16px; opacity:0.5; font-size:0.9rem; }
+.uwr-video { position:relative; width:100%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; background:#000; }
+.uwr-video iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+.uwr-videofile { width:100%; border-radius:12px; background:#000; }
+.uwr-img { max-width:100%; height:auto; border-radius:10px; display:block; }
+.uwr-pdf { width:100%; height:min(70vh, 640px); border:1px solid rgba(127,127,127,0.3); border-radius:10px; background:#fff; }
+.uwr-dl { display:inline-flex; align-items:center; gap:8px; margin-top:8px; font-size:0.85rem; color:#c9a9ff; text-decoration:none; }
+.uwr-dl:hover { text-decoration:underline; }
+.uwr-item-label { font-weight:700; font-size:0.88rem; opacity:0.8; margin:10px 0 6px; }
+.uwr-linklist { display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
+.uwr-filelink { display:inline-flex; align-items:center; gap:8px; padding:9px 14px; border-radius:9px; border:1px solid rgba(180,140,255,0.3); background:rgba(180,140,255,0.07); text-decoration:none; color:inherit; font-weight:600; font-size:0.9rem; max-width:100%; }
+.uwr-filelink:hover { background:rgba(180,140,255,0.13); }
+.uwr-filelink span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.uwr-rich { line-height:1.7; }
+.uwr-rich h1,.uwr-rich h2,.uwr-rich h3 { font-weight:700; margin:0.8em 0 0.4em; }
+.uwr-rich p { margin:0 0 0.6em; }
+.uwr-rich a { color:#5eeef8; }
+.uwr-rich img { max-width:100%; height:auto; border-radius:8px; }
+.uwr-rich iframe { max-width:100%; }
+.uwr-rich ul,.uwr-rich ol { padding-left:1.5em; margin:0 0 0.6em; }
+.uwr-rich blockquote { border-left:3px solid rgba(127,127,127,0.5); margin:0.6em 0; padding:4px 0 4px 14px; opacity:0.85; }
+.uwr-card { display:flex; align-items:center; gap:12px; padding:12px 16px; margin:16px 0; border-radius:12px; border:1px solid rgba(180,140,255,0.3); background:rgba(180,140,255,0.07); text-decoration:none; color:inherit; transition:background 0.15s, transform 0.15s; }
+.uwr-card:hover { background:rgba(180,140,255,0.13); transform:translateY(-1px); }
+.uwr-icon { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:rgba(180,140,255,0.18); color:#c9a9ff; font-size:1.05rem; flex-shrink:0; }
+.uwr-body { display:flex; flex-direction:column; min-width:0; flex:1; }
+.uwr-title { font-weight:700; font-size:0.98rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.uwr-type { font-size:0.72rem; opacity:0.6; text-transform:uppercase; letter-spacing:0.04em; font-weight:700; margin-top:2px; }
+.uwr-go { color:#c9a9ff; opacity:0.7; flex-shrink:0; }
 `;
         const style = document.createElement('style');
         style.id = 'uwq-styles';
@@ -1253,9 +1285,114 @@
         });
     }
 
+    // Resource embeds render INLINE in the lesson (like quizzes) — the actual
+    // video / page content / image / PDF, fetched from /api/resources/<id>.
+    // Types that can't be inlined (external links, non-previewable files, or
+    // login-gated resources) fall back to a clickable card.
+    var _UWR_ICON = { link: 'fa-link', file: 'fa-file-arrow-down', video: 'fa-play', page: 'fa-file-lines' };
+    var _UWR_LABEL = { link: 'Link', file: 'Download', video: 'Video', page: 'Article' };
+
+    function _uwrCard(id, title, type, note) {
+        var newTab = (type === 'link' || type === 'file');
+        var a = document.createElement('a');
+        a.className = 'uwr-card';
+        a.href = '/resource/' + id;
+        if (newTab) { a.target = '_blank'; a.rel = 'noopener'; }
+        a.innerHTML = '<span class="uwr-icon"><i class="fas ' + (_UWR_ICON[type] || 'fa-folder') + '"></i></span>'
+            + '<span class="uwr-body"><span class="uwr-title"></span><span class="uwr-type"></span></span>'
+            + '<i class="fas fa-arrow-right uwr-go"></i>';
+        a.querySelector('.uwr-title').textContent = title;
+        a.querySelector('.uwr-type').textContent = note || _UWR_LABEL[type] || type;
+        return a;
+    }
+    function _uwrHead(icon, title) {
+        var h = document.createElement('div');
+        h.className = 'uwr-head';
+        h.innerHTML = '<i class="fas ' + icon + '"></i> <span></span>';
+        h.querySelector('span').textContent = title;
+        return h;
+    }
+    function _uwrItemLabel(text) {
+        var d = document.createElement('div'); d.className = 'uwr-item-label'; d.textContent = text; return d;
+    }
+    function _uwrFileLink(url, text, icon) {
+        var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'uwr-filelink';
+        a.innerHTML = '<i class="fas ' + icon + '"></i> <span></span>';
+        a.querySelector('span').textContent = text;
+        return a;
+    }
+    async function renderResourceInline(wrap, id, title, type) {
+        wrap.innerHTML = '<div class="uwr-loading">Loading resource…</div>';
+        var data;
+        try { data = await (await fetch('/api/resources/' + id)).json(); }
+        catch (e) { wrap.replaceWith(_uwrCard(id, title, type)); return; }
+        if (!data || !data.success) {
+            var note = (data && data.error === 'login_required') ? 'Log in to view' : null;
+            wrap.replaceWith(_uwrCard(id, (data && data.title) || title, (data && data.resource_type) || type, note));
+            return;
+        }
+        var r = data.resource, t = r.resource_type, items = r.items || [];
+        wrap.innerHTML = '';
+        if (t === 'page') {
+            wrap.appendChild(_uwrHead('fa-file-lines', r.title));
+            var pc = document.createElement('div'); pc.className = 'uwr-rich'; pc.innerHTML = r.content || '';
+            wrap.appendChild(pc);
+            return;
+        }
+        wrap.appendChild(_uwrHead(_UWR_ICON[t] || 'fa-folder', r.title));
+        if (t === 'video') {
+            (r.videos || []).forEach(function (v) {
+                if (v.label) wrap.appendChild(_uwrItemLabel(v.label));
+                if (v.kind === 'iframe') {
+                    var box = document.createElement('div'); box.className = 'uwr-video';
+                    var f = document.createElement('iframe'); f.src = v.src; f.allowFullscreen = true;
+                    f.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+                    box.appendChild(f); wrap.appendChild(box);
+                } else {
+                    var vid = document.createElement('video'); vid.src = v.src; vid.controls = true; vid.className = 'uwr-videofile';
+                    wrap.appendChild(vid);
+                }
+            });
+        } else if (t === 'file') {
+            items.forEach(function (it) {
+                var url = it.url || '';
+                if (it.label) wrap.appendChild(_uwrItemLabel(it.label));
+                if (/\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(url)) {
+                    var img = document.createElement('img'); img.src = url; img.alt = it.label || r.title; img.className = 'uwr-img';
+                    wrap.appendChild(img);
+                } else if (/\.pdf(\?|$)/i.test(url)) {
+                    var pf = document.createElement('iframe'); pf.src = url; pf.className = 'uwr-pdf'; wrap.appendChild(pf);
+                    wrap.appendChild(_uwrFileLink(url, 'Open in new tab', 'fa-up-right-from-square'));
+                } else {
+                    wrap.appendChild(_uwrFileLink(url, it.label || (url.split('/').pop() || url), 'fa-download'));
+                }
+            });
+        } else {
+            // link → one button per URL (external sites can't be inlined)
+            var lb = document.createElement('div'); lb.className = 'uwr-linklist';
+            items.forEach(function (it) {
+                lb.appendChild(_uwrFileLink(it.url, it.label || it.url, 'fa-external-link-alt'));
+            });
+            wrap.appendChild(lb);
+        }
+    }
+    function hydrateResourceEmbeds() {
+        document.querySelectorAll('.uw-resource-embed[data-resource-id]').forEach(function (el) {
+            if (el.dataset.uwrHydrated) return;
+            el.dataset.uwrHydrated = '1';
+            var wrap = document.createElement('div'); wrap.className = 'uwr-embed';
+            var id = el.getAttribute('data-resource-id');
+            var title = el.getAttribute('data-resource-title') || 'Resource';
+            var type = el.getAttribute('data-resource-type') || 'link';
+            el.replaceWith(wrap);
+            renderResourceInline(wrap, id, title, type);
+        });
+    }
+
     function init() {
         injectStyles();
         document.querySelectorAll('.uw-quiz-embed[data-quiz-id]').forEach(hydrate);
+        hydrateResourceEmbeds();
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

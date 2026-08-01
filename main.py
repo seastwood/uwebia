@@ -2269,6 +2269,9 @@ class Website(db.Model):
     # Shows a "My Training" button on the public guides page for logged-in
     # members, linking to the Training tab of their member profile.
     guides_show_my_training = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # Heading for the public learning page (Guides/Quizzes/Resources tabs).
+    # Blank → "Education". Per-site so multi-site installs can say Training, etc.
+    guides_page_title = db.Column(db.String(120), nullable=True)
     forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
@@ -3014,6 +3017,16 @@ class Quiz(db.Model):
     # just orphans its quizzes into "Uncategorized".
     category_id       = db.Column(db.Integer, db.ForeignKey('quiz_category.id', ondelete='SET NULL'),
                                   nullable=True, index=True)
+    # When true, this quiz is listed as a standalone quiz on the public guides
+    # page's "Quizzes" tab (grouped by category), independent of any guide it may
+    # also be embedded in. The /quiz/<id> URL is always reachable for direct
+    # links (KSA resources, sharing) regardless of this flag.
+    is_public         = db.Column(db.Boolean, nullable=False, default=False,
+                                  server_default=_sa_false())
+    # When true, opening the standalone quiz requires a logged-in public member
+    # (mirrors Guide.require_login_to_view).
+    require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
     questions         = db.relationship('QuizQuestion', backref='quiz', lazy='dynamic',
@@ -3196,6 +3209,89 @@ class QuizDraft(db.Model):
     updated_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     __table_args__  = (db.UniqueConstraint('quiz_id', 'visitor_id_hash',
                                            name='uq_quiz_draft_quiz_visitor'),)
+
+
+# ── Resources ───────────────────────────────────────────────────────────────
+# A Resource is a standalone piece of supplementary reference material, listed
+# on the public guides page's "Resources" tab (grouped by category, like guides
+# and quizzes). Four kinds: an external link, a downloadable library file, an
+# embedded video, or a self-contained rich-text page.
+class ResourceCategory(db.Model):
+    """Grouping for resources, mirroring GuideCategory / QuizCategory."""
+    __tablename__ = 'resource_category'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    name        = db.Column(db.String(150), nullable=False)
+    slug        = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color       = db.Column(db.String(20), nullable=True)
+    icon        = db.Column(db.String(60), nullable=True)   # FA class, e.g. 'fa-folder-open'
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (db.UniqueConstraint('website_id', 'slug', name='uq_resource_category_site_slug'),)
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'slug': self.slug,
+                'description': self.description or '', 'color': self.color or '',
+                'icon': self.icon or '', 'sort_order': self.sort_order}
+
+
+class Resource(db.Model):
+    __tablename__ = 'resource'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    title       = db.Column(db.String(300), nullable=False)
+    description = db.Column(db.Text, nullable=True)          # short blurb on the card
+    # 'link' | 'file' | 'video' | 'page'
+    resource_type = db.Column(db.String(16), nullable=False, default='link',
+                              server_default="'link'")
+    # link → external URL; file → asset URL; video → YouTube/Vimeo/MP4 URL.
+    # Kept for back-compat (legacy single-item resources); `items` is the source
+    # of truth going forward and holds the first item's url here too.
+    url         = db.Column(db.String(1000), nullable=True)
+    # link/file/video can hold MULTIPLE entries: [{"url": "...", "label": "..."}].
+    items       = db.Column(db.JSON, nullable=True)
+    # page → Quill HTML for the self-contained rich-text page.
+    content     = db.Column(db.Text, nullable=True)
+    icon        = db.Column(db.String(60), nullable=True)    # optional FA class override
+    category_id = db.Column(db.Integer, db.ForeignKey('resource_category.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
+    # Listed on the public Resources tab. Default True — creating a resource
+    # means you intend to share it; toggle off to keep it as a draft.
+    is_public   = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at  = db.Column(db.DateTime, nullable=True)
+    category    = db.relationship('ResourceCategory',
+                                  backref=db.backref('resources', lazy='dynamic'))
+
+    def item_list(self):
+        """Normalized list of {url, label} for link/file/video. Falls back to the
+        legacy single `url` column when `items` isn't set."""
+        out = []
+        if isinstance(self.items, list):
+            for it in self.items:
+                if isinstance(it, dict) and (it.get('url') or '').strip():
+                    out.append({'url': (it.get('url') or '').strip(),
+                                'label': (it.get('label') or '').strip()})
+                elif isinstance(it, str) and it.strip():
+                    out.append({'url': it.strip(), 'label': ''})
+        if not out and (self.url or '').strip():
+            out.append({'url': self.url.strip(), 'label': ''})
+        return out
+
+    def to_dict(self):
+        return {'id': self.id, 'title': self.title, 'description': self.description or '',
+                'resource_type': self.resource_type, 'url': self.url or '',
+                'items': self.item_list(),
+                'content': self.content or '', 'icon': self.icon or '',
+                'category_id': self.category_id, 'is_public': self.is_public,
+                'require_login_to_view': self.require_login_to_view,
+                'sort_order': self.sort_order}
 
 
 class Newsletter(db.Model):
@@ -9257,7 +9353,9 @@ def save_navbar_visibility():
     valid = {'posts', 'guides', 'quizzes', 'divisions', 'newsletters', 'storage', 'notifications', 'payments', 'forum', 'calendars', 'reviews', 'messages', 'products', 'orders', 'shipping', 'palette', 'ai_agents', 'plugins',
              # Store dropdown master + the items that weren't in this set before,
              # so they can actually be toggled off (the navbar already honors them).
-             'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support'}
+             'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support',
+             # Education dropdown master + its Resources sub-item.
+             'education', 'resources'}
     disabled = [k for k in data.get('disabled', []) if k in valid]
     root = db.session.get(User, current_user.root_user_id)
     if root:
@@ -14417,6 +14515,10 @@ def _serialize_backup(uid):
         QuizCategory.website_id.in_(website_ids)).all() if website_ids else []
     quizzes = Quiz.query.filter(
         Quiz.website_id.in_(website_ids)).all() if website_ids else []
+    resource_categories = ResourceCategory.query.filter(
+        ResourceCategory.website_id.in_(website_ids)).all() if website_ids else []
+    resources = Resource.query.filter(
+        Resource.website_id.in_(website_ids)).all() if website_ids else []
     _quiz_ids = [q.id for q in quizzes]
     quiz_questions = QuizQuestion.query.filter(
         QuizQuestion.quiz_id.in_(_quiz_ids)).all() if _quiz_ids else []
@@ -14653,6 +14755,7 @@ def _serialize_backup(uid):
                       'public_email_verification_required': w.public_email_verification_required,
                       'reviews_enabled': w.reviews_enabled,
                       'guides_show_my_training': w.guides_show_my_training,
+                      'guides_page_title': w.guides_page_title,
                       'ksa_level_labels': w.ksa_level_labels,
                       'ksa_types': w.ksa_types,
                       'ksa_self_report_enabled': w.ksa_self_report_enabled,
@@ -15308,9 +15411,26 @@ def _serialize_backup(uid):
                      'max_attempts': q.max_attempts,
                      'retake_cooldown_minutes': q.retake_cooldown_minutes,
                      'draw_count': q.draw_count,
+                     'is_public': q.is_public,
+                     'require_login_to_view': q.require_login_to_view,
                      'created_at': q.created_at.isoformat() if q.created_at else None,
                      'updated_at': q.updated_at.isoformat() if q.updated_at else None,
                      } for q in quizzes],
+        'resource_categories': [{'id': c.id, 'website_id': c.website_id,
+                                 'name': c.name, 'slug': c.slug,
+                                 'description': c.description, 'color': c.color,
+                                 'icon': c.icon, 'sort_order': c.sort_order,
+                                 'created_at': c.created_at.isoformat() if c.created_at else None,
+                                 } for c in resource_categories],
+        'resources': [{'id': r.id, 'website_id': r.website_id, 'title': r.title,
+                       'description': r.description, 'resource_type': r.resource_type,
+                       'url': r.url, 'items': r.items, 'content': r.content, 'icon': r.icon,
+                       'category_id': r.category_id, 'is_public': r.is_public,
+                       'require_login_to_view': r.require_login_to_view,
+                       'sort_order': r.sort_order,
+                       'created_at': r.created_at.isoformat() if r.created_at else None,
+                       'updated_at': r.updated_at.isoformat() if r.updated_at else None,
+                       } for r in resources],
         'quiz_questions': [{'id': q.id, 'quiz_id': q.quiz_id,
                             'question_type': q.question_type, 'prompt': q.prompt,
                             'config': q.config, 'points': q.points,
@@ -15708,6 +15828,7 @@ def import_backup():
                             public_email_verification_required=wd.get('public_email_verification_required', False),
                             reviews_enabled=wd.get('reviews_enabled', False),
                             guides_show_my_training=wd.get('guides_show_my_training', False),
+                            guides_page_title=wd.get('guides_page_title'),
                             ksa_level_labels=wd.get('ksa_level_labels'),
                             ksa_types=wd.get('ksa_types'),
                             ksa_self_report_enabled=wd.get('ksa_self_report_enabled', True),
@@ -16348,11 +16469,47 @@ def import_backup():
                     max_attempts=qd.get('max_attempts'),
                     retake_cooldown_minutes=qd.get('retake_cooldown_minutes'),
                     draw_count=qd.get('draw_count'),
+                    is_public=qd.get('is_public', False),
+                    require_login_to_view=qd.get('require_login_to_view', False),
                     created_at=datetime.fromisoformat(qd['created_at']) if qd.get('created_at') else None,
                     updated_at=datetime.fromisoformat(qd['updated_at']) if qd.get('updated_at') else None)
                 db.session.add(q)
                 db.session.flush()
                 quiz_map[qd['id']] = q.id
+
+            resource_cat_map = {}
+            for cd in data.get('resource_categories', []):
+                new_wid = website_map.get(cd['website_id'])
+                if not new_wid:
+                    continue
+                rc = ResourceCategory(
+                    website_id=new_wid, name=cd['name'], slug=cd['slug'],
+                    description=cd.get('description'), color=cd.get('color'),
+                    icon=cd.get('icon'), sort_order=cd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None)
+                db.session.add(rc)
+                db.session.flush()
+                resource_cat_map[cd['id']] = rc.id
+
+            resource_map = {}
+            for rd in data.get('resources', []):
+                new_wid = website_map.get(rd['website_id'])
+                if not new_wid:
+                    continue
+                r = Resource(
+                    website_id=new_wid, title=rd['title'],
+                    description=rd.get('description'),
+                    resource_type=rd.get('resource_type', 'link'),
+                    url=rd.get('url'), items=rd.get('items'), content=rd.get('content'), icon=rd.get('icon'),
+                    category_id=resource_cat_map.get(rd['category_id']) if rd.get('category_id') else None,
+                    is_public=rd.get('is_public', True),
+                    require_login_to_view=rd.get('require_login_to_view', False),
+                    sort_order=rd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
+                    updated_at=datetime.fromisoformat(rd['updated_at']) if rd.get('updated_at') else None)
+                db.session.add(r)
+                db.session.flush()
+                resource_map[rd['id']] = r.id
 
             # Track old→new question ids: attempt/draft `answers` JSON is keyed
             # by question id, so those keys must be rewritten after restore or
@@ -16411,6 +16568,29 @@ def import_backup():
                     if not new_nid or not content or 'data-quiz-id' not in content:
                         continue
                     new_content = _remap_quiz_ids(content)
+                    if new_content != content:
+                        GuideNode.query.filter_by(id=new_nid).update(
+                            {'content': new_content}, synchronize_session=False)
+
+            # Resources are embedded in lesson HTML as
+            # <div class="uw-resource-embed" data-resource-id="N"> — rewrite the
+            # ids to the restored resources (same reason as quizzes above).
+            if resource_map:
+                def _remap_resource_ids(html):
+                    def _sub(m):
+                        try:
+                            new = resource_map.get(int(m.group(2)))
+                        except (TypeError, ValueError):
+                            new = None
+                        return f'{m.group(1)}{new}{m.group(3)}' if new else m.group(0)
+                    return re.sub(r'(data-resource-id=["\'])(\d+)(["\'])', _sub, html)
+
+                for nd in data.get('guide_nodes', []):
+                    new_nid = guide_node_map.get(nd['id'])
+                    content = nd.get('content')
+                    if not new_nid or not content or 'data-resource-id' not in content:
+                        continue
+                    new_content = _remap_resource_ids(content)
                     if new_content != content:
                         GuideNode.query.filter_by(id=new_nid).update(
                             {'content': new_content}, synchronize_session=False)
@@ -21646,6 +21826,10 @@ ADMIN_PERMISSIONS = {
         'manage': 'Create & delete quizzes',
         'edit': 'Edit quiz questions & answers',
         'code_runner': 'Set the code-runner (Piston) URL for coding challenges',
+    }},
+    'resources': {'label': 'Resources', 'actions': {
+        'view': 'View the resources list',
+        'manage': 'Create, edit, organize & delete resources and their categories',
     }},
     'divisions': {'label': 'Divisions / Groups', 'actions': {
         'view': 'View divisions/groups, their members and roles',
@@ -33666,9 +33850,12 @@ def admin_guides_site_settings():
     data = request.get_json() or {}
     if 'show_my_training' in data:
         website.guides_show_my_training = bool(data.get('show_my_training'))
+    if 'page_title' in data:
+        website.guides_page_title = (data.get('page_title') or '').strip()[:120] or None
     db.session.commit()
     return _utf8_json({'success': True,
-                       'show_my_training': website.guides_show_my_training})
+                       'show_my_training': website.guides_show_my_training,
+                       'page_title': website.guides_page_title or ''})
 
 
 @app.route('/admin/guides/create', methods=['POST'])
@@ -34134,10 +34321,41 @@ def public_guides_index(prefix=None):
     uncategorized = [g for g in guides if g.category_id is None]
     if uncategorized:
         grouped_guides.append({'category': None, 'guides': uncategorized})
+    # Standalone public quizzes (admin flipped "list on public Quizzes page"),
+    # grouped by QuizCategory the same way as guides — powering the "Quizzes"
+    # tab on this page. question_count feeds each card.
+    public_quizzes = Quiz.query.filter_by(website_id=website.id, is_public=True).all()
+    quiz_cats = QuizCategory.query.filter_by(website_id=website.id).order_by(
+        QuizCategory.sort_order, QuizCategory.name).all()
+    grouped_quizzes = []
+    for c in quiz_cats:
+        in_cat = [q for q in public_quizzes if q.category_id == c.id]
+        if in_cat:
+            grouped_quizzes.append({'category': c, 'quizzes': in_cat})
+    quizzes_uncat = [q for q in public_quizzes if q.category_id is None]
+    if quizzes_uncat:
+        grouped_quizzes.append({'category': None, 'quizzes': quizzes_uncat})
+    quiz_question_counts = {q.id: q.questions.count() for q in public_quizzes}
+    # Standalone public resources, grouped by ResourceCategory — powers the
+    # "Resources" tab (files, links, videos, rich-text pages).
+    public_resources = Resource.query.filter_by(website_id=website.id, is_public=True).order_by(
+        Resource.sort_order, Resource.created_at.desc()).all()
+    resource_cats = ResourceCategory.query.filter_by(website_id=website.id).order_by(
+        ResourceCategory.sort_order, ResourceCategory.name).all()
+    grouped_resources = []
+    for c in resource_cats:
+        in_cat = [r for r in public_resources if r.category_id == c.id]
+        if in_cat:
+            grouped_resources.append({'category': c, 'resources': in_cat})
+    resources_uncat = [r for r in public_resources if r.category_id is None]
+    if resources_uncat:
+        grouped_resources.append({'category': None, 'resources': resources_uncat})
     resp = make_response(render_template(
         'guides_index.html', website=website, guides=guides,
         grouped_guides=grouped_guides, single_lesson_entry=single_lesson_entry,
         prereq_state=prereq_state,
+        grouped_quizzes=grouped_quizzes, quiz_question_counts=quiz_question_counts,
+        grouped_resources=grouped_resources,
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -34960,6 +35178,250 @@ def admin_quiz_categories_reorder():
         c = by_id.get(int(it.get('id')))
         if c:
             c.sort_order = int(it.get('sort_order', 0))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ── Resources admin ──────────────────────────────────────────────────────────
+_RESOURCE_TYPES = ('link', 'file', 'video', 'page')
+
+
+def _unique_resource_category_slug(website_id, base):
+    base = base or 'category'
+    slug = base
+    n = 2
+    while ResourceCategory.query.filter_by(website_id=website_id, slug=slug).first():
+        slug = f'{base}-{n}'
+        n += 1
+    return slug
+
+
+@app.route('/admin/resources')
+@login_required
+@require_perm('resources.view')
+def admin_resources_page():
+    website = get_admin_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    categories = ResourceCategory.query.filter_by(website_id=website.id).order_by(
+        ResourceCategory.sort_order, ResourceCategory.name).all()
+    resources = Resource.query.filter_by(website_id=website.id).order_by(
+        Resource.sort_order, Resource.created_at.desc()).all()
+    grouped = []
+    for c in categories:
+        grouped.append({'category': c, 'resources': [r for r in resources if r.category_id == c.id]})
+    uncategorized = [r for r in resources if r.category_id is None]
+    if uncategorized:
+        grouped.append({'category': None, 'resources': uncategorized})
+    return render_template('resources_admin.html', website=website,
+                           categories=categories, grouped=grouped,
+                           resource_count=len(resources))
+
+
+@app.route('/admin/resources/list')
+@login_required
+@require_perm('resources.view')
+def admin_resources_list():
+    """Lightweight list for the guide-editor's resource embed picker."""
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': True, 'resources': []})
+    resources = Resource.query.filter_by(website_id=website.id).order_by(
+        Resource.sort_order, Resource.created_at.desc()).all()
+    return _utf8_json({'success': True, 'resources': [
+        {'id': r.id, 'title': r.title, 'resource_type': r.resource_type,
+         'is_public': r.is_public} for r in resources]})
+
+
+def _apply_resource_fields(r, data, website):
+    """Validate + copy submitted fields onto a Resource. Returns an error string
+    or None on success."""
+    title = (data.get('title') or '').strip()
+    if not title:
+        return 'Title is required'
+    rtype = data.get('resource_type')
+    if rtype not in _RESOURCE_TYPES:
+        return 'Pick a valid resource type'
+    r.title = title
+    r.description = (data.get('description') or '').strip() or None
+    r.resource_type = rtype
+    r.icon = (data.get('icon') or '').strip() or None
+    if rtype == 'page':
+        r.content = data.get('content') or None
+        r.url = None
+        r.items = None
+    else:
+        # link/file/video hold a LIST of {url, label}. Accept `items`; fall back
+        # to a single `url` for older clients. Keep url = first item for compat.
+        raw_items = data.get('items')
+        items = []
+        if isinstance(raw_items, list):
+            for it in raw_items:
+                u = ((it.get('url') if isinstance(it, dict) else it) or '').strip()
+                if not u:
+                    continue
+                lbl = ((it.get('label') if isinstance(it, dict) else '') or '').strip()
+                items.append({'url': u[:1000], 'label': lbl[:200]})
+        if not items:
+            u = (data.get('url') or '').strip()
+            if u:
+                items.append({'url': u[:1000], 'label': ''})
+        if not items:
+            return {'link': 'Add at least one link.', 'file': 'Choose at least one file.',
+                    'video': 'Add at least one video.'}.get(rtype, 'Add at least one item.')
+        r.items = items
+        r.url = items[0]['url']
+        r.content = None
+    raw = data.get('category_id')
+    if raw in (None, '', 0, '0'):
+        r.category_id = None
+    else:
+        cat = ResourceCategory.query.filter_by(id=int(raw), website_id=website.id).first()
+        r.category_id = cat.id if cat else None
+    r.is_public = bool(data.get('is_public', True))
+    r.require_login_to_view = bool(data.get('require_login_to_view', False))
+    return None
+
+
+@app.route('/admin/resources/create', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resources_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    r = Resource(website_id=website.id)
+    err = _apply_resource_fields(r, data, website)
+    if err:
+        return _utf8_json({'success': False, 'error': err}, 400)
+    max_sort = db.session.query(db.func.max(Resource.sort_order)).filter_by(
+        website_id=website.id).scalar()
+    r.sort_order = (max_sort or 0) + 1
+    db.session.add(r)
+    db.session.commit()
+    return _utf8_json({'success': True, 'resource': r.to_dict()}, 201)
+
+
+def _admin_resource_or_403(rid):
+    r = Resource.query.get_or_404(rid)
+    website = get_admin_website()
+    if not website or r.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, r
+
+
+@app.route('/admin/resources/<int:rid>/update', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resources_update(rid):
+    website, r = _admin_resource_or_403(rid)
+    if r is None:
+        return website
+    data = request.get_json() or {}
+    err = _apply_resource_fields(r, data, website)
+    if err:
+        return _utf8_json({'success': False, 'error': err}, 400)
+    r.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'resource': r.to_dict()})
+
+
+@app.route('/admin/resources/<int:rid>/delete', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resources_delete(rid):
+    website, r = _admin_resource_or_403(rid)
+    if r is None:
+        return website
+    db.session.delete(r)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/resources/reorder', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resources_reorder():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    by_id = {r.id: r for r in Resource.query.filter_by(website_id=website.id).all()}
+    for it in (data.get('items') or []):
+        r = by_id.get(int(it.get('id')))
+        if r:
+            r.sort_order = int(it.get('sort_order', 0))
+            if 'category_id' in it:
+                raw = it.get('category_id')
+                r.category_id = int(raw) if raw not in (None, '', 0, '0') else None
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/resources/categories/create', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resource_categories_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    slug_base = _slugify_post((data.get('slug') or '').strip() or name)
+    max_sort = db.session.query(db.func.max(ResourceCategory.sort_order)).filter_by(
+        website_id=website.id).scalar()
+    cat = ResourceCategory(
+        website_id=website.id, name=name,
+        slug=_unique_resource_category_slug(website.id, slug_base),
+        description=(data.get('description') or '').strip() or None,
+        color=(data.get('color') or '').strip() or None,
+        icon=(data.get('icon') or '').strip() or None,
+        sort_order=(max_sort or 0) + 1,
+    )
+    db.session.add(cat)
+    db.session.commit()
+    return _utf8_json({'success': True, 'category': cat.to_dict()}, 201)
+
+
+def _admin_resource_category_or_403(cid):
+    cat = ResourceCategory.query.get_or_404(cid)
+    website = get_admin_website()
+    if not website or cat.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, cat
+
+
+@app.route('/admin/resources/categories/<int:cid>/update', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resource_categories_update(cid):
+    website, cat = _admin_resource_category_or_403(cid)
+    if cat is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    cat.name = name
+    cat.description = (data.get('description') or '').strip() or None
+    cat.color = (data.get('color') or '').strip() or None
+    cat.icon = (data.get('icon') or '').strip() or None
+    db.session.commit()
+    return _utf8_json({'success': True, 'category': cat.to_dict()})
+
+
+@app.route('/admin/resources/categories/<int:cid>/delete', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resource_categories_delete(cid):
+    website, cat = _admin_resource_category_or_403(cid)
+    if cat is None:
+        return website
+    Resource.query.filter_by(category_id=cat.id).update({'category_id': None})
+    db.session.delete(cat)
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -36980,6 +37442,11 @@ def admin_quizzes_update(qid):
             except (ValueError, TypeError):
                 val = 0
             setattr(quiz, _field, val if val > 0 else None)
+    # Public listing + access flags.
+    if 'is_public' in data:
+        quiz.is_public = bool(data['is_public'])
+    if 'require_login_to_view' in data:
+        quiz.require_login_to_view = bool(data['require_login_to_view'])
     quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
@@ -37709,6 +38176,74 @@ def _live_website_for(model_obj):
     return website
 
 
+def _resource_video_embed(url):
+    """Normalize a video URL for the resource page. Returns (kind, src): an
+    ('iframe', embed_url) for YouTube/Vimeo, else ('video', url) for a direct
+    file to drop into a <video> tag."""
+    import re as _re
+    u = (url or '').strip()
+    m = _re.search(r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([\w-]+)', u)
+    if m:
+        return ('iframe', f'https://www.youtube.com/embed/{m.group(1)}')
+    m = _re.search(r'vimeo\.com/(?:video/)?(\d+)', u)
+    if m:
+        return ('iframe', f'https://player.vimeo.com/video/{m.group(1)}')
+    return ('video', u)
+
+
+@app.route('/resource/<int:rid>')
+def public_resource_page(rid):
+    """Public view for a resource. Links/files redirect to their target; videos
+    and rich-text pages render an on-site page. The URL is always reachable for
+    direct sharing; is_public only controls listing on the Resources tab."""
+    resource = Resource.query.get_or_404(rid)
+    website = _live_website_for(resource)
+    public_user = _public_user_for_website(website)
+    if resource.require_login_to_view and not public_user:
+        return redirect(url_for('public_login',
+                                website_prefix=(website.url_prefix if website else None),
+                                next=request.url))
+    items = resource.item_list()
+    # A single link/file goes straight to its target; multiple render a list page.
+    if resource.resource_type in ('link', 'file') and len(items) == 1:
+        return redirect(items[0]['url'])
+    videos = None
+    if resource.resource_type == 'video':
+        videos = []
+        for it in items:
+            kind, src = _resource_video_embed(it['url'])
+            videos.append({'kind': kind, 'src': src, 'label': it.get('label') or ''})
+    return render_template('public_resource_page.html', website=website,
+                           resource=resource, items=items, videos=videos,
+                           public_user=public_user)
+
+
+@app.route('/api/resources/<int:rid>')
+def public_resource_get(rid):
+    """Resource payload for inline rendering of guide-lesson embeds. Honors
+    require_login; returns only what the embed needs to render in place."""
+    resource = Resource.query.get_or_404(rid)
+    website = _live_website_for(resource)
+    if resource.require_login_to_view and not _public_user_for_website(website):
+        return _utf8_json({'success': False, 'error': 'login_required',
+                           'title': resource.title,
+                           'resource_type': resource.resource_type}, 403)
+    items = resource.item_list()
+    out = {'id': resource.id, 'title': resource.title,
+           'description': resource.description or '',
+           'resource_type': resource.resource_type, 'url': resource.url or '',
+           'items': items}
+    if resource.resource_type == 'video':
+        vids = []
+        for it in items:
+            kind, src = _resource_video_embed(it['url'])
+            vids.append({'kind': kind, 'src': src, 'label': it.get('label') or ''})
+        out['videos'] = vids
+    elif resource.resource_type == 'page':
+        out['content'] = resource.content or ''
+    return _utf8_json({'success': True, 'resource': out})
+
+
 def _quiz_attempts_query(quiz_id, public_user, visitor_hash):
     """All attempts on a quiz by this identity (user across devices, or the
     device's visitor hash)."""
@@ -37758,14 +38293,21 @@ def public_quiz_page(qid):
     attached as a KSA learning resource (or shared directly)."""
     quiz = Quiz.query.get_or_404(qid)
     website = _live_website_for(quiz)
+    public_user = _public_user_for_website(website)
+    if quiz.require_login_to_view and not public_user:
+        return redirect(url_for('public_login',
+                                website_prefix=(website.url_prefix if website else None),
+                                next=request.url))
     return render_template('public_quiz_page.html', website=website, quiz=quiz,
-                           public_user=_public_user_for_website(website))
+                           public_user=public_user)
 
 
 @app.route('/api/quizzes/<int:qid>')
 def public_quiz_get(qid):
     quiz = Quiz.query.get_or_404(qid)
     website = _live_website_for(quiz)
+    if quiz.require_login_to_view and not _public_user_for_website(website):
+        return _utf8_json({'success': False, 'error': 'Please log in to take this quiz.'}, 403)
     questions = [q.to_public_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
     import random as _random
     # Question bank: serve a random draw of N graded questions. Ungraded

@@ -82,11 +82,16 @@
 .ql-snow.ql-toolbar button:hover .ql-fill,
 .ql-snow.ql-toolbar button.ql-active .ql-fill { fill: #5eeef8; }
 .ql-toolbar .ql-quiz-btn { width: 28px; }
-.ql-toolbar .ql-quiz-btn::after { content: "?"; font-weight: 800; color: rgba(255,255,255,0.6); }
+.ql-toolbar .ql-quiz-btn::after { content: "\f46c"; font-family: "Font Awesome 6 Free"; font-weight: 900; color: rgba(255,255,255,0.6); font-size: 1rem; }
 .ql-toolbar .ql-quiz-btn:hover::after { color: #5eeef8; }
+.ql-toolbar .ql-resource-btn { width: 28px; }
+.ql-toolbar .ql-resource-btn::after { content: "\f07b"; font-family: "Font Awesome 6 Free"; font-weight: 900; color: rgba(255,255,255,0.6); font-size: 1rem; }
+.ql-toolbar .ql-resource-btn:hover::after { color: #5eeef8; }
 
 /* Quiz embed chip (editor + reused class on public page) */
 .uw-quiz-embed { display: flex; align-items: center; gap: 8px; padding: 12px 16px; margin: 10px 0; border: 1px dashed rgba(94,238,248,0.45); border-radius: 10px; background: rgba(94,238,248,0.07); color: #bfeef6; font-weight: 600; font-size: 0.92rem; }
+/* Resource embed chip (editor view; the public page hydrates it into a card) */
+.uw-resource-embed { display: flex; align-items: center; gap: 8px; padding: 12px 16px; margin: 10px 0; border: 1px dashed rgba(180,140,255,0.5); border-radius: 10px; background: rgba(180,140,255,0.08); color: #d9c9ff; font-weight: 600; font-size: 0.92rem; }
 
 /* Asset picker modal (ported from the post editor) */
 .pe-asset-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 99999; }
@@ -218,6 +223,17 @@
     </div>
 </div>
 
+<!-- Resource picker modal -->
+<div class="pe-asset-overlay" id="resourcePickerOverlay" onmousedown="uwOverlayDown(event)" onclick="uwOverlayClick(event, closeResourcePicker)">
+    <div class="pe-asset-modal">
+        <div class="pe-asset-header">
+            <h3>Insert Resource</h3>
+            <button class="pe-asset-close" onclick="closeResourcePicker()">&times;</button>
+        </div>
+        <div class="pe-asset-body" id="resourcePickerBody"></div>
+    </div>
+</div>
+
 <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 <script src="{{ url_for('static', filename='js/quill_paste_image.js') }}"></script>
 <script>
@@ -303,6 +319,31 @@ let _sortables = [];
     QuizBlot.blotName = 'quiz'; QuizBlot.tagName = 'DIV'; QuizBlot.className = 'uw-quiz-embed';
     Quill.register(QuizBlot);
 
+    // Resource embed — a labelled chip; outputs
+    // <div class="uw-resource-embed" data-resource-id data-resource-title data-resource-type>
+    const _RES_ICON = { link: 'fa-link', file: 'fa-file-arrow-down', video: 'fa-play', page: 'fa-file-lines' };
+    class ResourceBlot extends BlockEmbed {
+        static create(value) {
+            const node = super.create();
+            const id = (typeof value === 'object') ? value.id : value;
+            const title = (typeof value === 'object' && value.title) ? value.title : ('Resource #' + id);
+            const type = (typeof value === 'object' && value.type) ? value.type : 'link';
+            node.setAttribute('data-resource-id', id);
+            node.setAttribute('data-resource-title', title);
+            node.setAttribute('data-resource-type', type);
+            node.setAttribute('contenteditable', 'false');
+            node.innerHTML = '<i class="fas ' + (_RES_ICON[type] || 'fa-folder') + '"></i> <span>' + _escHtml(title) + '</span>';
+            return node;
+        }
+        static value(node) {
+            return { id: node.getAttribute('data-resource-id'),
+                     title: node.getAttribute('data-resource-title') || '',
+                     type: node.getAttribute('data-resource-type') || 'link' };
+        }
+    }
+    ResourceBlot.blotName = 'resource'; ResourceBlot.tagName = 'DIV'; ResourceBlot.className = 'uw-resource-embed';
+    Quill.register(ResourceBlot);
+
     const FontStyle = Quill.import('attributors/style/font');
     FontStyle.whitelist = null;
     Quill.register(FontStyle, true);
@@ -350,6 +391,12 @@ function initQuill() {
         btn.title = 'Insert quiz';
         btn.onclick = openQuizPicker;
         group.appendChild(btn);
+        const rbtn = document.createElement('button');
+        rbtn.type = 'button';
+        rbtn.className = 'ql-resource-btn';
+        rbtn.title = 'Insert resource';
+        rbtn.onclick = openResourcePicker;
+        group.appendChild(rbtn);
         toolbar.appendChild(group);
     }
 
@@ -565,6 +612,43 @@ function insertQuiz(id, title) {
     quill.insertEmbed(idx, 'quiz', { id: id, title: title }, 'user');
     quill.setSelection(idx + 1);
     closeQuizPicker();
+}
+
+// ── Resource picker ─────────────────────────────────────────────────────────
+const _RES_PICK_ICON = { link: 'fa-link', file: 'fa-file-arrow-down', video: 'fa-play', page: 'fa-file-lines' };
+const _RES_PICK_LABEL = { link: 'Link', file: 'File', video: 'Video', page: 'Page' };
+async function openResourcePicker() {
+    const overlay = document.getElementById('resourcePickerOverlay');
+    const body = document.getElementById('resourcePickerBody');
+    overlay.style.display = 'flex';
+    body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
+    try {
+        const d = await (await fetch('/admin/resources/list')).json();
+        if (!d.success || !d.resources.length) {
+            body.innerHTML = '<p style="color:rgba(255,255,255,0.4);font-size:0.9rem;">No resources yet. <a href="/admin/resources" style="color:#5eeef8;">Create one</a> first.</p>';
+            return;
+        }
+        let html = '';
+        d.resources.forEach(r => {
+            const icon = _RES_PICK_ICON[r.resource_type] || 'fa-folder';
+            html += `<div class="qpick-item" onclick='insertResource(${r.id}, ${JSON.stringify(r.title)}, ${JSON.stringify(r.resource_type)})'>
+                <i class="fas ${icon}" style="color:#5eeec8;"></i>
+                <span class="qpick-title">${_escHtml(r.title)}</span>
+                <span class="qpick-meta">${_RES_PICK_LABEL[r.resource_type] || r.resource_type}${r.is_public ? '' : ' · draft'}</span>
+            </div>`;
+        });
+        body.innerHTML = html;
+    } catch(e) { body.innerHTML = '<div style="color:#ff6b6b;">Failed to load resources.</div>'; }
+}
+function closeResourcePicker() { document.getElementById('resourcePickerOverlay').style.display = 'none'; }
+function insertResource(id, title, type) {
+    if (!quill) return;
+    quill.focus();
+    const range = quill.getSelection() || { index: quill.getLength() - 1 };
+    const idx = Math.max(0, range.index);
+    quill.insertEmbed(idx, 'resource', { id: id, title: title, type: type }, 'user');
+    quill.setSelection(idx + 1);
+    closeResourcePicker();
 }
 
 // ── Image resize bar (ported from the post editor) ─────────────────────────
