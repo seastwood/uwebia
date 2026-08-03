@@ -29,6 +29,8 @@
 .ra-item-title { font-weight: 700; color: #fff; font-size: 0.95rem; }
 .ra-item-desc { font-size: 0.82rem; color: rgba(255,255,255,0.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ra-item-tags { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.ra-item-editmeta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 0.74rem; color: rgba(255,255,255,0.3); }
+.ra-item-editmeta i { font-size: 0.72rem; opacity: 0.8; }
 .ra-tag { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.7); }
 .ra-tag.is-draft { background: rgba(255,180,90,0.16); color: #ffc27a; }
 .ra-tag.is-lock { background: rgba(120,160,255,0.16); color: #a9c2ff; }
@@ -129,6 +131,12 @@
                         {% if not r.is_public %}<span class="ra-tag is-draft">Draft</span>{% endif %}
                         {% if r.require_login_to_view %}<span class="ra-tag is-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
                     </div>
+                    {% if r.updated_at %}
+                    <div class="ra-item-editmeta" title="{{ r.updated_at.strftime('%b %-d, %Y at %-I:%M %p') }}">
+                        <i class="fas fa-clock-rotate-left"></i>
+                        Last edited {{ r.updated_at.strftime('%b %-d, %Y') }}{% if r.updated_by %} by {{ r.updated_by.full_name or r.updated_by.username }}{% endif %}
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="ra-item-btns">
                     <a class="ra-icon-btn" href="{{ url_for('public_resource_page', rid=r.id) }}" target="_blank" rel="noopener" title="Open"><i class="fas fa-external-link-alt"></i></a>
