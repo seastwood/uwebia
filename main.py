@@ -2927,11 +2927,16 @@ class Guide(db.Model):
     created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at      = db.Column(db.DateTime, nullable=True)
     published_at    = db.Column(db.DateTime, nullable=True)
+    # Admin who last saved this guide (or any of its lessons). SET NULL so a
+    # removed admin just clears the attribution rather than deleting the guide.
+    updated_by_id   = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                                nullable=True)
     nodes           = db.relationship('GuideNode', backref='guide', lazy='dynamic',
                                       cascade='all, delete-orphan',
                                       order_by='GuideNode.sort_order')
     category        = db.relationship('GuideCategory',
                                       backref=db.backref('guides', lazy='dynamic'))
+    updated_by      = db.relationship('User', foreign_keys=[updated_by_id])
     __table_args__  = (db.UniqueConstraint('website_id', 'slug', name='uq_guide_site_slug'),)
 
 
@@ -3029,11 +3034,16 @@ class Quiz(db.Model):
                                       server_default=_sa_false())
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
+    # Admin who last saved this quiz (settings or any question). SET NULL on
+    # admin removal so attribution clears without touching the quiz.
+    updated_by_id     = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                                  nullable=True)
     questions         = db.relationship('QuizQuestion', backref='quiz', lazy='dynamic',
                                         cascade='all, delete-orphan',
                                         order_by='QuizQuestion.sort_order')
     category          = db.relationship('QuizCategory',
                                         backref=db.backref('quizzes', lazy='dynamic'))
+    updated_by        = db.relationship('User', foreign_keys=[updated_by_id])
 
 
 class QuizQuestion(db.Model):
@@ -3266,8 +3276,12 @@ class Resource(db.Model):
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at  = db.Column(db.DateTime, nullable=True)
+    # Admin who last saved this resource. SET NULL on admin removal.
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                              nullable=True)
     category    = db.relationship('ResourceCategory',
                                   backref=db.backref('resources', lazy='dynamic'))
+    updated_by  = db.relationship('User', foreign_keys=[updated_by_id])
 
     def item_list(self):
         """Normalized list of {url, label} for link/file/video. Falls back to the
@@ -25429,14 +25443,16 @@ def public_login_link(token):
                 'admin_login_confirm.html',
                 display_name=admin.username,
                 confirm_url=request.path,
-                will_need_code=bool(admin_requires_2fa(admin)),
+                will_need_code=bool(admin_requires_2fa(admin) and not _login_link_covers_2fa(admin)),
             )
 
         # Burn the nonce — the link stood in for the password and is spent.
         admin.login_link_nonce = None
         db.session.commit()
 
-        if admin_requires_2fa(admin):
+        # The link was delivered to admin.email; skip the emailed 2FA code when
+        # it would only go to that same inbox (no independent factor to add).
+        if admin_requires_2fa(admin) and not _login_link_covers_2fa(admin):
             two_fa_email = _admin_two_fa_email(admin)
             if not two_fa_email:
                 flash('Your account requires two-factor verification, but no '
@@ -25490,7 +25506,8 @@ def public_login_link(token):
             display_name=display_name,
             confirm_url=request.path,
             is_admin_link=bool(admin),
-            will_need_code=bool(admin and admin_requires_2fa(admin)),
+            will_need_code=bool(admin and admin_requires_2fa(admin)
+                                and not _login_link_covers_2fa(admin)),
         )
 
     if admin:
@@ -25499,7 +25516,9 @@ def public_login_link(token):
         admin.login_link_nonce = None
         db.session.commit()
 
-        if admin_requires_2fa(admin):
+        # Skip the emailed 2FA code when it would only reach the same inbox the
+        # link was delivered to; keep it when 2FA is routed elsewhere.
+        if admin_requires_2fa(admin) and not _login_link_covers_2fa(admin):
             # Same flow as entering a correct admin password on the public
             # login form: email a code and hand off to public_admin_2fa.
             two_fa_email = _admin_two_fa_email(admin)
@@ -26920,6 +26939,23 @@ def _admin_two_fa_email(user):
     return None
 
 
+def _login_link_covers_2fa(admin):
+    """True when a magic sign-in link already provides everything the admin's
+    2FA step would, so the code challenge can be safely skipped after the link.
+
+    Our admin 2FA is an emailed code, and the magic link is delivered to
+    `admin.email`. When the 2FA code is routed to that *same* inbox, whoever
+    opened the link can just as easily read the code — the second step proves
+    nothing new and is pure friction. When the admin has deliberately routed
+    2FA to a *separate* mailbox, that code is a genuine independent factor and
+    must still be required, so this returns False. (Mirrors why public-user
+    magic links skip 2FA outright — see `public_login_link`.)"""
+    two_fa_email = _admin_two_fa_email(admin)
+    if not two_fa_email:
+        return True  # 2FA isn't required for this admin at all.
+    return two_fa_email.strip().lower() == (admin.email or '').strip().lower()
+
+
 @app.route('/2fa/admin', methods=['GET', 'POST'])
 def public_admin_2fa():
     """Admin 2FA challenge reached via the public login form. The code-email
@@ -27260,7 +27296,7 @@ def send_admin_login_link_email(admin, website, next_url='', dest='public'):
         subject = f'Your {site_name} sign-in link'
 
     extra = ''
-    if admin_requires_2fa(admin):
+    if admin_requires_2fa(admin) and not _login_link_covers_2fa(admin):
         extra = ('\nBecause your account uses two-factor authentication, you will '
                  'be asked for a verification code after clicking the link.\n')
 
@@ -33588,6 +33624,26 @@ def _unique_guide_node_slug(guide_id, base_slug, exclude_id=None):
         counter += 1
 
 
+def _stamp_editor(obj):
+    """Record who last edited a Guide/Quiz/Resource and when. Called from the
+    interactive admin edit routes (never from backup import, which preserves the
+    original timestamps and attribution)."""
+    obj.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        if current_user and current_user.is_authenticated:
+            obj.updated_by_id = current_user.id
+    except Exception:
+        pass
+
+
+def _editor_label(obj):
+    """Human name for whoever last saved `obj`, or '' when unknown."""
+    u = getattr(obj, 'updated_by', None)
+    if not u:
+        return ''
+    return u.full_name or u.username or ''
+
+
 def _serialize_guide_node(node, include_content=False):
     d = {
         'id': node.id,
@@ -33888,6 +33944,7 @@ def admin_guides_create():
         description=(data.get('description') or '').strip() or None,
         category_id=cat_id,
     )
+    _stamp_editor(guide)
     db.session.add(guide)
     db.session.commit()
     return _utf8_json({'success': True, 'guide': {
@@ -33964,7 +34021,7 @@ def admin_guides_update(gid):
                 return _utf8_json({'success': False,
                     'error': 'You can only move this guide into a category you have access to.'}, 403)
             guide.category_id = cat.id if cat else None
-    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _stamp_editor(guide)
     db.session.commit()
     return _utf8_json({'success': True, 'guide': {
         'id': guide.id, 'title': guide.title, 'slug': guide.slug,
@@ -34007,7 +34064,7 @@ def admin_guides_publish(gid):
     guide.status = 'published'
     if not guide.published_at:
         guide.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _stamp_editor(guide)
     db.session.commit()
     return _utf8_json({'success': True, 'status': guide.status, 'slug': guide.slug})
 
@@ -34023,7 +34080,7 @@ def admin_guides_unpublish(gid):
     if not can_access_guide(guide):
         return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     guide.status = 'draft'
-    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _stamp_editor(guide)
     db.session.commit()
     return _utf8_json({'success': True, 'status': guide.status})
 
@@ -34046,6 +34103,7 @@ def admin_guide_editor(gid):
         'guide_editor.html',
         guide=guide,
         tree=_guide_tree(guide),
+        guide_category_name=(guide.category.name if guide.category else ''),
         current_website=current_website,
         current_website_pages=current_website_pages,
         page_id=None,
@@ -34222,6 +34280,8 @@ def admin_guide_node_save(gid):
             sort_order=(max_sort or 0) + 1,
         )
         db.session.add(node)
+    # Editing/adding any lesson counts as editing the guide.
+    _stamp_editor(guide)
     db.session.commit()
     return _utf8_json({'success': True, 'node': _serialize_guide_node(node, include_content=True)})
 
@@ -34238,6 +34298,7 @@ def admin_guide_node_delete(gid, nid):
         return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     node = GuideNode.query.filter_by(id=nid, guide_id=gid).first_or_404()
     db.session.delete(node)  # cascades to descendants
+    _stamp_editor(guide)
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -34264,6 +34325,7 @@ def admin_guide_nodes_reorder(gid):
         pid = it.get('parent_id')
         node.parent_id = int(pid) if pid not in ('', None) else None
         node.sort_order = int(it.get('sort_order', 0))
+    _stamp_editor(guide)
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -35340,6 +35402,7 @@ def admin_resources_create():
     max_sort = db.session.query(db.func.max(Resource.sort_order)).filter_by(
         website_id=website.id).scalar()
     r.sort_order = (max_sort or 0) + 1
+    _stamp_editor(r)
     db.session.add(r)
     db.session.commit()
     return _utf8_json({'success': True, 'resource': r.to_dict()}, 201)
@@ -35364,7 +35427,7 @@ def admin_resources_update(rid):
     err = _apply_resource_fields(r, data, website)
     if err:
         return _utf8_json({'success': False, 'error': err}, 400)
-    r.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _stamp_editor(r)
     db.session.commit()
     return _utf8_json({'success': True, 'resource': r.to_dict()})
 
@@ -37400,9 +37463,15 @@ def admin_quizzes_page():
 def admin_quizzes_list():
     website = get_admin_website()
     quizzes = Quiz.query.filter_by(website_id=website.id).order_by(Quiz.title).all() if website else []
-    return _utf8_json({'success': True, 'quizzes': [
-        {'id': q.id, 'title': q.title, 'question_count': q.questions.count(),
-         'category_id': q.category_id} for q in quizzes]})
+    categories = QuizCategory.query.filter_by(website_id=website.id).order_by(
+        QuizCategory.sort_order, QuizCategory.name).all() if website else []
+    return _utf8_json({'success': True,
+        'quizzes': [
+            {'id': q.id, 'title': q.title, 'question_count': q.questions.count(),
+             'category_id': q.category_id} for q in quizzes],
+        'categories': [
+            {'id': c.id, 'name': c.name, 'color': c.color, 'icon': c.icon,
+             'sort_order': c.sort_order} for c in categories]})
 
 
 @app.route('/admin/quizzes/create', methods=['POST'])
@@ -37430,6 +37499,7 @@ def admin_quizzes_create():
     quiz = Quiz(website_id=website.id, title=title,
                 description=(data.get('description') or '').strip() or None,
                 category_id=cat_id)
+    _stamp_editor(quiz)
     db.session.add(quiz)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
@@ -37489,7 +37559,7 @@ def admin_quizzes_update(qid):
         quiz.is_public = bool(data['is_public'])
     if 'require_login_to_view' in data:
         quiz.require_login_to_view = bool(data['require_login_to_view'])
-    quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _stamp_editor(quiz)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
         'id': quiz.id, 'title': quiz.title, 'description': quiz.description or '',
@@ -37790,7 +37860,7 @@ def admin_quiz_question_save(qid):
         qq = QuizQuestion(quiz_id=qid, question_type=qtype, prompt=prompt, config=cfg,
                           points=points, sort_order=(max_sort or 0) + 1)
         db.session.add(qq)
-    quiz.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _stamp_editor(quiz)
     db.session.commit()
     return _utf8_json({'success': True, 'question': qq.to_admin_dict()})
 
@@ -37806,6 +37876,7 @@ def admin_quiz_question_delete(qid, question_id):
         return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     qq = QuizQuestion.query.filter_by(id=question_id, quiz_id=qid).first_or_404()
     db.session.delete(qq)
+    _stamp_editor(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -37825,6 +37896,7 @@ def admin_quiz_questions_reorder(qid):
         q = by_id.get(int(it.get('id')))
         if q:
             q.sort_order = int(it.get('sort_order', 0))
+    _stamp_editor(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
 

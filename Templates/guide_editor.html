@@ -123,6 +123,17 @@
 .qpick-item:hover { background: rgba(94,238,248,0.08); border-color: rgba(94,238,248,0.35); }
 .qpick-title { font-size: 0.9rem; font-weight: 600; color: #fff; }
 .qpick-meta { font-size: 0.74rem; color: rgba(255,255,255,0.4); margin-left: auto; }
+.qpick-controls { display: flex; gap: 8px; padding: 12px 20px 0; }
+.qpick-search, .qpick-filter { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; font-size: 0.85rem; padding: 8px 10px; outline: none; }
+.qpick-search { flex: 1; }
+.qpick-search:focus, .qpick-filter:focus { border-color: rgba(94,238,248,0.5); }
+.qpick-filter { max-width: 45%; cursor: pointer; }
+.qpick-filter option { background: #16161f; color: #fff; }
+.qpick-group { margin-bottom: 16px; }
+.qpick-group-hd { display: flex; align-items: center; gap: 8px; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(255,255,255,0.5); margin: 0 2px 8px; }
+.qpick-group.is-match .qpick-group-hd { color: #5eeef8; }
+.qpick-group-hd .qpick-match-tag { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 0.68rem; font-weight: 600; color: #5eeef8; background: rgba(94,238,248,0.12); border: 1px solid rgba(94,238,248,0.35); padding: 2px 8px; border-radius: 999px; }
+.qpick-empty { color: rgba(255,255,255,0.4); font-size: 0.9rem; text-align: center; padding: 20px 0; }
 </style>
 
 <div class="ge-page">
@@ -218,6 +229,10 @@
         <div class="pe-asset-header">
             <h3>Insert Quiz</h3>
             <button class="pe-asset-close" onclick="closeQuizPicker()">&times;</button>
+        </div>
+        <div class="qpick-controls" id="quizPickerControls" style="display:none;">
+            <input type="text" id="quizPickerSearch" class="qpick-search" placeholder="Search quizzes…" oninput="renderQuizPicker()">
+            <select id="quizPickerCatFilter" class="qpick-filter" onchange="renderQuizPicker()"></select>
         </div>
         <div class="pe-asset-body" id="quizPickerBody"></div>
     </div>
@@ -581,10 +596,16 @@ function pickAsset(asset) {
 }
 
 // ── Quiz picker ────────────────────────────────────────────────────────────
+const GUIDE_CATEGORY_NAME = {{ guide_category_name|tojson }};
+let _quizPickerData = null;   // { quizzes: [...], categories: [...], matchCatId: id|null }
+const UNCATEGORIZED_ID = '__uncat__';
+
 async function openQuizPicker() {
     const overlay = document.getElementById('quizPickerOverlay');
     const body = document.getElementById('quizPickerBody');
+    const controls = document.getElementById('quizPickerControls');
     overlay.style.display = 'flex';
+    controls.style.display = 'none';
     body.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:0.9rem;">Loading…</div>';
     try {
         const d = await (await fetch('/admin/quizzes/list')).json();
@@ -592,16 +613,89 @@ async function openQuizPicker() {
             body.innerHTML = '<p style="color:rgba(255,255,255,0.4);font-size:0.9rem;">No quizzes yet. <a href="/admin/quizzes" style="color:#5eeef8;">Create one</a> first.</p>';
             return;
         }
-        let html = '';
-        d.quizzes.forEach(q => {
+        // Match the guide's category (by name, case-insensitive) to a quiz category.
+        const gname = (GUIDE_CATEGORY_NAME || '').trim().toLowerCase();
+        let matchCatId = null;
+        if (gname) {
+            const m = (d.categories || []).find(c => (c.name || '').trim().toLowerCase() === gname);
+            if (m) matchCatId = m.id;
+        }
+        _quizPickerData = { quizzes: d.quizzes, categories: d.categories || [], matchCatId };
+
+        // Build the category filter dropdown, matching category floated to the top.
+        const sel = document.getElementById('quizPickerCatFilter');
+        const cats = _quizPickerData.categories.slice();
+        if (matchCatId) cats.sort((a, b) => (a.id === matchCatId ? -1 : b.id === matchCatId ? 1 : 0));
+        let opts = '<option value="">All categories</option>';
+        cats.forEach(c => {
+            const tag = c.id === matchCatId ? ' — this guide’s category' : '';
+            opts += `<option value="${c.id}">${_escHtml(c.name)}${tag}</option>`;
+        });
+        if (_quizPickerData.quizzes.some(q => !q.category_id))
+            opts += `<option value="${UNCATEGORIZED_ID}">Uncategorized</option>`;
+        sel.innerHTML = opts;
+        sel.value = '';
+        document.getElementById('quizPickerSearch').value = '';
+        controls.style.display = 'flex';
+        renderQuizPicker();
+    } catch(e) { body.innerHTML = '<div style="color:#ff6b6b;">Failed to load quizzes.</div>'; }
+}
+
+function renderQuizPicker() {
+    if (!_quizPickerData) return;
+    const body = document.getElementById('quizPickerBody');
+    const term = (document.getElementById('quizPickerSearch').value || '').trim().toLowerCase();
+    const filterCat = document.getElementById('quizPickerCatFilter').value;
+    const { quizzes, categories, matchCatId } = _quizPickerData;
+
+    const catName = {};
+    categories.forEach(c => { catName[c.id] = c.name; });
+
+    // Filter by search term + selected category.
+    const shown = quizzes.filter(q => {
+        if (term && !q.title.toLowerCase().includes(term)) return false;
+        if (filterCat === UNCATEGORIZED_ID) return !q.category_id;
+        if (filterCat) return String(q.category_id) === filterCat;
+        return true;
+    });
+
+    if (!shown.length) {
+        body.innerHTML = '<div class="qpick-empty">No quizzes match your search.</div>';
+        return;
+    }
+
+    // Group by category, ordered by the categories list; matching category first;
+    // Uncategorized last.
+    const groupOrder = [];
+    if (matchCatId != null && (filterCat === '' || filterCat === String(matchCatId))) groupOrder.push(matchCatId);
+    categories.forEach(c => { if (c.id !== matchCatId) groupOrder.push(c.id); });
+    groupOrder.push(UNCATEGORIZED_ID);
+
+    const byGroup = {};
+    shown.forEach(q => {
+        const key = q.category_id != null ? q.category_id : UNCATEGORIZED_ID;
+        (byGroup[key] = byGroup[key] || []).push(q);
+    });
+
+    let html = '';
+    groupOrder.forEach(key => {
+        const items = byGroup[key];
+        if (!items || !items.length) return;
+        const isUncat = key === UNCATEGORIZED_ID;
+        const label = isUncat ? 'Uncategorized' : (catName[key] || 'Category');
+        const isMatch = !isUncat && key === matchCatId;
+        html += `<div class="qpick-group${isMatch ? ' is-match' : ''}">
+            <div class="qpick-group-hd"><i class="fas fa-folder-open"></i><span>${_escHtml(label)}</span>${isMatch ? '<span class="qpick-match-tag">this guide’s category</span>' : ''}</div>`;
+        items.forEach(q => {
             html += `<div class="qpick-item" onclick='insertQuiz(${q.id}, ${JSON.stringify(q.title)})'>
                 <i class="fas fa-clipboard-check" style="color:#5eeec8;"></i>
                 <span class="qpick-title">${_escHtml(q.title)}</span>
                 <span class="qpick-meta">${q.question_count} question${q.question_count === 1 ? '' : 's'}</span>
             </div>`;
         });
-        body.innerHTML = html;
-    } catch(e) { body.innerHTML = '<div style="color:#ff6b6b;">Failed to load quizzes.</div>'; }
+        html += '</div>';
+    });
+    body.innerHTML = html;
 }
 function closeQuizPicker() { document.getElementById('quizPickerOverlay').style.display = 'none'; }
 function insertQuiz(id, title) {

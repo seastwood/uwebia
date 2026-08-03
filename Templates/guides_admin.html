@@ -39,6 +39,8 @@
 .pa-card-name { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; }
 .pa-card-desc { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin: 0; line-height: 1.5; }
 .pa-card-meta { font-size: 0.78rem; color: rgba(255,255,255,0.35); }
+.pa-card-editmeta { margin-top: 4px; display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: rgba(255,255,255,0.3); }
+.pa-card-editmeta i { font-size: 0.72rem; opacity: 0.8; }
 .pa-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
 .pa-status--published { background: rgba(94,238,200,0.15); color: #5eeec8; }
 .pa-status--draft { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
@@ -182,6 +184,12 @@
                     </div>
                     {% if g.description %}<p class="pa-card-desc">{{ g.description }}</p>{% endif %}
                     <p class="pa-card-meta">{{ g.nodes.count() }} node{{ 's' if g.nodes.count() != 1 else '' }}</p>
+                    {% if g.updated_at %}
+                    <p class="pa-card-meta pa-card-editmeta" title="{{ g.updated_at.strftime('%b %-d, %Y at %-I:%M %p') }}">
+                        <i class="fas fa-clock-rotate-left"></i>
+                        Last edited {{ g.updated_at.strftime('%b %-d, %Y') }}{% if g.updated_by %} by {{ g.updated_by.full_name or g.updated_by.username }}{% endif %}
+                    </p>
+                    {% endif %}
                     {% set _guide_locked = guides_restricted and g.id not in accessible_guide_ids %}
                     <div class="pa-card-actions">
                         {% if _guide_locked %}
