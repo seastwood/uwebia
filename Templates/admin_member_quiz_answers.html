@@ -32,6 +32,7 @@
 .qa-q-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; margin-top: 2px; }
 .qa-q-mark.ok { background: rgba(94,238,200,0.18); color: #5eeec8; }
 .qa-q-mark.no { background: rgba(255,120,120,0.16); color: #ff9d9d; }
+.qa-q-mark.partial { background: rgba(255,190,80,0.2); color: #ffce7a; }
 .qa-q-mark.na { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
 .qa-q-prompt { flex: 1; color: #fff; font-size: 0.95rem; line-height: 1.5; }
 .qa-q-prompt img { max-width: 100%; border-radius: 8px; }
@@ -121,8 +122,8 @@
         {% for r in att.rows %}
         <div class="qa-q">
             <div class="qa-q-head">
-                <span class="qa-q-mark {% if r.ungraded %}na{% elif r.is_correct %}ok{% elif r.is_correct == false %}no{% else %}na{% endif %}">
-                    {% if r.ungraded %}<i class="fas fa-minus"></i>{% elif r.is_correct %}<i class="fas fa-check"></i>{% elif r.is_correct == false %}<i class="fas fa-times"></i>{% else %}<i class="fas fa-minus"></i>{% endif %}
+                <span class="qa-q-mark {% if r.ungraded %}na{% elif r.is_correct %}ok{% elif r.partial %}partial{% elif r.is_correct == false %}no{% else %}na{% endif %}">
+                    {% if r.ungraded %}<i class="fas fa-minus"></i>{% elif r.is_correct %}<i class="fas fa-check"></i>{% elif r.partial %}<i class="fas fa-circle-half-stroke"></i>{% elif r.is_correct == false %}<i class="fas fa-times"></i>{% else %}<i class="fas fa-minus"></i>{% endif %}
                 </span>
                 <div class="qa-q-prompt">{{ r.prompt | safe }}</div>
                 {% if not r.ungraded %}<span class="qa-q-pts">{% if r.earned is not none %}{{ r.earned }}{% else %}{{ r.points if r.is_correct else 0 }}{% endif %}/{{ r.points }} pt{{ 's' if r.points != 1 else '' }}</span>{% endif %}
@@ -172,7 +173,8 @@
                 </div>
                 {% if r.correct_choices %}
                 <div class="qa-ans-row">
-                    <span class="qa-ans-label correct">Correct answer</span>
+                    <span class="qa-ans-label correct">Correct answer{{ 's' if r.correct_choices|length > 1 else '' }}</span>
+                    {% if r.correct_choices[0].image_url %}
                     <span class="qa-ans-val qa-picks">
                         {% for c in r.correct_choices %}
                         <span class="qa-pick-img ok">
@@ -181,6 +183,11 @@
                         </span>
                         {% endfor %}
                     </span>
+                    {% else %}
+                    <span class="qa-ans-val qa-picks qa-picks-stack">
+                        {% for c in r.correct_choices %}<span class="qa-pick ok">{{ c.text }} <i class="fas fa-check"></i></span>{% endfor %}
+                    </span>
+                    {% endif %}
                 </div>
                 {% elif r.correct_text %}
                 <div class="qa-ans-row">
