@@ -47,11 +47,13 @@
 .qa-empty { padding: 40px 20px; text-align: center; color: rgba(255,255,255,0.4); }
 
 /* A member's picked option, flagged right/wrong inline */
-.qa-pick { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 0.84rem; font-weight: 600; margin: 2px 2px 2px 0; }
-.qa-pick i { font-size: 0.72rem; }
+.qa-pick { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 8px; font-size: 0.86rem; font-weight: 600; max-width: 100%; line-height: 1.4; }
+.qa-pick i { font-size: 0.72rem; flex: none; }
 .qa-pick.ok { background: rgba(94,238,200,0.14); color: #7ff2d6; border: 1px solid rgba(94,238,200,0.35); }
 .qa-pick.no { background: rgba(255,120,120,0.12); color: #ffb0b0; border: 1px solid rgba(255,120,120,0.35); }
-.qa-picks { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: flex-start; }
+.qa-picks { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-start; }
+/* Text multiple-choice picks stack one per line; image picks stay in a row. */
+.qa-picks-stack { flex-direction: column; }
 .qa-pick-img { position: relative; display: inline-flex; flex-direction: column; align-items: center; gap: 5px; margin: 2px 0; }
 .qa-pick-img img { width: 88px; height: 88px; object-fit: cover; border-radius: 9px; border: 2px solid rgba(255,255,255,0.2); display: block; }
 .qa-pick-img.ok img { border-color: #5eeec8; }
@@ -148,7 +150,7 @@
                     <span class="qa-ans-label given">Their answer</span>
                     {% if r.given_choices is not none %}
                         {% if r.given_choices %}
-                        <span class="qa-ans-val qa-picks">
+                        <span class="qa-ans-val qa-picks{% if not r.given_choices[0].image_url %} qa-picks-stack{% endif %}">
                             {% for c in r.given_choices %}
                                 {% if c.image_url %}
                                 <span class="qa-pick-img {{ 'ok' if c.correct else 'no' }}">
