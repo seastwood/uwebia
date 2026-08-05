@@ -73,18 +73,19 @@
 .mp-item-title { font-weight: 700; font-size: 0.96rem; }
 .mp-item-body { opacity: 0.62; font-size: 0.85rem; line-height: 1.5; margin: 6px 0 0; }
 .mp-item-meta { opacity: 0.4; font-size: 0.74rem; margin: 8px 0 0; display: flex; gap: 14px; }
-.mp-guide { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.1); background: rgba(20,20,30,0.55); text-decoration: none; color: inherit; margin-bottom: 10px; }
+/* Fixed stack: title across the top, then the progress bar, then a footer row
+   with the completion status on the left and "View answers" on the right. */
+.mp-guide { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.1); background: rgba(20,20,30,0.55); margin-bottom: 10px; }
 .mp-guide:hover { border-color: rgba(94,238,248,0.4); }
-.mp-guide-wrap { display: flex; align-items: stretch; gap: 8px; }
-.mp-guide-wrap .mp-guide { flex: 1; margin-bottom: 10px; }
-.mp-review-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; margin-bottom: 10px; border-radius: 11px; border: 1px solid rgba(94,238,200,0.35); background: rgba(94,238,200,0.1); color: #5eeec8; font-size: 0.8rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
-.mp-review-btn:hover { background: rgba(94,238,200,0.18); border-color: rgba(94,238,200,0.55); }
-.mp-guide-body { flex: 1; min-width: 0; }
-.mp-guide-title { font-weight: 700; font-size: 0.95rem; }
-.mp-guide-bar { height: 7px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden; margin-top: 8px; }
+.mp-guide-title { display: block; font-weight: 700; font-size: 0.95rem; text-decoration: none; color: inherit; }
+a.mp-guide-title:hover { color: #aef7e8; }
+.mp-guide-bar { height: 7px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden; }
 .mp-guide-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); }
+.mp-guide-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .mp-guide-label { font-size: 0.75rem; opacity: 0.65; font-weight: 600; white-space: nowrap; }
 .mp-guide-done { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 99px; background: rgba(94,238,200,0.18); color: #5eeec8; white-space: nowrap; }
+.mp-review-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; border: 1px solid rgba(94,238,200,0.35); background: rgba(94,238,200,0.1); color: #5eeec8; font-size: 0.78rem; font-weight: 700; text-decoration: none; white-space: nowrap; flex: none; }
+.mp-review-btn:hover { background: rgba(94,238,200,0.18); border-color: rgba(94,238,200,0.55); }
 .mp-empty { opacity: 0.45; text-align: center; padding: 48px 20px; }
 .mp-roles-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .mp-role-chip { padding: 8px 14px; border-radius: 9px; font-weight: 700; font-size: 0.9rem; }
@@ -401,21 +402,19 @@
         <div class="mp-empty"><p>No guide progress yet.</p></div>
         {% else %}
         {% for g in guide_items %}
-        <div class="mp-guide-wrap">
-            <a class="mp-guide" href="{{ _gbase }}{{ g.guide.slug }}">
-                <div class="mp-guide-body">
-                    <div class="mp-guide-title">{{ g.guide.title }}</div>
-                    <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ g.percent }}%;"></div></div>
-                </div>
+        <div class="mp-guide">
+            <a class="mp-guide-title" href="{{ _gbase }}{{ g.guide.slug }}">{{ g.guide.title }}</a>
+            <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ g.percent }}%;"></div></div>
+            <div class="mp-guide-footer">
                 {% if g.is_done %}
                 <span class="mp-guide-done"><i class="fas fa-check"></i> Completed</span>
                 {% else %}
                 <span class="mp-guide-label">{{ g.completed }}/{{ g.total }} · {{ g.percent }}%</span>
                 {% endif %}
-            </a>
-            {% if can_review_answers %}
-            <a class="mp-review-btn" href="{{ url_for('admin_member_guide_answers', uid=target.id, gid=g.guide.id) }}" title="View this member's quiz answers in this guide"><i class="fas fa-eye"></i> View answers</a>
-            {% endif %}
+                {% if can_review_answers %}
+                <a class="mp-review-btn" href="{{ url_for('admin_member_guide_answers', uid=target.id, gid=g.guide.id) }}" title="View this member's quiz answers in this guide"><i class="fas fa-eye"></i> View answers</a>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
         {% endif %}
@@ -425,21 +424,19 @@
         <div class="mp-empty"><p>No quiz submissions yet.</p></div>
         {% else %}
         {% for qz in quiz_items %}
-        <div class="mp-guide-wrap">
-            <div class="mp-guide" style="cursor:default;">
-                <div class="mp-guide-body">
-                    <div class="mp-guide-title">{{ qz.quiz.title }}</div>
-                    <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ qz.percent }}%;"></div></div>
-                </div>
+        <div class="mp-guide">
+            <div class="mp-guide-title">{{ qz.quiz.title }}</div>
+            <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ qz.percent }}%;"></div></div>
+            <div class="mp-guide-footer">
                 {% if qz.graded %}
                 <span class="mp-guide-label">{% if qz.passed %}<i class="fas fa-circle-check" style="color:#5eeec8;"></i> {% endif %}{{ qz.percent }}% · {{ qz.attempts }} attempt{{ 's' if qz.attempts != 1 else '' }}</span>
                 {% else %}
                 <span class="mp-guide-label">{{ qz.attempts }} attempt{{ 's' if qz.attempts != 1 else '' }}</span>
                 {% endif %}
+                {% if can_review_answers %}
+                <a class="mp-review-btn" href="{{ url_for('admin_member_quiz_answers', uid=target.id, qid=qz.quiz.id) }}" title="View this member's answers"><i class="fas fa-eye"></i> View answers</a>
+                {% endif %}
             </div>
-            {% if can_review_answers %}
-            <a class="mp-review-btn" href="{{ url_for('admin_member_quiz_answers', uid=target.id, qid=qz.quiz.id) }}" title="View this member's answers"><i class="fas fa-eye"></i> View answers</a>
-            {% endif %}
         </div>
         {% endfor %}
         {% endif %}
