@@ -1,0 +1,36 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Members only — {{ website.name if website else 'Members' }}{% endblock %}
+
+{% block head %}
+<style>
+.mo-wrap { max-width: 560px; margin: 0 auto; padding: 66px 20px 96px; text-align: center; }
+.mo-icon { width: 76px; height: 76px; margin: 0 auto 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.9rem; color: #5eeec8; background: rgba(94,238,200,0.12); border: 1px solid rgba(94,238,200,0.3); }
+.mo-h1 { font-size: 1.7rem; font-weight: 800; margin: 0 0 10px; }
+.mo-sub { opacity: 0.68; font-size: 1rem; line-height: 1.6; margin: 0 0 28px; }
+.mo-note { font-size: 0.9rem; opacity: 0.6; margin: 0 0 26px; }
+.mo-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 0.9rem; }
+.mo-back:hover { color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mo-wrap">
+    <div class="mo-icon"><i class="fas fa-user-lock"></i></div>
+    <h1 class="mo-h1">Members only</h1>
+    <p class="mo-sub">
+        This content is available to members of
+        {{ website.name if website else 'the organization' }}.
+        {% if public_user and public_user.membership_status == 'invited' %}
+        You've been invited to join — accept the invitation from the banner above
+        to unlock it.
+        {% else %}
+        Ask an admin to add you to the organization if you think you should have
+        access.
+        {% endif %}
+    </p>
+    <a class="mo-back" href="{{ ('/' + website.url_prefix) if website and website.url_prefix else '/' }}">
+        <i class="fas fa-arrow-left"></i> Back to site
+    </a>
+</div>
+{% endblock %}

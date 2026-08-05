@@ -189,6 +189,11 @@
                     </label>
 
                     <label>
+                        <input type="checkbox" name="forum_members_only" {% if website.forum_members_only %}checked{% endif %}>
+                        Organization members only
+                    </label>
+
+                    <label>
                         <input type="checkbox" name="forum_require_login_to_post" {% if website.forum_require_login_to_post %}checked{% endif %}>
                         Require login to post
                     </label>

@@ -129,6 +129,41 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
 .pu-badge-pending    { background: rgba(255,165,0,0.12);   color: #ffaa33; border: 1px solid rgba(255,165,0,0.25); }
 .pu-badge-banned     { background: rgba(255,80,80,0.12);   color: #ff6b6b; border: 1px solid rgba(255,80,80,0.25); }
 
+/* Organization membership badges */
+.pu-badge-visitor { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.18); }
+.pu-badge-invited { background: rgba(160,120,255,0.14);  color: #c7a8ff; border: 1px solid rgba(160,120,255,0.35); }
+.pu-badge-member  { background: rgba(94,238,200,0.15);   color: #5eeec8; border: 1px solid rgba(94,238,200,0.35); }
+.pu-badge-alumni  { background: rgba(255,255,255,0.05);  color: rgba(255,255,255,0.45); border: 1px dashed rgba(255,255,255,0.3); }
+
+/* Organization segmented filter */
+.pu-seg { display: inline-flex; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 9px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.pu-seg-btn { border: none; background: transparent; color: rgba(255,255,255,0.6); font-size: 0.8rem; font-weight: 600; padding: 5px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.pu-seg-btn:hover { color: #fff; }
+.pu-seg-btn.active { background: rgba(94,238,248,0.16); color: #5eeef8; }
+
+/* Bulk selection bar */
+.pu-bulkbar { display: none; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 14px; background: rgba(94,238,248,0.08); border: 1px solid rgba(94,238,248,0.28); border-radius: 10px; }
+.pu-bulkbar.show { display: flex; }
+.pu-bulkbar-count { font-weight: 700; color: #5eeef8; font-size: 0.85rem; }
+.pu-bulkbar-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.pu-check { width: 16px; height: 16px; accent-color: #5eeef8; cursor: pointer; }
+.pu-col-check { width: 34px; text-align: center; }
+
+/* Org action dropdown (mirrors the role dropdown) */
+.pu-org-dropdown { position: relative; display: inline-block; }
+.pu-org-menu { display: none; position: absolute; right: 0; top: 100%; z-index: 100; min-width: 190px; background: #2a2830; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.pu-org-menu.show { display: block; }
+.pu-org-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border: none; color: rgba(255,255,255,0.85); font-size: 0.82rem; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+.pu-org-item:hover { background: rgba(94,238,248,0.1); color: #fff; }
+.pu-org-item i { width: 14px; text-align: center; opacity: 0.8; }
+.pu-org-item.danger { color: #ff8a8a; }
+.pu-org-item.danger:hover { background: rgba(255,80,80,0.12); }
+
+/* Assign-division modal list */
+.pu-divpick { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; margin: 6px 0 4px; }
+.pu-divpick-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); cursor: pointer; }
+.pu-divpick-item:hover { background: rgba(94,238,248,0.07); }
+
 /* Action buttons */
 .pu-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .pu-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 7px; font-size: 0.78rem; font-weight: 600; border: none; cursor: pointer; transition: background 0.15s; }
@@ -332,6 +367,14 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
                 </span>
             </h2>
 
+            <div class="pu-seg" id="membership-seg-{{ w.id }}" style="margin-bottom:12px;">
+                <button type="button" class="pu-seg-btn active" data-membership="all" onclick="setMembershipSegment({{ w.id }}, 'all', this)">All</button>
+                <button type="button" class="pu-seg-btn" data-membership="visitor" onclick="setMembershipSegment({{ w.id }}, 'visitor', this)">Visitors</button>
+                <button type="button" class="pu-seg-btn" data-membership="invited" onclick="setMembershipSegment({{ w.id }}, 'invited', this)">Invited</button>
+                <button type="button" class="pu-seg-btn" data-membership="member" onclick="setMembershipSegment({{ w.id }}, 'member', this)">Organization</button>
+                <button type="button" class="pu-seg-btn" data-membership="alumni" onclick="setMembershipSegment({{ w.id }}, 'alumni', this)">Alumni</button>
+            </div>
+
             <div class="pu-controls" data-website-id="{{ w.id }}">
                 <input type="search" class="pu-search" id="search-{{ w.id }}"
                        placeholder="Search username or email…"
@@ -361,10 +404,27 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
                 </select>
             </div>
 
+            {% if can_edit_members %}
+            <div class="pu-bulkbar" id="bulkbar-{{ w.id }}">
+                <span class="pu-bulkbar-count" id="bulkCount-{{ w.id }}">0 selected</span>
+                <div class="pu-bulkbar-actions">
+                    <button class="pu-btn pu-btn-edit" onclick="bulkMembership({{ w.id }}, 'add_member')"><i class="fas fa-user-check"></i> Add to organization</button>
+                    <button class="pu-btn pu-btn-edit" onclick="bulkMembership({{ w.id }}, 'invite')"><i class="fas fa-envelope"></i> Invite</button>
+                    {% if can_manage_divisions %}
+                    <button class="pu-btn pu-btn-edit" onclick="openAssignDivisions({{ w.id }})"><i class="fas fa-sitemap"></i> Assign division…</button>
+                    {% endif %}
+                    <button class="pu-btn pu-btn-edit" onclick="bulkMembership({{ w.id }}, 'alumni')"><i class="fas fa-user-clock"></i> Alumni</button>
+                    <button class="pu-btn pu-btn-delete" onclick="bulkMembership({{ w.id }}, 'remove')"><i class="fas fa-user-minus"></i> Remove from org</button>
+                    <button class="pu-btn pu-btn-edit" onclick="clearSelection({{ w.id }})"><i class="fas fa-times"></i> Clear</button>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="pu-table-wrap">
                 <table class="pu-table">
                     <thead>
                         <tr>
+                            {% if can_edit_members %}<th class="pu-col-check"><input type="checkbox" class="pu-check" id="checkAll-{{ w.id }}" onclick="toggleSelectAll({{ w.id }}, this.checked)" title="Select all on this page"></th>{% endif %}
                             <th>User</th>
                             <th>Status</th>
                             <th class="col-activity">Activity</th>
@@ -474,6 +534,22 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
     </div>
 </div>
 
+<!-- Assign to division modal -->
+<div class="pu-overlay" id="assignDivOverlay" onclick="if(event.target===this)closeAssignDivisions()">
+    <div class="pu-modal">
+        <h3 class="pu-modal-title">Assign to division</h3>
+        <p style="color:rgba(255,255,255,0.6);margin:0 0 10px;font-size:0.85rem;" id="assignDivSubtitle">
+            Placing members into a division also makes them part of the organization.
+        </p>
+        <div class="pu-divpick" id="assignDivList"></div>
+        <p class="pu-modal-error" id="assignDivError" style="display:none;color:#ff8a8a;font-size:0.82rem;margin:8px 0 0;"></p>
+        <div class="pu-modal-footer">
+            <button class="pu-modal-btn pu-modal-btn-cancel" onclick="closeAssignDivisions()">Cancel</button>
+            <button class="pu-modal-btn" id="assignDivSubmit" style="background:rgba(94,238,200,0.16);color:#5eeec8;border:1px solid rgba(94,238,200,0.35);" onclick="submitAssignDivisions()">Add to selected</button>
+        </div>
+    </div>
+</div>
+
 <script>
 function escapeHtml(v) {
     return String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -483,9 +559,18 @@ var _editUserId = null;
 var _deleteUserId = null;
 
 const _rolesData = {{ roles_by_website_dicts | tojson }};
+const _divisionsData = {{ divisions_by_website_dicts | tojson }};
 const _userRoleData = {};        // populated as user rows load
+const _userMembership = {};      // userId → membership_status
 const _websiteLoaded = {};       // websiteId → true once first fetch is done
 const _searchTimers = {};        // websiteId → debounce timer
+const _membershipSeg = {};       // websiteId → active segment ('all' by default)
+const _selected = {};            // websiteId → Set(userId)
+let _assignDivWebsite = null;    // website whose selection the modal targets
+const CAN_MANAGE_DIVISIONS = {{ can_manage_divisions | tojson }};
+
+const MEMBERSHIP_LABELS = {visitor: 'Visitor', invited: 'Invited', member: 'Member', alumni: 'Alumni'};
+function _selSet(websiteId) { return (_selected[websiteId] = _selected[websiteId] || new Set()); }
 
 const CAN_PROMOTE_STAFF = {{ can_promote_staff | tojson }};
 const CAN_APPROVE_MEMBERS = {{ can_approve_members | tojson }};
@@ -515,12 +600,16 @@ function reloadList(websiteId, page) {
     const roleId = document.getElementById('role-' + websiteId).value;
     const targetPage = page || 1;
 
+    const membership = _membershipSeg[websiteId] || 'all';
     const params = new URLSearchParams({
         website_id: websiteId, page: targetPage, per_page: 25,
-        sort, filter,
+        sort, filter, membership,
     });
     if (search) params.set('search', search);
     if (roleId) params.set('role_id', roleId);
+
+    // A reload rebuilds the rows, so the previous selection no longer applies.
+    clearSelection(websiteId);
 
     const loadingEl = document.getElementById('loading-' + websiteId);
     const emptyEl = document.getElementById('empty-' + websiteId);
@@ -543,7 +632,7 @@ function reloadList(websiteId, page) {
             const totalLabel = document.getElementById('totalLabel-' + websiteId);
             if (totalLabel) totalLabel.textContent = data.total + ' total';
             const tabBadge = document.querySelector(`.pu-tab[onclick="switchTab(${websiteId})"] .pu-tab-badge`);
-            if (tabBadge && !search && filter === 'all' && !roleId) {
+            if (tabBadge && !search && filter === 'all' && !roleId && membership === 'all') {
                 tabBadge.textContent = data.total;
             }
         })
@@ -564,8 +653,11 @@ function renderUsers(websiteId, data) {
     emptyEl.style.display = 'none';
     data.users.forEach(u => {
         _userRoleData[u.id] = u.roles;
+        _userMembership[u.id] = u.membership_status;
         tbody.appendChild(buildUserRow(websiteId, u));
     });
+    const chkAll = document.getElementById('checkAll-' + websiteId);
+    if (chkAll) chkAll.checked = false;
 }
 
 function buildUserRow(websiteId, u) {
@@ -604,7 +696,20 @@ function buildUserRow(websiteId, u) {
         ? `<span class="pu-badge" style="background:rgba(123,47,247,0.15);color:#c79aff;border:1px solid rgba(123,47,247,0.4);" title="This is the public-facing mirror of an admin account. It auto-syncs with the admin's username and cannot be removed from here.">Admin</span>`
         : '';
 
-    let stateBtn = '', banBtn = '', deleteBtn = '', editBtn = '', roleBtn = '', promoteBtn = '';
+    // Organization membership badge. Mirrors are always members; visitors get
+    // no badge so plain visitors read as "just here for the forum/training".
+    const ms = u.is_admin_mirror ? 'member' : (u.membership_status || 'visitor');
+    const membershipBadge = (ms === 'visitor')
+        ? '<span class="pu-badge pu-badge-visitor" id="mbadge-' + u.id + '">Visitor</span>'
+        : `<span class="pu-badge pu-badge-${ms}" id="mbadge-${u.id}">${MEMBERSHIP_LABELS[ms] || ms}</span>`;
+
+    let stateBtn = '', banBtn = '', deleteBtn = '', editBtn = '', roleBtn = '', promoteBtn = '', orgBtn = '';
+    if (!u.is_admin_mirror && CAN_EDIT_MEMBERS) {
+        orgBtn = `<div class="pu-org-dropdown" id="orgDropdown-${u.id}">
+            <button class="pu-btn pu-btn-edit" onclick="toggleOrgDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-users-gear"></i> Org</button>
+            <div class="pu-org-menu" id="orgMenu-${u.id}"></div>
+        </div>`;
+    }
     if (u.is_admin_mirror) {
         // Auth lives on the admin User row, so account-level actions are locked.
         // Roles are still assignable: the "Admin" badge is auto-derived, and
@@ -644,14 +749,19 @@ function buildUserRow(websiteId, u) {
         }
     }
 
+    const checkCell = CAN_EDIT_MEMBERS
+        ? `<td class="pu-col-check">${u.is_admin_mirror ? '' : `<input type="checkbox" class="pu-check" id="chk-${u.id}" data-uid="${u.id}" onchange="onRowCheck(${websiteId}, ${u.id}, this.checked)">`}</td>`
+        : '';
+
     tr.innerHTML = `
+        ${checkCell}
         <td>
             <div class="pu-username" id="uname-${u.id}">${escapeHtml(u.username)} ${adminBadge}</div>
             <div class="pu-fullname" id="ufull-${u.id}" style="color:rgba(255,255,255,0.7);font-size:0.8rem;${u.full_name ? '' : 'display:none;'}">${escapeHtml(u.full_name || '')}</div>
             <div class="pu-email" id="uemail-${u.id}">${escapeHtml(u.email)}</div>
             <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;" id="userRoles-${u.id}">${divisionBadges}${roleBadges}</div>
         </td>
-        <td>${verifiedBadge}${bannedBadge}${stateBadge}</td>
+        <td>${membershipBadge}${verifiedBadge}${bannedBadge}${stateBadge}</td>
         <td class="pu-activity col-activity">
             <div class="pu-activity-row"><span class="pu-activity-num">${u.thread_count}</span><span>threads</span></div>
             <div class="pu-activity-row"><span class="pu-activity-num">${u.reply_count}</span><span>replies</span></div>
@@ -661,6 +771,7 @@ function buildUserRow(websiteId, u) {
         <td class="pu-date col-date">${formatDate(u.created_at)}</td>
         <td>
             <div class="pu-actions">
+                ${orgBtn}
                 ${roleBtn}
                 ${editBtn}
                 ${promoteBtn}
@@ -1110,6 +1221,170 @@ async function _onRoleCheck(userId, websiteId) {
         ).join('');
         badgesEl.innerHTML = divHtml + roleHtml;
     }
+}
+
+// ── Organization membership ────────────────────────────────────────────────
+
+function setMembershipSegment(websiteId, seg, btn) {
+    _membershipSeg[websiteId] = seg;
+    const bar = document.getElementById('membership-seg-' + websiteId);
+    if (bar) bar.querySelectorAll('.pu-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+    reloadList(websiteId, 1);
+}
+
+/* Selection */
+function onRowCheck(websiteId, uid, checked) {
+    const set = _selSet(websiteId);
+    if (checked) set.add(uid); else set.delete(uid);
+    updateBulkBar(websiteId);
+    const chkAll = document.getElementById('checkAll-' + websiteId);
+    if (chkAll) {
+        const boxes = document.querySelectorAll(`#tbody-${websiteId} .pu-check`);
+        const checkedCount = document.querySelectorAll(`#tbody-${websiteId} .pu-check:checked`).length;
+        chkAll.checked = boxes.length > 0 && checkedCount === boxes.length;
+        chkAll.indeterminate = checkedCount > 0 && checkedCount < boxes.length;
+    }
+}
+
+function toggleSelectAll(websiteId, checked) {
+    const set = _selSet(websiteId);
+    document.querySelectorAll(`#tbody-${websiteId} .pu-check`).forEach(cb => {
+        cb.checked = checked;
+        const uid = parseInt(cb.dataset.uid);
+        if (checked) set.add(uid); else set.delete(uid);
+    });
+    updateBulkBar(websiteId);
+}
+
+function clearSelection(websiteId) {
+    const set = _selected[websiteId];
+    if (set) set.clear();
+    document.querySelectorAll(`#tbody-${websiteId} .pu-check:checked`).forEach(cb => cb.checked = false);
+    const chkAll = document.getElementById('checkAll-' + websiteId);
+    if (chkAll) { chkAll.checked = false; chkAll.indeterminate = false; }
+    updateBulkBar(websiteId);
+}
+
+function updateBulkBar(websiteId) {
+    const bar = document.getElementById('bulkbar-' + websiteId);
+    if (!bar) return;
+    const n = _selSet(websiteId).size;
+    bar.classList.toggle('show', n > 0);
+    const count = document.getElementById('bulkCount-' + websiteId);
+    if (count) count.textContent = n + ' selected';
+}
+
+/* Mutations — reload after success so badges, division chips, segment filtering
+   and counts all stay correct without fragile in-place patching. */
+async function _postMembership(websiteId, body) {
+    const r = await fetch('/admin/users/public/membership', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Error'); return null; }
+    reloadList(websiteId);
+    return d;
+}
+
+function bulkMembership(websiteId, action) {
+    const ids = Array.from(_selSet(websiteId));
+    if (!ids.length) { alert('Select members first.'); return; }
+    if (action === 'remove' && !confirm(`Remove ${ids.length} member(s) from the organization? They become visitors (they keep their account, forum, and training access).`)) return;
+    _postMembership(websiteId, {user_ids: ids, action});
+}
+
+/* Per-row org dropdown */
+function toggleOrgDropdown(userId, websiteId, event) {
+    event.stopPropagation();
+    const menu = document.getElementById(`orgMenu-${userId}`);
+    if (!menu) return;
+    const isOpen = menu.classList.contains('show');
+    document.querySelectorAll('.pu-org-menu.show').forEach(m => m.classList.remove('show'));
+    document.querySelectorAll('.pu-role-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+    if (!isOpen) { _buildOrgMenu(userId, websiteId, menu); menu.classList.add('show'); }
+}
+
+document.addEventListener('click', () => {
+    document.querySelectorAll('.pu-org-menu.show').forEach(m => m.classList.remove('show'));
+});
+
+function _buildOrgMenu(userId, websiteId, menu) {
+    const status = _userMembership[userId] || 'visitor';
+    const item = (icon, label, onclick, danger) =>
+        `<button class="pu-org-item${danger ? ' danger' : ''}" onclick="${onclick}"><i class="fas ${icon}"></i> ${label}</button>`;
+    let html = `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:rgba(255,255,255,0.4);padding:3px 9px 6px;">Currently: ${MEMBERSHIP_LABELS[status] || status}</div>`;
+    if (status === 'visitor') {
+        html += item('fa-user-check', 'Add to organization', `orgAction(${websiteId},${userId},'add_member')`);
+        html += item('fa-envelope', 'Invite to organization', `orgAction(${websiteId},${userId},'invite')`);
+    } else if (status === 'invited') {
+        html += item('fa-user-check', 'Add as member', `orgAction(${websiteId},${userId},'add_member')`);
+        html += item('fa-user-xmark', 'Cancel invite', `orgAction(${websiteId},${userId},'remove')`, true);
+    } else if (status === 'member') {
+        html += item('fa-user-clock', 'Move to alumni', `orgAction(${websiteId},${userId},'alumni')`);
+        html += item('fa-user-minus', 'Remove from organization', `orgAction(${websiteId},${userId},'remove')`, true);
+    } else if (status === 'alumni') {
+        html += item('fa-user-check', 'Reactivate as member', `orgAction(${websiteId},${userId},'add_member')`);
+        html += item('fa-user-minus', 'Remove from organization', `orgAction(${websiteId},${userId},'remove')`, true);
+    }
+    if (CAN_MANAGE_DIVISIONS) {
+        html += item('fa-sitemap', 'Assign to division…', `openAssignDivisions(${websiteId},${userId})`);
+    }
+    menu.innerHTML = html;
+}
+
+function orgAction(websiteId, userId, action) {
+    document.querySelectorAll('.pu-org-menu.show').forEach(m => m.classList.remove('show'));
+    if (action === 'remove' && !confirm('Remove this member from the organization? They become a visitor (account, forum and training access are kept).')) return;
+    _postMembership(websiteId, {user_ids: [userId], action});
+}
+
+/* Assign-to-division modal */
+let _assignDivTargets = [];
+
+function openAssignDivisions(websiteId, singleUid) {
+    const ids = singleUid ? [singleUid] : Array.from(_selSet(websiteId));
+    if (!ids.length) { alert('Select members first.'); return; }
+    document.querySelectorAll('.pu-org-menu.show').forEach(m => m.classList.remove('show'));
+    _assignDivWebsite = websiteId;
+    _assignDivTargets = ids;
+    const list = document.getElementById('assignDivList');
+    const divs = _divisionsData[websiteId] || [];
+    document.getElementById('assignDivError').style.display = 'none';
+    document.getElementById('assignDivSubtitle').textContent =
+        `Adding ${ids.length} member(s) to a division also makes them part of the organization.`;
+    if (!divs.length) {
+        list.innerHTML = '<p style="color:rgba(255,255,255,0.5);font-size:0.85rem;margin:6px 0;">No divisions yet. Create one on the Divisions & KSAs page first.</p>';
+    } else {
+        list.innerHTML = divs.map(d => {
+            const c = d.color || '#5eeef8';
+            const icon = d.icon ? `<i class="fas ${escapeHtml(d.icon)}" style="color:${c};"></i>` : '';
+            return `<label class="pu-divpick-item">
+                <input type="checkbox" class="pu-check" value="${d.id}">
+                ${icon}<span>${escapeHtml(d.name)}</span>
+            </label>`;
+        }).join('');
+    }
+    document.getElementById('assignDivOverlay').classList.add('show');
+}
+
+function closeAssignDivisions() {
+    _assignDivWebsite = null;
+    _assignDivTargets = [];
+    document.getElementById('assignDivOverlay').classList.remove('show');
+}
+
+async function submitAssignDivisions() {
+    if (_assignDivWebsite == null) return;
+    const checked = Array.from(document.querySelectorAll('#assignDivList input[type="checkbox"]:checked'))
+        .map(cb => parseInt(cb.value));
+    const errEl = document.getElementById('assignDivError');
+    if (!checked.length) { errEl.textContent = 'Pick at least one division.'; errEl.style.display = 'block'; return; }
+    const websiteId = _assignDivWebsite;
+    const targets = _assignDivTargets.slice();
+    closeAssignDivisions();
+    await _postMembership(websiteId, {user_ids: targets, action: 'assign_divisions', division_ids: checked});
 }
 </script>
 

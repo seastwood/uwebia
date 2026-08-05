@@ -195,6 +195,7 @@
             </div>
             <label class="ra-check"><input type="checkbox" id="resIsPublic" checked> List on the public Resources tab</label>
             <label class="ra-check"><input type="checkbox" id="resRequireLogin"> Require login to open it</label>
+            <label class="ra-check"><input type="checkbox" id="resMembersOnly"> Organization members only <span style="opacity:0.5;">(hidden from visitors)</span></label>
             <p class="ra-err" id="resErr"></p>
         </div>
         <div class="ra-modal-foot">
@@ -327,6 +328,7 @@ function openResourceModal(r) {
     document.getElementById('resCategory').value = r && r.category_id ? String(r.category_id) : '';
     document.getElementById('resIsPublic').checked = r ? !!r.is_public : true;
     document.getElementById('resRequireLogin').checked = r ? !!r.require_login_to_view : false;
+    document.getElementById('resMembersOnly').checked = r ? !!r.members_only : false;
     // Seed the item rows from the resource's items (server always returns a list).
     if (r && r.resource_type !== 'page' && Array.isArray(r.items) && r.items.length) {
         _resItems = r.items.map(it => ({ url: it.url || '', label: it.label || '' }));
@@ -350,6 +352,7 @@ async function saveResource() {
         category_id: document.getElementById('resCategory').value || null,
         is_public: document.getElementById('resIsPublic').checked,
         require_login_to_view: document.getElementById('resRequireLogin').checked,
+        members_only: document.getElementById('resMembersOnly').checked,
     };
     if (!body.title) { _showErr('resErr', 'Title is required.'); return; }
     if (_resType === 'page') {

@@ -1,0 +1,119 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Organization Invitation{% endblock %}
+
+{% block head %}
+<style>
+    .forum-auth {
+        width: min(460px, calc(100% - 28px));
+        margin: 52px auto;
+        padding: 26px 24px;
+
+        background: rgba(0,0,0,0.34);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        box-shadow: 0 18px 38px rgba(0,0,0,0.24);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        text-align: center;
+    }
+
+    .forum-auth .confirm-icon {
+        font-size: 1.9rem;
+        color: #5eeec8;
+        margin-bottom: 14px;
+    }
+
+    .forum-auth h1 { font-size: 1.35rem; margin-bottom: 8px; }
+
+    .forum-auth p {
+        font-size: 0.92rem;
+        opacity: 0.78;
+        margin-bottom: 22px;
+        line-height: 1.5;
+    }
+
+    .forum-auth .confirm-name { font-weight: 800; opacity: 1; }
+
+    .forum-auth .invite-btns {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .forum-auth button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+
+        width: 100%;
+        min-height: 46px;
+        padding: 12px 18px;
+
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.16);
+
+        background: rgba(255,255,255,0.12);
+        color: inherit;
+        font: inherit;
+        font-weight: 800;
+        cursor: pointer;
+
+        transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+    }
+
+    .forum-auth button.accept {
+        background: #5eeec8;
+        color: #05201a;
+        border-color: transparent;
+    }
+    .forum-auth button.accept:hover {
+        background: #7ff2d6;
+        transform: translateY(-1px);
+    }
+    .forum-auth button.decline:hover {
+        background: rgba(255,255,255,0.18);
+        transform: translateY(-1px);
+    }
+
+    .forum-auth .invite-forms { display: flex; flex-direction: column; gap: 10px; }
+    .forum-auth .invite-forms form { margin: 0; }
+
+    .forum-auth .confirm-hint {
+        margin: 16px 0 0;
+        font-size: 0.8rem;
+        opacity: 0.55;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="forum-auth">
+    <div class="confirm-icon"><i class="fas fa-user-plus"></i></div>
+
+    <h1>Join {{ org_name }}?</h1>
+
+    <p>
+        <span class="confirm-name">{{ display_name }}</span>, you've been invited to
+        become a member of {{ org_name }}. Accepting confirms your membership and
+        signs you in.
+    </p>
+
+    <div class="invite-forms">
+        <form method="POST" action="{{ request.path }}">
+            <input type="hidden" name="decision" value="accept">
+            <button type="submit" class="accept"><i class="fas fa-check"></i> Accept invitation</button>
+        </form>
+        <form method="POST" action="{{ request.path }}">
+            <input type="hidden" name="decision" value="decline">
+            <button type="submit" class="decline">Decline</button>
+        </form>
+    </div>
+
+    <p class="confirm-hint">
+        Wasn't expecting this? You can safely close this page — nothing changes
+        until you choose an option.
+    </p>
+</div>
+{% endblock %}
