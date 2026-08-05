@@ -1176,8 +1176,11 @@
         // unlocks, by rendering a fresh form.
         lockQuiz(el, quiz);
 
-        let s = 'Score: ' + data.score + ' / ' + data.max_score;
-        if (data.best_score != null) s += ' · Best: ' + data.best_score;
+        // Round to 2 decimals so partial-credit scores read cleanly (0.33, not
+        // 0.3333333); whole numbers stay whole.
+        const fmtScore = n => (n == null ? n : Math.round(n * 100) / 100);
+        let s = 'Score: ' + fmtScore(data.score) + ' / ' + data.max_score;
+        if (data.best_score != null) s += ' · Best: ' + fmtScore(data.best_score);
         scoreEl.textContent = s;
 
         const actions = actionsBox;
@@ -1271,16 +1274,23 @@
     function paintChoice(qEl, r, optSel, inputSel) {
         const correctIds = r.correct_option_ids;
         const reveal = Array.isArray(correctIds);
+        // When the full key is withheld (a failed attempt), the server still
+        // tells us which of the reader's OWN picks were right, so we can mark
+        // their selections right/wrong without disclosing the options they
+        // didn't pick.
+        const chosenCorrect = Array.isArray(r.chosen_correct_ids) ? r.chosen_correct_ids : null;
         qEl.querySelectorAll(optSel).forEach(opt => {
             const inp = opt.querySelector(inputSel);
             if (!inp) return;
             const val = parseInt(inp.value);
             opt.classList.remove('opt-correct', 'opt-chosen-wrong');
             if (reveal) {
+                // Passed: safe to show the whole key.
                 if (correctIds.indexOf(val) >= 0) opt.classList.add('opt-correct');
                 if (inp.checked && correctIds.indexOf(val) < 0) opt.classList.add('opt-chosen-wrong');
-            } else if (inp.checked) {
-                opt.classList.add(r.correct ? 'opt-correct' : 'opt-chosen-wrong');
+            } else if (inp.checked && chosenCorrect) {
+                // Failed: mark only the reader's own picks; leave the rest neutral.
+                opt.classList.add(chosenCorrect.indexOf(val) >= 0 ? 'opt-correct' : 'opt-chosen-wrong');
             }
         });
     }

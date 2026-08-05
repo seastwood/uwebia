@@ -3248,7 +3248,9 @@ class QuizAttempt(db.Model):
     public_user_id  = db.Column(db.Integer, db.ForeignKey('public_user.id', ondelete='SET NULL'),
                                 nullable=True, index=True)
     visitor_id_hash = db.Column(db.String(64), nullable=True, index=True)
-    score           = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Float so partial-credit questions (multi-select / fill-blank) can award a
+    # fraction of a point — e.g. 1 of 3 correct picks on a 1-pt question = 0.33.
+    score           = db.Column(db.Float, nullable=False, default=0, server_default='0')
     max_score       = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     answers         = db.Column(db.JSON, nullable=True)  # raw submission, for review
     created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
@@ -29675,6 +29677,21 @@ def _run_startup_migrations_inner():
             db.session.rollback()
             print(f'[migrate] warning: membership backfill: {_e}')
 
+    # ── Step 10: widen quiz_attempt.score to a floating-point type so partial
+    # credit (fractional points) survives. Postgres needs an explicit ALTER;
+    # SQLite stores the fraction fine under integer affinity, so it's skipped.
+    if 'quiz_attempt' in pre_existing and not _is_sqlite():
+        try:
+            col = {c['name']: c for c in inspector.get_columns('quiz_attempt')}.get('score')
+            if col is not None and 'INT' in str(col['type']).upper():
+                db.session.execute(db.text(
+                    'ALTER TABLE quiz_attempt ALTER COLUMN score TYPE double precision'))
+                db.session.commit()
+                print('[migrate] quiz_attempt.score -> double precision')
+        except Exception as _e:
+            db.session.rollback()
+            print(f'[migrate] warning: quiz score float: {_e}')
+
 
 # Flag set to True when the configured database is unreachable at startup.
 # The before_request hook below uses it to gate all routes in maintenance mode.
@@ -38257,6 +38274,16 @@ def _matching_review(q, ans):
     return out
 
 
+def _fmt_score(n):
+    """Trim a score/points number for display: 2.0 → '2', 0.33 → '0.33'."""
+    if n is None:
+        return ''
+    n = round(float(n), 2)
+    if n == int(n):
+        return str(int(n))
+    return ('%.2f' % n).rstrip('0').rstrip('.')
+
+
 def _build_attempt_review(quiz, attempt):
     """Per-question view of one stored attempt: the prompt, the member's answer,
     the correct answer, and whether it was right. Reuses the real grader for
@@ -38278,12 +38305,18 @@ def _build_attempt_review(quiz, attempt):
         # can mark each pick with a ✓/✗ instead of a flat text list. Image-choice
         # options carry their image so the review can show the picture, not a URL.
         opts = _choice_options_review(q, ans)
-        is_image = q.question_type == 'image_choice'
         given_choices = ([{'text': o['text'], 'image_url': o['image_url'], 'correct': o['correct']}
                           for o in opts if o['selected']] if opts is not None else None)
+        # Every correct option (any choice type), so the review can list them on
+        # separate lines / thumbnails instead of one run-on string.
         correct_choices = ([{'text': o['text'], 'image_url': o['image_url']}
-                            for o in opts if o['correct']]
-                           if (opts is not None and is_image) else None)
+                            for o in opts if o['correct']] if opts is not None else None)
+        _earned = r.get('earned')
+        _is_correct = r.get('correct')
+        # Partially correct (some points, but not full): don't flag it as a plain
+        # wrong answer — the reader picked at least one correct option.
+        _partial = (_is_correct is False and _earned is not None
+                    and _earned > 0 and _earned < q.points)
         rows.append({
             'prompt': q.prompt or '',
             'type': q.question_type,
@@ -38295,8 +38328,9 @@ def _build_attempt_review(quiz, attempt):
             'given_choices': given_choices,
             'correct_choices': correct_choices,
             'matching_review': _matching_review(q, ans),
-            'is_correct': r.get('correct'),
-            'earned': r.get('earned'),
+            'is_correct': _is_correct,
+            'partial': _partial,
+            'earned': _fmt_score(_earned) if _earned is not None else None,
         })
     return rows
 
@@ -38322,7 +38356,7 @@ def admin_member_quiz_answers(uid, qid):
         reviews.append({
             'number': i + 1,
             'created_at': a.created_at,
-            'score': a.score, 'max_score': a.max_score,
+            'score': _fmt_score(a.score), 'max_score': a.max_score,
             'percent': round(100 * a.score / a.max_score) if a.max_score else None,
             'passed': bool(a.max_score) and (a.score / a.max_score) >= (quiz.pass_threshold or 0),
             'rows': _build_attempt_review(quiz, a),
@@ -38415,7 +38449,7 @@ def admin_quiz_attempts_csv(qid):
         answers = a.answers or {}
         row = [a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '',
                labels.get(_attempt_identity_key(a), '—'),
-               a.score, a.max_score,
+               _fmt_score(a.score), a.max_score,
                round(100 * a.score / a.max_score) if a.max_score else '',
                'yes' if _quiz_passed(quiz, a.score, a.max_score) else 'no']
         for _, q in numbered:
@@ -38784,6 +38818,9 @@ def _grade_quiz(quiz, submitted):
                 sel = None
             correct = sel is not None and sel in correct_ids
             detail['correct_option_ids'] = correct_ids
+            # Which of the reader's OWN picks were right — lets the player mark
+            # their selection right/wrong without revealing the unpicked options.
+            detail['chosen_correct_ids'] = [sel] if (sel is not None and sel in correct_ids) else []
         elif q.question_type == 'multi_choice' or (q.question_type == 'image_choice' and cfg.get('multiple')):
             correct_ids = set(o['id'] for o in cfg.get('options', []) if o.get('correct'))
             try:
@@ -38791,12 +38828,15 @@ def _grade_quiz(quiz, submitted):
             except (ValueError, TypeError):
                 sel = set()
             # Partial credit (like fill_blank): each right pick earns its share,
-            # each wrong pick cancels one, floored at zero.
+            # each wrong pick cancels one, floored at zero. Kept as a 2-decimal
+            # fraction of the points so 1 of 3 correct on a 1-pt question = 0.33
+            # instead of rounding away to 0.
             if correct_ids:
                 frac = max(0, len(sel & correct_ids) - len(sel - correct_ids)) / len(correct_ids)
-                earned = round(q.points * frac)
+                earned = round(q.points * frac, 2)
                 correct = frac >= 1
             detail['correct_option_ids'] = list(correct_ids)
+            detail['chosen_correct_ids'] = list(sel & correct_ids)
         elif q.question_type == 'fill_blank':
             # Partial credit: each blank scores independently.
             blanks = cfg.get('blanks', [])
@@ -38814,7 +38854,7 @@ def _grade_quiz(quiz, submitted):
                 if ok:
                     got += 1
             total = len(blanks)
-            earned = round(q.points * got / total) if total else 0
+            earned = round(q.points * got / total, 2) if total else 0
             correct = total > 0 and got == total
             detail['blank_results'] = per_blank
             detail['blank_accepted'] = [b.get('accepted', []) for b in blanks]
@@ -38915,7 +38955,9 @@ def _grade_quiz(quiz, submitted):
         if graded_count < expected:
             graded_pool.sort(reverse=True)
             max_score += sum(graded_pool[:expected - graded_count])
-    return score, max_score, results
+    # Keep the stored/returned total clean (partial credit sums can drift into
+    # float noise like 0.990000001).
+    return round(score, 2), max_score, results
 
 
 def _quiz_best_score(quiz_id, public_user, visitor_hash):
@@ -39227,6 +39269,9 @@ def _quiz_passed(quiz, score, max_score):
 # (correct_option_ids, accepted, blank_accepted, correct_pairs, answer_order)
 # is withheld until the reader passes.
 _SAFE_RESULT_KEYS = {'question_id', 'correct', 'earned', 'blank_results',
+                     # which of the reader's own picks were right — marks their
+                     # selections without disclosing the unpicked correct options.
+                     'chosen_correct_ids',
                      # coding: the learner's own output/compiler errors and
                      # per-test pass flags are safe (their `tests_expected` is
                      # the revealing part and is dropped).
@@ -39336,8 +39381,9 @@ def public_quiz_submit(qid):
                 progress_summary = _guide_progress_summary(guide, public_user, visitor_hash)
 
     # On a failing attempt, hide which options/text were correct — only the
-    # per-question right/wrong stays. (Best score may still be passing if the
-    # reader previously cleared the bar.)
+    # per-question right/wrong (and, for choice questions, which of the reader's
+    # OWN picks were right) stays. (Best score may still be passing if the reader
+    # previously cleared the bar.)
     visible_results = results if this_attempt_passed else _strip_answers_from_results(results)
 
     body = {'success': True, 'score': score, 'max_score': max_score,
