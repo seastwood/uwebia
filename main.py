@@ -38198,6 +38198,65 @@ def _quiz_correct_submission(q):
     return None
 
 
+_CHOICE_REVIEW_TYPES = ('single_choice', 'multi_choice', 'true_false', 'image_choice')
+
+
+def _choice_options_review(q, ans):
+    """For choice questions, the full option list with each option flagged as the
+    member's pick and/or the correct answer, so the review can render the options
+    the way the quiz itself does. Returns None for non-choice questions."""
+    if q.question_type not in _CHOICE_REVIEW_TYPES:
+        return None
+    cfg = q._config()
+    opts = cfg.get('options') or []
+    if not opts:
+        return None
+    sel_ids = set()
+    raw = ans if isinstance(ans, list) else ([ans] if ans not in (None, '') else [])
+    for x in raw:
+        try:
+            sel_ids.add(int(x))
+        except (TypeError, ValueError):
+            pass
+    return [{
+        'text': o.get('text') or o.get('caption') or '',
+        'image_url': o.get('image_url') or '',
+        'selected': o.get('id') in sel_ids,
+        'correct': bool(o.get('correct')),
+    } for o in opts]
+
+
+def _matching_review(q, ans):
+    """Per-pair review for a matching question: the left cell, the right cell the
+    member matched it to (flagged right/wrong), and the correct right cell when
+    they missed. Each cell is a `_quiz_side_public` dict (text or image), so the
+    review can show pictures — not URLs — for image matching."""
+    if q.question_type != 'matching':
+        return None
+    cfg = q._config()
+    pairs = cfg.get('pairs') or []
+    if not pairs:
+        return None
+    right_by_id = {p['right_id']: p.get('right') for p in pairs}
+    sub = ans if isinstance(ans, dict) else {}
+    out = []
+    for p in pairs:
+        lid = p['left_id']
+        chosen = sub.get(str(lid), sub.get(lid))
+        try:
+            chosen = int(chosen)
+        except (TypeError, ValueError):
+            chosen = None
+        is_correct = chosen == p['right_id']
+        out.append({
+            'left': _quiz_side_public(p.get('left')),
+            'chosen': (_quiz_side_public(right_by_id[chosen]) if chosen in right_by_id else None),
+            'correct_side': _quiz_side_public(p.get('right')),
+            'is_correct': is_correct,
+        })
+    return out
+
+
 def _build_attempt_review(quiz, attempt):
     """Per-question view of one stored attempt: the prompt, the member's answer,
     the correct answer, and whether it was right. Reuses the real grader for
@@ -38214,6 +38273,17 @@ def _build_attempt_review(quiz, attempt):
         ans = submitted.get(str(q.id), submitted.get(q.id))
         r = res_by_q.get(q.id, {})
         correct = _quiz_correct_submission(q)
+        # For choice questions, break the member's answer into the options they
+        # actually picked, each flagged right/wrong, so the simple two-row layout
+        # can mark each pick with a ✓/✗ instead of a flat text list. Image-choice
+        # options carry their image so the review can show the picture, not a URL.
+        opts = _choice_options_review(q, ans)
+        is_image = q.question_type == 'image_choice'
+        given_choices = ([{'text': o['text'], 'image_url': o['image_url'], 'correct': o['correct']}
+                          for o in opts if o['selected']] if opts is not None else None)
+        correct_choices = ([{'text': o['text'], 'image_url': o['image_url']}
+                            for o in opts if o['correct']]
+                           if (opts is not None and is_image) else None)
         rows.append({
             'prompt': q.prompt or '',
             'type': q.question_type,
@@ -38222,6 +38292,9 @@ def _build_attempt_review(quiz, attempt):
             'given': _format_attempt_answer(q, ans),
             'answered': ans not in (None, '', [], {}),
             'correct_text': _format_attempt_answer(q, correct) if correct is not None else '',
+            'given_choices': given_choices,
+            'correct_choices': correct_choices,
+            'matching_review': _matching_review(q, ans),
             'is_correct': r.get('correct'),
             'earned': r.get('earned'),
         })
