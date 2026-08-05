@@ -328,6 +328,31 @@
         font-size: 0.86rem;
     }
 }
+
+/* Organization-invite banner (shown while the logged-in member is 'invited') */
+.public-org-invite {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    max-width: 1100px; margin: 10px auto 0; padding: 12px 18px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(94,238,200,0.14), rgba(94,238,248,0.10));
+    border: 1px solid rgba(94,238,200,0.4);
+    color: #eafffb;
+}
+.public-org-invite-icon { color: #5eeec8; font-size: 1.1rem; }
+.public-org-invite-text { flex: 1; min-width: 200px; font-size: 0.92rem; }
+.public-org-invite-actions { display: flex; gap: 8px; }
+.public-org-invite-actions form { margin: 0; }
+.public-org-invite-btn {
+    border: none; cursor: pointer; border-radius: 8px;
+    font-size: 0.85rem; font-weight: 700; padding: 8px 16px;
+}
+.public-org-invite-btn.accept { background: #5eeec8; color: #05201a; }
+.public-org-invite-btn.accept:hover { background: #7ff2d6; }
+.public-org-invite-btn.decline {
+    background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+.public-org-invite-btn.decline:hover { background: rgba(255,255,255,0.14); }
     </style>
 
     {% block head %}{% endblock %}
@@ -459,6 +484,22 @@
         {% endif %}
     {% endwith %}
 </div>
+        {% if navbar_public_user and navbar_public_user.membership_status == 'invited' %}
+        <div class="public-org-invite">
+            <span class="public-org-invite-icon"><i class="fas fa-user-plus"></i></span>
+            <span class="public-org-invite-text">
+                You've been invited to join <strong>{{ website.name if website else 'the organization' }}</strong> as a member.
+            </span>
+            <span class="public-org-invite-actions">
+                <form method="POST" action="{{ url_for('public_org_accept', prefix=website.url_prefix or None) if website else url_for('public_org_accept') }}">
+                    <button type="submit" class="public-org-invite-btn accept"><i class="fas fa-check"></i> Accept</button>
+                </form>
+                <form method="POST" action="{{ url_for('public_org_decline', prefix=website.url_prefix or None) if website else url_for('public_org_decline') }}">
+                    <button type="submit" class="public-org-invite-btn decline">Decline</button>
+                </form>
+            </span>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </div>
 

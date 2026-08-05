@@ -184,7 +184,7 @@
                         {% endif %}
                         {% if user_has_perm('quizzes.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }}, {{ q.is_public | tojson }}, {{ q.require_login_to_view | tojson }})'>
+                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }}, {{ q.is_public | tojson }}, {{ q.require_login_to_view | tojson }}, {{ q.members_only | tojson }})'>
                             <i class="fas fa-cog"></i>
                         </button>
                         <button class="pa-btn pa-btn-secondary" title="Duplicate quiz"
@@ -298,6 +298,10 @@
                     <label style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:0.9rem;font-weight:normal;cursor:pointer;">
                         <input type="checkbox" id="quizModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
                         <span>Require login to open it</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:0.9rem;font-weight:normal;cursor:pointer;">
+                        <input type="checkbox" id="quizModalMembersOnly" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeec8;">
+                        <span>Organization members only <span style="opacity:0.5;font-size:0.8rem;">(hidden from visitors)</span></span>
                     </label>
                     <p style="margin:8px 0 0;font-size:0.78rem;color:rgba(255,255,255,0.45);">The quiz's own link always works for direct sharing; "list publicly" just adds it to the Quizzes tab of the guides page.</p>
                 </div>
@@ -488,7 +492,7 @@ function openQuizModal() {
     setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
 }
 
-function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount, isPublic, requireLogin) {
+function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount, isPublic, requireLogin, membersOnly) {
     document.getElementById('quizModalId').value = id;
     document.getElementById('quizModalTitleInput').value = title;
     document.getElementById('quizModalDesc').value = desc;
@@ -500,6 +504,7 @@ function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAt
     document.getElementById('quizModalDraw').value = drawCount || '';
     document.getElementById('quizModalIsPublic').checked = !!isPublic;
     document.getElementById('quizModalRequireLogin').checked = !!requireLogin;
+    document.getElementById('quizModalMembersOnly').checked = !!membersOnly;
     _setQuizModalError('');
     document.getElementById('quizModalExtraFields').style.display = 'block';
     document.getElementById('quizModalTitle').textContent = 'Quiz Settings';
@@ -534,6 +539,7 @@ async function submitQuizModal(e) {
         body.draw_count = parseInt(document.getElementById('quizModalDraw').value, 10) || 0;
         body.is_public = document.getElementById('quizModalIsPublic').checked;
         body.require_login_to_view = document.getElementById('quizModalRequireLogin').checked;
+        body.members_only = document.getElementById('quizModalMembersOnly').checked;
     }
     const url = id ? `/admin/quizzes/${id}/update` : '/admin/quizzes/create';
     try {

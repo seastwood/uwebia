@@ -1199,11 +1199,31 @@ def _mirror_merged_division_roles(division):
         db.session.execute(public_user_role_assignment.insert(), inserts)
 
 
+def _set_public_membership_status(user, status, *, stamp_invited=False):
+    """Set a public user's organization membership status, stamping the change
+    time. `stamp_invited` also records `membership_invited_at` (used when moving
+    someone into the 'invited' state). No-ops on admin mirrors (their membership
+    is implied) and on unknown statuses. Returns True when something changed."""
+    if user is None or user.mirrored_admin_user_id is not None:
+        return False
+    if status not in PUBLIC_MEMBERSHIP_STATUSES:
+        return False
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    changed = user.membership_status != status
+    if changed:
+        user.membership_status = status
+        user.membership_status_changed_at = now
+    if stamp_invited:
+        user.membership_invited_at = now
+    return changed
+
+
 def _ensure_division_membership(public_user_id, division_id, status='active'):
     """Idempotently make a public user a member of a division — used when a
     division-scoped role is assigned. Never downgrades an existing membership.
     Combined divisions share members, so the row is mirrored into the rest of
-    the group."""
+    the group. Being placed in a division implies org membership, so a
+    visitor/invited/alumni user is auto-promoted to 'member'."""
     m = DivisionMembership.query.filter_by(
         public_user_id=public_user_id, division_id=division_id).first()
     if not m:
@@ -1219,6 +1239,10 @@ def _ensure_division_membership(public_user_id, division_id, status='active'):
                     public_user_id=public_user_id, division_id=did).first():
                 db.session.add(DivisionMembership(
                     public_user_id=public_user_id, division_id=did, status=status))
+    # Division placement implies organization membership (never demote members).
+    u = db.session.get(PublicUser, public_user_id)
+    if u and u.membership_status != 'member':
+        _set_public_membership_status(u, 'member')
     return m
 
 
@@ -1330,6 +1354,14 @@ def _division_ksa_folder_groups(division_id):
     return groups
 
 
+# Organization-membership lifecycle for public users. Separates people who are
+# part of the org/team from plain visitors (who just use the forum/training).
+# visitor → invited (admin invited, awaiting accept) → member (active) →
+# alumni (former member kept on record). Ordering matters for "at least member".
+PUBLIC_MEMBERSHIP_STATUSES = ('visitor', 'invited', 'member', 'alumni')
+_PUBLIC_MEMBERSHIP_RANK = {'visitor': 0, 'invited': 1, 'member': 2, 'alumni': 2}
+
+
 class PublicUser(UserMixin, db.Model):
     __tablename__ = 'public_user'
 
@@ -1392,6 +1424,16 @@ class PublicUser(UserMixin, db.Model):
                              server_default=_sa_false())
     sms_opted_out_at = db.Column(db.DateTime, nullable=True)
 
+    # Organization membership: 'visitor' (default, not in the org — just uses
+    # the forum/training), 'invited' (admin invited, awaiting acceptance),
+    # 'member' (active), 'alumni' (former member, kept on record). See
+    # PUBLIC_MEMBERSHIP_STATUSES. Divisions are placement *within* the org;
+    # joining one auto-promotes to member via _ensure_division_membership.
+    membership_status = db.Column(db.String(20), nullable=False, default='visitor',
+                                  server_default="'visitor'", index=True)
+    membership_status_changed_at = db.Column(db.DateTime, nullable=True)
+    membership_invited_at = db.Column(db.DateTime, nullable=True)
+
     website = db.relationship('Website', backref=db.backref('public_users', lazy=True, cascade='all, delete-orphan'))
     roles   = db.relationship('PublicUserRole', secondary='public_user_role_assignment',
                                lazy='select', backref=db.backref('members', lazy=True))
@@ -1420,6 +1462,23 @@ class PublicUser(UserMixin, db.Model):
     @property
     def is_admin_mirror(self):
         return self.mirrored_admin_user_id is not None
+
+    @property
+    def is_org_member(self):
+        """True when this user is an active organization member. Admin mirrors
+        (staff) are always treated as members. 'alumni' are former members and
+        return False here — use `is_org_affiliated` to include them."""
+        if self.mirrored_admin_user_id is not None:
+            return True
+        return self.membership_status == 'member'
+
+    @property
+    def is_org_affiliated(self):
+        """True for anyone tied to the org — member or alumni (or staff mirror).
+        Visitors and pending invitees are excluded."""
+        if self.mirrored_admin_user_id is not None:
+            return True
+        return self.membership_status in ('member', 'alumni')
 
     @property
     def effective_display_name(self):
@@ -2275,6 +2334,9 @@ class Website(db.Model):
     forum_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     forum_show_in_navbar = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     forum_require_login_to_view = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
+    # Restrict the forum to organization members (stricter than login-to-view:
+    # visitors/pending/alumni are turned away). See _members_only_gate.
+    forum_members_only = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     forum_require_login_to_post = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     forum_title = db.Column(db.String(120), nullable=False, default='Forum')
     forum_description = db.Column(db.String(500), nullable=True)
@@ -2904,6 +2966,11 @@ class Guide(db.Model):
                                 server_default="'draft'")
     require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
                                       server_default=_sa_false())
+    # Restrict to organization members: visitors (and pending/alumni) can't open
+    # or see this guide. Stricter than require_login_to_view. See
+    # _members_only_gate / PublicUser.is_org_member.
+    members_only    = db.Column(db.Boolean, nullable=False, default=False,
+                                server_default=_sa_false())
     # Opt-in anonymous + logged-in progress tracking (wired in Phase 3).
     track_progress  = db.Column(db.Boolean, nullable=False, default=True,
                                 server_default=_sa_true())
@@ -3032,6 +3099,9 @@ class Quiz(db.Model):
     # (mirrors Guide.require_login_to_view).
     require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
                                       server_default=_sa_false())
+    # Restrict to organization members (mirrors Guide.members_only).
+    members_only      = db.Column(db.Boolean, nullable=False, default=False,
+                                  server_default=_sa_false())
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
     # Admin who last saved this quiz (settings or any question). SET NULL on
@@ -3273,6 +3343,9 @@ class Resource(db.Model):
     is_public   = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
                                       server_default=_sa_false())
+    # Restrict to organization members (mirrors Guide.members_only).
+    members_only = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
     sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at  = db.Column(db.DateTime, nullable=True)
@@ -3305,6 +3378,7 @@ class Resource(db.Model):
                 'content': self.content or '', 'icon': self.icon or '',
                 'category_id': self.category_id, 'is_public': self.is_public,
                 'require_login_to_view': self.require_login_to_view,
+                'members_only': self.members_only,
                 'sort_order': self.sort_order}
 
 
@@ -11936,6 +12010,7 @@ def _copy_website_settings(source, target):
         'background_image_mobile_cover', 'background_image_zoom',
         'public_navbar_items', 'public_navbar_style',
         'forum_enabled', 'forum_show_in_navbar', 'forum_require_login_to_view',
+        'forum_members_only',
         'forum_require_login_to_post', 'forum_title', 'forum_description',
         'forum_account_verification_enabled', 'forum_allow_unverified_login',
     ]:
@@ -14758,6 +14833,7 @@ def _serialize_backup(uid):
                       'forum_enabled': w.forum_enabled,
                       'forum_show_in_navbar': w.forum_show_in_navbar,
                       'forum_require_login_to_view': w.forum_require_login_to_view,
+                      'forum_members_only': w.forum_members_only,
                       'forum_require_login_to_post': w.forum_require_login_to_post,
                       'forum_title': w.forum_title,
                       'forum_description': w.forum_description,
@@ -15397,6 +15473,7 @@ def _serialize_backup(uid):
                     'title': g.title, 'slug': g.slug, 'description': g.description,
                     'cover_image_url': g.cover_image_url, 'status': g.status,
                     'require_login_to_view': g.require_login_to_view,
+                    'members_only': g.members_only,
                     'track_progress': g.track_progress,
                     'show_start_button': g.show_start_button,
                     'prerequisite_guide_ids': g.prerequisite_guide_ids or [],
@@ -15427,6 +15504,7 @@ def _serialize_backup(uid):
                      'draw_count': q.draw_count,
                      'is_public': q.is_public,
                      'require_login_to_view': q.require_login_to_view,
+                     'members_only': q.members_only,
                      'created_at': q.created_at.isoformat() if q.created_at else None,
                      'updated_at': q.updated_at.isoformat() if q.updated_at else None,
                      } for q in quizzes],
@@ -15441,6 +15519,7 @@ def _serialize_backup(uid):
                        'url': r.url, 'items': r.items, 'content': r.content, 'icon': r.icon,
                        'category_id': r.category_id, 'is_public': r.is_public,
                        'require_login_to_view': r.require_login_to_view,
+                       'members_only': r.members_only,
                        'sort_order': r.sort_order,
                        'created_at': r.created_at.isoformat() if r.created_at else None,
                        'updated_at': r.updated_at.isoformat() if r.updated_at else None,
@@ -15831,6 +15910,7 @@ def import_backup():
                             forum_enabled=wd.get('forum_enabled', False),
                             forum_show_in_navbar=wd.get('forum_show_in_navbar', True),
                             forum_require_login_to_view=wd.get('forum_require_login_to_view', False),
+                            forum_members_only=wd.get('forum_members_only', False),
                             forum_require_login_to_post=wd.get('forum_require_login_to_post', True),
                             forum_title=wd.get('forum_title', 'Forum'),
                             forum_description=wd.get('forum_description'),
@@ -16407,6 +16487,7 @@ def import_backup():
                     cover_image_url=gd.get('cover_image_url'),
                     status=gd.get('status', 'draft'),
                     require_login_to_view=gd.get('require_login_to_view', False),
+                    members_only=gd.get('members_only', False),
                     track_progress=gd.get('track_progress', True),
                     show_start_button=gd.get('show_start_button', True),
                     prereq_lock=gd.get('prereq_lock', False),
@@ -16485,6 +16566,7 @@ def import_backup():
                     draw_count=qd.get('draw_count'),
                     is_public=qd.get('is_public', False),
                     require_login_to_view=qd.get('require_login_to_view', False),
+                    members_only=qd.get('members_only', False),
                     created_at=datetime.fromisoformat(qd['created_at']) if qd.get('created_at') else None,
                     updated_at=datetime.fromisoformat(qd['updated_at']) if qd.get('updated_at') else None)
                 db.session.add(q)
@@ -16518,6 +16600,7 @@ def import_backup():
                     category_id=resource_cat_map.get(rd['category_id']) if rd.get('category_id') else None,
                     is_public=rd.get('is_public', True),
                     require_login_to_view=rd.get('require_login_to_view', False),
+                    members_only=rd.get('members_only', False),
                     sort_order=rd.get('sort_order', 0),
                     created_at=datetime.fromisoformat(rd['created_at']) if rd.get('created_at') else None,
                     updated_at=datetime.fromisoformat(rd['updated_at']) if rd.get('updated_at') else None)
@@ -22113,6 +22196,14 @@ def admin_public_users_page():
         str(w_id): [r.to_dict() for r in roles]
         for w_id, roles in roles_by_website.items()
     }
+    # Divisions per website — used by the "Assign to division" membership modal.
+    divisions_by_website_dicts = {
+        str(w.id): [d.to_dict() for d in
+                    Division.query.filter_by(website_id=w.id)
+                                  .order_by(Division.sort_order, Division.name).all()]
+        for w in live_websites
+    }
+    can_manage_divisions = (not current_user.is_sub_admin) or current_user.has_permission('divisions.members')
     selected_website_id = request.args.get('website_id', type=int) or (live_websites[0].id if live_websites else None)
     # Promotion (sub-admin from a public user) — list the root admin's own
     # permission groups so the modal can pick one. `can_promote_staff` mirrors
@@ -22131,6 +22222,8 @@ def admin_public_users_page():
                            user_counts_by_website=user_counts_by_website,
                            roles_by_website=roles_by_website,
                            roles_by_website_dicts=roles_by_website_dicts,
+                           divisions_by_website_dicts=divisions_by_website_dicts,
+                           can_manage_divisions=can_manage_divisions,
                            selected_website_id=selected_website_id,
                            permission_groups_dicts=permission_groups_dicts,
                            promote_requires_group=(_assignable is not None),
@@ -22149,6 +22242,11 @@ _PUBLIC_USERS_LIST_SORTS = {
 
 _PUBLIC_USERS_LIST_FILTERS = {
     'all', 'active', 'pending', 'banned', 'verified', 'unverified',
+}
+
+# Organization-membership segment, applied on top of the status filter above.
+_PUBLIC_USERS_MEMBERSHIP_FILTERS = {
+    'all', 'visitor', 'invited', 'member', 'alumni',
 }
 
 
@@ -22171,6 +22269,7 @@ def admin_public_users_list():
     search = (request.args.get('search') or '').strip().lower()
     sort = request.args.get('sort') or 'joined_new'
     status_filter = request.args.get('filter') or 'all'
+    membership_filter = request.args.get('membership') or 'all'
     role_id = request.args.get('role_id', type=int)
     page = max(1, request.args.get('page', 1, type=int))
     per_page = min(100, max(5, request.args.get('per_page', 25, type=int)))
@@ -22179,6 +22278,8 @@ def admin_public_users_list():
         sort = 'joined_new'
     if status_filter not in _PUBLIC_USERS_LIST_FILTERS:
         status_filter = 'all'
+    if membership_filter not in _PUBLIC_USERS_MEMBERSHIP_FILTERS:
+        membership_filter = 'all'
 
     # Subqueries for activity counts, scoped to this website
     thread_sq = (
@@ -22248,6 +22349,9 @@ def admin_public_users_list():
     elif status_filter == 'unverified':
         q = q.filter(PublicUser.email_verified == False)
 
+    if membership_filter != 'all':
+        q = q.filter(PublicUser.membership_status == membership_filter)
+
     if role_id:
         # Validate role belongs to this website
         role = PublicUserRole.query.filter_by(id=role_id, website_id=website.id).first()
@@ -22312,6 +22416,7 @@ def admin_public_users_list():
             'roles': [r.to_dict() for r in u.roles],
             'divisions': _div_by_user.get(u.id, []),
             'is_admin_mirror': bool(u.mirrored_admin_user_id),
+            'membership_status': u.membership_status,
         })
 
     pages = (total + per_page - 1) // per_page if per_page else 1
@@ -22586,6 +22691,118 @@ def admin_public_user_set_roles(user_id):
     db.session.commit()
     return _utf8_json({'success': True,
                        'roles': [r.to_dict() for r in u.roles if r.division_id is None]})
+
+
+# ── Organization membership (bulk) ─────────────────────────────────────────
+# Move public users along the org lifecycle (visitor → invited → member →
+# alumni) and/or place them into divisions, one or many at a time. Status
+# changes need `public_users.edit`; division placement additionally needs
+# `divisions.members`. Admin mirrors are skipped (their membership is implied).
+
+# Which membership actions map to which target status.
+_MEMBERSHIP_ACTION_STATUS = {
+    'invite':     'invited',
+    'add_member': 'member',
+    'alumni':     'alumni',
+    'remove':     'visitor',
+}
+
+
+@app.route('/admin/users/public/membership', methods=['POST'])
+@login_required
+def admin_public_users_membership():
+    """Bulk-capable membership mutation. Body:
+      { user_ids: [int], action: 'invite'|'add_member'|'alumni'|'remove'|'assign_divisions',
+        division_ids?: [int] }
+    'assign_divisions' places each user into the given divisions (auto-promoting
+    them to member); the other actions set the org membership status."""
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.edit'):
+        return _utf8_json({'error': 'Permission denied'}, 403)
+
+    data = request.get_json() or {}
+    action = (data.get('action') or '').strip()
+    try:
+        user_ids = [int(x) for x in (data.get('user_ids') or [])]
+    except (ValueError, TypeError):
+        return _utf8_json({'error': 'Invalid user_ids.'}, 400)
+    if not user_ids:
+        return _utf8_json({'error': 'No members selected.'}, 400)
+
+    root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
+    owned_ids = [w.id for w in Website.query.filter_by(user_id=root_id, is_draft=False).all()]
+    users = PublicUser.query.filter(
+        PublicUser.id.in_(user_ids),
+        PublicUser.website_id.in_(owned_ids)).all()
+    if not users:
+        return _utf8_json({'error': 'No matching members.'}, 404)
+
+    updated = []
+
+    if action == 'assign_divisions':
+        if current_user.is_sub_admin and not current_user.has_permission('divisions.members'):
+            return _utf8_json({'error': "You don't have permission to manage division members."}, 403)
+        try:
+            division_ids = [int(x) for x in (data.get('division_ids') or [])]
+        except (ValueError, TypeError):
+            return _utf8_json({'error': 'Invalid division_ids.'}, 400)
+        if not division_ids:
+            return _utf8_json({'error': 'Pick at least one division.'}, 400)
+        divisions = Division.query.filter(
+            Division.id.in_(division_ids),
+            Division.website_id.in_(owned_ids)).all()
+        if not divisions:
+            return _utf8_json({'error': 'No matching divisions.'}, 404)
+        for u in users:
+            if u.mirrored_admin_user_id is not None:
+                continue
+            for d in divisions:
+                if d.website_id != u.website_id:
+                    continue  # divisions are site-scoped; skip cross-site
+                _ensure_division_membership(u.id, d.id)  # auto-promotes to member
+            updated.append(u)
+        db.session.commit()
+        return _utf8_json({'success': True,
+                           'updated': [{'id': u.id, 'membership_status': u.membership_status}
+                                       for u in updated],
+                           'count': len(updated)})
+
+    status = _MEMBERSHIP_ACTION_STATUS.get(action)
+    if status is None:
+        return _utf8_json({'error': 'Unknown action.'}, 400)
+
+    skipped_mirrors = 0
+    skipped_members = 0
+    for u in users:
+        if u.mirrored_admin_user_id is not None:
+            skipped_mirrors += 1
+            continue
+        # Inviting is only meaningful for non-members; don't demote an active
+        # member back to 'invited' just because they were in a bulk selection.
+        if action == 'invite' and u.membership_status == 'member':
+            skipped_members += 1
+            continue
+        _set_public_membership_status(u, status, stamp_invited=(status == 'invited'))
+        updated.append(u)
+    db.session.commit()
+
+    # Email an accept link to everyone we just moved to 'invited'. The in-app
+    # banner (shown while membership_status == 'invited') covers logged-in users.
+    invite_emails_sent = 0
+    if action == 'invite':
+        for u in updated:
+            try:
+                send_org_invite_email(u)
+                invite_emails_sent += 1
+            except Exception as e:
+                app.logger.warning(f'org invite email to {u.email} failed: {e}')
+
+    return _utf8_json({'success': True,
+                       'updated': [{'id': u.id, 'membership_status': u.membership_status}
+                                   for u in updated],
+                       'count': len(updated),
+                       'skipped_mirrors': skipped_mirrors,
+                       'skipped_members': skipped_members,
+                       'invite_emails_sent': invite_emails_sent})
 
 
 # ── Promote a public user to a sub-admin ───────────────────────────────────
@@ -24792,6 +25009,10 @@ def _render_public_forum(website):
             login_kwargs['website_prefix'] = website.url_prefix
         return redirect(url_for('public_login', **login_kwargs))
 
+    gate = _members_only_gate(website, getattr(website, 'forum_members_only', False), public_user)
+    if gate is not None:
+        return gate
+
     sort = request.args.get('sort', 'relevant')
 
     threads_query = ForumThread.query.filter(
@@ -25788,6 +26009,10 @@ def public_forum_new_thread(prefix=None):
             login_kwargs['website_prefix'] = website.url_prefix
         return redirect(url_for('public_login', **login_kwargs))
 
+    gate = _members_only_gate(website, getattr(website, 'forum_members_only', False), public_user)
+    if gate is not None:
+        return gate
+
     if request.method == 'POST':
         title = (request.form.get('title') or '').strip()
         body = (request.form.get('body') or '').strip()
@@ -25890,6 +26115,10 @@ def public_forum_thread(thread_id, prefix=None):
         if website.url_prefix:
             login_kwargs['website_prefix'] = website.url_prefix
         return redirect(url_for('public_login', **login_kwargs))
+
+    gate = _members_only_gate(website, getattr(website, 'forum_members_only', False), public_user)
+    if gate is not None:
+        return gate
 
     if request.method == 'POST':
         if thread.is_locked:
@@ -26001,6 +26230,7 @@ def update_forum_settings():
     website.forum_enabled = request.form.get('forum_enabled') == 'on'
     website.forum_show_in_navbar = request.form.get('forum_show_in_navbar') == 'on'
     website.forum_require_login_to_view = request.form.get('forum_require_login_to_view') == 'on'
+    website.forum_members_only = request.form.get('forum_members_only') == 'on'
     website.forum_require_login_to_post = request.form.get('forum_require_login_to_post') == 'on'
     website.forum_title = (request.form.get('forum_title') or 'Forum').strip()[:120]
     website.forum_description = (request.form.get('forum_description') or '').strip()
@@ -27276,6 +27506,133 @@ your account without this link.
     db.session.commit()
 
 
+# ── Organization invitations ────────────────────────────────────────────────
+# When an admin invites a public user into the org, we set membership_status to
+# 'invited' and email them a tokened accept link. The link's validity is gated
+# by the user still being 'invited' (accepting flips them to 'member', so the
+# link naturally stops working) — no per-link nonce needed.
+
+def generate_org_invite_token(public_user):
+    serializer = get_recovery_serializer()
+    return serializer.dumps(
+        {'public_user_id': public_user.id,
+         'website_id': public_user.website_id,
+         'purpose': 'public_org_invite'},
+        salt='uwebia-public-org-invite')
+
+
+def verify_org_invite_token(token, max_age_seconds=1209600):  # 14 days
+    """Return (public_user, error). Generic error text so a token can't be
+    probed for the exact failure. Membership state is checked by the caller."""
+    serializer = get_recovery_serializer()
+    try:
+        data = serializer.loads(token, salt='uwebia-public-org-invite',
+                                max_age=max_age_seconds)
+    except SignatureExpired:
+        return None, 'This invitation link has expired. Ask an admin to re-send it.'
+    except BadSignature:
+        return None, 'This invitation link is invalid.'
+    if data.get('purpose') != 'public_org_invite':
+        return None, 'This invitation link is invalid.'
+    pu = PublicUser.query.filter_by(id=data.get('public_user_id'),
+                                    website_id=data.get('website_id')).first()
+    if not pu:
+        return None, 'This invitation link is invalid.'
+    return pu, None
+
+
+def send_org_invite_email(public_user):
+    token = generate_org_invite_token(public_user)
+    accept_url = url_for('public_org_invite', token=token,
+                         _external=True, _scheme=_email_link_scheme())
+    site_name = public_user.website.name if public_user.website else 'the organization'
+    subject = f"You've been invited to join {site_name}"
+    body = f"""You've been invited to become a member of {site_name}.
+
+Click the link below to accept — or decline — the invitation:
+
+{accept_url}
+
+Accepting confirms your membership. If you weren't expecting this, you can
+ignore this email or decline from the link above.
+"""
+    send_account_recovery_email(public_user.email, subject, body)
+
+
+@app.route('/<string:prefix>/account/organization/accept', methods=['POST'])
+@app.route('/account/organization/accept', methods=['POST'], defaults={'prefix': None})
+def public_org_accept(prefix=None):
+    """Accept an org invite from the in-app banner (logged-in public user)."""
+    pu = get_public_user()
+    if not pu:
+        return redirect(url_for('public_login'))
+    if pu.membership_status == 'invited':
+        _set_public_membership_status(pu, 'member')
+        db.session.commit()
+        flash(f"You're now a member of {pu.website.name if pu.website else 'the organization'}.", 'success')
+    return redirect(request.referrer or _website_default_url(pu.website))
+
+
+@app.route('/<string:prefix>/account/organization/decline', methods=['POST'])
+@app.route('/account/organization/decline', methods=['POST'], defaults={'prefix': None})
+def public_org_decline(prefix=None):
+    """Decline an org invite from the in-app banner (back to visitor)."""
+    pu = get_public_user()
+    if not pu:
+        return redirect(url_for('public_login'))
+    if pu.membership_status == 'invited':
+        _set_public_membership_status(pu, 'visitor')
+        db.session.commit()
+        flash('Invitation declined.', 'info')
+    return redirect(request.referrer or _website_default_url(pu.website))
+
+
+@app.route('/organization/invite/<token>', methods=['GET', 'POST'])
+def public_org_invite(token):
+    """Accept/decline an org invite from the emailed link. GET only verifies and
+    renders a confirm page (mail scanners prefetch links); the POST consumes the
+    decision. Accepting also signs the user in — clicking a link delivered to
+    their inbox proves ownership, the same trust the magic-login flow uses."""
+    pu, error = verify_org_invite_token(token)
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('public_login'))
+
+    website = pu.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return "Public accounts are not enabled for this site.", 404
+
+    org_name = website.name or 'the organization'
+
+    # Already resolved (accepted earlier, or the invite was withdrawn).
+    if pu.membership_status != 'invited' and request.method != 'POST':
+        flash(f"You're already a member of {org_name}." if pu.is_org_member
+              else 'This invitation is no longer active.', 'info')
+        return redirect(_website_default_url(website))
+
+    if request.method != 'POST':
+        return render_template('public_org_invite.html',
+                               website=website, public_user=None,
+                               display_name=pu.effective_display_name,
+                               org_name=org_name, token=token)
+
+    decision = (request.form.get('decision') or 'accept').strip()
+    if decision == 'decline':
+        if pu.membership_status == 'invited':
+            _set_public_membership_status(pu, 'visitor')
+            db.session.commit()
+        flash('Invitation declined.', 'info')
+        return redirect(_website_default_url(website))
+
+    if pu.membership_status == 'invited':
+        _set_public_membership_status(pu, 'member')
+        db.session.commit()
+    if not pu.is_admin_mirror:
+        public_user_login(pu)
+    flash(f"Welcome — you're now a member of {org_name}.", 'success')
+    return redirect(url_for('public_account_settings', prefix=website.url_prefix or None))
+
+
 def send_admin_login_link_email(admin, website, next_url='', dest='public'):
     token = generate_admin_login_link_token(admin, website, next_url, dest=dest)
 
@@ -27731,6 +28088,8 @@ def ensure_admin_public_mirror(user, website):
         email_verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
         is_active_public=True,
         is_banned=False,
+        # Staff are organization members by definition.
+        membership_status='member',
     )
     db.session.add(pu)
     try:
@@ -27846,6 +28205,30 @@ def _public_user_for_website(website):
     if pu and website and pu.website_id == website.id:
         return pu
     return None
+
+
+def _viewer_is_org_member(website, public_user=None):
+    """True when the current viewer of `website` is an organization member (or
+    staff — admin mirrors report as members). Used to gate members-only content."""
+    pu = public_user if public_user is not None else _public_user_for_website(website)
+    return bool(pu and pu.is_org_member)
+
+
+def _members_only_gate(website, is_members_only, public_user=None):
+    """Short-circuit Response when the current viewer may NOT see a members-only
+    item, else None. Anonymous visitors are sent to log in; logged-in
+    non-members (visitor/invited/alumni) get a 'members only' page (403).
+    Passing is_members_only=False always returns None."""
+    if not is_members_only:
+        return None
+    pu = public_user if public_user is not None else _public_user_for_website(website)
+    if pu and pu.is_org_member:
+        return None
+    if not pu:
+        return redirect(url_for('public_login',
+                                website_prefix=(website.url_prefix if website else None),
+                                next=request.url))
+    return render_template('members_only.html', website=website, public_user=pu), 403
 
 
 def _website_default_url(website):
@@ -29238,6 +29621,37 @@ def _run_startup_migrations_inner():
     except Exception as _e:
         db.session.rollback()
         print(f'[migrate] warning: merged-division role mirror: {_e}')
+
+    # ── Step 9: seed organization membership. Anyone already placed in a
+    # division, and every admin/staff mirror, is an org member — promote them
+    # from the default 'visitor'. Idempotent: only touches rows still at the
+    # default, so admin-set statuses survive restarts.
+    if 'public_user' in pre_existing:
+        try:
+            cols = {c['name'] for c in inspector.get_columns('public_user')}
+            if 'membership_status' in cols:
+                promoted = 0
+                # Users with any division membership.
+                div_uids = {m.public_user_id for m in
+                            db.session.query(DivisionMembership.public_user_id).distinct()}
+                if div_uids:
+                    for u in PublicUser.query.filter(
+                            PublicUser.id.in_(div_uids),
+                            PublicUser.membership_status == 'visitor').all():
+                        u.membership_status = 'member'
+                        promoted += 1
+                # Admin/staff mirrors are members by definition.
+                for u in PublicUser.query.filter(
+                        PublicUser.mirrored_admin_user_id.isnot(None),
+                        PublicUser.membership_status == 'visitor').all():
+                    u.membership_status = 'member'
+                    promoted += 1
+                if promoted:
+                    db.session.commit()
+                    print(f'[migrate] seeded organization membership for {promoted} public user(s)')
+        except Exception as _e:
+            db.session.rollback()
+            print(f'[migrate] warning: membership backfill: {_e}')
 
 
 # Flag set to True when the configured database is unreachable at startup.
@@ -33995,6 +34409,8 @@ def admin_guides_update(gid):
         guide.cover_image_url = (data.get('cover_image_url') or '').strip() or None
     if 'require_login_to_view' in data:
         guide.require_login_to_view = bool(data['require_login_to_view'])
+    if 'members_only' in data:
+        guide.members_only = bool(data['members_only'])
     if 'track_progress' in data:
         guide.track_progress = bool(data['track_progress'])
     if 'show_start_button' in data:
@@ -34343,6 +34759,11 @@ def public_guides_index(prefix=None):
     guides = Guide.query.filter_by(website_id=website.id, status='published').order_by(
         Guide.sort_order, Guide.published_at.desc()).all()
     public_user = _public_user_for_website(website)
+    # Members-only guides/quizzes/resources are hidden from non-members on the
+    # index (they still 403 via _members_only_gate on direct access).
+    viewer_is_member = _viewer_is_org_member(website, public_user)
+    if not viewer_is_member:
+        guides = [g for g in guides if not g.members_only]
     # Per-guide completion summary keyed by guide id. None when the guide has
     # progress tracking disabled — the template skips rendering a badge then.
     visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
@@ -34387,6 +34808,8 @@ def public_guides_index(prefix=None):
     # grouped by QuizCategory the same way as guides — powering the "Quizzes"
     # tab on this page. question_count feeds each card.
     public_quizzes = Quiz.query.filter_by(website_id=website.id, is_public=True).all()
+    if not viewer_is_member:
+        public_quizzes = [q for q in public_quizzes if not q.members_only]
     quiz_cats = QuizCategory.query.filter_by(website_id=website.id).order_by(
         QuizCategory.sort_order, QuizCategory.name).all()
     grouped_quizzes = []
@@ -34443,6 +34866,8 @@ def public_guides_index(prefix=None):
     # "Resources" tab (files, links, videos, rich-text pages).
     public_resources = Resource.query.filter_by(website_id=website.id, is_public=True).order_by(
         Resource.sort_order, Resource.created_at.desc()).all()
+    if not viewer_is_member:
+        public_resources = [r for r in public_resources if not r.members_only]
     resource_cats = ResourceCategory.query.filter_by(website_id=website.id).order_by(
         ResourceCategory.sort_order, ResourceCategory.name).all()
     grouped_resources = []
@@ -34478,6 +34903,9 @@ def _resolve_public_guide(guide_slug, prefix):
     if guide.require_login_to_view and not public_user:
         return None, None, redirect(url_for('public_login',
                                             website_prefix=website.url_prefix, next=request.url))
+    gate = _members_only_gate(website, guide.members_only, public_user)
+    if gate is not None:
+        return None, None, gate
     # Hard-locked prerequisites: block the cover page and every lesson until the
     # reader has completed the required guides. "Recommend only" guides fall
     # through (the banner is shown on the cover instead).
@@ -35384,6 +35812,7 @@ def _apply_resource_fields(r, data, website):
         r.category_id = cat.id if cat else None
     r.is_public = bool(data.get('is_public', True))
     r.require_login_to_view = bool(data.get('require_login_to_view', False))
+    r.members_only = bool(data.get('members_only', False))
     return None
 
 
@@ -37559,6 +37988,8 @@ def admin_quizzes_update(qid):
         quiz.is_public = bool(data['is_public'])
     if 'require_login_to_view' in data:
         quiz.require_login_to_view = bool(data['require_login_to_view'])
+    if 'members_only' in data:
+        quiz.members_only = bool(data['members_only'])
     _stamp_editor(quiz)
     db.session.commit()
     return _utf8_json({'success': True, 'quiz': {
@@ -38317,6 +38748,9 @@ def public_resource_page(rid):
         return redirect(url_for('public_login',
                                 website_prefix=(website.url_prefix if website else None),
                                 next=request.url))
+    gate = _members_only_gate(website, resource.members_only, public_user)
+    if gate is not None:
+        return gate
     items = resource.item_list()
     # A single link/file goes straight to its target; multiple render a list page.
     if resource.resource_type in ('link', 'file') and len(items) == 1:
@@ -38338,8 +38772,13 @@ def public_resource_get(rid):
     require_login; returns only what the embed needs to render in place."""
     resource = Resource.query.get_or_404(rid)
     website = _live_website_for(resource)
-    if resource.require_login_to_view and not _public_user_for_website(website):
+    _pu = _public_user_for_website(website)
+    if resource.require_login_to_view and not _pu:
         return _utf8_json({'success': False, 'error': 'login_required',
+                           'title': resource.title,
+                           'resource_type': resource.resource_type}, 403)
+    if resource.members_only and not _viewer_is_org_member(website, _pu):
+        return _utf8_json({'success': False, 'error': 'members_only',
                            'title': resource.title,
                            'resource_type': resource.resource_type}, 403)
     items = resource.item_list()
@@ -38412,6 +38851,9 @@ def public_quiz_page(qid):
         return redirect(url_for('public_login',
                                 website_prefix=(website.url_prefix if website else None),
                                 next=request.url))
+    gate = _members_only_gate(website, quiz.members_only, public_user)
+    if gate is not None:
+        return gate
     return render_template('public_quiz_page.html', website=website, quiz=quiz,
                            public_user=public_user)
 
@@ -38420,8 +38862,11 @@ def public_quiz_page(qid):
 def public_quiz_get(qid):
     quiz = Quiz.query.get_or_404(qid)
     website = _live_website_for(quiz)
-    if quiz.require_login_to_view and not _public_user_for_website(website):
+    _pu = _public_user_for_website(website)
+    if quiz.require_login_to_view and not _pu:
         return _utf8_json({'success': False, 'error': 'Please log in to take this quiz.'}, 403)
+    if quiz.members_only and not _viewer_is_org_member(website, _pu):
+        return _utf8_json({'success': False, 'error': 'This quiz is for organization members only.'}, 403)
     questions = [q.to_public_dict() for q in quiz.questions.order_by(QuizQuestion.sort_order)]
     import random as _random
     # Question bank: serve a random draw of N graded questions. Ungraded

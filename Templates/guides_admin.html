@@ -218,7 +218,7 @@
                         {% endif %}
                         {% if user_has_perm('guides.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }}, {{ g.show_start_button | tojson }}, {{ (g.prerequisite_guide_ids or []) | tojson }}, {{ g.prereq_lock | tojson }})'>
+                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }}, {{ g.show_start_button | tojson }}, {{ (g.prerequisite_guide_ids or []) | tojson }}, {{ g.prereq_lock | tojson }}, {{ g.members_only | tojson }})'>
                             <i class="fas fa-cog"></i>
                         </button>
                         <button class="pa-btn pa-btn-danger"
@@ -288,6 +288,10 @@
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
                         <input type="checkbox" id="guideModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
                         Require public user login to view this guide
+                    </label>
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;margin-top:10px;">
+                        <input type="checkbox" id="guideModalMembersOnly" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeec8;">
+                        Organization members only (hidden from visitors)
                     </label>
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;margin-top:10px;">
                         <input type="checkbox" id="guideModalTrackProgress" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
@@ -635,11 +639,12 @@ function openGuideModal() {
     setTimeout(() => document.getElementById('guideModalTitleInput').focus(), 60);
 }
 
-function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId, showStart, prereqIds, prereqLock) {
+function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId, showStart, prereqIds, prereqLock, membersOnly) {
     document.getElementById('guideModalId').value = id;
     document.getElementById('guideModalTitleInput').value = title;
     document.getElementById('guideModalDesc').value = desc;
     document.getElementById('guideModalRequireLogin').checked = !!requireLogin;
+    document.getElementById('guideModalMembersOnly').checked = !!membersOnly;
     document.getElementById('guideModalTrackProgress').checked = !!trackProgress;
     document.getElementById('guideModalShowStart').checked = (showStart === undefined ? true : !!showStart);
     document.getElementById('guideModalCategory').value = categoryId ? String(categoryId) : '';
@@ -674,6 +679,7 @@ async function submitGuideModal(e) {
     if (_catVal) body.category_id = _catVal.value || null;
     if (id) {
         body.require_login_to_view = document.getElementById('guideModalRequireLogin').checked;
+        body.members_only = document.getElementById('guideModalMembersOnly').checked;
         body.track_progress = document.getElementById('guideModalTrackProgress').checked;
         body.show_start_button = document.getElementById('guideModalShowStart').checked;
         body.cover_image_url = document.getElementById('guideModalCoverUrl').value || '';
