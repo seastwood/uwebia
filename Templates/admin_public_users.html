@@ -336,6 +336,8 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
                 ('public_approval_required',           'Require Admin Approval',           'New accounts must be approved before they can log in',                                   w.public_approval_required),
                 ('public_email_verification_enabled',  'Email Verification',               'Send a verification email when users register',                                          w.public_email_verification_enabled),
                 ('public_email_verification_required', 'Verification Required to Login',   'Users must verify their email before logging in (requires Email Verification enabled)',  w.public_email_verification_required),
+                ('visitors_can_see_members',           'Visitors Can See Members',         'When off, plain visitors can\'t see organization members in the directory or open their profiles (members & staff always see everyone)', w.visitors_can_see_members != false),
+                ('visitors_can_see_visitors',          'Visitors Can See Other Visitors',  'When off, plain visitors can\'t see other visitors in the directory or open their profiles',                                            w.visitors_can_see_visitors != false),
             ] %}
             {% for key, label, help, checked in _tog %}
             <div class="pu-toggle-row">
@@ -1074,7 +1076,8 @@ async function saveSettings(websiteId) {
     const status = document.getElementById(`save-status-${websiteId}`);
     btn.disabled = true;
     const keys = ['public_users_enabled','public_2fa_enabled','require_login_to_view',
-                  'public_approval_required','public_email_verification_enabled','public_email_verification_required'];
+                  'public_approval_required','public_email_verification_enabled','public_email_verification_required',
+                  'visitors_can_see_members','visitors_can_see_visitors'];
     const payload = { website_id: websiteId };
     keys.forEach(k => {
         const el = document.getElementById(`tog-${websiteId}-${k}`);

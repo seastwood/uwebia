@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+.qa-page { max-width: 900px; margin: 0 auto; padding: 28px 20px 70px; }
+.qa-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
+.qa-back:hover { color: rgba(255,255,255,0.85); }
+.qa-kicker { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.35); margin: 18px 0 0; }
+.qa-title { font-size: 1.6rem; font-weight: 800; color: #fff; margin: 3px 0 0; }
+.qa-sub { font-size: 0.9rem; color: rgba(255,255,255,0.55); margin: 6px 0 0; }
+.qa-sub strong { color: #aef7e8; }
+
+.qa-attempt { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; margin: 22px 0 0; overflow: hidden; }
+.qa-attempt-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); flex-wrap: wrap; }
+.qa-attempt-num { font-weight: 800; color: #fff; font-size: 0.95rem; }
+.qa-attempt-when { font-size: 0.78rem; color: rgba(255,255,255,0.45); }
+.qa-score { display: inline-flex; align-items: center; gap: 8px; }
+.qa-score-pct { font-size: 1.1rem; font-weight: 800; color: #fff; }
+.qa-pass { padding: 3px 10px; border-radius: 99px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.qa-pass.is-pass { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.qa-pass.is-fail { background: rgba(255,120,120,0.15); color: #ff9d9d; }
+
+.qa-q { padding: 16px 18px; border-top: 1px solid rgba(255,255,255,0.06); }
+.qa-q:first-child { border-top: none; }
+.qa-q-head { display: flex; align-items: flex-start; gap: 10px; }
+.qa-q-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; margin-top: 2px; }
+.qa-q-mark.ok { background: rgba(94,238,200,0.18); color: #5eeec8; }
+.qa-q-mark.no { background: rgba(255,120,120,0.16); color: #ff9d9d; }
+.qa-q-mark.na { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+.qa-q-prompt { flex: 1; color: #fff; font-size: 0.95rem; line-height: 1.5; }
+.qa-q-prompt img { max-width: 100%; border-radius: 8px; }
+.qa-q-pts { flex: none; font-size: 0.76rem; color: rgba(255,255,255,0.45); white-space: nowrap; }
+.qa-ans { margin: 10px 0 0 32px; display: flex; flex-direction: column; gap: 8px; }
+.qa-ans-row { display: flex; gap: 10px; font-size: 0.86rem; }
+.qa-ans-label { flex: none; width: 108px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.68rem; padding-top: 2px; }
+.qa-ans-label.given { color: rgba(255,255,255,0.5); }
+.qa-ans-label.correct { color: #5eeec8; }
+.qa-ans-val { flex: 1; color: rgba(255,255,255,0.9); white-space: pre-wrap; word-break: break-word; }
+.qa-ans-val.blank { color: rgba(255,255,255,0.35); font-style: italic; }
+.qa-ungraded { margin-left: 32px; margin-top: 8px; font-size: 0.76rem; color: rgba(255,255,255,0.4); }
+.qa-empty { padding: 40px 20px; text-align: center; color: rgba(255,255,255,0.4); }
+</style>
+
+<div class="qa-page">
+    <a class="qa-back" href="{{ url_for('public_member_profile', user_id=member.id) }}?tab=quizzes"><i class="fas fa-arrow-left"></i> Back to member profile</a>
+
+    <p class="qa-kicker">Quiz submission</p>
+    <h1 class="qa-title">{{ quiz.title }}</h1>
+    <p class="qa-sub">
+        Answers by <strong>{{ member.effective_display_name }}</strong>
+        {% if member.full_name %}({{ member.full_name }}){% endif %}
+        · {{ member.email }} · {{ total_attempts }} attempt{{ 's' if total_attempts != 1 else '' }}
+    </p>
+
+    {% if not reviews %}
+    <div class="qa-empty"><p>No submissions from this member yet.</p></div>
+    {% else %}
+    {% for att in reviews %}
+    <div class="qa-attempt">
+        <div class="qa-attempt-head">
+            <div>
+                <div class="qa-attempt-num">Attempt {{ att.number }} of {{ total_attempts }}</div>
+                <div class="qa-attempt-when">{{ att.created_at.strftime('%b %-d, %Y · %-I:%M %p') if att.created_at else '' }}</div>
+            </div>
+            <div class="qa-score">
+                {% if att.percent is not none %}
+                <span class="qa-score-pct">{{ att.percent }}%</span>
+                <span style="color:rgba(255,255,255,0.45);font-size:0.82rem;">{{ att.score }}/{{ att.max_score }}</span>
+                <span class="qa-pass {{ 'is-pass' if att.passed else 'is-fail' }}">{{ 'Pass' if att.passed else 'Fail' }}</span>
+                {% else %}
+                <span style="color:rgba(255,255,255,0.45);font-size:0.82rem;">Ungraded</span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% for r in att.rows %}
+        <div class="qa-q">
+            <div class="qa-q-head">
+                <span class="qa-q-mark {% if r.ungraded %}na{% elif r.is_correct %}ok{% elif r.is_correct == false %}no{% else %}na{% endif %}">
+                    {% if r.ungraded %}<i class="fas fa-minus"></i>{% elif r.is_correct %}<i class="fas fa-check"></i>{% elif r.is_correct == false %}<i class="fas fa-times"></i>{% else %}<i class="fas fa-minus"></i>{% endif %}
+                </span>
+                <div class="qa-q-prompt">{{ r.prompt | safe }}</div>
+                {% if not r.ungraded %}<span class="qa-q-pts">{% if r.earned is not none %}{{ r.earned }}{% else %}{{ r.points if r.is_correct else 0 }}{% endif %}/{{ r.points }} pt{{ 's' if r.points != 1 else '' }}</span>{% endif %}
+            </div>
+            <div class="qa-ans">
+                <div class="qa-ans-row">
+                    <span class="qa-ans-label given">Their answer</span>
+                    <span class="qa-ans-val {{ 'blank' if not r.answered }}">{{ r.given if r.answered else 'No answer' }}</span>
+                </div>
+                {% if r.correct_text %}
+                <div class="qa-ans-row">
+                    <span class="qa-ans-label correct">Correct</span>
+                    <span class="qa-ans-val">{{ r.correct_text }}</span>
+                </div>
+                {% endif %}
+            </div>
+            {% if r.ungraded %}<div class="qa-ungraded"><i class="fas fa-info-circle"></i> Ungraded {{ r.type }} — not scored.</div>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -2405,6 +2405,15 @@ class Website(db.Model):
     # others' profiles to the showcase view only.
     ksa_public_progress = db.Column(db.Boolean, nullable=False, default=False,
                                     server_default=_sa_false())
+    # Member-directory visibility for plain VISITORS (non-org-members). Org
+    # members and staff always see everyone; these only restrict what a visitor
+    # can browse. "Members" here means active org members + staff; everyone else
+    # (visitor/invited/alumni) is a "visitor". See _can_view_member_profile /
+    # _render_members_directory.
+    visitors_can_see_members  = db.Column(db.Boolean, nullable=False, default=True,
+                                          server_default=_sa_true())
+    visitors_can_see_visitors = db.Column(db.Boolean, nullable=False, default=True,
+                                          server_default=_sa_true())
     # When on, a public "Explore skills" page (/skills) lets anyone — no login —
     # browse the KSA catalog by division/folder and open the learning resources.
     ksa_public_explore = db.Column(db.Boolean, nullable=False, default=False,
@@ -14850,6 +14859,8 @@ def _serialize_backup(uid):
                       'ksa_types': w.ksa_types,
                       'ksa_self_report_enabled': w.ksa_self_report_enabled,
                       'ksa_public_progress': w.ksa_public_progress,
+                      'visitors_can_see_members': w.visitors_can_see_members,
+                      'visitors_can_see_visitors': w.visitors_can_see_visitors,
                       'ksa_public_explore': w.ksa_public_explore,
                       'division_label_singular': w.division_label_singular,
                       'division_label_plural': w.division_label_plural,
@@ -15927,6 +15938,8 @@ def import_backup():
                             ksa_types=wd.get('ksa_types'),
                             ksa_self_report_enabled=wd.get('ksa_self_report_enabled', True),
                             ksa_public_progress=wd.get('ksa_public_progress', False),
+                            visitors_can_see_members=wd.get('visitors_can_see_members', True),
+                            visitors_can_see_visitors=wd.get('visitors_can_see_visitors', True),
                             ksa_public_explore=wd.get('ksa_public_explore', False),
                             division_label_singular=wd.get('division_label_singular'),
                             division_label_plural=wd.get('division_label_plural'))
@@ -22450,6 +22463,10 @@ def admin_public_users_settings():
     website.public_approval_required           = bool(data.get('public_approval_required', False))
     website.public_email_verification_enabled  = bool(data.get('public_email_verification_enabled', False))
     website.public_email_verification_required = bool(data.get('public_email_verification_required', False))
+    if 'visitors_can_see_members' in data:
+        website.visitors_can_see_members = bool(data.get('visitors_can_see_members', True))
+    if 'visitors_can_see_visitors' in data:
+        website.visitors_can_see_visitors = bool(data.get('visitors_can_see_visitors', True))
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -28265,7 +28282,12 @@ def inject_public_account_context():
 
     return {
         'navbar_public_user': public_user,
-        'navbar_public_accounts_enabled': website_uses_public_accounts(website) if website else False
+        'navbar_public_accounts_enabled': website_uses_public_accounts(website) if website else False,
+        # Hide the Members link when a plain visitor is gated out of the whole
+        # directory (visitors_can_see_members + visitors_can_see_visitors both off).
+        'navbar_directory_visible': (
+            bool(website) and public_user is not None
+            and _visitor_directory_access(public_user, website) != 'none'),
     }
 
 
@@ -38155,6 +38177,128 @@ def _format_attempt_answer(q, ans):
     return json.dumps(ans) if not isinstance(ans, str) else ans
 
 
+def _quiz_correct_submission(q):
+    """Synthesize the answer structure representing the CORRECT answer for a
+    question, so it can be run through _format_attempt_answer for display.
+    Returns None for open-ended types (short_text/reflection/coding/text) that
+    have no single correct answer."""
+    cfg = q._config()
+    t = q.question_type
+    if t in ('single_choice', 'true_false', 'image_choice') and not cfg.get('multiple'):
+        ids = [o['id'] for o in cfg.get('options', []) if o.get('correct')]
+        return ids[0] if ids else None
+    if t == 'multi_choice' or (t == 'image_choice' and cfg.get('multiple')):
+        return [o['id'] for o in cfg.get('options', []) if o.get('correct')]
+    if t == 'fill_blank':
+        return [(b.get('accepted') or [''])[0] for b in cfg.get('blanks', [])]
+    if t == 'matching':
+        return {str(p['left_id']): p['right_id'] for p in cfg.get('pairs', [])}
+    if t == 'ordering':
+        return cfg.get('answer_order', [])
+    return None
+
+
+def _build_attempt_review(quiz, attempt):
+    """Per-question view of one stored attempt: the prompt, the member's answer,
+    the correct answer, and whether it was right. Reuses the real grader for
+    correctness (re-running restores per-question results, which aren't stored).
+    Grading is wrapped so a flaky code-runner never breaks the review."""
+    submitted = attempt.answers or {}
+    try:
+        _s, _m, results = _grade_quiz(quiz, submitted)
+    except Exception:
+        results = []
+    res_by_q = {r.get('question_id'): r for r in results}
+    rows = []
+    for q in quiz.questions.order_by(QuizQuestion.sort_order).all():
+        ans = submitted.get(str(q.id), submitted.get(q.id))
+        r = res_by_q.get(q.id, {})
+        correct = _quiz_correct_submission(q)
+        rows.append({
+            'prompt': q.prompt or '',
+            'type': q.question_type,
+            'points': q.points,
+            'ungraded': bool(r.get('ungraded')) or q.question_type in _QUIZ_UNGRADED_TYPES,
+            'given': _format_attempt_answer(q, ans),
+            'answered': ans not in (None, '', [], {}),
+            'correct_text': _format_attempt_answer(q, correct) if correct is not None else '',
+            'is_correct': r.get('correct'),
+            'earned': r.get('earned'),
+        })
+    return rows
+
+
+@app.route('/admin/members/<int:uid>/quiz/<int:qid>/answers')
+@login_required
+@require_perm('quizzes.view')
+def admin_member_quiz_answers(uid, qid):
+    """Staff review of every answer a member submitted to a quiz — one block per
+    attempt, each question showing their answer, the correct answer, and score."""
+    member = _get_owned_public_user(uid)   # 404s if not on an owned site
+    website, quiz = _quiz_owned_or_403(qid)
+    if quiz is None:
+        return website
+    if not can_access_quiz(quiz):
+        abort(403)
+    if quiz.website_id != member.website_id:
+        abort(404)
+    attempts = QuizAttempt.query.filter_by(quiz_id=qid, public_user_id=uid) \
+        .order_by(QuizAttempt.created_at.asc()).all()
+    reviews = []
+    for i, a in enumerate(attempts):
+        reviews.append({
+            'number': i + 1,
+            'created_at': a.created_at,
+            'score': a.score, 'max_score': a.max_score,
+            'percent': round(100 * a.score / a.max_score) if a.max_score else None,
+            'passed': bool(a.max_score) and (a.score / a.max_score) >= (quiz.pass_threshold or 0),
+            'rows': _build_attempt_review(quiz, a),
+        })
+    reviews.reverse()   # newest attempt first
+    return render_template('admin_member_quiz_answers.html',
+                           member=member, quiz=quiz, reviews=reviews,
+                           total_attempts=len(attempts))
+
+
+@app.route('/admin/members/<int:uid>/guide/<int:gid>/answers')
+@login_required
+@require_perm('quizzes.view')
+def admin_member_guide_answers(uid, gid):
+    """Index of the quizzes a member submitted INSIDE a guide's lessons, each
+    linking to the full per-quiz answer review."""
+    member = _get_owned_public_user(uid)
+    guide = Guide.query.get_or_404(gid)
+    if guide.website_id != member.website_id:
+        abort(404)
+    node_ids = [n.id for n in guide.nodes.all()]
+    attempts = (QuizAttempt.query.filter(
+        QuizAttempt.public_user_id == uid,
+        QuizAttempt.guide_node_id.in_(node_ids)).all() if node_ids else [])
+    seen = {}
+    for a in attempts:
+        s = seen.setdefault(a.quiz_id, {'attempts': 0, 'best': -1.0,
+                                        'best_score': 0, 'best_max': 0, 'last': None})
+        s['attempts'] += 1
+        frac = (a.score / a.max_score) if a.max_score else 0.0
+        if frac > s['best']:
+            s['best'], s['best_score'], s['best_max'] = frac, a.score, a.max_score
+        if s['last'] is None or (a.created_at and a.created_at > s['last']):
+            s['last'] = a.created_at
+    quizzes = []
+    for qid, s in seen.items():
+        quiz = db.session.get(Quiz, qid)
+        if not quiz or not can_access_quiz(quiz):
+            continue
+        best = max(s['best'], 0.0)
+        quizzes.append({'quiz': quiz, 'attempts': s['attempts'],
+                        'percent': round(best * 100), 'best_score': s['best_score'],
+                        'best_max': s['best_max'], 'graded': s['best_max'] > 0,
+                        'last': s['last']})
+    quizzes.sort(key=lambda x: (x['last'] or datetime.min), reverse=True)
+    return render_template('admin_member_guide_answers.html',
+                           member=member, guide=guide, quizzes=quizzes)
+
+
 @app.route('/admin/quizzes/<int:qid>/attempts.csv')
 @login_required
 @require_perm('quizzes.view')
@@ -39275,14 +39419,54 @@ def _member_profile_url(website, user_id):
     return url_for('public_member_profile', user_id=user_id, prefix=website.url_prefix or None)
 
 
-def _can_view_member_profile(viewer, target):
-    """A profile is viewable when it's opted-in, or the viewer is the owner or
-    a staff/admin mirror (so moderators can always look)."""
-    if target.profile_visible:
-        return True
+def _directory_member_bucket_sql():
+    """SQL condition selecting the 'member' bucket for visitor-visibility gating:
+    active org members + staff mirrors. Everything else is the 'visitor' bucket."""
+    return db.or_(PublicUser.membership_status == 'member',
+                  PublicUser.mirrored_admin_user_id.isnot(None))
+
+
+def _visitor_may_see(viewer, target, website):
+    """Apply the visitor-visibility settings. Org members and staff always see
+    everyone; a plain visitor is limited by visitors_can_see_members /
+    visitors_can_see_visitors based on the TARGET's bucket. Returns True/False."""
+    if viewer is None or viewer.is_org_member:
+        return True  # members + staff bypass the gate
+    target_is_member = bool(target and target.is_org_member)
+    if target_is_member:
+        return bool(getattr(website, 'visitors_can_see_members', True))
+    return bool(getattr(website, 'visitors_can_see_visitors', True))
+
+
+def _visitor_directory_access(viewer, website):
+    """What a viewer may browse in the directory: returns
+    ('all' | 'members' | 'visitors' | 'none'). Members/staff always get 'all'."""
+    if viewer is None or viewer.is_org_member:
+        return 'all'
+    see_m = bool(getattr(website, 'visitors_can_see_members', True))
+    see_v = bool(getattr(website, 'visitors_can_see_visitors', True))
+    if see_m and see_v:
+        return 'all'
+    if see_m:
+        return 'members'
+    if see_v:
+        return 'visitors'
+    return 'none'
+
+
+def _can_view_member_profile(viewer, target, website=None):
+    """A profile is viewable when it's opted-in AND the visitor-visibility gate
+    allows it — or the viewer is the owner or a staff/admin mirror (moderators
+    always look). `website` enables the visitor gate; omitting it skips it."""
     if viewer and viewer.id == target.id:
         return True
-    return bool(viewer and viewer.is_admin_mirror)
+    if viewer and viewer.is_admin_mirror:
+        return True
+    if not target.profile_visible:
+        return False
+    if website is not None and not _visitor_may_see(viewer, target, website):
+        return False
+    return True
 
 
 def _member_forum_activity(target_user, website, q=None, limit=100):
@@ -39343,6 +39527,38 @@ def _member_guide_progress(target_user, website):
                     'resume_slug': resume.slug if resume else None,
                     'resume_title': resume.title if resume else None})
     out.sort(key=lambda x: (not x['is_done'], -x['percent'], x['guide'].title.lower()))
+    return out
+
+
+def _member_quiz_attempts(target_user, website):
+    """Every quiz this member has submitted at least once (standalone or embedded
+    in a guide lesson), with attempt count, best score and last-taken date.
+    Powers the profile's Quizzes tab + the admin answer-review buttons."""
+    attempts = QuizAttempt.query.filter_by(
+        website_id=website.id, public_user_id=target_user.id).all()
+    by_quiz = {}
+    for a in attempts:
+        s = by_quiz.setdefault(a.quiz_id, {'attempts': 0, 'best': -1.0,
+                                           'best_score': 0, 'best_max': 0, 'last': None})
+        s['attempts'] += 1
+        frac = (a.score / a.max_score) if a.max_score else 0.0
+        if frac > s['best']:
+            s['best'] = frac
+            s['best_score'], s['best_max'] = a.score, a.max_score
+        if s['last'] is None or (a.created_at and a.created_at > s['last']):
+            s['last'] = a.created_at
+    out = []
+    for qid, s in by_quiz.items():
+        quiz = db.session.get(Quiz, qid)
+        if not quiz or quiz.website_id != website.id:
+            continue
+        best = max(s['best'], 0.0)
+        out.append({'quiz': quiz, 'attempts': s['attempts'],
+                    'percent': round(best * 100), 'best_score': s['best_score'],
+                    'best_max': s['best_max'], 'graded': s['best_max'] > 0,
+                    'passed': s['best_max'] > 0 and best >= (quiz.pass_threshold or 0),
+                    'last': s['last']})
+    out.sort(key=lambda x: (x['last'] or datetime.min), reverse=True)
     return out
 
 
@@ -39698,6 +39914,10 @@ def _render_members_directory(prefix):
     if short is not None:
         return short
     q = (request.args.get('q') or '').strip()
+    # Organization-membership segment (All / Members / Visitors / Alumni),
+    # driven by ?membership=<status>. Anything else means "all".
+    membership = request.args.get('membership')
+    active_membership = membership if membership in ('member', 'visitor', 'alumni') else None
     # Role filter: chips on the page link to ?role=<id>. Only this website's
     # roles are valid; an unknown id falls back to "all".
     roles = (PublicUserRole.query.filter_by(website_id=website.id)
@@ -39758,6 +39978,8 @@ def _render_members_directory(prefix):
         query = query.filter(PublicUser.roles.any(db.and_(
             PublicUserRole.website_id == website.id,
             db.func.lower(PublicUserRole.name) == (active_role.name or '').lower())))
+    if active_membership is not None:
+        query = query.filter(PublicUser.membership_status == active_membership)
     if active_division is not None:
         query = query.filter(PublicUser.division_memberships.any(
             DivisionMembership.division_id == active_division.id))
@@ -39771,6 +39993,15 @@ def _render_members_directory(prefix):
     exclude_role_ids = [r.id for r in roles if r.exclude_from_directory]
     if exclude_role_ids and (active_role is None or not active_role.exclude_from_directory):
         query = query.filter(~PublicUser.roles.any(PublicUserRole.id.in_(exclude_role_ids)))
+    # Visitor-visibility gate: a plain visitor may be limited to seeing only
+    # members, only other visitors, or nobody. Members and staff always see all.
+    dir_access = _visitor_directory_access(viewer, website)
+    if dir_access == 'members':
+        query = query.filter(_directory_member_bucket_sql())
+    elif dir_access == 'visitors':
+        query = query.filter(db.not_(_directory_member_bucket_sql()))
+    elif dir_access == 'none':
+        query = query.filter(db.false())
     query = query.order_by(db.func.lower(db.func.coalesce(
         PublicUser.display_username, PublicUser.username)).asc())
     page = request.args.get('page', 1, type=int)
@@ -39837,9 +40068,15 @@ def _render_members_directory(prefix):
                            member_skill_levels=member_skill_levels,
                            member_skill_selfreported=member_skill_selfreported,
                            level_labels=_ksa_level_labels(website),
+                           active_membership=active_membership,
+                           dir_access=dir_access,
                            members_base=_members_base_url(website),
+                           # Current membership segment rides along on every other
+                           # filter link by default; a caller passing `membership`
+                           # explicitly (the segment chips) overrides it.
                            members_filter_url=lambda **kw: url_for(
-                               'public_members', prefix=website.url_prefix or None, **kw),
+                               'public_members', prefix=website.url_prefix or None,
+                               **{'membership': active_membership, **kw}),
                            profile_url=lambda u: _member_profile_url(website, u))
 
 
@@ -39973,11 +40210,11 @@ def _render_member_profile(prefix, user_id):
     target = PublicUser.query.filter_by(id=user_id, website_id=website.id).first()
     if not target or target.is_banned or not target.is_active_public:
         abort(404)
-    if not _can_view_member_profile(viewer, target):
+    if not _can_view_member_profile(viewer, target, website):
         abort(404)
 
     tab = request.args.get('tab', 'forum')
-    if tab not in ('forum', 'guides', 'roles', 'ksas', 'explore'):
+    if tab not in ('forum', 'guides', 'quizzes', 'roles', 'ksas', 'explore'):
         tab = 'forum'
     q = (request.args.get('q') or '').strip()
     # Competency layout: 'priority' (flat hopper, default), 'categories' (folders),
@@ -39999,6 +40236,20 @@ def _render_member_profile(prefix, user_id):
     show_progress = is_self or bool(getattr(website, 'ksa_public_progress', False))
     forum_items = _member_forum_activity(target, website, q) if tab == 'forum' else None
     guide_items = _member_guide_progress(target, website) if tab == 'guides' else None
+    # Staff (with quizzes.view) get a "View answers" button on the guides/quizzes
+    # tabs to inspect exactly what this member submitted. The viewer here is the
+    # admin's public mirror; resolve the underlying admin to check the permission.
+    _reviewer_admin = viewer.mirrored_admin if viewer.is_admin_mirror else None
+    can_review_answers = bool(_reviewer_admin and _reviewer_admin.has_permission('quizzes.view'))
+    # Quiz scores are more sensitive than guide progress, so the Quizzes tab is
+    # visible only to the member themselves and to staff — not other members.
+    can_see_quizzes = is_self or can_review_answers
+    quiz_items = (_member_quiz_attempts(target, website)
+                  if (tab == 'quizzes' and can_see_quizzes) else None)
+    # Cheap count for the Quizzes tab label (distinct quizzes attempted).
+    quizzes_count = (db.session.query(db.func.count(db.func.distinct(QuizAttempt.quiz_id))).filter(
+        QuizAttempt.website_id == website.id,
+        QuizAttempt.public_user_id == target.id).scalar() or 0) if can_see_quizzes else 0
     ksa_profile = _member_ksa_profile(target, website, full=show_progress, group_by_folder=_by_folder) if tab == 'ksas' else None
     other_skills = _member_other_skills(target, website, full=show_progress) if tab == 'ksas' else None
     # Skill-tree ("map") view: flatten the roadmap into per-division node lists
@@ -40086,6 +40337,9 @@ def _render_member_profile(prefix, user_id):
                            thread_count=thread_count, reply_count=reply_count,
                            post_count=thread_count + reply_count, guides_done=guides_done,
                            forum_items=forum_items, guide_items=guide_items,
+                           quiz_items=quiz_items, quizzes_count=quizzes_count,
+                           can_review_answers=can_review_answers,
+                           can_see_quizzes=can_see_quizzes,
                            ksa_profile=ksa_profile, division_count=division_count,
                            other_skills=other_skills, show_ksa_tab=show_ksa_tab,
                            ksa_view=ksa_view, ksa_map_sections=ksa_map_sections,

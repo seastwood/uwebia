@@ -75,6 +75,10 @@
 .mp-item-meta { opacity: 0.4; font-size: 0.74rem; margin: 8px 0 0; display: flex; gap: 14px; }
 .mp-guide { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.1); background: rgba(20,20,30,0.55); text-decoration: none; color: inherit; margin-bottom: 10px; }
 .mp-guide:hover { border-color: rgba(94,238,248,0.4); }
+.mp-guide-wrap { display: flex; align-items: stretch; gap: 8px; }
+.mp-guide-wrap .mp-guide { flex: 1; margin-bottom: 10px; }
+.mp-review-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; margin-bottom: 10px; border-radius: 11px; border: 1px solid rgba(94,238,200,0.35); background: rgba(94,238,200,0.1); color: #5eeec8; font-size: 0.8rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.mp-review-btn:hover { background: rgba(94,238,200,0.18); border-color: rgba(94,238,200,0.55); }
 .mp-guide-body { flex: 1; min-width: 0; }
 .mp-guide-title { font-weight: 700; font-size: 0.95rem; }
 .mp-guide-bar { height: 7px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden; margin-top: 8px; }
@@ -354,6 +358,9 @@
     <div class="mp-tabs">
         <a class="mp-tab {% if tab == 'forum' %}is-active{% endif %}" href="{{ profile_base }}?tab=forum">Forum <span class="mp-tab-count">{{ post_count }}</span></a>
         <a class="mp-tab {% if tab == 'guides' %}is-active{% endif %}" href="{{ profile_base }}?tab=guides">Guides <span class="mp-tab-count">{{ guides_done }}</span></a>
+        {% if can_see_quizzes and (quizzes_count or tab == 'quizzes') %}
+        <a class="mp-tab {% if tab == 'quizzes' %}is-active{% endif %}" href="{{ profile_base }}?tab=quizzes">Quizzes <span class="mp-tab-count">{{ quizzes_count }}</span></a>
+        {% endif %}
         <a class="mp-tab {% if tab == 'roles' %}is-active{% endif %}" href="{{ profile_base }}?tab=roles">Roles <span class="mp-tab-count">{{ target.roles|length + (1 if target.staff_badge_label else 0) }}</span></a>
         {% if show_ksa_tab %}
         <a class="mp-tab {% if tab == 'ksas' %}is-active{% endif %}" href="{{ profile_base }}?tab=ksas">Training <span class="mp-tab-count">{{ division_count }}</span></a>
@@ -394,17 +401,46 @@
         <div class="mp-empty"><p>No guide progress yet.</p></div>
         {% else %}
         {% for g in guide_items %}
-        <a class="mp-guide" href="{{ _gbase }}{{ g.guide.slug }}">
-            <div class="mp-guide-body">
-                <div class="mp-guide-title">{{ g.guide.title }}</div>
-                <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ g.percent }}%;"></div></div>
-            </div>
-            {% if g.is_done %}
-            <span class="mp-guide-done"><i class="fas fa-check"></i> Completed</span>
-            {% else %}
-            <span class="mp-guide-label">{{ g.completed }}/{{ g.total }} · {{ g.percent }}%</span>
+        <div class="mp-guide-wrap">
+            <a class="mp-guide" href="{{ _gbase }}{{ g.guide.slug }}">
+                <div class="mp-guide-body">
+                    <div class="mp-guide-title">{{ g.guide.title }}</div>
+                    <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ g.percent }}%;"></div></div>
+                </div>
+                {% if g.is_done %}
+                <span class="mp-guide-done"><i class="fas fa-check"></i> Completed</span>
+                {% else %}
+                <span class="mp-guide-label">{{ g.completed }}/{{ g.total }} · {{ g.percent }}%</span>
+                {% endif %}
+            </a>
+            {% if can_review_answers %}
+            <a class="mp-review-btn" href="{{ url_for('admin_member_guide_answers', uid=target.id, gid=g.guide.id) }}" title="View this member's quiz answers in this guide"><i class="fas fa-eye"></i> View answers</a>
             {% endif %}
-        </a>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        {% elif tab == 'quizzes' %}
+        {% if not quiz_items %}
+        <div class="mp-empty"><p>No quiz submissions yet.</p></div>
+        {% else %}
+        {% for qz in quiz_items %}
+        <div class="mp-guide-wrap">
+            <div class="mp-guide" style="cursor:default;">
+                <div class="mp-guide-body">
+                    <div class="mp-guide-title">{{ qz.quiz.title }}</div>
+                    <div class="mp-guide-bar"><div class="mp-guide-fill" style="width: {{ qz.percent }}%;"></div></div>
+                </div>
+                {% if qz.graded %}
+                <span class="mp-guide-label">{% if qz.passed %}<i class="fas fa-circle-check" style="color:#5eeec8;"></i> {% endif %}{{ qz.percent }}% · {{ qz.attempts }} attempt{{ 's' if qz.attempts != 1 else '' }}</span>
+                {% else %}
+                <span class="mp-guide-label">{{ qz.attempts }} attempt{{ 's' if qz.attempts != 1 else '' }}</span>
+                {% endif %}
+            </div>
+            {% if can_review_answers %}
+            <a class="mp-review-btn" href="{{ url_for('admin_member_quiz_answers', uid=target.id, qid=qz.quiz.id) }}" title="View this member's answers"><i class="fas fa-eye"></i> View answers</a>
+            {% endif %}
+        </div>
         {% endfor %}
         {% endif %}
 
