@@ -29,6 +29,7 @@
 .mb-role-chip.is-active { border-color: rgba(94,238,248,0.7); background: rgba(94,238,248,0.12); color: #aef7e8; }
 .mb-role-chip.is-archived { opacity: 0.72; border-style: dashed; }
 .mb-role-chip.is-archived.is-active { opacity: 1; }
+.mb-membership-seg { margin-bottom: 14px; }
 .mb-role-chip .fa-archive { font-size: 0.7rem; opacity: 0.6; }
 .mb-role-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .mb-skill-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 24px; padding: 12px 14px; border: 1px solid rgba(94,238,248,0.18); border-radius: 12px; background: rgba(94,238,248,0.05); }
@@ -64,19 +65,38 @@
     {% set _ak = active_skill.id if active_skill else none %}
     {% set _alvl = skill_level if (active_skill and skill_level and skill_level > 1) else none %}
     {% set _av = 1 if (active_skill and skill_verified) else none %}
+    {% set _am = active_membership or none %}
 
     <form class="mb-search" method="GET" action="{{ members_base }}">
         <input type="text" name="q" value="{{ q }}" placeholder="Search members by name…" autocomplete="off">
         {% if active_role %}<input type="hidden" name="role" value="{{ active_role.id }}">{% endif %}
         {% if active_division %}<input type="hidden" name="division" value="{{ active_division.id }}">{% endif %}
+        {% if active_membership %}<input type="hidden" name="membership" value="{{ active_membership }}">{% endif %}
         {% if active_skill %}<input type="hidden" name="ksa" value="{{ active_skill.id }}"><input type="hidden" name="level" value="{{ skill_level }}">{% if skill_verified %}<input type="hidden" name="verified" value="1">{% endif %}{% endif %}
         <button type="submit">Search</button>
     </form>
+
+    {# Organization-membership segment: separate members from plain visitors.
+       Only shown when the viewer may browse everyone; a restricted visitor sees
+       a pre-filtered list with no segment chips. #}
+    {% if dir_access == 'all' %}
+    <div class="mb-roles mb-membership-seg">
+        <a class="mb-role-chip {% if not active_membership %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, role=_ar, division=_ad, ksa=_ak, level=_alvl, verified=_av, membership=none) }}">Everyone</a>
+        <a class="mb-role-chip {% if active_membership == 'member' %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, role=_ar, division=_ad, ksa=_ak, level=_alvl, verified=_av, membership='member') }}"><i class="fas fa-user-check" style="font-size:0.72rem;opacity:0.8;"></i> Organization</a>
+        <a class="mb-role-chip {% if active_membership == 'visitor' %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, role=_ar, division=_ad, ksa=_ak, level=_alvl, verified=_av, membership='visitor') }}">Visitors</a>
+        <a class="mb-role-chip {% if active_membership == 'alumni' %}is-active{% endif %}" href="{{ members_filter_url(q=_aq, role=_ar, division=_ad, ksa=_ak, level=_alvl, verified=_av, membership='alumni') }}">Alumni</a>
+    </div>
+    {% endif %}
+
+    {% if dir_access == 'none' %}
+    <div class="mb-empty"><p>The member directory isn't available to your account.</p></div>
+    {% endif %}
 
     {% if skill_groups %}
     <form class="mb-skill-filter" method="GET" action="{{ members_base }}">
         {% if active_role %}<input type="hidden" name="role" value="{{ active_role.id }}">{% endif %}
         {% if active_division %}<input type="hidden" name="division" value="{{ active_division.id }}">{% endif %}
+        {% if active_membership %}<input type="hidden" name="membership" value="{{ active_membership }}">{% endif %}
         {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         <label class="mb-skill-label"><i class="fas fa-graduation-cap"></i> Find by skill</label>
         <select name="ksa" class="mb-skill-select">
