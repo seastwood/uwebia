@@ -20,9 +20,17 @@
 .ra-section-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
 .ra-section-title { font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0; display: inline-flex; align-items: center; gap: 8px; }
 .ra-section-count { font-size: 0.7rem; font-weight: 700; opacity: 0.55; padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); }
-.ra-cat-edit { margin-left: auto; background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 0.85rem; }
+.ra-cat-edit { background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
 .ra-cat-edit:hover { color: #fff; }
+.ra-head-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .ra-list { display: flex; flex-direction: column; gap: 8px; }
+/* Bundle group box (a titled sub-group of resources within a category) */
+.ra-bundle { border: 1px solid rgba(94,238,200,0.28); border-radius: 12px; padding: 12px 14px; margin: 0 0 12px; background: rgba(94,238,200,0.04); }
+.ra-bundle-head { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.ra-bundle-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.98rem; color: #d7fff4; }
+.ra-bundle-head .ra-cat-edit { margin-left: auto; }
+.ra-bundle-desc { font-size: 0.84rem; opacity: 0.6; margin: 0 0 10px; }
+.ra-bundle-empty { font-size: 0.84rem; opacity: 0.5; font-style: italic; padding: 6px 2px; }
 .ra-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
 .ra-item-icon { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(94,238,200,0.14); color: #5eeec8; font-size: 1rem; flex-shrink: 0; }
 .ra-item-main { flex: 1; min-width: 0; }
@@ -96,6 +104,7 @@
         {% if user_has_perm('resources.manage') %}
         <div class="ra-actions">
             <button class="ra-btn ra-btn-secondary" onclick="openCategoryModal()"><i class="fas fa-folder-plus"></i> New category</button>
+            <button class="ra-btn ra-btn-secondary" onclick="openBundleModal()"><i class="fas fa-layer-group"></i> New bundle</button>
             <button class="ra-btn ra-btn-primary" onclick="openResourceModal()"><i class="fas fa-plus"></i> New resource</button>
         </div>
         {% endif %}
@@ -105,7 +114,36 @@
     <div class="ra-empty">No resources yet. Create one to add it to the public Resources tab.</div>
     {% endif %}
 
+    {% macro ra_item(r) %}
+    <div class="ra-item">
+        <div class="ra-item-icon"><i class="fas {{ r.icon or {'link':'fa-link','file':'fa-file-arrow-down','video':'fa-play','page':'fa-file-lines'}.get(r.resource_type, 'fa-folder') }}"></i></div>
+        <div class="ra-item-main">
+            <div class="ra-item-title">{{ r.title }}</div>
+            {% if r.description %}<div class="ra-item-desc">{{ r.description }}</div>{% endif %}
+            <div class="ra-item-tags">
+                <span class="ra-tag">{{ {'link':'Link','file':'Download','video':'Video','page':'Article'}.get(r.resource_type, r.resource_type) }}</span>
+                {% if not r.is_public %}<span class="ra-tag is-draft">Draft</span>{% endif %}
+                {% if r.require_login_to_view %}<span class="ra-tag is-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
+            </div>
+            {% if r.updated_at %}
+            <div class="ra-item-editmeta" title="{{ r.updated_at.strftime('%b %-d, %Y at %-I:%M %p') }}">
+                <i class="fas fa-clock-rotate-left"></i>
+                Last edited {{ r.updated_at.strftime('%b %-d, %Y') }}{% if r.updated_by %} by {{ r.updated_by.full_name or r.updated_by.username }}{% endif %}
+            </div>
+            {% endif %}
+        </div>
+        <div class="ra-item-btns">
+            <a class="ra-icon-btn" href="{{ url_for('public_resource_page', rid=r.id) }}" target="_blank" rel="noopener" title="Open"><i class="fas fa-external-link-alt"></i></a>
+            {% if user_has_perm('resources.manage') %}
+            <button class="ra-icon-btn" onclick='openResourceModal({{ r.to_dict() | tojson }})' title="Edit"><i class="fas fa-pen"></i></button>
+            <button class="ra-icon-btn danger" onclick="deleteResource({{ r.id }}, {{ r.title | tojson }})" title="Delete"><i class="fas fa-trash"></i></button>
+            {% endif %}
+        </div>
+    </div>
+    {% endmacro %}
+
     {% for grp in grouped %}
+    {% set _cat_total = grp.resources|length + (grp.bundles|map(attribute='resources')|map('length')|sum) %}
     <section class="ra-section">
         <div class="ra-section-head">
             <h2 class="ra-section-title">
@@ -114,39 +152,39 @@
                 {{ grp.category.name }}
                 {% else %}Uncategorized{% endif %}
             </h2>
-            <span class="ra-section-count">{{ grp.resources|length }}</span>
-            {% if grp.category and user_has_perm('resources.manage') %}
-            <button class="ra-cat-edit" onclick='openCategoryModal({{ grp.category.to_dict() | tojson }})'><i class="fas fa-cog"></i> Category</button>
+            <span class="ra-section-count">{{ _cat_total }}</span>
+            {% if user_has_perm('resources.manage') %}
+            <span class="ra-head-actions">
+                <button class="ra-cat-edit" onclick="openBundleModal(null, {{ grp.category.id if grp.category else 'null' }})"><i class="fas fa-layer-group"></i> Bundle</button>
+                {% if grp.category %}
+                <button class="ra-cat-edit" onclick='openCategoryModal({{ grp.category.to_dict() | tojson }})'><i class="fas fa-cog"></i> Category</button>
+                {% endif %}
+            </span>
             {% endif %}
         </div>
-        <div class="ra-list">
-            {% for r in grp.resources %}
-            <div class="ra-item">
-                <div class="ra-item-icon"><i class="fas {{ r.icon or {'link':'fa-link','file':'fa-file-arrow-down','video':'fa-play','page':'fa-file-lines'}.get(r.resource_type, 'fa-folder') }}"></i></div>
-                <div class="ra-item-main">
-                    <div class="ra-item-title">{{ r.title }}</div>
-                    {% if r.description %}<div class="ra-item-desc">{{ r.description }}</div>{% endif %}
-                    <div class="ra-item-tags">
-                        <span class="ra-tag">{{ {'link':'Link','file':'Download','video':'Video','page':'Article'}.get(r.resource_type, r.resource_type) }}</span>
-                        {% if not r.is_public %}<span class="ra-tag is-draft">Draft</span>{% endif %}
-                        {% if r.require_login_to_view %}<span class="ra-tag is-lock"><i class="fas fa-lock"></i> Login</span>{% endif %}
-                    </div>
-                    {% if r.updated_at %}
-                    <div class="ra-item-editmeta" title="{{ r.updated_at.strftime('%b %-d, %Y at %-I:%M %p') }}">
-                        <i class="fas fa-clock-rotate-left"></i>
-                        Last edited {{ r.updated_at.strftime('%b %-d, %Y') }}{% if r.updated_by %} by {{ r.updated_by.full_name or r.updated_by.username }}{% endif %}
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="ra-item-btns">
-                    <a class="ra-icon-btn" href="{{ url_for('public_resource_page', rid=r.id) }}" target="_blank" rel="noopener" title="Open"><i class="fas fa-external-link-alt"></i></a>
-                    {% if user_has_perm('resources.manage') %}
-                    <button class="ra-icon-btn" onclick='openResourceModal({{ r.to_dict() | tojson }})' title="Edit"><i class="fas fa-pen"></i></button>
-                    <button class="ra-icon-btn danger" onclick="deleteResource({{ r.id }}, {{ r.title | tojson }})" title="Delete"><i class="fas fa-trash"></i></button>
-                    {% endif %}
-                </div>
+
+        {% for bg in grp.bundles %}
+        <div class="ra-bundle">
+            <div class="ra-bundle-head">
+                <span class="ra-bundle-title">
+                    {% if bg.bundle.icon %}<i class="fas {{ bg.bundle.icon }}" {% if bg.bundle.color %}style="color:{{ bg.bundle.color }};"{% endif %}></i>{% else %}<i class="fas fa-layer-group"></i>{% endif %}
+                    {{ bg.bundle.name }}
+                </span>
+                <span class="ra-section-count">{{ bg.resources|length }}</span>
+                {% if user_has_perm('resources.manage') %}
+                <button class="ra-cat-edit" onclick='openBundleModal({{ bg.bundle.to_dict() | tojson }})'><i class="fas fa-cog"></i> Edit</button>
+                {% endif %}
             </div>
-            {% endfor %}
+            {% if bg.bundle.description %}<p class="ra-bundle-desc">{{ bg.bundle.description }}</p>{% endif %}
+            <div class="ra-list">
+                {% for r in bg.resources %}{{ ra_item(r) }}{% endfor %}
+                {% if not bg.resources %}<p class="ra-bundle-empty">No resources in this bundle yet — edit a resource and assign it here.</p>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="ra-list">
+            {% for r in grp.resources %}{{ ra_item(r) }}{% endfor %}
         </div>
     </section>
     {% endfor %}
@@ -188,10 +226,14 @@
 
             <div class="ra-field">
                 <label class="ra-label" for="resCategory">Category</label>
-                <select class="ra-select" id="resCategory">
+                <select class="ra-select" id="resCategory" onchange="refreshResBundleOptions()">
                     <option value="">— Uncategorized —</option>
                     {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
                 </select>
+            </div>
+            <div class="ra-field">
+                <label class="ra-label" for="resBundle">Bundle <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional — groups it with related resources)</span></label>
+                <select class="ra-select" id="resBundle"><option value="">— None —</option></select>
             </div>
             <label class="ra-check"><input type="checkbox" id="resIsPublic" checked> List on the public Resources tab</label>
             <label class="ra-check"><input type="checkbox" id="resRequireLogin"> Require login to open it</label>
@@ -227,6 +269,35 @@
     </div>
 </div>
 
+<!-- Bundle modal -->
+<div class="ra-overlay" id="bundleOverlay" onclick="if(event.target===this)closeBundleModal()">
+    <div class="ra-modal" style="max-width:480px;">
+        <div class="ra-modal-head" id="bundleModalTitle">New bundle</div>
+        <div class="ra-modal-body">
+            <input type="hidden" id="bundleId">
+            <div class="ra-field"><label class="ra-label" for="bundleName">Name</label><input type="text" class="ra-input" id="bundleName" placeholder="e.g. Wiring the drivetrain"></div>
+            <div class="ra-field">
+                <label class="ra-label" for="bundleCategory">Category</label>
+                <select class="ra-select" id="bundleCategory">
+                    <option value="">— Uncategorized —</option>
+                    {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="ra-field"><label class="ra-label" for="bundleDesc">Description <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional)</span></label><textarea class="ra-textarea" id="bundleDesc"></textarea></div>
+            <div class="ra-field" style="display:flex;gap:14px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:150px;"><label class="ra-label" for="bundleIcon">Icon <span style="opacity:0.5;text-transform:none;font-weight:400;">(FA class)</span></label><input type="text" class="ra-input" id="bundleIcon" placeholder="fa-layer-group"></div>
+                <div><label class="ra-label" for="bundleColor">Color</label><input type="color" id="bundleColor" value="#5eeec8" style="width:52px;height:42px;border:none;background:none;cursor:pointer;"></div>
+            </div>
+            <p class="ra-err" id="bundleErr"></p>
+        </div>
+        <div class="ra-modal-foot">
+            <button class="ra-btn ra-btn-secondary" id="bundleDeleteBtn" onclick="deleteBundle()" style="margin-right:auto;display:none;color:#ff7676;">Delete</button>
+            <button class="ra-btn ra-btn-secondary" onclick="closeBundleModal()">Cancel</button>
+            <button class="ra-btn ra-btn-primary" onclick="saveBundle()">Save</button>
+        </div>
+    </div>
+</div>
+
 <!-- Asset picker -->
 <div class="ra-overlay" id="apOverlay" onclick="if(event.target===this)closeAssetPicker()">
     <div class="ra-modal" style="max-width:640px;">
@@ -246,6 +317,21 @@
 <script>
 let _resQuill = null, _resType = 'link', _apCb = null, _apFolder = null;
 let _resItems = [];   // [{url, label}] for link/file/video
+const BUNDLES = {{ bundles_dicts | tojson }};   // [{id, name, category_id, ...}]
+
+// Populate the resource modal's Bundle dropdown with the bundles that live in
+// the currently-selected category (a bundle belongs to one category).
+function refreshResBundleOptions(keepId) {
+    const catVal = document.getElementById('resCategory').value;
+    const catId = catVal ? parseInt(catVal) : null;
+    const sel = document.getElementById('resBundle');
+    const want = keepId !== undefined ? keepId : (sel.value ? parseInt(sel.value) : null);
+    let html = '<option value="">— None —</option>';
+    BUNDLES.filter(b => (b.category_id || null) === catId).forEach(b => {
+        html += `<option value="${b.id}"${b.id === want ? ' selected' : ''}>${_esc(b.name)}</option>`;
+    });
+    sel.innerHTML = html;
+}
 
 function _esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 function _escA(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -326,6 +412,7 @@ function openResourceModal(r) {
     document.getElementById('resTitle').value = r ? r.title : '';
     document.getElementById('resDesc').value = r ? (r.description || '') : '';
     document.getElementById('resCategory').value = r && r.category_id ? String(r.category_id) : '';
+    refreshResBundleOptions(r && r.bundle_id ? r.bundle_id : null);
     document.getElementById('resIsPublic').checked = r ? !!r.is_public : true;
     document.getElementById('resRequireLogin').checked = r ? !!r.require_login_to_view : false;
     document.getElementById('resMembersOnly').checked = r ? !!r.members_only : false;
@@ -350,6 +437,7 @@ async function saveResource() {
         description: document.getElementById('resDesc').value.trim(),
         resource_type: _resType,
         category_id: document.getElementById('resCategory').value || null,
+        bundle_id: document.getElementById('resBundle').value || null,
         is_public: document.getElementById('resIsPublic').checked,
         require_login_to_view: document.getElementById('resRequireLogin').checked,
         members_only: document.getElementById('resMembersOnly').checked,
@@ -412,6 +500,44 @@ async function deleteCategory() {
     const id = document.getElementById('catId').value; if (!id) return;
     if (!confirm('Delete this category? Its resources become Uncategorized (not deleted).')) return;
     const d = await (await fetch(`/admin/resources/categories/${id}/delete`, { method: 'POST' })).json();
+    if (d.success) location.reload(); else alert(d.error || 'Failed to delete.');
+}
+
+// ── Bundle modal ────────────────────────────────────────────────────────────
+function openBundleModal(b, presetCategoryId) {
+    b = b || null;
+    document.getElementById('bundleId').value = b ? b.id : '';
+    document.getElementById('bundleModalTitle').textContent = b ? 'Edit bundle' : 'New bundle';
+    document.getElementById('bundleName').value = b ? b.name : '';
+    document.getElementById('bundleDesc').value = b ? (b.description || '') : '';
+    document.getElementById('bundleIcon').value = b ? (b.icon || '') : '';
+    document.getElementById('bundleColor').value = (b && b.color) ? b.color : '#5eeec8';
+    const cat = b ? b.category_id : (presetCategoryId != null ? presetCategoryId : '');
+    document.getElementById('bundleCategory').value = cat ? String(cat) : '';
+    document.getElementById('bundleDeleteBtn').style.display = b ? 'inline-flex' : 'none';
+    _showErr('bundleErr', '');
+    document.getElementById('bundleOverlay').style.display = 'flex';
+}
+function closeBundleModal() { document.getElementById('bundleOverlay').style.display = 'none'; }
+
+async function saveBundle() {
+    const id = document.getElementById('bundleId').value;
+    const body = {
+        name: document.getElementById('bundleName').value.trim(),
+        category_id: document.getElementById('bundleCategory').value || null,
+        description: document.getElementById('bundleDesc').value.trim(),
+        icon: document.getElementById('bundleIcon').value.trim(),
+        color: document.getElementById('bundleColor').value,
+    };
+    if (!body.name) { _showErr('bundleErr', 'Name is required.'); return; }
+    const url = id ? `/admin/resources/bundles/${id}/update` : '/admin/resources/bundles/create';
+    const d = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (d.success) location.reload(); else _showErr('bundleErr', d.error || 'Failed to save.');
+}
+async function deleteBundle() {
+    const id = document.getElementById('bundleId').value; if (!id) return;
+    if (!confirm('Delete this bundle? Its resources stay (they just leave the bundle).')) return;
+    const d = await (await fetch(`/admin/resources/bundles/${id}/delete`, { method: 'POST' })).json();
     if (d.success) location.reload(); else alert(d.error || 'Failed to delete.');
 }
 
