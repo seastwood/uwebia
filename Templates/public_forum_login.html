@@ -174,9 +174,11 @@ Forum Login
         Log In
     </button>
 
-    <a class="forum-auth-secondary-button" href="{{ url_for('public_register', website_prefix=website.url_prefix) }}">
+    {% if website.allow_public_signup %}
+    <a class="forum-auth-secondary-button" href="{{ url_for('public_register', website_prefix=website.url_prefix, next=next_url or None) }}">
         Create Account
     </a>
+    {% endif %}
 </div>
 
 

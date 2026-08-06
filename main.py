@@ -333,7 +333,10 @@ PERMISSION_IMPLIES = {
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    # Nullable so admins can exist without an email UNLESS 2FA applies — the
+    # login flow prompts them to add one when the org requires 2FA / they enable
+    # it (the code is emailed). NULLs are distinct in the unique index.
+    email = db.Column(db.String(150), unique=True, nullable=True)
     password_hash = db.Column(db.Text, nullable=False)
     # Optional real name — collected at signup, editable later. Used for
     # administration and (eventually) social surfaces. Never lowercased.
@@ -416,7 +419,10 @@ class User(UserMixin, db.Model):
 
     @validates('email')
     def normalize_email(self, key, value):
-        return value.strip().lower()
+        # None/blank → NULL, so emailless admins don't collide on '' in the
+        # unique email index.
+        v = (value or '').strip().lower()
+        return v or None
 
     @validates('first_name', 'last_name')
     def normalize_name(self, key, value):
@@ -1378,7 +1384,11 @@ class PublicUser(UserMixin, db.Model):
     # administration and (eventually) social surfaces. Never lowercased.
     first_name = db.Column(db.String(100), nullable=True)
     last_name  = db.Column(db.String(100), nullable=True)
-    email = db.Column(db.String(255), nullable=False)
+    # Nullable so youth/minor sites can let members sign up with just a username
+    # + password (Website.require_public_email off). Emailless accounts can't use
+    # email verification / password reset / magic-link / 2FA — recovery is
+    # admin-driven. NULLs are distinct in the per-site unique index.
+    email = db.Column(db.String(255), nullable=True)
     # Nullable because admin mirrors don't hold their own password — they
     # auth via the admin User row instead. Real public users always have one.
     password_hash = db.Column(db.String(255), nullable=True)
@@ -1537,7 +1547,10 @@ class PublicUser(UserMixin, db.Model):
 
     @validates('email')
     def normalize_public_email(self, key, value):
-        return (value or '').strip().lower()
+        # None/blank → NULL (not ''), so emailless accounts stay distinct in the
+        # per-site unique email index instead of colliding on empty string.
+        v = (value or '').strip().lower()
+        return v or None
 
     def __repr__(self):
         return f"<PublicUser {self.username} website={self.website_id}>"
@@ -2414,6 +2427,20 @@ class Website(db.Model):
                                           server_default=_sa_true())
     visitors_can_see_visitors = db.Column(db.Boolean, nullable=False, default=True,
                                           server_default=_sa_true())
+    # Youth/minor privacy: when False, members' first & last names are NOT
+    # collected — the name fields are hidden at signup and in account settings,
+    # signup asks for a username that isn't a real name, and turning it off
+    # purges any names already stored (real public users; admin mirrors re-sync).
+    collect_real_names = db.Column(db.Boolean, nullable=False, default=True,
+                                   server_default=_sa_true())
+    # When False, members can sign up with just a username + password (no email).
+    # Off disables email verification/reset/magic-link/2FA for emailless accounts.
+    require_public_email = db.Column(db.Boolean, nullable=False, default=True,
+                                     server_default=_sa_true())
+    # When False, public self-registration is closed — only an admin can create
+    # member accounts (accounts still work, just no open sign-up form).
+    allow_public_signup = db.Column(db.Boolean, nullable=False, default=True,
+                                    server_default=_sa_true())
     # When on, a public "Explore skills" page (/skills) lets anyone — no login —
     # browse the KSA catalog by division/folder and open the learning resources.
     ksa_public_explore = db.Column(db.Boolean, nullable=False, default=False,
@@ -7606,7 +7633,8 @@ def require_admin_url_key_for_admin_routes():
         'reset_password',
         'emergency_login',
         'request_username',
-        'admin_login_link_request'
+        'admin_login_link_request',
+        'admin_add_email',
     }
 
     if request.endpoint in public_endpoints:
@@ -8050,6 +8078,15 @@ def login(admin_key=None):
                 needs_2fa = True
                 two_fa_email = user.two_factor_email or user.email
 
+            if needs_2fa and not two_fa_email:
+                # 2FA is required but this admin has no email to receive the code
+                # — collect one first, then continue to the 2FA step.
+                session['pre_2fa_user_id'] = user.id
+                session['pre_2fa_admin_key'] = admin_key
+                session['pre_2fa_remember'] = remember
+                return redirect(url_for('admin_add_email', admin_key=admin_key)
+                                if admin_key else url_for('admin_add_email'))
+
             if needs_2fa:
                 # If a code was already sent within the last 30 seconds (e.g.
                 # from a double-click or back-button resubmit) AND this session
@@ -8122,6 +8159,47 @@ def login(admin_key=None):
         show_captcha=rl['needs_captcha'],
         captcha_question=captcha_question,
     )
+
+
+@app.route('/admin/add-email', methods=['GET', 'POST'])
+@app.route('/admin/add-email/<admin_key>', methods=['GET', 'POST'])
+def admin_add_email(admin_key=None):
+    """Collect an email for an admin who needs 2FA but has none on file. Reached
+    from the login flow (pre-2FA session). On save we send the 2FA code and hand
+    off to the code-entry step — the email is required only because 2FA delivers
+    its code there."""
+    user = db.session.get(User, session.get('pre_2fa_user_id')) if session.get('pre_2fa_user_id') else None
+    if not user:
+        return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        if not email or '@' not in email or '.' not in email.split('@')[-1]:
+            flash('Please enter a valid email address.', 'error')
+            return redirect(request.path)
+        conflict = (User.query.filter(User.email == email, User.id != user.id).first()
+                    or PublicUser.query.filter(PublicUser.email == email,
+                                               PublicUser.mirrored_admin_user_id.is_(None)).first())
+        if conflict:
+            flash('That email is already in use.', 'error')
+            return redirect(request.path)
+        user.email = email
+        db.session.commit()
+
+        # Now send the 2FA code and continue to the code-entry step.
+        two_fa_email = _admin_two_fa_email(user) or user.email
+        code = generate_two_factor_code()
+        set_pending_two_factor_code(user.id, code, 'login')
+        try:
+            send_two_factor_email(two_fa_email, code, purpose='login')
+        except Exception as e:
+            clear_pending_two_factor_code()
+            flash(f'Could not send 2FA login code: {e}', 'error')
+            return redirect(request.path)
+        return redirect(url_for('two_factor_login', admin_key=admin_key)
+                        if admin_key else url_for('two_factor_login'))
+
+    return render_template('admin_add_email.html', admin_key=admin_key, username=user.username)
 
 
 @app.route('/admin/login-link', methods=['GET', 'POST'])
@@ -14863,6 +14941,9 @@ def _serialize_backup(uid):
                       'ksa_public_progress': w.ksa_public_progress,
                       'visitors_can_see_members': w.visitors_can_see_members,
                       'visitors_can_see_visitors': w.visitors_can_see_visitors,
+                      'collect_real_names': w.collect_real_names,
+                      'require_public_email': w.require_public_email,
+                      'allow_public_signup': w.allow_public_signup,
                       'ksa_public_explore': w.ksa_public_explore,
                       'division_label_singular': w.division_label_singular,
                       'division_label_plural': w.division_label_plural,
@@ -15942,6 +16023,9 @@ def import_backup():
                             ksa_public_progress=wd.get('ksa_public_progress', False),
                             visitors_can_see_members=wd.get('visitors_can_see_members', True),
                             visitors_can_see_visitors=wd.get('visitors_can_see_visitors', True),
+                            collect_real_names=wd.get('collect_real_names', True),
+                            require_public_email=wd.get('require_public_email', True),
+                            allow_public_signup=wd.get('allow_public_signup', True),
                             ksa_public_explore=wd.get('ksa_public_explore', False),
                             division_label_singular=wd.get('division_label_singular'),
                             division_label_plural=wd.get('division_label_plural'))
@@ -22219,6 +22303,8 @@ def admin_public_users_page():
         for w in live_websites
     }
     can_manage_divisions = (not current_user.is_sub_admin) or current_user.has_permission('divisions.members')
+    collect_names_by_website = {str(w.id): bool(w.collect_real_names) for w in live_websites}
+    require_email_by_website = {str(w.id): bool(w.require_public_email) for w in live_websites}
     selected_website_id = request.args.get('website_id', type=int) or (live_websites[0].id if live_websites else None)
     # Promotion (sub-admin from a public user) — list the root admin's own
     # permission groups so the modal can pick one. `can_promote_staff` mirrors
@@ -22239,6 +22325,8 @@ def admin_public_users_page():
                            roles_by_website_dicts=roles_by_website_dicts,
                            divisions_by_website_dicts=divisions_by_website_dicts,
                            can_manage_divisions=can_manage_divisions,
+                           collect_names_by_website=collect_names_by_website,
+                           require_email_by_website=require_email_by_website,
                            selected_website_id=selected_website_id,
                            permission_groups_dicts=permission_groups_dicts,
                            promote_requires_group=(_assignable is not None),
@@ -22469,8 +22557,75 @@ def admin_public_users_settings():
         website.visitors_can_see_members = bool(data.get('visitors_can_see_members', True))
     if 'visitors_can_see_visitors' in data:
         website.visitors_can_see_visitors = bool(data.get('visitors_can_see_visitors', True))
+    if 'require_public_email' in data:
+        website.require_public_email = bool(data.get('require_public_email', True))
+    if 'allow_public_signup' in data:
+        website.allow_public_signup = bool(data.get('allow_public_signup', True))
+    if 'collect_real_names' in data:
+        website.collect_real_names = bool(data.get('collect_real_names', True))
+        if not website.collect_real_names:
+            # Youth-privacy purge: permanently delete any first/last names already
+            # collected on this site. Admin mirrors are excluded — they re-sync
+            # their name from the admin account, which this setting doesn't touch.
+            PublicUser.query.filter(
+                PublicUser.website_id == website.id,
+                PublicUser.mirrored_admin_user_id.is_(None),
+            ).update({PublicUser.first_name: None, PublicUser.last_name: None},
+                     synchronize_session=False)
     db.session.commit()
     return _utf8_json({'success': True})
+
+
+@app.route('/admin/users/public/create', methods=['POST'])
+@login_required
+def admin_public_user_create():
+    """Admin creates a member account directly (used when public sign-ups are
+    closed). Username + password required; email/name follow the site's
+    require_public_email / collect_real_names settings. Created active + verified
+    (no self-serve verification needed for an admin-made account)."""
+    if current_user.is_sub_admin and not current_user.has_permission('public_users.edit'):
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
+    data = request.get_json() or {}
+    website = Website.query.filter_by(
+        id=data.get('website_id'), user_id=root_id, is_draft=False).first() if data.get('website_id') else None
+    if not website:
+        return _utf8_json({'error': 'Website not found'}, 404)
+    if not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Public accounts are not enabled for this site.'}, 400)
+
+    username = (data.get('username') or '').strip().lower()
+    password = (data.get('password') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    first_name = (data.get('first_name') or '').strip()
+    last_name = (data.get('last_name') or '').strip()
+    if not getattr(website, 'collect_real_names', True):
+        first_name = last_name = ''
+
+    if not username or not password:
+        return _utf8_json({'error': 'Username and password are required.'}, 400)
+    if len(password) < 8:
+        return _utf8_json({'error': 'Password must be at least 8 characters.'}, 400)
+    if getattr(website, 'require_public_email', True) and not email:
+        return _utf8_json({'error': 'This site requires an email for members.'}, 400)
+
+    conflict = public_username_taken_anywhere(username)
+    if conflict:
+        return _utf8_json({'error': conflict}, 400)
+    if email:
+        taken = (PublicUser.query.filter(PublicUser.website_id == website.id,
+                                         PublicUser.email == email).first()
+                 or User.query.filter(User.email == email).first())
+        if taken:
+            return _utf8_json({'error': 'That email is already in use.'}, 400)
+
+    pu = PublicUser(website_id=website.id, username=username, email=email or None,
+                    first_name=first_name or None, last_name=last_name or None,
+                    email_verified=True, is_active_public=True)
+    pu.set_password(password)
+    db.session.add(pu)
+    db.session.commit()
+    return _utf8_json({'success': True, 'user': {'id': pu.id, 'username': pu.username}}, 201)
 
 
 def _get_owned_public_user(user_id):
@@ -22532,9 +22687,12 @@ def admin_public_user_update(user_id):
     username = (data.get('username') or '').strip().lower()
     email = (data.get('email') or '').strip().lower()
     new_password = (data.get('password') or '').strip()
-    if 'first_name' in data:
+    # Real-name editing is blocked (and names stay purged) when the site has
+    # real-name collection turned off for youth privacy.
+    _collect_names = getattr(u.website, 'collect_real_names', True)
+    if _collect_names and 'first_name' in data:
         u.first_name = data.get('first_name') or ''
-    if 'last_name' in data:
+    if _collect_names and 'last_name' in data:
         u.last_name = data.get('last_name') or ''
     if username and username != u.username:
         # Login usernames are globally unique across every website (+ admins).
@@ -23158,8 +23316,10 @@ def create_admin_user():
     password = (data.get('password') or '').strip()
     perms = data.get('permissions') or {}
     group_id = data.get('permission_group_id') or None
-    if not username or not email or not password:
-        return _utf8_json({'success': False, 'error': 'Username, email and password are required'}, 400)
+    # Email is optional for sub-admins — required only if they use 2FA, which
+    # the login flow prompts for. (The primary owner still sets one at setup.)
+    if not username or not password:
+        return _utf8_json({'success': False, 'error': 'Username and password are required'}, 400)
     if len(password) < 8:
         return _utf8_json({'success': False, 'error': 'Password must be at least 8 characters'}, 400)
     conflict = admin_or_public_username_taken(username, email)
@@ -23180,7 +23340,7 @@ def create_admin_user():
         website_perms = {}
     sub = User(
         username=username,
-        email=email,
+        email=email or None,
         first_name=(data.get('first_name') or ''),
         last_name=(data.get('last_name') or ''),
         password_hash=generate_password_hash(password),
@@ -25207,6 +25367,18 @@ def public_register():
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
 
+    # Self-registration can be closed (admins create accounts instead).
+    if not getattr(website, 'allow_public_signup', True):
+        if request.method == 'POST':
+            flash('Public sign-ups are closed on this site. Please contact an admin for an account.', 'error')
+        login_kwargs = {}
+        if website.url_prefix:
+            login_kwargs['website_prefix'] = website.url_prefix
+        return render_template('public_forum_register.html', website=website,
+                               public_user=_public_user_for_website(website),
+                               signups_closed=True,
+                               content={'current_page_url': url_for('public_register')})
+
     # Preserve the intended destination across the form POST / error retries;
     # only allow site-relative targets (no open redirects).
     _raw_next = (request.values.get('next') or '').strip()
@@ -25234,9 +25406,17 @@ def public_register():
         password = request.form.get('password') or ''
         first_name = request.form.get('first_name', '')
         last_name = request.form.get('last_name', '')
+        # Youth-privacy: when real-name collection is off, never store names even
+        # if the fields were submitted (e.g. a hand-crafted request).
+        if not getattr(website, 'collect_real_names', True):
+            first_name = ''
+            last_name = ''
 
-        if not username or not email or not password:
-            flash('Please fill out all fields.', 'error')
+        # Email is optional when the site doesn't require it (youth/minor mode).
+        require_email = getattr(website, 'require_public_email', True)
+        if not username or not password or (require_email and not email):
+            flash('Please fill out all fields.' if require_email
+                  else 'Please enter a username and password.', 'error')
             return _register_redirect()
 
         if len(password) < 8:
@@ -25252,22 +25432,26 @@ def public_register():
 
         # Email stays unique per-website: this site's public users, plus the
         # admin namespace (so admin mirrors never collide with a real account).
-        email_taken = (
-            PublicUser.query.filter(
-                PublicUser.website_id == website.id,
-                PublicUser.email == email,
-            ).first()
-            or User.query.filter(User.email == email).first()
-        )
-        if email_taken:
-            flash('That email is already in use.', 'error')
-            return _register_redirect()
+        # Only checked when an email was actually provided.
+        if email:
+            email_taken = (
+                PublicUser.query.filter(
+                    PublicUser.website_id == website.id,
+                    PublicUser.email == email,
+                ).first()
+                or User.query.filter(User.email == email).first()
+            )
+            if email_taken:
+                flash('That email is already in use.', 'error')
+                return _register_redirect()
 
-        email_verified = not getattr(website, 'public_email_verification_enabled', False)
+        # Nothing to verify without an email → treat as verified so login isn't
+        # blocked by a verification requirement.
+        email_verified = (not email) or not getattr(website, 'public_email_verification_enabled', False)
         public_user = PublicUser(
             website_id=website.id,
             username=username,
-            email=email,
+            email=email or None,
             first_name=first_name,
             last_name=last_name,
             email_verified=email_verified
@@ -25280,7 +25464,7 @@ def public_register():
         db.session.add(public_user)
         db.session.commit()
 
-        if getattr(website, 'public_email_verification_enabled', False):
+        if email and getattr(website, 'public_email_verification_enabled', False):
             try:
                 send_public_user_verification_email(public_user)
                 flash('Account created. Please check your email to verify your account.', 'success')
@@ -25291,7 +25475,7 @@ def public_register():
                     'error'
                 )
 
-            return _login_redirect(next=safe_next or _website_default_url(website))
+            return _login_redirect(next=safe_next or _website_home_url(website))
 
         if getattr(website, 'public_approval_required', False) and not public_user.is_active_public:
             flash('Your account has been created and is pending admin approval.', 'success')
@@ -25299,7 +25483,8 @@ def public_register():
 
         public_user_login(public_user)
 
-        next_url = safe_next or _website_default_url(website)
+        # Land on the page they were headed to, else the site home (not the forum).
+        next_url = safe_next or _website_home_url(website)
 
         return redirect(next_url)
 
@@ -25311,6 +25496,7 @@ def public_register():
         'public_forum_register.html',
         website=website,
         public_user=_public_user_for_website(website),
+        next_url=safe_next,
         content=content
     )
 
@@ -25394,7 +25580,7 @@ def public_login():
                 _needs_2fa = admin_requires_2fa(admin)
                 _two_fa_email = _admin_two_fa_email(admin)
                 if _needs_2fa:
-                    next_q = safe_next or _website_default_url(website)
+                    next_q = safe_next or _website_home_url(website)
                     if not _two_fa_email:
                         # Defensive fallback — shouldn't normally happen.
                         flash('Your admin account requires two-factor verification, '
@@ -25441,7 +25627,7 @@ def public_login():
                 if mirror:
                     public_user_login(mirror)
                 _rl_record(ip, login_value, success=True)
-                next_url = safe_next or _website_default_url(website)
+                next_url = safe_next or _website_home_url(website)
                 return redirect(next_url)
 
             _rl_record(ip, login_value, success=False)
@@ -25479,7 +25665,7 @@ def public_login():
                 _rv_kwargs['website_prefix'] = website_prefix
             return redirect(url_for('public_resend_verification', **_rv_kwargs))
 
-        next_url = safe_next or _website_default_url(website)
+        next_url = safe_next or _website_home_url(website)
 
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
@@ -25734,7 +25920,7 @@ def public_login_link(token):
         login_kwargs['website_prefix'] = website.url_prefix
 
     safe_next = next_url if (next_url.startswith('/') and not next_url.startswith('//')) else ''
-    next_target = safe_next or _website_default_url(website)
+    next_target = safe_next or _website_home_url(website)
 
     if request.method != 'POST':
         display_name = admin.username if admin else public_user.effective_display_name
@@ -27108,6 +27294,8 @@ def public_account_set_name(prefix=None):
         return _utf8_json({'error': 'Not found'}, 404)
     if public_user.is_admin_mirror:
         return _utf8_json({'error': 'Admin mirrors are managed from admin settings.'}, 400)
+    if not getattr(website, 'collect_real_names', True):
+        return _utf8_json({'error': 'Real names are not collected on this site.'}, 400)
 
     body = request.get_json(silent=True) or {}
     first_name = (request.form.get('first_name') or body.get('first_name') or '')
@@ -28258,6 +28446,14 @@ def _website_default_url(website):
         return f'/{website.url_prefix}'
     if website and website.forum_enabled:
         return url_for('public_forum')
+    return url_for('home_page')
+
+
+def _website_home_url(website):
+    """The site's home page URL (prefers the home page over the forum). Used as
+    the fallback landing after sign-up so new members aren't dumped in the forum."""
+    if website and website.url_prefix:
+        return f'/{website.url_prefix}'
     return url_for('home_page')
 
 
