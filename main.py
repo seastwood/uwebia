@@ -3376,6 +3376,9 @@ class Resource(db.Model):
     icon        = db.Column(db.String(60), nullable=True)    # optional FA class override
     category_id = db.Column(db.Integer, db.ForeignKey('resource_category.id', ondelete='SET NULL'),
                             nullable=True, index=True)
+    # Optional grouping within a category (Category → Bundle → Resource).
+    bundle_id   = db.Column(db.Integer, db.ForeignKey('resource_bundle.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
     # Listed on the public Resources tab. Default True — creating a resource
     # means you intend to share it; toggle off to keep it as a draft.
     is_public   = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
@@ -3392,6 +3395,7 @@ class Resource(db.Model):
                               nullable=True)
     category    = db.relationship('ResourceCategory',
                                   backref=db.backref('resources', lazy='dynamic'))
+    bundle      = db.relationship('ResourceBundle', backref=db.backref('resources', lazy='dynamic'))
     updated_by  = db.relationship('User', foreign_keys=[updated_by_id])
 
     def item_list(self):
@@ -3414,10 +3418,37 @@ class Resource(db.Model):
                 'resource_type': self.resource_type, 'url': self.url or '',
                 'items': self.item_list(),
                 'content': self.content or '', 'icon': self.icon or '',
-                'category_id': self.category_id, 'is_public': self.is_public,
+                'category_id': self.category_id, 'bundle_id': self.bundle_id,
+                'is_public': self.is_public,
                 'require_login_to_view': self.require_login_to_view,
                 'members_only': self.members_only,
                 'sort_order': self.sort_order}
+
+
+class ResourceBundle(db.Model):
+    """A named grouping of resources INSIDE a category (Category → Bundle →
+    Resource). Lets related resources — e.g. a how-to video plus its written
+    steps and a checklist file — sit together as one titled group, mirroring how
+    categories group resources one level up."""
+    __tablename__ = 'resource_bundle'
+    id          = db.Column(db.Integer, primary_key=True)
+    website_id  = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    # Which category this bundle appears under (NULL = the Uncategorized area).
+    category_id = db.Column(db.Integer, db.ForeignKey('resource_category.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
+    name        = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color       = db.Column(db.String(20), nullable=True)
+    icon        = db.Column(db.String(60), nullable=True)
+    sort_order  = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    category    = db.relationship('ResourceCategory', backref=db.backref('bundles', lazy='dynamic'))
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'description': self.description or '',
+                'color': self.color or '', 'icon': self.icon or '',
+                'category_id': self.category_id, 'sort_order': self.sort_order}
 
 
 class Newsletter(db.Model):
@@ -14695,6 +14726,8 @@ def _serialize_backup(uid):
         Quiz.website_id.in_(website_ids)).all() if website_ids else []
     resource_categories = ResourceCategory.query.filter(
         ResourceCategory.website_id.in_(website_ids)).all() if website_ids else []
+    resource_bundles = ResourceBundle.query.filter(
+        ResourceBundle.website_id.in_(website_ids)).all() if website_ids else []
     resources = Resource.query.filter(
         Resource.website_id.in_(website_ids)).all() if website_ids else []
     _quiz_ids = [q.id for q in quizzes]
@@ -15608,10 +15641,17 @@ def _serialize_backup(uid):
                                  'icon': c.icon, 'sort_order': c.sort_order,
                                  'created_at': c.created_at.isoformat() if c.created_at else None,
                                  } for c in resource_categories],
+        'resource_bundles': [{'id': b.id, 'website_id': b.website_id,
+                               'category_id': b.category_id, 'name': b.name,
+                               'description': b.description, 'color': b.color,
+                               'icon': b.icon, 'sort_order': b.sort_order,
+                               'created_at': b.created_at.isoformat() if b.created_at else None,
+                               } for b in resource_bundles],
         'resources': [{'id': r.id, 'website_id': r.website_id, 'title': r.title,
                        'description': r.description, 'resource_type': r.resource_type,
                        'url': r.url, 'items': r.items, 'content': r.content, 'icon': r.icon,
-                       'category_id': r.category_id, 'is_public': r.is_public,
+                       'category_id': r.category_id, 'bundle_id': r.bundle_id,
+                       'is_public': r.is_public,
                        'require_login_to_view': r.require_login_to_view,
                        'members_only': r.members_only,
                        'sort_order': r.sort_order,
@@ -16686,6 +16726,21 @@ def import_backup():
                 db.session.flush()
                 resource_cat_map[cd['id']] = rc.id
 
+            resource_bundle_map = {}
+            for bd in data.get('resource_bundles', []):
+                new_wid = website_map.get(bd['website_id'])
+                if not new_wid:
+                    continue
+                rb = ResourceBundle(
+                    website_id=new_wid, name=bd['name'],
+                    category_id=resource_cat_map.get(bd['category_id']) if bd.get('category_id') else None,
+                    description=bd.get('description'), color=bd.get('color'),
+                    icon=bd.get('icon'), sort_order=bd.get('sort_order', 0),
+                    created_at=datetime.fromisoformat(bd['created_at']) if bd.get('created_at') else None)
+                db.session.add(rb)
+                db.session.flush()
+                resource_bundle_map[bd['id']] = rb.id
+
             resource_map = {}
             for rd in data.get('resources', []):
                 new_wid = website_map.get(rd['website_id'])
@@ -16697,6 +16752,7 @@ def import_backup():
                     resource_type=rd.get('resource_type', 'link'),
                     url=rd.get('url'), items=rd.get('items'), content=rd.get('content'), icon=rd.get('icon'),
                     category_id=resource_cat_map.get(rd['category_id']) if rd.get('category_id') else None,
+                    bundle_id=resource_bundle_map.get(rd['bundle_id']) if rd.get('bundle_id') else None,
                     is_public=rd.get('is_public', True),
                     require_login_to_view=rd.get('require_login_to_view', False),
                     members_only=rd.get('members_only', False),
@@ -35105,14 +35161,33 @@ def public_guides_index(prefix=None):
         public_resources = [r for r in public_resources if not r.members_only]
     resource_cats = ResourceCategory.query.filter_by(website_id=website.id).order_by(
         ResourceCategory.sort_order, ResourceCategory.name).all()
+    resource_bundles = ResourceBundle.query.filter_by(website_id=website.id).order_by(
+        ResourceBundle.sort_order, ResourceBundle.name).all()
+
+    def _bundle_group(res_in_cat, category_id):
+        """Split a category's resources into their bundles (titled sub-groups,
+        only those with at least one visible resource) followed by the loose
+        ones. Returns (bundle_groups, loose_resources)."""
+        cat_bundles = [b for b in resource_bundles if b.category_id == category_id]
+        cat_bundle_ids = {b.id for b in cat_bundles}
+        b_groups = []
+        for b in cat_bundles:
+            members = [r for r in res_in_cat if r.bundle_id == b.id]
+            if members:
+                b_groups.append({'bundle': b, 'resources': members})
+        loose = [r for r in res_in_cat if not r.bundle_id or r.bundle_id not in cat_bundle_ids]
+        return b_groups, loose
+
     grouped_resources = []
     for c in resource_cats:
         in_cat = [r for r in public_resources if r.category_id == c.id]
-        if in_cat:
-            grouped_resources.append({'category': c, 'resources': in_cat})
+        b_groups, loose = _bundle_group(in_cat, c.id)
+        if b_groups or loose:
+            grouped_resources.append({'category': c, 'bundles': b_groups, 'resources': loose})
     resources_uncat = [r for r in public_resources if r.category_id is None]
     if resources_uncat:
-        grouped_resources.append({'category': None, 'resources': resources_uncat})
+        b_groups, loose = _bundle_group(resources_uncat, None)
+        grouped_resources.append({'category': None, 'bundles': b_groups, 'resources': loose})
     resp = make_response(render_template(
         'guides_index.html', website=website, guides=guides,
         grouped_guides=grouped_guides, single_lesson_entry=single_lesson_entry,
@@ -35972,16 +36047,35 @@ def admin_resources_page():
         return render_template('no_site_found.html'), 404
     categories = ResourceCategory.query.filter_by(website_id=website.id).order_by(
         ResourceCategory.sort_order, ResourceCategory.name).all()
+    bundles = ResourceBundle.query.filter_by(website_id=website.id).order_by(
+        ResourceBundle.sort_order, ResourceBundle.name).all()
     resources = Resource.query.filter_by(website_id=website.id).order_by(
         Resource.sort_order, Resource.created_at.desc()).all()
+
+    # Group by category, and within each category split resources into their
+    # bundles (a titled sub-group) followed by the loose ones.
+    def _bundled(res_list, category_id):
+        cat_bundles = [b for b in bundles if b.category_id == category_id]
+        groups = []
+        for b in cat_bundles:
+            members = [r for r in res_list if r.bundle_id == b.id]
+            groups.append({'bundle': b, 'resources': members})
+        loose = [r for r in res_list if r.bundle_id is None
+                 or r.bundle_id not in {b.id for b in cat_bundles}]
+        return groups, loose
+
     grouped = []
     for c in categories:
-        grouped.append({'category': c, 'resources': [r for r in resources if r.category_id == c.id]})
+        res_in_cat = [r for r in resources if r.category_id == c.id]
+        b_groups, loose = _bundled(res_in_cat, c.id)
+        grouped.append({'category': c, 'bundles': b_groups, 'resources': loose})
     uncategorized = [r for r in resources if r.category_id is None]
-    if uncategorized:
-        grouped.append({'category': None, 'resources': uncategorized})
+    if uncategorized or [b for b in bundles if b.category_id is None]:
+        b_groups, loose = _bundled(uncategorized, None)
+        grouped.append({'category': None, 'bundles': b_groups, 'resources': loose})
     return render_template('resources_admin.html', website=website,
-                           categories=categories, grouped=grouped,
+                           categories=categories, bundles=bundles, grouped=grouped,
+                           bundles_dicts=[b.to_dict() for b in bundles],
                            resource_count=len(resources))
 
 
@@ -36045,6 +36139,18 @@ def _apply_resource_fields(r, data, website):
     else:
         cat = ResourceCategory.query.filter_by(id=int(raw), website_id=website.id).first()
         r.category_id = cat.id if cat else None
+    # Optional bundle within the category. A valid bundle also pins the resource
+    # to that bundle's category so the two never disagree.
+    raw_bundle = data.get('bundle_id')
+    if raw_bundle in (None, '', 0, '0'):
+        r.bundle_id = None
+    else:
+        bundle = ResourceBundle.query.filter_by(id=int(raw_bundle), website_id=website.id).first()
+        if bundle:
+            r.bundle_id = bundle.id
+            r.category_id = bundle.category_id
+        else:
+            r.bundle_id = None
     r.is_public = bool(data.get('is_public', True))
     r.require_login_to_view = bool(data.get('require_login_to_view', False))
     r.members_only = bool(data.get('members_only', False))
@@ -36190,7 +36296,92 @@ def admin_resource_categories_delete(cid):
     if cat is None:
         return website
     Resource.query.filter_by(category_id=cat.id).update({'category_id': None})
+    # Bundles in this category fall back to Uncategorized (SET NULL handles it,
+    # but be explicit so the relationship cache stays right).
+    ResourceBundle.query.filter_by(category_id=cat.id).update({'category_id': None})
     db.session.delete(cat)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+# ── Resource bundles (a grouping of resources within a category) ─────────────
+
+def _resolve_resource_category_id(website, raw):
+    """Validate a submitted category id for this website; '' / 0 / None → None."""
+    if raw in (None, '', 0, '0'):
+        return None
+    cat = ResourceCategory.query.filter_by(id=int(raw), website_id=website.id).first()
+    return cat.id if cat else None
+
+
+@app.route('/admin/resources/bundles/create', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resource_bundles_create():
+    website = get_admin_website()
+    if not website:
+        return _utf8_json({'success': False, 'error': 'No website found'}, 400)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    max_sort = db.session.query(db.func.max(ResourceBundle.sort_order)).filter_by(
+        website_id=website.id).scalar()
+    bundle = ResourceBundle(
+        website_id=website.id, name=name,
+        category_id=_resolve_resource_category_id(website, data.get('category_id')),
+        description=(data.get('description') or '').strip() or None,
+        color=(data.get('color') or '').strip() or None,
+        icon=(data.get('icon') or '').strip() or None,
+        sort_order=(max_sort or 0) + 1,
+    )
+    db.session.add(bundle)
+    db.session.commit()
+    return _utf8_json({'success': True, 'bundle': bundle.to_dict()}, 201)
+
+
+def _admin_resource_bundle_or_403(bid):
+    bundle = ResourceBundle.query.get_or_404(bid)
+    website = get_admin_website()
+    if not website or bundle.website_id != website.id:
+        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403), None
+    return website, bundle
+
+
+@app.route('/admin/resources/bundles/<int:bid>/update', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resource_bundles_update(bid):
+    website, bundle = _admin_resource_bundle_or_403(bid)
+    if bundle is None:
+        return website
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Name is required'}, 400)
+    bundle.name = name
+    if 'category_id' in data:
+        new_cat = _resolve_resource_category_id(website, data.get('category_id'))
+        bundle.category_id = new_cat
+        # Keep member resources in sync with the bundle's category.
+        Resource.query.filter_by(bundle_id=bundle.id).update({'category_id': new_cat})
+    bundle.description = (data.get('description') or '').strip() or None
+    bundle.color = (data.get('color') or '').strip() or None
+    bundle.icon = (data.get('icon') or '').strip() or None
+    db.session.commit()
+    return _utf8_json({'success': True, 'bundle': bundle.to_dict()})
+
+
+@app.route('/admin/resources/bundles/<int:bid>/delete', methods=['POST'])
+@login_required
+@require_perm('resources.manage')
+def admin_resource_bundles_delete(bid):
+    website, bundle = _admin_resource_bundle_or_403(bid)
+    if bundle is None:
+        return website
+    # Resources keep their category; they just leave the bundle.
+    Resource.query.filter_by(bundle_id=bundle.id).update({'bundle_id': None})
+    db.session.delete(bundle)
     db.session.commit()
     return _utf8_json({'success': True})
 
