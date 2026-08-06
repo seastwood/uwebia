@@ -17,7 +17,10 @@
 .ra-btn-secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); }
 .ra-btn:hover { opacity: 0.9; }
 .ra-section { margin-bottom: 34px; }
-.ra-section-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.ra-section-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; cursor: pointer; user-select: none; }
+.ra-cat-caret { opacity: 0.55; font-size: 0.85rem; transition: transform 0.15s; }
+.ra-section.collapsed .ra-cat-caret { transform: rotate(-90deg); }
+.ra-section.collapsed > .ra-bundle, .ra-section.collapsed > .ra-list { display: none; }
 .ra-section-title { font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0; display: inline-flex; align-items: center; gap: 8px; }
 .ra-section-count { font-size: 0.7rem; font-weight: 700; opacity: 0.55; padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); }
 .ra-cat-edit { background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
@@ -144,8 +147,9 @@
 
     {% for grp in grouped %}
     {% set _cat_total = grp.resources|length + (grp.bundles|map(attribute='resources')|map('length')|sum) %}
-    <section class="ra-section">
-        <div class="ra-section-head">
+    <section class="ra-section collapsed">
+        <div class="ra-section-head" onclick="raToggleCat(this, event)">
+            <i class="fas fa-chevron-down ra-cat-caret"></i>
             <h2 class="ra-section-title">
                 {% if grp.category %}
                 {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" {% if grp.category.color %}style="color:{{ grp.category.color }};"{% endif %}></i>{% endif %}
@@ -315,6 +319,13 @@
 </div>
 
 <script>
+// Categories start collapsed on load; click the header to expand/collapse.
+// Clicks on the Bundle/Category action buttons don't toggle the section.
+function raToggleCat(head, e) {
+    if (e && e.target.closest('.ra-head-actions, button, a')) return;
+    head.closest('.ra-section').classList.toggle('collapsed');
+}
+
 let _resQuill = null, _resType = 'link', _apCb = null, _apFolder = null;
 let _resItems = [];   // [{url, label}] for link/file/video
 const BUNDLES = {{ bundles_dicts | tojson }};   // [{id, name, category_id, ...}]

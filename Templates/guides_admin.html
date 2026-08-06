@@ -70,8 +70,11 @@
 .ga-cats-empty { font-size: 0.84rem; color: rgba(255,255,255,0.4); margin: 0; }
 
 .ga-group { margin-bottom: 32px; }
-.ga-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); }
+.ga-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); cursor: pointer; user-select: none; }
 .ga-group-count { font-size: 0.72rem; opacity: 0.5; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.07); font-weight: 600; }
+.ga-cat-caret { margin-left: auto; opacity: 0.55; font-size: 0.85rem; transition: transform 0.15s; }
+.ga-group.collapsed .ga-cat-caret { transform: rotate(-90deg); }
+.ga-group.collapsed .pa-grid { display: none; }
 
 .ga-site-settings { margin: -14px 0 26px; padding: 12px 16px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); }
 .ga-toggle { display: flex; align-items: center; gap: 10px; font-size: 0.87rem; color: rgba(255,255,255,0.75); cursor: pointer; flex-wrap: wrap; }
@@ -159,8 +162,8 @@
     {% endif %}
     <div id="guideGrid">
         {% for grp in grouped_guides %}
-        <div class="ga-group" data-catid="{{ grp.category.id if grp.category else '' }}">
-            <h3 class="ga-group-title">
+        <div class="ga-group collapsed" data-catid="{{ grp.category.id if grp.category else '' }}">
+            <h3 class="ga-group-title" onclick="gaToggleCat(this, event)">
                 {% if user_has_perm('guides.manage') and not guides_restricted and grp.category %}
                 <i class="fas fa-grip-vertical ga-drag" title="Drag to reorder this category"></i>
                 {% endif %}
@@ -171,6 +174,7 @@
                 <span style="opacity:0.6;">Uncategorized</span>
                 {% endif %}
                 <span class="ga-group-count">{{ grp.guides|length }}</span>
+                <i class="fas fa-chevron-down ga-cat-caret"></i>
             </h3>
             <div class="pa-grid" data-cat="{{ grp.category.id if grp.category else '' }}">
                 {% for g in grp.guides %}
@@ -475,6 +479,13 @@
 
 <script>
 let _gdelId = null;
+
+// Collapse/expand a category section (categories start collapsed on load).
+// Clicks on the drag handle don't toggle so reordering still works.
+function gaToggleCat(header, e) {
+    if (e && e.target.closest('.ga-drag')) return;
+    header.closest('.ga-group').classList.toggle('collapsed');
+}
 
 // ── Site-level settings for the public guides page ────────────────────────
 async function gaSaveSiteSettings(cb) {

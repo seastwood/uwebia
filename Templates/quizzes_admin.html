@@ -59,8 +59,11 @@
 .qa-cats-empty { font-size: 0.84rem; color: rgba(255,255,255,0.4); margin: 0; }
 
 .qa-group { margin-bottom: 32px; }
-.qa-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); }
+.qa-group-title { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: 700; margin: 0 0 12px; color: rgba(255,255,255,0.85); cursor: pointer; user-select: none; }
 .qa-group-count { font-size: 0.72rem; opacity: 0.5; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,0.07); font-weight: 600; }
+.qa-cat-caret { margin-left: auto; opacity: 0.55; font-size: 0.85rem; transition: transform 0.15s; }
+.qa-group.collapsed .qa-cat-caret { transform: rotate(-90deg); }
+.qa-group.collapsed .pa-grid { display: none; }
 .cat-icon-preview { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #5eeef8; flex-shrink: 0; }
 
 .qa-runner { margin-top: 40px; padding: 14px 18px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.02); }
@@ -137,8 +140,8 @@
     {% if quizzes %}
     <div id="quizGrid">
         {% for grp in grouped_quizzes %}
-        <div class="qa-group">
-            <h3 class="qa-group-title">
+        <div class="qa-group collapsed">
+            <h3 class="qa-group-title" onclick="qaToggleCat(this)">
                 {% if grp.category %}
                 {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}" style="{% if grp.category.color %}color:{{ grp.category.color }};{% endif %}"></i>{% endif %}
                 {{ grp.category.name }}
@@ -146,6 +149,7 @@
                 <span style="opacity:0.6;">Uncategorized</span>
                 {% endif %}
                 <span class="qa-group-count">{{ grp.quizzes|length }}</span>
+                <i class="fas fa-chevron-down qa-cat-caret"></i>
             </h3>
             <div class="pa-grid">
                 {% for q in grp.quizzes %}
@@ -411,6 +415,11 @@
 <script>
 let _qdelId = null;
 let _catDelId = null;
+
+// Categories start collapsed on load; click the header to expand/collapse.
+function qaToggleCat(header) {
+    header.closest('.qa-group').classList.toggle('collapsed');
+}
 
 // ── Duplicate quiz ──────────────────────────────────────────────────────────
 async function duplicateQuiz(id) {
