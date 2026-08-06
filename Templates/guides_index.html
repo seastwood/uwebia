@@ -82,6 +82,12 @@
 .gi-rsc-tag { flex-shrink: 0; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 99px; background: rgba(127,127,127,0.2); opacity: 0.85; white-space: nowrap; }
 .gi-rsc-lock { flex-shrink: 0; align-self: flex-start; opacity: 0.55; font-size: 0.82rem; margin-top: 2px; }
 .gi-rsc-go { flex-shrink: 0; align-self: center; opacity: 0.4; font-size: 0.8rem; }
+/* Tab search box (guides / quizzes / resources) */
+.gi-search { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.28); background: rgba(127,127,127,0.06); }
+.gi-search i { opacity: 0.5; font-size: 0.9rem; }
+.gi-search input { flex: 1; appearance: none; -webkit-appearance: none; background: none; border: none; color: inherit; font: inherit; font-size: 0.95rem; outline: none; min-width: 0; }
+.gi-search input::placeholder { color: inherit; opacity: 0.5; }
+.gi-search-empty { text-align: center; opacity: 0.55; font-size: 0.92rem; padding: 24px 12px; }
 .gi-quiz-ic { background: linear-gradient(135deg, rgba(180,140,255,0.2), rgba(94,238,248,0.14)); }
 .gi-quiz-row.is-passed { border-color: rgba(94,238,200,0.5); background: rgba(94,238,200,0.07); }
 .gi-quiz-row.is-passed .gi-rsc-ic { background: rgba(94,238,200,0.22); color: #5eeec8; }
@@ -184,7 +190,8 @@
 {% endblock %}
 
 {% block content %}
-{% macro guide_card(g) -%}
+{% macro guide_card(g, cat_name='') -%}
+    {% set _gsearch = (g.title ~ ' ' ~ (g.description or '') ~ ' ' ~ cat_name) | lower %}
     {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
     {% set comp = completion_by_guide.get(g.id) if completion_by_guide else None %}
     {% set is_done = comp and comp.total > 0 and comp.completed >= comp.total %}
@@ -194,7 +201,7 @@
     {# Prerequisite state: {unmet:[...], locked:bool}. Locked cards can't be opened. #}
     {% set _pq = prereq_state.get(g.id) if prereq_state else None %}
     {% if _pq and _pq.locked %}
-    <div class="gi-card gi-card-locked" title="Complete the prerequisite guides first">
+    <div class="gi-card gi-card-locked" data-search="{{ _gsearch }}" title="Complete the prerequisite guides first">
         <div class="gi-cover-wrap">
             {% if g.cover_image_url %}
             <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
@@ -215,7 +222,7 @@
     </div>
     {% else %}
     {# In-progress guides resume at the first incomplete lesson instead of the cover. #}
-    <a class="gi-card" href="{{ (_gurl + '/' + comp.next_slug) if (in_progress and comp.next_slug) else ((_gurl + '/' + _entry) if _entry else _gurl) }}">
+    <a class="gi-card" data-search="{{ _gsearch }}" href="{{ (_gurl + '/' + comp.next_slug) if (in_progress and comp.next_slug) else ((_gurl + '/' + _entry) if _entry else _gurl) }}">
         <div class="gi-cover-wrap">
             {% if g.cover_image_url %}
             <img class="gi-cover" src="{{ g.cover_image_url }}" alt="{{ g.title }}">
@@ -258,11 +265,11 @@
     </div>
 {%- endmacro %}
 
-{% macro quiz_card(q) -%}
+{% macro quiz_card(q, cat_name='') -%}
     {% set _qcount = quiz_question_counts.get(q.id, 0) %}
     {% set _qs = quiz_status.get(q.id) if quiz_status else None %}
     {% set _status = _qs.status if _qs else 'none' %}
-    <a class="gi-rsc-row gi-quiz-row{% if _status == 'passed' %} is-passed{% endif %}" href="{{ url_for('public_quiz_page', qid=q.id) }}">
+    <a class="gi-rsc-row gi-quiz-row{% if _status == 'passed' %} is-passed{% endif %}" data-search="{{ (q.title ~ ' ' ~ (q.description or '') ~ ' ' ~ cat_name) | lower }}" href="{{ url_for('public_quiz_page', qid=q.id) }}">
         <span class="gi-rsc-ic gi-quiz-ic">{% if _status == 'passed' %}<i class="fas fa-circle-check"></i>{% else %}<i class="fas fa-clipboard-check"></i>{% endif %}</span>
         <span class="gi-rsc-main">
             <span class="gi-rsc-title">{{ q.title }}</span>
@@ -280,13 +287,13 @@
     </a>
 {%- endmacro %}
 
-{% macro resource_card(r) -%}
+{% macro resource_card(r, cat_name='') -%}
     {% set _rt = r.resource_type %}
     {% set _icon = r.icon or {'link': 'fa-link', 'file': 'fa-file-arrow-down', 'video': 'fa-play', 'page': 'fa-file-lines'}.get(_rt, 'fa-folder') %}
     {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(_rt, '') %}
     {# Compact list row. All types route through /resource/<id> so the login gate
        applies; links & files redirect (new tab), videos & pages render on-site. #}
-    <a class="gi-rsc-row" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
+    <a class="gi-rsc-row" data-search="{{ (r.title ~ ' ' ~ (r.description or '') ~ ' ' ~ cat_name ~ ' ' ~ _tlabel) | lower }}" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
         <span class="gi-rsc-ic"><i class="fas {{ _icon }}"></i></span>
         <span class="gi-rsc-main">
             <span class="gi-rsc-title">{{ r.title }}</span>
@@ -330,6 +337,14 @@
     {% endif %}
 
     <div class="gi-tab-panel" data-tab="guides">
+
+    {% if guides %}
+    <div class="gi-search">
+        <i class="fas fa-magnifying-glass"></i>
+        <input type="search" class="gi-search-input" placeholder="Search guides…" autocomplete="off" aria-label="Search guides">
+    </div>
+    <p class="gi-search-empty" hidden>No guides match your search.</p>
+    {% endif %}
 
     {% if guides and navbar_public_accounts_enabled and not navbar_public_user and (guides|selectattr('track_progress')|list) %}
     {% set _login_url = url_for('public_login', website_prefix=website.url_prefix, next=request.path) if website.url_prefix else url_for('public_login', next=request.path) %}
@@ -420,7 +435,7 @@
             {% if not is_done and not pth.next_found %}{% set pth.next_found = true %}{% endif %}
             {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
             {% set _in_prog = c and c.completed > 0 and not is_done %}
-            <li class="gi-step is-{{ state }}">
+            <li class="gi-step is-{{ state }}" data-search="{{ (g.title ~ ' ' ~ (g.description or '') ~ ' ' ~ (grp.category.name if grp.category else '')) | lower }}">
                 <span class="gi-step-marker">{% if is_done %}<i class="fas fa-check"></i>{% else %}{{ loop.index }}{% endif %}</span>
                 <a class="gi-step-card" href="{{ (_gurl + '/' + c.next_slug) if (_in_prog and c.next_slug) else _gurl }}">
                     <div class="gi-step-body">
@@ -439,7 +454,7 @@
         </ol>
         {% else %}
         <div class="gi-grid">
-            {% for g in grp.guides %}{{ guide_card(g) }}{% endfor %}
+            {% for g in grp.guides %}{{ guide_card(g, grp.category.name if grp.category else 'Uncategorized') }}{% endfor %}
         </div>
         {% endif %}
     </section>
@@ -450,6 +465,11 @@
 
     {% if grouped_quizzes %}
     <div class="gi-tab-panel" data-tab="quizzes" hidden>
+        <div class="gi-search">
+            <i class="fas fa-magnifying-glass"></i>
+            <input type="search" class="gi-search-input" placeholder="Search quizzes…" autocomplete="off" aria-label="Search quizzes">
+        </div>
+        <p class="gi-search-empty" hidden>No quizzes match your search.</p>
         {# Continue quizzes — in-progress (a saved draft) with one-click resume. #}
         {% set _q_inprog = [] %}
         {% for grp in grouped_quizzes %}{% for q in grp.quizzes %}
@@ -490,7 +510,7 @@
             <p class="gi-section-desc">{{ grp.category.description }}</p>
             {% endif %}
             <div class="gi-rsc-list">
-                {% for q in grp.quizzes %}{{ quiz_card(q) }}{% endfor %}
+                {% for q in grp.quizzes %}{{ quiz_card(q, grp.category.name if grp.category else 'Uncategorized') }}{% endfor %}
             </div>
         </section>
         {% endfor %}
@@ -500,6 +520,11 @@
 
     {% if grouped_resources %}
     <div class="gi-tab-panel" data-tab="resources" hidden>
+        <div class="gi-search">
+            <i class="fas fa-magnifying-glass"></i>
+            <input type="search" class="gi-search-input" placeholder="Search resources…" autocomplete="off" aria-label="Search resources">
+        </div>
+        <p class="gi-search-empty" hidden>No resources match your search.</p>
         {% if grouped_resources|length == 1 and grouped_resources[0].category is none %}
         <div class="gi-rsc-list">
             {% for r in grouped_resources[0].resources %}{{ resource_card(r) }}{% endfor %}
@@ -522,7 +547,7 @@
             <p class="gi-section-desc">{{ grp.category.description }}</p>
             {% endif %}
             <div class="gi-rsc-list">
-                {% for r in grp.resources %}{{ resource_card(r) }}{% endfor %}
+                {% for r in grp.resources %}{{ resource_card(r, grp.category.name if grp.category else 'Uncategorized') }}{% endfor %}
             </div>
         </section>
         {% endfor %}
@@ -548,5 +573,42 @@
     })();
     </script>
     {% endif %}
+
+    <script>
+    // Live search for a tab: filter items by their data-search text, hide
+    // emptied category sections, and tuck away aids (Continue…/login offer)
+    // while a query is active. Runs regardless of whether the tab chrome exists
+    // (a guides-only site still gets guide search).
+    function giSetupSearch(tabName, rowSelector) {
+        var panel = document.querySelector('.gi-tab-panel[data-tab="' + tabName + '"]');
+        if (!panel) return;
+        var input = panel.querySelector('.gi-search-input');
+        if (!input) return;
+        var empty = panel.querySelector('.gi-search-empty');
+        var rows = Array.prototype.slice.call(panel.querySelectorAll(rowSelector));
+        var sections = Array.prototype.slice.call(panel.querySelectorAll('.gi-section'));
+        var aids = Array.prototype.slice.call(panel.querySelectorAll('.gi-continue, .gi-login-offer'));
+        input.addEventListener('input', function () {
+            var q = input.value.trim().toLowerCase();
+            var searching = q.length > 0;
+            var anyVisible = false;
+            rows.forEach(function (row) {
+                var match = !q || (row.getAttribute('data-search') || '').indexOf(q) >= 0;
+                row.style.display = match ? '' : 'none';
+                if (match) anyVisible = true;
+            });
+            sections.forEach(function (sec) {
+                var secRows = sec.querySelectorAll(rowSelector);
+                var visible = Array.prototype.some.call(secRows, function (r) { return r.style.display !== 'none'; });
+                sec.style.display = visible ? '' : 'none';
+            });
+            aids.forEach(function (a) { a.style.display = searching ? 'none' : ''; });
+            if (empty) empty.hidden = anyVisible || !searching;
+        });
+    }
+    giSetupSearch('guides', '.gi-card, .gi-step');
+    giSetupSearch('quizzes', '.gi-quiz-row');
+    giSetupSearch('resources', '.gi-rsc-row');
+    </script>
 </div>
 {% endblock %}
