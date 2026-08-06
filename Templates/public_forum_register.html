@@ -45,13 +45,33 @@ Create Forum Account
 {% endblock %}
 
 {% block content %}
+    {% if signups_closed %}
+    <div class="forum-auth" style="text-align:center;">
+        <h1>Sign-ups closed</h1>
+        <p style="opacity:0.75;font-size:0.95rem;line-height:1.5;margin:10px 0 0;">
+            New accounts on {{ website.name if website else 'this site' }} are created by an
+            administrator. Please contact the site owner to be added.
+        </p>
+    </div>
+    {% else %}
     <form class="forum-auth" method="POST">
         <h1>Create Account</h1>
+        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+        {% if website and website.url_prefix %}<input type="hidden" name="website_prefix" value="{{ website.url_prefix }}">{% endif %}
 
+        {% if website and website.collect_real_names %}
         <input name="first_name" placeholder="First name (optional)" autocomplete="given-name">
         <input name="last_name" placeholder="Last name (optional)" autocomplete="family-name">
+        {% else %}
+        <p style="font-size:0.85rem;color:rgba(255,255,255,0.7);background:rgba(94,238,248,0.08);border:1px solid rgba(94,238,248,0.25);border-radius:10px;padding:10px 12px;margin:0 0 4px;text-align:left;">
+            <i class="fas fa-user-shield" style="color:#5eeef8;"></i>
+            For your privacy, please choose a username that is <strong>not your real name</strong>.
+        </p>
+        {% endif %}
         <input name="username" placeholder="Username" required>
+        {% if not website or website.require_public_email %}
         <input name="email" type="email" placeholder="Email" required>
+        {% endif %}
         <div class="pw-wrap">
             <input name="password" type="password" placeholder="Password" required>
             <button type="button" class="pw-toggle" onclick="pwToggle(this)" aria-label="Show password" tabindex="-1"><i class="fas fa-eye"></i></button>
@@ -59,4 +79,5 @@ Create Forum Account
 
         <button type="submit">Create Account</button>
     </form>
+    {% endif %}
 {% endblock %}

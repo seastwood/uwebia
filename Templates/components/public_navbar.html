@@ -233,10 +233,12 @@
                             Log In
                         </a>
 
+                        {% if website.allow_public_signup %}
                         <a href="{{ url_for('public_register', website_prefix=website.url_prefix, next=current_page_url or request.path) }}">
                             <i class="fas fa-user-plus"></i>
                             Create Account
                         </a>
+                        {% endif %}
                     {% endif %}
                 </div>
             </div>
@@ -335,10 +337,12 @@
                             Log In
                         </a>
 
+                        {% if website.allow_public_signup %}
                         <a href="{{ url_for('public_register', website_prefix=website.url_prefix, next=current_page_url or request.path) }}">
                             <i class="fas fa-user-plus"></i>
                             Create Account
                         </a>
+                        {% endif %}
                     {% endif %}
                 </div>
             </div>

@@ -498,7 +498,7 @@
                     <input type="text" id="userUsername" placeholder="jsmith" autocomplete="off">
                 </div>
                 <div class="uw-field">
-                    <label>Email</label>
+                    <label>Email <span style="opacity:0.5;font-weight:400;">(optional — required only if they use 2FA)</span></label>
                     <input type="email" id="userEmail" placeholder="j@example.com">
                 </div>
             </div>
@@ -1045,7 +1045,7 @@ function openUserModal(userId) {
 
     if (userId && _existingUsers[userId]) {
         const u = _existingUsers[userId];
-        document.getElementById('userEmail').value = u.email;
+        document.getElementById('userEmail').value = u.email || '';
         document.getElementById('userFirstName').value = u.first_name || '';
         document.getElementById('userLastName').value = u.last_name || '';
         document.getElementById('userPassword').value = '';
