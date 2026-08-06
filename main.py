@@ -21301,8 +21301,11 @@ def _expand_ical_occurrences(component, base_start):
     return occurrences or None
 
 
-def sync_subscription(sub):
-    """Fetch one external iCal subscription and replace its events."""
+def sync_subscription(sub, force=False):
+    """Fetch one external iCal subscription and replace its events.
+
+    `force=True` bypasses the "another sync just ran" short-circuit (used by the
+    manual "Sync now" button); the background scheduler leaves it False."""
     try:
         cal_data = _fetch_and_parse_ical(sub.url)
     except Exception as e:
@@ -21317,6 +21320,30 @@ def sync_subscription(sub):
     local_tz = _get_calendar_owner_timezone(owner_calendar)
 
     try:
+        # ── Serialize concurrent syncs of THIS subscription ──────────────────
+        # The 15-min scheduler runs in *every* app worker process, and web
+        # requests / the manual button can trigger a sync too — so several
+        # sync_subscription() calls can hit the same feed at once. The operation
+        # is delete-all-then-reinsert; run two concurrently and the second txn's
+        # DELETE (snapshot taken before the first committed) can't see the rows
+        # the first just inserted, so it re-inserts a full DUPLICATE set — the
+        # "events duplicate, then heal on the next sync" symptom. A row lock
+        # makes them run one at a time. (No-op on SQLite, which serializes
+        # writes anyway.)
+        locked = (db.session.query(CalendarSubscription)
+                  .filter_by(id=sub.id).populate_existing().with_for_update().first())
+        if locked is None:
+            db.session.rollback()
+            return {'synced': 0, 'error': 'Subscription no longer exists.'}
+        # Whoever waited on the lock now sees the winner's fresh last_synced_at;
+        # if it just ran, skip the redundant re-fetch/rebuild entirely.
+        if not force and locked.last_synced_at is not None:
+            age = (datetime.now(timezone.utc).replace(tzinfo=None)
+                   - locked.last_synced_at).total_seconds()
+            if 0 <= age < 30:
+                db.session.rollback()
+                return {'synced': locked.event_count or 0, 'error': None, 'skipped': True}
+
         CalendarEvent.query.filter_by(subscription_id=sub.id).delete()
 
         vevents = [c for c in cal_data.walk() if c.name == 'VEVENT']
@@ -21947,7 +21974,7 @@ def sync_calendar_now(calendar_id):
 
     results = []
     for sub in cal.subscriptions:
-        r = sync_subscription(sub)
+        r = sync_subscription(sub, force=True)
         results.append({'subscription_id': sub.id, 'name': sub.name or sub.url, **r})
     return jsonify({'success': True, 'results': results})
 
