@@ -92,17 +92,42 @@ uploads_folder = os.path.join(static_folder, 'uploads')
 os.makedirs(uploads_folder, exist_ok=True)
 
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
-# Session/cookie signing key. Set UWEBIA_SECRET_KEY in the environment for
-# production — the fallback is a known placeholder, which makes every signed
-# cookie forgeable. NOTE: stored credentials (Stripe/SMS keys) are encrypted
-# with a key derived from this value, so changing it means re-entering those.
-app.secret_key = os.environ.get('UWEBIA_SECRET_KEY') or 'your_secret_key'
+# Session/cookie signing key, read from SECRET_KEY (supplied by docker-compose/.env
+# in production). If it's unset we fall back to a random per-process key rather than
+# a guessable constant — an unconfigured instance is then unforgeable, at the (loud,
+# safe) cost of sessions/tokens and stored encrypted secrets not surviving a restart.
+# NOTE: stored credentials (Stripe/SMS/AI/OAuth keys) are encrypted with a key
+# derived from this value, so changing it logs everyone out AND requires re-entering
+# those credentials.
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    import secrets as _secrets_mod
+    _secret_key = _secrets_mod.token_hex(32)
+    logging.warning(
+        'No SECRET_KEY set — using a random ephemeral key. Sessions and encrypted '
+        'stored secrets will NOT survive a restart. Set SECRET_KEY in the '
+        "environment (generate: python -c 'import secrets; print(secrets.token_hex(32))')."
+    )
+app.secret_key = _secret_key
+
+# Session cookie hardening.
+#   HTTPONLY — JS can't read the cookie (blunts XSS session theft).
+#   SAMESITE=Lax — the cookie isn't sent on cross-site POSTs, which blocks the
+#     classic CSRF vector without a token retrofit. Safe over HTTP too.
+#   SECURE — the cookie is only sent over HTTPS. Defaults ON; set
+#     UWEBIA_COOKIE_SECURE=0 for local http:// development, otherwise the
+#     browser will refuse to store the session cookie on a plain-http site.
+_COOKIE_SECURE = os.environ.get('UWEBIA_COOKIE_SECURE', '1').lower() not in ('0', 'false', 'no', 'off')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = _COOKIE_SECURE
 
 # "Keep me logged in" (admin logins, via Flask-Login's remember cookie).
 from datetime import timedelta as _timedelta
 app.config['REMEMBER_COOKIE_DURATION'] = _timedelta(days=30)
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True
 app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
+app.config['REMEMBER_COOKIE_SECURE'] = _COOKIE_SECURE
 
 # ── Database configuration ────────────────────────────────────────────────────
 # Priority: db_config.json (set via admin UI) > DATABASE_URL env var > SQLite default
@@ -330,6 +355,44 @@ PERMISSION_IMPLIES = {
 }
 
 
+# A pragmatic email shape: no whitespace/@ in the parts, one @, a dotted domain.
+# Deliberately permissive on the local part; the point is to reject malformed and
+# injection-bearing input, not to be an RFC 5322 oracle.
+_EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+
+
+def sanitize_email(value):
+    """Normalize an email for storage, or raise ValueError if it can't be one.
+
+    Central chokepoint used by the User/PublicUser `email` validators, so a bad
+    address is rejected at assignment time no matter which route set it. Returns
+    None for blank input (emailless accounts are allowed). Rejects embedded
+    control characters (CR/LF/NUL) — those never appear in a real address and are
+    the vector for SMTP header / extra-recipient injection when an address later
+    reaches server.send_message(). Also enforces a max length and basic shape.
+    """
+    v = (value or '').strip().lower()
+    if not v:
+        return None
+    if any(ord(c) < 0x20 or ord(c) == 0x7f for c in v):
+        raise ValueError('Email address contains invalid characters.')
+    if len(v) > 255 or not _EMAIL_RE.match(v):
+        raise ValueError('Invalid email address.')
+    return v
+
+
+def valid_email(value):
+    """Route-level counterpart to sanitize_email that never raises: returns the
+    normalized address, or None if it's blank/malformed/injection-bearing. Use at
+    request boundaries (including non-User models like newsletter subscribers,
+    whose addresses also reach server.send_message) so a bad value is turned away
+    with a friendly error instead of a 500 from the model validator."""
+    try:
+        return sanitize_email(value)
+    except ValueError:
+        return None
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
@@ -420,9 +483,9 @@ class User(UserMixin, db.Model):
     @validates('email')
     def normalize_email(self, key, value):
         # None/blank → NULL, so emailless admins don't collide on '' in the
-        # unique email index.
-        v = (value or '').strip().lower()
-        return v or None
+        # unique email index. sanitize_email rejects control chars / malformed
+        # addresses (see its docstring for the injection rationale).
+        return sanitize_email(value)
 
     @validates('first_name', 'last_name')
     def normalize_name(self, key, value):
@@ -1549,8 +1612,8 @@ class PublicUser(UserMixin, db.Model):
     def normalize_public_email(self, key, value):
         # None/blank → NULL (not ''), so emailless accounts stay distinct in the
         # per-site unique email index instead of colliding on empty string.
-        v = (value or '').strip().lower()
-        return v or None
+        # sanitize_email rejects control chars / malformed addresses.
+        return sanitize_email(value)
 
     def __repr__(self):
         return f"<PublicUser {self.username} website={self.website_id}>"
@@ -8204,8 +8267,8 @@ def admin_add_email(admin_key=None):
         return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
 
     if request.method == 'POST':
-        email = (request.form.get('email') or '').strip().lower()
-        if not email or '@' not in email or '.' not in email.split('@')[-1]:
+        email = valid_email(request.form.get('email'))
+        if not email:
             flash('Please enter a valid email address.', 'error')
             return redirect(request.path)
         conflict = (User.query.filter(User.email == email, User.id != user.id).first()
@@ -9893,8 +9956,8 @@ def subscribe_message_sender(message_id):
     if not nl:
         return jsonify({'status': 'error', 'message': 'Newsletter not found.'}), 404
 
-    email = (msg.sender_email or '').strip().lower()
-    if not email or '@' not in email:
+    email = valid_email(msg.sender_email)
+    if not email:
         return jsonify({'status': 'error', 'message': 'This message has no valid sender address.'}), 400
 
     existing = nl.subscribers.filter_by(email=email).first()
@@ -14440,6 +14503,10 @@ def settings_page():
 
         if not account_email:
             flash('Email cannot be blank.', 'error')
+            return redirect(url_for('settings_page'))
+
+        if not valid_email(account_email):
+            flash('Please enter a valid email address.', 'error')
             return redirect(url_for('settings_page'))
 
         conflict = admin_or_public_username_taken(
@@ -21139,10 +21206,64 @@ def _expand_recurrence(start, end, rule):
     return occurrences or [(start, end)]
 
 
+def _ical_host_is_public(hostname):
+    """True only when every IP `hostname` resolves to is a normal public address.
+
+    SSRF guard for the admin-supplied calendar URL: blocks loopback/private/
+    link-local/reserved/multicast targets — most importantly cloud-metadata
+    endpoints like 169.254.169.254 and internal services on the app's own network.
+    """
+    import socket as _socket
+    if not hostname:
+        return False
+    try:
+        infos = _socket.getaddrinfo(hostname, None)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        ip = info[4][0].split('%')[0]  # strip any IPv6 zone id
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+            return False
+    return True
+
+
 def _fetch_and_parse_ical(url):
-    url = url.strip().replace('webcal://', 'https://')
+    """Fetch and parse a remote iCalendar feed with SSRF protections.
+
+    Only http/https is allowed, and the target host is re-validated as public at
+    every redirect hop (redirects are followed manually so an attacker can't
+    bounce us to an internal address). Residual limitation: DNS rebinding between
+    the resolve-time check and the socket connect is not defended against here.
+    """
+    from urllib.parse import urlparse, urljoin
     import requests as req_lib
-    resp = req_lib.get(url, timeout=12, headers={'User-Agent': 'Uwebia/1.0'})
+    url = url.strip().replace('webcal://', 'https://')
+    seen_redirects = 0
+    while True:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError('Calendar URL must start with http:// or https://.')
+        if not _ical_host_is_public(parsed.hostname):
+            raise ValueError('Calendar URL points to a host that is not allowed.')
+        resp = req_lib.get(url, timeout=12, headers={'User-Agent': 'Uwebia/1.0'},
+                           allow_redirects=False)
+        if resp.is_redirect or resp.is_permanent_redirect:
+            seen_redirects += 1
+            if seen_redirects > 4:
+                raise ValueError('Calendar URL has too many redirects.')
+            location = resp.headers.get('Location')
+            if not location:
+                break
+            url = urljoin(url, location)
+            continue
+        break
     resp.raise_for_status()
     return ICalendar.from_ical(resp.content)
 
@@ -22679,7 +22800,8 @@ def admin_public_user_create():
 
     username = (data.get('username') or '').strip().lower()
     password = (data.get('password') or '').strip()
-    email = (data.get('email') or '').strip().lower()
+    email_raw = (data.get('email') or '').strip()
+    email = valid_email(email_raw)
     first_name = (data.get('first_name') or '').strip()
     last_name = (data.get('last_name') or '').strip()
     if not getattr(website, 'collect_real_names', True):
@@ -22689,6 +22811,8 @@ def admin_public_user_create():
         return _utf8_json({'error': 'Username and password are required.'}, 400)
     if len(password) < 8:
         return _utf8_json({'error': 'Password must be at least 8 characters.'}, 400)
+    if email_raw and not email:
+        return _utf8_json({'error': 'Please enter a valid email address.'}, 400)
     if getattr(website, 'require_public_email', True) and not email:
         return _utf8_json({'error': 'This site requires an email for members.'}, 400)
 
@@ -22768,7 +22892,10 @@ def admin_public_user_update(user_id):
         return blocked
     data = request.get_json() or {}
     username = (data.get('username') or '').strip().lower()
-    email = (data.get('email') or '').strip().lower()
+    email_raw = (data.get('email') or '').strip()
+    email = valid_email(email_raw)
+    if email_raw and not email:
+        return _utf8_json({'error': 'Please enter a valid email address.'}, 400)
     new_password = (data.get('password') or '').strip()
     # Real-name editing is blocked (and names stay purged) when the site has
     # real-name collection turned off for youth privacy.
@@ -25485,7 +25612,8 @@ def public_register():
 
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip().lower()
-        email = (request.form.get('email') or '').strip().lower()
+        email_raw = (request.form.get('email') or '').strip()
+        email = valid_email(email_raw)
         password = request.form.get('password') or ''
         first_name = request.form.get('first_name', '')
         last_name = request.form.get('last_name', '')
@@ -25500,6 +25628,12 @@ def public_register():
         if not username or not password or (require_email and not email):
             flash('Please fill out all fields.' if require_email
                   else 'Please enter a username and password.', 'error')
+            return _register_redirect()
+
+        # A supplied-but-malformed email is rejected up front so it never reaches
+        # the model validator (which would 500) — valid_email already stripped it.
+        if email_raw and not email:
+            flash('Please enter a valid email address.', 'error')
             return _register_redirect()
 
         if len(password) < 8:
@@ -28620,7 +28754,7 @@ def _public_remember_cookies(resp):
                     {'u': pu.id, 'w': pu.website_id, 'p': _public_remember_fragment(pu)})
                 resp.set_cookie(_PUB_REMEMBER_COOKIE, token,
                                 max_age=_PUB_REMEMBER_DAYS * 86400, httponly=True,
-                                samesite='Lax', secure=request.is_secure)
+                                samesite='Lax', secure=_COOKIE_SECURE or request.is_secure)
     except Exception:
         pass
     return resp
@@ -45598,9 +45732,9 @@ def admin_newsletter_subscriber_add(nid):
     if not nl:
         return _utf8_json({'success': False, 'error': 'Not found'}, 404)
     data = request.get_json() or {}
-    email = (data.get('email') or '').strip().lower()
+    email = valid_email(data.get('email'))
     name = (data.get('name') or '').strip() or None
-    if not email or '@' not in email:
+    if not email:
         return _utf8_json({'success': False, 'error': 'Valid email required'}, 400)
     existing = nl.subscribers.filter_by(email=email).first()
     if existing:
@@ -45802,8 +45936,8 @@ def admin_newsletter_campaign_send_test(nid, cid):
     if not campaign:
         return _utf8_json({'success': False, 'error': 'Campaign not found'}, 404)
     data = request.get_json() or {}
-    to_email = (data.get('email') or '').strip().lower()
-    if not to_email or '@' not in to_email:
+    to_email = valid_email(data.get('email'))
+    if not to_email:
         return _utf8_json({'success': False, 'error': 'Valid email required'}, 400)
     server = _resolve_campaign_server(campaign, nl)
     if not server:
@@ -45961,10 +46095,10 @@ def public_newsletter_subscribe(slug):
         return _utf8_json({'success': False, 'error': 'Newsletter not found'}, 404)
 
     body = request.get_json(silent=True) or {}
-    email = (request.form.get('email') or body.get('email') or '').strip().lower()
+    email = valid_email(request.form.get('email') or body.get('email'))
     name = (request.form.get('name') or body.get('name') or '').strip()
 
-    if not email or '@' not in email or len(email) > 255:
+    if not email:
         return _utf8_json({'success': False, 'error': 'Please enter a valid email address.'}, 400)
 
     existing = nl.subscribers.filter_by(email=email).first()
