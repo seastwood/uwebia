@@ -340,6 +340,7 @@
 <div class="settings-card" style="margin-top: 20px;">
     <h2 class="settings-section-title">Account</h2>
 
+    {% if admin_collect_names %}
     <div class="settings-field">
         <label for="account_first_name">First Name <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
         <input
@@ -361,6 +362,7 @@
             autocomplete="family-name"
         >
     </div>
+    {% endif %}
 
     <div class="settings-field">
         <label for="account_username">Username</label>
@@ -522,6 +524,95 @@
             </div>
             {% endif %}
         </dive>
+
+            {% if can_edit_settings %}
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Authenticator App (TOTP)</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    A second factor that works without email — required for admins who
+                    sign in with GitHub and have no mailbox on file.
+                </p>
+                {% if current_user.totp_enabled %}
+                <p class="settings-help">
+                    <i class="fas fa-check-circle" style="color:#7ee2cc;"></i>
+                    Enabled on this account.
+                </p>
+                <button type="button" class="settings-button danger" onclick="disableTotp()">Turn off authenticator</button>
+                {% else %}
+                <a class="settings-button" href="{{ url_for('admin_totp_setup') }}">Set up authenticator app</a>
+                {% endif %}
+                <div class="settings-message" id="totpMessage"></div>
+            </div>
+
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">GitHub Sign-In</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. Uwebia requests <strong>no scopes</strong> and stores only
+                    GitHub's anonymous account number — never an email, name or GitHub username.
+                    Callback URL: <code>{{ url_for('github_callback', _external=True) }}</code>
+                </p>
+                <div class="settings-field">
+                    <label for="ghClientId">Client ID</label>
+                    <input id="ghClientId" type="text" class="form-control"
+                           value="{{ github_client_id or '' }}" placeholder="Iv1.xxxxxxxxxxxx">
+                </div>
+                <div class="settings-field">
+                    <label for="ghClientSecret">Client Secret</label>
+                    <input id="ghClientSecret" type="password" class="form-control"
+                           autocomplete="new-password"
+                           placeholder="{% if github_login_available %}Leave blank to keep current secret{% else %}Paste the client secret{% endif %}">
+                </div>
+                <button type="button" class="settings-button" onclick="saveGithubSettings()">Save GitHub app</button>
+
+                <div style="margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);">
+                    <p class="settings-help">
+                        {% if current_user.github_user_id %}
+                        <i class="fab fa-github"></i> This account is linked to GitHub.
+                        {% else %}
+                        <i class="fab fa-github"></i> This account is not linked to GitHub yet.
+                        {% endif %}
+                    </p>
+                    {% if github_login_available %}
+                    <a class="settings-button" href="{{ url_for('github_link_admin') }}">
+                        {% if current_user.github_user_id %}Re-link GitHub{% else %}Link my GitHub account{% endif %}
+                    </a>
+                    {% endif %}
+                </div>
+                <div class="settings-message" id="githubMessage"></div>
+            </div>
+
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Admin Privacy</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. For teams whose admins are students or minors.
+                </p>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="adminCollectNames"
+                               {% if admin_collect_names %}checked{% endif %}>
+                        Collect admin first &amp; last names
+                    </label>
+                    <p class="settings-help">
+                        Turning this off hides the name fields and
+                        <strong>permanently deletes</strong> names already stored.
+                    </p>
+                </div>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="adminGithubOnly"
+                               {% if admin_github_only %}checked{% endif %}>
+                        Admins sign in with GitHub only (no passwords, no email)
+                    </label>
+                    <p class="settings-help">
+                        Every admin must have a linked GitHub account and at least one must
+                        have an authenticator app set up, or this can't be turned on.
+                        Two-factor authentication then uses the authenticator app instead of email.
+                    </p>
+                </div>
+                <button type="button" class="settings-button" onclick="saveAdminPrivacy()">Save privacy settings</button>
+                <div class="settings-message" id="adminPrivacyMessage"></div>
+            </div>
+            {% endif %}
 
             {% if can_edit_settings %}
             <div class="settings-card">
@@ -1211,6 +1302,63 @@
                 if (!d.success) { _org2faMsg(d.error || 'Could not disable.', true); return; }
                 window.location.reload();
             } catch (e) { _org2faMsg('Request failed.', true); }
+        }
+
+        function _msg(id, text, isError) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = isError ? '#f88' : '#7ee2cc';
+        }
+
+        async function saveGithubSettings() {
+            const clientId = document.getElementById('ghClientId').value.trim();
+            const secret   = document.getElementById('ghClientSecret').value.trim();
+            try {
+                const r = await fetch('/admin/dashboard/settings/github', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId, client_secret: secret })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('githubMessage', d.error || 'Could not save.', true); return; }
+                document.getElementById('ghClientSecret').value = '';
+                _msg('githubMessage', d.configured
+                    ? 'Saved. GitHub sign-in is ready to enable.'
+                    : 'Saved, but both a client ID and secret are needed before it can be used.', !d.configured);
+            } catch (e) { _msg('githubMessage', 'Request failed.', true); }
+        }
+
+        async function saveAdminPrivacy() {
+            const collectNames = document.getElementById('adminCollectNames').checked;
+            const githubOnly   = document.getElementById('adminGithubOnly').checked;
+            if (!collectNames && !confirm(
+                'Turn off admin name collection?\n\nAny first and last names already stored for admins will be permanently deleted.')) return;
+            if (githubOnly && !confirm(
+                'Switch admins to GitHub-only sign-in?\n\nPasswords will no longer be accepted at the admin login.')) return;
+            try {
+                const r = await fetch('/admin/dashboard/settings/admin-privacy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ collect_names: collectNames, github_only: githubOnly })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('adminPrivacyMessage', d.error || 'Could not save.', true); return; }
+                let note = 'Saved.';
+                if (d.purged) note += ' Removed names from ' + d.purged + ' admin account(s).';
+                _msg('adminPrivacyMessage', note, false);
+                setTimeout(function () { window.location.reload(); }, 1200);
+            } catch (e) { _msg('adminPrivacyMessage', 'Request failed.', true); }
+        }
+
+        async function disableTotp() {
+            if (!confirm('Turn off the authenticator app for your account?')) return;
+            try {
+                const r = await fetch('/admin/2fa/app/disable', { method: 'POST' });
+                const d = await r.json();
+                if (!d.success) { _msg('totpMessage', d.error || 'Could not turn it off.', true); return; }
+                window.location.reload();
+            } catch (e) { _msg('totpMessage', 'Request failed.', true); }
         }
     </script>
 

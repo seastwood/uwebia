@@ -1,0 +1,85 @@
+{% extends 'public_base.html' %}
+
+{% block title %}
+Choose a username
+{% endblock %}
+
+{% block head %}
+    <style>
+        .forum-auth {
+            width: min(460px, calc(100% - 28px));
+            margin: 110px auto;
+            padding: 22px;
+            background: rgba(0,0,0,0.65);
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 20px;
+            color: #ffffff;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.38);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
+        }
+        .forum-auth input {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.22);
+            padding: 12px;
+            background: rgba(0,0,0,0.5);
+            color: #ffffff;
+            font: inherit;
+        }
+        .forum-auth input::placeholder { color: rgba(255,255,255,0.55); }
+        .forum-auth button {
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(0,0,0,0.55);
+            color: #ffffff;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .gh-note {
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.72);
+            background: rgba(94,238,248,0.08);
+            border: 1px solid rgba(94,238,248,0.25);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin: 0 0 14px;
+            line-height: 1.5;
+            text-align: left;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<form class="forum-auth" method="POST" action="{{ url_for('github_choose_username') }}">
+    <h1>Pick a username</h1>
+
+    <p class="gh-note">
+        <i class="fab fa-github" style="color:#5eeef8;"></i>
+        Your GitHub account is confirmed. We didn't take your name, email or
+        GitHub username &mdash; only an anonymous account number. Choose the name
+        you'd like other members to see.
+        {% if website and not website.collect_real_names %}
+        <br><br>
+        <i class="fas fa-user-shield" style="color:#5eeef8;"></i>
+        Please choose something that is <strong>not your real name</strong>.
+        {% endif %}
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <p class="gh-note" style="background:rgba(255,120,120,0.10);border-color:rgba(255,120,120,0.3);">
+            {{ message }}
+        </p>
+        {% endfor %}
+    {% endwith %}
+
+    <input name="username" placeholder="Username" minlength="3" required autofocus
+           autocomplete="off" autocapitalize="none" spellcheck="false">
+
+    <button type="submit">Create my account</button>
+</form>
+{% endblock %}

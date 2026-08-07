@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+    .tfa-page { min-height:100vh; display:grid; justify-items:center; align-content:start;
+        padding:64px 24px 24px; background:#1f1f22; color:#fff; }
+    .tfa-card { width:min(520px,100%); background:#2a2a2f; border:1px solid rgba(255,255,255,0.1);
+        border-radius:18px; padding:24px; box-shadow:0 18px 45px rgba(0,0,0,0.35); }
+    .tfa-card h1 { margin:0 0 8px; font-size:1.4rem; }
+    .tfa-card p { color:rgba(255,255,255,0.68); line-height:1.55; }
+    .tfa-warn { margin:14px 0; padding:12px 14px; border-radius:12px;
+        background:rgba(255,180,80,0.12); border:1px solid rgba(255,180,80,0.3);
+        color:#ffd9a3; font-size:0.9rem; line-height:1.5; }
+    .tfa-codes { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:16px 0;
+        font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .tfa-codes div { background:#1f1f22; border:1px solid rgba(255,255,255,0.14);
+        border-radius:10px; padding:10px; text-align:center; letter-spacing:0.06em; }
+    .tfa-actions { display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; }
+    .tfa-actions button, .tfa-actions a { flex:1; padding:12px; border:0; border-radius:12px;
+        font-weight:800; cursor:pointer; text-align:center; text-decoration:none;
+        font-size:0.92rem; }
+    .btn-copy { background:rgba(255,255,255,0.1); color:#fff; }
+    .btn-done { background:#7ee2cc; color:#10251f; }
+</style>
+
+<div class="tfa-page">
+    <div class="tfa-card">
+        <h1>Save your recovery codes</h1>
+        <p>Each code works once. They are the only way back in if you lose the
+           device with your authenticator app.</p>
+
+        <div class="tfa-warn">
+            This is the only time these will be shown. We store just a hash of
+            each, so they cannot be displayed again — take a copy now.
+        </div>
+
+        <div class="tfa-codes" id="codeList">
+            {% for code in codes %}<div>{{ code }}</div>{% endfor %}
+        </div>
+
+        <div class="tfa-actions">
+            <button type="button" class="btn-copy" onclick="copyCodes(this)">Copy all</button>
+            {% if finishing %}
+            <form method="POST" action="{{ url_for('admin_totp_finish_login') }}" style="flex:1;margin:0;">
+                <button type="submit" class="btn-done" style="width:100%;">I've saved them — continue</button>
+            </form>
+            {% else %}
+            <a class="btn-done" href="{{ url_for('dashboard') }}">I've saved them</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function copyCodes(btn) {
+    var text = Array.from(document.querySelectorAll('#codeList div'))
+                    .map(function (d) { return d.textContent.trim(); }).join('\n');
+    navigator.clipboard.writeText(text).then(function () {
+        var old = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = old; }, 1600);
+    });
+}
+</script>
+{% endblock %}

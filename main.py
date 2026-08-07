@@ -609,7 +609,15 @@ class User(UserMixin, db.Model):
     # login flow prompts them to add one when the org requires 2FA / they enable
     # it (the code is emailed). NULLs are distinct in the unique index.
     email = db.Column(db.String(150), unique=True, nullable=True)
-    password_hash = db.Column(db.Text, nullable=False)
+    # Nullable so an admin can sign in with GitHub alone and hold no password
+    # at all. A NULL password is never "no credentials required" — check_password
+    # refuses it outright, so such an account is reachable only via its linked
+    # GitHub identity (plus TOTP).
+    password_hash = db.Column(db.Text, nullable=True)
+    # Linked GitHub account. Stores ONLY GitHub's stable numeric id — never the
+    # login, name, avatar or email — so linking adds no personal data beyond an
+    # opaque identifier. Globally unique: one GitHub account, one admin.
+    github_user_id = db.Column(db.BigInteger, unique=True, nullable=True, index=True)
     # Optional real name — collected at signup, editable later. Used for
     # administration and (eventually) social surfaces. Never lowercased.
     first_name = db.Column(db.String(100), nullable=True)
@@ -624,6 +632,19 @@ class User(UserMixin, db.Model):
     # full access, not a separate silo.
     is_co_owner = db.Column(db.Boolean, nullable=False, default=False,
                             server_default=_sa_false())
+
+    # ── TOTP second factor (authenticator app) ───────────────────────────────
+    # The email-free alternative to the emailed code. Secret is Fernet-encrypted
+    # at rest (key derived from SECRET_KEY, same as other stored credentials).
+    totp_secret = db.Column(db.String(255), nullable=True)
+    totp_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    totp_activated_at = db.Column(db.DateTime, nullable=True)
+    # Highest step counter already spent, so a code can't be replayed inside
+    # its own validity window.
+    totp_last_counter = db.Column(db.BigInteger, nullable=True)
+    # Hashes of one-time recovery codes; the plaintext is shown exactly once.
+    totp_recovery_codes = db.Column(db.JSON, nullable=True)
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
     two_factor_email = db.Column(db.String(255), nullable=True)
@@ -664,6 +685,17 @@ class User(UserMixin, db.Model):
     org_2fa_email_settings_version = db.Column(db.String(64), nullable=True)
     org_2fa_needs_attention = db.Column(db.Boolean, nullable=False, default=False,
                                         server_default=_sa_false())
+    # ── Org-wide admin privacy policy (anchor only) ──────────────────────────
+    # For orgs whose admins are themselves students/minors. When names are off,
+    # first/last name are hidden at every admin surface and purged from existing
+    # rows — same treatment Website.collect_real_names gives public users.
+    org_admin_collect_names = db.Column(db.Boolean, nullable=False, default=True,
+                                        server_default=_sa_true())
+    # When on, admins sign in with GitHub and are never asked for an email.
+    # Because the emailed code is then unavailable, TOTP becomes the required
+    # second factor — see admin_second_factor_state().
+    org_admin_github_only = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -1030,21 +1062,73 @@ def _org_requires_2fa():
     if not anchor:
         return False
     if getattr(anchor, 'org_require_2fa', False):
-        current_fp = get_email_settings_fingerprint(get_email_settings())
-        if anchor.org_2fa_email_settings_version != current_fp:
-            anchor.org_require_2fa = False
-            anchor.org_2fa_email_settings_version = None
-            anchor.org_2fa_needs_attention = True
-            db.session.commit()
+        # The auto-disable exists because a broken mailer means nobody can
+        # receive an emailed code. That reasoning does not apply in GitHub-only
+        # mode, where the second factor is TOTP and email is not involved at
+        # all — auto-disabling there would silently drop 2FA for the whole org.
+        if not getattr(anchor, 'org_admin_github_only', False):
+            current_fp = get_email_settings_fingerprint(get_email_settings())
+            if anchor.org_2fa_email_settings_version != current_fp:
+                anchor.org_require_2fa = False
+                anchor.org_2fa_email_settings_version = None
+                anchor.org_2fa_needs_attention = True
+                db.session.commit()
     return bool(anchor.org_require_2fa or anchor.two_factor_enabled)
+
+
+def admin_github_only_mode():
+    """Org-wide: admins sign in with GitHub and are never asked for an email."""
+    anchor = get_main_admin()
+    return bool(anchor and getattr(anchor, 'org_admin_github_only', False))
+
+
+def admin_collect_names_enabled():
+    """Org-wide: whether admin first/last names are collected at all."""
+    anchor = get_main_admin()
+    if not anchor:
+        return True
+    return bool(getattr(anchor, 'org_admin_collect_names', True))
 
 
 def admin_requires_2fa(user):
     """True if this admin must pass 2FA at login: the org policy requires it, or
-    they've enrolled 2FA themselves."""
+    they've enrolled either factor themselves."""
     if user is None:
         return False
-    return bool(getattr(user, 'two_factor_enabled', False)) or _org_requires_2fa()
+    return (bool(getattr(user, 'two_factor_enabled', False))
+            or bool(getattr(user, 'totp_enabled', False))
+            or _org_requires_2fa())
+
+
+def admin_second_factor_state(user):
+    """Decide which second factor this admin must pass, in one place.
+
+    Both sign-in paths — password and GitHub — route through this, so the
+    newer path can never turn into a way around 2FA. Returns:
+      required  whether a second factor is needed at all
+      method    'totp' | 'email' | None (None means required but not yet set up)
+      enrol     when method is None, which enrolment to send them to
+    """
+    if user is None:
+        return {'required': False, 'method': None, 'enrol': None}
+
+    required = admin_requires_2fa(user)
+    if not required:
+        return {'required': False, 'method': None, 'enrol': None}
+
+    # A personally enrolled authenticator always wins: it works with no email
+    # and no mail server, so it is both stronger and more available.
+    if getattr(user, 'totp_enabled', False) and user.totp_secret:
+        return {'required': True, 'method': 'totp', 'enrol': None}
+
+    mailbox = getattr(user, 'two_factor_email', None) or getattr(user, 'email', None)
+    if mailbox and not admin_github_only_mode():
+        return {'required': True, 'method': 'email', 'enrol': None}
+
+    # Required, but this admin has no usable factor yet. In GitHub-only mode we
+    # never ask for an email, so the only way forward is enrolling TOTP.
+    return {'required': True, 'method': None,
+            'enrol': 'totp' if (admin_github_only_mode() or not mailbox) else 'email'}
 
 
 def is_owner(website):
@@ -1666,8 +1750,14 @@ class PublicUser(UserMixin, db.Model):
     # admin-driven. NULLs are distinct in the per-site unique index.
     email = db.Column(db.String(255), nullable=True)
     # Nullable because admin mirrors don't hold their own password — they
-    # auth via the admin User row instead. Real public users always have one.
+    # auth via the admin User row instead, and because GitHub-linked accounts
+    # sign in through OAuth and never set one. A NULL here is never treated as
+    # "no credential needed": check_password refuses it.
     password_hash = db.Column(db.String(255), nullable=True)
+    # Linked GitHub account — GitHub's stable numeric id only. Never the login,
+    # name, avatar or email, so a GitHub signup stores no personal data beyond
+    # an opaque identifier plus whatever username the member picks themselves.
+    github_user_id = db.Column(db.BigInteger, nullable=True, index=True)
 
     # When set, this PublicUser is the public-facing mirror of an admin User on
     # this website. It auto-syncs username/email from the admin and cannot be
@@ -1733,6 +1823,10 @@ class PublicUser(UserMixin, db.Model):
     __table_args__ = (
         db.UniqueConstraint('website_id', 'username', name='uq_public_user_username_per_website'),
         db.UniqueConstraint('website_id', 'email', name='uq_public_user_email_per_website'),
+        # One GitHub account maps to one member per site (NULLs stay distinct,
+        # so unlinked accounts are unaffected).
+        db.UniqueConstraint('website_id', 'github_user_id',
+                            name='uq_public_user_github_per_website'),
         db.UniqueConstraint('website_id', 'mirrored_admin_user_id',
                             name='uq_public_user_admin_mirror_per_website'),
         # Login usernames are globally unique across every website so a single
@@ -2719,6 +2813,17 @@ class Website(db.Model):
     # member accounts (accounts still work, just no open sign-up form).
     allow_public_signup = db.Column(db.Boolean, nullable=False, default=True,
                                     server_default=_sa_true())
+    # GitHub sign-in for members. `github_login_enabled` adds it alongside the
+    # username/password form; `github_login_only` additionally hides the
+    # password form so GitHub becomes the sole way in. Members created this way
+    # hold no email and no password — just a username they choose and GitHub's
+    # numeric id. Note GitHub requires account holders to be 13+, so a site
+    # with younger members should leave `github_login_only` off and keep the
+    # emailless username+password route available.
+    github_login_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                                     server_default=_sa_false())
+    github_login_only = db.Column(db.Boolean, nullable=False, default=False,
+                                  server_default=_sa_false())
     # When on, a public "Explore skills" page (/skills) lets anyone — no login —
     # browse the KSA catalog by division/folder and open the learning resources.
     ksa_public_explore = db.Column(db.Boolean, nullable=False, default=False,
@@ -5178,6 +5283,24 @@ class OAuthAppCredentials(db.Model):
     client_id = db.Column(db.String(500), nullable=True)
     client_secret = db.Column(db.String(1000), nullable=True)
     extra = db.Column(db.JSON, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class GitHubLoginSettings(db.Model):
+    """The OAuth App used for *signing in* (members and admins).
+
+    Kept separate from OAuthAppCredentials, which configures storage providers
+    — mixing them would make a login app show up in the asset-library provider
+    list. Single row, org-wide.
+
+    The client secret is Fernet-encrypted at rest and, like the storage
+    providers', is deliberately excluded from backups: it is deploy-specific
+    and cannot be decrypted on a different install anyway.
+    """
+    __tablename__ = 'github_login_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.String(255), nullable=True)
+    client_secret = db.Column(db.String(1000), nullable=True)  # encrypted
     updated_at = db.Column(db.DateTime, nullable=True)
 
 
@@ -7999,6 +8122,16 @@ def require_admin_url_key_for_admin_routes():
         'request_username',
         'admin_login_link_request',
         'admin_add_email',
+        # Steps of a sign-in already in progress. Like two_factor_login above,
+        # these are useless without the half-authenticated session state the
+        # gated login page put there, so allowing them past the URL-key check
+        # exposes nothing an attacker could act on.
+        'admin_totp_challenge',
+        'admin_totp_setup',
+        'admin_totp_recovery_codes',
+        'admin_totp_finish_login',
+        'github_start_admin',
+        'github_callback',
     }
 
     if request.endpoint in public_endpoints:
@@ -8288,6 +8421,171 @@ def dismiss_two_factor_warning():
     })
 
 
+# ── TOTP: enrolment and challenge ────────────────────────────────────────────
+
+def _brand_issuer():
+    """Issuer shown in the authenticator app."""
+    anchor = get_main_admin()
+    return (getattr(anchor, 'admin_brand_name', None) or 'Uwebia') if anchor else 'Uwebia'
+
+
+@app.route('/admin/2fa/app/setup', methods=['GET', 'POST'])
+def admin_totp_setup():
+    """Enrol an authenticator app.
+
+    Reachable two ways: by a logged-in admin adding a second factor, and by an
+    admin mid-login whom policy requires to set one up before continuing (that
+    session is only half-authenticated, so it is identified by pre_2fa_user_id
+    rather than current_user).
+    """
+    pending_id = session.get('pre_2fa_user_id')
+    if current_user.is_authenticated:
+        user = current_user
+        mid_login = False
+    elif pending_id:
+        user = db.session.get(User, pending_id)
+        mid_login = True
+    else:
+        return redirect(url_for('login'))
+    if not user:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        secret = session.get('totp_setup_secret')
+        if not secret:
+            flash('Setup expired. Please start again.', 'error')
+            return redirect(url_for('admin_totp_setup'))
+        ok, counter = verify_totp(secret, request.form.get('code', ''))
+        if not ok:
+            flash('That code did not match. Check your authenticator and try again.', 'error')
+            return redirect(url_for('admin_totp_setup'))
+
+        user.totp_secret = encrypt_api_key(secret)
+        user.totp_enabled = True
+        user.totp_activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        user.totp_last_counter = counter
+        plain, hashed = generate_totp_recovery_codes()
+        user.totp_recovery_codes = hashed
+        db.session.commit()
+        session.pop('totp_setup_secret', None)
+        # Shown exactly once — we only keep hashes.
+        session['totp_recovery_plain'] = plain
+        app.logger.info('TOTP enrolled for admin user id=%s', user.id)
+
+        if mid_login:
+            # They proved a factor to get here and have now enrolled the second,
+            # so the login can complete.
+            return redirect(url_for('admin_totp_recovery_codes'))
+        flash('Authenticator app enabled.', 'success')
+        return redirect(url_for('admin_totp_recovery_codes'))
+
+    secret = session.get('totp_setup_secret')
+    if not secret:
+        secret = generate_totp_secret()
+        session['totp_setup_secret'] = secret
+    account = user.username or 'admin'
+    uri = totp_provisioning_uri(secret, account, _brand_issuer())
+    return render_template('admin_totp_setup.html', secret=secret,
+                           qr_svg=_generate_qr_svg(uri, box_size=6, border=2),
+                           provisioning_uri=uri, mid_login=mid_login, user=user)
+
+
+@app.route('/admin/2fa/app/recovery-codes')
+def admin_totp_recovery_codes():
+    """Display the one-time recovery codes, once."""
+    plain = session.pop('totp_recovery_plain', None)
+    pending_id = session.get('pre_2fa_user_id')
+    if not plain:
+        if current_user.is_authenticated:
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('login'))
+    finishing = (not current_user.is_authenticated) and bool(pending_id)
+    return render_template('admin_totp_recovery_codes.html', codes=plain,
+                           finishing=finishing)
+
+
+@app.route('/admin/2fa/app/continue', methods=['POST'])
+def admin_totp_finish_login():
+    """Complete a login that paused for forced TOTP enrolment."""
+    user_id = session.get('pre_2fa_user_id')
+    user = db.session.get(User, user_id) if user_id else None
+    if not user or not user.totp_enabled:
+        return redirect(url_for('login'))
+    remember = bool(session.pop('pre_2fa_remember', False))
+    admin_key = session.get('pre_2fa_admin_key')
+    return finish_admin_login(user, remember=remember, admin_key=admin_key)
+
+
+@app.route('/admin/2fa/app', methods=['GET', 'POST'])
+def admin_totp_challenge():
+    """The authenticator-code step of signing in."""
+    user_id = session.get('pre_2fa_user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+    user = db.session.get(User, user_id)
+    if not user or not user.totp_enabled:
+        session.pop('pre_2fa_user_id', None)
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        submitted = request.form.get('code', '')
+        use_recovery = bool(request.form.get('use_recovery'))
+
+        if use_recovery:
+            if consume_totp_recovery_code(user, submitted):
+                app.logger.info('TOTP recovery code used for admin user id=%s', user.id)
+                remaining = len(user.totp_recovery_codes or [])
+                flash(f'Recovery code accepted. {remaining} left.', 'success')
+                return finish_admin_login(
+                    user, remember=bool(session.pop('pre_2fa_remember', False)),
+                    admin_key=session.get('pre_2fa_admin_key'))
+        else:
+            ok, counter = verify_totp(user_totp_secret(user), submitted,
+                                      last_used_counter=user.totp_last_counter)
+            if ok:
+                # Burn the step so the same code can't be replayed while it is
+                # still inside its validity window.
+                user.totp_last_counter = counter
+                db.session.commit()
+                return finish_admin_login(
+                    user, remember=bool(session.pop('pre_2fa_remember', False)),
+                    admin_key=session.get('pre_2fa_admin_key'))
+
+        # Same attempt budget as the emailed code, for the same reason: six
+        # digits is a small space to guess in.
+        if register_failed_two_factor_attempt():
+            session.pop('pre_2fa_user_id', None)
+            session.pop('pre_2fa_admin_key', None)
+            flash('Too many incorrect codes. Please sign in again.', 'error')
+            return redirect(url_for('login'))
+        flash('Invalid code.', 'error')
+        return redirect(url_for('admin_totp_challenge'))
+
+    return render_template('admin_totp_challenge.html',
+                           has_recovery=bool(user.totp_recovery_codes))
+
+
+@app.route('/admin/2fa/app/disable', methods=['POST'])
+@login_required
+def admin_totp_disable():
+    """Turn off the authenticator — refused when it is the only factor keeping
+    a policy-mandated 2FA requirement satisfied."""
+    user = current_user
+    mailbox = user.two_factor_email or user.email
+    if _org_requires_2fa() and not (mailbox and not admin_github_only_mode()):
+        return _utf8_json({'success': False,
+                           'error': 'Your organization requires 2FA and this is your only '
+                                    'second factor, so it cannot be turned off.'}, 400)
+    user.totp_enabled = False
+    user.totp_secret = None
+    user.totp_last_counter = None
+    user.totp_recovery_codes = None
+    user.totp_activated_at = None
+    db.session.commit()
+    app.logger.info('TOTP disabled for admin user id=%s', user.id)
+    return _utf8_json({'success': True})
+
+
 @app.route('/admin/2fa', methods=['GET', 'POST'])
 @app.route('/admin/2fa/<admin_key>', methods=['GET', 'POST'])
 def two_factor_login(admin_key=None):
@@ -8378,6 +8676,85 @@ def disable_user_2fa(user, reason=None, needs_attention=True):
     user.two_factor_needs_attention = bool(needs_attention)
 
 
+def finish_admin_login(user, remember=False, admin_key=None):
+    """Establish the admin session once every factor has been satisfied."""
+    login_user(user, remember=remember)
+    if admin_url_key_required_for_user(user):
+        session['admin_path_verified'] = True
+    for key in ('pre_2fa_user_id', 'pre_2fa_admin_key', 'pre_2fa_remember'):
+        session.pop(key, None)
+    _stamp_login(user)
+    flash('Logged in successfully', 'success')
+    return redirect(url_for('dashboard'))
+
+
+def begin_admin_login(user, remember=False, admin_key=None, on_error=None):
+    """Take an admin who has proved ONE factor and enforce the rest.
+
+    Every way into the admin area funnels through here — the password form and
+    GitHub sign-in both call it — so there is exactly one place where the
+    second-factor rules live and no path can quietly skip them.
+    """
+    def _stash():
+        session['pre_2fa_user_id'] = user.id
+        session['pre_2fa_admin_key'] = admin_key
+        session['pre_2fa_remember'] = remember
+
+    def _bail():
+        return on_error() if on_error else redirect(url_for('login'))
+
+    # Personal email-2FA enrolment is void if the mail settings changed since it
+    # was verified — the admin could no longer receive a code. TOTP is immune,
+    # so this check only applies when email is the method in play.
+    if user.two_factor_enabled and not user.totp_enabled:
+        current_fp = get_email_settings_fingerprint(get_email_settings())
+        if current_fp != user.two_factor_last_email_settings_version:
+            disable_user_2fa(user, reason='email server settings changed',
+                             needs_attention=True)
+            db.session.commit()
+            flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
+            return _bail()
+
+    state = admin_second_factor_state(user)
+
+    if not state['required']:
+        return finish_admin_login(user, remember=remember, admin_key=admin_key)
+
+    if state['method'] == 'totp':
+        _stash()
+        return redirect(url_for('admin_totp_challenge'))
+
+    if state['method'] == 'email':
+        mailbox = user.two_factor_email or user.email
+        # Reuse a code sent in the last 30s only when THIS session still holds
+        # it; otherwise the waiting page would have nothing to validate.
+        if _session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id):
+            _stash()
+            return redirect(url_for('two_factor_login', admin_key=admin_key)
+                            if admin_key else url_for('two_factor_login'))
+        code = generate_two_factor_code()
+        set_pending_two_factor_code(user.id, code, 'login')
+        app.logger.info('2FA login code sent to admin user id=%s', user.id)
+        try:
+            send_two_factor_email(mailbox, code, purpose='login')
+        except Exception as e:
+            clear_pending_two_factor_code()
+            flash(f'Could not send 2FA login code: {str(e)}', 'error')
+            return _bail()
+        _stash()
+        return redirect(url_for('two_factor_login', admin_key=admin_key)
+                        if admin_key else url_for('two_factor_login'))
+
+    # Required but nothing enrolled yet. Send them to set one up — never
+    # straight into the dashboard, or the policy would be advisory only.
+    _stash()
+    if state['enrol'] == 'totp':
+        flash('This account needs an authenticator app before you can continue.', 'error')
+        return redirect(url_for('admin_totp_setup'))
+    return redirect(url_for('admin_add_email', admin_key=admin_key)
+                    if admin_key else url_for('admin_add_email'))
+
+
 @app.route('/admin/login', methods=['GET', 'POST'])
 @app.route('/admin/login/<admin_key>', methods=['GET', 'POST'])
 def login(admin_key=None):
@@ -8398,6 +8775,12 @@ def login(admin_key=None):
     ip = get_request_ip()
 
     if request.method == 'POST':
+        # GitHub-only orgs accept no password logins at all. The template hides
+        # the form, but that is presentation — this is the enforcement.
+        if admin_github_only_mode() and github_login_is_configured():
+            flash('This organization signs in with GitHub.', 'error')
+            return redirect(request.path)
+
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
         remember = bool(request.form.get('remember'))
@@ -8420,89 +8803,9 @@ def login(admin_key=None):
         user = User.query.filter_by(username=username).first()
 
         if user and user.check_password(password):
-            # Determine whether 2FA is required and which address to use.
-            # Main admins: their own two_factor_enabled flag + their stored email.
-            # Sub-admins: inherit the requirement when their parent has 2FA on;
-            #             code goes to the sub-admin's own account email.
-            needs_2fa = False
-            two_fa_email = None
-
-            if user.two_factor_enabled:
-                email_settings = get_email_settings()
-                current_fingerprint = get_email_settings_fingerprint(email_settings)
-
-                if current_fingerprint != user.two_factor_last_email_settings_version:
-                    disable_user_2fa(
-                        user,
-                        reason='email server settings changed',
-                        needs_attention=True
-                    )
-                    db.session.commit()
-                    flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
-                    return redirect(request.path)
-
-                needs_2fa = True
-                two_fa_email = user.two_factor_email or user.email
-
-            elif _org_requires_2fa():
-                # Org-wide policy: 2FA required even without personal enrollment.
-                needs_2fa = True
-                two_fa_email = user.two_factor_email or user.email
-
-            if needs_2fa and not two_fa_email:
-                # 2FA is required but this admin has no email to receive the code
-                # — collect one first, then continue to the 2FA step.
-                session['pre_2fa_user_id'] = user.id
-                session['pre_2fa_admin_key'] = admin_key
-                session['pre_2fa_remember'] = remember
-                return redirect(url_for('admin_add_email', admin_key=admin_key)
-                                if admin_key else url_for('admin_add_email'))
-
-            if needs_2fa:
-                # If a code was already sent within the last 30 seconds (e.g.
-                # from a double-click or back-button resubmit) AND this session
-                # still holds that pending code, skip generating and emailing a
-                # new one. We must NOT skip when the session has no pending code
-                # (cross-session cooldown), or the waiting page would have
-                # nothing to validate.
-                if _session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id):
-                    session['pre_2fa_user_id'] = user.id
-                    session['pre_2fa_admin_key'] = admin_key
-                    session['pre_2fa_remember'] = remember
-                    return redirect(
-                        url_for('two_factor_login', admin_key=admin_key)
-                        if admin_key else url_for('two_factor_login'))
-
-                code = generate_two_factor_code()
-                set_pending_two_factor_code(user.id, code, 'login')
-
-                # Never log the code itself — anyone with log access could
-                # complete the second factor for this account.
-                app.logger.info('2FA login code sent to admin user id=%s', user.id)
-
-                try:
-                    send_two_factor_email(two_fa_email, code, purpose='login')
-                except Exception as e:
-                    clear_pending_two_factor_code()
-                    flash(f'Could not send 2FA login code: {str(e)}', 'error')
-                    return redirect(request.path)
-
-                session['pre_2fa_user_id'] = user.id
-                session['pre_2fa_admin_key'] = admin_key
-                session['pre_2fa_remember'] = remember
-
-                return redirect(
-                    url_for('two_factor_login', admin_key=admin_key) if admin_key else url_for('two_factor_login'))
-
-            login_user(user, remember=remember)
-
-            if admin_url_key_required_for_user(user):
-                session['admin_path_verified'] = True
-
             _rl_record(ip, username, success=True)
-            _stamp_login(user)
-            flash('Logged in successfully', 'success')
-            return redirect(url_for('dashboard'))
+            return begin_admin_login(user, remember=remember, admin_key=admin_key,
+                                     on_error=lambda: redirect(request.path))
         else:
             _rl_record(ip, username, success=False)
             rl_new = _rl_check(ip, username)
@@ -8536,6 +8839,11 @@ def admin_add_email(admin_key=None):
     user = db.session.get(User, session.get('pre_2fa_user_id')) if session.get('pre_2fa_user_id') else None
     if not user:
         return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    # In GitHub-only mode admins are never asked for an email — the second
+    # factor is the authenticator app, so send them there instead.
+    if admin_github_only_mode():
+        return redirect(url_for('admin_totp_setup'))
 
     if request.method == 'POST':
         email = valid_email(request.form.get('email'))
@@ -8646,6 +8954,24 @@ _FOLDER_ACTION_MAP = {
     'pages.publish': 'publish',
     'pages.templates': 'template',
 }
+
+
+@app.context_processor
+def inject_github_login():
+    """Expose GitHub sign-in availability + the org admin-privacy policy to every
+    admin template, so the login page and settings don't each have to ask."""
+    if _DB_MAINTENANCE_MODE:
+        return {'github_login_available': False, 'admin_github_only': False,
+                'admin_collect_names': True}
+    try:
+        return {
+            'github_login_available': github_login_is_configured(),
+            'admin_github_only': admin_github_only_mode(),
+            'admin_collect_names': admin_collect_names_enabled(),
+        }
+    except Exception:
+        return {'github_login_available': False, 'admin_github_only': False,
+                'admin_collect_names': True}
 
 
 @app.context_processor
@@ -9173,6 +9499,99 @@ def get_email_settings_fingerprint(settings):
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
+# ── TOTP second factor (RFC 6238) ────────────────────────────────────────────
+# Implemented here rather than pulled from a package deliberately: it is ~20
+# lines of HMAC, it is verified below against the RFC's own published test
+# vectors, and it means an admin who deploys without rebuilding the image can
+# never end up with an app that won't import — which for a login path is a
+# worse failure than the dependency is worth.
+#
+# This exists so 2FA no longer depends on having an email address. Student
+# admins who sign in with GitHub and hold no mailbox still get a real second
+# factor, so `org_require_2fa` stays enforceable for everyone.
+_TOTP_STEP = 30      # seconds per code
+_TOTP_DIGITS = 6
+_TOTP_DRIFT = 1      # accept one step either side, for clock skew
+
+
+def generate_totp_secret():
+    """A fresh base32 secret (160 bits, per RFC 4226's recommendation)."""
+    return base64.b32encode(secrets.token_bytes(20)).decode('ascii').rstrip('=')
+
+
+def _totp_at(secret_b32, counter, digits=_TOTP_DIGITS, algo='sha1'):
+    import hmac as _hmac
+    import struct as _struct
+    padding = '=' * (-len(secret_b32) % 8)
+    key = base64.b32decode(secret_b32 + padding, casefold=True)
+    digest = _hmac.new(key, _struct.pack('>Q', counter), getattr(hashlib, algo)).digest()
+    offset = digest[-1] & 0x0F
+    truncated = _struct.unpack('>I', digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(truncated % (10 ** digits)).zfill(digits)
+
+
+def verify_totp(secret_b32, code, at=None, last_used_counter=None):
+    """Check a submitted code. Returns (ok, counter_used).
+
+    `last_used_counter` blocks replay: a code stays valid for the whole step
+    (plus drift), so without this someone who observes one over the user's
+    shoulder — or in a proxy log — could reuse it seconds later.
+    """
+    import hmac as _hmac
+    digits = re.sub(r'\D', '', code or '')
+    if len(digits) != _TOTP_DIGITS or not secret_b32:
+        return False, None
+    now_counter = int((at if at is not None else time.time()) // _TOTP_STEP)
+    for drift in range(-_TOTP_DRIFT, _TOTP_DRIFT + 1):
+        counter = now_counter + drift
+        if last_used_counter is not None and counter <= last_used_counter:
+            continue  # already spent
+        try:
+            expected = _totp_at(secret_b32, counter)
+        except Exception:
+            return False, None
+        if _hmac.compare_digest(expected, digits):
+            return True, counter
+    return False, None
+
+
+def totp_provisioning_uri(secret_b32, account_name, issuer):
+    """otpauth:// URI for the enrolment QR code."""
+    from urllib.parse import quote as _q
+    label = f'{_q(issuer)}:{_q(account_name or "admin")}'
+    return (f'otpauth://totp/{label}?secret={secret_b32}&issuer={_q(issuer)}'
+            f'&algorithm=SHA1&digits={_TOTP_DIGITS}&period={_TOTP_STEP}')
+
+
+def generate_totp_recovery_codes(count=10):
+    """Return (plaintext_codes, hashed_codes). Plaintext is shown once."""
+    plain = []
+    for _ in range(count):
+        raw = secrets.token_hex(5)  # 10 hex chars
+        plain.append(f'{raw[:5]}-{raw[5:]}')
+    return plain, [generate_password_hash(c) for c in plain]
+
+
+def consume_totp_recovery_code(user, submitted):
+    """Spend a recovery code if it matches. Single-use: the hash is removed."""
+    submitted = (submitted or '').strip().lower().replace(' ', '')
+    if not submitted:
+        return False
+    stored = list(user.totp_recovery_codes or [])
+    for i, hashed in enumerate(stored):
+        if check_password_hash(hashed, submitted):
+            stored.pop(i)
+            user.totp_recovery_codes = stored
+            db.session.commit()
+            return True
+    return False
+
+
+def user_totp_secret(user):
+    """Decrypt this user's TOTP secret, or '' when not enrolled."""
+    return decrypt_api_key(user.totp_secret or '') if user.totp_secret else ''
+
+
 def generate_two_factor_code():
     return f"{secrets.randbelow(1000000):06d}"
 
@@ -9518,6 +9937,89 @@ def org_2fa_policy_disable():
     anchor.org_2fa_needs_attention = False
     db.session.commit()
     return _utf8_json({'success': True, 'org_require_2fa': False})
+
+
+@app.route('/admin/dashboard/settings/github', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_github_login_settings():
+    """Store the GitHub OAuth App used for sign-in (org-wide)."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    data = request.get_json() or {}
+    cfg = GitHubLoginSettings.query.first()
+    if not cfg:
+        cfg = GitHubLoginSettings()
+        db.session.add(cfg)
+    client_id = (data.get('client_id') or '').strip()
+    secret = (data.get('client_secret') or '').strip()
+    cfg.client_id = client_id or None
+    # A blank secret means "leave the stored one alone" — the UI never renders
+    # the existing value back, so an empty field must not wipe it.
+    if secret:
+        cfg.client_secret = encrypt_api_key(secret)
+    cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'configured': github_login_is_configured()})
+
+
+@app.route('/admin/dashboard/settings/admin-privacy', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_admin_privacy_settings():
+    """Org-wide admin privacy: name collection and GitHub-only sign-in.
+
+    Turning names off purges the ones already stored — leaving them would make
+    the setting cosmetic, which is not what it promises.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+
+    data = request.get_json() or {}
+    collect_names = bool(data.get('collect_names'))
+    github_only = bool(data.get('github_only'))
+
+    if github_only and not github_login_is_configured():
+        return _utf8_json({'success': False,
+                           'error': 'Add your GitHub OAuth app credentials before turning this on.'}, 400)
+
+    if github_only:
+        # Refusing this is the whole safety property: without a linked GitHub
+        # account AND a working second factor, flipping this switch would lock
+        # the org out of its own admin area.
+        blockers = []
+        for u in User.query.all():
+            if not u.github_user_id:
+                blockers.append(u.username)
+        if blockers:
+            return _utf8_json(
+                {'success': False,
+                 'error': 'These admins have not linked a GitHub account yet, so they would '
+                          'be locked out: ' + ', '.join(blockers[:8])
+                          + ('…' if len(blockers) > 8 else '')}, 400)
+        if not any(u.totp_enabled for u in User.query.all()):
+            return _utf8_json(
+                {'success': False,
+                 'error': 'Set up an authenticator app for at least one admin first — in '
+                          'GitHub-only mode the emailed code is unavailable.'}, 400)
+
+    anchor.org_admin_github_only = github_only
+    anchor.org_admin_collect_names = collect_names
+
+    purged = 0
+    if not collect_names:
+        for u in User.query.filter(db.or_(User.first_name.isnot(None),
+                                          User.last_name.isnot(None))).all():
+            if u.first_name or u.last_name:
+                u.first_name = None
+                u.last_name = None
+                purged += 1
+    db.session.commit()
+    return _utf8_json({'success': True, 'purged': purged,
+                       'github_only': github_only, 'collect_names': collect_names})
 
 
 @app.route('/admin/email_server_settings')
@@ -14788,11 +15290,15 @@ def settings_page():
             flash('Username cannot be blank.', 'error')
             return redirect(url_for('settings_page'))
 
+        # In GitHub-only mode admins are expected to have no mailbox at all —
+        # their second factor is the authenticator app, so an email is optional.
+        # Any other time it stays required, since it is how 2FA and recovery work.
         if not account_email:
-            flash('Email cannot be blank.', 'error')
-            return redirect(url_for('settings_page'))
-
-        if not valid_email(account_email):
+            if not admin_github_only_mode():
+                flash('Email cannot be blank.', 'error')
+                return redirect(url_for('settings_page'))
+            account_email = None
+        elif not valid_email(account_email):
             flash('Please enter a valid email address.', 'error')
             return redirect(url_for('settings_page'))
 
@@ -14822,8 +15328,14 @@ def settings_page():
 
         current_user.username = account_username
         current_user.email = account_email
-        current_user.first_name = account_first_name
-        current_user.last_name = account_last_name
+        # When the org has names switched off, never store one even if the
+        # fields were submitted anyway (hidden inputs are not enforcement).
+        if admin_collect_names_enabled():
+            current_user.first_name = account_first_name
+            current_user.last_name = account_last_name
+        else:
+            current_user.first_name = None
+            current_user.last_name = None
 
         db.session.commit()
         sync_admin_mirrors_for_user(current_user)
@@ -14893,6 +15405,10 @@ def settings_page():
         two_factor_email=current_user.two_factor_email or current_user.email,
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
+        # Only the client id is echoed back — the secret is never rendered into
+        # a page, which is why a blank secret field means "keep the stored one".
+        github_client_id=(get_github_login_settings().client_id
+                          if get_github_login_settings() else ''),
         can_set_org_2fa=current_user.has_permission('settings.2fa'),
         can_backup=current_user.has_permission('settings.backup'),
         can_store_settings=current_user.has_permission('store.settings'),
@@ -23138,6 +23654,19 @@ def admin_public_users_settings():
                 PublicUser.mirrored_admin_user_id.is_(None),
             ).update({PublicUser.first_name: None, PublicUser.last_name: None},
                      synchronize_session=False)
+    if 'github_login_enabled' in data:
+        enabled = bool(data.get('github_login_enabled', False))
+        if enabled and not github_login_is_configured():
+            return _utf8_json({'error': 'Add your GitHub OAuth app credentials in '
+                                        'Settings before enabling GitHub sign-in.'}, 400)
+        website.github_login_enabled = enabled
+        if not enabled:
+            website.github_login_only = False
+    if 'github_login_only' in data:
+        only = bool(data.get('github_login_only', False))
+        if only and not website.github_login_enabled:
+            return _utf8_json({'error': 'Enable GitHub sign-in first.'}, 400)
+        website.github_login_only = only
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -25955,6 +26484,14 @@ def public_register():
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
 
+    # GitHub-only sites have no password sign-up at all — accounts are created
+    # by the GitHub callback. Enforced server-side, not just hidden in the form.
+    if (getattr(website, 'github_login_only', False)
+            and getattr(website, 'github_login_enabled', False)):
+        if request.method == 'POST':
+            flash('This site uses GitHub sign-in.', 'error')
+        return redirect(url_for('public_login', website_prefix=website_prefix or None))
+
     # Self-registration can be closed (admins create accounts instead).
     if not getattr(website, 'allow_public_signup', True):
         if request.method == 'POST':
@@ -26150,6 +26687,230 @@ def public_register():
     )
 
 
+# ── GitHub sign-in routes ────────────────────────────────────────────────────
+
+@app.route('/auth/github/start')
+def github_start_public():
+    """Begin GitHub sign-in for a member."""
+    prefix = (request.args.get('website_prefix') or '').strip().strip('/')
+    website = get_live_website(url_prefix=prefix or None)
+    if not website or not website_uses_public_accounts(website):
+        return 'Public accounts are not enabled for this site.', 404
+    if not getattr(website, 'github_login_enabled', False):
+        return 'GitHub sign-in is not enabled for this site.', 404
+    url, err = _github_begin('public', website_prefix=prefix,
+                             next_url=request.args.get('next'))
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('public_login', website_prefix=prefix or None))
+    return redirect(url)
+
+
+@app.route('/admin/auth/github/start')
+def github_start_admin():
+    """Begin GitHub sign-in for an admin."""
+    url, err = _github_begin('admin', next_url=request.args.get('next'))
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('login'))
+    return redirect(url)
+
+
+@app.route('/admin/auth/github/link')
+@login_required
+def github_link_admin():
+    """Attach a GitHub account to the signed-in admin."""
+    url, err = _github_begin('link_admin')
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('settings_page'))
+    return redirect(url)
+
+
+@app.route('/admin/auth/github/unlink', methods=['POST'])
+@login_required
+def github_unlink_admin():
+    """Detach GitHub — refused if it would leave the account unreachable."""
+    if not current_user.password_hash:
+        return _utf8_json({'success': False,
+                           'error': 'This account has no password, so GitHub is the only way '
+                                    'to sign in. Set a password first.'}, 400)
+    current_user.github_user_id = None
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/auth/github/callback')
+def github_callback():
+    """Single callback for every GitHub round trip.
+
+    What happens next is decided by the intent stashed in the session when the
+    trip started, never by anything in the query string, so a crafted callback
+    URL can't redirect the flow into a different (more privileged) branch.
+    """
+    ctx = _github_consume_state(request.args.get('state'))
+    if not ctx:
+        flash('That sign-in link expired or did not start here. Please try again.', 'error')
+        return redirect(url_for('login'))
+
+    if request.args.get('error'):
+        flash('GitHub sign-in was cancelled.', 'error')
+        return redirect(url_for('login') if ctx['intent'] in ('admin', 'link_admin')
+                        else url_for('public_login', website_prefix=ctx['prefix'] or None))
+
+    code = request.args.get('code')
+    token = _github_exchange_code(code) if code else None
+    gh_id = _github_identity(token) if token else None
+    if not gh_id:
+        flash('Could not complete GitHub sign-in. Please try again.', 'error')
+        return redirect(url_for('login') if ctx['intent'] in ('admin', 'link_admin')
+                        else url_for('public_login', website_prefix=ctx['prefix'] or None))
+
+    intent = ctx['intent']
+    if intent == 'admin':
+        return _github_admin_login(gh_id)
+    if intent == 'link_admin':
+        return _github_admin_link(gh_id)
+    if intent == 'public':
+        return _github_public_login(gh_id, ctx)
+    if intent == 'link_public':
+        return _github_public_link(gh_id, ctx)
+    return redirect(url_for('login'))
+
+
+def _github_admin_login(gh_id):
+    user = User.query.filter_by(github_user_id=gh_id).first()
+    if not user:
+        # Deliberately no self-signup for admins: an admin account is created by
+        # an existing admin, who then links GitHub. Otherwise anyone with a
+        # GitHub account could mint themselves one.
+        flash('That GitHub account is not linked to an admin here. Ask an existing '
+              'admin to create your account and link it.', 'error')
+        return redirect(url_for('login'))
+    app.logger.info('GitHub sign-in for admin user id=%s', user.id)
+    # Same second-factor gate as the password form — GitHub proves one factor only.
+    return begin_admin_login(user, remember=False, admin_key=None,
+                             on_error=lambda: redirect(url_for('login')))
+
+
+def _github_admin_link(gh_id):
+    taken = User.query.filter(User.github_user_id == gh_id,
+                              User.id != current_user.id).first()
+    if taken:
+        flash('That GitHub account is already linked to another admin.', 'error')
+        return redirect(url_for('settings_page'))
+    current_user.github_user_id = gh_id
+    db.session.commit()
+    flash('GitHub account linked.', 'success')
+    return redirect(url_for('settings_page'))
+
+
+def _github_public_login(gh_id, ctx):
+    website = get_live_website(url_prefix=ctx['prefix'] or None)
+    if not website or not website_uses_public_accounts(website):
+        return 'Public accounts are not enabled for this site.', 404
+    if not getattr(website, 'github_login_enabled', False):
+        return 'GitHub sign-in is not enabled for this site.', 404
+
+    pu = PublicUser.query.filter_by(website_id=website.id, github_user_id=gh_id).first()
+    if pu:
+        if pu.is_banned or not pu.is_active_public:
+            flash('That account is not currently active.', 'error')
+            return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+        public_user_login(pu, remember=True)
+        return redirect(ctx['next'] or _website_home_url(website))
+
+    # First time this GitHub account has been seen here. We do not invent a
+    # username from their GitHub login — that would import a name we promised
+    # not to store — so they choose one.
+    if not getattr(website, 'allow_public_signup', True):
+        flash('Sign-ups are closed on this site. Please contact an admin.', 'error')
+        return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+    session['gh_pending_new'] = {'gh_id': gh_id, 'website_id': website.id,
+                                 'next': ctx['next'] or ''}
+    return redirect(url_for('github_choose_username',
+                            website_prefix=ctx['prefix'] or None))
+
+
+def _github_public_link(gh_id, ctx):
+    website = get_live_website(url_prefix=ctx['prefix'] or None)
+    viewer = _public_user_for_website(website) if website else None
+    if not viewer:
+        return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+    taken = PublicUser.query.filter(PublicUser.website_id == website.id,
+                                    PublicUser.github_user_id == gh_id,
+                                    PublicUser.id != viewer.id).first()
+    if taken:
+        flash('That GitHub account is already linked to another member.', 'error')
+    else:
+        viewer.github_user_id = gh_id
+        db.session.commit()
+        flash('GitHub account linked.', 'success')
+    return redirect(ctx['next'] or url_for('public_account_settings',
+                                           prefix=website.url_prefix or None))
+
+
+@app.route('/auth/github/choose-username', methods=['GET', 'POST'])
+def github_choose_username():
+    """Pick a site username for a brand-new GitHub-authenticated member.
+
+    The account is only created once a name is accepted, so an abandoned flow
+    leaves nothing behind.
+    """
+    pending = session.get('gh_pending_new')
+    if not pending:
+        return redirect(url_for('public_login'))
+    website = db.session.get(Website, pending.get('website_id'))
+    if not website:
+        session.pop('gh_pending_new', None)
+        return redirect(url_for('public_login'))
+
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip().lower()
+        if not username or len(username) < 3:
+            flash('Please choose a username of at least 3 characters.', 'error')
+            return redirect(request.path)
+        conflict = public_username_taken_anywhere(username)
+        if conflict:
+            flash(conflict, 'error')
+            return redirect(request.path)
+        # Re-check the GitHub id here too: two tabs could race this form.
+        if PublicUser.query.filter_by(website_id=website.id,
+                                      github_user_id=pending['gh_id']).first():
+            session.pop('gh_pending_new', None)
+            flash('That GitHub account is already registered. Please sign in.', 'error')
+            return redirect(url_for('public_login',
+                                    website_prefix=website.url_prefix or None))
+
+        pu = PublicUser(
+            website_id=website.id,
+            username=username,
+            github_user_id=pending['gh_id'],
+            # No email and no password: the whole point. Marked verified so the
+            # email-verification gate can't strand an account that has no email.
+            email=None,
+            email_verified=True,
+        )
+        if getattr(website, 'public_approval_required', False):
+            pu.is_active_public = False
+        db.session.add(pu)
+        db.session.commit()
+        nxt = pending.get('next') or ''
+        session.pop('gh_pending_new', None)
+        app.logger.info('New GitHub member created on website id=%s', website.id)
+
+        if not pu.is_active_public:
+            flash('Your account has been created and is pending admin approval.', 'success')
+            return redirect(url_for('public_login',
+                                    website_prefix=website.url_prefix or None))
+        public_user_login(pu, remember=True)
+        return redirect(nxt or _website_home_url(website))
+
+    return render_template('public_github_username.html', website=website,
+                           public_user=None,
+                           content={'current_page_url': url_for('github_choose_username')})
+
+
 @app.route('/account/login', methods=['GET', 'POST'])
 @app.route('/forum/login', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
@@ -26162,6 +26923,14 @@ def public_login():
 
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
+
+    # When the site is GitHub-only, refuse password sign-in on the server too —
+    # hiding the form in the template is presentation, not enforcement, and a
+    # hand-crafted POST must not get past it.
+    if (request.method == 'POST' and getattr(website, 'github_login_only', False)
+            and getattr(website, 'github_login_enabled', False)):
+        flash('This site uses GitHub sign-in.', 'error')
+        return redirect(url_for('public_login', website_prefix=website_prefix or None))
 
     # Only allow site-relative targets (no scheme/host) to avoid open redirects.
     _raw_next = (request.values.get('next') or '').strip()
@@ -29198,6 +29967,143 @@ def public_user_logout():
     session.pop('public_user_id', None)
     session.pop('public_user_website_id', None)
     session['_pub_remember_clear'] = True
+
+
+# ── GitHub sign-in ───────────────────────────────────────────────────────────
+# Privacy is the whole point of this integration, so two rules are enforced in
+# code rather than left to convention:
+#
+#   1. NO SCOPES are requested. A scopeless token still authorises GET /user,
+#      which is all we need. `user:email` — the scope that hands over addresses
+#      — is never asked for.
+#   2. GET /user still returns an `email` field when the member has set a public
+#      profile email, so not asking is not enough. `_github_identity` reads the
+#      numeric id and throws the rest of the response away, which is why it
+#      returns a bare int rather than the parsed body: there is no way for a
+#      caller to accidentally persist a name or address it never received.
+#
+# We also drop the access token once the single call is done — unlike storage
+# providers there is nothing to refresh, so keeping it is pure liability.
+_GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
+_GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
+_GITHUB_USER_URL = 'https://api.github.com/user'
+
+
+def get_github_login_settings():
+    return GitHubLoginSettings.query.first()
+
+
+def github_login_is_configured():
+    cfg = get_github_login_settings()
+    return bool(cfg and cfg.client_id and cfg.client_secret)
+
+
+def _github_client_secret(cfg):
+    return decrypt_api_key(cfg.client_secret or '') if cfg else ''
+
+
+def github_authorize_url(state):
+    cfg = get_github_login_settings()
+    if not cfg or not cfg.client_id:
+        return None
+    from urllib.parse import urlencode as _enc
+    params = {
+        'client_id': cfg.client_id,
+        'redirect_uri': url_for('github_callback', _external=True,
+                                _scheme=_email_link_scheme()),
+        'state': state,
+        # Empty scope, spelled out explicitly so a future edit has to make a
+        # deliberate decision to widen it.
+        'scope': '',
+        'allow_signup': 'false',
+    }
+    return f'{_GITHUB_AUTHORIZE_URL}?{_enc(params)}'
+
+
+def _github_exchange_code(code):
+    """Swap the callback code for an access token. Returns the token or None."""
+    cfg = get_github_login_settings()
+    if not cfg or not cfg.client_id:
+        return None
+    try:
+        resp = requests.post(
+            _GITHUB_TOKEN_URL,
+            data={
+                'client_id': cfg.client_id,
+                'client_secret': _github_client_secret(cfg),
+                'code': code,
+                'redirect_uri': url_for('github_callback', _external=True,
+                                        _scheme=_email_link_scheme()),
+            },
+            headers={'Accept': 'application/json'},
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            app.logger.warning('GitHub token exchange failed: HTTP %s', resp.status_code)
+            return None
+        return (resp.json() or {}).get('access_token') or None
+    except Exception as e:
+        app.logger.warning('GitHub token exchange error: %s', e)
+        return None
+
+
+def _github_identity(access_token):
+    """Return GitHub's numeric user id, and nothing else.
+
+    Returning an int rather than the response body is deliberate — see the
+    note above. The `email`, `login`, `name` and `avatar_url` fields GitHub
+    sends back are discarded here and never reach a caller.
+    """
+    try:
+        resp = requests.get(
+            _GITHUB_USER_URL,
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Accept': 'application/vnd.github+json'},
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            app.logger.warning('GitHub /user failed: HTTP %s', resp.status_code)
+            return None
+        gh_id = (resp.json() or {}).get('id')
+        return int(gh_id) if gh_id is not None else None
+    except Exception as e:
+        app.logger.warning('GitHub /user error: %s', e)
+        return None
+
+
+def _github_begin(intent, website_prefix=None, next_url=None):
+    """Start an OAuth round trip. Returns a redirect or an error response.
+
+    `state` is OAuth's own CSRF defence and is independent of CSRFProtect —
+    the callback arrives as a GET straight from GitHub and carries no token of
+    ours, so the nonce in the session is what proves the round trip started here.
+    """
+    if not github_login_is_configured():
+        return None, 'GitHub sign-in is not configured on this site.'
+    state = secrets.token_urlsafe(32)
+    session['gh_state'] = state
+    session['gh_intent'] = intent          # 'public' | 'admin' | 'link_admin' | 'link_public'
+    session['gh_prefix'] = website_prefix or ''
+    # Only site-relative targets, so the callback can't be used as an open redirect.
+    session['gh_next'] = next_url if (next_url or '').startswith('/') and not (next_url or '').startswith('//') else ''
+    url = github_authorize_url(state)
+    if not url:
+        return None, 'GitHub sign-in is not configured on this site.'
+    return url, None
+
+
+def _github_consume_state(supplied_state):
+    """Validate and burn the state nonce. Returns the stored context or None."""
+    expected = session.pop('gh_state', None)
+    intent = session.pop('gh_intent', None)
+    prefix = session.pop('gh_prefix', '')
+    next_url = session.pop('gh_next', '')
+    if not expected or not supplied_state:
+        return None
+    import hmac as _hmac
+    if not _hmac.compare_digest(str(expected), str(supplied_state)):
+        return None
+    return {'intent': intent, 'prefix': prefix, 'next': next_url}
 
 
 # ── Baseline security response headers ───────────────────────────────────────
