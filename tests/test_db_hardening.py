@@ -54,50 +54,29 @@ def test_sslmode_resolution():
     check('leaves a plain postgresql:// URL alone',
           main._libpq_url(URL) == URL)
 
-    # An explicit env setting wins without probing anything.
+    # An explicit env setting is the only thing that turns TLS on.
     main._DB_SSLMODE_ENV = 'verify-full'
     mode, status = main._resolve_db_sslmode(URL)
-    check('UWEBIA_DB_SSLMODE overrides the probe', mode == 'verify-full')
+    check('UWEBIA_DB_SSLMODE is honoured', mode == 'verify-full')
     check('status names the override', 'UWEBIA_DB_SSLMODE' in status)
 
-    # A URL that already says wins over the probe, and we add nothing.
+    # A URL that already declares sslmode is left alone.
     main._DB_SSLMODE_ENV = ''
     mode, status = main._resolve_db_sslmode(URL + '?sslmode=disable')
     check('URL-declared sslmode is left untouched', mode is None)
     check('status says so', 'database URL' in status)
 
-    # Unreachable host: no TLS verdict, and crucially no false warning.
+    # Nothing is imposed by default — TLS is opt-in.
     mode, status = main._resolve_db_sslmode(URL)
-    check('unreachable server yields no mode', mode is None)
-    check('unreachable is reported as undetermined, not as disabled',
-          'undetermined' in status and 'DISABLED' not in status)
+    check('nothing is added by default (TLS stays optional)', mode is None)
+    check('status says it is unconfigured', 'not configured' in status)
 
-    # A server that answers "no SSL here" must fall back, loudly.
-    real_connect = None
+    # Reporting is separate from enforcing and must never raise.
     try:
-        import psycopg2
-        real_connect = psycopg2.connect
-
-        def _no_ssl(*a, **kw):
-            raise psycopg2.OperationalError(
-                'server does not support SSL, but SSL was required')
-
-        psycopg2.connect = _no_ssl
-        mode, status = main._resolve_db_sslmode(URL)
-        check('plaintext-only server falls back rather than failing to boot',
-              mode is None)
-        check('plaintext-only server is flagged DISABLED', 'DISABLED' in status)
-
-        # And the success path pins require.
-        psycopg2.connect = lambda *a, **kw: type(
-            'C', (), {'close': lambda self: None})()
-        mode, status = main._resolve_db_sslmode(URL)
-        check('server accepting TLS pins sslmode=require', mode == 'require')
-        check('status reports enforcement', 'enforced' in status)
-    finally:
-        if real_connect is not None:
-            import psycopg2
-            psycopg2.connect = real_connect
+        main._report_db_tls(URL, None)
+        check('status reporting survives an unreachable server', True)
+    except Exception:
+        check('status reporting survives an unreachable server', False)
 
 
 def _seed_ip_rows():
@@ -120,6 +99,9 @@ def _seed_ip_rows():
         main.ContactMessage(section_id=1, sender_email='a@example.com',
                             subject='s', body='b',
                             ip_address='203.0.113.6', created_at=old),
+        main.PageComment(website_id=1, page_id=1, section_id=1, display_name='n',
+                         body='c', ip_address='203.0.113.8',
+                         created_at=old, updated_at=old),
         main.CalendarFeedSubscriber(subscriber_hash='h1', ip_address='203.0.113.7',
                                     first_seen_at=old, last_seen_at=old),
     ])
@@ -150,7 +132,7 @@ def test_prune():
         total_rows_before = {
             m.__tablename__: db.session.query(m).count()
             for m, _i, _t in main._ip_retention_targets()}
-        check('seeded rows carry IPs', main._stored_ip_count() == 7)
+        check('seeded rows carry IPs', main._stored_ip_count() == 8)
 
         anchor = main.User(username='owner', parent_user_id=None)
         anchor.set_password('x')
@@ -161,8 +143,8 @@ def test_prune():
         check('helper reads it from the anchor', main.ip_retention_days() == 90)
 
         cleared = main.prune_expired_ips()
-        check('sweep erased the aged rows', sum(cleared.values()) == 5)
-        check('all five tables were swept', len(cleared) == 5)
+        check('sweep erased the aged rows', sum(cleared.values()) == 6)
+        check('all six tables were swept', len(cleared) == 6)
         check('recent IPs survive', main._stored_ip_count() == 2)
 
         total_rows_after = {
@@ -221,6 +203,113 @@ def test_route():
         check('0 is accepted (keep forever)', r.get_json()['days'] == 0)
 
 
+def test_ip_recording_switch():
+    print('\n[5] IP recording switch')
+    with app.app_context():
+        anchor = main.User.query.filter_by(parent_user_id=None).first()
+        anchor.store_visitor_ips = True
+        anchor.ip_retention_days = 90
+        db.session.commit()
+        check('recording is on by default', main.visitor_ip_storage_enabled() is True)
+
+        _seed_ip_rows()
+        seeded = main._stored_ip_count()
+        check('rows were seeded with IPs', seeded > 0)
+
+        anchor.store_visitor_ips = False
+        db.session.commit()
+        check('helper reflects the switch', main.visitor_ip_storage_enabled() is False)
+        check('recordable_ip returns nothing while off',
+              main.recordable_ip('203.0.113.99') is None)
+
+        cleared = main.erase_all_visitor_ips()
+        check('turning it off erases everything already stored',
+              sum(cleared.values()) == seeded and main._stored_ip_count() == 0)
+
+        anchor.store_visitor_ips = True
+        db.session.commit()
+        check('recordable_ip passes the address through when on',
+              main.recordable_ip('203.0.113.99') == '203.0.113.99')
+
+    # Saving with store_ips=false must erase, not just stop future writes.
+    with app.app_context():
+        _seed_ip_rows()
+        before = main._stored_ip_count()
+        anchor_id = main.User.query.filter_by(parent_user_id=None).first().id
+    with app.test_client() as c:
+        with c.session_transaction() as s:
+            s['_user_id'] = str(anchor_id)
+            s['_fresh'] = True
+        r = c.post('/admin/dashboard/settings/ip-retention',
+                   json={'days': 90, 'store_ips': False})
+        d = r.get_json()
+        check('route accepts store_ips=false', d.get('success') is True)
+        check('route reports the erase count', d.get('cleared') == before)
+    with app.app_context():
+        check('no IP survives the switch-off', main._stored_ip_count() == 0)
+        check('setting persisted',
+              main.db.session.get(main.User, anchor_id).store_visitor_ips is False)
+
+
+def test_asset_usage():
+    print('\n[6] asset usage counting')
+    with app.app_context():
+        db.session.query(main.Asset).delete()
+        db.session.commit()
+
+        used = main.Asset(user_id=1, original_filename='hero.png',
+                          stored_filename='hero-abc.png',
+                          url='/static/uploads/1/assets/hero-abc.png',
+                          asset_type='image', file_size=10)
+        unused = main.Asset(user_id=1, original_filename='old.png',
+                            stored_filename='old-zzz.png',
+                            url='/static/uploads/1/assets/old-zzz.png',
+                            asset_type='image', file_size=10)
+        db.session.add_all([used, unused])
+        db.session.commit()
+
+        # Reference the first asset from two different content rows.
+        db.session.add(main.PageComment(
+            website_id=1, page_id=1, section_id=1, display_name='n',
+            body='<img src="/static/uploads/1/assets/hero-abc.png">',
+            created_at=main.datetime.utcnow(), updated_at=main.datetime.utcnow()))
+        db.session.add(main.ForumThread(
+            website_id=1, title='t', body='see /static/uploads/1/assets/hero-abc.png',
+            created_at=main.datetime.utcnow(), updated_at=main.datetime.utcnow()))
+        db.session.commit()
+
+        main._asset_usage_cache['index'] = None    # counts are cached for 60s
+        counts = main.asset_usage_counts([used, unused])
+        check('counts every reference to a used asset', counts.get(used.id) == 2)
+        check('an unreferenced asset counts zero', counts.get(unused.id) == 0)
+        check("an asset's own row does not count as a use",
+              counts.get(unused.id) == 0)
+
+        # A page view of the image is not a use of it.
+        db.session.add(main.PageVisit(
+            website_id=1, page_id=1, visitor_id='v',
+            path='/static/uploads/1/assets/old-zzz.png',
+            visited_at=main.datetime.utcnow()))
+        db.session.commit()
+        main._asset_usage_cache['index'] = None    # force a real rescan
+        counts = main.asset_usage_counts([unused])
+        check('analytics rows are excluded from the count',
+              counts.get(unused.id) == 0)
+
+        # The cache must actually serve repeat calls, not silently rescan.
+        main._asset_usage_cache['index'] = {'/static/uploads/x/sentinel.png': 7}
+        main._asset_usage_cache['at'] = main.time.time()
+        sentinel = main.Asset(user_id=1, original_filename='s.png',
+                              stored_filename='sentinel.png',
+                              url='/static/uploads/x/sentinel.png',
+                              asset_type='image', file_size=1)
+        check('a warm cache is reused rather than rescanned',
+              main.asset_usage_counts([sentinel]).get(sentinel.id) == 7)
+        main._asset_usage_cache['index'] = None
+
+        check('empty input returns empty', main.asset_usage_counts([]) == {})
+
+
 def test_backup_roundtrip():
     print('\n[4] backup round-trip')
     with app.app_context():
@@ -232,12 +321,16 @@ def test_backup_roundtrip():
               data['owner_settings'].get('ip_retention_days') == 45)
         check('the enrolment ticket is NOT exported',
               not any('enroll_ticket' in k for k in data['owner_settings']))
+        check('the IP recording switch is exported',
+              'store_visitor_ips' in data['owner_settings'])
 
 
 if __name__ == '__main__':
     test_sslmode_resolution()
     test_prune()
     test_route()
+    test_ip_recording_switch()
+    test_asset_usage()
     test_backup_roundtrip()
     print('\n' + ('ALL PASSED' if not FAILURES else f'{len(FAILURES)} FAILED: {FAILURES}'))
     sys.exit(1 if FAILURES else 0)

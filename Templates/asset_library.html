@@ -190,6 +190,23 @@
         font-size: 0.74rem;
     }
 
+    /* How many places on the site reference this file. "Not used" is muted
+       rather than alarming — it's a hint for tidying up, not an error. */
+    .asset-uses {
+        margin-top: 4px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #7ee2cc;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .asset-uses--none {
+        color: rgba(255, 255, 255, 0.32);
+        font-weight: 500;
+    }
+
     .upload-progress-wrapper {
         margin: 12px 0 16px;
         max-width: 460px;
@@ -1113,6 +1130,12 @@
                 </div>
                 <div class="asset-sub">
                     {{ asset.asset_type|capitalize }} · {{ asset.extension }} · {{ asset.file_size|filesizeformat }}
+                </div>
+                {% set uses = usage_counts.get(asset.id, 0) %}
+                <div class="asset-uses{% if not uses %} asset-uses--none{% endif %}"
+                     title="{% if uses %}Referenced in {{ uses }} place{{ 's' if uses != 1 }} across the site{% else %}Nothing on the site references this file. Check before deleting — very new uploads and links built in JavaScript may not be counted.{% endif %}">
+                    <i class="fas {{ 'fa-link' if uses else 'fa-unlink' }}"></i>
+                    {% if uses %}Used {{ uses }}&times;{% else %}Not used{% endif %}
                 </div>
             </div>
 

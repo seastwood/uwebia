@@ -433,14 +433,20 @@ app.config['SQLALCHEMY_DATABASE_URI'] = _DATABASE_URL
 # database usually lives on another host, so that traffic crosses a network
 # carrying member emails, password hashes and session data.
 #
-# Rather than hard-defaulting to `require` (which would refuse to boot against
-# the bundled docker-compose Postgres, whose image ships with ssl off, on a
-# private container network where it matters far less), probe once at startup:
-# pin `require` when the server accepts it, and fall back loudly when it can't.
+# Enforcing TLS is therefore OPT-IN, not automatic: plenty of deployments run
+# the database on the same host or on a private container network (the bundled
+# docker-compose Postgres ships with ssl off entirely), and silently imposing
+# `require` there would turn a working install into one that won't boot.
 #
-# UWEBIA_DB_SSLMODE overrides the probe entirely. `verify-full` additionally
-# authenticates the server and needs UWEBIA_DB_SSLROOTCERT plus a certificate
-# whose SAN matches the host in the URL — see .env.example.
+# So by default nothing is added and libpq's own behaviour applies. Set
+# UWEBIA_DB_SSLMODE to opt in — `require` to insist on encryption, or
+# `verify-full` to also authenticate the server, which additionally needs
+# UWEBIA_DB_SSLROOTCERT and a certificate whose SAN matches the host in the
+# URL. See the README ("Database TLS") and .env.example.
+#
+# Either way, startup reports whether the connection actually ended up
+# encrypted, so an unencrypted link is a visible choice rather than a silent
+# default.
 _DB_SSLMODE_ENV = (os.environ.get('UWEBIA_DB_SSLMODE') or '').strip().lower()
 _DB_SSLROOTCERT = (os.environ.get('UWEBIA_DB_SSLROOTCERT') or '').strip()
 _DB_TLS_STATUS = 'not applicable (not PostgreSQL)'
@@ -457,31 +463,51 @@ def _url_declares_sslmode(url):
 
 
 def _resolve_db_sslmode(url):
-    """Decide the sslmode to pin for this process. Returns (mode_or_None, status).
+    """The sslmode to apply, or None to leave libpq's default alone.
 
-    None means "add nothing" — either the URL already says, or we couldn't tell
-    and the normal connection error path should surface the real problem.
+    Only an explicit opt-in changes anything — this never imposes TLS on a
+    deployment that didn't ask for it.
     """
     if _DB_SSLMODE_ENV:
-        return _DB_SSLMODE_ENV, f'{_DB_SSLMODE_ENV} (forced by UWEBIA_DB_SSLMODE)'
+        return _DB_SSLMODE_ENV, f'{_DB_SSLMODE_ENV} (set by UWEBIA_DB_SSLMODE)'
     if _url_declares_sslmode(url):
         return None, 'set explicitly in the database URL'
+    return None, 'not configured (libpq default)'
 
-    probe_args = {'connect_timeout': 6, 'sslmode': 'require'}
-    if _DB_SSLROOTCERT:
-        probe_args['sslrootcert'] = _DB_SSLROOTCERT
+
+def _report_db_tls(url, configured):
+    """Say whether the connection actually ends up encrypted.
+
+    Reporting is separate from enforcing on purpose: TLS stays optional, but
+    running unencrypted should be something you can see rather than assume.
+    Never raises and never blocks startup — a probe failure here says nothing
+    about whether the app itself can connect.
+    """
     try:
         import psycopg2
-        psycopg2.connect(_libpq_url(url), **probe_args).close()
-        return 'require', 'require (TLS negotiated and enforced)'
-    except Exception as probe_err:
-        if 'does not support ssl' in str(probe_err).lower():
-            # Reachable, but plaintext-only. Booting is better than refusing —
-            # but this must never be silent.
-            return None, 'DISABLED — server does not support TLS'
-        # Auth failure, wrong host, server down: not a TLS verdict. Say nothing
-        # and let the app's own connection handling report the real error.
-        return None, 'undetermined (server unreachable during probe)'
+        args = {'connect_timeout': 6}
+        if _DB_SSLROOTCERT:
+            args['sslrootcert'] = _DB_SSLROOTCERT
+        if configured:
+            args['sslmode'] = configured
+        conn = psycopg2.connect(_libpq_url(url), **args)
+        try:
+            with conn.cursor() as cur:
+                cur.execute('select ssl, version from pg_stat_ssl '
+                            'where pid = pg_backend_pid()')
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row and row[0]:
+            print(f'[db] TLS: encrypted ({row[1]}) — sslmode {configured or "default"}')
+        else:
+            print('[db] TLS: NOT encrypted. Traffic to PostgreSQL — including '
+                  'member data and password hashes — crosses the network in the '
+                  'clear. Set UWEBIA_DB_SSLMODE=require to insist on TLS '
+                  '(see README, "Database TLS").')
+    except Exception:
+        # Unreachable, wrong credentials, no psycopg2 — not a TLS verdict.
+        print('[db] TLS: could not determine (database not reachable for the check)')
 
 
 # PostgreSQL engine options — UTF-8, connection health checks, and pool tuning
@@ -495,13 +521,7 @@ if _DATABASE_URL.startswith('postgresql'):
         _connect_args['sslmode'] = _sslmode
     if _DB_SSLROOTCERT:
         _connect_args['sslrootcert'] = _DB_SSLROOTCERT
-    if 'DISABLED' in _DB_TLS_STATUS:
-        print('[db] WARNING: the connection to PostgreSQL is NOT encrypted — '
-              'the server does not offer TLS. Everything the app stores crosses '
-              'the network in the clear. Enable ssl on the server, or keep the '
-              'database on a trusted private network.')
-    else:
-        print(f'[db] TLS: {_DB_TLS_STATUS}')
+    _report_db_tls(_DATABASE_URL, _sslmode)
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'connect_args': _connect_args,
         'pool_pre_ping': True,            # test connection before use; auto-reconnect after restart
@@ -913,6 +933,13 @@ class User(UserMixin, db.Model):
     # leak. 0 disables pruning and keeps them forever. See prune_expired_ips.
     ip_retention_days = db.Column(db.Integer, nullable=False, default=90,
                                   server_default='90')
+    # When off, no visitor IP is written down at all — not to analytics, forum
+    # posts, contact messages or calendar subscriptions. Geolocation still runs
+    # on the live request, so country/region/city analytics survive; only the
+    # address itself is dropped. Stronger than retention, which keeps the IP for
+    # a while first. See store_visitor_ips().
+    store_visitor_ips = db.Column(db.Boolean, nullable=False, default=True,
+                                  server_default=_sa_true())
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -6047,7 +6074,103 @@ def asset_library():
         allowed_folder_ids=allowed_folder_ids,
         folder_counts=folder_counts,
         root_count=folder_counts.get(None, 0),
+        usage_counts=asset_usage_counts(assets),
     )
+
+
+# ── Asset usage counting ──────────────────────────────────────────────────────
+# Asset URLs are pasted into page-section JSON, guide and quiz HTML, post
+# bodies, product descriptions, website background/brand fields and more —
+# dozens of columns across the schema, with new ones appearing whenever a
+# feature is added. Rather than maintain a list of "places an asset can be
+# used" that silently goes stale, scan every text-ish column once and count
+# what turns up. One pass over the content builds the index; each asset is then
+# a dict lookup, so cost doesn't grow with the size of the library.
+
+# Analytics rows record the URL of the image that was *requested*, which is a
+# page view rather than a use of the asset; the asset table holds each asset's
+# own url/thumbnail_url, which would count itself.
+_ASSET_USAGE_SKIP_TABLES = {'asset', 'page_visit'}
+_ASSET_URL_RE = re.compile(r'/static/uploads/[A-Za-z0-9_\-./]+')
+
+
+def _asset_usage_index():
+    """Count every reference to an uploads URL anywhere in the database.
+
+    Returns a Counter keyed by URL path. Never raises: a usage badge is a nicety
+    and must not be able to take the asset library down.
+    """
+    from collections import Counter
+    counts = Counter()
+    for table in db.metadata.tables.values():
+        if table.name in _ASSET_USAGE_SKIP_TABLES:
+            continue
+        cols = [c for c in table.columns
+                if isinstance(c.type, (db.String, db.Text, db.JSON))]
+        if not cols:
+            continue
+        try:
+            for row in db.session.execute(db.select(*cols)):
+                for value in row:
+                    if not value:
+                        continue
+                    # JSON columns arrive as dict/list; str() is enough to find
+                    # URLs inside them and avoids walking arbitrary structures.
+                    text = value if isinstance(value, str) else str(value)
+                    if '/static/uploads/' not in text:
+                        continue
+                    for match in _ASSET_URL_RE.findall(text):
+                        counts[match] += 1
+        except Exception as scan_err:
+            app.logger.warning('asset usage scan skipped %s: %s',
+                               table.name, scan_err)
+    return counts
+
+
+# The scan is proportional to how much content exists, not how many assets, so
+# it costs the same whether the library holds ten files or a thousand (~0.2s
+# over a small site). Cached briefly so paging through the library doesn't
+# re-read every text column each time; a count that is a minute stale is fine
+# for a badge, and any write invalidates nothing important.
+_ASSET_USAGE_CACHE_TTL = 60
+_asset_usage_cache = {'at': 0.0, 'index': None}
+
+
+def _asset_usage_index_cached():
+    now = time.time()
+    if (_asset_usage_cache['index'] is not None
+            and now - _asset_usage_cache['at'] < _ASSET_USAGE_CACHE_TTL):
+        return _asset_usage_cache['index']
+    index = _asset_usage_index()
+    _asset_usage_cache['index'] = index
+    _asset_usage_cache['at'] = now
+    return index
+
+
+def asset_usage_counts(assets):
+    """Map asset id -> how many places reference it."""
+    if not assets:
+        return {}
+    index = _asset_usage_index_cached()
+    if not index:
+        return {a.id: 0 for a in assets}
+
+    # Match on the stored filename rather than the full URL: the same file is
+    # referenced both absolutely and relatively, and an uploads URL can carry a
+    # cache-busting query string.
+    by_name = {}
+    for url, n in index.items():
+        by_name[url.rsplit('/', 1)[-1]] = by_name.get(url.rsplit('/', 1)[-1], 0) + n
+
+    out = {}
+    for a in assets:
+        total = by_name.get(a.stored_filename, 0)
+        # An optimised upload keeps the pre-conversion original; a reference to
+        # either one is a use of the same asset.
+        if a.original_stored_filename and a.original_stored_filename != a.stored_filename:
+            total += by_name.get(a.original_stored_filename, 0)
+        out[a.id] = total
+    return out
 
 
 def get_user_asset_folder(user_id):
@@ -10804,7 +10927,8 @@ def save_ip_retention_settings():
     if not anchor:
         return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
 
-    raw = (request.get_json() or {}).get('days')
+    payload = request.get_json() or {}
+    raw = payload.get('days')
     try:
         days = int(raw)
     except (TypeError, ValueError):
@@ -10814,12 +10938,19 @@ def save_ip_retention_settings():
         return _utf8_json({'success': False,
                            'error': 'Choose between 0 and 3650 days.'}, 400)
 
+    store_ips = bool(payload.get('store_ips', True))
     anchor.ip_retention_days = days
+    anchor.store_visitor_ips = store_ips
     db.session.commit()
-    cleared = prune_expired_ips(days)
-    app.logger.info('IP retention set to %s day(s) by admin id=%s; erased %s',
-                    days, current_user.id, cleared or 'nothing')
-    return _utf8_json({'success': True, 'days': days,
+
+    # Turning recording off means the ones already on file should go too —
+    # otherwise "stop storing IPs" would quietly leave every existing one in
+    # place. While recording stays on, apply the new retention window now.
+    cleared = prune_expired_ips(days) if store_ips else erase_all_visitor_ips()
+    app.logger.info('IP settings by admin id=%s: retention=%s days, recording=%s; erased %s',
+                    current_user.id, days, 'on' if store_ips else 'OFF',
+                    cleared or 'nothing')
+    return _utf8_json({'success': True, 'days': days, 'store_ips': store_ips,
                        'cleared': sum(cleared.values()) if cleared else 0})
 
 
@@ -11956,7 +12087,9 @@ def send_email():
         body=body,
         contact_form_title=contact_form_title,
         extra_fields=extra_fields or None,
-        ip_address=ip_address,
+        # The submit-cooldown check above still uses the real address; only the
+        # stored copy is subject to the org's IP setting.
+        ip_address=recordable_ip(ip_address),
         user_agent=user_agent,
         referrer=referrer,
         status='stored'
@@ -16175,7 +16308,10 @@ def track_page_visit(website, page, visitor_id):
                     path=path,
                     referrer=referrer,
                     user_agent=ua,
-                    ip_address=ip_address,
+                    # Geolocation above still runs on the live address, so
+                    # country/region/city survive even when the IP itself is
+                    # not kept.
+                    ip_address=recordable_ip(ip_address),
                     country=location.get('country'),
                     country_iso=location.get('country_iso'),
                     region=location.get('region'),
@@ -16378,6 +16514,7 @@ def settings_page():
         verbose_logging=bool(getattr(_anchor, 'org_verbose_logging', False)),
         log_file_status=_log_file_status(),
         ip_retention_days=int(getattr(_anchor, 'ip_retention_days', 90) or 0),
+        store_visitor_ips=bool(getattr(_anchor, 'store_visitor_ips', True)),
         stored_ip_count=_stored_ip_count(),
         can_set_org_2fa=current_user.has_permission('settings.2fa'),
         can_backup=current_user.has_permission('settings.backup'),
@@ -16763,6 +16900,7 @@ def _serialize_backup(uid):
             'admin_brand_name': _owner.admin_brand_name,
             'admin_brand_icon_url': _owner.admin_brand_icon_url,
             'ip_retention_days': _owner.ip_retention_days,
+            'store_visitor_ips': bool(_owner.store_visitor_ips),
         } if _owner else {},
         'websites': [{'id': w.id, 'name': w.name, 'description': w.description,
                       'is_draft': w.is_draft,
@@ -17720,6 +17858,7 @@ def _ip_retention_targets():
         (ForumThread, ForumThread.ip_address, ForumThread.created_at),
         (ForumReply, ForumReply.ip_address, ForumReply.created_at),
         (ContactMessage, ContactMessage.ip_address, ContactMessage.created_at),
+        (PageComment, PageComment.ip_address, PageComment.created_at),
         (CalendarFeedSubscriber, CalendarFeedSubscriber.ip_address,
          CalendarFeedSubscriber.last_seen_at),
     )
@@ -17734,6 +17873,27 @@ def ip_retention_days():
         return max(0, int(anchor.ip_retention_days or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def visitor_ip_storage_enabled():
+    """Org-wide: may a visitor IP be written to the database at all?"""
+    anchor = get_main_admin()
+    if anchor is None:
+        return True
+    return bool(getattr(anchor, 'store_visitor_ips', True))
+
+
+def recordable_ip(ip=None):
+    """The IP to persist against content, or None when storage is turned off.
+
+    Deliberately separate from get_request_ip(): rate limiting, login lockouts
+    and the contact-form cooldown keep using the real address, because those are
+    transient security controls rather than stored history. This function only
+    governs what gets written into a row and kept.
+    """
+    if not visitor_ip_storage_enabled():
+        return None
+    return get_request_ip() if ip is None else ip
 
 
 def prune_expired_ips(days=None):
@@ -17763,6 +17923,30 @@ def prune_expired_ips(days=None):
     if cleared:
         db.session.commit()
         app.logger.info('IP retention: erased %s', cleared)
+    return cleared
+
+
+def erase_all_visitor_ips():
+    """Erase every stored visitor IP, regardless of age. Returns {table: rows}.
+
+    Used when IP recording is switched off — leaving the existing addresses
+    behind would make "stop storing IPs" mean "stop storing new ones", which is
+    not what anyone turning it off is asking for.
+    """
+    cleared = {}
+    for model, ip_col, _ts in _ip_retention_targets():
+        try:
+            n = (db.session.query(model).filter(ip_col.isnot(None))
+                 .update({ip_col: None}, synchronize_session=False))
+            if n:
+                cleared[model.__tablename__] = n
+        except Exception as erase_err:
+            db.session.rollback()
+            app.logger.warning('IP erase failed for %s: %s',
+                               model.__tablename__, erase_err)
+    if cleared:
+        db.session.commit()
+        app.logger.info('IP recording disabled: erased %s', cleared)
     return cleared
 
 
@@ -18412,6 +18596,9 @@ def import_backup():
                     _retention = _owner_settings.get('ip_retention_days')
                     _owner.ip_retention_days = (
                         90 if _retention is None else max(0, int(_retention)))
+                    _store_ips = _owner_settings.get('store_visitor_ips')
+                    _owner.store_visitor_ips = (
+                        True if _store_ips is None else bool(_store_ips))
 
             for gd in data.get('permission_groups', []):
                 pg = PermissionGroup(owner_user_id=uid, name=gd['name'],
@@ -22836,7 +23023,7 @@ def track_calendar_feed_subscriber(calendar_id):
         subscriber = CalendarFeedSubscriber(
             calendar_id=calendar_id,
             subscriber_hash=subscriber_hash,
-            ip_address=ip_address,
+            ip_address=recordable_ip(ip_address),
             user_agent=user_agent,
             first_seen_at=now,
             last_seen_at=now,
@@ -28885,7 +29072,7 @@ def public_forum_new_thread(prefix=None):
             public_user_id=public_user.id if public_user else None,
             title=title[:180],
             body=body,
-            ip_address=get_request_ip(),
+            ip_address=recordable_ip(),
             user_agent=request.headers.get('User-Agent')
         )
 
@@ -29000,7 +29187,7 @@ def public_forum_thread(thread_id, prefix=None):
             website_id=website.id,
             public_user_id=public_user.id if public_user else None,
             body=body,
-            ip_address=get_request_ip(),
+            ip_address=recordable_ip(),
             user_agent=request.headers.get('User-Agent')
         )
 
@@ -29292,7 +29479,7 @@ def submit_page_comment(section_id):
         display_name=display_name,
         body=body,
         is_approved=not settings.get('manual_approval', False),
-        ip_address=get_request_ip(),
+        ip_address=recordable_ip(),
         user_agent=request.headers.get('User-Agent')
     )
 

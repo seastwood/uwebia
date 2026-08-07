@@ -26,8 +26,13 @@
             {% if website and website.store_enabled %}
             {{ website.store_title or 'Shop' }} enabled —
             <a href="/shop" target="_blank">/shop</a>
+            {% if website.store_in_store_only %}
+            <span class="store-shop-banner-divider">·</span>
+            <span style="color:#ffce6b;font-weight:600;">browse only — no online checkout</span>
+            {% else %}
             <span class="store-shop-banner-divider">·</span>
             <a href="/store/cart" target="_blank">Cart</a>
+            {% endif %}
             {% else %}
             {{ website.store_title or 'Shop' }} <strong>disabled</strong>
             {% endif %}
@@ -51,13 +56,18 @@
                 <span id="storeEnabledLabel">{% if website and website.store_enabled %}Enabled{% else %}Disabled{% endif %}</span>
             </label>
             <span class="store-shop-banner-divider">·</span>
-            <label class="store-enable-toggle" title="Browse-only mode: visitors can view products but cannot purchase online" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+            <!-- The switch is named for what it turns ON (in-store only), and
+                 the consequence is spelled out beside it. Labelling it with the
+                 current mode instead read as "Online Purchasing: off" at the
+                 exact moment online purchasing was on. -->
+            <label class="store-enable-toggle" title="In-store only: visitors can browse products but cannot buy them online" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
                 <input type="checkbox" id="inStoreOnlyCheckbox"
                        {% if website and website.store_in_store_only %}checked{% endif %}
                        onchange="toggleInStoreOnly(this)"
                        style="position:absolute;opacity:0;pointer-events:none">
-                <span class="store-enable-track" id="inStoreOnlyTrack" {% if website and website.store_in_store_only %}style="background:rgba(255,200,80,0.2);border-color:rgba(255,200,80,0.5);"{% endif %}></span>
-                <span id="inStoreOnlyLabel">{% if website and website.store_in_store_only %}In-Store Only{% else %}Online Purchasing{% endif %}</span>
+                <span class="store-enable-track{% if website and website.store_in_store_only %} store-enable-track--warn{% endif %}" id="inStoreOnlyTrack"></span>
+                <span>In-store only</span>
+                <span id="inStoreOnlyLabel" class="store-mode-note">{% if website and website.store_in_store_only %}on &middot; online checkout disabled{% else %}off &middot; customers can buy online{% endif %}</span>
             </label>
         </div>
     </div>
@@ -84,6 +94,21 @@
 .store-enable-track--on {
     background: rgba(94,238,200,0.2) !important;
     border-color: rgba(94,238,200,0.5) !important;
+}
+/* In-store only is a restriction, not a feature: amber rather than green so
+   "on" doesn't read as "everything is working". */
+.store-enable-track--warn {
+    background: rgba(255,200,80,0.2) !important;
+    border-color: rgba(255,200,80,0.5) !important;
+}
+.store-enable-track--warn::after {
+    transform: translateX(16px) !important;
+    background: #ffce6b !important;
+}
+.store-mode-note {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.45);
+    white-space: nowrap;
 }
 .store-enable-track--on::after {
     transform: translateX(16px) !important;
@@ -578,10 +603,11 @@ async function toggleInStoreOnly(checkbox) {
         if (typeof d.store_in_store_only !== 'undefined') {
             const on = d.store_in_store_only;
             checkbox.checked = on;
-            track.classList.toggle('store-enable-track--on', on);
-            track.style.background    = on ? 'rgba(255,200,80,0.2)' : '';
-            track.style.borderColor   = on ? 'rgba(255,200,80,0.5)' : '';
-            label.textContent = on ? 'In-Store Only' : 'Online Purchasing';
+            // Amber "warn" styling, not the green "on" styling — see the CSS note.
+            track.classList.toggle('store-enable-track--warn', on);
+            label.textContent = on
+                ? 'on · online checkout disabled'
+                : 'off · customers can buy online';
         } else {
             checkbox.checked = !checkbox.checked;
         }

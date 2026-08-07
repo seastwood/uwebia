@@ -278,6 +278,70 @@ All settings can come from environment variables (preferred for Docker) or `conf
 | `POSTGRES_USER`      | `uwebia`                        | Postgres role used by the `db` service                             |
 | `POSTGRES_PASSWORD`  | *(must be set)*                 | Postgres password                                                  |
 | `POSTGRES_DB`        | `uwebia`                        | Postgres database name                                             |
+| `UWEBIA_DB_SSLMODE`  | *(unset — libpq default)*       | TLS mode for the Postgres connection. See below                    |
+| `UWEBIA_DB_SSLROOTCERT` | *(empty)*                    | CA certificate used by `verify-ca` / `verify-full`                 |
+
+---
+
+## Database TLS
+
+**Optional.** By default the app adds nothing and libpq's own behaviour applies,
+which is `sslmode=prefer`: it uses TLS when the server offers it and quietly
+falls back to an unencrypted connection when it doesn't. That's fine when the
+database is on the same host or on a private container network — the bundled
+`docker-compose` Postgres has TLS off entirely — and it's why this isn't forced
+on you.
+
+It's worth turning on when the database lives on **another machine**, because
+everything the app stores crosses that link: member emails, password hashes,
+session data.
+
+Startup always tells you where you ended up, whether or not you set anything:
+
+```
+[db] TLS: encrypted (TLSv1.3) — sslmode require
+[db] TLS: NOT encrypted. Traffic to PostgreSQL ... crosses the network in the clear.
+```
+
+### Turning it on
+
+```bash
+# in .env (Docker) or the app's environment
+UWEBIA_DB_SSLMODE=require
+```
+
+`require` encrypts the connection but does **not** check who the server is, so
+it stops passive sniffing, not an active machine-in-the-middle. Values are
+libpq's: `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`.
+
+An `sslmode=...` already present in `DATABASE_URL` always wins — the app leaves
+it alone.
+
+### Verifying the server as well
+
+`verify-full` is the real fix, and it has two requirements that catch people out:
+
+```bash
+UWEBIA_DB_SSLMODE=verify-full
+UWEBIA_DB_SSLROOTCERT=/etc/ssl/certs/uwebia-postgres-ca.crt
+```
+
+1. `UWEBIA_DB_SSLROOTCERT` must point at the CA that signed the server's
+   certificate — or, for a self-signed certificate, at that certificate itself.
+2. **The host in `DATABASE_URL` must match the certificate.** A certificate
+   whose SAN is a DNS name cannot verify a URL written with an IP address. This
+   is the usual failure: connect by the name (and make sure it resolves), or
+   reissue the certificate with an IP SAN.
+
+Check what your server presents before switching:
+
+```bash
+openssl s_client -starttls postgres -connect YOUR_DB_HOST:5432 </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -ext subjectAltName
+```
+
+If that prints `DNS:db.internal` while `DATABASE_URL` says `@10.0.0.5/`,
+`verify-full` will refuse to connect until you fix one or the other.
 
 ---
 

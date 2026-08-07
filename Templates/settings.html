@@ -682,6 +682,21 @@
                     this decides how long it's kept.
                 </p>
                 <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="storeVisitorIps"
+                               {% if store_visitor_ips %}checked{% endif %}
+                               onchange="_ipRecordingChanged()">
+                        Record visitor IP addresses
+                    </label>
+                    <p class="settings-help">
+                        Turn this off to stop writing them down at all. Analytics keeps
+                        working &mdash; country, region and city are still worked out from
+                        the live request, so only the address itself is dropped. Note that
+                        forum posts and contact messages also stop carrying an IP, which is
+                        what you'd otherwise use to trace abuse.
+                    </p>
+                </div>
+                <div class="settings-field" id="ipRetentionField">
                     <label for="ipRetentionDays">Erase IP addresses older than</label>
                     <input type="number" id="ipRetentionDays" min="0" max="3650" step="1"
                            value="{{ ip_retention_days }}" style="max-width:140px;">
@@ -1465,27 +1480,49 @@
             } catch (e) { _msg('loggingMessage', 'Request failed.', true); }
         }
 
+        // A retention window is meaningless when nothing is being recorded.
+        function _ipRecordingChanged() {
+            const on = document.getElementById('storeVisitorIps').checked;
+            const field = document.getElementById('ipRetentionField');
+            if (field) field.style.opacity = on ? '' : '0.45';
+            const input = document.getElementById('ipRetentionDays');
+            if (input) input.disabled = !on;
+        }
+        document.addEventListener('DOMContentLoaded', _ipRecordingChanged);
+
         async function saveIpRetention() {
+            const storeIps = document.getElementById('storeVisitorIps').checked;
             const days = parseInt(document.getElementById('ipRetentionDays').value, 10);
-            if (isNaN(days) || days < 0 || days > 3650) {
+            if (storeIps && (isNaN(days) || days < 0 || days > 3650)) {
                 _msg('ipRetentionMessage', 'Enter a whole number between 0 and 3650.', true);
                 return;
             }
-            const warning = days === 0
-                ? 'Keep visitor IP addresses forever?\n\nNothing will be erased automatically.'
-                : `Erase visitor IP addresses older than ${days} day(s)?\n\nAny already past that age are erased as soon as you save. This cannot be undone.`;
+            let warning;
+            if (!storeIps) {
+                warning = 'Stop recording visitor IP addresses?\n\nEvery IP already stored is erased as well — page visits, forum posts, comments, contact messages and calendar subscriptions. This cannot be undone.';
+            } else if (days === 0) {
+                warning = 'Keep visitor IP addresses forever?\n\nNothing will be erased automatically.';
+            } else {
+                warning = `Erase visitor IP addresses older than ${days} day(s)?\n\nAny already past that age are erased as soon as you save. This cannot be undone.`;
+            }
             if (!confirm(warning)) return;
             try {
                 const r = await fetch('/admin/dashboard/settings/ip-retention', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ days: days })
+                    body: JSON.stringify({ days: isNaN(days) ? 0 : days, store_ips: storeIps })
                 });
                 const d = await r.json();
                 if (!d.success) { _msg('ipRetentionMessage', d.error || 'Could not save.', true); return; }
-                _msg('ipRetentionMessage', d.days === 0
-                    ? 'Saved. IP addresses are kept indefinitely.'
-                    : `Saved. Erased ${d.cleared} record${d.cleared === 1 ? '' : 's'} already past ${d.days} day(s); the rest are swept nightly.`, false);
+                let note;
+                if (!d.store_ips) {
+                    note = `Saved. IP addresses are no longer recorded, and ${d.cleared} existing record${d.cleared === 1 ? ' was' : 's were'} erased.`;
+                } else if (d.days === 0) {
+                    note = 'Saved. IP addresses are recorded and kept indefinitely.';
+                } else {
+                    note = `Saved. Erased ${d.cleared} record${d.cleared === 1 ? '' : 's'} already past ${d.days} day(s); the rest are swept nightly.`;
+                }
+                _msg('ipRetentionMessage', note, false);
             } catch (e) { _msg('ipRetentionMessage', 'Request failed.', true); }
         }
 
