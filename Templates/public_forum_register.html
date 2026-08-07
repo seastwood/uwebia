@@ -32,6 +32,14 @@ Create Forum Account
         }
         input::placeholder { color: rgba(255,255,255,0.55); }
 
+        .gh-btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+            width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.28); background: rgba(0,0,0,0.62);
+            color: #fff; font-weight: 800; text-decoration: none; font-size: 0.95rem;
+        }
+        .gh-btn:hover { background: rgba(255,255,255,0.12); }
+
         button {
             padding: 10px 14px;
             border-radius: 999px;
@@ -91,6 +99,19 @@ Create Forum Account
         {% endif %}
 
         <button type="submit">Create Account</button>
+
+        {% if website and website.github_login_enabled %}
+        <div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;opacity:0.5;font-size:0.8rem;">
+            <span style="flex:1;height:1px;background:rgba(255,255,255,0.25);"></span>OR<span style="flex:1;height:1px;background:rgba(255,255,255,0.25);"></span>
+        </div>
+        <a class="gh-btn" href="{{ url_for('github_start_public', website_prefix=website.url_prefix or None, next=next_url or None) }}">
+            <i class="fab fa-github"></i> Sign up with GitHub
+        </a>
+        <p style="font-size:0.8rem;color:rgba(255,255,255,0.55);line-height:1.5;margin:10px 0 0;text-align:left;">
+            Signing up with GitHub stores no email, name or password &mdash; just an
+            anonymous account number and the username you pick.
+        </p>
+        {% endif %}
     </form>
     {% endif %}
 {% endblock %}
