@@ -1,0 +1,93 @@
+{# Site-wide CSRF plumbing. Include once inside <head> on every base template.
+
+   The app has hundreds of hand-written fetch() calls and dozens of forms, so
+   rather than editing each call site we publish the token once and patch the
+   three ways a state-changing request can leave the page: fetch, XHR, and form
+   submission (both the submit event and the programmatic .submit() method,
+   which does NOT fire that event). Anything same-origin and non-GET picks the
+   token up automatically. #}
+{# A few views pass `csrf_token` in as an already-rendered string, which
+   shadows Flask-WTF's global csrf_token() function for that template. Accept
+   either shape so this include works no matter how it was reached. #}
+<meta name="csrf-token" content="{{ csrf_token() if csrf_token is callable else csrf_token }}">
+<script>
+(function () {
+  var meta = document.querySelector('meta[name="csrf-token"]');
+  var TOKEN = meta ? meta.getAttribute('content') : '';
+  if (!TOKEN) return;
+
+  var SAFE = /^(GET|HEAD|OPTIONS|TRACE)$/i;
+
+  function sameOrigin(url) {
+    try { return new URL(url, location.href).origin === location.origin; }
+    catch (e) { return false; }
+  }
+
+  /* ── fetch ── */
+  var _fetch = window.fetch;
+  if (_fetch) {
+    window.fetch = function (input, init) {
+      try {
+        var isRequest = (typeof Request !== 'undefined') && (input instanceof Request);
+        var url = isRequest ? input.url : String(input || '');
+        var method = (init && init.method) || (isRequest && input.method) || 'GET';
+
+        if (!SAFE.test(method) && sameOrigin(url)) {
+          init = init || {};
+          // Start from whichever headers already exist so we add to them
+          // rather than replacing the caller's Content-Type etc.
+          var src = init.headers || (isRequest ? input.headers : null);
+          var headers = new Headers(src || {});
+          if (!headers.has('X-CSRFToken')) headers.set('X-CSRFToken', TOKEN);
+          init.headers = headers;
+        }
+      } catch (e) { /* never let CSRF plumbing break a request */ }
+      return _fetch.call(this, input, init);
+    };
+  }
+
+  /* ── XMLHttpRequest ── */
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    try { this.__uwCsrf = !SAFE.test(method || 'GET') && sameOrigin(url); }
+    catch (e) { this.__uwCsrf = false; }
+    return _open.apply(this, arguments);
+  };
+  var _send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () {
+    if (this.__uwCsrf) {
+      try { this.setRequestHeader('X-CSRFToken', TOKEN); } catch (e) {}
+    }
+    return _send.apply(this, arguments);
+  };
+
+  /* ── forms ── */
+  function addField(form) {
+    try {
+      var method = form.getAttribute('method') || 'GET';
+      if (SAFE.test(method)) return;
+      var action = form.getAttribute('action') || location.href;
+      if (!sameOrigin(action)) return;
+      if (form.querySelector('input[name="csrf_token"]')) return;
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'csrf_token';
+      input.value = TOKEN;
+      form.appendChild(input);
+    } catch (e) {}
+  }
+
+  // Capture phase, so the field is in place before any handler reads the form.
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (f && f.tagName === 'FORM') addField(f);
+  }, true);
+
+  // form.submit() bypasses the submit event entirely.
+  var _submit = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () {
+    addField(this);
+    return _submit.apply(this, arguments);
+  };
+})();
+</script>

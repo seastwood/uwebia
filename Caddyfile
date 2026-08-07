@@ -10,6 +10,18 @@
     # service name; 5772 is the port gunicorn binds to (see Dockerfile).
     reverse_proxy app:5772 {
         # Pass the real client IP / scheme through so Flask sees them.
+        # Setting (rather than appending) X-Forwarded-For is deliberate: it
+        # discards anything the client sent, so a visitor can't forge their own
+        # address past the edge. The app additionally only believes this header
+        # when the connection came from a trusted proxy — see
+        # UWEBIA_TRUSTED_PROXIES in .env.example.
+        #
+        # NOTE for Cloudflare users: with Cloudflare in front of Caddy, {remote}
+        # is Cloudflare's edge, not the visitor. Either forward Cloudflare's
+        # own header instead:
+        #     header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+        # or drop these overrides and add `cloudflare` to UWEBIA_TRUSTED_PROXIES
+        # so the app resolves the chain itself.
         header_up X-Real-IP        {remote}
         header_up X-Forwarded-For  {remote}
         header_up X-Forwarded-Proto {scheme}
