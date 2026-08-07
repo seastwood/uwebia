@@ -92,6 +92,41 @@ uploads_folder = os.path.join(static_folder, 'uploads')
 os.makedirs(uploads_folder, exist_ok=True)
 
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
+
+
+def _load_dotenv():
+    """Read `.env` into the environment for runs that aren't under compose.
+
+    docker-compose reads .env by itself, but `python main.py` does not — which
+    meant a SECRET_KEY sitting in .env was silently ignored locally and the app
+    booted on a throwaway key instead, quietly orphaning every encrypted secret
+    (authenticator enrolments most painfully) on each restart.
+
+    Real environment variables always win, so this can never override what a
+    container or shell already set.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            lines = fh.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+_load_dotenv()
+
 # Session/cookie signing key, read from SECRET_KEY (supplied by docker-compose/.env
 # in production). If it's unset we fall back to a random per-process key rather than
 # a guessable constant — an unconfigured instance is then unforgeable, at the (loud,
@@ -100,14 +135,24 @@ app = Flask(__name__, template_folder=template_folder, static_folder=static_fold
 # derived from this value, so changing it logs everyone out AND requires re-entering
 # those credentials.
 _secret_key = os.environ.get('SECRET_KEY')
+_SECRET_KEY_IS_EPHEMERAL = not _secret_key
 if not _secret_key:
     import secrets as _secrets_mod
     _secret_key = _secrets_mod.token_hex(32)
-    logging.warning(
-        'No SECRET_KEY set — using a random ephemeral key. Sessions and encrypted '
-        'stored secrets will NOT survive a restart. Set SECRET_KEY in the '
-        "environment (generate: python -c 'import secrets; print(secrets.token_hex(32))')."
-    )
+    # Loud, because the consequences are worse than "you'll be logged out":
+    # anything encrypted with the derived key — authenticator secrets above all
+    # — becomes unreadable, and 2FA then rejects every code with no explanation.
+    print('=' * 72)
+    print('WARNING: no SECRET_KEY set — using a random key that changes every restart.')
+    print('  • Everyone is logged out on restart.')
+    print('  • Pending reset / magic-sign-in links stop working.')
+    print('  • Authenticator (TOTP) secrets become UNREADABLE, so 2FA codes will')
+    print('    be rejected and admins must fall back to recovery codes.')
+    print('  • Stored Stripe / SMS / AI / OAuth credentials must be re-entered.')
+    print('  Fix: put a fixed value in the environment, e.g. in .env')
+    print("    SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')")
+    print('=' * 72)
+    logging.warning('No SECRET_KEY set — using a random ephemeral key.')
 app.secret_key = _secret_key
 
 # Session cookie hardening.
@@ -1116,9 +1161,12 @@ def admin_second_factor_state(user):
     if not required:
         return {'required': False, 'method': None, 'enrol': None}
 
-    # A personally enrolled authenticator always wins: it works with no email
-    # and no mail server, so it is both stronger and more available.
-    if getattr(user, 'totp_enabled', False) and user.totp_secret:
+    # A personally enrolled authenticator normally wins: it works with no email
+    # and no mail server, so it is both stronger and more available. But only if
+    # the secret can still be READ — an orphaned one (SECRET_KEY changed or was
+    # never set) would otherwise reject every code forever. Falling through to
+    # the emailed code keeps two factors in play rather than locking the account.
+    if totp_secret_is_readable(user):
         return {'required': True, 'method': 'totp', 'enrol': None}
 
     mailbox = getattr(user, 'two_factor_email', None) or getattr(user, 'email', None)
@@ -8527,6 +8575,11 @@ def admin_totp_challenge():
         session.pop('pre_2fa_user_id', None)
         return redirect(url_for('login'))
 
+    # Enrolled but unreadable: every code would be rejected and the admin would
+    # have no idea why. Say so, and let recovery codes through — they are hashed
+    # independently of SECRET_KEY, so they still work.
+    secret_lost = not totp_secret_is_readable(user)
+
     if request.method == 'POST':
         submitted = request.form.get('code', '')
         use_recovery = bool(request.form.get('use_recovery'))
@@ -8551,6 +8604,14 @@ def admin_totp_challenge():
                     user, remember=bool(session.pop('pre_2fa_remember', False)),
                     admin_key=session.get('pre_2fa_admin_key'))
 
+        if secret_lost and not use_recovery:
+            # Not a wrong code — the stored secret is unreadable. Don't spend an
+            # attempt on a guess that could never have succeeded.
+            flash('This account\u2019s authenticator secret can no longer be read '
+                  '(the server\u2019s SECRET_KEY changed). Use a recovery code, '
+                  'then set the authenticator up again.', 'error')
+            return redirect(url_for('admin_totp_challenge'))
+
         # Same attempt budget as the emailed code, for the same reason: six
         # digits is a small space to guess in.
         if register_failed_two_factor_attempt():
@@ -8562,7 +8623,8 @@ def admin_totp_challenge():
         return redirect(url_for('admin_totp_challenge'))
 
     return render_template('admin_totp_challenge.html',
-                           has_recovery=bool(user.totp_recovery_codes))
+                           has_recovery=bool(user.totp_recovery_codes),
+                           secret_lost=secret_lost)
 
 
 @app.route('/admin/2fa/app/disable', methods=['POST'])
@@ -9588,8 +9650,33 @@ def consume_totp_recovery_code(user, submitted):
 
 
 def user_totp_secret(user):
-    """Decrypt this user's TOTP secret, or '' when not enrolled."""
-    return decrypt_api_key(user.totp_secret or '') if user.totp_secret else ''
+    """Decrypt this user's TOTP secret, or '' if it isn't usable.
+
+    The secret is Fernet-encrypted with a key derived from SECRET_KEY. When
+    SECRET_KEY is unset the app boots on a random per-process key, so after a
+    restart the stored ciphertext can no longer be decrypted — and
+    `decrypt_api_key` returns the ciphertext unchanged rather than raising.
+    Handing that straight to the verifier turns a configuration problem into
+    "Invalid code" forever, which is indistinguishable from a wrong code and
+    locks the admin out with no clue why. So validate the shape here and treat
+    an unreadable secret as "not enrolled", which lets the caller fall back to
+    another factor and say something true.
+    """
+    if not user or not user.totp_secret:
+        return ''
+    candidate = decrypt_api_key(user.totp_secret or '')
+    if not candidate:
+        return ''
+    try:
+        base64.b32decode(candidate + '=' * (-len(candidate) % 8), casefold=True)
+    except Exception:
+        return ''
+    return candidate
+
+
+def totp_secret_is_readable(user):
+    """True when this user's enrolled TOTP secret can actually be decrypted."""
+    return bool(getattr(user, 'totp_enabled', False)) and bool(user_totp_secret(user))
 
 
 def generate_two_factor_code():
@@ -31762,6 +31849,25 @@ with app.app_context():
             os.remove(MAINTENANCE_TOKEN_PATH)
         except OSError:
             pass
+
+        # Name any admin whose authenticator secret this process cannot read.
+        # Without this the breakage only shows up as "Invalid code" at the login
+        # screen, which looks like user error rather than a config problem.
+        try:
+            _orphaned = [u.username for u in User.query.filter(
+                User.totp_secret.isnot(None)).all() if not totp_secret_is_readable(u)]
+            if _orphaned:
+                print('=' * 72)
+                print('WARNING: authenticator (TOTP) secrets cannot be decrypted for: '
+                      + ', '.join(_orphaned))
+                print('  Their app codes will be rejected. Each admin should sign in with a')
+                print('  recovery code and re-run setup at /admin/2fa/app/setup.')
+                if _SECRET_KEY_IS_EPHEMERAL:
+                    print('  Cause: SECRET_KEY is not set, so it changes on every restart.')
+                    print('  Set it first, or this will happen again after the next restart.')
+                print('=' * 72)
+        except Exception:
+            pass  # never let a diagnostic stop startup
 
     except Exception as _startup_err:
         import traceback, sqlalchemy.exc as _sa_exc
