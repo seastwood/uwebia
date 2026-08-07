@@ -1208,12 +1208,18 @@ def admin_second_factor_state(user):
     if email_usable:
         return {'required': True, 'method': 'email', 'enrol': None}
 
-    # Required, but this admin has no usable factor yet. Where email isn't
-    # available to them — GitHub-only mode, no mailbox, or no email grant — the
-    # only way forward is enrolling an authenticator.
+    # Required, but this admin has no usable factor yet. Send them to add an
+    # email only when that is genuinely the natural next step: they are allowed
+    # one, the org isn't GitHub-only, and they don't already authenticate by
+    # GitHub. Someone who signs in with GitHub and holds no mailbox chose not to
+    # have one, so asking for an address to enable 2FA works against them —
+    # an authenticator is the right prompt.
+    can_add_email = (mailbox is None
+                     and not admin_github_only_mode()
+                     and admin_email_allowed(user)
+                     and not getattr(user, 'github_user_id', None))
     return {'required': True, 'method': None,
-            'enrol': 'email' if (mailbox is None and not admin_github_only_mode()
-                                 and admin_email_allowed(user)) else 'totp'}
+            'enrol': 'email' if can_add_email else 'totp'}
 
 
 def is_owner(website):
@@ -24505,8 +24511,20 @@ def admin_public_user_promote(user_id):
     pu = _get_owned_public_user(user_id)
     if pu.is_admin_mirror:
         return _utf8_json({'success': False, 'error': 'This user is already a staff mirror.'}, 400)
-    if not pu.password_hash:
-        return _utf8_json({'success': False, 'error': "This account has no password set, so it can't be promoted."}, 400)
+    # A promoted member needs *some* way to authenticate as an admin. A password
+    # is one; a linked GitHub account is another, and members who signed up
+    # through GitHub have no password by design — refusing them would make
+    # GitHub sign-ups permanently ineligible for staff.
+    if not pu.password_hash and not pu.github_user_id:
+        return _utf8_json({'success': False,
+                           'error': "This account has no password and no linked GitHub "
+                                    "account, so there'd be no way for them to sign in as "
+                                    "staff."}, 400)
+    if pu.github_user_id and not pu.password_hash and not github_login_is_configured():
+        return _utf8_json({'success': False,
+                           'error': 'This member signs in with GitHub, but GitHub sign-in is '
+                                    'not configured, so they could not reach the admin area. '
+                                    'Set it up in Settings first.'}, 400)
 
     data = request.get_json() or {}
     perms = data.get('permissions') or {}
@@ -24536,11 +24554,20 @@ def admin_public_user_promote(user_id):
 
     # Admin-User namespace check first — these can't be auto-resolved (an
     # actual admin already owns the name).
-    admin_clash = User.query.filter(or_(
-        User.username == pu.username, User.email == pu.email)).first()
+    # Compare the email only when there is one — `== None` compiles to IS NULL
+    # and would match every emailless admin, blocking the promotion outright.
+    _admin_match = [User.username == pu.username]
+    if pu.email:
+        _admin_match.append(User.email == pu.email)
+    admin_clash = User.query.filter(or_(*_admin_match)).first()
     if admin_clash:
         return _utf8_json({'success': False,
             'error': 'An admin account already uses that username or email.'}, 400)
+
+    # The GitHub link moves to the admin row, and it is globally unique there.
+    if pu.github_user_id and User.query.filter_by(github_user_id=pu.github_user_id).first():
+        return _utf8_json({'success': False,
+            'error': 'That GitHub account is already linked to an admin.'}, 400)
 
     # Cross-website public-user collisions — those are auto-resolvable.
     conflicts = _promote_conflict_websites(pu)
@@ -24578,6 +24605,9 @@ def admin_public_user_promote(user_id):
         first_name=pu.first_name,
         last_name=pu.last_name,
         password_hash=pu.password_hash,
+        # Carry the GitHub link across so a member who signed up that way can
+        # still get in — it is how they authenticate.
+        github_user_id=pu.github_user_id,
         parent_user_id=root_id,
         permission_group_id=group_id,
         permissions=perms if not group_id else {},
@@ -24591,6 +24621,10 @@ def admin_public_user_promote(user_id):
     source_website_id = pu.website_id
     pu.mirrored_admin_user_id = new_admin.id
     pu.password_hash = None
+    # The link now lives on the admin row. Leaving a copy here would let the
+    # public GitHub sign-in match the mirror first and hand out a session
+    # without ever running the admin second-factor gate.
+    pu.github_user_id = None
     pu.email_verified = True
     pu.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     pu.is_active_public = True
