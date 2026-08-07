@@ -609,6 +609,19 @@
                         Two-factor authentication then uses the authenticator app instead of email.
                     </p>
                 </div>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="adminEmailRestricted"
+                               {% if admin_email_restricted %}checked{% endif %}>
+                        Admins have no email unless individually permitted
+                    </label>
+                    <p class="settings-help">
+                        Makes &ldquo;no email&rdquo; the default for admin accounts. Grant it
+                        per-admin on the Admin Users page. The primary owner is always
+                        exempt so the org can't lock itself out. Admins without email
+                        access use an authenticator app for two-factor sign-in.
+                    </p>
+                </div>
                 <button type="button" class="settings-button" onclick="saveAdminPrivacy()">Save privacy settings</button>
                 <div class="settings-message" id="adminPrivacyMessage"></div>
             </div>
@@ -1332,6 +1345,7 @@
         async function saveAdminPrivacy() {
             const collectNames = document.getElementById('adminCollectNames').checked;
             const githubOnly   = document.getElementById('adminGithubOnly').checked;
+            const emailRestricted = document.getElementById('adminEmailRestricted').checked;
             if (!collectNames && !confirm(
                 'Turn off admin name collection?\n\nAny first and last names already stored for admins will be permanently deleted.')) return;
             if (githubOnly && !confirm(
@@ -1340,7 +1354,8 @@
                 const r = await fetch('/admin/dashboard/settings/admin-privacy', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ collect_names: collectNames, github_only: githubOnly })
+                    body: JSON.stringify({ collect_names: collectNames, github_only: githubOnly,
+                                           email_restricted: emailRestricted })
                 });
                 const d = await r.json();
                 if (!d.success) { _msg('adminPrivacyMessage', d.error || 'Could not save.', true); return; }

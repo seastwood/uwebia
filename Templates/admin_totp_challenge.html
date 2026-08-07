@@ -57,6 +57,14 @@
         </button>
     </div>
     {% endif %}
+
+    {% if can_use_email %}
+    <div class="tfa-alt">
+        <form method="POST" action="{{ url_for('admin_2fa_switch', method='email') }}" style="margin:0;">
+            <button type="submit">Email me a code instead</button>
+        </form>
+    </div>
+    {% endif %}
 </div>
 
 <script>

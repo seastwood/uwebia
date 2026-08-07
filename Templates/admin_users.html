@@ -425,7 +425,22 @@
                     <span class="au-online-badge" title="Currently online">● Online</span>
                     {% endif %}
                 </div>
-                <div class="au-email">{{ u.email }}</div>
+                <div class="au-email">
+                    {{ u.email if u.email else 'no email' }}
+                    {% if admin_email_restricted %}
+                        {% if u.email_allowed %}
+                        <span title="This admin is permitted to hold an email address"
+                              style="margin-left:6px;color:rgba(126,226,204,0.85);font-weight:700;">
+                            <i class="fas fa-envelope-open-text"></i> email allowed
+                        </span>
+                        {% else %}
+                        <span title="This admin may not hold an email address"
+                              style="margin-left:6px;color:rgba(255,255,255,0.35);font-weight:700;">
+                            <i class="fas fa-envelope"></i> email blocked
+                        </span>
+                        {% endif %}
+                    {% endif %}
+                </div>
                 <div class="au-meta">
                     {% if u.last_login_at %}
                     <span title="Last login"><i class="fas fa-sign-in-alt"></i> {{ u.last_login_at | user_datetime }}</span>
@@ -448,6 +463,12 @@
                 <button class="uw-btn uw-btn-secondary" onclick="transferOwnership({{ u.id }}, '{{ u.username | e }}')" title="Make primary owner (transfer the account anchor to them)">
                     <i class="fas fa-crown"></i>
                 </button>
+                {% if admin_email_restricted %}
+                <button class="uw-btn uw-btn-secondary" title="{{ 'Revoke email access' if u.email_allowed else 'Allow this admin to have an email address' }}"
+                        onclick="toggleEmailPermission({{ u.id }}, {{ 'true' if u.email_allowed else 'false' }}, '{{ u.username | e }}')">
+                    <i class="fas {{ 'fa-envelope-open-text' if u.email_allowed else 'fa-envelope' }}"></i>
+                </button>
+                {% endif %}
                 {% endif %}
                 {% if can_demote_staff and u.id != current_user.id %}
                 <button class="uw-btn uw-btn-secondary" onclick="demoteUser({{ u.id }}, '{{ u.username | e }}')" title="Demote to public user">
@@ -1712,6 +1733,24 @@ async function submitUserForm() {
     } catch(e) {
         alert('Network error'); btn.disabled = false;
     }
+}
+
+async function toggleEmailPermission(userId, currentlyAllowed, username) {
+    const granting = !currentlyAllowed;
+    const msg = granting
+        ? `Allow ${username} to have an email address?`
+        : `Remove email access for ${username}?\n\nTheir stored address will be deleted, and they'll need an authenticator app for two-factor sign-in.`;
+    if (!confirm(msg)) return;
+    try {
+        const r = await fetch(`/admin/users/${userId}/email-permission`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ allowed: granting })
+        });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Could not change email permission.'); return; }
+        window.location.reload();
+    } catch (e) { alert('Request failed.'); }
 }
 
 async function deleteUser(userId, username) {

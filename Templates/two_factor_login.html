@@ -103,6 +103,17 @@
         </button>
         <span id="resendStatus" style="font-size:0.82rem;margin-left:8px;"></span>
     </div>
+
+    {% if can_use_totp %}
+    <div style="margin-top:10px;text-align:center;">
+        <form method="POST" action="{{ url_for('admin_2fa_switch', method='totp') }}" style="margin:0;">
+            <button type="submit"
+                    style="background:none;border:none;color:rgba(255,255,255,0.45);font-size:0.85rem;cursor:pointer;text-decoration:underline;padding:4px;">
+                Use my authenticator app instead
+            </button>
+        </form>
+    </div>
+    {% endif %}
 </div>
 <script>
 document.querySelector('.two-factor-card').addEventListener('submit', function () {

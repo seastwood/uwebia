@@ -663,6 +663,12 @@ class User(UserMixin, db.Model):
     # login, name, avatar or email — so linking adds no personal data beyond an
     # opaque identifier. Globally unique: one GitHub account, one admin.
     github_user_id = db.Column(db.BigInteger, unique=True, nullable=True, index=True)
+    # Whether this admin is permitted to hold an email address at all. Only
+    # consulted when the org turns on `org_admin_email_restricted`; until then
+    # everyone may have one and this is ignored. Existing admins who already had
+    # an address are granted it on migration so nobody loses 2FA silently.
+    email_allowed = db.Column(db.Boolean, nullable=False, default=False,
+                              server_default=_sa_false())
     # Optional real name — collected at signup, editable later. Used for
     # administration and (eventually) social surfaces. Never lowercased.
     first_name = db.Column(db.String(100), nullable=True)
@@ -741,6 +747,11 @@ class User(UserMixin, db.Model):
     # second factor — see admin_second_factor_state().
     org_admin_github_only = db.Column(db.Boolean, nullable=False, default=False,
                                       server_default=_sa_false())
+    # When on, an admin may only hold an email address if User.email_allowed is
+    # set for them individually — so "no email" becomes the default and access
+    # is granted case by case rather than assumed.
+    org_admin_email_restricted = db.Column(db.Boolean, nullable=False, default=False,
+                                           server_default=_sa_false())
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -1127,6 +1138,29 @@ def admin_github_only_mode():
     return bool(anchor and getattr(anchor, 'org_admin_github_only', False))
 
 
+def admin_email_restricted_mode():
+    """Org-wide: admins hold an email only when individually permitted."""
+    anchor = get_main_admin()
+    return bool(anchor and getattr(anchor, 'org_admin_email_restricted', False))
+
+
+def admin_email_allowed(user):
+    """May this admin hold an email address?
+
+    Unrestricted mode: always. Restricted mode: only with the per-admin grant —
+    except the primary owner, who is exempt so the org can never lock itself out
+    of the one account that administers the policy.
+    """
+    if user is None:
+        return False
+    if not admin_email_restricted_mode():
+        return True
+    anchor = get_main_admin()
+    if anchor and user.id == anchor.id:
+        return True
+    return bool(getattr(user, 'email_allowed', False))
+
+
 def admin_collect_names_enabled():
     """Org-wide: whether admin first/last names are collected at all."""
     anchor = get_main_admin()
@@ -1170,13 +1204,16 @@ def admin_second_factor_state(user):
         return {'required': True, 'method': 'totp', 'enrol': None}
 
     mailbox = getattr(user, 'two_factor_email', None) or getattr(user, 'email', None)
-    if mailbox and not admin_github_only_mode():
+    email_usable = bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+    if email_usable:
         return {'required': True, 'method': 'email', 'enrol': None}
 
-    # Required, but this admin has no usable factor yet. In GitHub-only mode we
-    # never ask for an email, so the only way forward is enrolling TOTP.
+    # Required, but this admin has no usable factor yet. Where email isn't
+    # available to them — GitHub-only mode, no mailbox, or no email grant — the
+    # only way forward is enrolling an authenticator.
     return {'required': True, 'method': None,
-            'enrol': 'totp' if (admin_github_only_mode() or not mailbox) else 'email'}
+            'enrol': 'email' if (mailbox is None and not admin_github_only_mode()
+                                 and admin_email_allowed(user)) else 'totp'}
 
 
 def is_owner(website):
@@ -8498,6 +8535,16 @@ def admin_totp_setup():
     if not user:
         return redirect(url_for('login'))
 
+    # Enrolling against an ephemeral key is worse than not enrolling: the secret
+    # is encrypted with a key that dies at the next restart, so the enrolment
+    # silently stops working and every code is rejected. Refuse rather than let
+    # someone set this up twice and lose it twice.
+    if _SECRET_KEY_IS_EPHEMERAL:
+        flash('This server has no SECRET_KEY set, so it uses a new key on every '
+              'restart and an authenticator enrolment would stop working the next '
+              'time it restarts. Set SECRET_KEY (see .env) and restart first.', 'error')
+        return redirect(url_for('settings_page') if not mid_login else url_for('login'))
+
     if request.method == 'POST':
         secret = session.get('totp_setup_secret')
         if not secret:
@@ -8624,7 +8671,56 @@ def admin_totp_challenge():
 
     return render_template('admin_totp_challenge.html',
                            has_recovery=bool(user.totp_recovery_codes),
-                           secret_lost=secret_lost)
+                           secret_lost=secret_lost,
+                           can_use_email=_admin_email_2fa_available(user))
+
+
+def _admin_email_2fa_available(user):
+    """True when an emailed code is a usable second factor for this admin."""
+    mailbox = (getattr(user, 'two_factor_email', None) or getattr(user, 'email', None))
+    return bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+
+
+@app.route('/admin/2fa/switch/<method>', methods=['POST'])
+def admin_2fa_switch(method):
+    """Swap between the authenticator and the emailed code mid-sign-in.
+
+    Both are second factors of equal standing, so choosing between them is a
+    preference, not a downgrade. The switch is only offered for a method the
+    admin has actually enrolled, so it can never be used to sidestep 2FA.
+    """
+    user_id = session.get('pre_2fa_user_id')
+    user = db.session.get(User, user_id) if user_id else None
+    if not user:
+        return redirect(url_for('login'))
+    admin_key = session.get('pre_2fa_admin_key')
+
+    if method == 'totp':
+        if not totp_secret_is_readable(user):
+            flash('No usable authenticator app is set up on this account.', 'error')
+            return redirect(url_for('two_factor_login', admin_key=admin_key)
+                            if admin_key else url_for('two_factor_login'))
+        return redirect(url_for('admin_totp_challenge'))
+
+    if method == 'email':
+        if not _admin_email_2fa_available(user):
+            flash('No email address is available for this account.', 'error')
+            return redirect(url_for('admin_totp_challenge'))
+        mailbox = user.two_factor_email or user.email
+        if not (_session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id)):
+            code = generate_two_factor_code()
+            set_pending_two_factor_code(user.id, code, 'login')
+            app.logger.info('2FA login code sent to admin user id=%s (switched)', user.id)
+            try:
+                send_two_factor_email(mailbox, code, purpose='login')
+            except Exception as e:
+                clear_pending_two_factor_code()
+                flash(f'Could not send the code: {e}', 'error')
+                return redirect(url_for('admin_totp_challenge'))
+        return redirect(url_for('two_factor_login', admin_key=admin_key)
+                        if admin_key else url_for('two_factor_login'))
+
+    return redirect(url_for('login'))
 
 
 @app.route('/admin/2fa/app/disable', methods=['POST'])
@@ -8703,7 +8799,8 @@ def two_factor_login(admin_key=None):
         flash('Logged in successfully.', 'success')
         return redirect(url_for('dashboard'))
 
-    return render_template('two_factor_login.html', admin_key=admin_key)
+    return render_template('two_factor_login.html', admin_key=admin_key,
+                           can_use_totp=totp_secret_is_readable(user))
 
 
 @app.route('/admin/2fa/resend', methods=['POST'])
@@ -9033,10 +9130,12 @@ def inject_github_login():
             # Rendered in Settings so the admin registers on GitHub exactly what
             # we will send — anything else and GitHub refuses the round trip.
             'github_callback_url': github_callback_url(),
+            'admin_email_restricted': admin_email_restricted_mode(),
         }
     except Exception:
         return {'github_login_available': False, 'admin_github_only': False,
-                'admin_collect_names': True, 'github_callback_url': ''}
+                'admin_collect_names': True, 'github_callback_url': '',
+                'admin_email_restricted': False}
 
 
 @app.context_processor
@@ -10071,6 +10170,25 @@ def save_admin_privacy_settings():
     data = request.get_json() or {}
     collect_names = bool(data.get('collect_names'))
     github_only = bool(data.get('github_only'))
+    email_restricted = bool(data.get('email_restricted',
+                                     getattr(anchor, 'org_admin_email_restricted', False)))
+
+    if email_restricted and not getattr(anchor, 'org_admin_email_restricted', False):
+        # Turning this ON removes email 2FA from every admin without a grant, so
+        # refuse unless each of them already has a working authenticator. Same
+        # reasoning as the GitHub-only guard: a privacy setting must not become
+        # a lockout.
+        stranded = [u.username for u in User.query.all()
+                    if u.id != anchor.id
+                    and not getattr(u, 'email_allowed', False)
+                    and u.email
+                    and not totp_secret_is_readable(u)]
+        if stranded:
+            return _utf8_json(
+                {'success': False,
+                 'error': 'These admins would lose their only second factor. Grant them '
+                          'email access, or have them set up an authenticator app first: '
+                          + ', '.join(stranded[:8]) + ('…' if len(stranded) > 8 else '')}, 400)
 
     if github_only and not github_login_is_configured():
         return _utf8_json({'success': False,
@@ -10098,6 +10216,7 @@ def save_admin_privacy_settings():
 
     anchor.org_admin_github_only = github_only
     anchor.org_admin_collect_names = collect_names
+    anchor.org_admin_email_restricted = email_restricted
 
     purged = 0
     if not collect_names:
@@ -10110,6 +10229,42 @@ def save_admin_privacy_settings():
     db.session.commit()
     return _utf8_json({'success': True, 'purged': purged,
                        'github_only': github_only, 'collect_names': collect_names})
+
+
+@app.route('/admin/users/<int:user_id>/email-permission', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def set_admin_email_permission(user_id):
+    """Grant or revoke one admin's permission to hold an email address."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    target = db.session.get(User, user_id)
+    if not target:
+        return _utf8_json({'success': False, 'error': 'Admin not found'}, 404)
+
+    allowed = bool((request.get_json() or {}).get('allowed'))
+    if not allowed:
+        # Revoking takes away email 2FA, so refuse if it is their only factor.
+        if target.email and not totp_secret_is_readable(target):
+            return _utf8_json(
+                {'success': False,
+                 'error': 'That admin has no working authenticator app, so removing email '
+                          'access would leave them unable to pass 2FA. Have them set one up '
+                          'first.'}, 400)
+        target.email_allowed = False
+        # The permission is meaningless while the address is still on file, so
+        # clear it — this is what "no email for this admin" has to mean.
+        if target.email:
+            app.logger.info('Cleared email for admin id=%s (permission revoked)', target.id)
+            target.email = None
+            target.two_factor_email = None
+            if target.two_factor_enabled and not totp_secret_is_readable(target):
+                target.two_factor_enabled = False
+    else:
+        target.email_allowed = True
+    db.session.commit()
+    return _utf8_json({'success': True, 'allowed': target.email_allowed,
+                       'email': target.email})
 
 
 @app.route('/admin/email_server_settings')
@@ -15383,7 +15538,11 @@ def settings_page():
         # In GitHub-only mode admins are expected to have no mailbox at all —
         # their second factor is the authenticator app, so an email is optional.
         # Any other time it stays required, since it is how 2FA and recovery work.
-        if not account_email:
+        # An admin without the email grant cannot set one, whatever was posted —
+        # the field is hidden for them, but hiding is not enforcement.
+        if not admin_email_allowed(current_user):
+            account_email = None
+        elif not account_email:
             if not admin_github_only_mode():
                 flash('Email cannot be blank.', 'error')
                 return redirect(url_for('settings_page'))
@@ -31715,6 +31874,25 @@ def _run_startup_migrations_inner():
     except Exception as _e:
         db.session.rollback()
         print(f'[migrate] warning: merged-division role mirror: {_e}')
+
+    # ── Grandfather existing admin email access ──────────────────────────────
+    # `email_allowed` defaults to False so that NEW admins start with no email.
+    # Applying that default to admins who already have an address would revoke
+    # access retroactively the moment the org enabled the policy — so anyone
+    # already holding an email keeps the grant. Runs once: rows are only touched
+    # while the flag is still False.
+    try:
+        _grandfathered = User.query.filter(
+            User.email.isnot(None), User.email_allowed.is_(False)).all()
+        if _grandfathered:
+            for _u in _grandfathered:
+                _u.email_allowed = True
+            db.session.commit()
+            print(f'[migrate] granted email permission to {len(_grandfathered)} '
+                  'existing admin(s) that already had an address')
+    except Exception as _e:
+        db.session.rollback()
+        print(f'[migrate] warning: admin email grandfather: {_e}')
 
     # ── Step 9: seed organization membership. Anyone already placed in a
     # division, and every admin/staff mirror, is an org member — promote them
