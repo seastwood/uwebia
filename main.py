@@ -426,13 +426,84 @@ _DATABASE_URL = (
 )
 app.config['SQLALCHEMY_DATABASE_URI'] = _DATABASE_URL
 
+# ── Database TLS ──────────────────────────────────────────────────────────────
+# psycopg2 defaults to sslmode=prefer, which uses TLS when the server offers it
+# and silently falls back to PLAINTEXT when it doesn't. A server that stops
+# offering TLS therefore downgrades every connection without a word — and the
+# database usually lives on another host, so that traffic crosses a network
+# carrying member emails, password hashes and session data.
+#
+# Rather than hard-defaulting to `require` (which would refuse to boot against
+# the bundled docker-compose Postgres, whose image ships with ssl off, on a
+# private container network where it matters far less), probe once at startup:
+# pin `require` when the server accepts it, and fall back loudly when it can't.
+#
+# UWEBIA_DB_SSLMODE overrides the probe entirely. `verify-full` additionally
+# authenticates the server and needs UWEBIA_DB_SSLROOTCERT plus a certificate
+# whose SAN matches the host in the URL — see .env.example.
+_DB_SSLMODE_ENV = (os.environ.get('UWEBIA_DB_SSLMODE') or '').strip().lower()
+_DB_SSLROOTCERT = (os.environ.get('UWEBIA_DB_SSLROOTCERT') or '').strip()
+_DB_TLS_STATUS = 'not applicable (not PostgreSQL)'
+
+
+def _libpq_url(url):
+    """SQLAlchemy URL -> plain libpq URL (psycopg2 rejects the +driver part)."""
+    return url.replace('postgresql+psycopg2://', 'postgresql://', 1)
+
+
+def _url_declares_sslmode(url):
+    from urllib.parse import parse_qs, urlsplit
+    return 'sslmode' in parse_qs(urlsplit(url).query)
+
+
+def _resolve_db_sslmode(url):
+    """Decide the sslmode to pin for this process. Returns (mode_or_None, status).
+
+    None means "add nothing" — either the URL already says, or we couldn't tell
+    and the normal connection error path should surface the real problem.
+    """
+    if _DB_SSLMODE_ENV:
+        return _DB_SSLMODE_ENV, f'{_DB_SSLMODE_ENV} (forced by UWEBIA_DB_SSLMODE)'
+    if _url_declares_sslmode(url):
+        return None, 'set explicitly in the database URL'
+
+    probe_args = {'connect_timeout': 6, 'sslmode': 'require'}
+    if _DB_SSLROOTCERT:
+        probe_args['sslrootcert'] = _DB_SSLROOTCERT
+    try:
+        import psycopg2
+        psycopg2.connect(_libpq_url(url), **probe_args).close()
+        return 'require', 'require (TLS negotiated and enforced)'
+    except Exception as probe_err:
+        if 'does not support ssl' in str(probe_err).lower():
+            # Reachable, but plaintext-only. Booting is better than refusing —
+            # but this must never be silent.
+            return None, 'DISABLED — server does not support TLS'
+        # Auth failure, wrong host, server down: not a TLS verdict. Say nothing
+        # and let the app's own connection handling report the real error.
+        return None, 'undetermined (server unreachable during probe)'
+
+
 # PostgreSQL engine options — UTF-8, connection health checks, and pool tuning
 if _DATABASE_URL.startswith('postgresql'):
+    _sslmode, _DB_TLS_STATUS = _resolve_db_sslmode(_DATABASE_URL)
+    _connect_args = {
+        'client_encoding': 'utf8',
+        'connect_timeout': 10,            # don't hang forever on a dead server
+    }
+    if _sslmode:
+        _connect_args['sslmode'] = _sslmode
+    if _DB_SSLROOTCERT:
+        _connect_args['sslrootcert'] = _DB_SSLROOTCERT
+    if 'DISABLED' in _DB_TLS_STATUS:
+        print('[db] WARNING: the connection to PostgreSQL is NOT encrypted — '
+              'the server does not offer TLS. Everything the app stores crosses '
+              'the network in the clear. Enable ssl on the server, or keep the '
+              'database on a trusted private network.')
+    else:
+        print(f'[db] TLS: {_DB_TLS_STATUS}')
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'connect_args': {
-            'client_encoding': 'utf8',
-            'connect_timeout': 10,        # don't hang forever on a dead server
-        },
+        'connect_args': _connect_args,
         'pool_pre_ping': True,            # test connection before use; auto-reconnect after restart
         'pool_recycle': 300,              # discard connections older than 5 min to prevent staleness
         'pool_size': 5,                   # base pool size per worker
@@ -835,6 +906,13 @@ class User(UserMixin, db.Model):
     # polling every second fills the disk with it — see apply_log_verbosity.
     org_verbose_logging = db.Column(db.Boolean, nullable=False, default=False,
                                     server_default=_sa_false())
+    # How long visitor IP addresses are kept, org-wide, before being erased in
+    # place (the rows survive; only the IP is nulled, so analytics counts and
+    # forum posts are unaffected). An IP is personal data, and on a site with
+    # minors the cheapest protection is not holding it: what isn't stored can't
+    # leak. 0 disables pruning and keeps them forever. See prune_expired_ips.
+    ip_retention_days = db.Column(db.Integer, nullable=False, default=90,
+                                  server_default='90')
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -10710,6 +10788,41 @@ def save_logging_settings():
                        'log_file': _ACTIVE_LOG_FILE or ''})
 
 
+@app.route('/admin/dashboard/settings/ip-retention', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_ip_retention_settings():
+    """Set the org-wide visitor-IP retention window, and apply it immediately.
+
+    Shortening the window erases IPs on save rather than waiting for the nightly
+    sweep — someone who has just decided to keep less data means now, not
+    tomorrow.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+
+    raw = (request.get_json() or {}).get('days')
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False,
+                           'error': 'Enter a whole number of days.'}, 400)
+    if days < 0 or days > 3650:
+        return _utf8_json({'success': False,
+                           'error': 'Choose between 0 and 3650 days.'}, 400)
+
+    anchor.ip_retention_days = days
+    db.session.commit()
+    cleared = prune_expired_ips(days)
+    app.logger.info('IP retention set to %s day(s) by admin id=%s; erased %s',
+                    days, current_user.id, cleared or 'nothing')
+    return _utf8_json({'success': True, 'days': days,
+                       'cleared': sum(cleared.values()) if cleared else 0})
+
+
 def _log_file_status():
     """Current log file, its size, and how much it can grow to."""
     if not _ACTIVE_LOG_FILE:
@@ -16264,6 +16377,8 @@ def settings_page():
                           if get_github_login_settings() else ''),
         verbose_logging=bool(getattr(_anchor, 'org_verbose_logging', False)),
         log_file_status=_log_file_status(),
+        ip_retention_days=int(getattr(_anchor, 'ip_retention_days', 90) or 0),
+        stored_ip_count=_stored_ip_count(),
         can_set_org_2fa=current_user.has_permission('settings.2fa'),
         can_backup=current_user.has_permission('settings.backup'),
         can_store_settings=current_user.has_permission('store.settings'),
@@ -16647,6 +16762,7 @@ def _serialize_backup(uid):
             'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
             'admin_brand_name': _owner.admin_brand_name,
             'admin_brand_icon_url': _owner.admin_brand_icon_url,
+            'ip_retention_days': _owner.ip_retention_days,
         } if _owner else {},
         'websites': [{'id': w.id, 'name': w.name, 'description': w.description,
                       'is_draft': w.is_draft,
@@ -17594,6 +17710,101 @@ def _run_auto_backup_for(cfg):
         return False, str(e)
 
 
+# ── Visitor IP retention ──────────────────────────────────────────────────────
+# Every table that records a visitor IP, paired with the timestamp that decides
+# how old the record is. Add new ones here — an IP recorded somewhere that isn't
+# on this list will simply be kept forever, which is the failure we're avoiding.
+def _ip_retention_targets():
+    return (
+        (PageVisit, PageVisit.ip_address, PageVisit.visited_at),
+        (ForumThread, ForumThread.ip_address, ForumThread.created_at),
+        (ForumReply, ForumReply.ip_address, ForumReply.created_at),
+        (ContactMessage, ContactMessage.ip_address, ContactMessage.created_at),
+        (CalendarFeedSubscriber, CalendarFeedSubscriber.ip_address,
+         CalendarFeedSubscriber.last_seen_at),
+    )
+
+
+def ip_retention_days():
+    """Org-wide retention, read from the anchor. 0 = keep forever."""
+    anchor = get_main_admin()
+    if anchor is None:
+        return 0
+    try:
+        return max(0, int(anchor.ip_retention_days or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def prune_expired_ips(days=None):
+    """Erase visitor IPs older than the retention window. Returns {table: rows}.
+
+    The IP is nulled *in place* rather than the row deleted: analytics counts,
+    forum threads and contact messages all stay intact, they just stop carrying
+    the identifier. Rows whose IP is already NULL are skipped so a scheduled run
+    costs nothing once it has caught up.
+    """
+    days = ip_retention_days() if days is None else int(days)
+    if days <= 0:
+        return {}
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    cleared = {}
+    for model, ip_col, ts_col in _ip_retention_targets():
+        try:
+            n = (db.session.query(model)
+                 .filter(ip_col.isnot(None), ts_col.isnot(None), ts_col < cutoff)
+                 .update({ip_col: None}, synchronize_session=False))
+            if n:
+                cleared[model.__tablename__] = n
+        except Exception as prune_err:
+            db.session.rollback()
+            app.logger.warning('IP prune failed for %s: %s',
+                               model.__tablename__, prune_err)
+    if cleared:
+        db.session.commit()
+        app.logger.info('IP retention: erased %s', cleared)
+    return cleared
+
+
+def _stored_ip_count():
+    """How many rows currently hold a visitor IP — the concrete number the
+    retention setting is about, so the admin sees what they're deciding on."""
+    total = 0
+    for model, ip_col, _ts in _ip_retention_targets():
+        try:
+            total += db.session.query(model).filter(ip_col.isnot(None)).count()
+        except Exception:
+            pass
+    return total
+
+
+_ip_retention_scheduler_started = False
+
+
+def _start_ip_retention_scheduler():
+    """Daily sweep that applies the org-wide IP retention window."""
+    import threading
+    import time
+
+    global _ip_retention_scheduler_started
+    if _ip_retention_scheduler_started:
+        return
+    _ip_retention_scheduler_started = True
+
+    def _loop():
+        time.sleep(90)  # let startup settle
+        while True:
+            try:
+                with app.app_context():
+                    prune_expired_ips()
+            except Exception as loop_err:
+                print(f"[ip-retention] scheduler error: {loop_err}")
+            time.sleep(86400)  # once a day is plenty for a day-granularity rule
+
+    threading.Thread(target=_loop, daemon=True, name='ip-retention').start()
+    print("[ip-retention] background scheduler started (interval: 24 h)")
+
+
 _auto_backup_scheduler_started = False
 
 
@@ -18195,6 +18406,12 @@ def import_backup():
                         _brand_icon = _brand_icon.replace(
                             f'/uploads/{old_uid}/', f'/uploads/{uid}/')
                     _owner.admin_brand_icon_url = _brand_icon
+                    # Absent in backups taken before IP retention existed —
+                    # fall back to the model default rather than 0, so an old
+                    # backup can't silently turn pruning off.
+                    _retention = _owner_settings.get('ip_retention_days')
+                    _owner.ip_retention_days = (
+                        90 if _retention is None else max(0, int(_retention)))
 
             for gd in data.get('permission_groups', []):
                 pg = PermissionGroup(owner_user_id=uid, name=gd['name'],
@@ -32925,6 +33142,7 @@ with app.app_context():
             _start_subscription_sync_scheduler()
             _start_notification_event_scheduler()
             _start_auto_backup_scheduler()
+            _start_ip_retention_scheduler()
 
         _DB_MAINTENANCE_MODE = False
         # DB is healthy, so no maintenance access is needed — drop any token

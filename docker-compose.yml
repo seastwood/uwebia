@@ -37,6 +37,12 @@ services:
       # covers a proxy container on the compose network or one on the LAN.
       # Cloudflare users want e.g. `10.0.0.5,cloudflare`. See .env.example.
       UWEBIA_TRUSTED_PROXIES: ${UWEBIA_TRUSTED_PROXIES:-private}
+      # Database TLS. Left unset the app probes at startup and requires TLS
+      # when the server offers it. The bundled Postgres image below ships with
+      # ssl off, so this stack stays plaintext over the private container
+      # network — set these when pointing DATABASE_URL at an external server.
+      UWEBIA_DB_SSLMODE: ${UWEBIA_DB_SSLMODE:-}
+      UWEBIA_DB_SSLROOTCERT: ${UWEBIA_DB_SSLROOTCERT:-}
       # Keep uploaded GeoIP databases on the volume mounted below.
       UWEBIA_GEOIP_DIR: /app/geoip
       # Optional: tune gunicorn from .env without rebuilding.

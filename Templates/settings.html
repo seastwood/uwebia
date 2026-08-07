@@ -674,6 +674,38 @@
             {% endif %}
 
             {% if can_edit_settings %}
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Visitor IP retention</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. An IP address is personal data. The app records one against
+                    page visits, forum posts, contact messages and calendar subscriptions;
+                    this decides how long it's kept.
+                </p>
+                <div class="settings-field">
+                    <label for="ipRetentionDays">Erase IP addresses older than</label>
+                    <input type="number" id="ipRetentionDays" min="0" max="3650" step="1"
+                           value="{{ ip_retention_days }}" style="max-width:140px;">
+                    <p class="settings-help">
+                        Days. <strong>0 keeps them forever.</strong> Only the IP is erased &mdash;
+                        the page view, forum post or message itself stays exactly as it is,
+                        so analytics totals and threads are unaffected.
+                    </p>
+                    <p class="settings-help">
+                        {% if stored_ip_count %}
+                        {{ stored_ip_count }} record{{ 's' if stored_ip_count != 1 }} currently
+                        hold an IP address. Saving a shorter window erases the ones already
+                        past it immediately &mdash; that can't be undone.
+                        {% else %}
+                        No records currently hold an IP address.
+                        {% endif %}
+                    </p>
+                </div>
+                <button type="button" class="settings-button" onclick="saveIpRetention()">Save retention setting</button>
+                <div class="settings-message" id="ipRetentionMessage"></div>
+            </div>
+            {% endif %}
+
+            {% if can_edit_settings %}
             <div class="settings-card">
                 <h2 class="settings-section-title">Admin URL Key</h2>
 
@@ -1431,6 +1463,30 @@
                     ? 'Saved. Every request is now logged — remember to switch this off afterwards.'
                     : 'Saved. Only warnings and errors are logged.', false);
             } catch (e) { _msg('loggingMessage', 'Request failed.', true); }
+        }
+
+        async function saveIpRetention() {
+            const days = parseInt(document.getElementById('ipRetentionDays').value, 10);
+            if (isNaN(days) || days < 0 || days > 3650) {
+                _msg('ipRetentionMessage', 'Enter a whole number between 0 and 3650.', true);
+                return;
+            }
+            const warning = days === 0
+                ? 'Keep visitor IP addresses forever?\n\nNothing will be erased automatically.'
+                : `Erase visitor IP addresses older than ${days} day(s)?\n\nAny already past that age are erased as soon as you save. This cannot be undone.`;
+            if (!confirm(warning)) return;
+            try {
+                const r = await fetch('/admin/dashboard/settings/ip-retention', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: days })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('ipRetentionMessage', d.error || 'Could not save.', true); return; }
+                _msg('ipRetentionMessage', d.days === 0
+                    ? 'Saved. IP addresses are kept indefinitely.'
+                    : `Saved. Erased ${d.cleared} record${d.cleared === 1 ? '' : 's'} already past ${d.days} day(s); the rest are swept nightly.`, false);
+            } catch (e) { _msg('ipRetentionMessage', 'Request failed.', true); }
         }
 
         async function disableTotp() {
