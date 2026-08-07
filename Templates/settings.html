@@ -628,6 +628,40 @@
             {% endif %}
 
             {% if can_edit_settings %}
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Logging</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. The log file is size-capped and rotates automatically,
+                    so it can't fill the disk either way.
+                </p>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="verboseLogging"
+                               {% if verbose_logging %}checked{% endif %}>
+                        Log every HTTP request
+                    </label>
+                    <p class="settings-help">
+                        Useful while debugging. Leave off in normal use &mdash; an uptime or
+                        load-balancer health check polling once a second writes tens of
+                        megabytes a day of near-identical lines and buries anything real.
+                    </p>
+                </div>
+                {% if log_file_status and log_file_status.path %}
+                <p class="settings-help">
+                    Writing to <code>{{ log_file_status.path }}</code> &mdash;
+                    currently {{ '%.1f'|format(log_file_status.size / 1048576) }} MB,
+                    capped at about {{ log_file_status.cap_mb }} MB before old entries
+                    are discarded.
+                </p>
+                {% else %}
+                <p class="settings-help">File logging is disabled (<code>UWEBIA_LOG_FILE=off</code>).</p>
+                {% endif %}
+                <button type="button" class="settings-button" onclick="saveLoggingSettings()">Save logging settings</button>
+                <div class="settings-message" id="loggingMessage"></div>
+            </div>
+            {% endif %}
+
+            {% if can_edit_settings %}
             <div class="settings-card">
                 <h2 class="settings-section-title">Admin URL Key</h2>
 
@@ -1364,6 +1398,22 @@
                 _msg('adminPrivacyMessage', note, false);
                 setTimeout(function () { window.location.reload(); }, 1200);
             } catch (e) { _msg('adminPrivacyMessage', 'Request failed.', true); }
+        }
+
+        async function saveLoggingSettings() {
+            const verbose = document.getElementById('verboseLogging').checked;
+            try {
+                const r = await fetch('/admin/dashboard/settings/logging', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ verbose: verbose })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('loggingMessage', d.error || 'Could not save.', true); return; }
+                _msg('loggingMessage', d.verbose
+                    ? 'Saved. Every request is now logged — remember to switch this off afterwards.'
+                    : 'Saved. Only warnings and errors are logged.', false);
+            } catch (e) { _msg('loggingMessage', 'Request failed.', true); }
         }
 
         async function disableTotp() {

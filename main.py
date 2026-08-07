@@ -60,6 +60,76 @@ logging.basicConfig(level=getattr(logging, os.environ.get('UWEBIA_LOG_LEVEL', 'I
 # These libraries are chatty at DEBUG and never useful in normal operation.
 logging.getLogger('urllib3').setLevel(logging.WARNING)
 
+# ── Log volume ───────────────────────────────────────────────────────────────
+# The request logger prints a line per HTTP call. That is fine by hand and
+# ruinous in place: a load-balancer health check polling once a second produces
+# tens of megabytes a day of "OPTIONS / 200" and nothing else, until the disk
+# fills. So per-request logging is OFF unless an admin asks for it (Settings →
+# Logging), and the log file is size-capped either way, because a diagnostic
+# that can exhaust the disk is a liability rather than a tool.
+_REQUEST_LOGGERS = ('werkzeug', 'gunicorn.access')
+
+
+def apply_log_verbosity(verbose):
+    """Turn per-request logging on or off. Takes effect immediately."""
+    level = logging.INFO if verbose else logging.WARNING
+    for name in _REQUEST_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+    return bool(verbose)
+
+
+# Off until the database tells us otherwise (see the startup block), so a
+# restart never silently reopens the firehose.
+apply_log_verbosity(False)
+
+
+def _install_rotating_log():
+    """Send logging to a size-capped file. UWEBIA_LOG_FILE=off disables it.
+
+    Note this owns the file itself rather than relying on a shell redirect:
+    `python main.py > app.log` cannot rotate, because the shell holds the
+    original file open and would keep writing to it after a rename.
+    """
+    target = os.environ.get('UWEBIA_LOG_FILE',
+                            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         'uwebia.log'))
+    if not target or str(target).strip().lower() in ('off', 'none', ''):
+        return None
+    try:
+        max_mb = float(os.environ.get('UWEBIA_LOG_MAX_MB', '5'))
+        backups = int(os.environ.get('UWEBIA_LOG_BACKUPS', '3'))
+        from logging.handlers import RotatingFileHandler
+        handler = RotatingFileHandler(target, maxBytes=int(max_mb * 1024 * 1024),
+                                      backupCount=backups, encoding='utf-8')
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s %(name)s: %(message)s'))
+        root = logging.getLogger()
+        root.addHandler(handler)
+        # When running detached, drop the console handler so log records go to
+        # the rotating file ONLY. Otherwise they also stream to stderr, and a
+        # `> file` redirect would grow without limit — defeating the cap we just
+        # set. Interactive runs keep their console output; set
+        # UWEBIA_LOG_CONSOLE=1 to force it either way.
+        import sys as _sys
+        keep_console = (os.environ.get('UWEBIA_LOG_CONSOLE', '').strip().lower()
+                        in ('1', 'true', 'yes', 'on'))
+        if not keep_console:
+            try:
+                attached = _sys.stderr is not None and _sys.stderr.isatty()
+            except Exception:
+                attached = False
+            if not attached:
+                for existing in list(root.handlers):
+                    if isinstance(existing, logging.StreamHandler) and existing is not handler:
+                        root.removeHandler(existing)
+        return target
+    except Exception as exc:  # never let logging setup stop the app booting
+        print(f'Could not open log file {target}: {exc}')
+        return None
+
+
+_ACTIVE_LOG_FILE = _install_rotating_log()
+
 # Set the template folder path
 template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Templates')
 
@@ -752,6 +822,10 @@ class User(UserMixin, db.Model):
     # is granted case by case rather than assumed.
     org_admin_email_restricted = db.Column(db.Boolean, nullable=False, default=False,
                                            server_default=_sa_false())
+    # Per-request ("verbose") logging. Off by default because a health check
+    # polling every second fills the disk with it — see apply_log_verbosity.
+    org_verbose_logging = db.Column(db.Boolean, nullable=False, default=False,
+                                    server_default=_sa_false())
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -10262,6 +10336,47 @@ def save_admin_privacy_settings():
                        'github_only': github_only, 'collect_names': collect_names})
 
 
+@app.route('/admin/dashboard/settings/logging', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_logging_settings():
+    """Turn per-request logging on or off, org-wide and immediately."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+
+    verbose = bool((request.get_json() or {}).get('verbose'))
+    anchor.org_verbose_logging = verbose
+    db.session.commit()
+    # Applies to this worker at once; others pick it up on their next restart.
+    apply_log_verbosity(verbose)
+    app.logger.info('Per-request logging turned %s by admin id=%s',
+                    'ON' if verbose else 'OFF', current_user.id)
+    return _utf8_json({'success': True, 'verbose': verbose,
+                       'log_file': _ACTIVE_LOG_FILE or ''})
+
+
+def _log_file_status():
+    """Current log file, its size, and how much it can grow to."""
+    if not _ACTIVE_LOG_FILE:
+        return {'path': '', 'size': 0, 'cap_mb': 0}
+    try:
+        max_mb = float(os.environ.get('UWEBIA_LOG_MAX_MB', '5'))
+        backups = int(os.environ.get('UWEBIA_LOG_BACKUPS', '3'))
+    except (TypeError, ValueError):
+        max_mb, backups = 5.0, 3
+    total = 0
+    for suffix in [''] + [f'.{i}' for i in range(1, backups + 1)]:
+        try:
+            total += os.path.getsize(_ACTIVE_LOG_FILE + suffix)
+        except OSError:
+            pass
+    return {'path': _ACTIVE_LOG_FILE, 'size': total,
+            'cap_mb': round(max_mb * (backups + 1), 1)}
+
+
 @app.route('/admin/users/<int:user_id>/email-permission', methods=['POST'])
 @login_required
 @require_perm('settings.edit')
@@ -15689,6 +15804,8 @@ def settings_page():
         # a page, which is why a blank secret field means "keep the stored one".
         github_client_id=(get_github_login_settings().client_id
                           if get_github_login_settings() else ''),
+        verbose_logging=bool(getattr(_anchor, 'org_verbose_logging', False)),
+        log_file_status=_log_file_status(),
         can_set_org_2fa=current_user.has_permission('settings.2fa'),
         can_backup=current_user.has_permission('settings.backup'),
         can_store_settings=current_user.has_permission('store.settings'),
@@ -32253,6 +32370,15 @@ with app.app_context():
             os.remove(MAINTENANCE_TOKEN_PATH)
         except OSError:
             pass
+
+        # Restore the admin's chosen request-logging level now the DB is up.
+        try:
+            _anchor_log = get_main_admin()
+            if _anchor_log is not None and getattr(_anchor_log, 'org_verbose_logging', False):
+                apply_log_verbosity(True)
+                print('[logging] per-request logging is ON (Settings → Logging)')
+        except Exception:
+            pass  # a logging preference must never block startup
 
         # Name any admin whose authenticator secret this process cannot read.
         # Without this the breakage only shows up as "Invalid code" at the login
