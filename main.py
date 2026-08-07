@@ -26848,13 +26848,25 @@ def github_callback():
         return redirect(url_for('login') if ctx['intent'] in ('admin', 'link_admin')
                         else url_for('public_login', website_prefix=ctx['prefix'] or None))
 
-    code = request.args.get('code')
-    token = _github_exchange_code(code) if code else None
-    gh_id = _github_identity(token) if token else None
-    if not gh_id:
-        flash('Could not complete GitHub sign-in. Please try again.', 'error')
+    def _fail(reason):
+        # Say what actually went wrong. These are configuration faults, not
+        # secrets, and a bare "try again" sends people round the same loop.
+        flash(f'GitHub sign-in failed. {reason}', 'error')
         return redirect(url_for('login') if ctx['intent'] in ('admin', 'link_admin')
                         else url_for('public_login', website_prefix=ctx['prefix'] or None))
+
+    code = request.args.get('code')
+    if not code:
+        return _fail('GitHub did not send an authorization code.')
+
+    token, token_error = _github_exchange_code(code, ctx.get('redirect_uri'))
+    if not token:
+        return _fail(token_error or 'The authorization code could not be exchanged.')
+
+    gh_id = _github_identity(token)
+    if not gh_id:
+        return _fail('GitHub accepted the sign-in but would not return an account id. '
+                     'Check the server log for the exact response.')
 
     intent = ctx['intent']
     if intent == 'admin':
@@ -30122,11 +30134,36 @@ def github_authorize_url(state):
     return f'{_GITHUB_AUTHORIZE_URL}?{_enc(params)}'
 
 
-def _github_exchange_code(code):
-    """Swap the callback code for an access token. Returns the token or None."""
+# GitHub's own error codes, translated into something an admin can act on.
+_GITHUB_TOKEN_ERRORS = {
+    'incorrect_client_credentials':
+        'GitHub rejected the client ID or secret. Re-enter them in Settings — '
+        'if the secret was regenerated on GitHub, the old one no longer works.',
+    'redirect_uri_mismatch':
+        'The callback URL does not match the one registered on the OAuth App. '
+        'Copy the Callback URL shown in Settings into GitHub exactly.',
+    'bad_verification_code':
+        'That sign-in attempt had already been used or had expired. Please start again.',
+}
+
+
+def _github_exchange_code(code, redirect_uri=None):
+    """Swap the callback code for an access token. Returns (token, error_text).
+
+    GitHub answers this endpoint with HTTP 200 even when it refuses, putting
+    the reason in the JSON body — so checking the status code alone silently
+    throws away the only useful diagnostic and leaves the caller with a bare
+    "try again". Parse the body and report what actually went wrong.
+    """
     cfg = get_github_login_settings()
     if not cfg or not cfg.client_id:
-        return None
+        return None, 'GitHub sign-in is not configured.'
+    # Reuse the EXACT string sent at the authorize step (stashed in the session)
+    # rather than recomputing it. GitHub requires the two to be byte-identical,
+    # and recomputing lets scheme/host drift between the two requests — behind a
+    # proxy the authorize hop and the callback hop don't always agree — which
+    # surfaces as redirect_uri_mismatch after the user has already approved.
+    sent_uri = redirect_uri or github_callback_url()
     try:
         resp = requests.post(
             _GITHUB_TOKEN_URL,
@@ -30134,18 +30171,40 @@ def _github_exchange_code(code):
                 'client_id': cfg.client_id,
                 'client_secret': _github_client_secret(cfg),
                 'code': code,
-                'redirect_uri': github_callback_url(),
+                'redirect_uri': sent_uri,
             },
             headers={'Accept': 'application/json'},
             timeout=12,
         )
-        if resp.status_code != 200:
-            app.logger.warning('GitHub token exchange failed: HTTP %s', resp.status_code)
-            return None
-        return (resp.json() or {}).get('access_token') or None
     except Exception as e:
         app.logger.warning('GitHub token exchange error: %s', e)
-        return None
+        return None, 'Could not reach GitHub. Check the server’s network access.'
+
+    if resp.status_code != 200:
+        app.logger.warning('GitHub token exchange: HTTP %s — %s',
+                           resp.status_code, resp.text[:300])
+        return None, f'GitHub returned HTTP {resp.status_code}.'
+
+    try:
+        body = resp.json() or {}
+    except Exception:
+        app.logger.warning('GitHub token exchange: unparseable body — %s', resp.text[:300])
+        return None, 'GitHub sent a response we could not read.'
+
+    token = body.get('access_token')
+    if token:
+        return token, None
+
+    err = body.get('error') or 'unknown_error'
+    detail = body.get('error_description') or ''
+    # Log the URI we sent: for a mismatch this is the single fact needed to fix
+    # it, and it is otherwise invisible from outside.
+    app.logger.warning('GitHub token exchange refused: %s — %s (redirect_uri sent: %s)',
+                       err, detail, sent_uri)
+    message = _GITHUB_TOKEN_ERRORS.get(err, f'GitHub said: {err}. {detail}'.strip())
+    if err == 'redirect_uri_mismatch':
+        message += f' This server sent: {sent_uri}'
+    return None, message
 
 
 def _github_identity(access_token):
@@ -30163,10 +30222,14 @@ def _github_identity(access_token):
             timeout=12,
         )
         if resp.status_code != 200:
-            app.logger.warning('GitHub /user failed: HTTP %s', resp.status_code)
+            app.logger.warning('GitHub /user failed: HTTP %s — %s',
+                               resp.status_code, resp.text[:300])
             return None
         gh_id = (resp.json() or {}).get('id')
-        return int(gh_id) if gh_id is not None else None
+        if gh_id is None:
+            app.logger.warning('GitHub /user returned no id field')
+            return None
+        return int(gh_id)
     except Exception as e:
         app.logger.warning('GitHub /user error: %s', e)
         return None
@@ -30183,6 +30246,9 @@ def _github_begin(intent, website_prefix=None, next_url=None):
         return None, 'GitHub sign-in is not configured on this site.'
     state = secrets.token_urlsafe(32)
     session['gh_state'] = state
+    # Remember the exact redirect_uri sent to GitHub so the token exchange can
+    # replay the identical string instead of recomputing it.
+    session['gh_redirect_uri'] = github_callback_url()
     session['gh_intent'] = intent          # 'public' | 'admin' | 'link_admin' | 'link_public'
     session['gh_prefix'] = website_prefix or ''
     # Only site-relative targets, so the callback can't be used as an open redirect.
@@ -30199,12 +30265,14 @@ def _github_consume_state(supplied_state):
     intent = session.pop('gh_intent', None)
     prefix = session.pop('gh_prefix', '')
     next_url = session.pop('gh_next', '')
+    redirect_uri = session.pop('gh_redirect_uri', '')
     if not expected or not supplied_state:
         return None
     import hmac as _hmac
     if not _hmac.compare_digest(str(expected), str(supplied_state)):
         return None
-    return {'intent': intent, 'prefix': prefix, 'next': next_url}
+    return {'intent': intent, 'prefix': prefix, 'next': next_url,
+            'redirect_uri': redirect_uri}
 
 
 # ── Baseline security response headers ───────────────────────────────────────
