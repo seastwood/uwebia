@@ -30164,8 +30164,11 @@ def _github_exchange_code(code, redirect_uri=None):
     # proxy the authorize hop and the callback hop don't always agree — which
     # surfaces as redirect_uri_mismatch after the user has already approved.
     sent_uri = redirect_uri or github_callback_url()
+    # `requests` is not imported at module scope anywhere in this file — every
+    # other caller imports it locally, and so must we.
+    import requests as _requests
     try:
-        resp = requests.post(
+        resp = _requests.post(
             _GITHUB_TOKEN_URL,
             data={
                 'client_id': cfg.client_id,
@@ -30176,9 +30179,14 @@ def _github_exchange_code(code, redirect_uri=None):
             headers={'Accept': 'application/json'},
             timeout=12,
         )
-    except Exception as e:
-        app.logger.warning('GitHub token exchange error: %s', e)
+    except _requests.RequestException as e:
+        app.logger.warning('GitHub token exchange network error: %s', e)
         return None, 'Could not reach GitHub. Check the server’s network access.'
+    except Exception as e:
+        # Anything else is a fault in this code, not the network — say so rather
+        # than blaming connectivity and sending the admin down the wrong path.
+        app.logger.exception('GitHub token exchange failed unexpectedly')
+        return None, f'Internal error during GitHub sign-in: {type(e).__name__}. Check the server log.'
 
     if resp.status_code != 200:
         app.logger.warning('GitHub token exchange: HTTP %s — %s',
@@ -30214,8 +30222,9 @@ def _github_identity(access_token):
     note above. The `email`, `login`, `name` and `avatar_url` fields GitHub
     sends back are discarded here and never reach a caller.
     """
+    import requests as _requests   # not available at module scope — see above
     try:
-        resp = requests.get(
+        resp = _requests.get(
             _GITHUB_USER_URL,
             headers={'Authorization': f'Bearer {access_token}',
                      'Accept': 'application/vnd.github+json'},
