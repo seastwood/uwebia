@@ -24380,11 +24380,18 @@ def _promote_conflict_websites(public_user, exclude_admin_user_id=None):
     owned_website_ids = {w.id for w in Website.query.filter_by(user_id=root_id, is_draft=False).all()}
     if not owned_website_ids:
         return []
+    # Compare the email only when there is one. `Column == None` compiles to
+    # `IS NULL`, so an emailless member (every GitHub sign-up, and every account
+    # on a site with email turned off) otherwise "collided" with every other
+    # emailless member — none of which is a real conflict, since NULLs don't
+    # contend for a unique index.
+    match_clauses = [PublicUser.username == public_user.username]
+    if public_user.email:
+        match_clauses.append(PublicUser.email == public_user.email)
     q = PublicUser.query.filter(
         PublicUser.id != public_user.id,
         PublicUser.website_id.in_(owned_website_ids),
-        or_(PublicUser.username == public_user.username,
-            PublicUser.email == public_user.email),
+        or_(*match_clauses),
     )
     if exclude_admin_user_id:
         q = q.filter(or_(
@@ -24421,7 +24428,9 @@ def _resolve_promote_conflicts(conflicts, promoting):
                     break
                 n += 1
 
-        if pu.email == promoting.email and '@' in pu.email:
+        # Both sides must actually have an address: two NULLs compare equal in
+        # Python and would then crash on the `in` test below.
+        if promoting.email and pu.email and pu.email == promoting.email and '@' in pu.email:
             local, _, domain = pu.email.partition('@')
             n = 2
             while True:
