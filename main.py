@@ -9030,10 +9030,13 @@ def inject_github_login():
             'github_login_available': github_login_is_configured(),
             'admin_github_only': admin_github_only_mode(),
             'admin_collect_names': admin_collect_names_enabled(),
+            # Rendered in Settings so the admin registers on GitHub exactly what
+            # we will send — anything else and GitHub refuses the round trip.
+            'github_callback_url': github_callback_url(),
         }
     except Exception:
         return {'github_login_available': False, 'admin_github_only': False,
-                'admin_collect_names': True}
+                'admin_collect_names': True, 'github_callback_url': ''}
 
 
 @app.context_processor
@@ -30089,6 +30092,19 @@ def _github_client_secret(cfg):
     return decrypt_api_key(cfg.client_secret or '') if cfg else ''
 
 
+def github_callback_url():
+    """The one redirect_uri this app will ever send to GitHub.
+
+    GitHub compares this string against the callback registered on the OAuth
+    App and refuses the request if they differ at all — scheme, host, port or
+    path. So the authorize request, the token exchange and the value shown in
+    Settings must all come from here; when the settings page computed its own,
+    a scheme difference was enough to produce GitHub's "redirect_uri is not
+    associated with this application" warning.
+    """
+    return url_for('github_callback', _external=True, _scheme=_email_link_scheme())
+
+
 def github_authorize_url(state):
     cfg = get_github_login_settings()
     if not cfg or not cfg.client_id:
@@ -30096,8 +30112,7 @@ def github_authorize_url(state):
     from urllib.parse import urlencode as _enc
     params = {
         'client_id': cfg.client_id,
-        'redirect_uri': url_for('github_callback', _external=True,
-                                _scheme=_email_link_scheme()),
+        'redirect_uri': github_callback_url(),
         'state': state,
         # Empty scope, spelled out explicitly so a future edit has to make a
         # deliberate decision to widen it.
@@ -30119,8 +30134,7 @@ def _github_exchange_code(code):
                 'client_id': cfg.client_id,
                 'client_secret': _github_client_secret(cfg),
                 'code': code,
-                'redirect_uri': url_for('github_callback', _external=True,
-                                        _scheme=_email_link_scheme()),
+                'redirect_uri': github_callback_url(),
             },
             headers={'Accept': 'application/json'},
             timeout=12,
