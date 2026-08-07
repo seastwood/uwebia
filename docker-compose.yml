@@ -33,6 +33,10 @@ services:
       # credentials, so changing it re-logs-in everyone and requires re-entering
       # Stripe/SMS/AI/OAuth keys in the admin UI.
       SECRET_KEY:   ${SECRET_KEY:?set SECRET_KEY in .env}
+      # Which upstreams may set X-Forwarded-For. Defaults to `private`, which
+      # covers a proxy container on the compose network or one on the LAN.
+      # Cloudflare users want e.g. `10.0.0.5,cloudflare`. See .env.example.
+      UWEBIA_TRUSTED_PROXIES: ${UWEBIA_TRUSTED_PROXIES:-private}
       # Optional: tune gunicorn from .env without rebuilding.
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}

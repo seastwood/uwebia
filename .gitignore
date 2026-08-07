@@ -18,6 +18,7 @@ node_modules/
 # Environment / secrets
 .env
 db_config.json
+config/maintenance_token.txt
 
 # Flask instance folder (often contains DB or secrets)
 instance/

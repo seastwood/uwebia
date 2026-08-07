@@ -129,6 +129,156 @@ app.config['REMEMBER_COOKIE_HTTPONLY'] = True
 app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 app.config['REMEMBER_COOKIE_SECURE'] = _COOKIE_SECURE
 
+# ── CSRF protection ──────────────────────────────────────────────────────────
+# Every POST/PUT/PATCH/DELETE must carry a token, supplied either as a
+# `csrf_token` form field or an `X-CSRFToken` header. Templates/components/
+# csrf.html publishes the token and patches fetch/XHR/form-submit so existing
+# call sites pick it up without being rewritten one by one.
+#
+# Initialised here, before any route is defined, so `@csrf.exempt` is available
+# to the handful of endpoints that are called by outside systems (payment and
+# SMS webhooks) which have no session and therefore cannot hold a token — those
+# authenticate by provider signature instead.
+from flask_wtf.csrf import CSRFProtect as _CSRFProtect
+
+app.config['WTF_CSRF_TIME_LIMIT'] = None  # tokens live as long as the session
+csrf = _CSRFProtect(app)
+
+# ── Trusted proxies / real client IP ─────────────────────────────────────────
+# `X-Forwarded-For` is just a request header: anyone who can open a socket to
+# the app can write whatever they like in it. Believing it blindly means an
+# attacker rotates the header to dodge the login lockout, the registration
+# throttle, and the IP recorded against forum posts. Believing it *never* is
+# also wrong — behind a proxy every request would share the proxy's IP, so one
+# abusive visitor would lock out everybody.
+#
+# So the header is honoured only when the machine that actually connected is a
+# proxy we trust, and the chain is then walked from right to left, discarding
+# hops that are themselves trusted proxies. The first address that isn't one of
+# ours is the real client; anything further left was written by the client and
+# is ignored.
+#
+# Configure with UWEBIA_TRUSTED_PROXIES (comma-separated). Accepts CIDRs and
+# these keywords:
+#   private     RFC1918 + loopback + link-local + IPv6 ULA  (the default —
+#               covers docker, HAProxy/nginx/Caddy on a LAN or sidecar)
+#   cloudflare  Cloudflare's published edge ranges
+#   none        trust nothing; always use the connecting address
+# Cloudflare in front of HAProxy:  UWEBIA_TRUSTED_PROXIES=private,cloudflare
+# App exposed straight to the internet:  UWEBIA_TRUSTED_PROXIES=none
+
+# https://www.cloudflare.com/ips/ — these change rarely; re-check after a
+# Cloudflare announcement if edge IPs ever start showing up as client IPs.
+_CLOUDFLARE_RANGES = [
+    '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+    '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+    '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+    '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+    '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+    '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+]
+
+_PRIVATE_RANGES = [
+    '127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+    '169.254.0.0/16', '::1/128', 'fc00::/7', 'fe80::/10',
+]
+
+
+def _build_trusted_networks(spec):
+    nets = []
+    for raw in (spec or '').split(','):
+        token = raw.strip().lower()
+        if not token:
+            continue
+        if token == 'none':
+            return []
+        if token == 'private':
+            entries = _PRIVATE_RANGES
+        elif token == 'cloudflare':
+            entries = _CLOUDFLARE_RANGES
+        else:
+            entries = [raw.strip()]
+        for entry in entries:
+            try:
+                nets.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                logging.warning('Ignoring invalid UWEBIA_TRUSTED_PROXIES entry: %r', entry)
+    return nets
+
+
+_TRUSTED_PROXY_NETWORKS = _build_trusted_networks(
+    os.environ.get('UWEBIA_TRUSTED_PROXIES', 'private'))
+
+
+def _parse_ip(value):
+    """Best-effort parse of one address from a header/environ, or None."""
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    # "[::1]:443" / "1.2.3.4:5678" — strip a port if one is present.
+    if text.startswith('['):
+        text = text[1:].split(']')[0]
+    elif text.count(':') == 1:
+        text = text.split(':')[0]
+    try:
+        return ipaddress.ip_address(text.split('%')[0])  # drop IPv6 zone id
+    except ValueError:
+        return None
+
+
+def _ip_is_trusted_proxy(ip):
+    if ip is None:
+        return False
+    return any(ip in net for net in _TRUSTED_PROXY_NETWORKS)
+
+
+def _resolve_client_ip(environ):
+    """Return the real client address as a string, per the rules above."""
+    peer = _parse_ip(environ.get('REMOTE_ADDR'))
+    if not _ip_is_trusted_proxy(peer):
+        # Whoever connected isn't a proxy of ours, so they don't get to tell us
+        # who they are. This is also the direct-exposure case.
+        return environ.get('REMOTE_ADDR')
+
+    forwarded = environ.get('HTTP_X_FORWARDED_FOR', '')
+    chain = [_parse_ip(part) for part in forwarded.split(',') if part.strip()]
+    for candidate in reversed(chain):
+        if candidate is None:
+            # An unparseable hop means we can't trust anything further left.
+            break
+        if not _ip_is_trusted_proxy(candidate):
+            return str(candidate)
+    # Every hop was one of our own proxies (or the header was absent/garbage).
+    return str(peer)
+
+
+class _TrustedProxyFix:
+    """Rewrite REMOTE_ADDR / url_scheme from forwarding headers, but only when
+    the connecting peer is a trusted proxy.
+
+    Done as WSGI middleware rather than inside a view so `request.remote_addr`,
+    `request.is_secure` and externally-generated URLs are all consistent — not
+    just the one helper that happens to ask.
+    """
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        peer = _parse_ip(environ.get('REMOTE_ADDR'))
+        if _ip_is_trusted_proxy(peer):
+            environ['uwebia.peer_addr'] = environ.get('REMOTE_ADDR')
+            environ['REMOTE_ADDR'] = _resolve_client_ip(environ)
+            proto = (environ.get('HTTP_X_FORWARDED_PROTO') or '').split(',')[0].strip().lower()
+            if proto in ('http', 'https'):
+                environ['wsgi.url_scheme'] = proto
+        return self.wsgi_app(environ, start_response)
+
+
+app.wsgi_app = _TrustedProxyFix(app.wsgi_app)
+
 # ── Database configuration ────────────────────────────────────────────────────
 # Priority: db_config.json (set via admin UI) > DATABASE_URL env var > SQLite default
 _DB_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'db_config.json')
@@ -269,6 +419,65 @@ DEFAULT_SERVER_CONFIG = {
     "port": 5772,
     "debug": False
 }
+
+# ── Maintenance-mode access token ────────────────────────────────────────────
+# When the database is unreachable nobody can log in (authentication needs the
+# DB), so the database-settings endpoints have to stay reachable to fix the
+# connection string. Leaving them simply open would let anyone on the network
+# repoint the app at a database they control, so instead we mint a one-off
+# token at startup and write it to the config directory. Reading it requires
+# filesystem access to the container/host — which is exactly the proof that the
+# caller is the operator and not a passer-by.
+MAINTENANCE_TOKEN_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'config',
+    'maintenance_token.txt'
+)
+
+_MAINTENANCE_TOKEN = None
+
+
+def _issue_maintenance_token():
+    """Generate this process's maintenance token and persist it 0600. Returns
+    the token, or None if it could not be written (in which case maintenance
+    access stays closed rather than falling open)."""
+    global _MAINTENANCE_TOKEN
+    import secrets as _s
+    token = _s.token_urlsafe(32)
+    try:
+        os.makedirs(os.path.dirname(MAINTENANCE_TOKEN_PATH), exist_ok=True)
+        # Create with 0600 from the start so the token is never briefly world-readable.
+        fd = os.open(MAINTENANCE_TOKEN_PATH,
+                     os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            fh.write(token)
+    except OSError as e:
+        print(f"Could not write maintenance token ({e}) — "
+              "database settings will stay locked until the DB is reachable.")
+        _MAINTENANCE_TOKEN = None
+        return None
+    _MAINTENANCE_TOKEN = token
+    return token
+
+
+def maintenance_token_is_valid(supplied):
+    """Constant-time check of a caller-supplied maintenance token."""
+    import hmac as _hmac
+    if not _MAINTENANCE_TOKEN or not supplied:
+        return False
+    return _hmac.compare_digest(str(supplied), _MAINTENANCE_TOKEN)
+
+
+def _maintenance_request_authorized():
+    """True when this request may use the DB-settings endpoints in maintenance
+    mode. Accepts the token from a header or form/JSON field."""
+    if not _DB_MAINTENANCE_MODE:
+        return False
+    supplied = (request.headers.get('X-Maintenance-Token')
+                or request.values.get('maintenance_token'))
+    if not supplied and request.is_json:
+        supplied = (request.get_json(silent=True) or {}).get('maintenance_token')
+    return maintenance_token_is_valid(supplied)
 
 
 class _MaintenanceUser:
@@ -6412,8 +6621,22 @@ def admin_url_key_required_for_user(user):
 
 
 @app.route('/capture', methods=['GET'])
+@login_required
 def capture_webpage():
-    url = request.args.get('url')
+    """Screenshot one of this site's own pages (page thumbnails in the browser).
+
+    The driver fetches whatever URL it is handed, so an unrestricted `url` turns
+    this into a full SSRF primitive (internal services, cloud metadata, file://).
+    Only same-origin http(s) targets are accepted.
+    """
+    from urllib.parse import urlparse as _cap_urlparse
+    url = request.args.get('url') or ''
+
+    parsed = _cap_urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        return 'Invalid URL.', 400
+    if parsed.netloc != _cap_urlparse(request.host_url).netloc:
+        return 'Only this site\'s own pages can be captured.', 400
 
     # Configure headless Chrome options
     chrome_options = Options()
@@ -7599,6 +7822,18 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:22px 0 18px}
     <input type="password" id="pgPassword" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="new-password">
   </div>
 
+  <hr>
+  <p class="section-label">Maintenance Token</p>
+  <p class="sub" style="text-align:left;margin-bottom:10px">
+    Nobody can log in while the database is down, so changes here are authorised
+    with a one-time token instead. Read it from
+    <code>config/maintenance_token.txt</code> on the server. It changes on every restart.
+  </p>
+  <div class="field">
+    <label>Token</label>
+    <input type="password" id="mtToken" placeholder="paste the token from the server" autocomplete="off">
+  </div>
+
   <div class="btn-row">
     <button class="btn btn-test" id="btnTest" onclick="doTest()">Test Connection</button>
     <button class="btn btn-save" id="btnSave" onclick="doConnect()">Save &amp; Restart</button>
@@ -7623,6 +7858,16 @@ function setStatus(msg,cls){
   el.className=cls||'info';
   el.textContent=msg;
 }
+function mtToken(){return document.getElementById('mtToken').value.trim();}
+// Every maintenance call carries the token; without it the server refuses.
+// The CSRF token rides along too — this page is served outside the normal
+// template chain, so it can't pick it up from components/csrf.html.
+function mtHeaders(json){
+  var h=mtToken()?{'X-Maintenance-Token':mtToken()}:{};
+  h['X-CSRFToken']='__CSRF_TOKEN__';
+  if(json)h['Content-Type']='application/json';
+  return h;
+}
 function setBtns(disabled){
   ['btnTest','btnSave','btnRevert'].forEach(function(id){
     document.getElementById(id).disabled=disabled;
@@ -7631,6 +7876,7 @@ function setBtns(disabled){
 async function doTest(){
   var url=buildUrl();
   if(!url){setStatus('Enter database name and username first.','err');return;}
+  if(!mtToken()){setStatus('Enter the maintenance token first.','err');return;}
   setBtns(true);
   var btn=document.getElementById('btnTest');
   var orig=btn.textContent;
@@ -7638,7 +7884,7 @@ async function doTest(){
   setStatus('Connecting…','info');
   try{
     var r=await fetch('/admin/settings/database/test',
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({database_url:url})});
+      {method:'POST',headers:mtHeaders(true),body:JSON.stringify({database_url:url})});
     var d=await r.json();
     if(d.success)setStatus('✓ Connection successful!','ok');
     else setStatus('✗ '+(d.error||'Connection failed'),'err');
@@ -7649,24 +7895,26 @@ async function doTest(){
 async function doConnect(){
   var url=buildUrl();
   if(!url){setStatus('Enter database name and username first.','err');return;}
+  if(!mtToken()){setStatus('Enter the maintenance token first.','err');return;}
   setBtns(true);
   var btn=document.getElementById('btnSave');
   btn.textContent='Saving…';
   setStatus('Testing connection…','info');
   try{
     var r=await fetch('/admin/settings/database/connect',
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({database_url:url})});
+      {method:'POST',headers:mtHeaders(true),body:JSON.stringify({database_url:url})});
     var d=await r.json();
     if(d.success){setStatus('✓ '+(d.message||'Saved. Restart the server to reconnect.'),'ok');btn.textContent='Saved';}
     else{setStatus('✗ '+(d.error||'Failed'),'err');btn.textContent='Save & Restart';setBtns(false);}
   }catch(e){setStatus('Network error','err');btn.textContent='Save & Restart';setBtns(false);}
 }
 async function doRevert(){
+  if(!mtToken()){setStatus('Enter the maintenance token first.','err');return;}
   if(!confirm('Switch back to SQLite on next restart?'))return;
   setBtns(true);
   setStatus('Reverting…','info');
   try{
-    var r=await fetch('/admin/settings/database/revert',{method:'POST'});
+    var r=await fetch('/admin/settings/database/revert',{method:'POST',headers:mtHeaders(false)});
     var d=await r.json();
     if(d.success)setStatus('✓ '+(d.message||'Reverted to SQLite. Restart the server to apply.'),'ok');
     else{setStatus('✗ '+(d.error||'Failed'),'err');setBtns(false);}
@@ -7675,6 +7923,23 @@ async function doRevert(){
 </script>
 </body>
 </html>"""
+
+
+def _maintenance_response():
+    """Render the maintenance page with a live CSRF token baked in.
+
+    The page is a module-level constant rather than a template, so the token
+    has to be substituted per-request; sessions are cookie-backed, so this
+    still works with the database down.
+    """
+    from flask_wtf.csrf import generate_csrf as _gen
+    try:
+        token = _gen()
+    except Exception:
+        token = ''
+    html = _MAINTENANCE_HTML.replace('__CSRF_TOKEN__', token)
+    from flask import Response as _Response
+    return _Response(html, status=503, mimetype='text/html')
 
 
 @app.before_request
@@ -7692,8 +7957,7 @@ def enforce_maintenance_mode():
     if any(request.path.startswith(p) for p in allowed_prefixes):
         return
 
-    from flask import Response as _Response
-    return _Response(_MAINTENANCE_HTML, status=503, mimetype='text/html')
+    return _maintenance_response()
 
 
 @app.before_request
@@ -7784,15 +8048,9 @@ def forgot_password(admin_key=None):
                 reset_url = url_for('reset_password', token=token, _external=True,
                                     _scheme=_email_link_scheme())
 
-                print("")
-                print("========================================")
-                print("UWEBIA PASSWORD RESET LINK")
-                print(f"User: {user.username}")
-                print(f"Email: {user.email}")
-                print(f"Reset URL: {reset_url}")
-                print("Expires in 30 minutes")
-                print("========================================")
-                print("")
+                # The reset URL is a bearer credential and the email is PII —
+                # neither goes to the logs. Only the fact of the send is recorded.
+                app.logger.info('Password reset link sent to admin user id=%s', user.id)
 
                 body = f"""A password reset was requested for your Uwebia admin account.
 
@@ -7976,14 +8234,9 @@ def request_username(admin_key=None):
             if email_settings and email_settings.is_active:
                 login_url = get_admin_login_url_for_user(user)
 
-                print("")
-                print("========================================")
-                print("UWEBIA USERNAME RECOVERY")
-                print(f"Email: {user.email}")
-                print(f"Username: {user.username}")
-                print(f"Login URL: {login_url}")
-                print("========================================")
-                print("")
+                # Username + email + the (secret) admin login URL are all
+                # sensitive — log only that the recovery mail went out.
+                app.logger.info('Username recovery sent to admin user id=%s', user.id)
 
                 body = f"""Your Uwebia admin username is:
 
@@ -8067,6 +8320,11 @@ def two_factor_login(admin_key=None):
         expected_hash = session.get('pending_2fa_code_hash')
 
         if not expected_hash or not check_password_hash(expected_hash, code):
+            if register_failed_two_factor_attempt():
+                session.pop('pre_2fa_user_id', None)
+                session.pop('pre_2fa_admin_key', None)
+                flash('Too many incorrect codes. Please log in again to get a new one.', 'error')
+                return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
             flash('Invalid verification code.', 'error')
             return redirect(request.path)
 
@@ -8218,15 +8476,9 @@ def login(admin_key=None):
                 code = generate_two_factor_code()
                 set_pending_two_factor_code(user.id, code, 'login')
 
-                print("")
-                print("========================================")
-                print("UWEBIA 2FA LOGIN CODE")
-                print(f"User: {user.username}")
-                print(f"Email: {two_fa_email}")
-                print(f"Code: {code}")
-                print("Expires in 10 minutes")
-                print("========================================")
-                print("")
+                # Never log the code itself — anyone with log access could
+                # complete the second factor for this account.
+                app.logger.info('2FA login code sent to admin user id=%s', user.id)
 
                 try:
                     send_two_factor_email(two_fa_email, code, purpose='login')
@@ -8940,6 +9192,7 @@ def set_pending_two_factor_code(user_id, code, purpose):
     session['pending_2fa_expires_at'] = (
             datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
     ).isoformat()
+    session['pending_2fa_attempts'] = 0
     # Stamp the send time on the User row so the cooldown is per-user, not per-session.
     user = db.session.get(User, user_id)
     if user:
@@ -9001,6 +9254,23 @@ def clear_pending_two_factor_code():
     session.pop('pending_2fa_code_hash', None)
     session.pop('pending_2fa_purpose', None)
     session.pop('pending_2fa_expires_at', None)
+    session.pop('pending_2fa_attempts', None)
+
+
+# A 2FA code is only 6 digits, and the expiry window alone leaves room for a
+# very large number of guesses. Burn the pending code after a few misses so the
+# attacker has to trigger a fresh send (which is cooldown-limited) each time.
+_2FA_MAX_ATTEMPTS = 5
+
+
+def register_failed_two_factor_attempt():
+    """Count a wrong code. Returns True when the pending code has been burned."""
+    attempts = int(session.get('pending_2fa_attempts') or 0) + 1
+    session['pending_2fa_attempts'] = attempts
+    if attempts >= _2FA_MAX_ATTEMPTS:
+        clear_pending_two_factor_code()
+        return True
+    return False
 
 
 def send_two_factor_email(to_email, code, purpose='login'):
@@ -9082,15 +9352,8 @@ def start_two_factor_activation():
     code = generate_two_factor_code()
     set_pending_two_factor_code(current_user.id, code, 'activation')
 
-    print("")
-    print("========================================")
-    print("UWEBIA 2FA ACTIVATION CODE")
-    print(f"User: {current_user.username}")
-    print(f"Email: {two_factor_email}")
-    print(f"Code: {code}")
-    print("Expires in 10 minutes")
-    print("========================================")
-    print("")
+    # The activation code is a credential — keep it out of the logs.
+    app.logger.info('2FA activation code sent to admin user id=%s', current_user.id)
 
     try:
         send_two_factor_email(two_factor_email, code, purpose='activation')
@@ -9133,6 +9396,11 @@ def confirm_two_factor_activation():
     expected_hash = session.get('pending_2fa_code_hash')
 
     if not expected_hash or not check_password_hash(expected_hash, code):
+        if register_failed_two_factor_attempt():
+            return jsonify({
+                'status': 'error',
+                'message': 'Too many incorrect codes. Request a new activation code.'
+            }), 400
         return jsonify({
             'status': 'error',
             'message': 'Invalid activation code.'
@@ -9221,6 +9489,9 @@ def org_2fa_policy_confirm():
         return _utf8_json({'success': False, 'error': err}, 400)
     expected_hash = session.get('pending_2fa_code_hash')
     if not expected_hash or not check_password_hash(expected_hash, code):
+        if register_failed_two_factor_attempt():
+            return _utf8_json({'success': False,
+                               'error': 'Too many incorrect codes. Request a new one.'}, 400)
         return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
     anchor = get_main_admin()
     if not anchor:
@@ -10251,9 +10522,7 @@ def send_email():
     if section.public_page_content:
         website_id = section.public_page_content.website_id
 
-    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip_address and ',' in ip_address:
-        ip_address = ip_address.split(',')[0].strip()
+    ip_address = get_request_ip()
 
     # ── IP rate limit: one submission per IP per section per N hours ─────────
     # N is configurable per section in the page editor; 0 disables the limit.
@@ -13384,6 +13653,7 @@ def get_uploaded_images():
 
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'})
@@ -14412,9 +14682,7 @@ def track_page_visit(website, page, visitor_id):
     import threading
 
     # Capture request values now — they won't be accessible from a background thread
-    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip_address and ',' in ip_address:
-        ip_address = ip_address.split(',')[0].strip()
+    ip_address = get_request_ip()
 
     # Local health checks / monitors polling from the box itself, and requests
     # with tooling/bot user agents (or none at all), aren't page views.
@@ -15841,6 +16109,47 @@ _AUTO_BACKUP_INTERVALS = {
 }
 
 
+# Directories a backup must never be written into. A backup zip contains the
+# whole database — every member email, every password hash — so dropping one
+# under `static/` would publish it at an unauthenticated URL. The other two are
+# code/secret directories that backups have no business touching (config/ holds
+# the maintenance token).
+def _backup_forbidden_roots():
+    app_root = os.path.dirname(os.path.abspath(__file__))
+    return [
+        (os.path.realpath(static_folder), 'the public static folder — anyone could download it'),
+        (os.path.realpath(template_folder), 'the templates folder'),
+        (os.path.realpath(os.path.join(app_root, 'config')), 'the config folder'),
+    ]
+
+
+def _validate_backup_folder(folder):
+    """Check a proposed backup destination. Returns (resolved_path, error).
+
+    Resolves symlinks first, so pointing a symlink at static/ can't sneak a
+    database dump into web-servable space.
+    """
+    folder = (folder or '').strip()
+    if not folder:
+        return None, 'A backup folder is required.'
+    if not os.path.isabs(os.path.expanduser(folder)):
+        return None, 'Please give an absolute path (starting with /).'
+
+    resolved = os.path.realpath(os.path.expanduser(folder))
+
+    for root, why in _backup_forbidden_roots():
+        # os.path.commonpath is exact about boundaries, so "/srv/static-backups"
+        # is not treated as living inside "/srv/static".
+        try:
+            inside = os.path.commonpath([resolved, root]) == root
+        except ValueError:
+            inside = False  # different drives/roots — can't be inside
+        if inside:
+            return None, f'Backups cannot be written to {why}. Choose a folder outside the app directory.'
+
+    return resolved, None
+
+
 def _auto_backup_is_due(cfg, now=None):
     """True when an enabled config with a valid folder has never run or its
     interval has elapsed."""
@@ -15873,8 +16182,21 @@ def _run_auto_backup_for(cfg):
     """Write one automatic backup zip for the given AutoBackupSettings row to
     its folder, prune old ones, and stamp status. Returns (ok, path_or_error).
     Must run inside an app context."""
-    folder = (cfg.folder_path or '').strip()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Re-checked at write time, not just when saved: rows predating this
+    # validation (or edited straight in the database) must not be able to drop
+    # a full dump somewhere it would be served.
+    folder, _err = _validate_backup_folder(cfg.folder_path)
+    if _err:
+        cfg.last_run_at = now
+        cfg.last_status = 'error'
+        cfg.last_error = _err[:500]
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        app.logger.error('Auto-backup refused for user %s: %s', cfg.user_id, _err)
+        return False, _err
     try:
         os.makedirs(folder, exist_ok=True)
         zip_bytes = _build_backup_zip_bytes(cfg.user_id, include_files=True)
@@ -18344,12 +18666,17 @@ def save_auto_backup_settings():
         max_backups = 10
     max_backups = max(1, min(max_backups, 365))
 
-    # Validate the folder is writable before enabling, so a bad path can't
-    # silently fail every night in the background.
+    # Validate the destination before enabling: first that it isn't somewhere
+    # a database dump would become publicly readable, then that it's writable
+    # (so a bad path can't silently fail every night in the background).
     if enabled:
         if not folder:
             return _utf8_json({'success': False,
                                'error': 'A backup folder is required to enable automatic backups.'}, 400)
+        resolved, err = _validate_backup_folder(folder)
+        if err:
+            return _utf8_json({'success': False, 'error': err}, 400)
+        folder = resolved
         try:
             os.makedirs(folder, exist_ok=True)
             _probe = os.path.join(folder, '.uwebia_write_test')
@@ -18653,14 +18980,35 @@ def _migrate_data(src_url: str, dst_url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _require_db_settings_access():
+    """Gate the database-settings endpoints. Normally this is a logged-in full
+    admin. When the DB is unreachable nobody *can* log in, so a valid
+    maintenance token (readable only from the config directory on the host) is
+    accepted instead. Returns None when allowed, or an error response.
+    """
+    if _DB_MAINTENANCE_MODE:
+        if _maintenance_request_authorized():
+            return None
+        app.logger.warning('Rejected maintenance-mode DB settings request from %s',
+                           get_request_ip())
+        return _utf8_json(
+            {'error': 'A valid maintenance token is required. Read it from '
+                      'config/maintenance_token.txt on the server and send it '
+                      'as the X-Maintenance-Token header.'}, 401)
+    if not current_user.is_authenticated:
+        return _utf8_json({'error': 'Unauthorized'}, 401)
+    if not current_user.is_full_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    return None
+
+
 @app.route('/admin/settings/database/connect', methods=['POST'])
 def connect_to_postgres():
     """Switch to a PostgreSQL database without migrating any data.
     Use this when the data is already in PostgreSQL (e.g. after moving servers)."""
-    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
-        return _utf8_json({'error': 'Unauthorized'}, 401)
-    if not _DB_MAINTENANCE_MODE and not current_user.is_full_admin:
-        return _utf8_json({'error': 'Permission denied'}, 403)
+    denied = _require_db_settings_access()
+    if denied:
+        return denied
     data = request.get_json() or {}
     pg_url = (data.get('database_url') or '').strip()
     if not pg_url:
@@ -18688,10 +19036,9 @@ def database_health():
 
 @app.route('/admin/settings/database/test', methods=['POST'])
 def test_db_connection():
-    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
-        return _utf8_json({'error': 'Unauthorized'}, 401)
-    if not _DB_MAINTENANCE_MODE and not current_user.is_full_admin:
-        return _utf8_json({'error': 'Permission denied'}, 403)
+    denied = _require_db_settings_access()
+    if denied:
+        return denied
     data = request.get_json() or {}
     pg_url = (data.get('database_url') or '').strip()
     if not pg_url:
@@ -18736,10 +19083,9 @@ def migrate_to_postgres():
 @app.route('/admin/settings/database/revert', methods=['POST'])
 def revert_to_sqlite():
     """Switch back to SQLite (data is not migrated back — SQLite file is unchanged)."""
-    if not _DB_MAINTENANCE_MODE and not current_user.is_authenticated:
-        return _utf8_json({'error': 'Unauthorized'}, 401)
-    if not _DB_MAINTENANCE_MODE and not current_user.is_full_admin:
-        return _utf8_json({'error': 'Permission denied'}, 403)
+    denied = _require_db_settings_access()
+    if denied:
+        return denied
     cfg = _load_db_config()
     cfg.pop('database_url', None)
     _save_db_config(cfg)
@@ -20858,12 +21204,9 @@ def move_image_to_section():
 #     return Response(cal.to_ical(), mimetype='text/calendar')
 
 def get_client_ip():
-    forwarded_for = request.headers.get('X-Forwarded-For')
-
-    if forwarded_for:
-        return forwarded_for.split(',')[0].strip()
-
-    return request.remote_addr or ''
+    # Kept as a name for its callers; the trusted-proxy resolution lives in
+    # get_request_ip so there is exactly one place that decides this.
+    return get_request_ip() or ''
 
 
 def track_calendar_feed_subscriber(calendar_id):
@@ -25586,6 +25929,22 @@ def public_forum_vote_reply(reply_id, prefix=None):
     })
 
 
+def _register_generic_message(website):
+    """The one message every email-bearing signup attempt ends on.
+
+    A brand-new account and an attempt on an already-registered address both
+    produce this, so the form's response can't be used to test whether an
+    address is registered. It varies only with site settings (which are the
+    same for every visitor), never with the submitted email.
+    """
+    if getattr(website, 'public_email_verification_enabled', False):
+        return ('Thanks! If everything checks out you\'ll get an email shortly — '
+                'follow the link in it to finish setting up your account.')
+    if getattr(website, 'public_approval_required', False):
+        return 'Thanks! Your account request has been submitted and is pending admin approval.'
+    return 'Thanks! Your account is ready — please sign in below.'
+
+
 @app.route('/account/register', methods=['GET', 'POST'])
 @app.route('/forum/register', methods=['GET', 'POST'])
 @app.route('/register', methods=['GET', 'POST'])
@@ -25629,7 +25988,37 @@ def public_register():
             kwargs.setdefault('next', safe_next)
         return redirect(url_for('public_login', **kwargs))
 
+    def _register_done_redirect():
+        """The single exit every email-bearing signup attempt takes.
+
+        Both the real-signup and the already-registered branches go through
+        here, so the redirect target (not just the flash text) is identical —
+        otherwise `/login` vs `/login?next=/` would give the answer away.
+        """
+        if getattr(website, 'public_approval_required', False):
+            return _login_redirect()
+        return _login_redirect(next=safe_next or _website_home_url(website))
+
+    ip = get_request_ip()
+    reg_rl = _reg_probe_check(ip)
+
     if request.method == 'POST':
+        # A run of sign-up attempts from one address looks like someone walking
+        # a list of emails, so escalate to a CAPTCHA and then a short block.
+        if reg_rl['locked']:
+            flash('Too many sign-up attempts. Please wait a few minutes and try again.', 'error')
+            return _register_redirect()
+        if reg_rl['needs_captcha']:
+            ok, err = _rl_captcha_verify(request.form.get('captcha', ''))
+            if not ok:
+                flash(err, 'error')
+                return _register_redirect()
+
+        # Counted here, before we know anything about this submission, so the
+        # escalation timing carries no information about whether the address
+        # or username turned out to exist.
+        _reg_probe_record(ip)
+
         username = (request.form.get('username') or '').strip().lower()
         email_raw = (request.form.get('email') or '').strip()
         email = valid_email(email_raw)
@@ -25661,6 +26050,8 @@ def public_register():
 
         # Login usernames are unique across the whole platform (every website +
         # the admin namespace) so a single identity can't be claimed twice.
+        # A username has to be reported as taken — otherwise nobody could pick
+        # one — but each rejection is counted so bulk probing gets throttled.
         username_conflict = public_username_taken_anywhere(username)
         if username_conflict:
             flash(username_conflict, 'error')
@@ -25669,6 +26060,12 @@ def public_register():
         # Email stays unique per-website: this site's public users, plus the
         # admin namespace (so admin mirrors never collide with a real account).
         # Only checked when an email was actually provided.
+        #
+        # Unlike the username, we must NOT say whether the address is taken:
+        # confirming it tells anyone with a list of addresses which of those
+        # people hold an account here, which for a youth site is exactly the
+        # disclosure we're trying to prevent. So the response below is the same
+        # one a brand-new signup gets, and the real owner is told by email.
         if email:
             email_taken = (
                 PublicUser.query.filter(
@@ -25678,8 +26075,13 @@ def public_register():
                 or User.query.filter(User.email == email).first()
             )
             if email_taken:
-                flash('That email is already in use.', 'error')
-                return _register_redirect()
+                if isinstance(email_taken, PublicUser) and email_taken.email:
+                    try:
+                        send_signup_conflict_notice(email_taken)
+                    except Exception as e:
+                        app.logger.warning('Signup conflict notice failed: %s', e)
+                flash(_register_generic_message(website), 'success')
+                return _register_done_redirect()
 
         # Nothing to verify without an email → treat as verified so login isn't
         # blocked by a verification requirement.
@@ -25703,19 +26105,25 @@ def public_register():
         if email and getattr(website, 'public_email_verification_enabled', False):
             try:
                 send_public_user_verification_email(public_user)
-                flash('Account created. Please check your email to verify your account.', 'success')
             except Exception as e:
-                print(f'Public user verification email failed: {e}')
-                flash(
-                    'Account created, but the verification email could not be sent. Please contact the site owner.',
-                    'error'
-                )
-
-            return _login_redirect(next=safe_next or _website_home_url(website))
+                # Deliberately NOT surfaced to the visitor: "we couldn't send
+                # your verification email" only ever appears for a real new
+                # account, which would re-expose whether the address was free.
+                app.logger.warning('Public user verification email failed: %s', e)
+            flash(_register_generic_message(website), 'success')
+            return _register_done_redirect()
 
         if getattr(website, 'public_approval_required', False) and not public_user.is_active_public:
-            flash('Your account has been created and is pending admin approval.', 'success')
-            return _login_redirect()
+            flash(_register_generic_message(website), 'success')
+            return _register_done_redirect()
+
+        # When an email was supplied we finish at the sign-in page with the same
+        # wording the already-taken branch produces. Signing in once is the
+        # price of not leaking which addresses are registered; accounts created
+        # without an email have nothing to leak, so those still log straight in.
+        if email:
+            flash(_register_generic_message(website), 'success')
+            return _register_done_redirect()
 
         public_user_login(public_user)
 
@@ -25728,11 +26136,16 @@ def public_register():
         'current_page_url': url_for('public_register')
     }
 
+    # Re-read after the POST branch so a just-tripped threshold shows the
+    # CAPTCHA on the very next render rather than one attempt later.
+    reg_rl = _reg_probe_check(ip)
+
     return render_template(
         'public_forum_register.html',
         website=website,
         public_user=_public_user_for_website(website),
         next_url=safe_next,
+        captcha_question=(_rl_captcha_generate() if reg_rl['needs_captcha'] else None),
         content=content
     )
 
@@ -27670,6 +28083,11 @@ def public_admin_2fa():
                                     website_prefix=(website_prefix or None)))
         expected_hash = session.get('pending_2fa_code_hash')
         if not expected_hash or not check_password_hash(expected_hash, code):
+            if register_failed_two_factor_attempt():
+                _clear_public_admin_2fa_session()
+                flash('Too many incorrect codes. Please log in again to get a new one.', 'error')
+                return redirect(url_for('public_login',
+                                        website_prefix=(website_prefix or None)))
             flash('Invalid verification code.', 'error')
             return redirect(url_for('public_admin_2fa'))
 
@@ -28155,6 +28573,27 @@ If you did not request this, you can ignore this email.
     db.session.commit()
 
 
+def send_signup_conflict_notice(public_user):
+    """Tell the real owner that someone tried to sign up with their address.
+
+    This is what lets the registration form stay silent about whether an email
+    is already registered: the person who actually controls the mailbox still
+    finds out, while the person filling in the form learns nothing.
+    """
+    site_name = public_user.website.name if public_user.website else 'our site'
+    subject = f'Someone tried to sign up with your email on {site_name}'
+    body = f"""Someone just tried to create a {site_name} account using this email address.
+
+You already have an account, so nothing was created and nothing has changed.
+
+If this was you, you can simply sign in — or use the "forgot password" link if
+you don't remember your password.
+
+If it wasn't you, you can ignore this email. Your account is untouched.
+"""
+    send_account_recovery_email(public_user.email, subject, body)
+
+
 def send_public_user_verification_email(public_user):
     token = generate_public_user_verification_token(public_user)
 
@@ -28211,6 +28650,7 @@ def _pub_2fa_set_pending(user_id, code, purpose, next_url=None):
         datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
     ).isoformat()
     session['pub_2fa_purpose'] = purpose
+    session['pub_2fa_attempts'] = 0
     if next_url is not None:
         session['pub_2fa_next_url'] = next_url
     # Stamp send time for cooldown enforcement
@@ -28244,13 +28684,20 @@ def _pub_2fa_validate(user_id, code, purpose):
         return 'This verification code has expired.'
     code_hash = session.get('pub_2fa_code_hash')
     if not code_hash or not check_password_hash(code_hash, code):
+        # Six digits is a small keyspace; burn the code after a few misses so
+        # guessing requires a fresh (cooldown-limited) send each round.
+        attempts = int(session.get('pub_2fa_attempts') or 0) + 1
+        session['pub_2fa_attempts'] = attempts
+        if attempts >= _2FA_MAX_ATTEMPTS:
+            _pub_2fa_clear()
+            return 'Too many incorrect codes. Please sign in again to get a new one.'
         return 'Incorrect code. Please try again.'
     return None
 
 
 def _pub_2fa_clear():
     for key in ('pub_2fa_user_id', 'pub_2fa_code_hash', 'pub_2fa_expires_at',
-                'pub_2fa_purpose', 'pub_2fa_next_url'):
+                'pub_2fa_purpose', 'pub_2fa_next_url', 'pub_2fa_attempts'):
         session.pop(key, None)
 
 
@@ -28753,6 +29200,41 @@ def public_user_logout():
     session['_pub_remember_clear'] = True
 
 
+# ── Baseline security response headers ───────────────────────────────────────
+# Deliberately scoped to directives that cannot break existing pages. The admin
+# UI (page editor, quiz builder) relies heavily on inline <script>/<style>, so
+# no script-src/style-src is set here — adding one requires nonce-ing those
+# first. frame-ancestors/object-src/base-uri carry no such risk.
+_BASE_CSP = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+
+# Uploaded SVGs are active content served from our own origin: a stored SVG
+# with a <script> inside runs as us. `sandbox` strips scripting from the
+# response without affecting how the image renders when embedded via <img>.
+_UPLOAD_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    # Don't leak member profile / guide / reset-token URLs to third-party sites.
+    resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    resp.headers.setdefault('Permissions-Policy',
+                            'geolocation=(), microphone=(), camera=(), interest-cohort=()')
+
+    path = request.path or ''
+    if path.startswith('/static/uploads/'):
+        resp.headers['Content-Security-Policy'] = _UPLOAD_CSP
+    else:
+        resp.headers.setdefault('Content-Security-Policy', _BASE_CSP)
+
+    # HSTS only once we're actually on HTTPS, so local http:// dev is unaffected.
+    if request.is_secure:
+        resp.headers.setdefault('Strict-Transport-Security',
+                                'max-age=31536000; includeSubDomains')
+    return resp
+
+
 # ── "Keep me logged in" for public users ─────────────────────────────────────
 # Public sessions are plain Flask session keys (browser-session cookie), and
 # that cookie is shared with the admin login — so public persistence gets its
@@ -28816,12 +29298,15 @@ def _public_user_from_remember_cookie():
 
 
 def get_request_ip():
-    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+    """The real client address.
 
-    if ip_address and ',' in ip_address:
-        ip_address = ip_address.split(',')[0].strip()
-
-    return ip_address
+    `_TrustedProxyFix` has already resolved this into REMOTE_ADDR, honouring
+    X-Forwarded-For only when the connecting peer was a trusted proxy. Reading
+    the header here instead would reintroduce the spoof this exists to stop —
+    anything IP-keyed (login lockout, registration throttle, forum audit trail)
+    depends on that.
+    """
+    return request.remote_addr
 
 
 # ── Login rate limiting ───────────────────────────────────────────────────────
@@ -28903,6 +29388,64 @@ def _rl_record(ip, login_value='', success=False):
             if rec.attempts >= _RL_LOCKOUT_THRESHOLD and not rec.locked_until:
                 rec.locked_until = now + timedelta(minutes=_RL_LOCKOUT_MINUTES)
 
+    db.session.commit()
+
+
+# ── Registration probe limiting ──────────────────────────────────────────────
+# A signup form inherently reveals *something* about which usernames are free,
+# so the defence is to make probing expensive rather than to pretend it reveals
+# nothing. These counters live in the same table but a separate `reg:` key
+# namespace, so tripping them never locks anyone out of *logging in* — schools
+# and families often share one NAT'd IP, and a few genuine name collisions
+# there must not take down sign-in for the whole building.
+# Counted per POST, NOT per conflict. Counting only conflicts would leak the
+# very thing the generic response hides: an attacker could watch for the
+# CAPTCHA to appear and learn that their last guess hit a real account.
+_REG_CAPTCHA_THRESHOLD = 5    # signup attempts from one IP before the CAPTCHA
+_REG_LOCKOUT_THRESHOLD = 25   # attempts in the window before a temporary block
+_REG_LOCKOUT_MINUTES   = 15
+
+
+def _reg_probe_check(ip):
+    """Return {locked, needs_captcha} for registration attempts from this IP."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rec = LoginRateLimit.query.filter_by(key=f'reg:{ip}').first()
+    if not rec:
+        return {'locked': False, 'needs_captcha': False}
+    if rec.locked_until and rec.locked_until <= now:
+        rec.locked_until = None
+        rec.attempts = 0
+        db.session.commit()
+        return {'locked': False, 'needs_captcha': False}
+    if rec.last_attempt_at and (now - rec.last_attempt_at).total_seconds() > _RL_WINDOW_HOURS * 3600:
+        rec.attempts = 0
+        rec.locked_until = None
+        db.session.commit()
+        return {'locked': False, 'needs_captcha': False}
+    return {
+        'locked': bool(rec.locked_until and rec.locked_until > now),
+        'needs_captcha': (rec.attempts or 0) >= _REG_CAPTCHA_THRESHOLD,
+    }
+
+
+def _reg_probe_record(ip):
+    """Count one registration attempt from this IP, whatever its outcome."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    key = f'reg:{ip}'
+    rec = LoginRateLimit.query.filter_by(key=key).first()
+    if not rec:
+        rec = LoginRateLimit(key=key, attempts=0)
+        db.session.add(rec)
+    if rec.last_attempt_at and (now - rec.last_attempt_at).total_seconds() > _RL_WINDOW_HOURS * 3600:
+        rec.attempts = 0
+        rec.locked_until = None
+    if rec.locked_until and rec.locked_until <= now:
+        rec.attempts = 0
+        rec.locked_until = None
+    rec.attempts = (rec.attempts or 0) + 1
+    rec.last_attempt_at = now
+    if rec.attempts >= _REG_LOCKOUT_THRESHOLD and not rec.locked_until:
+        rec.locked_until = now + timedelta(minutes=_REG_LOCKOUT_MINUTES)
     db.session.commit()
 
 
@@ -30307,6 +30850,12 @@ with app.app_context():
             _start_auto_backup_scheduler()
 
         _DB_MAINTENANCE_MODE = False
+        # DB is healthy, so no maintenance access is needed — drop any token
+        # left behind by an earlier degraded start.
+        try:
+            os.remove(MAINTENANCE_TOKEN_PATH)
+        except OSError:
+            pass
 
     except Exception as _startup_err:
         import traceback, sqlalchemy.exc as _sa_exc
@@ -30315,10 +30864,16 @@ with app.app_context():
             # PostgreSQL is unreachable — start in maintenance mode so the admin
             # can reach the settings page to fix the connection, then restart.
             _DB_MAINTENANCE_MODE = True
+            _issue_maintenance_token()
             print("=" * 60)
             print("WARNING: database unreachable at startup — running in MAINTENANCE MODE.")
             print("Only the admin settings page is accessible until the database is restored.")
             print(f"Error: {_startup_err}")
+            print("")
+            print("Changing the database connection requires a one-time maintenance")
+            print("token. Read it from the server (it is NOT printed here):")
+            print(f"  {MAINTENANCE_TOKEN_PATH}")
+            print("The token is regenerated every restart.")
             print("=" * 60)
         else:
             print("=" * 60)
@@ -30326,6 +30881,42 @@ with app.app_context():
             traceback.print_exc()
             print("=" * 60)
             raise  # non-DB errors are genuine bugs — surface them
+
+
+from flask_wtf.csrf import CSRFError as _CSRFError
+
+
+@app.errorhandler(_CSRFError)
+def handle_csrf_error(e):
+    """Turn a failed CSRF check into something a person can act on.
+
+    The common cause is innocent — a form left open while the session was
+    replaced elsewhere — so browsers get sent back where they came from with an
+    explanation rather than a bare 400. Genuine forgeries land here too and are
+    still refused; they just get a polite refusal.
+    """
+    app.logger.warning('CSRF rejected: %s %s (%s)', request.method, request.path, e.description)
+
+    wants_json = (request.is_json
+                  or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                  or 'application/json' in (request.headers.get('Accept') or ''))
+    if wants_json:
+        return _utf8_json(
+            {'success': False,
+             'error': 'Your session expired. Please reload the page and try again.'}, 400)
+
+    flash('Your session expired or the form was stale. Please try that again.', 'error')
+
+    # Bounce back to the page they submitted from, but only if it's ours —
+    # never redirect to a URL an attacker chose.
+    ref = request.referrer or ''
+    try:
+        from urllib.parse import urlparse as _up
+        if ref and _up(ref).netloc == _up(request.host_url).netloc:
+            return redirect(ref)
+    except Exception:
+        pass
+    return redirect('/')
 
 
 @app.errorhandler(500)
@@ -30342,7 +30933,7 @@ def internal_error(e):
             return _utf8_json({'success': False, 'error': 'Database unavailable. Please try again shortly.'}, 503)
         from flask import Response as _Response
         if _DB_MAINTENANCE_MODE:
-            return _Response(_MAINTENANCE_HTML, status=503, mimetype='text/html')
+            return _maintenance_response()
         return render_template('db_unavailable.html'), 503
     # Not a DB error — re-raise so Flask's default 500 handler takes over
     raise e
@@ -44367,6 +44958,7 @@ def _stripe_settings_owning_payment(payment):
 
 
 @app.route('/webhooks/stripe', methods=['POST'])
+@csrf.exempt  # Stripe can't hold a session token; authenticated by HMAC signature below.
 def stripe_webhook():
     """Endpoint Stripe posts to when a payment changes state. Verifies HMAC
     using the per-admin webhook secret, then updates the matching Payment row.
@@ -44756,6 +45348,7 @@ def admin_sms_test_send():
 
 
 @app.route('/webhooks/sms/<string:provider>', methods=['POST'])
+@csrf.exempt  # Inbound SMS comes from the carrier, not a browser session.
 def sms_inbound_webhook(provider):
     """Twilio (and similar) POST here when a buyer texts our number — used to
     catch STOP/HELP keywords automatically per US carrier rules. We try every
