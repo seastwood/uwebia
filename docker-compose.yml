@@ -28,7 +28,10 @@ services:
       # SQLAlchemy connection string. The app reads DATABASE_URL when
       # db_config.json is absent (which it will be on a fresh volume).
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-uwebia}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-uwebia}
-      # Flask session / CSRF secret. MUST be set in .env for production.
+      # Flask session/token signing key (the app reads SECRET_KEY). MUST be set in
+      # .env for production — it also derives the encryption key for stored
+      # credentials, so changing it re-logs-in everyone and requires re-entering
+      # Stripe/SMS/AI/OAuth keys in the admin UI.
       SECRET_KEY:   ${SECRET_KEY:?set SECRET_KEY in .env}
       # Optional: tune gunicorn from .env without rebuilding.
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
