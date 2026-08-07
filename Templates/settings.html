@@ -489,28 +489,40 @@
                 <h2 class="settings-section-title">Organization 2FA Policy</h2>
                 <p class="settings-help">
                     A site-wide security policy (not just your account). When on, <strong>every admin</strong> — main
-                    admin, co-owners and all sub-admins — must pass an emailed 2FA code at login, whether or not they've
-                    enabled 2FA individually. Stored on the primary owner so it survives ownership changes. Enabling it
-                    requires a verification code by email, and it auto-disables if the email server settings change (until
-                    re-verified) — just like per-account 2FA.
+                    admin, co-owners and all sub-admins — must pass a second factor at login, whether or not they've
+                    enabled 2FA individually. Either factor satisfies it: an
+                    <strong>authenticator app</strong>, or a code emailed to the admin. Admins who hold no email address
+                    use an authenticator, which is what makes this workable alongside the admin privacy settings below.
+                    Stored on the primary owner so it survives ownership changes.
+                </p>
+                <p class="settings-help">
+                    To turn it on you confirm your own second factor first — your authenticator code if you have one set
+                    up, otherwise a code emailed to you. It switches off automatically only if the email server settings
+                    change <em>and</em> some admin still depends on emailed codes; once every admin has an authenticator,
+                    mail settings no longer affect it.
                 </p>
 
                 {% if org_2fa_needs_attention %}
                 <p class="settings-help" style="color:#ffb3b3;">
-                    Org-wide 2FA was turned off automatically because the email server settings changed. Re-verify below to turn it back on.
+                    Org-wide 2FA was turned off automatically because the email server settings changed while some admins
+                    still relied on emailed codes. Re-verify below to turn it back on.
                 </p>
                 {% endif %}
 
                 {% if org_require_2fa %}
-                <p class="settings-help">Org-wide 2FA is currently <strong>ON</strong> — every admin is required to pass an emailed code at login.</p>
+                <p class="settings-help">Org-wide 2FA is currently <strong>ON</strong> — every admin must pass a second
+                   factor at login (authenticator app, or an emailed code where they have an address).</p>
                 <button type="button" class="settings-button danger" onclick="disableOrg2fa()">Turn off org-wide 2FA</button>
                 {% else %}
-                {% if not email_settings or not email_settings.is_active %}
+                {% if not current_user.totp_enabled and (not email_settings or not email_settings.is_active) %}
                 <p class="settings-help" style="color:#ffb3b3;">
-                    Configure an active email server first — admins receive their 2FA codes by email.
+                    Set up an authenticator app above, or configure an active email server, so your own second factor can
+                    be confirmed before it's required of everyone.
                 </p>
                 {% endif %}
-                <button type="button" class="settings-button" onclick="startOrg2fa()">Send Verification Code</button>
+                <button type="button" class="settings-button" onclick="startOrg2fa()">
+                    {% if current_user.totp_enabled %}Verify with authenticator{% else %}Send Verification Code{% endif %}
+                </button>
                 <div id="org2faVerifyBox" style="display:none; margin-top:16px;">
                     <div class="settings-field">
                         <label for="org2faCode">Verification Code</label>
@@ -1319,12 +1331,17 @@
         }
         async function startOrg2fa() {
             _org2faMsg('');
-            if (!confirm('Require 2FA for EVERY admin login?\n\nWe\'ll email you a verification code to confirm. Once on, all admins (co-owners and sub-admins included) must pass an emailed code at login.')) return;
+            if (!confirm('Require 2FA for EVERY admin login?\n\nYou\'ll confirm your own second factor first. Once on, all admins (co-owners and sub-admins included) must pass one at login — an authenticator app, or an emailed code where they have an address.')) return;
             try {
                 const r = await fetch('/admin/dashboard/settings/2fa/org-policy/start', { method: 'POST' });
                 const d = await r.json();
-                if (!d.success) { _org2faMsg(d.error || 'Could not send code.', true); return; }
+                if (!d.success) { _org2faMsg(d.error || 'Could not start verification.', true); return; }
                 document.getElementById('org2faVerifyBox').style.display = 'block';
+                const box = document.getElementById('org2faCode');
+                if (box) {
+                    box.placeholder = '000000';
+                    box.focus();
+                }
                 _org2faMsg(d.message || 'Verification code sent.');
             } catch (e) { _org2faMsg('Request failed.', true); }
         }

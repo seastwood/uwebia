@@ -250,6 +250,9 @@
         {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
         <a href="{{ url_for('admin_newsletters_page') }}" class="nav-link-btn" title="Newsletters" style="{{ _ord('newsletters') }}"><i class="fas fa-envelope-open-text"></i></a>
         {% endif %}
+        {% if user_has_perm('forum.view') and 'forum' not in _nd %}
+        <a href="{{ url_for('admin_forum') }}" class="nav-link-btn" title="Forum" style="{{ _ord('forum') }}"><i class="fas fa-comments"></i></a>
+        {% endif %}
         {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
         <a href="{{ url_for('admin_calendars_page') }}" class="nav-link-btn" title="Calendars" style="{{ _ord('calendars') }}"><i class="fas fa-calendar-alt"></i></a>
         {% endif %}
@@ -398,6 +401,11 @@
                 {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
                 <a href="{{ url_for('admin_newsletters_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-envelope-open-text"></i><span>Newsletters</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('forum.view') and 'forum' not in _nd %}
+                <a href="{{ url_for('admin_forum') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-comments"></i><span>Forum</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}

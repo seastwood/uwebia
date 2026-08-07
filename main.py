@@ -1193,10 +1193,12 @@ def _org_requires_2fa():
         return False
     if getattr(anchor, 'org_require_2fa', False):
         # The auto-disable exists because a broken mailer means nobody can
-        # receive an emailed code. That reasoning does not apply in GitHub-only
-        # mode, where the second factor is TOTP and email is not involved at
-        # all — auto-disabling there would silently drop 2FA for the whole org.
-        if not getattr(anchor, 'org_admin_github_only', False):
+        # receive an emailed code. It should therefore only fire when someone
+        # actually depends on email: if every admin holds a working
+        # authenticator (or the org is GitHub-only), mail settings are
+        # irrelevant and switching the policy off would silently weaken the
+        # whole org for no reason.
+        if not _org_2fa_independent_of_email():
             current_fp = get_email_settings_fingerprint(get_email_settings())
             if anchor.org_2fa_email_settings_version != current_fp:
                 anchor.org_require_2fa = False
@@ -1210,6 +1212,23 @@ def admin_github_only_mode():
     """Org-wide: admins sign in with GitHub and are never asked for an email."""
     anchor = get_main_admin()
     return bool(anchor and getattr(anchor, 'org_admin_github_only', False))
+
+
+def _org_2fa_independent_of_email():
+    """True when no admin needs the emailed code to pass 2FA.
+
+    Either the org is GitHub-only, or every admin already holds a working
+    authenticator. Used to decide whether a change to the mail settings should
+    switch the org-wide requirement off.
+    """
+    anchor = get_main_admin()
+    if anchor is not None and getattr(anchor, 'org_admin_github_only', False):
+        return True
+    try:
+        admins = User.query.all()
+    except Exception:
+        return False
+    return bool(admins) and all(totp_secret_is_readable(u) for u in admins)
 
 
 def admin_email_restricted_mode():
@@ -10166,14 +10185,27 @@ def disable_two_factor_authentication():
 @login_required
 @require_perm('settings.2fa')
 def org_2fa_policy_start():
-    """Begin enabling the org-wide 2FA requirement: email a verification code to
-    the acting admin (proving codes can actually be delivered), exactly like
-    enabling per-user 2FA. Confirmed in the /confirm step."""
+    """Begin enabling the org-wide 2FA requirement.
+
+    The point of this step is to prove the acting admin can actually complete a
+    second factor before it is imposed on everyone. Which factor doesn't matter:
+    an authenticator app is confirmed directly in /confirm with no email at all,
+    which is what makes the policy usable by admins who hold no mailbox.
+    """
+    if totp_secret_is_readable(current_user):
+        return _utf8_json({'success': True, 'method': 'totp',
+                           'message': 'Enter the current code from your authenticator app '
+                                      'to turn on org-wide 2FA.'})
+
     es = get_email_settings()
     if not (es and es.is_active):
         return _utf8_json({'success': False,
-            'error': 'Configure an active email server first — admins receive 2FA codes by email.'}, 400)
+            'error': 'Set up an authenticator app, or configure an active email server, '
+                     'so a second factor can be verified before requiring it of everyone.'}, 400)
     to_email = current_user.email
+    if not to_email:
+        return _utf8_json({'success': False,
+            'error': 'This account has no email address. Set up an authenticator app first.'}, 400)
     code = generate_two_factor_code()
     set_pending_two_factor_code(current_user.id, code, 'org_activation')
     try:
@@ -10190,22 +10222,38 @@ def org_2fa_policy_start():
 @login_required
 @require_perm('settings.2fa')
 def org_2fa_policy_confirm():
-    """Verify the emailed code, then enable the org-wide 2FA requirement on the
-    anchor and stamp the current email-settings fingerprint (so it auto-disables
-    if those settings later change)."""
+    """Verify the acting admin's second factor, then turn the policy on.
+
+    Accepts whichever factor they actually hold: an authenticator code is
+    checked directly, otherwise the emailed code issued by /start.
+    """
     code = ((request.get_json() or {}).get('code') or '').strip()
     if not code:
         return _utf8_json({'success': False, 'error': 'Please enter the verification code.'}, 400)
-    err = get_pending_two_factor_error(current_user.id, 'org_activation')
-    if err:
-        clear_pending_two_factor_code()
-        return _utf8_json({'success': False, 'error': err}, 400)
-    expected_hash = session.get('pending_2fa_code_hash')
-    if not expected_hash or not check_password_hash(expected_hash, code):
-        if register_failed_two_factor_attempt():
+
+    if totp_secret_is_readable(current_user):
+        ok, counter = verify_totp(user_totp_secret(current_user), code,
+                                  last_used_counter=current_user.totp_last_counter)
+        if not ok:
+            if register_failed_two_factor_attempt():
+                return _utf8_json({'success': False,
+                                   'error': 'Too many incorrect codes. Try again shortly.'}, 400)
             return _utf8_json({'success': False,
-                               'error': 'Too many incorrect codes. Request a new one.'}, 400)
-        return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
+                               'error': 'That code did not match your authenticator app.'}, 400)
+        # Spend the step so the same code can't be replayed at a login.
+        current_user.totp_last_counter = counter
+    else:
+        err = get_pending_two_factor_error(current_user.id, 'org_activation')
+        if err:
+            clear_pending_two_factor_code()
+            return _utf8_json({'success': False, 'error': err}, 400)
+        expected_hash = session.get('pending_2fa_code_hash')
+        if not expected_hash or not check_password_hash(expected_hash, code):
+            if register_failed_two_factor_attempt():
+                return _utf8_json({'success': False,
+                                   'error': 'Too many incorrect codes. Request a new one.'}, 400)
+            return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
+
     anchor = get_main_admin()
     if not anchor:
         return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
