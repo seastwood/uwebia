@@ -8727,6 +8727,11 @@ def admin_totp_challenge():
     secret_lost = not totp_secret_is_readable(user)
 
     if request.method == 'POST':
+        # Refuse while the address is locked out, or the per-session budget
+        # could simply be refreshed by signing in again.
+        if two_factor_lockout_active(user):
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.', 'error')
+            return redirect(url_for('admin_totp_challenge'))
         submitted = request.form.get('code', '')
         use_recovery = bool(request.form.get('use_recovery'))
 
@@ -8760,7 +8765,7 @@ def admin_totp_challenge():
 
         # Same attempt budget as the emailed code, for the same reason: six
         # digits is a small space to guess in.
-        if register_failed_two_factor_attempt():
+        if register_failed_two_factor_attempt(user):
             session.pop('pre_2fa_user_id', None)
             session.pop('pre_2fa_admin_key', None)
             flash('Too many incorrect codes. Please sign in again.', 'error')
@@ -8862,6 +8867,10 @@ def two_factor_login(admin_key=None):
     if request.method == 'POST':
         code = request.form.get('code', '').strip()
 
+        if two_factor_lockout_active(user):
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.', 'error')
+            return redirect(request.path)
+
         pending_error = get_pending_two_factor_error(user.id, 'login')
 
         if pending_error:
@@ -8875,7 +8884,7 @@ def two_factor_login(admin_key=None):
         expected_hash = session.get('pending_2fa_code_hash')
 
         if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt():
+            if register_failed_two_factor_attempt(user):
                 session.pop('pre_2fa_user_id', None)
                 session.pop('pre_2fa_admin_key', None)
                 flash('Too many incorrect codes. Please log in again to get a new one.', 'error')
@@ -10145,14 +10154,38 @@ def clear_pending_two_factor_code():
 _2FA_MAX_ATTEMPTS = 5
 
 
-def register_failed_two_factor_attempt():
-    """Count a wrong code. Returns True when the pending code has been burned."""
+def register_failed_two_factor_attempt(user=None):
+    """Count a wrong code. Returns True when the pending code has been burned.
+
+    Also records the failure against the shared IP limiter. The per-session
+    counter alone was escapable: a correct password calls _rl_record(success=
+    True), which CLEARS the counters, so an attacker holding the password could
+    log in again for a fresh batch of guesses and repeat indefinitely — five at
+    a time against a six-digit code is a few hours of work. Feeding the same
+    limiter the password form uses means those failures accumulate and lock the
+    address out regardless of how often the login is replayed.
+    """
+    ident = (getattr(user, 'username', '') or '')
+    try:
+        _rl_record(get_request_ip(), ident, success=False)
+    except Exception:
+        pass  # never let bookkeeping block the refusal itself
+
     attempts = int(session.get('pending_2fa_attempts') or 0) + 1
     session['pending_2fa_attempts'] = attempts
     if attempts >= _2FA_MAX_ATTEMPTS:
         clear_pending_two_factor_code()
         return True
     return False
+
+
+def two_factor_lockout_active(user=None):
+    """True when this address has failed too many second-factor attempts."""
+    try:
+        return bool(_rl_check(get_request_ip(),
+                              getattr(user, 'username', '') or '')['locked'])
+    except Exception:
+        return False
 
 
 def send_two_factor_email(to_email, code, purpose='login'):
@@ -10278,7 +10311,7 @@ def confirm_two_factor_activation():
     expected_hash = session.get('pending_2fa_code_hash')
 
     if not expected_hash or not check_password_hash(expected_hash, code):
-        if register_failed_two_factor_attempt():
+        if register_failed_two_factor_attempt(current_user):
             return jsonify({
                 'status': 'error',
                 'message': 'Too many incorrect codes. Request a new activation code.'
@@ -10385,7 +10418,7 @@ def org_2fa_policy_confirm():
         ok, counter = verify_totp(user_totp_secret(current_user), code,
                                   last_used_counter=current_user.totp_last_counter)
         if not ok:
-            if register_failed_two_factor_attempt():
+            if register_failed_two_factor_attempt(current_user):
                 return _utf8_json({'success': False,
                                    'error': 'Too many incorrect codes. Try again shortly.'}, 400)
             return _utf8_json({'success': False,
@@ -10399,7 +10432,7 @@ def org_2fa_policy_confirm():
             return _utf8_json({'success': False, 'error': err}, 400)
         expected_hash = session.get('pending_2fa_code_hash')
         if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt():
+            if register_failed_two_factor_attempt(current_user):
                 return _utf8_json({'success': False,
                                    'error': 'Too many incorrect codes. Request a new one.'}, 400)
             return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
@@ -29658,7 +29691,7 @@ def public_admin_2fa():
                                     website_prefix=(website_prefix or None)))
         expected_hash = session.get('pending_2fa_code_hash')
         if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt():
+            if register_failed_two_factor_attempt(user):
                 _clear_public_admin_2fa_session()
                 flash('Too many incorrect codes. Please log in again to get a new one.', 'error')
                 return redirect(url_for('public_login',
@@ -30246,6 +30279,12 @@ def _pub_2fa_recently_sent(user_id, cooldown_seconds=10):
 def _pub_2fa_validate(user_id, code, purpose):
     if session.get('pub_2fa_user_id') != user_id:
         return 'No matching verification code is pending.'
+    try:
+        _pu = db.session.get(PublicUser, user_id)
+        if _rl_check(get_request_ip(), (_pu.username if _pu else ''))['locked']:
+            return f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.'
+    except Exception:
+        pass
     if session.get('pub_2fa_purpose') != purpose:
         return 'This code is not valid for this action.'
     expires_raw = session.get('pub_2fa_expires_at')
@@ -30260,7 +30299,14 @@ def _pub_2fa_validate(user_id, code, purpose):
     code_hash = session.get('pub_2fa_code_hash')
     if not code_hash or not check_password_hash(code_hash, code):
         # Six digits is a small keyspace; burn the code after a few misses so
-        # guessing requires a fresh (cooldown-limited) send each round.
+        # guessing requires a fresh (cooldown-limited) send each round. The
+        # shared IP limiter is fed too, so signing in again for a new batch of
+        # guesses doesn't reset the budget.
+        try:
+            _pu = db.session.get(PublicUser, user_id)
+            _rl_record(get_request_ip(), (_pu.username if _pu else ''), success=False)
+        except Exception:
+            pass
         attempts = int(session.get('pub_2fa_attempts') or 0) + 1
         session['pub_2fa_attempts'] = attempts
         if attempts >= _2FA_MAX_ATTEMPTS:
