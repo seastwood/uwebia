@@ -304,9 +304,16 @@
         <div class="settings-row">
             <div class="settings-row-text">
                 <p class="settings-row-label">Delete Account</p>
+                {% if public_user.is_admin_mirror %}
+                <p class="settings-row-help">Your staff profile mirrors your admin account, so it can't be
+                   removed from here. Ask an owner to remove your staff account.</p>
+                {% else %}
                 <p class="settings-row-help">Permanently delete your account and all associated data. This cannot be undone.</p>
+                {% endif %}
             </div>
+            {% if not public_user.is_admin_mirror %}
             <button class="btn btn-danger" onclick="openDeleteModal()">Delete</button>
+            {% endif %}
         </div>
     </div>
 </div>

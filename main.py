@@ -15202,6 +15202,62 @@ def is_public_ip_address(ip_address):
         return False
 
 
+def geoip_data_dir():
+    """Where uploaded .mmdb files live. Override with UWEBIA_GEOIP_DIR.
+
+    Worth overriding in Docker: the default sits under `database/`, which the
+    image excludes and compose does not mount, so the files are wiped whenever
+    the container is rebuilt while the stored path stays in the database — the
+    lookup then silently finds nothing.
+    """
+    return os.environ.get('UWEBIA_GEOIP_DIR',
+                          os.path.join(database_folder, 'analytics'))
+
+
+def geoip_db_path(settings, kind):
+    """Resolve the readable .mmdb for `kind` ('city'/'country'/'asn'), or None.
+
+    The stored column holds an absolute path, which stops being meaningful the
+    moment the file moves — a container rebuild, a restored backup taken on
+    another machine, a changed data directory. So prefer the file this install
+    would have written by convention and fall back to the stored path, rather
+    than trusting a string that outlived the file it named.
+    """
+    if not settings:
+        return None
+    stored = getattr(settings, f'geoip_{kind}_database_path', None)
+    candidates = [
+        os.path.join(geoip_data_dir(), f'user_{settings.user_id}_geoip_{kind}.mmdb'),
+    ]
+    if stored:
+        candidates.append(stored)
+        # Same filename, current directory — covers a moved data dir.
+        candidates.append(os.path.join(geoip_data_dir(), os.path.basename(stored)))
+    for path in candidates:
+        try:
+            if path and os.path.exists(path):
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def geoip_config_problem(settings):
+    """Human-readable reason GeoIP can't run, or None when it's fine."""
+    if not settings or not settings.geoip_enabled:
+        return None
+    if any(geoip_db_path(settings, k) for k in ('city', 'country', 'asn')):
+        return None
+    named = any(getattr(settings, f'geoip_{k}_database_name', None)
+                for k in ('city', 'country', 'asn'))
+    if named:
+        return ('Location lookup is on, but none of the uploaded .mmdb files can be '
+                f'found in {geoip_data_dir()}. They are most likely gone because that '
+                'directory is not persisted (a container rebuild wipes it). Re-upload '
+                'them, and mount that path as a volume so they survive.')
+    return 'Location lookup is on, but no GeoIP database has been uploaded yet.'
+
+
 def lookup_ip_location_for_website(website, ip_address):
     """
     Optional local GeoIP lookup.
@@ -15231,9 +15287,10 @@ def lookup_ip_location_for_website(website, ip_address):
         }
 
         # 1. City database, best location option
-        if settings.geoip_city_database_path and os.path.exists(settings.geoip_city_database_path):
+        _city_db = geoip_db_path(settings, 'city')
+        if _city_db:
             try:
-                with geoip2.database.Reader(settings.geoip_city_database_path) as reader:
+                with geoip2.database.Reader(_city_db) as reader:
                     response = reader.city(ip_address)
 
                     result.update({
@@ -15249,10 +15306,10 @@ def lookup_ip_location_for_website(website, ip_address):
                 print(f"GeoIP City lookup failed for {ip_address}: {e}")
 
         # 2. Country fallback if City was not available or did not return country
-        if not result.get('country') and settings.geoip_country_database_path and os.path.exists(
-                settings.geoip_country_database_path):
+        _country_db = None if result.get('country') else geoip_db_path(settings, 'country')
+        if _country_db:
             try:
-                with geoip2.database.Reader(settings.geoip_country_database_path) as reader:
+                with geoip2.database.Reader(_country_db) as reader:
                     response = reader.country(ip_address)
 
                     result.update({
@@ -15265,9 +15322,10 @@ def lookup_ip_location_for_website(website, ip_address):
                 print(f"GeoIP Country lookup failed for {ip_address}: {e}")
 
         # 3. ASN can be added alongside City/Country
-        if settings.geoip_asn_database_path and os.path.exists(settings.geoip_asn_database_path):
+        _asn_db = geoip_db_path(settings, 'asn')
+        if _asn_db:
             try:
-                with geoip2.database.Reader(settings.geoip_asn_database_path) as reader:
+                with geoip2.database.Reader(_asn_db) as reader:
                     response = reader.asn(ip_address)
 
                     result.update({
@@ -15298,7 +15356,7 @@ def cleanup_unused_geoip_files(user_id):
     Keeps only files currently referenced by AnalyticsSettings.
     Removes old temp files, old single-database files, and leftovers from previous versions.
     """
-    analytics_folder = os.path.join(database_folder, 'analytics')
+    analytics_folder = geoip_data_dir()
 
     if not os.path.exists(analytics_folder):
         return 0
@@ -15309,9 +15367,12 @@ def cleanup_unused_geoip_files(user_id):
 
     if settings:
         possible_paths = [
-            getattr(settings, 'geoip_city_database_path', None),
-            getattr(settings, 'geoip_country_database_path', None),
-            getattr(settings, 'geoip_asn_database_path', None),
+            # Resolved, not raw: otherwise a stored path that no longer matches
+            # the file on disk makes the cleanup treat a perfectly good database
+            # as an orphan and delete it.
+            geoip_db_path(settings, 'city'),
+            geoip_db_path(settings, 'country'),
+            geoip_db_path(settings, 'asn'),
         ]
 
         for path in possible_paths:
@@ -15364,7 +15425,7 @@ def upload_geoip_database():
             'message': 'Only .mmdb GeoIP database files are allowed.'
         }), 400
 
-    analytics_folder = os.path.join(database_folder, 'analytics')
+    analytics_folder = geoip_data_dir()
     os.makedirs(analytics_folder, exist_ok=True)
 
     temp_path = os.path.join(
@@ -20518,6 +20579,7 @@ def analytics_page():
     if not website_ids:
         return render_template(
             'analytics.html',
+            geoip_problem=None,
             websites=[],
             total_page_views=0,
             total_unique_visitors=0,
@@ -20727,6 +20789,8 @@ def analytics_page():
 
     return render_template(
         'analytics.html',
+        geoip_problem=geoip_config_problem(
+            AnalyticsSettings.query.filter_by(user_id=current_user.root_user_id).first()),
         websites=websites,
         total_page_views=total_page_views,
         total_unique_visitors=total_unique_visitors,
@@ -29191,16 +29255,21 @@ def public_2fa_disable(prefix=None):
 @app.route('/<string:prefix>/account/display-name', methods=['POST'])
 @app.route('/account/display-name', methods=['POST'], defaults={'prefix': None})
 def public_account_set_display_name(prefix=None):
-    """Public users edit their own display name. Admin mirrors edit theirs
-    from the admin settings page, not here."""
+    """Anyone edits their own display name here, staff included.
+
+    Staff used to be bounced to the admin settings page, but that page needs
+    the `settings.view` permission — a site-configuration right that has
+    nothing to do with your own profile. A sub-admin without it could then set
+    a display name in neither place. Nothing syncs display_username from the
+    admin row (ensure_admin_public_mirror copies only username and email), so
+    setting it here is safe and won't be overwritten.
+    """
     public_user = get_public_user()
     if not public_user:
         return _utf8_json({'error': 'Not logged in'}, 401)
     website = public_user.website
     if not website or website.is_draft or not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Not found'}, 404)
-    if public_user.is_admin_mirror:
-        return _utf8_json({'error': 'Admin mirrors are managed from admin settings.'}, 400)
 
     body = request.get_json(silent=True) or {}
     raw = (request.form.get('display_username') or body.get('display_username') or '').strip()
@@ -29279,6 +29348,14 @@ def public_account_delete(prefix=None):
     website = public_user.website
     if not website or website.is_draft or not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Not found'}, 404)
+    # A staff mirror is a projection of an admin account, not an account in its
+    # own right — deleting the row here removes nothing (the next sign-in
+    # recreates it) while looking like it worked. Say so instead of pretending.
+    if public_user.is_admin_mirror:
+        return _utf8_json(
+            {'error': 'This is your staff profile, which mirrors your admin account — '
+                      'deleting it here would not remove anything. Ask an owner to '
+                      'remove your staff account instead.'}, 400)
     public_user_logout()
     db.session.delete(public_user)
     db.session.commit()

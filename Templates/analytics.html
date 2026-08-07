@@ -551,6 +551,13 @@
             <span class="analytics-status-pill {% if analytics_settings and analytics_settings.geoip_enabled %}enabled{% else %}disabled{% endif %}">
                 {% if analytics_settings and analytics_settings.geoip_enabled %}Enabled{% else %}Disabled{% endif %}
             </span>
+            {% if geoip_problem %}
+            <div style="margin-top:10px;padding:11px 13px;border-radius:10px;
+                        background:rgba(255,180,80,0.12);border:1px solid rgba(255,180,80,0.32);
+                        color:#ffd9a3;font-size:0.85rem;line-height:1.5;">
+                <strong>Location lookup isn't running.</strong><br>{{ geoip_problem }}
+            </div>
+            {% endif %}
         </summary>
 
         <div style="padding-top:16px;">
