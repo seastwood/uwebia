@@ -9470,6 +9470,156 @@ def inject_current_website():
 @app.route('/admin/dashboard')
 @login_required
 def dashboard():
+    """Admin home: a summary of every feature this admin can actually reach.
+
+    The website editor used to live here; it moved to /admin/websites so this
+    page can be an overview rather than one site's page list.
+    """
+    website = get_admin_website()
+    if not website:
+        # No site selected yet (or none exists) — the editor handles both the
+        # empty state and the create-first-website flow, so start there.
+        _root = current_user.root_user_id
+        if not Website.query.filter_by(user_id=_root, is_draft=False).first():
+            return redirect(url_for('websites_page'))
+
+    return render_template(
+        'admin_home.html',
+        widgets=_dashboard_widgets(website),
+        current_site=website,
+    )
+
+
+def _dashboard_widgets(website):
+    """Build the admin home widgets: one per feature this admin may see.
+
+    A widget appears only when the admin holds the permission AND the feature is
+    actually in use — a site with no forum shouldn't show an empty forum tile.
+    Counts are deliberately cheap (COUNT queries, no joins) because this renders
+    on every visit to the admin home.
+    """
+    root_id = current_user.root_user_id
+    wid = website.id if website else None
+
+    def perm(key):
+        return current_user.has_permission(key)
+
+    def count(model, **filters):
+        try:
+            return db.session.query(func.count(model.id)).filter_by(**filters).scalar() or 0
+        except Exception:
+            return 0
+
+    widgets = []
+
+    def add(key, label, icon, url, perm_key, stats, enabled=True, accent=None):
+        if not enabled or not perm(perm_key):
+            return
+        widgets.append({'key': key, 'label': label, 'icon': icon, 'url': url,
+                        'stats': [s for s in stats if s], 'accent': accent or '#5eeef8'})
+
+    # ── The site itself ──────────────────────────────────────────────────────
+    if website:
+        page_total = count(PublicPageContent, website_id=wid)
+        published = count(PublicPageContent, website_id=wid, site_active_status=True)
+        add('website', 'Website Editor', 'fa-pen-to-square',
+            url_for('websites_page'), 'pages.view',
+            [{'value': page_total, 'label': 'pages'},
+             {'value': published, 'label': 'published'}],
+            accent='#7ee2cc')
+        widgets.append({
+            'key': 'public', 'label': 'View Public Site', 'icon': 'fa-globe',
+            'url': ('/' + website.url_prefix) if website.url_prefix else '/',
+            'external': True, 'accent': '#9ad8ff',
+            'stats': [{'value': 'Live' if website.is_live else 'Offline',
+                       'label': website.name}],
+        })
+
+    # ── Community ────────────────────────────────────────────────────────────
+    add('members', 'Members', 'fa-users', url_for('admin_public_users_page'),
+        'public_users.view',
+        [{'value': count(PublicUser, website_id=wid), 'label': 'members'},
+         {'value': count(PublicUser, website_id=wid, is_active_public=False),
+          'label': 'awaiting approval'}],
+        enabled=bool(website and website_uses_public_accounts(website)))
+
+    add('forum', 'Forum', 'fa-comments', url_for('admin_forum'), 'forum.view',
+        [{'value': count(ForumThread, website_id=wid, is_hidden=False), 'label': 'threads'},
+         {'value': count(ForumReply, website_id=wid, is_hidden=False), 'label': 'replies'}],
+        enabled=bool(website and website.forum_enabled))
+
+    _pending_comments = count(PageComment, website_id=wid, is_approved=False)
+    add('comments', 'Page Comments', 'fa-comment-dots', url_for('websites_page'),
+        'comments.view',
+        [{'value': _pending_comments, 'label': 'awaiting approval'}],
+        enabled=bool(website and _pending_comments))
+
+    # ── Learning ─────────────────────────────────────────────────────────────
+    add('guides', 'Guides', 'fa-book-open', url_for('admin_guides_page'), 'guides.view',
+        [{'value': count(Guide, website_id=wid), 'label': 'guides'}],
+        enabled=bool(website and count(Guide, website_id=wid)))
+    add('quizzes', 'Quizzes', 'fa-clipboard-check', url_for('admin_quizzes_page'), 'quizzes.view',
+        [{'value': count(Quiz, website_id=wid), 'label': 'quizzes'}],
+        enabled=bool(website and count(Quiz, website_id=wid)))
+    add('resources', 'Resources', 'fa-folder-open', url_for('admin_resources_page'), 'resources.view',
+        [{'value': count(Resource, website_id=wid), 'label': 'resources'}],
+        enabled=bool(website and count(Resource, website_id=wid)))
+    # dlabel() is a Jinja-only helper; use the function behind it here.
+    _div_word = _division_word(website, plural=True)
+    add('divisions', (_div_word[:1].upper() + _div_word[1:]), 'fa-sitemap',
+        url_for('admin_divisions_page'), 'divisions.view',
+        [{'value': count(Division, website_id=wid), 'label': _div_word}],
+        enabled=bool(website and count(Division, website_id=wid)))
+
+    # ── Content ──────────────────────────────────────────────────────────────
+    add('posts', 'Posts', 'fa-newspaper', url_for('admin_posts_page'), 'posts.view',
+        [{'value': count(Post, website_id=wid), 'label': 'posts'}],
+        enabled=bool(website and count(Post, website_id=wid)))
+    add('calendars', 'Calendars', 'fa-calendar-alt', url_for('admin_calendars_page'),
+        'calendars.view',
+        [{'value': count(Calendar, website_id=wid), 'label': 'calendars'}],
+        enabled=bool(website and count(Calendar, website_id=wid)))
+    add('reviews', 'Reviews', 'fa-star', url_for('admin_reviews_page'), 'reviews.view',
+        [{'value': count(ReviewBoard, website_id=wid), 'label': 'boards'}],
+        enabled=bool(website and getattr(website, 'reviews_enabled', False)))
+    add('newsletters', 'Newsletters', 'fa-envelope-open-text',
+        url_for('admin_newsletters_page'), 'newsletters.view',
+        [{'value': count(Newsletter, website_id=wid), 'label': 'newsletters'}],
+        enabled=bool(website and count(Newsletter, website_id=wid)))
+
+    _unread = count(ContactMessage, website_id=wid, is_read=False)
+    add('messages', 'Contact Messages', 'fa-envelope', url_for('messages_page'),
+        'messages.view',
+        [{'value': _unread, 'label': 'unread'}],
+        enabled=bool(website), accent='#ffd9a3' if _unread else None)
+
+    # ── Store ────────────────────────────────────────────────────────────────
+    add('store', 'Store', 'fa-bag-shopping', url_for('admin_orders_page'), 'store.orders',
+        [{'value': count(StoreOrder, website_id=wid), 'label': 'orders'},
+         {'value': count(StoreProduct, website_id=wid), 'label': 'products'}],
+        enabled=bool(website and getattr(website, 'store_enabled', False)))
+
+    # ── Account-wide ─────────────────────────────────────────────────────────
+    add('assets', 'Asset Library', 'fa-photo-film', url_for('asset_library'), 'assets.view',
+        [{'value': count(Asset, user_id=root_id), 'label': 'files'}])
+    add('analytics', 'Analytics', 'fa-chart-line', url_for('analytics_page'), 'analytics.view',
+        [], accent='#c9a8ff')
+    add('admins', 'Admin Users', 'fa-user-shield', url_for('admin_users_page'), 'admin_users.view',
+        [{'value': User.query.filter_by(parent_user_id=root_id).count(), 'label': 'staff'}])
+
+    return widgets
+
+
+@app.route('/admin/websites')
+@app.route('/admin/dashboard/websites')
+@login_required
+def websites_page():
+    """The website editor: pages, folders, drafts and per-site actions.
+
+    This was /admin/dashboard until the dashboard became a widget overview;
+    the editing surface moved here so 'home' can be a summary rather than a
+    single site's page list.
+    """
     user = current_user
 
     # Sub-admins share the root admin's website — never show the create-website screen to them
@@ -13109,18 +13259,18 @@ def page_editor(website_id, page_id):
             if not (current_user.has_permission('pages.edit')
                     or current_user.has_permission('website.draft.edit')):
                 flash('You don\'t have permission to edit draft pages.', 'permission_denied')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('websites_page'))
         else:
             has_edit = (current_user.has_permission('pages.edit')
                         or _folder_perm(content.page_folder_id, 'edit'))
             if not has_edit:
                 flash(_perm_label('pages.edit') + ' — you don\'t have access to the page editor.', 'permission_denied')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('websites_page'))
             if not (can_access_page(page_id)
                     or _folder_perm(content.page_folder_id, 'edit')):
                 flash('You don\'t have access to this specific page. Ask your admin to grant access.',
                       'permission_denied')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('websites_page'))
     if content.website_id != website.id:
         return jsonify({'status': 'error', 'message': 'Page does not belong to this website'})
 
