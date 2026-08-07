@@ -29900,12 +29900,20 @@ def public_username_taken_anywhere(name, exclude_public_user_id=None):
 
     This keeps public login usernames globally unique across websites (it does
     NOT touch email, which stays unique per-website). Case-insensitive — both
-    models normalise via @validates."""
+    models normalise via @validates.
+
+    The message is deliberately the same whichever bucket matched. This runs on
+    the public sign-up and GitHub username-choice forms, so saying "an admin
+    account uses that" would let anyone map which usernames belong to admins
+    just by trying them — a target list for password attacks. "Taken on another
+    site" leaked cross-site membership the same way. A visitor only needs to
+    know they must pick something else."""
     name = (name or '').strip().lower()
     if not name:
         return None
+    taken_message = 'That username is already taken. Please choose another.'
     if User.query.filter(User.username == name).first():
-        return 'An admin account already uses that username.'
+        return taken_message
     pu_q = PublicUser.query.filter(
         PublicUser.username == name,
         PublicUser.mirrored_admin_user_id.is_(None),
@@ -29913,7 +29921,7 @@ def public_username_taken_anywhere(name, exclude_public_user_id=None):
     if exclude_public_user_id:
         pu_q = pu_q.filter(PublicUser.id != exclude_public_user_id)
     if pu_q.first():
-        return 'That username is already taken on another site.'
+        return taken_message
     return None
 
 
