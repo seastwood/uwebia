@@ -27033,7 +27033,7 @@ def github_callback():
     if intent == 'link_admin':
         return _github_admin_link(gh_id)
     if intent == 'public':
-        return _github_public_login(gh_id, ctx)
+        return _github_public_login(gh_id, ctx, token)
     if intent == 'link_public':
         return _github_public_link(gh_id, ctx)
     return redirect(url_for('login'))
@@ -27066,7 +27066,7 @@ def _github_admin_link(gh_id):
     return redirect(url_for('settings_page'))
 
 
-def _github_public_login(gh_id, ctx):
+def _github_public_login(gh_id, ctx, access_token=None):
     website = get_live_website(url_prefix=ctx['prefix'] or None)
     if not website or not website_uses_public_accounts(website):
         return 'Public accounts are not enabled for this site.', 404
@@ -27087,8 +27087,15 @@ def _github_public_login(gh_id, ctx):
     if not getattr(website, 'allow_public_signup', True):
         flash('Sign-ups are closed on this site. Please contact an admin.', 'error')
         return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+    # Offer their GitHub login as a one-click suggestion. Fetched only on this
+    # branch (a brand-new member), held for the next page, and stored only if
+    # they actually pick it.
+    suggested = _github_login_name(access_token) if access_token else None
+    if suggested and public_username_taken_anywhere(suggested):
+        suggested = None   # don't offer a name they can't have
     session['gh_pending_new'] = {'gh_id': gh_id, 'website_id': website.id,
-                                 'next': ctx['next'] or ''}
+                                 'next': ctx['next'] or '',
+                                 'suggested': suggested}
     return redirect(url_for('github_choose_username',
                             website_prefix=ctx['prefix'] or None))
 
@@ -27169,6 +27176,7 @@ def github_choose_username():
 
     return render_template('public_github_username.html', website=website,
                            public_user=None,
+                           suggested_username=pending.get('suggested'),
                            content={'current_page_url': url_for('github_choose_username')})
 
 
@@ -30409,6 +30417,37 @@ def _github_identity(access_token):
     except Exception as e:
         app.logger.warning('GitHub /user error: %s', e)
         return None
+
+
+def _github_login_name(access_token):
+    """Fetch the GitHub *login* — for offering as a username suggestion only.
+
+    Kept separate from `_github_identity` on purpose. That function returns a
+    bare int so the sign-in path structurally cannot persist anything but the
+    account number; this one exists solely to populate a suggestion the member
+    can accept or ignore on the choose-a-username screen. Its result is held in
+    the session for that one page and is written to the database only if the
+    member submits it as the name they want shown.
+    """
+    import requests as _requests
+    try:
+        resp = _requests.get(
+            _GITHUB_USER_URL,
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Accept': 'application/vnd.github+json'},
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return None
+        login = ((resp.json() or {}).get('login') or '').strip().lower()
+    except Exception as e:
+        app.logger.warning('GitHub login-name lookup failed: %s', e)
+        return None
+    # Site usernames are lowercased by the model; GitHub logins are already
+    # limited to alphanumerics and hyphens, but re-check rather than trust it.
+    if not login or not re.fullmatch(r'[a-z0-9-]{1,39}', login):
+        return None
+    return login
 
 
 def _github_begin(intent, website_prefix=None, next_url=None):

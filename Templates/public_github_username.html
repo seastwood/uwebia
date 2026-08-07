@@ -39,6 +39,31 @@ Choose a username
             font-weight: 800;
             cursor: pointer;
         }
+        .gh-suggest {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 6px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            border: 1px dashed rgba(94,238,248,0.45);
+            background: rgba(94,238,248,0.07);
+            color: #ffffff;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .gh-suggest:hover { background: rgba(94,238,248,0.14); }
+        .gh-suggest-note {
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.5);
+            line-height: 1.45;
+            margin: 0 0 12px;
+            text-align: left;
+        }
         .gh-note {
             font-size: 0.85rem;
             color: rgba(255,255,255,0.72);
@@ -77,9 +102,34 @@ Choose a username
         {% endfor %}
     {% endwith %}
 
-    <input name="username" placeholder="Username" minlength="3" required autofocus
+    <input name="username" id="usernameInput" placeholder="Username" minlength="3" required autofocus
            autocomplete="off" autocapitalize="none" spellcheck="false">
+
+    {% if suggested_username %}
+    <button type="button" class="gh-suggest" onclick="useGithubName()">
+        <i class="fab fa-github"></i>
+        Use my GitHub username: <strong>{{ suggested_username }}</strong>
+    </button>
+    <p class="gh-suggest-note" id="ghSuggestNote">
+        Only if you want to. Picking it links your GitHub name to everything you
+        post here{% if website and not website.collect_real_names %}, so avoid it if your GitHub
+        username is your real name{% endif %}.
+    </p>
+    {% endif %}
 
     <button type="submit">Create my account</button>
 </form>
+
+{% if suggested_username %}
+<script>
+function useGithubName() {
+    var input = document.getElementById('usernameInput');
+    input.value = {{ suggested_username | tojson }};
+    input.focus();
+    // Leave the caret at the end so it reads as a starting point they can edit,
+    // not a decision already made for them.
+    input.setSelectionRange(input.value.length, input.value.length);
+}
+</script>
+{% endif %}
 {% endblock %}
