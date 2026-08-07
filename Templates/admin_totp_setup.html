@@ -44,6 +44,20 @@
             {% endfor %}
         {% endwith %}
 
+        {% if needs_ticket %}
+        <div class="tfa-step" style="margin-top:6px;">
+            <h2>Step 0 — setup code from an owner</h2>
+            <p style="margin:0 0 4px;">
+                Setting this up during sign-in only proves your password, so an owner has to
+                authorise it. Ask one for a setup code — they issue it from
+                <strong>Admin Users</strong>.
+            </p>
+            <input type="text" name="enroll_ticket" placeholder="xxxx-xxxx" required
+                   autocomplete="off" autocapitalize="none" spellcheck="false"
+                   style="letter-spacing:0.12em;">
+        </div>
+        {% endif %}
+
         <div class="tfa-step">
             <h2>Step 1 — scan this code</h2>
             {% if qr_svg %}

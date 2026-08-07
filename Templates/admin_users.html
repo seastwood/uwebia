@@ -300,6 +300,38 @@
     color: #5eeeb4; white-space: nowrap; margin-left: 6px;
     vertical-align: middle;
 }
+/* 2FA enrolment: an admin with no second factor, and the setup code that
+   lets them enrol one without a stolen password being enough on its own. */
+.au-no2fa-badge {
+    font-size: 0.68rem; font-weight: 800; padding: 2px 8px;
+    border-radius: 20px; background: rgba(255,120,120,0.14);
+    color: #ff9a9a; border: 1px solid rgba(255,120,120,0.38);
+    white-space: nowrap; margin-left: 6px; vertical-align: middle;
+}
+.au-ticket-badge {
+    font-size: 0.68rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 20px; background: rgba(120,180,255,0.14);
+    color: #94c2ff; border: 1px solid rgba(120,180,255,0.38);
+    white-space: nowrap; margin-left: 6px; vertical-align: middle;
+}
+.uw-btn.is-ticket { background: rgba(120,180,255,0.16); color: #94c2ff; border-color: rgba(120,180,255,0.4); }
+.au-2fa-notice {
+    border: 1px solid rgba(255,120,120,0.35); background: rgba(255,120,120,0.07);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;
+}
+.au-2fa-notice h4 {
+    margin: 0 0 6px; font-size: 0.9rem; color: #ff9a9a;
+    display: flex; align-items: center; gap: 8px;
+}
+.au-2fa-notice p { margin: 0 0 6px; font-size: 0.82rem; color: rgba(255,255,255,0.6); line-height: 1.5; }
+.au-2fa-notice p:last-child { margin-bottom: 0; }
+.au-ticket-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.6rem; font-weight: 800; letter-spacing: 0.14em;
+    text-align: center; padding: 16px; margin: 4px 0 12px;
+    border-radius: 10px; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12); user-select: all;
+}
 .au-meta {
     font-size: 0.75rem; color: rgba(255,255,255,0.35);
     margin-top: 3px; display: flex; gap: 12px; flex-wrap: wrap;
@@ -431,6 +463,34 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
     {% endif %}
     {% endif %}
 
+    {% if current_user.is_full_admin and unprotected_admin_ids %}
+    <div class="au-2fa-notice">
+        <h4><i class="fas fa-triangle-exclamation"></i>
+            {{ unprotected_admin_ids | length }}
+            admin account{{ 's have' if unprotected_admin_ids | length != 1 else ' has' }}
+            no second factor</h4>
+        {% if org_requires_2fa %}
+        <p>Two-factor is required org-wide, but these accounts have nothing enrolled yet — so
+           for them the requirement is satisfied by setting up an authenticator during sign-in,
+           which only proves the password. Until they enrol, a stolen password is enough.</p>
+        <p>Use the <i class="fas fa-key"></i> button on an account to issue a single-use
+           <strong>setup code</strong> (valid {{ enroll_ticket_hours }} hours) and pass it to them
+           by a channel their password doesn't unlock — in person, or a phone number. They must
+           enter it to enrol.</p>
+        {% else %}
+        <p>These accounts have no authenticator and no email code. If you turn on org-wide
+           two-factor, they'll be able to satisfy it by enrolling during sign-in, which proves
+           only the password — so get them enrolled first, using the
+           <i class="fas fa-key"></i> button to issue each a single-use setup code.</p>
+        {% endif %}
+        {% if anchor_unprotected %}
+        <p><strong>The primary owner ({{ anchor_username }}) is exempt</strong> — on a fresh
+           install there'd be nobody to issue their code, so requiring one would lock the org
+           out. That account can enrol itself, which means it should be enrolled first.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% if sub_admins %}
     {% if current_user.is_full_admin %}<p class="au-section-title">Users</p>{% endif %}
     <div class="au-list">
@@ -448,6 +508,16 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                     {% endif %}
                     {% if u.last_seen_at and (now - u.last_seen_at).total_seconds() < 300 %}
                     <span class="au-online-badge" title="Currently online">● Online</span>
+                    {% endif %}
+                    {% if current_user.is_full_admin and u.id in unprotected_admin_ids %}
+                    <span class="au-no2fa-badge" title="No authenticator and no email code — an org-wide 2FA requirement doesn't protect this account yet">
+                        <i class="fas fa-shield-halved"></i> no 2FA
+                    </span>
+                    {% if u.id in pending_ticket_ids %}
+                    <span class="au-ticket-badge" title="A setup code has been issued and not used yet">
+                        <i class="fas fa-key"></i> setup code issued
+                    </span>
+                    {% endif %}
                     {% endif %}
                 </div>
                 <div class="au-email">
@@ -482,6 +552,19 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                     <i class="fas fa-pen"></i>
                 </button>
                 {% if current_user.is_full_admin %}
+                {% if u.id in unprotected_admin_ids %}
+                <button class="uw-btn uw-btn-secondary{% if u.id in pending_ticket_ids %} is-ticket{% endif %}"
+                        onclick="issueEnrollmentTicket({{ u.id }}, '{{ u.username | e }}', {{ 'true' if u.id in pending_ticket_ids else 'false' }})"
+                        title="{{ 'Reissue the 2FA setup code (replaces the outstanding one)' if u.id in pending_ticket_ids else 'Issue a 2FA setup code so this admin can enrol an authenticator' }}">
+                    <i class="fas fa-key"></i>
+                </button>
+                {% if u.id in pending_ticket_ids %}
+                <button class="uw-btn uw-btn-secondary" onclick="revokeEnrollmentTicket({{ u.id }}, '{{ u.username | e }}')"
+                        title="Cancel the outstanding setup code">
+                    <i class="fas fa-ban"></i>
+                </button>
+                {% endif %}
+                {% endif %}
                 <button class="uw-btn uw-btn-secondary{% if u.is_co_owner %} is-coowner{% endif %}" onclick="toggleCoOwner({{ u.id }}, {{ 'true' if u.is_co_owner else 'false' }}, '{{ u.username | e }}')" title="{{ 'Revoke co-owner (full control)' if u.is_co_owner else 'Make co-owner — full, unrestricted control' }}">
                     <i class="fas fa-user-shield"></i>
                 </button>
@@ -874,6 +957,34 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
         <div class="uw-modal-footer">
             <button type="button" class="uw-btn uw-btn-secondary" onclick="closeGroupModal()">Cancel</button>
             <button type="button" class="uw-btn uw-btn-primary" id="groupSubmitBtn" onclick="submitGroupForm()">Create Group</button>
+        </div>
+    </div>
+</div>
+
+<!-- 2FA setup code — shown exactly once; we only keep the hash -->
+<div class="uw-overlay" id="ticketModalOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="ticketModalTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="ticketModalTitle">2FA setup code</h3>
+            <button class="uw-modal-close" onclick="closeTicketModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin:0 0 10px;">
+                Give this to <strong id="ticketUsername"></strong> through a channel their password
+                doesn't unlock — say it in person or over the phone. Don't email it to the account
+                you're protecting.
+            </p>
+            <div class="au-ticket-code" id="ticketCode">---------</div>
+            <p style="font-size:0.8rem;color:rgba(255,255,255,0.45);margin:0;">
+                Single use, expires in <span id="ticketHours"></span> hours. It's stored hashed, so
+                <strong>this is the only time it's shown</strong> — reissue if it's lost.
+            </p>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="copyTicketCode()" id="ticketCopyBtn">
+                <i class="fas fa-copy"></i> Copy
+            </button>
+            <button type="button" class="uw-btn uw-btn-primary" onclick="closeTicketModal()">Done</button>
         </div>
     </div>
 </div>
@@ -1907,6 +2018,54 @@ async function toggleCoOwner(userId, isCoOwner, username) {
     if (d.success) location.reload();
     else alert(d.error || 'Failed to update co-owner status');
 }
+
+// ── 2FA enrolment setup codes ────────────────────────────────────────────────
+// An admin with no second factor can otherwise enrol one during sign-in using
+// nothing but the password. The owner hands them a single-use code out of band;
+// that code is the second thing an attacker would also have to have.
+
+function closeTicketModal() {
+    document.getElementById('ticketModalOverlay').classList.remove('open');
+    document.body.classList.remove('uw-modal-open');
+    // Reloading refreshes the "setup code issued" badges.
+    location.reload();
+}
+
+function copyTicketCode() {
+    const code = document.getElementById('ticketCode').textContent.trim();
+    const btn = document.getElementById('ticketCopyBtn');
+    navigator.clipboard.writeText(code).then(() => {
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied';
+        setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> Copy'; }, 1800);
+    }).catch(() => alert(code));
+}
+
+async function issueEnrollmentTicket(userId, username, hasPending) {
+    const msg = hasPending
+        ? `Reissue "${username}"'s 2FA setup code?\n\nThe code you gave them before stops working immediately.`
+        : `Issue a 2FA setup code for "${username}"?\n\nThey'll need it to set up an authenticator while signing in. Pass it to them in person or by phone — not by email to that account.`;
+    if (!confirm(msg)) return;
+    const r = await fetch(`/admin/users/${userId}/2fa-enrollment-ticket`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Failed to issue a setup code'); return; }
+    document.getElementById('ticketUsername').textContent = d.username;
+    document.getElementById('ticketCode').textContent = d.ticket;
+    document.getElementById('ticketHours').textContent = d.expires_hours;
+    document.getElementById('ticketModalOverlay').classList.add('open');
+    document.body.classList.add('uw-modal-open');
+}
+
+async function revokeEnrollmentTicket(userId, username) {
+    if (!confirm(`Cancel "${username}"'s outstanding 2FA setup code?\n\nThey won't be able to enrol an authenticator until you issue a new one.`)) return;
+    const r = await fetch(`/admin/users/${userId}/2fa-enrollment-ticket`, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.success) location.reload();
+    else alert(d.error || 'Failed to cancel the setup code');
+}
+
+document.getElementById('ticketModalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('ticketModalOverlay')) closeTicketModal();
+});
 
 // ── Group permission area helpers ─────────────────────────────────────────────
 

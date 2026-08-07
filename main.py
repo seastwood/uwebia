@@ -766,6 +766,15 @@ class User(UserMixin, db.Model):
     totp_last_counter = db.Column(db.BigInteger, nullable=True)
     # Hashes of one-time recovery codes; the plaintext is shown exactly once.
     totp_recovery_codes = db.Column(db.JSON, nullable=True)
+    # ── Owner-provisioned enrolment ──────────────────────────────────────────
+    # Setting up an authenticator *mid-login* only proves the password, so on
+    # its own it let anyone holding that password satisfy a 2FA requirement by
+    # enrolling their own device. An owner issues a single-use ticket out of
+    # band instead; without one, mid-login enrolment is refused. Hashed, never
+    # stored in the clear, and shown to the issuing owner exactly once.
+    totp_enroll_ticket_hash = db.Column(db.String(255), nullable=True)
+    totp_enroll_ticket_expires_at = db.Column(db.DateTime, nullable=True)
+    totp_enroll_ticket_issued_by_id = db.Column(db.Integer, nullable=True)
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
     two_factor_email = db.Column(db.String(255), nullable=True)
@@ -8644,7 +8653,28 @@ def admin_totp_setup():
               'time it restarts. Set SECRET_KEY (see .env) and restart first.', 'error')
         return redirect(url_for('settings_page') if not mid_login else url_for('login'))
 
+    # Mid-login enrolment proves only the password, so on its own it would let
+    # a stolen password satisfy the very requirement 2FA exists to impose. An
+    # owner-issued ticket is the second thing the attacker would also need.
+    needs_ticket = mid_login and mid_login_enrollment_needs_ticket(user)
+
     if request.method == 'POST':
+        # Refuse while the address is locked out, exactly as the code challenge
+        # does — otherwise signing in again would refresh the per-session budget
+        # and the ticket could be guessed a handful at a time, forever.
+        if needs_ticket and two_factor_lockout_active(user):
+            flash(f'Too many incorrect setup codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.',
+                  'error')
+            return redirect(url_for('admin_totp_setup'))
+        if needs_ticket and not totp_enrollment_ticket_valid(
+                user, request.form.get('enroll_ticket', '')):
+            # Counted against the shared limiter so the ticket can't be guessed
+            # any faster than a login code.
+            register_failed_two_factor_attempt(user)
+            flash('That setup code is not valid or has expired. Ask an owner to issue '
+                  'you a new one.', 'error')
+            return redirect(url_for('admin_totp_setup'))
+
         secret = session.get('totp_setup_secret')
         if not secret:
             flash('Setup expired. Please start again.', 'error')
@@ -8660,6 +8690,7 @@ def admin_totp_setup():
         user.totp_last_counter = counter
         plain, hashed = generate_totp_recovery_codes()
         user.totp_recovery_codes = hashed
+        clear_totp_enrollment_ticket(user)   # single use
         db.session.commit()
         session.pop('totp_setup_secret', None)
         # Shown exactly once — we only keep hashes.
@@ -8681,7 +8712,8 @@ def admin_totp_setup():
     uri = totp_provisioning_uri(secret, account, _brand_issuer())
     return render_template('admin_totp_setup.html', secret=secret,
                            qr_svg=_generate_qr_svg(uri, box_size=6, border=2),
-                           provisioning_uri=uri, mid_login=mid_login, user=user)
+                           provisioning_uri=uri, mid_login=mid_login, user=user,
+                           needs_ticket=needs_ticket)
 
 
 @app.route('/admin/2fa/app/recovery-codes')
@@ -10059,6 +10091,95 @@ def user_totp_secret(user):
     return candidate
 
 
+_TOTP_ENROLL_TICKET_HOURS = 24
+
+
+def issue_totp_enrollment_ticket(user, issued_by):
+    """Mint a single-use enrolment ticket for `user`. Returns the plaintext.
+
+    Only shown to the owner who issued it; they pass it to the admin through a
+    channel an attacker holding that admin's password does not control, which
+    is the whole point — the ticket is the second thing they must have.
+    """
+    raw = secrets.token_hex(4)
+    plain = f'{raw[:4]}-{raw[4:]}'
+    user.totp_enroll_ticket_hash = generate_password_hash(plain)
+    user.totp_enroll_ticket_expires_at = (
+        datetime.now(timezone.utc).replace(tzinfo=None)
+        + timedelta(hours=_TOTP_ENROLL_TICKET_HOURS))
+    user.totp_enroll_ticket_issued_by_id = getattr(issued_by, 'id', None)
+    db.session.commit()
+    app.logger.info('2FA enrolment ticket issued for admin id=%s by id=%s',
+                    user.id, getattr(issued_by, 'id', None))
+    return plain
+
+
+def clear_totp_enrollment_ticket(user):
+    user.totp_enroll_ticket_hash = None
+    user.totp_enroll_ticket_expires_at = None
+    user.totp_enroll_ticket_issued_by_id = None
+
+
+def totp_enrollment_ticket_valid(user, submitted):
+    """True when `submitted` matches this admin's unexpired enrolment ticket."""
+    if not user or not user.totp_enroll_ticket_hash:
+        return False
+    expires = user.totp_enroll_ticket_expires_at
+    if expires and datetime.now(timezone.utc).replace(tzinfo=None) > expires:
+        return False
+    candidate = (submitted or '').strip().lower().replace(' ', '')
+    if not candidate:
+        return False
+    return check_password_hash(user.totp_enroll_ticket_hash, candidate)
+
+
+def mid_login_enrollment_needs_ticket(user):
+    """Whether this admin must present an owner-issued ticket to enrol mid-login.
+
+    The primary owner is exempt: they are the root of trust and, on a fresh
+    install, the only person who could issue a ticket — requiring one would
+    deadlock the org. Everyone else needs one, which is what stops a stolen
+    password alone from satisfying the 2FA requirement.
+    """
+    if user is None:
+        return True
+    anchor = get_main_admin()
+    if anchor is not None and user.id == anchor.id:
+        return False
+    return True
+
+
+def totp_enrollment_ticket_pending(user):
+    """True when this admin is holding an unexpired, unused enrolment ticket."""
+    if not user or not getattr(user, 'totp_enroll_ticket_hash', None):
+        return False
+    expires = user.totp_enroll_ticket_expires_at
+    if expires and datetime.now(timezone.utc).replace(tzinfo=None) > expires:
+        return False
+    return True
+
+
+def admins_without_second_factor(root_user_id=None):
+    """Admins who hold no working second factor — the accounts for which a
+    2FA requirement currently provides no protection.
+
+    Scoped to one organisation when `root_user_id` is given (the anchor plus
+    the admins parented to it); unscoped it covers every admin row.
+    """
+    q = User.query
+    if root_user_id is not None:
+        q = q.filter(db.or_(User.id == root_user_id,
+                            User.parent_user_id == root_user_id))
+    out = []
+    for u in q.all():
+        if totp_secret_is_readable(u):
+            continue
+        if getattr(u, 'two_factor_enabled', False) and (u.two_factor_email or u.email):
+            continue
+        out.append(u)
+    return out
+
+
 def totp_secret_is_readable(user):
     """True when this user's enrolled TOTP secret can actually be decrypted."""
     return bool(getattr(user, 'totp_enabled', False)) and bool(user_totp_secret(user))
@@ -10606,6 +10727,51 @@ def _log_file_status():
             pass
     return {'path': _ACTIVE_LOG_FILE, 'size': total,
             'cap_mb': round(max_mb * (backups + 1), 1)}
+
+
+@app.route('/admin/users/<int:user_id>/2fa-enrollment-ticket', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def issue_2fa_enrollment_ticket(user_id):
+    """Owner issues a single-use setup code so an admin can enrol an
+    authenticator during login.
+
+    Restricted to full admins: the whole point is that someone other than the
+    person holding the password has to authorise the enrolment.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Only an owner can issue setup codes.'}, 403)
+    target = db.session.get(User, user_id)
+    if not target:
+        return _utf8_json({'success': False, 'error': 'Admin not found.'}, 404)
+    if target.root_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'That admin is not part of your organization.'}, 403)
+    if totp_secret_is_readable(target):
+        return _utf8_json({'success': False,
+                           'error': 'That admin already has a working authenticator.'}, 400)
+
+    plain = issue_totp_enrollment_ticket(target, current_user)
+    return _utf8_json({
+        'success': True,
+        'ticket': plain,
+        'username': target.username,
+        'expires_hours': _TOTP_ENROLL_TICKET_HOURS,
+    })
+
+
+@app.route('/admin/users/<int:user_id>/2fa-enrollment-ticket', methods=['DELETE'])
+@login_required
+@require_perm('settings.2fa')
+def revoke_2fa_enrollment_ticket(user_id):
+    """Cancel an outstanding setup code."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    target = db.session.get(User, user_id)
+    if not target or target.root_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Admin not found.'}, 404)
+    clear_totp_enrollment_ticket(target)
+    db.session.commit()
+    return _utf8_json({'success': True})
 
 
 @app.route('/admin/users/<int:user_id>/email-permission', methods=['POST'])
@@ -24073,8 +24239,27 @@ def admin_users_page():
                 'categories': cat_entries, 'uncategorized': uncategorized,
             })
 
+    # Accounts an org-wide 2FA requirement currently does nothing for: they hold
+    # no second factor, so whoever has the password can enrol one mid-login. The
+    # owner closes that by handing them a setup code out of band.
+    unprotected = admins_without_second_factor(root_user_id)
+    unprotected_ids = {u.id for u in unprotected}
+    pending_ticket_ids = {u.id for u in unprotected if totp_enrollment_ticket_pending(u)}
+    anchor = get_main_admin()
+    # Read the policy off the anchor rather than through _org_requires_2fa():
+    # that helper can switch the policy OFF as a side effect when the mail
+    # settings have changed, which should happen on a login attempt, not
+    # because someone opened this page.
+    org_requires_2fa = bool(anchor and (anchor.org_require_2fa or anchor.two_factor_enabled))
+
     return render_template('admin_users.html',
                            sub_admins=sub_admins,
+                           org_requires_2fa=org_requires_2fa,
+                           unprotected_admin_ids=unprotected_ids,
+                           pending_ticket_ids=pending_ticket_ids,
+                           anchor_unprotected=bool(anchor and anchor.id in unprotected_ids),
+                           anchor_username=(anchor.username if anchor else ''),
+                           enroll_ticket_hours=_TOTP_ENROLL_TICKET_HOURS,
                            permissions_schema=ADMIN_PERMISSIONS,
                            website_specific_sections=WEBSITE_SPECIFIC_SECTIONS,
                            general_perm_categories=permission_categories_for(
