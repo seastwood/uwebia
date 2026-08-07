@@ -315,6 +315,31 @@
 }
 @media (max-width: 600px) { .perm-columns { grid-template-columns: 1fr; } }
 
+.perm-category { grid-column: 1 / -1; margin: 14px 0 2px; }
+.perm-category:first-child { margin-top: 0; }
+.perm-category-label {
+    font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.12em; color: rgba(94,238,248,0.75);
+    padding-bottom: 5px; border-bottom: 1px solid rgba(94,238,248,0.18);
+}
+.perm-search-wrap { position: relative; margin: 0 0 12px; }
+.perm-search {
+    width: 100%; box-sizing: border-box;
+    padding: 9px 12px 9px 32px;
+    border-radius: 9px;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.05);
+    color: #fff; font: inherit; font-size: 0.85rem; outline: none;
+}
+.perm-search:focus { border-color: rgba(94,238,248,0.45); }
+.perm-search-icon {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    color: rgba(255,255,255,0.3); font-size: 0.8rem; pointer-events: none;
+}
+.perm-search-count { font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 6px; }
+.perm-hidden { display: none !important; }
+mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3px; padding: 0 1px; }
+
 .perm-section { margin-bottom: 4px; }
 .perm-section-header {
     display: flex; align-items: center; gap: 10px;
@@ -611,9 +636,19 @@
             {{ division_access_picker('division-access-cb', 'clearAllDivisions') }}
             {{ group_assign_picker('group-assign-cb', 'clearAllGroupAssign') }}
 
+            <div class="perm-search-wrap">
+                <i class="fas fa-search perm-search-icon"></i>
+                <input type="text" class="perm-search" id="permSearch" autocomplete="off"
+                       placeholder="Search permissions — e.g. delete, publish, quiz"
+                       oninput="filterPermissions(this.value)">
+                <div class="perm-search-count" id="permSearchCount" style="display:none;"></div>
+            </div>
+
             <div id="permissionsContainer" class="perm-columns">
-                {% for section_key, section in permissions_schema.items() %}
-                {% if section_key not in website_specific_sections %}
+                {% for cat_label, cat_keys in general_perm_categories %}
+                <div class="perm-category"><div class="perm-category-label">{{ cat_label }}</div></div>
+                {% for section_key in cat_keys %}
+                {% set section = permissions_schema[section_key] %}
                 <div class="perm-section" data-section="{{ section_key }}">
                     <div class="perm-section-header">
                         <span class="perm-section-label">{{ section.label }}</span>
@@ -626,7 +661,7 @@
                     </label>
                     {% endfor %}
                 </div>
-                {% endif %}
+                {% endfor %}
                 {% endfor %}
             </div>
 
@@ -637,8 +672,10 @@
                 These are the baseline access levels for all websites. Use the per-website section below to grant or deny access differently on a specific website.
             </p>
             <div id="permissionsContainerWebsite" class="perm-columns">
-                {% for section_key, section in permissions_schema.items() %}
-                {% if section_key in website_specific_sections %}
+                {% for cat_label, cat_keys in website_perm_categories %}
+                <div class="perm-category"><div class="perm-category-label">{{ cat_label }}</div></div>
+                {% for section_key in cat_keys %}
+                {% set section = permissions_schema[section_key] %}
                 <div class="perm-section" data-section="{{ section_key }}">
                     <div class="perm-section-header">
                         <span class="perm-section-label">{{ section.label }}</span>
@@ -651,25 +688,10 @@
                     </label>
                     {% endfor %}
                 </div>
-                {% endif %}
+                {% endfor %}
                 {% endfor %}
             </div>
             </div><!-- /permissionsArea -->
-
-            <!-- Per-website permission overrides -->
-            <div id="perWebsitePermsArea" style="margin-top:24px;">
-                <div style="margin-bottom:10px;">
-                    <strong style="font-size:0.9rem;">Per-Website Permissions</strong>
-                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.35);margin:4px 0 0;">
-                        Use <strong style="color:rgba(255,255,255,0.5);">—</strong> to inherit the website feature defaults above,
-                        <strong style="color:#5eeec8;">✓</strong> to explicitly allow, or
-                        <strong style="color:#ff6b6b;">✗</strong> to explicitly deny for a specific website.
-                        Page, group, and folder restrictions are also configured here per website.
-                    </p>
-                </div>
-                <div id="perWebsiteTabs" style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:12px;"></div>
-                <div id="perWebsitePanels"></div>
-            </div>
 
             <!-- Per-drive access -->
             <div id="userStorageAccessArea" style="margin-top:24px;">
@@ -807,6 +829,21 @@
             {{ quiz_access_picker('grp-quiz-access-cb', 'grp-quiz-cat-cb', 'clearAllGrpQuizzes') }}
             {{ division_access_picker('grp-division-access-cb', 'clearAllGrpDivisions') }}
             {{ group_assign_picker('grp-group-assign-cb', 'clearAllGrpGroupAssign') }}
+
+            <!-- Per-website permission overrides -->
+            <div id="perWebsitePermsArea" style="margin-top:24px;">
+                <div style="margin-bottom:10px;">
+                    <strong style="font-size:0.9rem;">Per-Website Permissions</strong>
+                    <p style="font-size:0.78rem;color:rgba(255,255,255,0.35);margin:4px 0 0;">
+                        Use <strong style="color:rgba(255,255,255,0.5);">—</strong> to inherit the website feature defaults above,
+                        <strong style="color:#5eeec8;">✓</strong> to explicitly allow, or
+                        <strong style="color:#ff6b6b;">✗</strong> to explicitly deny for a specific website.
+                        Page, group, and folder restrictions are also configured here per website.
+                    </p>
+                </div>
+                <div id="perWebsiteTabs" style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:12px;"></div>
+                <div id="perWebsitePanels"></div>
+            </div>
 
             <!-- Per-website permission overrides for group -->
             <div style="margin-top:24px;">
@@ -1326,6 +1363,75 @@ function _collectStorageAccess(scope) {
         if (!cb.checked) out[cb.dataset.id] = false;
     });
     return out;
+}
+
+// ── Permission search ────────────────────────────────────────────────────────
+// Filters the checkbox list as you type. Matches a permission's own text and
+// its section label, so "quiz" finds everything under Quizzes even where the
+// word doesn't appear in the individual line. Section and category headers
+// disappear once nothing under them matches, so no empty scaffolding is left.
+function filterPermissions(term) {
+    const q = (term || '').trim().toLowerCase();
+    const countEl = document.getElementById('permSearchCount');
+    let shown = 0;
+
+    document.querySelectorAll('#permissionsContainer, #permissionsContainerWebsite').forEach(grid => {
+        grid.querySelectorAll('.perm-section').forEach(sec => {
+            const secLabel = (sec.querySelector('.perm-section-label')?.textContent || '').toLowerCase();
+            let anyVisible = false;
+
+            sec.querySelectorAll('.perm-item').forEach(item => {
+                const span = item.querySelector('span');
+                if (!span) return;
+                if (span.dataset.orig === undefined) span.dataset.orig = span.textContent;
+                const text = span.dataset.orig;
+                const hit = !q || text.toLowerCase().includes(q) || secLabel.includes(q);
+                item.classList.toggle('perm-hidden', !hit);
+                // Re-render from the stored original so highlights never nest.
+                if (hit && q && text.toLowerCase().includes(q)) {
+                    const i = text.toLowerCase().indexOf(q);
+                    span.innerHTML =
+                        _escPerm(text.slice(0, i)) +
+                        '<mark class="perm-hit">' + _escPerm(text.slice(i, i + q.length)) + '</mark>' +
+                        _escPerm(text.slice(i + q.length));
+                } else {
+                    span.textContent = text;
+                }
+                if (hit) { anyVisible = true; shown++; }
+            });
+
+            sec.classList.toggle('perm-hidden', !anyVisible);
+        });
+
+        // A category header is only meaningful while something under it shows.
+        let currentCat = null, catHasVisible = false;
+        Array.from(grid.children).forEach(child => {
+            if (child.classList.contains('perm-category')) {
+                if (currentCat) currentCat.classList.toggle('perm-hidden', !catHasVisible);
+                currentCat = child; catHasVisible = false;
+            } else if (child.classList.contains('perm-section')) {
+                if (!child.classList.contains('perm-hidden')) catHasVisible = true;
+            }
+        });
+        if (currentCat) currentCat.classList.toggle('perm-hidden', !catHasVisible);
+    });
+
+    if (countEl) {
+        countEl.style.display = q ? 'block' : 'none';
+        countEl.textContent = q
+            ? (shown ? shown + ' permission' + (shown === 1 ? '' : 's') + ' match "' + term + '"'
+                     : 'No permissions match "' + term + '"')
+            : '';
+    }
+}
+
+function _escPerm(t) {
+    return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function clearPermissionSearch() {
+    const box = document.getElementById('permSearch');
+    if (box && box.value) { box.value = ''; filterPermissions(''); }
 }
 
 function _buildPerWebsiteUI(existingWP) {

@@ -19256,10 +19256,25 @@ def import_backup():
                         pass
 
             # ── AdminChatMessage ──────────────────────────────────────────────
+            # Skip rows already present. The purge above only clears sub-admins'
+            # messages, so the owner's survive a restore — and re-adding them
+            # unconditionally appended a whole extra copy of the history on
+            # every restore, which is what made the chat look like it was
+            # duplicating itself. Two genuine sends can't share a timestamp to
+            # the microsecond, so an exact (user, text, time) match is a re-import.
+            _existing_chat = {
+                (m.message, m.created_at)
+                for m in AdminChatMessage.query.filter_by(user_id=uid).all()
+            }
             for md in data.get('admin_chat_messages', []):
+                _created = (datetime.fromisoformat(md['created_at'])
+                            if md.get('created_at') else None)
+                _text = md.get('message') or ''
+                if (_text, _created) in _existing_chat:
+                    continue
+                _existing_chat.add((_text, _created))
                 db.session.add(AdminChatMessage(
-                    user_id=uid, message=md.get('message') or '',
-                    created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None,
+                    user_id=uid, message=_text, created_at=_created,
                 ))
 
             # ── CalendarFeedSubscriber ────────────────────────────────────────
@@ -23417,6 +23432,40 @@ WEBSITE_SPECIFIC_SECTIONS = {
     'forum', 'comments', 'analytics',
 }
 
+# Groups the ~28 permission sections into themes so the editor reads as a short
+# list of areas rather than one long alphabet-soup column. Order here is the
+# order shown; anything missing falls into "Other" rather than disappearing, so
+# adding a section to ADMIN_PERMISSIONS can never silently hide it.
+PERMISSION_CATEGORIES = [
+    ('Site content', ['website', 'pages', 'sections', 'appearance', 'code', 'templates']),
+    ('Media & files', ['assets', 'storage']),
+    ('Learning', ['guides', 'quizzes', 'resources', 'divisions', 'ksa']),
+    ('Community', ['forum', 'comments', 'posts', 'reviews', 'public_users']),
+    ('Communication', ['newsletters', 'messages', 'notifications', 'ai_agents']),
+    ('Commerce', ['store', 'payments']),
+    ('Scheduling', ['calendars']),
+    ('Administration', ['settings', 'admin_users', 'analytics']),
+]
+
+
+def permission_categories_for(section_keys):
+    """Return [(category, [section_key, ...]), ...] limited to `section_keys`.
+
+    Keys not listed in PERMISSION_CATEGORIES are collected under "Other" so a
+    newly added permission section still appears somewhere.
+    """
+    wanted = list(section_keys)
+    grouped, claimed = [], set()
+    for label, keys in PERMISSION_CATEGORIES:
+        present = [k for k in keys if k in wanted]
+        if present:
+            grouped.append((label, present))
+            claimed.update(present)
+    leftover = [k for k in wanted if k not in claimed]
+    if leftover:
+        grouped.append(('Other', leftover))
+    return grouped
+
 ADMIN_PERMISSIONS = {
     'website': {'label': 'Website', 'actions': {
         'edit': 'Edit website name, description & tags',
@@ -23623,7 +23672,11 @@ def admin_users_page():
             return jsonify({'error': 'Permission denied'}), 403
     sub_admins = User.query.filter_by(parent_user_id=current_user.root_user_id).all()
     root_user_id = current_user.root_user_id
-    live_websites = Website.query.filter_by(user_id=root_user_id, is_draft=False).order_by(Website.id).all()
+    # Primary site (url_prefix NULL = the root domain) first, so the per-website
+    # permission tabs open on the site an admin almost always means, rather than
+    # on whichever one happened to be created first.
+    live_websites = (Website.query.filter_by(user_id=root_user_id, is_draft=False)
+                     .order_by(Website.url_prefix.isnot(None), Website.id).all())
     all_folders = AssetFolder.query.filter_by(user_id=root_user_id).order_by(AssetFolder.name).all()
     perm_groups = PermissionGroup.query.filter_by(owner_user_id=root_user_id).order_by(PermissionGroup.name).all()
 
@@ -23729,6 +23782,10 @@ def admin_users_page():
                            sub_admins=sub_admins,
                            permissions_schema=ADMIN_PERMISSIONS,
                            website_specific_sections=WEBSITE_SPECIFIC_SECTIONS,
+                           general_perm_categories=permission_categories_for(
+                               [k for k in ADMIN_PERMISSIONS if k not in WEBSITE_SPECIFIC_SECTIONS]),
+                           website_perm_categories=permission_categories_for(
+                               [k for k in ADMIN_PERMISSIONS if k in WEBSITE_SPECIFIC_SECTIONS]),
                            all_folders=[{'id': f.id, 'name': f.name, 'asset_type': f.asset_type} for f in all_folders],
                            permission_groups=perm_groups,
                            live_websites=live_websites,
