@@ -431,6 +431,10 @@ class User(UserMixin, db.Model):
     # go through the same code step the public login form uses.
     login_link_nonce   = db.Column(db.String(64), nullable=True)
     login_link_sent_at = db.Column(db.DateTime, nullable=True)
+    # Single-use guard for password-reset links (same scheme as login_link_nonce):
+    # minted when a reset link is issued, cleared once the password is changed, so
+    # a reset link can't be replayed and a newer link kills the older one.
+    password_reset_nonce = db.Column(db.String(64), nullable=True)
     two_factor_needs_attention = db.Column(
         db.Boolean,
         nullable=False,
@@ -1489,6 +1493,8 @@ class PublicUser(UserMixin, db.Model):
     # cooldown so the flow can't be used to mail-bomb an address.
     login_link_nonce   = db.Column(db.String(64), nullable=True)
     login_link_sent_at = db.Column(db.DateTime, nullable=True)
+    # Single-use guard for password-reset links — see User.password_reset_nonce.
+    password_reset_nonce = db.Column(db.String(64), nullable=True)
 
     # Phone + SMS opt-in. NULL phone or sms_opt_in=False means SMS sends to
     # this user fall back to email.
@@ -7837,6 +7843,7 @@ def reset_password(token):
             return redirect(request.path)
 
         user.set_password(password)
+        user.password_reset_nonce = None  # burn the link — it's spent.
 
         # Changing password should force a clean login.
         db.session.commit()
@@ -7857,9 +7864,16 @@ def get_recovery_serializer():
 def generate_password_reset_token(user):
     serializer = get_recovery_serializer()
 
+    # Fresh single-use nonce: cleared when the password is changed and replaced
+    # whenever a new link is issued, so a reset link can't be replayed and an
+    # older link dies the moment a newer one is requested.
+    user.password_reset_nonce = secrets.token_urlsafe(24)
+    db.session.commit()
+
     return serializer.dumps(
         {
             'user_id': user.id,
+            'nonce': user.password_reset_nonce,
             'purpose': 'password_reset'
         },
         salt='uwebia-password-reset'
@@ -7887,6 +7901,11 @@ def verify_password_reset_token(token, max_age_seconds=1800):
 
     if not user:
         return None, 'This password reset link is invalid.'
+
+    # Single-use: the nonce is cleared on completion and replaced when a newer
+    # link is issued, so a used or superseded link no longer matches.
+    if not user.password_reset_nonce or user.password_reset_nonce != data.get('nonce'):
+        return None, 'This password reset link has already been used or was replaced by a newer one.'
 
     return user, None
 
@@ -26265,6 +26284,7 @@ def public_reset_password(token):
             return redirect(request.path)
 
         public_user.set_password(password)
+        public_user.password_reset_nonce = None  # burn the link — it's spent.
 
         # Completing a password reset confirms email ownership.
         if getattr(website, 'public_email_verification_enabled', False):
@@ -27129,10 +27149,16 @@ def website_uses_public_accounts(website):
 def generate_public_user_password_reset_token(public_user):
     serializer = get_recovery_serializer()
 
+    # Fresh single-use nonce (see generate_password_reset_token): cleared on
+    # completion, replaced when a newer link is issued.
+    public_user.password_reset_nonce = secrets.token_urlsafe(24)
+    db.session.commit()
+
     return serializer.dumps(
         {
             'public_user_id': public_user.id,
             'website_id': public_user.website_id,
+            'nonce': public_user.password_reset_nonce,
             'purpose': 'public_user_password_reset'
         },
         salt='uwebia-public-user-password-reset'
@@ -27736,6 +27762,10 @@ def verify_public_user_password_reset_token(token, max_age_seconds=1800):
 
     if not public_user:
         return None, 'This password reset link is invalid.'
+
+    # Single-use: cleared on completion, replaced when a newer link is issued.
+    if not public_user.password_reset_nonce or public_user.password_reset_nonce != data.get('nonce'):
+        return None, 'This password reset link has already been used or was replaced by a newer one.'
 
     return public_user, None
 
