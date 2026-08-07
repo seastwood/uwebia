@@ -23627,7 +23627,12 @@ def admin_public_users_page():
             flash("You don't have permission to view members.", 'permission_denied')
             return redirect(url_for('dashboard'))
     root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
-    live_websites = Website.query.filter_by(user_id=root_id, is_draft=False).order_by(Website.id).all()
+    # Primary site first (url_prefix NULL = served at the root domain), then by
+    # id. Ordering purely by id made the opening tab whichever site happened to
+    # be created first, so members signing up on the main site could look
+    # missing simply because a secondary site was showing.
+    live_websites = (Website.query.filter_by(user_id=root_id, is_draft=False)
+                     .order_by(Website.url_prefix.isnot(None), Website.id).all())
     # Only site-wide roles are managed here; division-scoped roles live on the
     # Divisions & KSAs page and are assigned per-member there.
     roles_by_website = {
