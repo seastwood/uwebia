@@ -8784,23 +8784,18 @@ def two_factor_login(admin_key=None):
             flash('Invalid verification code.', 'error')
             return redirect(request.path)
 
-        login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
-
-        # The admin URL key is org-wide (on the anchor); they reached this 2FA
-        # step through the gated login flow, so mark the path verified.
         if admin_url_key_required_for_user(get_main_admin()):
             session['admin_path_verified'] = True
-
-        _stamp_login(user)
-        clear_pending_two_factor_code()
-        session.pop('pre_2fa_user_id', None)
-        session.pop('pre_2fa_admin_key', None)
-
-        flash('Logged in successfully.', 'success')
-        return redirect(url_for('dashboard'))
+        return finish_admin_login(
+            user, remember=bool(session.pop('pre_2fa_remember', False)),
+            admin_key=admin_key)
 
     return render_template('two_factor_login.html', admin_key=admin_key,
-                           can_use_totp=totp_secret_is_readable(user))
+                           can_use_totp=totp_secret_is_readable(user),
+                           # Enrolled but unreadable: explain the absence rather
+                           # than silently offering only one method.
+                           totp_broken=bool(user.totp_enabled
+                                            and not totp_secret_is_readable(user)))
 
 
 @app.route('/admin/2fa/resend', methods=['POST'])
@@ -8836,15 +8831,36 @@ def disable_user_2fa(user, reason=None, needs_attention=True):
 
 
 def finish_admin_login(user, remember=False, admin_key=None):
-    """Establish the admin session once every factor has been satisfied."""
+    """Establish the admin session once every factor has been satisfied.
+
+    Where the admin lands is decided by whoever started the sign-in, via two
+    optional session keys set before begin_admin_login(). That keeps a single
+    completion path: an admin arriving through the public site gets the same
+    second-factor rules as one arriving at /admin/login, and merely returns
+    somewhere else afterwards.
+    """
     login_user(user, remember=remember)
     if admin_url_key_required_for_user(user):
         session['admin_path_verified'] = True
+
+    next_url = session.pop('pre_2fa_next_url', None)
+    public_website_id = session.pop('pre_2fa_public_website_id', None)
     for key in ('pre_2fa_user_id', 'pre_2fa_admin_key', 'pre_2fa_remember'):
         session.pop(key, None)
+    clear_pending_two_factor_code()
     _stamp_login(user)
+
+    # Signing in on the public side also needs the public-facing mirror session,
+    # or the site would still treat them as a signed-out visitor.
+    if public_website_id:
+        website = db.session.get(Website, public_website_id)
+        if website:
+            mirror = ensure_admin_public_mirror(user, website)
+            if mirror:
+                public_user_login(mirror)
+
     flash('Logged in successfully', 'success')
-    return redirect(url_for('dashboard'))
+    return redirect(next_url or url_for('dashboard'))
 
 
 def begin_admin_login(user, remember=False, admin_key=None, on_error=None):
@@ -9769,9 +9785,18 @@ def user_totp_secret(user):
     candidate = decrypt_api_key(user.totp_secret or '')
     if not candidate:
         return ''
+    # A failed decrypt hands back the Fernet token itself, and those can happen
+    # to parse as base32 (the alphabet overlaps), so shape-checking alone is not
+    # enough — reject the version prefix every Fernet token starts with.
+    if candidate.startswith('gAAAAA'):
+        return ''
     try:
-        base64.b32decode(candidate + '=' * (-len(candidate) % 8), casefold=True)
+        raw = base64.b32decode(candidate + '=' * (-len(candidate) % 8), casefold=True)
     except Exception:
+        return ''
+    # generate_totp_secret() emits 20 bytes; anything far from that is not one
+    # of ours and would only produce codes that never match.
+    if not (10 <= len(raw) <= 64):
         return ''
     return candidate
 
@@ -27080,6 +27105,21 @@ def _github_public_login(gh_id, ctx, access_token=None):
             return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
         public_user_login(pu, remember=True)
         return redirect(ctx['next'] or _website_home_url(website))
+
+    # An admin's GitHub link lives on their User row, not on the PublicUser
+    # mirror, so the lookup above misses them and they'd be pushed into signing
+    # up for a second account. Recognise them and run the normal admin gate,
+    # landing back on the public page instead of the dashboard.
+    admin = User.query.filter_by(github_user_id=gh_id).first()
+    if admin:
+        session['pre_2fa_next_url'] = ctx['next'] or _website_home_url(website)
+        session['pre_2fa_public_website_id'] = website.id
+        session.pop('pre_2fa_admin_key', None)
+        app.logger.info('GitHub public sign-in by admin user id=%s', admin.id)
+        return begin_admin_login(
+            admin, remember=True, admin_key=None,
+            on_error=lambda: redirect(url_for('public_login',
+                                              website_prefix=ctx['prefix'] or None)))
 
     # First time this GitHub account has been seen here. We do not invent a
     # username from their GitHub login — that would import a name we promised
