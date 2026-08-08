@@ -2002,7 +2002,10 @@ async function _adminUserRequest(url, label) {
 }
 
 async function deleteUser(userId, username) {
-    if (!confirm(`Delete admin user "${username}"? They will immediately lose access.`)) return;
+    if (!confirm(`Delete admin user "${username}"? They will immediately lose access.\n\n`
+        + `Their member account on your public sites goes too. Anything they posted `
+        + `— forum threads, comments, quiz attempts — is kept, but loses their name `
+        + `and shows as "Guest".\n\nTo keep their name and their account, use Demote instead.`)) return;
     const d = await _adminUserRequest(`/admin/users/${userId}/delete`, 'Delete');
     if (d) document.getElementById(`auCard-${userId}`)?.remove();
 }

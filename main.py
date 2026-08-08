@@ -25441,8 +25441,18 @@ def admin_public_user_delete(user_id):
     blocked = _reject_if_admin_mirror(u)
     if blocked:
         return blocked
-    db.session.delete(u)
-    db.session.commit()
+    # Same hazard as the admin mirrors: a plain ORM delete nullifies the
+    # authorship columns but has nothing to say about product_review or
+    # ksa_resource_completion, whose public_user_id can't be null and carry no
+    # cascade — deleting a member who'd left a review raised a bare 500.
+    try:
+        _delete_public_user_row(u)
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        app.logger.warning('admin_public_user_delete blocked for id=%s: %s',
+                           user_id, exc)
+        return _utf8_json({'error': _describe_public_delete_blockers(exc)}, 409)
     return _utf8_json({'success': True})
 
 
@@ -25788,6 +25798,64 @@ def _resolve_promote_conflicts(conflicts, promoting):
     return renamed
 
 
+def _delete_public_user_row(public_user):
+    """Remove one public account along with everything that points at it.
+
+    A bare ``DELETE FROM public_user`` fails the moment the person has ever
+    done anything on the site: 21 tables reference public_user.id, and the
+    live foreign keys carry no ON DELETE rule. This is what made one sub-admin
+    undeletable — their mirror had posted in the forum, so
+    ``forum_reply_public_user_id_fkey`` rejected the delete.
+
+    Two kinds of reference, split by whether the column may be null:
+
+      • nullable — authorship. A forum thread, a page comment, a quiz attempt
+        or an order outlives its author, so the column is set to NULL. The
+        forum templates already render a null author as "Guest".
+      • not-null — a row with no meaning once the person is gone: a vote, a
+        like, a saved address, a division membership. Those rows go.
+
+    Driven off the live metadata rather than a hand-kept list, so a table
+    added later is handled the day it appears instead of resurrecting this
+    same bug.
+    """
+    pu_id = public_user.id
+    for table in db.metadata.tables.values():
+        if table.name == 'public_user':
+            continue
+        for col in table.columns:
+            if not any(fk.column.table.name == 'public_user'
+                       for fk in col.foreign_keys):
+                continue
+            if col.nullable:
+                db.session.execute(
+                    table.update().where(col == pu_id).values({col: None}))
+            else:
+                db.session.execute(table.delete().where(col == pu_id))
+    # Those statements went straight to the database, so anything already
+    # loaded is now stale — including collections the ORM delete below would
+    # otherwise try to cascade over.
+    db.session.expire_all()
+    db.session.delete(public_user)
+
+
+def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
+    """Delete an admin's public mirrors, optionally sparing one.
+
+    Both routes used ``PublicUser.query.filter_by(...).delete()`` here. A bulk
+    delete bypasses the ORM completely — none of the nullify-the-author or
+    cascade rules that make the Members page's delete work apply to it — so it
+    raised straight out of the route, outside the try that was meant to catch
+    it, and the browser got a 500 with an HTML body. That is the whole reason
+    the button looked dead rather than saying anything.
+    """
+    for mirror in PublicUser.query.filter_by(
+            mirrored_admin_user_id=admin_user_id).all():
+        if keep_public_user_id is not None and mirror.id == keep_public_user_id:
+            continue
+        _delete_public_user_row(mirror)
+
+
 def _promote_can():
     """The promote permission is the user-create permission plus the explicit
     'promote' action. Main admins always pass."""
@@ -26044,9 +26112,11 @@ def admin_user_demote(user_id):
     survivor_id, survivor_website_id = survivor.id, survivor.website_id
 
     # Remove the remaining mirrors (other sites) and the admin row itself.
-    PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
-    db.session.delete(sub)
+    # The mirror delete lives inside the try: it can fail on its own, and it
+    # used to run before the try even started, so its failure escaped as a 500.
     try:
+        _delete_admin_mirrors(sub.id, keep_public_user_id=survivor_id)
+        db.session.delete(sub)
         db.session.commit()
     except IntegrityError as exc:
         # Demote deletes the admin row too, so it hits exactly the same
@@ -26247,16 +26317,39 @@ def _user_reference_counts(user_id):
     return found
 
 
+def _blocking_table(exc):
+    """The table holding the reference that refused a delete, or None.
+
+    Postgres names the offending constraint and table in the error text — the
+    single most useful fact in it. Read the table that *holds* the reference,
+    not the one being deleted: "update or delete on table "public_user"
+    violates foreign key constraint "forum_reply_public_user_id_fkey" on table
+    "forum_reply"" names both, and the first is the row we're removing, which
+    tells the admin nothing. SQLite phrases it with no table at all, hence the
+    None.
+    """
+    raw = str(getattr(exc, 'orig', exc))
+    m = (re.search(r'still referenced from table "([^"]+)"', raw)
+         or re.search(r'constraint "[^"]+" on table "([^"]+)"', raw)
+         or re.search(r'table "([^"]+)" violates', raw))
+    if not m:
+        return None
+    return _USER_REF_LABELS.get(m.group(1), m.group(1))
+
+
+def _describe_public_delete_blockers(exc):
+    """The same, for a public member rather than an admin."""
+    culprit = _blocking_table(exc)
+    where = f' — records in "{culprit}" still point at them' if culprit else ''
+    return (f'Could not delete this member{where}. Their account is still '
+            'referenced by something this version does not know how to clear. '
+            'Deactivating or banning them removes their access without touching '
+            'the records.')
+
+
 def _describe_delete_blockers(user_id, exc):
     """Turn an IntegrityError into something an admin can act on."""
-    # Postgres names the offending constraint and table in the error text —
-    # that's the single most useful fact, so lead with it when it's there.
-    raw = str(getattr(exc, 'orig', exc))
-    culprit = None
-    m = re.search(r'on table "([^"]+)"', raw) or re.search(
-        r'table "([^"]+)" violates', raw)
-    if m:
-        culprit = _USER_REF_LABELS.get(m.group(1), m.group(1))
+    culprit = _blocking_table(exc)
 
     refs = _user_reference_counts(user_id)
     if refs:
@@ -26293,10 +26386,11 @@ def delete_admin_user(user_id):
                            'error': "You can't delete the account you're signed in with."}, 400)
     # Explicitly remove public mirrors first. The FK has ondelete=CASCADE in
     # the model, but the auto-migrator that added the column doesn't always
-    # carry that to the live schema, so we delete defensively.
-    PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
-    db.session.delete(sub)
+    # carry that to the live schema, so we delete defensively — and everything
+    # the mirror itself owns has to be dealt with before it can go.
     try:
+        _delete_admin_mirrors(sub.id)
+        db.session.delete(sub)
         db.session.commit()
     except IntegrityError as exc:
         # Previously this escaped as a 500 with an HTML body, so the browser's
