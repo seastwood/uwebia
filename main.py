@@ -16404,6 +16404,13 @@ def settings_page():
     timezone_choices = pytz.common_timezones
 
     if request.method == 'POST':
+        # Both tab panes live in one form, so a save still carries every field
+        # exactly as it did before the split — this only decides which tab the
+        # redirect lands on, so saving from "Site settings" doesn't bounce you
+        # back to "Your account".
+        _tab = request.form.get('active_tab') if request.form.get(
+            'active_tab') in ('user', 'site') else None
+
         # The custom admin-login URL key is an ORG-WIDE security setting: it's
         # stored on the anchor (primary owner) and enforced for everyone, so only
         # full admins / settings.edit may change it. (Timezone & date format below
@@ -16414,7 +16421,7 @@ def settings_page():
 
             if admin_url_key_enabled and not admin_url_key:
                 flash('Please enter an admin URL key or turn off the custom admin login URL setting.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             _anchor = get_main_admin() or current_user
             _anchor.admin_url_key_enabled = admin_url_key_enabled
@@ -16425,7 +16432,7 @@ def settings_page():
 
         if timezone_name not in pytz.all_timezones:
             flash('Invalid timezone selected.', 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         allowed_date_formats = [
             '%b %d, %Y %I:%M %p',
@@ -16450,7 +16457,7 @@ def settings_page():
 
         if not account_username:
             flash('Username cannot be blank.', 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         # In GitHub-only mode admins are expected to have no mailbox at all —
         # their second factor is the authenticator app, so an email is optional.
@@ -16462,33 +16469,33 @@ def settings_page():
         elif not account_email:
             if not admin_github_only_mode():
                 flash('Email cannot be blank.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
             account_email = None
         elif not valid_email(account_email):
             flash('Please enter a valid email address.', 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         conflict = admin_or_public_username_taken(
             account_username, account_email, exclude_admin_user_id=current_user.id
         )
         if conflict:
             flash(conflict, 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         password_change_requested = bool(new_password or confirm_new_password)
 
         if password_change_requested:
             if not current_password:
                 flash('Enter your current password to change your password.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             if not current_user.check_password(current_password):
                 flash('Current password is incorrect.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             if new_password != confirm_new_password:
                 flash('New passwords do not match.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             current_user.set_password(new_password)
 
@@ -16514,7 +16521,7 @@ def settings_page():
             )
         else:
             flash('Settings saved. Custom admin login URL is disabled.', 'success')
-        return redirect(url_for('settings_page'))
+        return redirect(url_for('settings_page', tab=_tab))
 
     # Build a sanitized database info dict — never expose the raw URL or password
     _raw_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
@@ -16573,6 +16580,10 @@ def settings_page():
         # advertises a setting that can only fail — their factor is the
         # authenticator app.
         can_use_email_2fa=admin_email_2fa_permitted(current_user),
+        # Which tab opens. The page re-picks this client-side from ?tab= or the
+        # last one you used; this is the server's starting guess so the first
+        # paint isn't the wrong pane.
+        active_tab=('site' if request.args.get('tab') == 'site' else 'user'),
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
         # Only the client id is echoed back — the secret is never rendered into
