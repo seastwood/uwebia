@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% include 'components/navbar.html' %}
+
+{% block content %}
+<style>
+    .home-wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 22px 60px;
+    }
+    .home-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 4px;
+    }
+    .home-head h1 {
+        margin: 0;
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: #fff;
+    }
+    .home-site {
+        font-size: 0.9rem;
+        color: rgba(255,255,255,0.45);
+    }
+    .home-site code {
+        font-size: 0.8rem;
+        opacity: 0.75;
+    }
+    .home-sub {
+        font-size: 0.88rem;
+        color: rgba(255,255,255,0.4);
+        margin: 0 0 24px;
+    }
+
+    .widget-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 14px;
+    }
+
+    .widget {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 17px;
+        border-radius: 15px;
+        background: rgba(255,255,255,0.035);
+        border: 1px solid rgba(255,255,255,0.09);
+        color: inherit;
+        text-decoration: none;
+        transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+        min-height: 118px;
+    }
+    .widget:hover {
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(255,255,255,0.2);
+        transform: translateY(-2px);
+    }
+
+    .widget-top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .widget-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        font-size: 0.95rem;
+        flex-shrink: 0;
+    }
+    .widget-label {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1.25;
+    }
+    .widget-ext {
+        margin-left: auto;
+        font-size: 0.7rem;
+        color: rgba(255,255,255,0.3);
+    }
+
+    .widget-stats {
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-top: auto;
+    }
+    .widget-stat-value {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #fff;
+        line-height: 1;
+    }
+    .widget-stat-label {
+        font-size: 0.73rem;
+        color: rgba(255,255,255,0.42);
+        margin-top: 3px;
+    }
+    .widget-open {
+        font-size: 0.78rem;
+        color: rgba(255,255,255,0.35);
+        margin-top: auto;
+    }
+
+    .home-empty {
+        padding: 30px;
+        border-radius: 14px;
+        border: 1px dashed rgba(255,255,255,0.16);
+        color: rgba(255,255,255,0.45);
+        font-size: 0.9rem;
+        line-height: 1.6;
+        text-align: center;
+    }
+
+    @media (max-width: 520px) {
+        .widget-grid { grid-template-columns: 1fr 1fr; }
+        .widget { min-height: 104px; padding: 13px; }
+        .widget-stat-value { font-size: 1.15rem; }
+    }
+</style>
+
+<div class="home-wrap">
+    <div class="home-head">
+        <h1>Dashboard</h1>
+        {% if current_site %}
+        <span class="home-site">
+            {{ current_site.name }}
+            {% if current_site.url_prefix %}<code>/{{ current_site.url_prefix }}/</code>{% endif %}
+        </span>
+        {% endif %}
+    </div>
+    <p class="home-sub">Everything you have access to, at a glance.</p>
+
+    {% if widgets %}
+    <div class="widget-grid">
+        {% for w in widgets %}
+        <a class="widget" href="{{ w.url }}"
+           {% if w.external %}target="_blank" rel="noopener"{% endif %}>
+            <div class="widget-top">
+                <span class="widget-icon"
+                      style="background:{{ w.accent }}1f;color:{{ w.accent }};">
+                    <i class="fas {{ w.icon }}"></i>
+                </span>
+                <span class="widget-label">{{ w.label }}</span>
+                {% if w.external %}
+                <i class="fas fa-arrow-up-right-from-square widget-ext"></i>
+                {% endif %}
+            </div>
+
+            {% if w.stats %}
+            <div class="widget-stats">
+                {% for s in w.stats %}
+                <div>
+                    <div class="widget-stat-value">{{ s.value }}</div>
+                    <div class="widget-stat-label">{{ s.label }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="widget-open">Open &rarr;</div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="home-empty">
+        Nothing to show yet. Once features are enabled on this site — and you have
+        permission to use them — they'll appear here.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

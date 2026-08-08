@@ -107,6 +107,13 @@
     <div class="login-container">
         <img src="{{ admin_brand_icon_url }}" alt="{{ admin_brand_name }}" style="height:56px;width:auto;max-width:220px;object-fit:contain;display:block;margin:0 auto 14px;">
         <h1>{{ admin_brand_name }} Login</h1>
+{% if admin_github_only and github_login_available %}
+        {# Org policy: admins sign in with GitHub. The password form is not
+           rendered, and the server refuses password logins as well. #}
+        <p style="color:rgba(255,255,255,0.7);font-size:0.92rem;line-height:1.55;text-align:center;margin:0 0 18px;">
+            This organization signs in with GitHub.
+        </p>
+        {% else %}
 <form method="POST" action="{{ request.path }}" id="loginForm">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
@@ -132,12 +139,26 @@
             {% endif %}
             <button type="submit" id="loginBtn">Login</button>
         </form>
+        {% endif %}
+        {% if github_login_available %}
+        <div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;opacity:0.45;font-size:0.78rem;color:#fff;">
+            <span style="flex:1;height:1px;background:rgba(255,255,255,0.25);"></span>OR<span style="flex:1;height:1px;background:rgba(255,255,255,0.25);"></span>
+        </div>
+        <a href="{{ url_for('github_start_admin') }}"
+           style="display:inline-flex;align-items:center;justify-content:center;gap:9px;width:100%;box-sizing:border-box;padding:11px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.07);color:#fff;font-weight:800;text-decoration:none;font-size:0.93rem;">
+            <i class="fab fa-github"></i> Continue with GitHub
+        </a>
+        {% endif %}
         <script>
-        document.getElementById('loginForm').addEventListener('submit', function () {
-            const btn = document.getElementById('loginBtn');
-            btn.disabled = true;
-            btn.textContent = 'Signing in…';
-        });
+        (function () {
+            var f = document.getElementById('loginForm');
+            if (!f) return;   // GitHub-only mode renders no password form
+            f.addEventListener('submit', function () {
+                var btn = document.getElementById('loginBtn');
+                btn.disabled = true;
+                btn.textContent = 'Signing in…';
+            });
+        })();
         </script>
         <div class="login-recovery-links">
     <a class="login-magic-link" href="{% if admin_key %}{{ url_for('admin_login_link_request', admin_key=admin_key) }}{% else %}{{ url_for('admin_login_link_request') }}{% endif %}">

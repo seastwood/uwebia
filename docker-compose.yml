@@ -37,6 +37,14 @@ services:
       # covers a proxy container on the compose network or one on the LAN.
       # Cloudflare users want e.g. `10.0.0.5,cloudflare`. See .env.example.
       UWEBIA_TRUSTED_PROXIES: ${UWEBIA_TRUSTED_PROXIES:-private}
+      # Database TLS — optional, off by default. The bundled Postgres image
+      # below has TLS off and sits on a private container network, so this
+      # stack runs unencrypted by design. Set these (see README, "Database
+      # TLS") when pointing DATABASE_URL at a database on another machine.
+      UWEBIA_DB_SSLMODE: ${UWEBIA_DB_SSLMODE:-}
+      UWEBIA_DB_SSLROOTCERT: ${UWEBIA_DB_SSLROOTCERT:-}
+      # Keep uploaded GeoIP databases on the volume mounted below.
+      UWEBIA_GEOIP_DIR: /app/geoip
       # Optional: tune gunicorn from .env without rebuilding.
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
@@ -47,6 +55,10 @@ services:
       # runtime, so they need a volume too — otherwise admin-UI changes
       # are lost on rebuild.
       - config_data:/app/config
+      # Uploaded GeoIP .mmdb databases. Without this they live only in the
+      # container's writable layer and vanish on every rebuild, while the
+      # database keeps pointing at them — location lookup then silently stops.
+      - geoip_data:/app/geoip
     # Publish the app port to the host. pfSense HAProxy (or any other
     # upstream proxy) can then reach the container at <docker-host>:5772.
     # Override the public-facing port via APP_HOST_PORT in .env if 5772
@@ -82,5 +94,6 @@ volumes:
   db_data:
   uploads_data:
   config_data:
+  geoip_data:
   caddy_data:
   caddy_config:

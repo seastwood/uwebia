@@ -366,6 +366,13 @@
 .store-dropdown.open .store-dropdown-content {
     display: block;
 }
+
+/* The globe lives at the far left of the bar, so centring its menu would push
+   it off-screen; anchor it to the left edge instead. */
+.globe-dropdown .store-dropdown-content {
+    left: 0;
+    transform: none;
+}
 .store-dropdown-content a {
     display: flex;
     align-items: center;
@@ -695,4 +702,18 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0);
     transition-delay: 0.15s;
+}
+
+
+/* "Website editor" entry at the top of the pages dropdown — styled like a page
+   link but flagged as a destination rather than one of the pages. */
+.nav-pages-editor-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 650;
+    color: rgba(255, 255, 255, 0.78) !important;
+}
+.nav-pages-editor-link:hover {
+    color: #5eeef8 !important;
 }

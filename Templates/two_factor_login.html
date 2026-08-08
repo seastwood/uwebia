@@ -103,6 +103,27 @@
         </button>
         <span id="resendStatus" style="font-size:0.82rem;margin-left:8px;"></span>
     </div>
+
+    {% if totp_broken %}
+    <div style="margin-top:12px;padding:11px 13px;border-radius:12px;
+                background:rgba(255,180,80,0.12);border:1px solid rgba(255,180,80,0.32);
+                color:#ffd9a3;font-size:0.85rem;line-height:1.5;text-align:left;">
+        Your authenticator app isn't available right now because this server's
+        <code>SECRET_KEY</code> changed since you set it up. Sign in with the
+        emailed code, then set the authenticator up again from Settings.
+    </div>
+    {% endif %}
+
+    {% if can_use_totp %}
+    <div style="margin-top:10px;text-align:center;">
+        <form method="POST" action="{{ url_for('admin_2fa_switch', method='totp') }}" style="margin:0;">
+            <button type="submit"
+                    style="background:none;border:none;color:rgba(255,255,255,0.45);font-size:0.85rem;cursor:pointer;text-decoration:underline;padding:4px;">
+                Use my authenticator app instead
+            </button>
+        </form>
+    </div>
+    {% endif %}
 </div>
 <script>
 document.querySelector('.two-factor-card').addEventListener('submit', function () {

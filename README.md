@@ -281,6 +281,125 @@ All settings can come from environment variables (preferred for Docker) or `conf
 | `POSTGRES_USER`      | `uwebia`                        | Postgres role used by the `db` service                             |
 | `POSTGRES_PASSWORD`  | *(must be set)*                 | Postgres password                                                  |
 | `POSTGRES_DB`        | `uwebia`                        | Postgres database name                                             |
+| `UWEBIA_DB_SSLMODE`  | *(unset — libpq default)*       | TLS mode for the Postgres connection. See below                    |
+| `UWEBIA_DB_SSLROOTCERT` | *(empty)*                    | CA certificate used by `verify-ca` / `verify-full`                 |
+
+---
+
+## Database TLS
+
+**Optional.** By default the app adds nothing and libpq's own behaviour applies,
+which is `sslmode=prefer`: it uses TLS when the server offers it and quietly
+falls back to an unencrypted connection when it doesn't. That's fine when the
+database is on the same host or on a private container network — the bundled
+`docker-compose` Postgres has TLS off entirely — and it's why this isn't forced
+on you.
+
+It's worth turning on when the database lives on **another machine**, because
+everything the app stores crosses that link: member emails, password hashes,
+session data.
+
+Startup always tells you where you ended up, whether or not you set anything:
+
+```
+[db] TLS: encrypted (TLSv1.3) — sslmode require
+[db] TLS: NOT encrypted. Traffic to PostgreSQL ... crosses the network in the clear.
+```
+
+### Turning it on
+
+```bash
+# in .env (Docker) or the app's environment
+UWEBIA_DB_SSLMODE=require
+```
+
+`require` encrypts the connection but does **not** check who the server is, so
+it stops passive sniffing, not an active machine-in-the-middle. Values are
+libpq's: `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`.
+
+An `sslmode=...` already present in `DATABASE_URL` always wins — the app leaves
+it alone.
+
+### Verifying the server as well
+
+`verify-full` is the real fix, and it has two requirements that catch people out:
+
+```bash
+UWEBIA_DB_SSLMODE=verify-full
+UWEBIA_DB_SSLROOTCERT=/etc/ssl/certs/uwebia-postgres-ca.crt
+```
+
+1. `UWEBIA_DB_SSLROOTCERT` must point at the CA that signed the server's
+   certificate — or, for a self-signed certificate, at that certificate itself.
+2. **The host in `DATABASE_URL` must match the certificate.** A certificate
+   whose SAN is a DNS name cannot verify a URL written with an IP address. This
+   is the usual failure: connect by the name (and make sure it resolves), or
+   reissue the certificate with an IP SAN.
+
+Check what your server presents before switching:
+
+```bash
+openssl s_client -starttls postgres -connect YOUR_DB_HOST:5432 </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -ext subjectAltName
+```
+
+If that prints `DNS:db.internal` while `DATABASE_URL` says `@10.0.0.5/`,
+`verify-full` will refuse to connect until you fix one or the other.
+
+---
+
+## Backup encryption
+
+A backup is the most sensitive file this app produces. It contains every admin
+and member **password hash**, every email address, phone number, order and
+message — and unlike the database, it travels: onto laptops, into a backup
+folder, off to a NAS. Encrypt it.
+
+Stored credentials (SMTP password, Stripe keys, OAuth tokens) are a partial
+exception: those are already encrypted with this install's `SECRET_KEY`, which
+is *not* in the backup, so they stay unusable to whoever finds the file.
+
+### Manual downloads
+
+Settings → Backup & Restore → *Encrypt with a passphrase*. The result is a
+`.uwbak` file instead of `.zip`. The passphrase is **never stored** — it goes
+in the request body (not the URL, so it stays out of access logs), is used
+once, and is forgotten.
+
+> **Lose the passphrase and the backup is unrecoverable.** There is no reset,
+> no escrow, no recovery. Keep it in a password manager — not in the same
+> folder as the backup.
+
+Restoring prompts for it automatically when the file is `.uwbak`.
+
+### Scheduled backups
+
+Settings → Automatic Backups → *Encrypt scheduled backups*. An unattended job
+has to be able to read its own passphrase, so this one **is** stored — encrypted
+with `SECRET_KEY`.
+
+Be clear about what that does and doesn't buy you:
+
+- **Protects against** a backup file leaking on its own: a stray copy, a
+  misconfigured share, a stolen NAS drive, a folder someone made public.
+- **Does not protect against** an attacker who already has the server, since
+  they have `SECRET_KEY` too and can decrypt the stored passphrase.
+
+Keep your own copy of that passphrase as well. If `SECRET_KEY` is ever lost or
+rotated, the stored copy becomes unreadable and yours is the only way back into
+those files. (The scheduler refuses to run rather than quietly writing an
+unencrypted backup if that happens.)
+
+Scheduled backups are written `0600` — readable only by the user the app runs
+as — whether or not encryption is on.
+
+### Format
+
+`.uwbak` is AES-256-GCM in 1 MiB chunks, key derived with scrypt
+(N=32768, r=8, p=1) from the passphrase and a random per-file salt. Each chunk
+authenticates its own index and whether it is the last, so tampering,
+reordering and truncation are all detected rather than silently producing a
+short "valid" backup.
 
 ---
 

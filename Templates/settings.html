@@ -340,6 +340,7 @@
 <div class="settings-card" style="margin-top: 20px;">
     <h2 class="settings-section-title">Account</h2>
 
+    {% if admin_collect_names %}
     <div class="settings-field">
         <label for="account_first_name">First Name <span style="opacity:0.5;font-weight:400;">(optional)</span></label>
         <input
@@ -361,6 +362,7 @@
             autocomplete="family-name"
         >
     </div>
+    {% endif %}
 
     <div class="settings-field">
         <label for="account_username">Username</label>
@@ -487,28 +489,40 @@
                 <h2 class="settings-section-title">Organization 2FA Policy</h2>
                 <p class="settings-help">
                     A site-wide security policy (not just your account). When on, <strong>every admin</strong> — main
-                    admin, co-owners and all sub-admins — must pass an emailed 2FA code at login, whether or not they've
-                    enabled 2FA individually. Stored on the primary owner so it survives ownership changes. Enabling it
-                    requires a verification code by email, and it auto-disables if the email server settings change (until
-                    re-verified) — just like per-account 2FA.
+                    admin, co-owners and all sub-admins — must pass a second factor at login, whether or not they've
+                    enabled 2FA individually. Either factor satisfies it: an
+                    <strong>authenticator app</strong>, or a code emailed to the admin. Admins who hold no email address
+                    use an authenticator, which is what makes this workable alongside the admin privacy settings below.
+                    Stored on the primary owner so it survives ownership changes.
+                </p>
+                <p class="settings-help">
+                    To turn it on you confirm your own second factor first — your authenticator code if you have one set
+                    up, otherwise a code emailed to you. It switches off automatically only if the email server settings
+                    change <em>and</em> some admin still depends on emailed codes; once every admin has an authenticator,
+                    mail settings no longer affect it.
                 </p>
 
                 {% if org_2fa_needs_attention %}
                 <p class="settings-help" style="color:#ffb3b3;">
-                    Org-wide 2FA was turned off automatically because the email server settings changed. Re-verify below to turn it back on.
+                    Org-wide 2FA was turned off automatically because the email server settings changed while some admins
+                    still relied on emailed codes. Re-verify below to turn it back on.
                 </p>
                 {% endif %}
 
                 {% if org_require_2fa %}
-                <p class="settings-help">Org-wide 2FA is currently <strong>ON</strong> — every admin is required to pass an emailed code at login.</p>
+                <p class="settings-help">Org-wide 2FA is currently <strong>ON</strong> — every admin must pass a second
+                   factor at login (authenticator app, or an emailed code where they have an address).</p>
                 <button type="button" class="settings-button danger" onclick="disableOrg2fa()">Turn off org-wide 2FA</button>
                 {% else %}
-                {% if not email_settings or not email_settings.is_active %}
+                {% if not current_user.totp_enabled and (not email_settings or not email_settings.is_active) %}
                 <p class="settings-help" style="color:#ffb3b3;">
-                    Configure an active email server first — admins receive their 2FA codes by email.
+                    Set up an authenticator app above, or configure an active email server, so your own second factor can
+                    be confirmed before it's required of everyone.
                 </p>
                 {% endif %}
-                <button type="button" class="settings-button" onclick="startOrg2fa()">Send Verification Code</button>
+                <button type="button" class="settings-button" onclick="startOrg2fa()">
+                    {% if current_user.totp_enabled %}Verify with authenticator{% else %}Send Verification Code{% endif %}
+                </button>
                 <div id="org2faVerifyBox" style="display:none; margin-top:16px;">
                     <div class="settings-field">
                         <label for="org2faCode">Verification Code</label>
@@ -522,6 +536,189 @@
             </div>
             {% endif %}
         </dive>
+
+            {% if can_edit_settings %}
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Authenticator App (TOTP)</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    A second factor that works without email — required for admins who
+                    sign in with GitHub and have no mailbox on file.
+                </p>
+                {% if current_user.totp_enabled %}
+                <p class="settings-help">
+                    <i class="fas fa-check-circle" style="color:#7ee2cc;"></i>
+                    Enabled on this account.
+                </p>
+                <button type="button" class="settings-button danger" onclick="disableTotp()">Turn off authenticator</button>
+                {% else %}
+                <a class="settings-button" href="{{ url_for('admin_totp_setup') }}">Set up authenticator app</a>
+                {% endif %}
+                <div class="settings-message" id="totpMessage"></div>
+            </div>
+
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">GitHub Sign-In</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. Uwebia requests <strong>no scopes</strong> and stores only
+                    GitHub's anonymous account number — never an email, name or GitHub username.
+                    Callback URL: <code>{{ github_callback_url }}</code>
+                </p>
+                <div class="settings-field">
+                    <label for="ghClientId">Client ID</label>
+                    <input id="ghClientId" type="text" class="form-control"
+                           value="{{ github_client_id or '' }}" placeholder="Iv1.xxxxxxxxxxxx">
+                </div>
+                <div class="settings-field">
+                    <label for="ghClientSecret">Client Secret</label>
+                    <input id="ghClientSecret" type="password" class="form-control"
+                           autocomplete="new-password"
+                           placeholder="{% if github_login_available %}Leave blank to keep current secret{% else %}Paste the client secret{% endif %}">
+                </div>
+                <button type="button" class="settings-button" onclick="saveGithubSettings()">Save GitHub app</button>
+
+                <div style="margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);">
+                    <p class="settings-help">
+                        {% if current_user.github_user_id %}
+                        <i class="fab fa-github"></i> This account is linked to GitHub.
+                        {% else %}
+                        <i class="fab fa-github"></i> This account is not linked to GitHub yet.
+                        {% endif %}
+                    </p>
+                    {% if github_login_available %}
+                    <a class="settings-button" href="{{ url_for('github_link_admin') }}">
+                        {% if current_user.github_user_id %}Re-link GitHub{% else %}Link my GitHub account{% endif %}
+                    </a>
+                    {% endif %}
+                </div>
+                <div class="settings-message" id="githubMessage"></div>
+            </div>
+
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Admin Privacy</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. For teams whose admins are students or minors.
+                </p>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="adminCollectNames"
+                               {% if admin_collect_names %}checked{% endif %}>
+                        Collect admin first &amp; last names
+                    </label>
+                    <p class="settings-help">
+                        Turning this off hides the name fields and
+                        <strong>permanently deletes</strong> names already stored.
+                    </p>
+                </div>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="adminGithubOnly"
+                               {% if admin_github_only %}checked{% endif %}>
+                        Admins sign in with GitHub only (no passwords, no email)
+                    </label>
+                    <p class="settings-help">
+                        Every admin must have a linked GitHub account and at least one must
+                        have an authenticator app set up, or this can't be turned on.
+                        Two-factor authentication then uses the authenticator app instead of email.
+                    </p>
+                </div>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="adminEmailRestricted"
+                               {% if admin_email_restricted %}checked{% endif %}>
+                        Admins have no email unless individually permitted
+                    </label>
+                    <p class="settings-help">
+                        Makes &ldquo;no email&rdquo; the default for admin accounts. Grant it
+                        per-admin on the Admin Users page. The primary owner is always
+                        exempt so the org can't lock itself out. Admins without email
+                        access use an authenticator app for two-factor sign-in.
+                    </p>
+                </div>
+                <button type="button" class="settings-button" onclick="saveAdminPrivacy()">Save privacy settings</button>
+                <div class="settings-message" id="adminPrivacyMessage"></div>
+            </div>
+            {% endif %}
+
+            {% if can_edit_settings %}
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Logging</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. The log file is size-capped and rotates automatically,
+                    so it can't fill the disk either way.
+                </p>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="verboseLogging"
+                               {% if verbose_logging %}checked{% endif %}>
+                        Log every HTTP request
+                    </label>
+                    <p class="settings-help">
+                        Useful while debugging. Leave off in normal use &mdash; an uptime or
+                        load-balancer health check polling once a second writes tens of
+                        megabytes a day of near-identical lines and buries anything real.
+                    </p>
+                </div>
+                {% if log_file_status and log_file_status.path %}
+                <p class="settings-help">
+                    Writing to <code>{{ log_file_status.path }}</code> &mdash;
+                    currently {{ '%.1f'|format(log_file_status.size / 1048576) }} MB,
+                    capped at about {{ log_file_status.cap_mb }} MB before old entries
+                    are discarded.
+                </p>
+                {% else %}
+                <p class="settings-help">File logging is disabled (<code>UWEBIA_LOG_FILE=off</code>).</p>
+                {% endif %}
+                <button type="button" class="settings-button" onclick="saveLoggingSettings()">Save logging settings</button>
+                <div class="settings-message" id="loggingMessage"></div>
+            </div>
+            {% endif %}
+
+            {% if can_edit_settings %}
+            <div class="settings-card" style="margin-top:20px;">
+                <h2 class="settings-section-title">Visitor IP retention</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    Org-wide. An IP address is personal data. The app records one against
+                    page visits, forum posts, contact messages and calendar subscriptions;
+                    this decides how long it's kept.
+                </p>
+                <div class="settings-field">
+                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
+                        <input type="checkbox" id="storeVisitorIps"
+                               {% if store_visitor_ips %}checked{% endif %}
+                               onchange="_ipRecordingChanged()">
+                        Record visitor IP addresses
+                    </label>
+                    <p class="settings-help">
+                        Turn this off to stop writing them down at all. Analytics keeps
+                        working &mdash; country, region and city are still worked out from
+                        the live request, so only the address itself is dropped. Note that
+                        forum posts and contact messages also stop carrying an IP, which is
+                        what you'd otherwise use to trace abuse.
+                    </p>
+                </div>
+                <div class="settings-field" id="ipRetentionField">
+                    <label for="ipRetentionDays">Erase IP addresses older than</label>
+                    <input type="number" id="ipRetentionDays" min="0" max="3650" step="1"
+                           value="{{ ip_retention_days }}" style="max-width:140px;">
+                    <p class="settings-help">
+                        Days. <strong>0 keeps them forever.</strong> Only the IP is erased &mdash;
+                        the page view, forum post or message itself stays exactly as it is,
+                        so analytics totals and threads are unaffected.
+                    </p>
+                    <p class="settings-help">
+                        {% if stored_ip_count %}
+                        {{ stored_ip_count }} record{{ 's' if stored_ip_count != 1 }} currently
+                        hold an IP address. Saving a shorter window erases the ones already
+                        past it immediately &mdash; that can't be undone.
+                        {% else %}
+                        No records currently hold an IP address.
+                        {% endif %}
+                    </p>
+                </div>
+                <button type="button" class="settings-button" onclick="saveIpRetention()">Save retention setting</button>
+                <div class="settings-message" id="ipRetentionMessage"></div>
+            </div>
+            {% endif %}
 
             {% if can_edit_settings %}
             <div class="settings-card">
@@ -1181,12 +1378,17 @@
         }
         async function startOrg2fa() {
             _org2faMsg('');
-            if (!confirm('Require 2FA for EVERY admin login?\n\nWe\'ll email you a verification code to confirm. Once on, all admins (co-owners and sub-admins included) must pass an emailed code at login.')) return;
+            if (!confirm('Require 2FA for EVERY admin login?\n\nYou\'ll confirm your own second factor first. Once on, all admins (co-owners and sub-admins included) must pass one at login — an authenticator app, or an emailed code where they have an address.')) return;
             try {
                 const r = await fetch('/admin/dashboard/settings/2fa/org-policy/start', { method: 'POST' });
                 const d = await r.json();
-                if (!d.success) { _org2faMsg(d.error || 'Could not send code.', true); return; }
+                if (!d.success) { _org2faMsg(d.error || 'Could not start verification.', true); return; }
                 document.getElementById('org2faVerifyBox').style.display = 'block';
+                const box = document.getElementById('org2faCode');
+                if (box) {
+                    box.placeholder = '000000';
+                    box.focus();
+                }
                 _org2faMsg(d.message || 'Verification code sent.');
             } catch (e) { _org2faMsg('Request failed.', true); }
         }
@@ -1211,6 +1413,127 @@
                 if (!d.success) { _org2faMsg(d.error || 'Could not disable.', true); return; }
                 window.location.reload();
             } catch (e) { _org2faMsg('Request failed.', true); }
+        }
+
+        function _msg(id, text, isError) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = isError ? '#f88' : '#7ee2cc';
+        }
+
+        async function saveGithubSettings() {
+            const clientId = document.getElementById('ghClientId').value.trim();
+            const secret   = document.getElementById('ghClientSecret').value.trim();
+            try {
+                const r = await fetch('/admin/dashboard/settings/github', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId, client_secret: secret })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('githubMessage', d.error || 'Could not save.', true); return; }
+                document.getElementById('ghClientSecret').value = '';
+                _msg('githubMessage', d.configured
+                    ? 'Saved. GitHub sign-in is ready to enable.'
+                    : 'Saved, but both a client ID and secret are needed before it can be used.', !d.configured);
+            } catch (e) { _msg('githubMessage', 'Request failed.', true); }
+        }
+
+        async function saveAdminPrivacy() {
+            const collectNames = document.getElementById('adminCollectNames').checked;
+            const githubOnly   = document.getElementById('adminGithubOnly').checked;
+            const emailRestricted = document.getElementById('adminEmailRestricted').checked;
+            if (!collectNames && !confirm(
+                'Turn off admin name collection?\n\nAny first and last names already stored for admins will be permanently deleted.')) return;
+            if (githubOnly && !confirm(
+                'Switch admins to GitHub-only sign-in?\n\nPasswords will no longer be accepted at the admin login.')) return;
+            try {
+                const r = await fetch('/admin/dashboard/settings/admin-privacy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ collect_names: collectNames, github_only: githubOnly,
+                                           email_restricted: emailRestricted })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('adminPrivacyMessage', d.error || 'Could not save.', true); return; }
+                let note = 'Saved.';
+                if (d.purged) note += ' Removed names from ' + d.purged + ' admin account(s).';
+                _msg('adminPrivacyMessage', note, false);
+                setTimeout(function () { window.location.reload(); }, 1200);
+            } catch (e) { _msg('adminPrivacyMessage', 'Request failed.', true); }
+        }
+
+        async function saveLoggingSettings() {
+            const verbose = document.getElementById('verboseLogging').checked;
+            try {
+                const r = await fetch('/admin/dashboard/settings/logging', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ verbose: verbose })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('loggingMessage', d.error || 'Could not save.', true); return; }
+                _msg('loggingMessage', d.verbose
+                    ? 'Saved. Every request is now logged — remember to switch this off afterwards.'
+                    : 'Saved. Only warnings and errors are logged.', false);
+            } catch (e) { _msg('loggingMessage', 'Request failed.', true); }
+        }
+
+        // A retention window is meaningless when nothing is being recorded.
+        function _ipRecordingChanged() {
+            const on = document.getElementById('storeVisitorIps').checked;
+            const field = document.getElementById('ipRetentionField');
+            if (field) field.style.opacity = on ? '' : '0.45';
+            const input = document.getElementById('ipRetentionDays');
+            if (input) input.disabled = !on;
+        }
+        document.addEventListener('DOMContentLoaded', _ipRecordingChanged);
+
+        async function saveIpRetention() {
+            const storeIps = document.getElementById('storeVisitorIps').checked;
+            const days = parseInt(document.getElementById('ipRetentionDays').value, 10);
+            if (storeIps && (isNaN(days) || days < 0 || days > 3650)) {
+                _msg('ipRetentionMessage', 'Enter a whole number between 0 and 3650.', true);
+                return;
+            }
+            let warning;
+            if (!storeIps) {
+                warning = 'Stop recording visitor IP addresses?\n\nEvery IP already stored is erased as well — page visits, forum posts, comments, contact messages and calendar subscriptions. This cannot be undone.';
+            } else if (days === 0) {
+                warning = 'Keep visitor IP addresses forever?\n\nNothing will be erased automatically.';
+            } else {
+                warning = `Erase visitor IP addresses older than ${days} day(s)?\n\nAny already past that age are erased as soon as you save. This cannot be undone.`;
+            }
+            if (!confirm(warning)) return;
+            try {
+                const r = await fetch('/admin/dashboard/settings/ip-retention', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: isNaN(days) ? 0 : days, store_ips: storeIps })
+                });
+                const d = await r.json();
+                if (!d.success) { _msg('ipRetentionMessage', d.error || 'Could not save.', true); return; }
+                let note;
+                if (!d.store_ips) {
+                    note = `Saved. IP addresses are no longer recorded, and ${d.cleared} existing record${d.cleared === 1 ? ' was' : 's were'} erased.`;
+                } else if (d.days === 0) {
+                    note = 'Saved. IP addresses are recorded and kept indefinitely.';
+                } else {
+                    note = `Saved. Erased ${d.cleared} record${d.cleared === 1 ? '' : 's'} already past ${d.days} day(s); the rest are swept nightly.`;
+                }
+                _msg('ipRetentionMessage', note, false);
+            } catch (e) { _msg('ipRetentionMessage', 'Request failed.', true); }
+        }
+
+        async function disableTotp() {
+            if (!confirm('Turn off the authenticator app for your account?')) return;
+            try {
+                const r = await fetch('/admin/2fa/app/disable', { method: 'POST' });
+                const d = await r.json();
+                if (!d.success) { _msg('totpMessage', d.error || 'Could not turn it off.', true); return; }
+                window.location.reload();
+            } catch (e) { _msg('totpMessage', 'Request failed.', true); }
         }
     </script>
 
@@ -1364,6 +1687,17 @@
                     Include uploaded files (images, audio, documents)
                 </label>
             </div>
+            <div class="settings-field" style="margin-bottom:12px;">
+                <label for="backupPassphrase">Encrypt with a passphrase <span style="color:rgba(255,255,255,0.35);font-weight:400;">strongly recommended</span></label>
+                <input type="password" id="backupPassphrase" autocomplete="new-password"
+                       placeholder="Leave blank to download an unencrypted ZIP">
+                <p class="settings-help">
+                    This file contains every member's email address and password hash. Encrypting
+                    it means a leaked copy is useless without the passphrase.
+                    <strong>It is not stored anywhere &mdash; if you lose it, the backup cannot be
+                    recovered.</strong> Keep it in a password manager, not next to the backup.
+                </p>
+            </div>
             <button type="button" class="uw-btn uw-btn-secondary" onclick="downloadBackup()">
                 <i class="fas fa-download"></i> Download Backup
             </button>
@@ -1380,13 +1714,22 @@
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                 <label class="uw-btn uw-btn-secondary" style="cursor:pointer;" id="backupFileLabel">
                     <i class="fas fa-folder-open"></i> Choose File
-                    <input type="file" id="backupFileInput" accept=".zip" style="display:none;"
-                           onchange="document.getElementById('backupFileLabel').querySelector('span').textContent = this.files[0]?.name || ''">
+                    <input type="file" id="backupFileInput" accept=".zip,.uwbak" style="display:none;"
+                           onchange="_backupFilePicked(this)">
                     <span style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-left:6px;"></span>
                 </label>
                 <button class="uw-btn uw-btn-primary" id="importBackupBtn" onclick="startImport()">
                     <i class="fas fa-upload"></i> Import Backup
                 </button>
+            </div>
+            <div class="settings-field" id="restorePassphraseField" style="margin-top:10px;display:none;">
+                <label for="restorePassphrase">Backup passphrase</label>
+                <input type="password" id="restorePassphrase" autocomplete="off"
+                       placeholder="The passphrase this backup was encrypted with">
+                <p class="settings-help" id="restorePassphraseHint">
+                    This file is encrypted (<code>.uwbak</code>). Without the passphrase it
+                    cannot be restored &mdash; there is no recovery path.
+                </p>
             </div>
             <div id="importStatus" style="margin-top:10px;font-size:0.85rem;display:none;"></div>
         </div>
@@ -1414,6 +1757,36 @@
                    placeholder="/var/backups/uwebia"
                    value="{{ ab.folder_path if ab and ab.folder_path else '' }}">
         </div>
+
+        <div class="settings-field" style="margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="abEncrypt" {% if ab and ab.encrypt_enabled %}checked{% endif %}
+                       onchange="_abEncryptChanged()"
+                       style="accent-color:#7ee2cc;width:16px;height:16px;">
+                Encrypt scheduled backups
+            </label>
+            <div id="abPassphraseWrap" style="margin-top:8px;{% if not (ab and ab.encrypt_enabled) %}display:none;{% endif %}">
+                <input type="password" id="abPassphrase" autocomplete="new-password"
+                       placeholder="{% if ab and ab.encrypt_passphrase %}Stored — leave blank to keep it{% else %}Passphrase (12+ characters){% endif %}">
+                <p class="settings-help">
+                    Unlike a manual download, an unattended job has to be able to read this
+                    back, so it's stored encrypted with this server's <code>SECRET_KEY</code>.
+                    That protects a backup file that leaks <em>on its own</em> &mdash; off a NAS,
+                    a stray copy, a misconfigured share. It does not protect you from someone
+                    who already has the server and its key.
+                    <strong>Keep your own copy of the passphrase</strong>: if
+                    <code>SECRET_KEY</code> is ever lost or changed, the stored one becomes
+                    unreadable and only your copy can open those files.
+                </p>
+            </div>
+        </div>
+        {% if ab and ab.enabled and not ab.encrypt_enabled %}
+        <p class="settings-help" style="color:#ffce6b;margin-bottom:12px;">
+            <i class="fas fa-triangle-exclamation"></i>
+            Scheduled backups are being written unencrypted. Each one holds every member's
+            email address and password hash.
+        </p>
+        {% endif %}
 
         <div style="display:flex;gap:14px;flex-wrap:wrap;">
             <div class="settings-field" style="flex:1 1 180px;">
@@ -1465,6 +1838,11 @@
         form.append('folder_path', document.getElementById('abFolder').value);
         form.append('frequency', document.getElementById('abFrequency').value);
         form.append('max_backups', document.getElementById('abMax').value);
+        const abEncrypt = document.getElementById('abEncrypt').checked;
+        form.append('encrypt_enabled', abEncrypt ? '1' : '0');
+        // Blank means "keep the stored passphrase", so only send a new one.
+        const abPass = (document.getElementById('abPassphrase')?.value || '').trim();
+        if (abPass) form.append('encrypt_passphrase', abPass);
         btn.disabled = true;
         status.style.display = 'block';
         status.style.color = 'rgba(255,255,255,0.5)';
@@ -1515,15 +1893,50 @@
             });
     }
 
+    function _abEncryptChanged() {
+        const on = document.getElementById('abEncrypt').checked;
+        document.getElementById('abPassphraseWrap').style.display = on ? '' : 'none';
+    }
+
+    // Only ask for a passphrase when the chosen file actually needs one.
+    function _backupFilePicked(input) {
+        const name = input.files[0]?.name || '';
+        document.getElementById('backupFileLabel').querySelector('span').textContent = name;
+        const field = document.getElementById('restorePassphraseField');
+        field.style.display = name.toLowerCase().endsWith('.uwbak') ? '' : 'none';
+    }
+
     function downloadBackup() {
         const includeFiles = document.getElementById('backupIncludeFiles')?.checked !== false;
-        const url = '{{ url_for("export_backup") }}' + (includeFiles ? '' : '?include_files=0');
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = '';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        const passphrase = (document.getElementById('backupPassphrase')?.value || '').trim();
+        if (!passphrase && !confirm(
+                'Download this backup unencrypted?\n\nIt contains every member\'s email address and password hash in readable form. Anyone who gets the file gets all of it.')) {
+            return;
+        }
+        if (passphrase && passphrase.length < 12) {
+            alert('Use a passphrase of at least 12 characters — it is the only thing protecting the file.');
+            return;
+        }
+        // POSTed, not a link: a passphrase in a URL would be written to access
+        // logs, proxy logs and browser history. The CSRF shim in base.html adds
+        // the token to form submissions automatically.
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("export_backup") }}';
+        form.style.display = 'none';
+        const add = (name, value) => {
+            const i = document.createElement('input');
+            i.type = 'hidden'; i.name = name; i.value = value;
+            form.appendChild(i);
+        };
+        add('include_files', includeFiles ? '1' : '0');
+        if (passphrase) add('passphrase', passphrase);
+        document.body.appendChild(form);
+        form.submit();
+        setTimeout(() => form.remove(), 1000);
+        // Don't leave it sitting in the field afterwards.
+        const field = document.getElementById('backupPassphrase');
+        if (field) field.value = '';
     }
 
     async function startImport() {
@@ -1541,6 +1954,8 @@
 
         const form = new FormData();
         form.append('backup_file', file);
+        const passphrase = (document.getElementById('restorePassphrase')?.value || '').trim();
+        if (passphrase) form.append('passphrase', passphrase);
 
         try {
             const r = await fetch('/admin/settings/backup/import', { method: 'POST', body: form });
@@ -1550,6 +1965,12 @@
                 status.textContent = 'Import successful! Reloading…';
                 setTimeout(() => location.href = '/admin/dashboard', 1500);
             } else {
+                // Encrypted file with no/wrong passphrase: reveal the field and
+                // keep the file selected so they can just try again.
+                if (d.encrypted) {
+                    document.getElementById('restorePassphraseField').style.display = '';
+                    document.getElementById('restorePassphrase').focus();
+                }
                 status.style.color = '#f88';
                 status.textContent = 'Error: ' + (d.error || 'Import failed');
                 btn.disabled = false;

@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+    .tfa-page { min-height:100vh; display:grid; justify-items:center; align-content:start;
+        padding:64px 24px 24px; background:#1f1f22; color:#fff; }
+    .tfa-card { width:min(520px,100%); background:#2a2a2f; border:1px solid rgba(255,255,255,0.1);
+        border-radius:18px; padding:24px; box-shadow:0 18px 45px rgba(0,0,0,0.35); }
+    .tfa-card h1 { margin:0 0 8px; font-size:1.4rem; }
+    .tfa-card p { color:rgba(255,255,255,0.68); line-height:1.55; }
+    .tfa-step { margin-top:18px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08); }
+    .tfa-step h2 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.1em;
+        color:rgba(255,255,255,0.4); margin:0 0 10px; }
+    .tfa-qr { background:#fff; padding:12px; border-radius:14px; width:max-content;
+        margin:0 auto 12px; }
+    .tfa-qr svg { display:block; width:190px; height:190px; }
+    .tfa-secret { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.95rem;
+        letter-spacing:0.08em; background:#1f1f22; border:1px solid rgba(255,255,255,0.14);
+        border-radius:10px; padding:10px 12px; word-break:break-all; text-align:center; }
+    .tfa-card input[type=text] { width:100%; box-sizing:border-box; margin-top:12px; padding:12px;
+        border-radius:12px; border:1px solid rgba(255,255,255,0.14); background:#1f1f22;
+        color:#fff; font-size:1.2rem; letter-spacing:0.18em; text-align:center; }
+    .tfa-card button[type=submit] { width:100%; margin-top:16px; padding:12px; border:0;
+        border-radius:12px; background:#7ee2cc; color:#10251f; font-weight:850; cursor:pointer; }
+    .flash-message { margin-bottom:12px; padding:10px 12px; border-radius:12px;
+        background:rgba(255,255,255,0.08); }
+    .tfa-note { font-size:0.85rem; color:rgba(255,255,255,0.45); margin-top:10px; }
+</style>
+
+<div class="tfa-page">
+    <form class="tfa-card" method="POST" action="{{ url_for('admin_totp_setup') }}">
+        <h1>Set up your authenticator app</h1>
+        {% if mid_login %}
+        <p>Your organization requires two-factor authentication. Set up an
+           authenticator app to finish signing in.</p>
+        {% else %}
+        <p>Add a second factor that works without email — useful if this account
+           has no mailbox attached.</p>
+        {% endif %}
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="flash-message">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        {% if needs_ticket %}
+        <div class="tfa-step" style="margin-top:6px;">
+            <h2>Step 0 — setup code from an owner</h2>
+            <p style="margin:0 0 4px;">
+                Setting this up during sign-in only proves your password, so an owner has to
+                authorise it. Ask one for a setup code — they issue it from
+                <strong>Admin Users</strong>.
+            </p>
+            <input type="text" name="enroll_ticket" placeholder="xxxx-xxxx" required
+                   autocomplete="off" autocapitalize="none" spellcheck="false"
+                   style="letter-spacing:0.12em;">
+        </div>
+        {% endif %}
+
+        <div class="tfa-step">
+            <h2>Step 1 — scan this code</h2>
+            {% if qr_svg %}
+            <div class="tfa-qr">{{ qr_svg|safe }}</div>
+            {% endif %}
+            <p class="tfa-note" style="text-align:center;">
+                Use Google Authenticator, Authy, 1Password, or any TOTP app.
+            </p>
+        </div>
+
+        <div class="tfa-step">
+            <h2>Step 2 — or enter this key by hand</h2>
+            <div class="tfa-secret">{{ secret }}</div>
+        </div>
+
+        <div class="tfa-step">
+            <h2>Step 3 — confirm</h2>
+            <p>Enter the 6-digit code your app is showing now.</p>
+            <input type="text" name="code" inputmode="numeric" maxlength="6"
+                   autocomplete="one-time-code" placeholder="000000" required autofocus>
+            <button type="submit">Turn on authenticator</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

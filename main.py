@@ -15,6 +15,7 @@ import secrets
 import hashlib
 import json
 import mimetypes
+import tempfile
 import time
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
@@ -49,7 +50,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
-from flask import send_file
+from flask import send_file, after_this_request
 
 from bs4 import BeautifulSoup
 
@@ -59,6 +60,76 @@ from bs4 import BeautifulSoup
 logging.basicConfig(level=getattr(logging, os.environ.get('UWEBIA_LOG_LEVEL', 'INFO').upper(), logging.INFO))
 # These libraries are chatty at DEBUG and never useful in normal operation.
 logging.getLogger('urllib3').setLevel(logging.WARNING)
+
+# ── Log volume ───────────────────────────────────────────────────────────────
+# The request logger prints a line per HTTP call. That is fine by hand and
+# ruinous in place: a load-balancer health check polling once a second produces
+# tens of megabytes a day of "OPTIONS / 200" and nothing else, until the disk
+# fills. So per-request logging is OFF unless an admin asks for it (Settings →
+# Logging), and the log file is size-capped either way, because a diagnostic
+# that can exhaust the disk is a liability rather than a tool.
+_REQUEST_LOGGERS = ('werkzeug', 'gunicorn.access')
+
+
+def apply_log_verbosity(verbose):
+    """Turn per-request logging on or off. Takes effect immediately."""
+    level = logging.INFO if verbose else logging.WARNING
+    for name in _REQUEST_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+    return bool(verbose)
+
+
+# Off until the database tells us otherwise (see the startup block), so a
+# restart never silently reopens the firehose.
+apply_log_verbosity(False)
+
+
+def _install_rotating_log():
+    """Send logging to a size-capped file. UWEBIA_LOG_FILE=off disables it.
+
+    Note this owns the file itself rather than relying on a shell redirect:
+    `python main.py > app.log` cannot rotate, because the shell holds the
+    original file open and would keep writing to it after a rename.
+    """
+    target = os.environ.get('UWEBIA_LOG_FILE',
+                            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         'uwebia.log'))
+    if not target or str(target).strip().lower() in ('off', 'none', ''):
+        return None
+    try:
+        max_mb = float(os.environ.get('UWEBIA_LOG_MAX_MB', '5'))
+        backups = int(os.environ.get('UWEBIA_LOG_BACKUPS', '3'))
+        from logging.handlers import RotatingFileHandler
+        handler = RotatingFileHandler(target, maxBytes=int(max_mb * 1024 * 1024),
+                                      backupCount=backups, encoding='utf-8')
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s %(name)s: %(message)s'))
+        root = logging.getLogger()
+        root.addHandler(handler)
+        # When running detached, drop the console handler so log records go to
+        # the rotating file ONLY. Otherwise they also stream to stderr, and a
+        # `> file` redirect would grow without limit — defeating the cap we just
+        # set. Interactive runs keep their console output; set
+        # UWEBIA_LOG_CONSOLE=1 to force it either way.
+        import sys as _sys
+        keep_console = (os.environ.get('UWEBIA_LOG_CONSOLE', '').strip().lower()
+                        in ('1', 'true', 'yes', 'on'))
+        if not keep_console:
+            try:
+                attached = _sys.stderr is not None and _sys.stderr.isatty()
+            except Exception:
+                attached = False
+            if not attached:
+                for existing in list(root.handlers):
+                    if isinstance(existing, logging.StreamHandler) and existing is not handler:
+                        root.removeHandler(existing)
+        return target
+    except Exception as exc:  # never let logging setup stop the app booting
+        print(f'Could not open log file {target}: {exc}')
+        return None
+
+
+_ACTIVE_LOG_FILE = _install_rotating_log()
 
 # Set the template folder path
 template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Templates')
@@ -92,6 +163,41 @@ uploads_folder = os.path.join(static_folder, 'uploads')
 os.makedirs(uploads_folder, exist_ok=True)
 
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
+
+
+def _load_dotenv():
+    """Read `.env` into the environment for runs that aren't under compose.
+
+    docker-compose reads .env by itself, but `python main.py` does not — which
+    meant a SECRET_KEY sitting in .env was silently ignored locally and the app
+    booted on a throwaway key instead, quietly orphaning every encrypted secret
+    (authenticator enrolments most painfully) on each restart.
+
+    Real environment variables always win, so this can never override what a
+    container or shell already set.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            lines = fh.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+_load_dotenv()
+
 # Session/cookie signing key, read from SECRET_KEY (supplied by docker-compose/.env
 # in production). If it's unset we fall back to a random per-process key rather than
 # a guessable constant — an unconfigured instance is then unforgeable, at the (loud,
@@ -100,14 +206,24 @@ app = Flask(__name__, template_folder=template_folder, static_folder=static_fold
 # derived from this value, so changing it logs everyone out AND requires re-entering
 # those credentials.
 _secret_key = os.environ.get('SECRET_KEY')
+_SECRET_KEY_IS_EPHEMERAL = not _secret_key
 if not _secret_key:
     import secrets as _secrets_mod
     _secret_key = _secrets_mod.token_hex(32)
-    logging.warning(
-        'No SECRET_KEY set — using a random ephemeral key. Sessions and encrypted '
-        'stored secrets will NOT survive a restart. Set SECRET_KEY in the '
-        "environment (generate: python -c 'import secrets; print(secrets.token_hex(32))')."
-    )
+    # Loud, because the consequences are worse than "you'll be logged out":
+    # anything encrypted with the derived key — authenticator secrets above all
+    # — becomes unreadable, and 2FA then rejects every code with no explanation.
+    print('=' * 72)
+    print('WARNING: no SECRET_KEY set — using a random key that changes every restart.')
+    print('  • Everyone is logged out on restart.')
+    print('  • Pending reset / magic-sign-in links stop working.')
+    print('  • Authenticator (TOTP) secrets become UNREADABLE, so 2FA codes will')
+    print('    be rejected and admins must fall back to recovery codes.')
+    print('  • Stored Stripe / SMS / AI / OAuth credentials must be re-entered.')
+    print('  Fix: put a fixed value in the environment, e.g. in .env')
+    print("    SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')")
+    print('=' * 72)
+    logging.warning('No SECRET_KEY set — using a random ephemeral key.')
 app.secret_key = _secret_key
 
 # Session cookie hardening.
@@ -311,13 +427,104 @@ _DATABASE_URL = (
 )
 app.config['SQLALCHEMY_DATABASE_URI'] = _DATABASE_URL
 
+# ── Database TLS ──────────────────────────────────────────────────────────────
+# psycopg2 defaults to sslmode=prefer, which uses TLS when the server offers it
+# and silently falls back to PLAINTEXT when it doesn't. A server that stops
+# offering TLS therefore downgrades every connection without a word — and the
+# database usually lives on another host, so that traffic crosses a network
+# carrying member emails, password hashes and session data.
+#
+# Enforcing TLS is therefore OPT-IN, not automatic: plenty of deployments run
+# the database on the same host or on a private container network (the bundled
+# docker-compose Postgres ships with ssl off entirely), and silently imposing
+# `require` there would turn a working install into one that won't boot.
+#
+# So by default nothing is added and libpq's own behaviour applies. Set
+# UWEBIA_DB_SSLMODE to opt in — `require` to insist on encryption, or
+# `verify-full` to also authenticate the server, which additionally needs
+# UWEBIA_DB_SSLROOTCERT and a certificate whose SAN matches the host in the
+# URL. See the README ("Database TLS") and .env.example.
+#
+# Either way, startup reports whether the connection actually ended up
+# encrypted, so an unencrypted link is a visible choice rather than a silent
+# default.
+_DB_SSLMODE_ENV = (os.environ.get('UWEBIA_DB_SSLMODE') or '').strip().lower()
+_DB_SSLROOTCERT = (os.environ.get('UWEBIA_DB_SSLROOTCERT') or '').strip()
+_DB_TLS_STATUS = 'not applicable (not PostgreSQL)'
+
+
+def _libpq_url(url):
+    """SQLAlchemy URL -> plain libpq URL (psycopg2 rejects the +driver part)."""
+    return url.replace('postgresql+psycopg2://', 'postgresql://', 1)
+
+
+def _url_declares_sslmode(url):
+    from urllib.parse import parse_qs, urlsplit
+    return 'sslmode' in parse_qs(urlsplit(url).query)
+
+
+def _resolve_db_sslmode(url):
+    """The sslmode to apply, or None to leave libpq's default alone.
+
+    Only an explicit opt-in changes anything — this never imposes TLS on a
+    deployment that didn't ask for it.
+    """
+    if _DB_SSLMODE_ENV:
+        return _DB_SSLMODE_ENV, f'{_DB_SSLMODE_ENV} (set by UWEBIA_DB_SSLMODE)'
+    if _url_declares_sslmode(url):
+        return None, 'set explicitly in the database URL'
+    return None, 'not configured (libpq default)'
+
+
+def _report_db_tls(url, configured):
+    """Say whether the connection actually ends up encrypted.
+
+    Reporting is separate from enforcing on purpose: TLS stays optional, but
+    running unencrypted should be something you can see rather than assume.
+    Never raises and never blocks startup — a probe failure here says nothing
+    about whether the app itself can connect.
+    """
+    try:
+        import psycopg2
+        args = {'connect_timeout': 6}
+        if _DB_SSLROOTCERT:
+            args['sslrootcert'] = _DB_SSLROOTCERT
+        if configured:
+            args['sslmode'] = configured
+        conn = psycopg2.connect(_libpq_url(url), **args)
+        try:
+            with conn.cursor() as cur:
+                cur.execute('select ssl, version from pg_stat_ssl '
+                            'where pid = pg_backend_pid()')
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row and row[0]:
+            print(f'[db] TLS: encrypted ({row[1]}) — sslmode {configured or "default"}')
+        else:
+            print('[db] TLS: NOT encrypted. Traffic to PostgreSQL — including '
+                  'member data and password hashes — crosses the network in the '
+                  'clear. Set UWEBIA_DB_SSLMODE=require to insist on TLS '
+                  '(see README, "Database TLS").')
+    except Exception:
+        # Unreachable, wrong credentials, no psycopg2 — not a TLS verdict.
+        print('[db] TLS: could not determine (database not reachable for the check)')
+
+
 # PostgreSQL engine options — UTF-8, connection health checks, and pool tuning
 if _DATABASE_URL.startswith('postgresql'):
+    _sslmode, _DB_TLS_STATUS = _resolve_db_sslmode(_DATABASE_URL)
+    _connect_args = {
+        'client_encoding': 'utf8',
+        'connect_timeout': 10,            # don't hang forever on a dead server
+    }
+    if _sslmode:
+        _connect_args['sslmode'] = _sslmode
+    if _DB_SSLROOTCERT:
+        _connect_args['sslrootcert'] = _DB_SSLROOTCERT
+    _report_db_tls(_DATABASE_URL, _sslmode)
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'connect_args': {
-            'client_encoding': 'utf8',
-            'connect_timeout': 10,        # don't hang forever on a dead server
-        },
+        'connect_args': _connect_args,
         'pool_pre_ping': True,            # test connection before use; auto-reconnect after restart
         'pool_recycle': 300,              # discard connections older than 5 min to prevent staleness
         'pool_size': 5,                   # base pool size per worker
@@ -379,6 +586,23 @@ def decrypt_api_key(ciphertext: str) -> str:
     except (InvalidToken, Exception):
         # Graceful fallback: treat as plain-text (keys stored before this change)
         return ciphertext
+
+
+def decrypt_api_key_strict(ciphertext: str):
+    """Like decrypt_api_key, but returns None when it genuinely can't decrypt.
+
+    decrypt_api_key hands back the ciphertext unchanged on failure, which is
+    right for a legacy plaintext value but dangerous for anything that must be
+    correct: the caller gets a plausible-looking string and no way to know it is
+    garbage. A backup passphrase is exactly that case — using the wrong one
+    produces a file nobody can ever open.
+    """
+    if not ciphertext:
+        return None
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -609,7 +833,21 @@ class User(UserMixin, db.Model):
     # login flow prompts them to add one when the org requires 2FA / they enable
     # it (the code is emailed). NULLs are distinct in the unique index.
     email = db.Column(db.String(150), unique=True, nullable=True)
-    password_hash = db.Column(db.Text, nullable=False)
+    # Nullable so an admin can sign in with GitHub alone and hold no password
+    # at all. A NULL password is never "no credentials required" — check_password
+    # refuses it outright, so such an account is reachable only via its linked
+    # GitHub identity (plus TOTP).
+    password_hash = db.Column(db.Text, nullable=True)
+    # Linked GitHub account. Stores ONLY GitHub's stable numeric id — never the
+    # login, name, avatar or email — so linking adds no personal data beyond an
+    # opaque identifier. Globally unique: one GitHub account, one admin.
+    github_user_id = db.Column(db.BigInteger, unique=True, nullable=True, index=True)
+    # Whether this admin is permitted to hold an email address at all. Only
+    # consulted when the org turns on `org_admin_email_restricted`; until then
+    # everyone may have one and this is ignored. Existing admins who already had
+    # an address are granted it on migration so nobody loses 2FA silently.
+    email_allowed = db.Column(db.Boolean, nullable=False, default=False,
+                              server_default=_sa_false())
     # Optional real name — collected at signup, editable later. Used for
     # administration and (eventually) social surfaces. Never lowercased.
     first_name = db.Column(db.String(100), nullable=True)
@@ -624,6 +862,28 @@ class User(UserMixin, db.Model):
     # full access, not a separate silo.
     is_co_owner = db.Column(db.Boolean, nullable=False, default=False,
                             server_default=_sa_false())
+
+    # ── TOTP second factor (authenticator app) ───────────────────────────────
+    # The email-free alternative to the emailed code. Secret is Fernet-encrypted
+    # at rest (key derived from SECRET_KEY, same as other stored credentials).
+    totp_secret = db.Column(db.String(255), nullable=True)
+    totp_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    totp_activated_at = db.Column(db.DateTime, nullable=True)
+    # Highest step counter already spent, so a code can't be replayed inside
+    # its own validity window.
+    totp_last_counter = db.Column(db.BigInteger, nullable=True)
+    # Hashes of one-time recovery codes; the plaintext is shown exactly once.
+    totp_recovery_codes = db.Column(db.JSON, nullable=True)
+    # ── Owner-provisioned enrolment ──────────────────────────────────────────
+    # Setting up an authenticator *mid-login* only proves the password, so on
+    # its own it let anyone holding that password satisfy a 2FA requirement by
+    # enrolling their own device. An owner issues a single-use ticket out of
+    # band instead; without one, mid-login enrolment is refused. Hashed, never
+    # stored in the clear, and shown to the issuing owner exactly once.
+    totp_enroll_ticket_hash = db.Column(db.String(255), nullable=True)
+    totp_enroll_ticket_expires_at = db.Column(db.DateTime, nullable=True)
+    totp_enroll_ticket_issued_by_id = db.Column(db.Integer, nullable=True)
 
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False)
     two_factor_email = db.Column(db.String(255), nullable=True)
@@ -664,6 +924,40 @@ class User(UserMixin, db.Model):
     org_2fa_email_settings_version = db.Column(db.String(64), nullable=True)
     org_2fa_needs_attention = db.Column(db.Boolean, nullable=False, default=False,
                                         server_default=_sa_false())
+    # ── Org-wide admin privacy policy (anchor only) ──────────────────────────
+    # For orgs whose admins are themselves students/minors. When names are off,
+    # first/last name are hidden at every admin surface and purged from existing
+    # rows — same treatment Website.collect_real_names gives public users.
+    org_admin_collect_names = db.Column(db.Boolean, nullable=False, default=True,
+                                        server_default=_sa_true())
+    # When on, admins sign in with GitHub and are never asked for an email.
+    # Because the emailed code is then unavailable, TOTP becomes the required
+    # second factor — see admin_second_factor_state().
+    org_admin_github_only = db.Column(db.Boolean, nullable=False, default=False,
+                                      server_default=_sa_false())
+    # When on, an admin may only hold an email address if User.email_allowed is
+    # set for them individually — so "no email" becomes the default and access
+    # is granted case by case rather than assumed.
+    org_admin_email_restricted = db.Column(db.Boolean, nullable=False, default=False,
+                                           server_default=_sa_false())
+    # Per-request ("verbose") logging. Off by default because a health check
+    # polling every second fills the disk with it — see apply_log_verbosity.
+    org_verbose_logging = db.Column(db.Boolean, nullable=False, default=False,
+                                    server_default=_sa_false())
+    # How long visitor IP addresses are kept, org-wide, before being erased in
+    # place (the rows survive; only the IP is nulled, so analytics counts and
+    # forum posts are unaffected). An IP is personal data, and on a site with
+    # minors the cheapest protection is not holding it: what isn't stored can't
+    # leak. 0 disables pruning and keeps them forever. See prune_expired_ips.
+    ip_retention_days = db.Column(db.Integer, nullable=False, default=90,
+                                  server_default='90')
+    # When off, no visitor IP is written down at all — not to analytics, forum
+    # posts, contact messages or calendar subscriptions. Geolocation still runs
+    # on the live request, so country/region/city analytics survive; only the
+    # address itself is dropped. Stronger than retention, which keeps the IP for
+    # a while first. See store_visitor_ips().
+    store_visitor_ips = db.Column(db.Boolean, nullable=False, default=True,
+                                  server_default=_sa_true())
     # Phone for SMS notifications + optional SMS-based 2FA. Both off-by-default
     # so existing installs stay email-only unless the admin opts in.
     phone_number      = db.Column(db.String(40), nullable=True)
@@ -1030,21 +1324,127 @@ def _org_requires_2fa():
     if not anchor:
         return False
     if getattr(anchor, 'org_require_2fa', False):
-        current_fp = get_email_settings_fingerprint(get_email_settings())
-        if anchor.org_2fa_email_settings_version != current_fp:
-            anchor.org_require_2fa = False
-            anchor.org_2fa_email_settings_version = None
-            anchor.org_2fa_needs_attention = True
-            db.session.commit()
+        # The auto-disable exists because a broken mailer means nobody can
+        # receive an emailed code. It should therefore only fire when someone
+        # actually depends on email: if every admin holds a working
+        # authenticator (or the org is GitHub-only), mail settings are
+        # irrelevant and switching the policy off would silently weaken the
+        # whole org for no reason.
+        if not _org_2fa_independent_of_email():
+            current_fp = get_email_settings_fingerprint(get_email_settings())
+            if anchor.org_2fa_email_settings_version != current_fp:
+                anchor.org_require_2fa = False
+                anchor.org_2fa_email_settings_version = None
+                anchor.org_2fa_needs_attention = True
+                db.session.commit()
     return bool(anchor.org_require_2fa or anchor.two_factor_enabled)
+
+
+def admin_github_only_mode():
+    """Org-wide: admins sign in with GitHub and are never asked for an email."""
+    anchor = get_main_admin()
+    return bool(anchor and getattr(anchor, 'org_admin_github_only', False))
+
+
+def _org_2fa_independent_of_email():
+    """True when no admin needs the emailed code to pass 2FA.
+
+    Either the org is GitHub-only, or every admin already holds a working
+    authenticator. Used to decide whether a change to the mail settings should
+    switch the org-wide requirement off.
+    """
+    anchor = get_main_admin()
+    if anchor is not None and getattr(anchor, 'org_admin_github_only', False):
+        return True
+    try:
+        admins = User.query.all()
+    except Exception:
+        return False
+    return bool(admins) and all(totp_secret_is_readable(u) for u in admins)
+
+
+def admin_email_restricted_mode():
+    """Org-wide: admins hold an email only when individually permitted."""
+    anchor = get_main_admin()
+    return bool(anchor and getattr(anchor, 'org_admin_email_restricted', False))
+
+
+def admin_email_allowed(user):
+    """May this admin hold an email address?
+
+    Unrestricted mode: always. Restricted mode: only with the per-admin grant —
+    except the primary owner, who is exempt so the org can never lock itself out
+    of the one account that administers the policy.
+    """
+    if user is None:
+        return False
+    if not admin_email_restricted_mode():
+        return True
+    anchor = get_main_admin()
+    if anchor and user.id == anchor.id:
+        return True
+    return bool(getattr(user, 'email_allowed', False))
+
+
+def admin_collect_names_enabled():
+    """Org-wide: whether admin first/last names are collected at all."""
+    anchor = get_main_admin()
+    if not anchor:
+        return True
+    return bool(getattr(anchor, 'org_admin_collect_names', True))
 
 
 def admin_requires_2fa(user):
     """True if this admin must pass 2FA at login: the org policy requires it, or
-    they've enrolled 2FA themselves."""
+    they've enrolled either factor themselves."""
     if user is None:
         return False
-    return bool(getattr(user, 'two_factor_enabled', False)) or _org_requires_2fa()
+    return (bool(getattr(user, 'two_factor_enabled', False))
+            or bool(getattr(user, 'totp_enabled', False))
+            or _org_requires_2fa())
+
+
+def admin_second_factor_state(user):
+    """Decide which second factor this admin must pass, in one place.
+
+    Both sign-in paths — password and GitHub — route through this, so the
+    newer path can never turn into a way around 2FA. Returns:
+      required  whether a second factor is needed at all
+      method    'totp' | 'email' | None (None means required but not yet set up)
+      enrol     when method is None, which enrolment to send them to
+    """
+    if user is None:
+        return {'required': False, 'method': None, 'enrol': None}
+
+    required = admin_requires_2fa(user)
+    if not required:
+        return {'required': False, 'method': None, 'enrol': None}
+
+    # A personally enrolled authenticator normally wins: it works with no email
+    # and no mail server, so it is both stronger and more available. But only if
+    # the secret can still be READ — an orphaned one (SECRET_KEY changed or was
+    # never set) would otherwise reject every code forever. Falling through to
+    # the emailed code keeps two factors in play rather than locking the account.
+    if totp_secret_is_readable(user):
+        return {'required': True, 'method': 'totp', 'enrol': None}
+
+    mailbox = getattr(user, 'two_factor_email', None) or getattr(user, 'email', None)
+    email_usable = bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+    if email_usable:
+        return {'required': True, 'method': 'email', 'enrol': None}
+
+    # Required, but this admin has no usable factor yet. Send them to add an
+    # email only when that is genuinely the natural next step: they are allowed
+    # one, the org isn't GitHub-only, and they don't already authenticate by
+    # GitHub. Someone who signs in with GitHub and holds no mailbox chose not to
+    # have one, so asking for an address to enable 2FA works against them —
+    # an authenticator is the right prompt.
+    can_add_email = (mailbox is None
+                     and not admin_github_only_mode()
+                     and admin_email_allowed(user)
+                     and not getattr(user, 'github_user_id', None))
+    return {'required': True, 'method': None,
+            'enrol': 'email' if can_add_email else 'totp'}
 
 
 def is_owner(website):
@@ -1666,8 +2066,14 @@ class PublicUser(UserMixin, db.Model):
     # admin-driven. NULLs are distinct in the per-site unique index.
     email = db.Column(db.String(255), nullable=True)
     # Nullable because admin mirrors don't hold their own password — they
-    # auth via the admin User row instead. Real public users always have one.
+    # auth via the admin User row instead, and because GitHub-linked accounts
+    # sign in through OAuth and never set one. A NULL here is never treated as
+    # "no credential needed": check_password refuses it.
     password_hash = db.Column(db.String(255), nullable=True)
+    # Linked GitHub account — GitHub's stable numeric id only. Never the login,
+    # name, avatar or email, so a GitHub signup stores no personal data beyond
+    # an opaque identifier plus whatever username the member picks themselves.
+    github_user_id = db.Column(db.BigInteger, nullable=True, index=True)
 
     # When set, this PublicUser is the public-facing mirror of an admin User on
     # this website. It auto-syncs username/email from the admin and cannot be
@@ -1733,6 +2139,10 @@ class PublicUser(UserMixin, db.Model):
     __table_args__ = (
         db.UniqueConstraint('website_id', 'username', name='uq_public_user_username_per_website'),
         db.UniqueConstraint('website_id', 'email', name='uq_public_user_email_per_website'),
+        # One GitHub account maps to one member per site (NULLs stay distinct,
+        # so unlinked accounts are unaffected).
+        db.UniqueConstraint('website_id', 'github_user_id',
+                            name='uq_public_user_github_per_website'),
         db.UniqueConstraint('website_id', 'mirrored_admin_user_id',
                             name='uq_public_user_admin_mirror_per_website'),
         # Login usernames are globally unique across every website so a single
@@ -2719,6 +3129,17 @@ class Website(db.Model):
     # member accounts (accounts still work, just no open sign-up form).
     allow_public_signup = db.Column(db.Boolean, nullable=False, default=True,
                                     server_default=_sa_true())
+    # GitHub sign-in for members. `github_login_enabled` adds it alongside the
+    # username/password form; `github_login_only` additionally hides the
+    # password form so GitHub becomes the sole way in. Members created this way
+    # hold no email and no password — just a username they choose and GitHub's
+    # numeric id. Note GitHub requires account holders to be 13+, so a site
+    # with younger members should leave `github_login_only` off and keep the
+    # emailless username+password route available.
+    github_login_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                                     server_default=_sa_false())
+    github_login_only = db.Column(db.Boolean, nullable=False, default=False,
+                                  server_default=_sa_false())
     # When on, a public "Explore skills" page (/skills) lets anyone — no login —
     # browse the KSA catalog by division/folder and open the learning resources.
     ksa_public_explore = db.Column(db.Boolean, nullable=False, default=False,
@@ -5089,6 +5510,15 @@ class AutoBackupSettings(db.Model):
     enabled     = db.Column(db.Boolean, nullable=False, default=False,
                             server_default=_sa_false())
     folder_path = db.Column(db.String(1000), nullable=True)
+    # Passphrase for encrypting scheduled backups. Stored encrypted (Fernet via
+    # SECRET_KEY) because an unattended daemon has to be able to read it back —
+    # which is the honest limit of this feature: it protects a backup file that
+    # leaks on its own, not an attacker who already owns the server and its
+    # SECRET_KEY. A manually downloaded backup is prompted for instead and its
+    # passphrase is never stored anywhere.
+    encrypt_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                                server_default=_sa_false())
+    encrypt_passphrase = db.Column(db.Text, nullable=True)
     max_backups = db.Column(db.Integer, nullable=False, default=10,
                             server_default='10')
     # 'hourly' | 'daily' | 'weekly' | 'monthly'
@@ -5178,6 +5608,24 @@ class OAuthAppCredentials(db.Model):
     client_id = db.Column(db.String(500), nullable=True)
     client_secret = db.Column(db.String(1000), nullable=True)
     extra = db.Column(db.JSON, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class GitHubLoginSettings(db.Model):
+    """The OAuth App used for *signing in* (members and admins).
+
+    Kept separate from OAuthAppCredentials, which configures storage providers
+    — mixing them would make a login app show up in the asset-library provider
+    list. Single row, org-wide.
+
+    The client secret is Fernet-encrypted at rest and, like the storage
+    providers', is deliberately excluded from backups: it is deploy-specific
+    and cannot be decrypted on a different install anyway.
+    """
+    __tablename__ = 'github_login_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.String(255), nullable=True)
+    client_secret = db.Column(db.String(1000), nullable=True)  # encrypted
     updated_at = db.Column(db.DateTime, nullable=True)
 
 
@@ -5653,7 +6101,103 @@ def asset_library():
         allowed_folder_ids=allowed_folder_ids,
         folder_counts=folder_counts,
         root_count=folder_counts.get(None, 0),
+        usage_counts=asset_usage_counts(assets),
     )
+
+
+# ── Asset usage counting ──────────────────────────────────────────────────────
+# Asset URLs are pasted into page-section JSON, guide and quiz HTML, post
+# bodies, product descriptions, website background/brand fields and more —
+# dozens of columns across the schema, with new ones appearing whenever a
+# feature is added. Rather than maintain a list of "places an asset can be
+# used" that silently goes stale, scan every text-ish column once and count
+# what turns up. One pass over the content builds the index; each asset is then
+# a dict lookup, so cost doesn't grow with the size of the library.
+
+# Analytics rows record the URL of the image that was *requested*, which is a
+# page view rather than a use of the asset; the asset table holds each asset's
+# own url/thumbnail_url, which would count itself.
+_ASSET_USAGE_SKIP_TABLES = {'asset', 'page_visit'}
+_ASSET_URL_RE = re.compile(r'/static/uploads/[A-Za-z0-9_\-./]+')
+
+
+def _asset_usage_index():
+    """Count every reference to an uploads URL anywhere in the database.
+
+    Returns a Counter keyed by URL path. Never raises: a usage badge is a nicety
+    and must not be able to take the asset library down.
+    """
+    from collections import Counter
+    counts = Counter()
+    for table in db.metadata.tables.values():
+        if table.name in _ASSET_USAGE_SKIP_TABLES:
+            continue
+        cols = [c for c in table.columns
+                if isinstance(c.type, (db.String, db.Text, db.JSON))]
+        if not cols:
+            continue
+        try:
+            for row in db.session.execute(db.select(*cols)):
+                for value in row:
+                    if not value:
+                        continue
+                    # JSON columns arrive as dict/list; str() is enough to find
+                    # URLs inside them and avoids walking arbitrary structures.
+                    text = value if isinstance(value, str) else str(value)
+                    if '/static/uploads/' not in text:
+                        continue
+                    for match in _ASSET_URL_RE.findall(text):
+                        counts[match] += 1
+        except Exception as scan_err:
+            app.logger.warning('asset usage scan skipped %s: %s',
+                               table.name, scan_err)
+    return counts
+
+
+# The scan is proportional to how much content exists, not how many assets, so
+# it costs the same whether the library holds ten files or a thousand (~0.2s
+# over a small site). Cached briefly so paging through the library doesn't
+# re-read every text column each time; a count that is a minute stale is fine
+# for a badge, and any write invalidates nothing important.
+_ASSET_USAGE_CACHE_TTL = 60
+_asset_usage_cache = {'at': 0.0, 'index': None}
+
+
+def _asset_usage_index_cached():
+    now = time.time()
+    if (_asset_usage_cache['index'] is not None
+            and now - _asset_usage_cache['at'] < _ASSET_USAGE_CACHE_TTL):
+        return _asset_usage_cache['index']
+    index = _asset_usage_index()
+    _asset_usage_cache['index'] = index
+    _asset_usage_cache['at'] = now
+    return index
+
+
+def asset_usage_counts(assets):
+    """Map asset id -> how many places reference it."""
+    if not assets:
+        return {}
+    index = _asset_usage_index_cached()
+    if not index:
+        return {a.id: 0 for a in assets}
+
+    # Match on the stored filename rather than the full URL: the same file is
+    # referenced both absolutely and relatively, and an uploads URL can carry a
+    # cache-busting query string.
+    by_name = {}
+    for url, n in index.items():
+        by_name[url.rsplit('/', 1)[-1]] = by_name.get(url.rsplit('/', 1)[-1], 0) + n
+
+    out = {}
+    for a in assets:
+        total = by_name.get(a.stored_filename, 0)
+        # An optimised upload keeps the pre-conversion original; a reference to
+        # either one is a use of the same asset.
+        if a.original_stored_filename and a.original_stored_filename != a.stored_filename:
+            total += by_name.get(a.original_stored_filename, 0)
+        out[a.id] = total
+    return out
 
 
 def get_user_asset_folder(user_id):
@@ -7999,6 +8543,16 @@ def require_admin_url_key_for_admin_routes():
         'request_username',
         'admin_login_link_request',
         'admin_add_email',
+        # Steps of a sign-in already in progress. Like two_factor_login above,
+        # these are useless without the half-authenticated session state the
+        # gated login page put there, so allowing them past the URL-key check
+        # exposes nothing an attacker could act on.
+        'admin_totp_challenge',
+        'admin_totp_setup',
+        'admin_totp_recovery_codes',
+        'admin_totp_finish_login',
+        'github_start_admin',
+        'github_callback',
     }
 
     if request.endpoint in public_endpoints:
@@ -8288,6 +8842,272 @@ def dismiss_two_factor_warning():
     })
 
 
+# ── TOTP: enrolment and challenge ────────────────────────────────────────────
+
+def _brand_issuer():
+    """Issuer shown in the authenticator app."""
+    anchor = get_main_admin()
+    return (getattr(anchor, 'admin_brand_name', None) or 'Uwebia') if anchor else 'Uwebia'
+
+
+@app.route('/admin/2fa/app/setup', methods=['GET', 'POST'])
+def admin_totp_setup():
+    """Enrol an authenticator app.
+
+    Reachable two ways: by a logged-in admin adding a second factor, and by an
+    admin mid-login whom policy requires to set one up before continuing (that
+    session is only half-authenticated, so it is identified by pre_2fa_user_id
+    rather than current_user).
+    """
+    pending_id = session.get('pre_2fa_user_id')
+    if current_user.is_authenticated:
+        user = current_user
+        mid_login = False
+    elif pending_id:
+        user = db.session.get(User, pending_id)
+        mid_login = True
+    else:
+        return redirect(url_for('login'))
+    if not user:
+        return redirect(url_for('login'))
+
+    # Enrolling against an ephemeral key is worse than not enrolling: the secret
+    # is encrypted with a key that dies at the next restart, so the enrolment
+    # silently stops working and every code is rejected. Refuse rather than let
+    # someone set this up twice and lose it twice.
+    if _SECRET_KEY_IS_EPHEMERAL:
+        flash('This server has no SECRET_KEY set, so it uses a new key on every '
+              'restart and an authenticator enrolment would stop working the next '
+              'time it restarts. Set SECRET_KEY (see .env) and restart first.', 'error')
+        return redirect(url_for('settings_page') if not mid_login else url_for('login'))
+
+    # Mid-login enrolment proves only the password, so on its own it would let
+    # a stolen password satisfy the very requirement 2FA exists to impose. An
+    # owner-issued ticket is the second thing the attacker would also need.
+    needs_ticket = mid_login and mid_login_enrollment_needs_ticket(user)
+
+    if request.method == 'POST':
+        # Refuse while the address is locked out, exactly as the code challenge
+        # does — otherwise signing in again would refresh the per-session budget
+        # and the ticket could be guessed a handful at a time, forever.
+        if needs_ticket and two_factor_lockout_active(user):
+            flash(f'Too many incorrect setup codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.',
+                  'error')
+            return redirect(url_for('admin_totp_setup'))
+        if needs_ticket and not totp_enrollment_ticket_valid(
+                user, request.form.get('enroll_ticket', '')):
+            # Counted against the shared limiter so the ticket can't be guessed
+            # any faster than a login code.
+            register_failed_two_factor_attempt(user)
+            flash('That setup code is not valid or has expired. Ask an owner to issue '
+                  'you a new one.', 'error')
+            return redirect(url_for('admin_totp_setup'))
+
+        secret = session.get('totp_setup_secret')
+        if not secret:
+            flash('Setup expired. Please start again.', 'error')
+            return redirect(url_for('admin_totp_setup'))
+        ok, counter = verify_totp(secret, request.form.get('code', ''))
+        if not ok:
+            flash('That code did not match. Check your authenticator and try again.', 'error')
+            return redirect(url_for('admin_totp_setup'))
+
+        user.totp_secret = encrypt_api_key(secret)
+        user.totp_enabled = True
+        user.totp_activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        user.totp_last_counter = counter
+        plain, hashed = generate_totp_recovery_codes()
+        user.totp_recovery_codes = hashed
+        clear_totp_enrollment_ticket(user)   # single use
+        db.session.commit()
+        session.pop('totp_setup_secret', None)
+        # Shown exactly once — we only keep hashes.
+        session['totp_recovery_plain'] = plain
+        app.logger.info('TOTP enrolled for admin user id=%s', user.id)
+
+        if mid_login:
+            # They proved a factor to get here and have now enrolled the second,
+            # so the login can complete.
+            return redirect(url_for('admin_totp_recovery_codes'))
+        flash('Authenticator app enabled.', 'success')
+        return redirect(url_for('admin_totp_recovery_codes'))
+
+    secret = session.get('totp_setup_secret')
+    if not secret:
+        secret = generate_totp_secret()
+        session['totp_setup_secret'] = secret
+    account = user.username or 'admin'
+    uri = totp_provisioning_uri(secret, account, _brand_issuer())
+    return render_template('admin_totp_setup.html', secret=secret,
+                           qr_svg=_generate_qr_svg(uri, box_size=6, border=2),
+                           provisioning_uri=uri, mid_login=mid_login, user=user,
+                           needs_ticket=needs_ticket)
+
+
+@app.route('/admin/2fa/app/recovery-codes')
+def admin_totp_recovery_codes():
+    """Display the one-time recovery codes, once."""
+    plain = session.pop('totp_recovery_plain', None)
+    pending_id = session.get('pre_2fa_user_id')
+    if not plain:
+        if current_user.is_authenticated:
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('login'))
+    finishing = (not current_user.is_authenticated) and bool(pending_id)
+    return render_template('admin_totp_recovery_codes.html', codes=plain,
+                           finishing=finishing)
+
+
+@app.route('/admin/2fa/app/continue', methods=['POST'])
+def admin_totp_finish_login():
+    """Complete a login that paused for forced TOTP enrolment."""
+    user_id = session.get('pre_2fa_user_id')
+    user = db.session.get(User, user_id) if user_id else None
+    if not user or not user.totp_enabled:
+        return redirect(url_for('login'))
+    remember = bool(session.pop('pre_2fa_remember', False))
+    admin_key = session.get('pre_2fa_admin_key')
+    return finish_admin_login(user, remember=remember, admin_key=admin_key)
+
+
+@app.route('/admin/2fa/app', methods=['GET', 'POST'])
+def admin_totp_challenge():
+    """The authenticator-code step of signing in."""
+    user_id = session.get('pre_2fa_user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+    user = db.session.get(User, user_id)
+    if not user or not user.totp_enabled:
+        session.pop('pre_2fa_user_id', None)
+        return redirect(url_for('login'))
+
+    # Enrolled but unreadable: every code would be rejected and the admin would
+    # have no idea why. Say so, and let recovery codes through — they are hashed
+    # independently of SECRET_KEY, so they still work.
+    secret_lost = not totp_secret_is_readable(user)
+
+    if request.method == 'POST':
+        # Refuse while the address is locked out, or the per-session budget
+        # could simply be refreshed by signing in again.
+        if two_factor_lockout_active(user):
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.', 'error')
+            return redirect(url_for('admin_totp_challenge'))
+        submitted = request.form.get('code', '')
+        use_recovery = bool(request.form.get('use_recovery'))
+
+        if use_recovery:
+            if consume_totp_recovery_code(user, submitted):
+                app.logger.info('TOTP recovery code used for admin user id=%s', user.id)
+                remaining = len(user.totp_recovery_codes or [])
+                flash(f'Recovery code accepted. {remaining} left.', 'success')
+                return finish_admin_login(
+                    user, remember=bool(session.pop('pre_2fa_remember', False)),
+                    admin_key=session.get('pre_2fa_admin_key'))
+        else:
+            ok, counter = verify_totp(user_totp_secret(user), submitted,
+                                      last_used_counter=user.totp_last_counter)
+            if ok:
+                # Burn the step so the same code can't be replayed while it is
+                # still inside its validity window.
+                user.totp_last_counter = counter
+                db.session.commit()
+                return finish_admin_login(
+                    user, remember=bool(session.pop('pre_2fa_remember', False)),
+                    admin_key=session.get('pre_2fa_admin_key'))
+
+        if secret_lost and not use_recovery:
+            # Not a wrong code — the stored secret is unreadable. Don't spend an
+            # attempt on a guess that could never have succeeded.
+            flash('This account\u2019s authenticator secret can no longer be read '
+                  '(the server\u2019s SECRET_KEY changed). Use a recovery code, '
+                  'then set the authenticator up again.', 'error')
+            return redirect(url_for('admin_totp_challenge'))
+
+        # Same attempt budget as the emailed code, for the same reason: six
+        # digits is a small space to guess in.
+        if register_failed_two_factor_attempt(user):
+            session.pop('pre_2fa_user_id', None)
+            session.pop('pre_2fa_admin_key', None)
+            flash('Too many incorrect codes. Please sign in again.', 'error')
+            return redirect(url_for('login'))
+        flash('Invalid code.', 'error')
+        return redirect(url_for('admin_totp_challenge'))
+
+    return render_template('admin_totp_challenge.html',
+                           has_recovery=bool(user.totp_recovery_codes),
+                           secret_lost=secret_lost,
+                           can_use_email=_admin_email_2fa_available(user))
+
+
+def _admin_email_2fa_available(user):
+    """True when an emailed code is a usable second factor for this admin."""
+    mailbox = (getattr(user, 'two_factor_email', None) or getattr(user, 'email', None))
+    return bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+
+
+@app.route('/admin/2fa/switch/<method>', methods=['POST'])
+def admin_2fa_switch(method):
+    """Swap between the authenticator and the emailed code mid-sign-in.
+
+    Both are second factors of equal standing, so choosing between them is a
+    preference, not a downgrade. The switch is only offered for a method the
+    admin has actually enrolled, so it can never be used to sidestep 2FA.
+    """
+    user_id = session.get('pre_2fa_user_id')
+    user = db.session.get(User, user_id) if user_id else None
+    if not user:
+        return redirect(url_for('login'))
+    admin_key = session.get('pre_2fa_admin_key')
+
+    if method == 'totp':
+        if not totp_secret_is_readable(user):
+            flash('No usable authenticator app is set up on this account.', 'error')
+            return redirect(url_for('two_factor_login', admin_key=admin_key)
+                            if admin_key else url_for('two_factor_login'))
+        return redirect(url_for('admin_totp_challenge'))
+
+    if method == 'email':
+        if not _admin_email_2fa_available(user):
+            flash('No email address is available for this account.', 'error')
+            return redirect(url_for('admin_totp_challenge'))
+        mailbox = user.two_factor_email or user.email
+        if not (_session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id)):
+            code = generate_two_factor_code()
+            set_pending_two_factor_code(user.id, code, 'login')
+            app.logger.info('2FA login code sent to admin user id=%s (switched)', user.id)
+            try:
+                send_two_factor_email(mailbox, code, purpose='login')
+            except Exception as e:
+                clear_pending_two_factor_code()
+                flash(f'Could not send the code: {e}', 'error')
+                return redirect(url_for('admin_totp_challenge'))
+        return redirect(url_for('two_factor_login', admin_key=admin_key)
+                        if admin_key else url_for('two_factor_login'))
+
+    return redirect(url_for('login'))
+
+
+@app.route('/admin/2fa/app/disable', methods=['POST'])
+@login_required
+def admin_totp_disable():
+    """Turn off the authenticator — refused when it is the only factor keeping
+    a policy-mandated 2FA requirement satisfied."""
+    user = current_user
+    mailbox = user.two_factor_email or user.email
+    if _org_requires_2fa() and not (mailbox and not admin_github_only_mode()):
+        return _utf8_json({'success': False,
+                           'error': 'Your organization requires 2FA and this is your only '
+                                    'second factor, so it cannot be turned off.'}, 400)
+    user.totp_enabled = False
+    user.totp_secret = None
+    user.totp_last_counter = None
+    user.totp_recovery_codes = None
+    user.totp_activated_at = None
+    db.session.commit()
+    app.logger.info('TOTP disabled for admin user id=%s', user.id)
+    return _utf8_json({'success': True})
+
+
 @app.route('/admin/2fa', methods=['GET', 'POST'])
 @app.route('/admin/2fa/<admin_key>', methods=['GET', 'POST'])
 def two_factor_login(admin_key=None):
@@ -8307,6 +9127,10 @@ def two_factor_login(admin_key=None):
     if request.method == 'POST':
         code = request.form.get('code', '').strip()
 
+        if two_factor_lockout_active(user):
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.', 'error')
+            return redirect(request.path)
+
         pending_error = get_pending_two_factor_error(user.id, 'login')
 
         if pending_error:
@@ -8320,7 +9144,7 @@ def two_factor_login(admin_key=None):
         expected_hash = session.get('pending_2fa_code_hash')
 
         if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt():
+            if register_failed_two_factor_attempt(user):
                 session.pop('pre_2fa_user_id', None)
                 session.pop('pre_2fa_admin_key', None)
                 flash('Too many incorrect codes. Please log in again to get a new one.', 'error')
@@ -8328,22 +9152,18 @@ def two_factor_login(admin_key=None):
             flash('Invalid verification code.', 'error')
             return redirect(request.path)
 
-        login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
-
-        # The admin URL key is org-wide (on the anchor); they reached this 2FA
-        # step through the gated login flow, so mark the path verified.
         if admin_url_key_required_for_user(get_main_admin()):
             session['admin_path_verified'] = True
+        return finish_admin_login(
+            user, remember=bool(session.pop('pre_2fa_remember', False)),
+            admin_key=admin_key)
 
-        _stamp_login(user)
-        clear_pending_two_factor_code()
-        session.pop('pre_2fa_user_id', None)
-        session.pop('pre_2fa_admin_key', None)
-
-        flash('Logged in successfully.', 'success')
-        return redirect(url_for('dashboard'))
-
-    return render_template('two_factor_login.html', admin_key=admin_key)
+    return render_template('two_factor_login.html', admin_key=admin_key,
+                           can_use_totp=totp_secret_is_readable(user),
+                           # Enrolled but unreadable: explain the absence rather
+                           # than silently offering only one method.
+                           totp_broken=bool(user.totp_enabled
+                                            and not totp_secret_is_readable(user)))
 
 
 @app.route('/admin/2fa/resend', methods=['POST'])
@@ -8378,6 +9198,106 @@ def disable_user_2fa(user, reason=None, needs_attention=True):
     user.two_factor_needs_attention = bool(needs_attention)
 
 
+def finish_admin_login(user, remember=False, admin_key=None):
+    """Establish the admin session once every factor has been satisfied.
+
+    Where the admin lands is decided by whoever started the sign-in, via two
+    optional session keys set before begin_admin_login(). That keeps a single
+    completion path: an admin arriving through the public site gets the same
+    second-factor rules as one arriving at /admin/login, and merely returns
+    somewhere else afterwards.
+    """
+    login_user(user, remember=remember)
+    if admin_url_key_required_for_user(user):
+        session['admin_path_verified'] = True
+
+    next_url = session.pop('pre_2fa_next_url', None)
+    public_website_id = session.pop('pre_2fa_public_website_id', None)
+    for key in ('pre_2fa_user_id', 'pre_2fa_admin_key', 'pre_2fa_remember'):
+        session.pop(key, None)
+    clear_pending_two_factor_code()
+    _stamp_login(user)
+
+    # Signing in on the public side also needs the public-facing mirror session,
+    # or the site would still treat them as a signed-out visitor.
+    if public_website_id:
+        website = db.session.get(Website, public_website_id)
+        if website:
+            mirror = ensure_admin_public_mirror(user, website)
+            if mirror:
+                public_user_login(mirror)
+
+    flash('Logged in successfully', 'success')
+    return redirect(next_url or url_for('dashboard'))
+
+
+def begin_admin_login(user, remember=False, admin_key=None, on_error=None):
+    """Take an admin who has proved ONE factor and enforce the rest.
+
+    Every way into the admin area funnels through here — the password form and
+    GitHub sign-in both call it — so there is exactly one place where the
+    second-factor rules live and no path can quietly skip them.
+    """
+    def _stash():
+        session['pre_2fa_user_id'] = user.id
+        session['pre_2fa_admin_key'] = admin_key
+        session['pre_2fa_remember'] = remember
+
+    def _bail():
+        return on_error() if on_error else redirect(url_for('login'))
+
+    # Personal email-2FA enrolment is void if the mail settings changed since it
+    # was verified — the admin could no longer receive a code. TOTP is immune,
+    # so this check only applies when email is the method in play.
+    if user.two_factor_enabled and not user.totp_enabled:
+        current_fp = get_email_settings_fingerprint(get_email_settings())
+        if current_fp != user.two_factor_last_email_settings_version:
+            disable_user_2fa(user, reason='email server settings changed',
+                             needs_attention=True)
+            db.session.commit()
+            flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
+            return _bail()
+
+    state = admin_second_factor_state(user)
+
+    if not state['required']:
+        return finish_admin_login(user, remember=remember, admin_key=admin_key)
+
+    if state['method'] == 'totp':
+        _stash()
+        return redirect(url_for('admin_totp_challenge'))
+
+    if state['method'] == 'email':
+        mailbox = user.two_factor_email or user.email
+        # Reuse a code sent in the last 30s only when THIS session still holds
+        # it; otherwise the waiting page would have nothing to validate.
+        if _session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id):
+            _stash()
+            return redirect(url_for('two_factor_login', admin_key=admin_key)
+                            if admin_key else url_for('two_factor_login'))
+        code = generate_two_factor_code()
+        set_pending_two_factor_code(user.id, code, 'login')
+        app.logger.info('2FA login code sent to admin user id=%s', user.id)
+        try:
+            send_two_factor_email(mailbox, code, purpose='login')
+        except Exception as e:
+            clear_pending_two_factor_code()
+            flash(f'Could not send 2FA login code: {str(e)}', 'error')
+            return _bail()
+        _stash()
+        return redirect(url_for('two_factor_login', admin_key=admin_key)
+                        if admin_key else url_for('two_factor_login'))
+
+    # Required but nothing enrolled yet. Send them to set one up — never
+    # straight into the dashboard, or the policy would be advisory only.
+    _stash()
+    if state['enrol'] == 'totp':
+        flash('This account needs an authenticator app before you can continue.', 'error')
+        return redirect(url_for('admin_totp_setup'))
+    return redirect(url_for('admin_add_email', admin_key=admin_key)
+                    if admin_key else url_for('admin_add_email'))
+
+
 @app.route('/admin/login', methods=['GET', 'POST'])
 @app.route('/admin/login/<admin_key>', methods=['GET', 'POST'])
 def login(admin_key=None):
@@ -8398,6 +9318,12 @@ def login(admin_key=None):
     ip = get_request_ip()
 
     if request.method == 'POST':
+        # GitHub-only orgs accept no password logins at all. The template hides
+        # the form, but that is presentation — this is the enforcement.
+        if admin_github_only_mode() and github_login_is_configured():
+            flash('This organization signs in with GitHub.', 'error')
+            return redirect(request.path)
+
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
         remember = bool(request.form.get('remember'))
@@ -8420,89 +9346,9 @@ def login(admin_key=None):
         user = User.query.filter_by(username=username).first()
 
         if user and user.check_password(password):
-            # Determine whether 2FA is required and which address to use.
-            # Main admins: their own two_factor_enabled flag + their stored email.
-            # Sub-admins: inherit the requirement when their parent has 2FA on;
-            #             code goes to the sub-admin's own account email.
-            needs_2fa = False
-            two_fa_email = None
-
-            if user.two_factor_enabled:
-                email_settings = get_email_settings()
-                current_fingerprint = get_email_settings_fingerprint(email_settings)
-
-                if current_fingerprint != user.two_factor_last_email_settings_version:
-                    disable_user_2fa(
-                        user,
-                        reason='email server settings changed',
-                        needs_attention=True
-                    )
-                    db.session.commit()
-                    flash('2FA was disabled because email server settings changed. Please log in again.', 'error')
-                    return redirect(request.path)
-
-                needs_2fa = True
-                two_fa_email = user.two_factor_email or user.email
-
-            elif _org_requires_2fa():
-                # Org-wide policy: 2FA required even without personal enrollment.
-                needs_2fa = True
-                two_fa_email = user.two_factor_email or user.email
-
-            if needs_2fa and not two_fa_email:
-                # 2FA is required but this admin has no email to receive the code
-                # — collect one first, then continue to the 2FA step.
-                session['pre_2fa_user_id'] = user.id
-                session['pre_2fa_admin_key'] = admin_key
-                session['pre_2fa_remember'] = remember
-                return redirect(url_for('admin_add_email', admin_key=admin_key)
-                                if admin_key else url_for('admin_add_email'))
-
-            if needs_2fa:
-                # If a code was already sent within the last 30 seconds (e.g.
-                # from a double-click or back-button resubmit) AND this session
-                # still holds that pending code, skip generating and emailing a
-                # new one. We must NOT skip when the session has no pending code
-                # (cross-session cooldown), or the waiting page would have
-                # nothing to validate.
-                if _session_has_pending_2fa(user.id) and _2fa_recently_sent(user.id):
-                    session['pre_2fa_user_id'] = user.id
-                    session['pre_2fa_admin_key'] = admin_key
-                    session['pre_2fa_remember'] = remember
-                    return redirect(
-                        url_for('two_factor_login', admin_key=admin_key)
-                        if admin_key else url_for('two_factor_login'))
-
-                code = generate_two_factor_code()
-                set_pending_two_factor_code(user.id, code, 'login')
-
-                # Never log the code itself — anyone with log access could
-                # complete the second factor for this account.
-                app.logger.info('2FA login code sent to admin user id=%s', user.id)
-
-                try:
-                    send_two_factor_email(two_fa_email, code, purpose='login')
-                except Exception as e:
-                    clear_pending_two_factor_code()
-                    flash(f'Could not send 2FA login code: {str(e)}', 'error')
-                    return redirect(request.path)
-
-                session['pre_2fa_user_id'] = user.id
-                session['pre_2fa_admin_key'] = admin_key
-                session['pre_2fa_remember'] = remember
-
-                return redirect(
-                    url_for('two_factor_login', admin_key=admin_key) if admin_key else url_for('two_factor_login'))
-
-            login_user(user, remember=remember)
-
-            if admin_url_key_required_for_user(user):
-                session['admin_path_verified'] = True
-
             _rl_record(ip, username, success=True)
-            _stamp_login(user)
-            flash('Logged in successfully', 'success')
-            return redirect(url_for('dashboard'))
+            return begin_admin_login(user, remember=remember, admin_key=admin_key,
+                                     on_error=lambda: redirect(request.path))
         else:
             _rl_record(ip, username, success=False)
             rl_new = _rl_check(ip, username)
@@ -8536,6 +9382,11 @@ def admin_add_email(admin_key=None):
     user = db.session.get(User, session.get('pre_2fa_user_id')) if session.get('pre_2fa_user_id') else None
     if not user:
         return redirect(url_for('login', admin_key=admin_key) if admin_key else url_for('login'))
+
+    # In GitHub-only mode admins are never asked for an email — the second
+    # factor is the authenticator app, so send them there instead.
+    if admin_github_only_mode():
+        return redirect(url_for('admin_totp_setup'))
 
     if request.method == 'POST':
         email = valid_email(request.form.get('email'))
@@ -8646,6 +9497,29 @@ _FOLDER_ACTION_MAP = {
     'pages.publish': 'publish',
     'pages.templates': 'template',
 }
+
+
+@app.context_processor
+def inject_github_login():
+    """Expose GitHub sign-in availability + the org admin-privacy policy to every
+    admin template, so the login page and settings don't each have to ask."""
+    if _DB_MAINTENANCE_MODE:
+        return {'github_login_available': False, 'admin_github_only': False,
+                'admin_collect_names': True}
+    try:
+        return {
+            'github_login_available': github_login_is_configured(),
+            'admin_github_only': admin_github_only_mode(),
+            'admin_collect_names': admin_collect_names_enabled(),
+            # Rendered in Settings so the admin registers on GitHub exactly what
+            # we will send — anything else and GitHub refuses the round trip.
+            'github_callback_url': github_callback_url(),
+            'admin_email_restricted': admin_email_restricted_mode(),
+        }
+    except Exception:
+        return {'github_login_available': False, 'admin_github_only': False,
+                'admin_collect_names': True, 'github_callback_url': '',
+                'admin_email_restricted': False}
 
 
 @app.context_processor
@@ -8865,6 +9739,156 @@ def inject_current_website():
 @app.route('/admin/dashboard')
 @login_required
 def dashboard():
+    """Admin home: a summary of every feature this admin can actually reach.
+
+    The website editor used to live here; it moved to /admin/websites so this
+    page can be an overview rather than one site's page list.
+    """
+    website = get_admin_website()
+    if not website:
+        # No site selected yet (or none exists) — the editor handles both the
+        # empty state and the create-first-website flow, so start there.
+        _root = current_user.root_user_id
+        if not Website.query.filter_by(user_id=_root, is_draft=False).first():
+            return redirect(url_for('websites_page'))
+
+    return render_template(
+        'admin_home.html',
+        widgets=_dashboard_widgets(website),
+        current_site=website,
+    )
+
+
+def _dashboard_widgets(website):
+    """Build the admin home widgets: one per feature this admin may see.
+
+    A widget appears only when the admin holds the permission AND the feature is
+    actually in use — a site with no forum shouldn't show an empty forum tile.
+    Counts are deliberately cheap (COUNT queries, no joins) because this renders
+    on every visit to the admin home.
+    """
+    root_id = current_user.root_user_id
+    wid = website.id if website else None
+
+    def perm(key):
+        return current_user.has_permission(key)
+
+    def count(model, **filters):
+        try:
+            return db.session.query(func.count(model.id)).filter_by(**filters).scalar() or 0
+        except Exception:
+            return 0
+
+    widgets = []
+
+    def add(key, label, icon, url, perm_key, stats, enabled=True, accent=None):
+        if not enabled or not perm(perm_key):
+            return
+        widgets.append({'key': key, 'label': label, 'icon': icon, 'url': url,
+                        'stats': [s for s in stats if s], 'accent': accent or '#5eeef8'})
+
+    # ── The site itself ──────────────────────────────────────────────────────
+    if website:
+        page_total = count(PublicPageContent, website_id=wid)
+        published = count(PublicPageContent, website_id=wid, site_active_status=True)
+        add('website', 'Website Editor', 'fa-pen-to-square',
+            url_for('websites_page'), 'pages.view',
+            [{'value': page_total, 'label': 'pages'},
+             {'value': published, 'label': 'published'}],
+            accent='#7ee2cc')
+        widgets.append({
+            'key': 'public', 'label': 'View Public Site', 'icon': 'fa-globe',
+            'url': ('/' + website.url_prefix) if website.url_prefix else '/',
+            'external': True, 'accent': '#9ad8ff',
+            'stats': [{'value': 'Live' if website.is_live else 'Offline',
+                       'label': website.name}],
+        })
+
+    # ── Community ────────────────────────────────────────────────────────────
+    add('members', 'Members', 'fa-users', url_for('admin_public_users_page'),
+        'public_users.view',
+        [{'value': count(PublicUser, website_id=wid), 'label': 'members'},
+         {'value': count(PublicUser, website_id=wid, is_active_public=False),
+          'label': 'awaiting approval'}],
+        enabled=bool(website and website_uses_public_accounts(website)))
+
+    add('forum', 'Forum', 'fa-comments', url_for('admin_forum'), 'forum.view',
+        [{'value': count(ForumThread, website_id=wid, is_hidden=False), 'label': 'threads'},
+         {'value': count(ForumReply, website_id=wid, is_hidden=False), 'label': 'replies'}],
+        enabled=bool(website and website.forum_enabled))
+
+    _pending_comments = count(PageComment, website_id=wid, is_approved=False)
+    add('comments', 'Page Comments', 'fa-comment-dots', url_for('websites_page'),
+        'comments.view',
+        [{'value': _pending_comments, 'label': 'awaiting approval'}],
+        enabled=bool(website and _pending_comments))
+
+    # ── Learning ─────────────────────────────────────────────────────────────
+    add('guides', 'Guides', 'fa-book-open', url_for('admin_guides_page'), 'guides.view',
+        [{'value': count(Guide, website_id=wid), 'label': 'guides'}],
+        enabled=bool(website and count(Guide, website_id=wid)))
+    add('quizzes', 'Quizzes', 'fa-clipboard-check', url_for('admin_quizzes_page'), 'quizzes.view',
+        [{'value': count(Quiz, website_id=wid), 'label': 'quizzes'}],
+        enabled=bool(website and count(Quiz, website_id=wid)))
+    add('resources', 'Resources', 'fa-folder-open', url_for('admin_resources_page'), 'resources.view',
+        [{'value': count(Resource, website_id=wid), 'label': 'resources'}],
+        enabled=bool(website and count(Resource, website_id=wid)))
+    # dlabel() is a Jinja-only helper; use the function behind it here.
+    _div_word = _division_word(website, plural=True)
+    add('divisions', (_div_word[:1].upper() + _div_word[1:]), 'fa-sitemap',
+        url_for('admin_divisions_page'), 'divisions.view',
+        [{'value': count(Division, website_id=wid), 'label': _div_word}],
+        enabled=bool(website and count(Division, website_id=wid)))
+
+    # ── Content ──────────────────────────────────────────────────────────────
+    add('posts', 'Posts', 'fa-newspaper', url_for('admin_posts_page'), 'posts.view',
+        [{'value': count(Post, website_id=wid), 'label': 'posts'}],
+        enabled=bool(website and count(Post, website_id=wid)))
+    add('calendars', 'Calendars', 'fa-calendar-alt', url_for('admin_calendars_page'),
+        'calendars.view',
+        [{'value': count(Calendar, website_id=wid), 'label': 'calendars'}],
+        enabled=bool(website and count(Calendar, website_id=wid)))
+    add('reviews', 'Reviews', 'fa-star', url_for('admin_reviews_page'), 'reviews.view',
+        [{'value': count(ReviewBoard, website_id=wid), 'label': 'boards'}],
+        enabled=bool(website and getattr(website, 'reviews_enabled', False)))
+    add('newsletters', 'Newsletters', 'fa-envelope-open-text',
+        url_for('admin_newsletters_page'), 'newsletters.view',
+        [{'value': count(Newsletter, website_id=wid), 'label': 'newsletters'}],
+        enabled=bool(website and count(Newsletter, website_id=wid)))
+
+    _unread = count(ContactMessage, website_id=wid, is_read=False)
+    add('messages', 'Contact Messages', 'fa-envelope', url_for('messages_page'),
+        'messages.view',
+        [{'value': _unread, 'label': 'unread'}],
+        enabled=bool(website), accent='#ffd9a3' if _unread else None)
+
+    # ── Store ────────────────────────────────────────────────────────────────
+    add('store', 'Store', 'fa-bag-shopping', url_for('admin_orders_page'), 'store.orders',
+        [{'value': count(StoreOrder, website_id=wid), 'label': 'orders'},
+         {'value': count(StoreProduct, website_id=wid), 'label': 'products'}],
+        enabled=bool(website and getattr(website, 'store_enabled', False)))
+
+    # ── Account-wide ─────────────────────────────────────────────────────────
+    add('assets', 'Asset Library', 'fa-photo-film', url_for('asset_library'), 'assets.view',
+        [{'value': count(Asset, user_id=root_id), 'label': 'files'}])
+    add('analytics', 'Analytics', 'fa-chart-line', url_for('analytics_page'), 'analytics.view',
+        [], accent='#c9a8ff')
+    add('admins', 'Admin Users', 'fa-user-shield', url_for('admin_users_page'), 'admin_users.view',
+        [{'value': User.query.filter_by(parent_user_id=root_id).count(), 'label': 'staff'}])
+
+    return widgets
+
+
+@app.route('/admin/websites')
+@app.route('/admin/dashboard/websites')
+@login_required
+def websites_page():
+    """The website editor: pages, folders, drafts and per-site actions.
+
+    This was /admin/dashboard until the dashboard became a widget overview;
+    the editing surface moved here so 'home' can be a summary rather than a
+    single site's page list.
+    """
     user = current_user
 
     # Sub-admins share the root admin's website — never show the create-website screen to them
@@ -9173,6 +10197,222 @@ def get_email_settings_fingerprint(settings):
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
+# ── TOTP second factor (RFC 6238) ────────────────────────────────────────────
+# Implemented here rather than pulled from a package deliberately: it is ~20
+# lines of HMAC, it is verified below against the RFC's own published test
+# vectors, and it means an admin who deploys without rebuilding the image can
+# never end up with an app that won't import — which for a login path is a
+# worse failure than the dependency is worth.
+#
+# This exists so 2FA no longer depends on having an email address. Student
+# admins who sign in with GitHub and hold no mailbox still get a real second
+# factor, so `org_require_2fa` stays enforceable for everyone.
+_TOTP_STEP = 30      # seconds per code
+_TOTP_DIGITS = 6
+_TOTP_DRIFT = 1      # accept one step either side, for clock skew
+
+
+def generate_totp_secret():
+    """A fresh base32 secret (160 bits, per RFC 4226's recommendation)."""
+    return base64.b32encode(secrets.token_bytes(20)).decode('ascii').rstrip('=')
+
+
+def _totp_at(secret_b32, counter, digits=_TOTP_DIGITS, algo='sha1'):
+    import hmac as _hmac
+    import struct as _struct
+    padding = '=' * (-len(secret_b32) % 8)
+    key = base64.b32decode(secret_b32 + padding, casefold=True)
+    digest = _hmac.new(key, _struct.pack('>Q', counter), getattr(hashlib, algo)).digest()
+    offset = digest[-1] & 0x0F
+    truncated = _struct.unpack('>I', digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(truncated % (10 ** digits)).zfill(digits)
+
+
+def verify_totp(secret_b32, code, at=None, last_used_counter=None):
+    """Check a submitted code. Returns (ok, counter_used).
+
+    `last_used_counter` blocks replay: a code stays valid for the whole step
+    (plus drift), so without this someone who observes one over the user's
+    shoulder — or in a proxy log — could reuse it seconds later.
+    """
+    import hmac as _hmac
+    digits = re.sub(r'\D', '', code or '')
+    if len(digits) != _TOTP_DIGITS or not secret_b32:
+        return False, None
+    now_counter = int((at if at is not None else time.time()) // _TOTP_STEP)
+    for drift in range(-_TOTP_DRIFT, _TOTP_DRIFT + 1):
+        counter = now_counter + drift
+        if last_used_counter is not None and counter <= last_used_counter:
+            continue  # already spent
+        try:
+            expected = _totp_at(secret_b32, counter)
+        except Exception:
+            return False, None
+        if _hmac.compare_digest(expected, digits):
+            return True, counter
+    return False, None
+
+
+def totp_provisioning_uri(secret_b32, account_name, issuer):
+    """otpauth:// URI for the enrolment QR code."""
+    from urllib.parse import quote as _q
+    label = f'{_q(issuer)}:{_q(account_name or "admin")}'
+    return (f'otpauth://totp/{label}?secret={secret_b32}&issuer={_q(issuer)}'
+            f'&algorithm=SHA1&digits={_TOTP_DIGITS}&period={_TOTP_STEP}')
+
+
+def generate_totp_recovery_codes(count=10):
+    """Return (plaintext_codes, hashed_codes). Plaintext is shown once."""
+    plain = []
+    for _ in range(count):
+        raw = secrets.token_hex(5)  # 10 hex chars
+        plain.append(f'{raw[:5]}-{raw[5:]}')
+    return plain, [generate_password_hash(c) for c in plain]
+
+
+def consume_totp_recovery_code(user, submitted):
+    """Spend a recovery code if it matches. Single-use: the hash is removed."""
+    submitted = (submitted or '').strip().lower().replace(' ', '')
+    if not submitted:
+        return False
+    stored = list(user.totp_recovery_codes or [])
+    for i, hashed in enumerate(stored):
+        if check_password_hash(hashed, submitted):
+            stored.pop(i)
+            user.totp_recovery_codes = stored
+            db.session.commit()
+            return True
+    return False
+
+
+def user_totp_secret(user):
+    """Decrypt this user's TOTP secret, or '' if it isn't usable.
+
+    The secret is Fernet-encrypted with a key derived from SECRET_KEY. When
+    SECRET_KEY is unset the app boots on a random per-process key, so after a
+    restart the stored ciphertext can no longer be decrypted — and
+    `decrypt_api_key` returns the ciphertext unchanged rather than raising.
+    Handing that straight to the verifier turns a configuration problem into
+    "Invalid code" forever, which is indistinguishable from a wrong code and
+    locks the admin out with no clue why. So validate the shape here and treat
+    an unreadable secret as "not enrolled", which lets the caller fall back to
+    another factor and say something true.
+    """
+    if not user or not user.totp_secret:
+        return ''
+    candidate = decrypt_api_key(user.totp_secret or '')
+    if not candidate:
+        return ''
+    # A failed decrypt hands back the Fernet token itself, and those can happen
+    # to parse as base32 (the alphabet overlaps), so shape-checking alone is not
+    # enough — reject the version prefix every Fernet token starts with.
+    if candidate.startswith('gAAAAA'):
+        return ''
+    try:
+        raw = base64.b32decode(candidate + '=' * (-len(candidate) % 8), casefold=True)
+    except Exception:
+        return ''
+    # generate_totp_secret() emits 20 bytes; anything far from that is not one
+    # of ours and would only produce codes that never match.
+    if not (10 <= len(raw) <= 64):
+        return ''
+    return candidate
+
+
+_TOTP_ENROLL_TICKET_HOURS = 24
+
+
+def issue_totp_enrollment_ticket(user, issued_by):
+    """Mint a single-use enrolment ticket for `user`. Returns the plaintext.
+
+    Only shown to the owner who issued it; they pass it to the admin through a
+    channel an attacker holding that admin's password does not control, which
+    is the whole point — the ticket is the second thing they must have.
+    """
+    raw = secrets.token_hex(4)
+    plain = f'{raw[:4]}-{raw[4:]}'
+    user.totp_enroll_ticket_hash = generate_password_hash(plain)
+    user.totp_enroll_ticket_expires_at = (
+        datetime.now(timezone.utc).replace(tzinfo=None)
+        + timedelta(hours=_TOTP_ENROLL_TICKET_HOURS))
+    user.totp_enroll_ticket_issued_by_id = getattr(issued_by, 'id', None)
+    db.session.commit()
+    app.logger.info('2FA enrolment ticket issued for admin id=%s by id=%s',
+                    user.id, getattr(issued_by, 'id', None))
+    return plain
+
+
+def clear_totp_enrollment_ticket(user):
+    user.totp_enroll_ticket_hash = None
+    user.totp_enroll_ticket_expires_at = None
+    user.totp_enroll_ticket_issued_by_id = None
+
+
+def totp_enrollment_ticket_valid(user, submitted):
+    """True when `submitted` matches this admin's unexpired enrolment ticket."""
+    if not user or not user.totp_enroll_ticket_hash:
+        return False
+    expires = user.totp_enroll_ticket_expires_at
+    if expires and datetime.now(timezone.utc).replace(tzinfo=None) > expires:
+        return False
+    candidate = (submitted or '').strip().lower().replace(' ', '')
+    if not candidate:
+        return False
+    return check_password_hash(user.totp_enroll_ticket_hash, candidate)
+
+
+def mid_login_enrollment_needs_ticket(user):
+    """Whether this admin must present an owner-issued ticket to enrol mid-login.
+
+    The primary owner is exempt: they are the root of trust and, on a fresh
+    install, the only person who could issue a ticket — requiring one would
+    deadlock the org. Everyone else needs one, which is what stops a stolen
+    password alone from satisfying the 2FA requirement.
+    """
+    if user is None:
+        return True
+    anchor = get_main_admin()
+    if anchor is not None and user.id == anchor.id:
+        return False
+    return True
+
+
+def totp_enrollment_ticket_pending(user):
+    """True when this admin is holding an unexpired, unused enrolment ticket."""
+    if not user or not getattr(user, 'totp_enroll_ticket_hash', None):
+        return False
+    expires = user.totp_enroll_ticket_expires_at
+    if expires and datetime.now(timezone.utc).replace(tzinfo=None) > expires:
+        return False
+    return True
+
+
+def admins_without_second_factor(root_user_id=None):
+    """Admins who hold no working second factor — the accounts for which a
+    2FA requirement currently provides no protection.
+
+    Scoped to one organisation when `root_user_id` is given (the anchor plus
+    the admins parented to it); unscoped it covers every admin row.
+    """
+    q = User.query
+    if root_user_id is not None:
+        q = q.filter(db.or_(User.id == root_user_id,
+                            User.parent_user_id == root_user_id))
+    out = []
+    for u in q.all():
+        if totp_secret_is_readable(u):
+            continue
+        if getattr(u, 'two_factor_enabled', False) and (u.two_factor_email or u.email):
+            continue
+        out.append(u)
+    return out
+
+
+def totp_secret_is_readable(user):
+    """True when this user's enrolled TOTP secret can actually be decrypted."""
+    return bool(getattr(user, 'totp_enabled', False)) and bool(user_totp_secret(user))
+
+
 def generate_two_factor_code():
     return f"{secrets.randbelow(1000000):06d}"
 
@@ -9263,14 +10503,38 @@ def clear_pending_two_factor_code():
 _2FA_MAX_ATTEMPTS = 5
 
 
-def register_failed_two_factor_attempt():
-    """Count a wrong code. Returns True when the pending code has been burned."""
+def register_failed_two_factor_attempt(user=None):
+    """Count a wrong code. Returns True when the pending code has been burned.
+
+    Also records the failure against the shared IP limiter. The per-session
+    counter alone was escapable: a correct password calls _rl_record(success=
+    True), which CLEARS the counters, so an attacker holding the password could
+    log in again for a fresh batch of guesses and repeat indefinitely — five at
+    a time against a six-digit code is a few hours of work. Feeding the same
+    limiter the password form uses means those failures accumulate and lock the
+    address out regardless of how often the login is replayed.
+    """
+    ident = (getattr(user, 'username', '') or '')
+    try:
+        _rl_record(get_request_ip(), ident, success=False)
+    except Exception:
+        pass  # never let bookkeeping block the refusal itself
+
     attempts = int(session.get('pending_2fa_attempts') or 0) + 1
     session['pending_2fa_attempts'] = attempts
     if attempts >= _2FA_MAX_ATTEMPTS:
         clear_pending_two_factor_code()
         return True
     return False
+
+
+def two_factor_lockout_active(user=None):
+    """True when this address has failed too many second-factor attempts."""
+    try:
+        return bool(_rl_check(get_request_ip(),
+                              getattr(user, 'username', '') or '')['locked'])
+    except Exception:
+        return False
 
 
 def send_two_factor_email(to_email, code, purpose='login'):
@@ -9396,7 +10660,7 @@ def confirm_two_factor_activation():
     expected_hash = session.get('pending_2fa_code_hash')
 
     if not expected_hash or not check_password_hash(expected_hash, code):
-        if register_failed_two_factor_attempt():
+        if register_failed_two_factor_attempt(current_user):
             return jsonify({
                 'status': 'error',
                 'message': 'Too many incorrect codes. Request a new activation code.'
@@ -9453,14 +10717,27 @@ def disable_two_factor_authentication():
 @login_required
 @require_perm('settings.2fa')
 def org_2fa_policy_start():
-    """Begin enabling the org-wide 2FA requirement: email a verification code to
-    the acting admin (proving codes can actually be delivered), exactly like
-    enabling per-user 2FA. Confirmed in the /confirm step."""
+    """Begin enabling the org-wide 2FA requirement.
+
+    The point of this step is to prove the acting admin can actually complete a
+    second factor before it is imposed on everyone. Which factor doesn't matter:
+    an authenticator app is confirmed directly in /confirm with no email at all,
+    which is what makes the policy usable by admins who hold no mailbox.
+    """
+    if totp_secret_is_readable(current_user):
+        return _utf8_json({'success': True, 'method': 'totp',
+                           'message': 'Enter the current code from your authenticator app '
+                                      'to turn on org-wide 2FA.'})
+
     es = get_email_settings()
     if not (es and es.is_active):
         return _utf8_json({'success': False,
-            'error': 'Configure an active email server first — admins receive 2FA codes by email.'}, 400)
+            'error': 'Set up an authenticator app, or configure an active email server, '
+                     'so a second factor can be verified before requiring it of everyone.'}, 400)
     to_email = current_user.email
+    if not to_email:
+        return _utf8_json({'success': False,
+            'error': 'This account has no email address. Set up an authenticator app first.'}, 400)
     code = generate_two_factor_code()
     set_pending_two_factor_code(current_user.id, code, 'org_activation')
     try:
@@ -9477,22 +10754,38 @@ def org_2fa_policy_start():
 @login_required
 @require_perm('settings.2fa')
 def org_2fa_policy_confirm():
-    """Verify the emailed code, then enable the org-wide 2FA requirement on the
-    anchor and stamp the current email-settings fingerprint (so it auto-disables
-    if those settings later change)."""
+    """Verify the acting admin's second factor, then turn the policy on.
+
+    Accepts whichever factor they actually hold: an authenticator code is
+    checked directly, otherwise the emailed code issued by /start.
+    """
     code = ((request.get_json() or {}).get('code') or '').strip()
     if not code:
         return _utf8_json({'success': False, 'error': 'Please enter the verification code.'}, 400)
-    err = get_pending_two_factor_error(current_user.id, 'org_activation')
-    if err:
-        clear_pending_two_factor_code()
-        return _utf8_json({'success': False, 'error': err}, 400)
-    expected_hash = session.get('pending_2fa_code_hash')
-    if not expected_hash or not check_password_hash(expected_hash, code):
-        if register_failed_two_factor_attempt():
+
+    if totp_secret_is_readable(current_user):
+        ok, counter = verify_totp(user_totp_secret(current_user), code,
+                                  last_used_counter=current_user.totp_last_counter)
+        if not ok:
+            if register_failed_two_factor_attempt(current_user):
+                return _utf8_json({'success': False,
+                                   'error': 'Too many incorrect codes. Try again shortly.'}, 400)
             return _utf8_json({'success': False,
-                               'error': 'Too many incorrect codes. Request a new one.'}, 400)
-        return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
+                               'error': 'That code did not match your authenticator app.'}, 400)
+        # Spend the step so the same code can't be replayed at a login.
+        current_user.totp_last_counter = counter
+    else:
+        err = get_pending_two_factor_error(current_user.id, 'org_activation')
+        if err:
+            clear_pending_two_factor_code()
+            return _utf8_json({'success': False, 'error': err}, 400)
+        expected_hash = session.get('pending_2fa_code_hash')
+        if not expected_hash or not check_password_hash(expected_hash, code):
+            if register_failed_two_factor_attempt(current_user):
+                return _utf8_json({'success': False,
+                                   'error': 'Too many incorrect codes. Request a new one.'}, 400)
+            return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
+
     anchor = get_main_admin()
     if not anchor:
         return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
@@ -9518,6 +10811,274 @@ def org_2fa_policy_disable():
     anchor.org_2fa_needs_attention = False
     db.session.commit()
     return _utf8_json({'success': True, 'org_require_2fa': False})
+
+
+@app.route('/admin/dashboard/settings/github', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_github_login_settings():
+    """Store the GitHub OAuth App used for sign-in (org-wide)."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    data = request.get_json() or {}
+    cfg = GitHubLoginSettings.query.first()
+    if not cfg:
+        cfg = GitHubLoginSettings()
+        db.session.add(cfg)
+    client_id = (data.get('client_id') or '').strip()
+    secret = (data.get('client_secret') or '').strip()
+    cfg.client_id = client_id or None
+    # A blank secret means "leave the stored one alone" — the UI never renders
+    # the existing value back, so an empty field must not wipe it.
+    if secret:
+        cfg.client_secret = encrypt_api_key(secret)
+    cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+    return _utf8_json({'success': True, 'configured': github_login_is_configured()})
+
+
+@app.route('/admin/dashboard/settings/admin-privacy', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_admin_privacy_settings():
+    """Org-wide admin privacy: name collection and GitHub-only sign-in.
+
+    Turning names off purges the ones already stored — leaving them would make
+    the setting cosmetic, which is not what it promises.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+
+    data = request.get_json() or {}
+    collect_names = bool(data.get('collect_names'))
+    github_only = bool(data.get('github_only'))
+    email_restricted = bool(data.get('email_restricted',
+                                     getattr(anchor, 'org_admin_email_restricted', False)))
+
+    if email_restricted and not getattr(anchor, 'org_admin_email_restricted', False):
+        # Turning this ON removes email 2FA from every admin without a grant, so
+        # refuse unless each of them already has a working authenticator. Same
+        # reasoning as the GitHub-only guard: a privacy setting must not become
+        # a lockout.
+        stranded = [u.username for u in User.query.all()
+                    if u.id != anchor.id
+                    and not getattr(u, 'email_allowed', False)
+                    and u.email
+                    and not totp_secret_is_readable(u)]
+        if stranded:
+            return _utf8_json(
+                {'success': False,
+                 'error': 'These admins would lose their only second factor. Grant them '
+                          'email access, or have them set up an authenticator app first: '
+                          + ', '.join(stranded[:8]) + ('…' if len(stranded) > 8 else '')}, 400)
+
+    if github_only and not github_login_is_configured():
+        return _utf8_json({'success': False,
+                           'error': 'Add your GitHub OAuth app credentials before turning this on.'}, 400)
+
+    if github_only:
+        # Refusing this is the whole safety property: without a linked GitHub
+        # account AND a working second factor, flipping this switch would lock
+        # the org out of its own admin area.
+        blockers = []
+        for u in User.query.all():
+            if not u.github_user_id:
+                blockers.append(u.username)
+        if blockers:
+            return _utf8_json(
+                {'success': False,
+                 'error': 'These admins have not linked a GitHub account yet, so they would '
+                          'be locked out: ' + ', '.join(blockers[:8])
+                          + ('…' if len(blockers) > 8 else '')}, 400)
+        if not any(u.totp_enabled for u in User.query.all()):
+            return _utf8_json(
+                {'success': False,
+                 'error': 'Set up an authenticator app for at least one admin first — in '
+                          'GitHub-only mode the emailed code is unavailable.'}, 400)
+
+    anchor.org_admin_github_only = github_only
+    anchor.org_admin_collect_names = collect_names
+    anchor.org_admin_email_restricted = email_restricted
+
+    purged = 0
+    if not collect_names:
+        for u in User.query.filter(db.or_(User.first_name.isnot(None),
+                                          User.last_name.isnot(None))).all():
+            if u.first_name or u.last_name:
+                u.first_name = None
+                u.last_name = None
+                purged += 1
+    db.session.commit()
+    return _utf8_json({'success': True, 'purged': purged,
+                       'github_only': github_only, 'collect_names': collect_names})
+
+
+@app.route('/admin/dashboard/settings/logging', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_logging_settings():
+    """Turn per-request logging on or off, org-wide and immediately."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+
+    verbose = bool((request.get_json() or {}).get('verbose'))
+    anchor.org_verbose_logging = verbose
+    db.session.commit()
+    # Applies to this worker at once; others pick it up on their next restart.
+    apply_log_verbosity(verbose)
+    app.logger.info('Per-request logging turned %s by admin id=%s',
+                    'ON' if verbose else 'OFF', current_user.id)
+    return _utf8_json({'success': True, 'verbose': verbose,
+                       'log_file': _ACTIVE_LOG_FILE or ''})
+
+
+@app.route('/admin/dashboard/settings/ip-retention', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_ip_retention_settings():
+    """Set the org-wide visitor-IP retention window, and apply it immediately.
+
+    Shortening the window erases IPs on save rather than waiting for the nightly
+    sweep — someone who has just decided to keep less data means now, not
+    tomorrow.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+
+    payload = request.get_json() or {}
+    raw = payload.get('days')
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False,
+                           'error': 'Enter a whole number of days.'}, 400)
+    if days < 0 or days > 3650:
+        return _utf8_json({'success': False,
+                           'error': 'Choose between 0 and 3650 days.'}, 400)
+
+    store_ips = bool(payload.get('store_ips', True))
+    anchor.ip_retention_days = days
+    anchor.store_visitor_ips = store_ips
+    db.session.commit()
+
+    # Turning recording off means the ones already on file should go too —
+    # otherwise "stop storing IPs" would quietly leave every existing one in
+    # place. While recording stays on, apply the new retention window now.
+    cleared = prune_expired_ips(days) if store_ips else erase_all_visitor_ips()
+    app.logger.info('IP settings by admin id=%s: retention=%s days, recording=%s; erased %s',
+                    current_user.id, days, 'on' if store_ips else 'OFF',
+                    cleared or 'nothing')
+    return _utf8_json({'success': True, 'days': days, 'store_ips': store_ips,
+                       'cleared': sum(cleared.values()) if cleared else 0})
+
+
+def _log_file_status():
+    """Current log file, its size, and how much it can grow to."""
+    if not _ACTIVE_LOG_FILE:
+        return {'path': '', 'size': 0, 'cap_mb': 0}
+    try:
+        max_mb = float(os.environ.get('UWEBIA_LOG_MAX_MB', '5'))
+        backups = int(os.environ.get('UWEBIA_LOG_BACKUPS', '3'))
+    except (TypeError, ValueError):
+        max_mb, backups = 5.0, 3
+    total = 0
+    for suffix in [''] + [f'.{i}' for i in range(1, backups + 1)]:
+        try:
+            total += os.path.getsize(_ACTIVE_LOG_FILE + suffix)
+        except OSError:
+            pass
+    return {'path': _ACTIVE_LOG_FILE, 'size': total,
+            'cap_mb': round(max_mb * (backups + 1), 1)}
+
+
+@app.route('/admin/users/<int:user_id>/2fa-enrollment-ticket', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def issue_2fa_enrollment_ticket(user_id):
+    """Owner issues a single-use setup code so an admin can enrol an
+    authenticator during login.
+
+    Restricted to full admins: the whole point is that someone other than the
+    person holding the password has to authorise the enrolment.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Only an owner can issue setup codes.'}, 403)
+    target = db.session.get(User, user_id)
+    if not target:
+        return _utf8_json({'success': False, 'error': 'Admin not found.'}, 404)
+    if target.root_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'That admin is not part of your organization.'}, 403)
+    if totp_secret_is_readable(target):
+        return _utf8_json({'success': False,
+                           'error': 'That admin already has a working authenticator.'}, 400)
+
+    plain = issue_totp_enrollment_ticket(target, current_user)
+    return _utf8_json({
+        'success': True,
+        'ticket': plain,
+        'username': target.username,
+        'expires_hours': _TOTP_ENROLL_TICKET_HOURS,
+    })
+
+
+@app.route('/admin/users/<int:user_id>/2fa-enrollment-ticket', methods=['DELETE'])
+@login_required
+@require_perm('settings.2fa')
+def revoke_2fa_enrollment_ticket(user_id):
+    """Cancel an outstanding setup code."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    target = db.session.get(User, user_id)
+    if not target or target.root_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False, 'error': 'Admin not found.'}, 404)
+    clear_totp_enrollment_ticket(target)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/users/<int:user_id>/email-permission', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def set_admin_email_permission(user_id):
+    """Grant or revoke one admin's permission to hold an email address."""
+    if not current_user.is_full_admin:
+        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
+    target = db.session.get(User, user_id)
+    if not target:
+        return _utf8_json({'success': False, 'error': 'Admin not found'}, 404)
+
+    allowed = bool((request.get_json() or {}).get('allowed'))
+    if not allowed:
+        # Revoking takes away email 2FA, so refuse if it is their only factor.
+        if target.email and not totp_secret_is_readable(target):
+            return _utf8_json(
+                {'success': False,
+                 'error': 'That admin has no working authenticator app, so removing email '
+                          'access would leave them unable to pass 2FA. Have them set one up '
+                          'first.'}, 400)
+        target.email_allowed = False
+        # The permission is meaningless while the address is still on file, so
+        # clear it — this is what "no email for this admin" has to mean.
+        if target.email:
+            app.logger.info('Cleared email for admin id=%s (permission revoked)', target.id)
+            target.email = None
+            target.two_factor_email = None
+            if target.two_factor_enabled and not totp_secret_is_readable(target):
+                target.two_factor_enabled = False
+    else:
+        target.email_allowed = True
+    db.session.commit()
+    return _utf8_json({'success': True, 'allowed': target.email_allowed,
+                       'email': target.email})
 
 
 @app.route('/admin/email_server_settings')
@@ -10553,7 +12114,9 @@ def send_email():
         body=body,
         contact_form_title=contact_form_title,
         extra_fields=extra_fields or None,
-        ip_address=ip_address,
+        # The submit-cooldown check above still uses the real address; only the
+        # stored copy is subject to the org's IP setting.
+        ip_address=recordable_ip(ip_address),
         user_agent=user_agent,
         referrer=referrer,
         status='stored'
@@ -12168,18 +13731,18 @@ def page_editor(website_id, page_id):
             if not (current_user.has_permission('pages.edit')
                     or current_user.has_permission('website.draft.edit')):
                 flash('You don\'t have permission to edit draft pages.', 'permission_denied')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('websites_page'))
         else:
             has_edit = (current_user.has_permission('pages.edit')
                         or _folder_perm(content.page_folder_id, 'edit'))
             if not has_edit:
                 flash(_perm_label('pages.edit') + ' — you don\'t have access to the page editor.', 'permission_denied')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('websites_page'))
             if not (can_access_page(page_id)
                     or _folder_perm(content.page_folder_id, 'edit')):
                 flash('You don\'t have access to this specific page. Ask your admin to grant access.',
                       'permission_denied')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('websites_page'))
     if content.website_id != website.id:
         return jsonify({'status': 'error', 'message': 'Page does not belong to this website'})
 
@@ -14309,6 +15872,62 @@ def is_public_ip_address(ip_address):
         return False
 
 
+def geoip_data_dir():
+    """Where uploaded .mmdb files live. Override with UWEBIA_GEOIP_DIR.
+
+    Worth overriding in Docker: the default sits under `database/`, which the
+    image excludes and compose does not mount, so the files are wiped whenever
+    the container is rebuilt while the stored path stays in the database — the
+    lookup then silently finds nothing.
+    """
+    return os.environ.get('UWEBIA_GEOIP_DIR',
+                          os.path.join(database_folder, 'analytics'))
+
+
+def geoip_db_path(settings, kind):
+    """Resolve the readable .mmdb for `kind` ('city'/'country'/'asn'), or None.
+
+    The stored column holds an absolute path, which stops being meaningful the
+    moment the file moves — a container rebuild, a restored backup taken on
+    another machine, a changed data directory. So prefer the file this install
+    would have written by convention and fall back to the stored path, rather
+    than trusting a string that outlived the file it named.
+    """
+    if not settings:
+        return None
+    stored = getattr(settings, f'geoip_{kind}_database_path', None)
+    candidates = [
+        os.path.join(geoip_data_dir(), f'user_{settings.user_id}_geoip_{kind}.mmdb'),
+    ]
+    if stored:
+        candidates.append(stored)
+        # Same filename, current directory — covers a moved data dir.
+        candidates.append(os.path.join(geoip_data_dir(), os.path.basename(stored)))
+    for path in candidates:
+        try:
+            if path and os.path.exists(path):
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def geoip_config_problem(settings):
+    """Human-readable reason GeoIP can't run, or None when it's fine."""
+    if not settings or not settings.geoip_enabled:
+        return None
+    if any(geoip_db_path(settings, k) for k in ('city', 'country', 'asn')):
+        return None
+    named = any(getattr(settings, f'geoip_{k}_database_name', None)
+                for k in ('city', 'country', 'asn'))
+    if named:
+        return ('Location lookup is on, but none of the uploaded .mmdb files can be '
+                f'found in {geoip_data_dir()}. They are most likely gone because that '
+                'directory is not persisted (a container rebuild wipes it). Re-upload '
+                'them, and mount that path as a volume so they survive.')
+    return 'Location lookup is on, but no GeoIP database has been uploaded yet.'
+
+
 def lookup_ip_location_for_website(website, ip_address):
     """
     Optional local GeoIP lookup.
@@ -14338,9 +15957,10 @@ def lookup_ip_location_for_website(website, ip_address):
         }
 
         # 1. City database, best location option
-        if settings.geoip_city_database_path and os.path.exists(settings.geoip_city_database_path):
+        _city_db = geoip_db_path(settings, 'city')
+        if _city_db:
             try:
-                with geoip2.database.Reader(settings.geoip_city_database_path) as reader:
+                with geoip2.database.Reader(_city_db) as reader:
                     response = reader.city(ip_address)
 
                     result.update({
@@ -14356,10 +15976,10 @@ def lookup_ip_location_for_website(website, ip_address):
                 print(f"GeoIP City lookup failed for {ip_address}: {e}")
 
         # 2. Country fallback if City was not available or did not return country
-        if not result.get('country') and settings.geoip_country_database_path and os.path.exists(
-                settings.geoip_country_database_path):
+        _country_db = None if result.get('country') else geoip_db_path(settings, 'country')
+        if _country_db:
             try:
-                with geoip2.database.Reader(settings.geoip_country_database_path) as reader:
+                with geoip2.database.Reader(_country_db) as reader:
                     response = reader.country(ip_address)
 
                     result.update({
@@ -14372,9 +15992,10 @@ def lookup_ip_location_for_website(website, ip_address):
                 print(f"GeoIP Country lookup failed for {ip_address}: {e}")
 
         # 3. ASN can be added alongside City/Country
-        if settings.geoip_asn_database_path and os.path.exists(settings.geoip_asn_database_path):
+        _asn_db = geoip_db_path(settings, 'asn')
+        if _asn_db:
             try:
-                with geoip2.database.Reader(settings.geoip_asn_database_path) as reader:
+                with geoip2.database.Reader(_asn_db) as reader:
                     response = reader.asn(ip_address)
 
                     result.update({
@@ -14405,7 +16026,7 @@ def cleanup_unused_geoip_files(user_id):
     Keeps only files currently referenced by AnalyticsSettings.
     Removes old temp files, old single-database files, and leftovers from previous versions.
     """
-    analytics_folder = os.path.join(database_folder, 'analytics')
+    analytics_folder = geoip_data_dir()
 
     if not os.path.exists(analytics_folder):
         return 0
@@ -14416,9 +16037,12 @@ def cleanup_unused_geoip_files(user_id):
 
     if settings:
         possible_paths = [
-            getattr(settings, 'geoip_city_database_path', None),
-            getattr(settings, 'geoip_country_database_path', None),
-            getattr(settings, 'geoip_asn_database_path', None),
+            # Resolved, not raw: otherwise a stored path that no longer matches
+            # the file on disk makes the cleanup treat a perfectly good database
+            # as an orphan and delete it.
+            geoip_db_path(settings, 'city'),
+            geoip_db_path(settings, 'country'),
+            geoip_db_path(settings, 'asn'),
         ]
 
         for path in possible_paths:
@@ -14471,7 +16095,7 @@ def upload_geoip_database():
             'message': 'Only .mmdb GeoIP database files are allowed.'
         }), 400
 
-    analytics_folder = os.path.join(database_folder, 'analytics')
+    analytics_folder = geoip_data_dir()
     os.makedirs(analytics_folder, exist_ok=True)
 
     temp_path = os.path.join(
@@ -14711,7 +16335,10 @@ def track_page_visit(website, page, visitor_id):
                     path=path,
                     referrer=referrer,
                     user_agent=ua,
-                    ip_address=ip_address,
+                    # Geolocation above still runs on the live address, so
+                    # country/region/city survive even when the IP itself is
+                    # not kept.
+                    ip_address=recordable_ip(ip_address),
                     country=location.get('country'),
                     country_iso=location.get('country_iso'),
                     region=location.get('region'),
@@ -14788,11 +16415,19 @@ def settings_page():
             flash('Username cannot be blank.', 'error')
             return redirect(url_for('settings_page'))
 
-        if not account_email:
-            flash('Email cannot be blank.', 'error')
-            return redirect(url_for('settings_page'))
-
-        if not valid_email(account_email):
+        # In GitHub-only mode admins are expected to have no mailbox at all —
+        # their second factor is the authenticator app, so an email is optional.
+        # Any other time it stays required, since it is how 2FA and recovery work.
+        # An admin without the email grant cannot set one, whatever was posted —
+        # the field is hidden for them, but hiding is not enforcement.
+        if not admin_email_allowed(current_user):
+            account_email = None
+        elif not account_email:
+            if not admin_github_only_mode():
+                flash('Email cannot be blank.', 'error')
+                return redirect(url_for('settings_page'))
+            account_email = None
+        elif not valid_email(account_email):
             flash('Please enter a valid email address.', 'error')
             return redirect(url_for('settings_page'))
 
@@ -14822,8 +16457,14 @@ def settings_page():
 
         current_user.username = account_username
         current_user.email = account_email
-        current_user.first_name = account_first_name
-        current_user.last_name = account_last_name
+        # When the org has names switched off, never store one even if the
+        # fields were submitted anyway (hidden inputs are not enforcement).
+        if admin_collect_names_enabled():
+            current_user.first_name = account_first_name
+            current_user.last_name = account_last_name
+        else:
+            current_user.first_name = None
+            current_user.last_name = None
 
         db.session.commit()
         sync_admin_mirrors_for_user(current_user)
@@ -14893,6 +16534,15 @@ def settings_page():
         two_factor_email=current_user.two_factor_email or current_user.email,
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
+        # Only the client id is echoed back — the secret is never rendered into
+        # a page, which is why a blank secret field means "keep the stored one".
+        github_client_id=(get_github_login_settings().client_id
+                          if get_github_login_settings() else ''),
+        verbose_logging=bool(getattr(_anchor, 'org_verbose_logging', False)),
+        log_file_status=_log_file_status(),
+        ip_retention_days=int(getattr(_anchor, 'ip_retention_days', 90) or 0),
+        store_visitor_ips=bool(getattr(_anchor, 'store_visitor_ips', True)),
+        stored_ip_count=_stored_ip_count(),
         can_set_org_2fa=current_user.has_permission('settings.2fa'),
         can_backup=current_user.has_permission('settings.backup'),
         can_store_settings=current_user.has_permission('store.settings'),
@@ -15276,6 +16926,8 @@ def _serialize_backup(uid):
             'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
             'admin_brand_name': _owner.admin_brand_name,
             'admin_brand_icon_url': _owner.admin_brand_icon_url,
+            'ip_retention_days': _owner.ip_retention_days,
+            'store_visitor_ips': bool(_owner.store_visitor_ips),
         } if _owner else {},
         'websites': [{'id': w.id, 'name': w.name, 'description': w.description,
                       'is_draft': w.is_draft,
@@ -16043,6 +17695,134 @@ def _serialize_backup(uid):
     }
 
 
+# ── Backup encryption ─────────────────────────────────────────────────────────
+# A backup is the single most dangerous file this app produces: it carries every
+# admin and member password hash, every email address, phone number, order and
+# message. It also travels — downloaded to laptops, written to a server folder,
+# copied to a NAS — so it is the one artefact most likely to end up somewhere
+# nobody audited.
+#
+# The passphrase is deliberately NOT derived from SECRET_KEY. Two reasons: a
+# backup must stay readable after the install it came from is gone (that is the
+# entire point of a backup), and tying it to SECRET_KEY would mean one key
+# mistake costs both the running site and every copy of its history. The
+# consequence is the honest one — lose the passphrase and the backup is gone.
+#
+# Format, little more than a framed AEAD stream so a 100 MB+ backup never has to
+# sit in memory twice:
+#
+#   magic 'UWEBIABK' | version(1) | salt(16) | nonce prefix(8)
+#   then, repeatedly: length(4, big-endian) | AES-256-GCM ciphertext+tag
+#
+# Each chunk's nonce is prefix || counter, and its AAD binds the chunk index and
+# whether it is the last one. That makes reordering, splicing and — importantly
+# — silent truncation all detectable, which a plain "encrypt the bytes" approach
+# would not.
+_BACKUP_MAGIC = b'UWEBIABK'
+_BACKUP_ENC_VERSION = 1
+_BACKUP_CHUNK_SIZE = 1024 * 1024      # 1 MiB of plaintext per chunk
+_BACKUP_SCRYPT_N = 2 ** 15            # ~32 MB of memory to derive; deliberate
+_BACKUP_HEADER_LEN = len(_BACKUP_MAGIC) + 1 + 16 + 8
+
+
+class BackupPassphraseError(Exception):
+    """Wrong passphrase, or the file has been altered/truncated."""
+
+
+def _derive_backup_key(passphrase, salt):
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    return Scrypt(salt=salt, length=32, n=_BACKUP_SCRYPT_N, r=8, p=1).derive(
+        passphrase.encode('utf-8'))
+
+
+def backup_is_encrypted(head):
+    """True when these leading bytes are one of our encrypted backups."""
+    return bool(head) and head[:len(_BACKUP_MAGIC)] == _BACKUP_MAGIC
+
+
+def encrypt_backup_stream(src, dst, passphrase):
+    """Encrypt `src` (a readable binary file object) into `dst`."""
+    import struct
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt = secrets.token_bytes(16)
+    nonce_prefix = secrets.token_bytes(8)
+    aead = AESGCM(_derive_backup_key(passphrase, salt))
+
+    dst.write(_BACKUP_MAGIC)
+    dst.write(bytes([_BACKUP_ENC_VERSION]))
+    dst.write(salt)
+    dst.write(nonce_prefix)
+
+    index = 0
+    chunk = src.read(_BACKUP_CHUNK_SIZE)
+    while True:
+        nxt = src.read(_BACKUP_CHUNK_SIZE)
+        is_final = not nxt
+        blob = aead.encrypt(nonce_prefix + struct.pack('>I', index),
+                            chunk, struct.pack('>I?', index, is_final))
+        dst.write(struct.pack('>I', len(blob)))
+        dst.write(blob)
+        if is_final:
+            break
+        chunk = nxt
+        index += 1
+    return dst
+
+
+def decrypt_backup_stream(src, dst, passphrase):
+    """Decrypt `src` into `dst`. Raises BackupPassphraseError on any mismatch."""
+    import struct
+
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    header = src.read(_BACKUP_HEADER_LEN)
+    if len(header) < _BACKUP_HEADER_LEN or not backup_is_encrypted(header):
+        raise BackupPassphraseError('That file is not an encrypted Uwebia backup.')
+    version = header[len(_BACKUP_MAGIC)]
+    if version != _BACKUP_ENC_VERSION:
+        raise BackupPassphraseError(
+            f'This backup uses encryption format v{version}, which this version '
+            f'of Uwebia cannot read.')
+    salt = header[len(_BACKUP_MAGIC) + 1:len(_BACKUP_MAGIC) + 17]
+    nonce_prefix = header[len(_BACKUP_MAGIC) + 17:]
+    aead = AESGCM(_derive_backup_key(passphrase, salt))
+
+    index = 0
+    saw_final = False
+    while True:
+        raw_len = src.read(4)
+        if not raw_len:
+            break
+        if len(raw_len) < 4:
+            raise BackupPassphraseError('The backup file is truncated.')
+        (blob_len,) = struct.unpack('>I', raw_len)
+        blob = src.read(blob_len)
+        if len(blob) < blob_len:
+            raise BackupPassphraseError('The backup file is truncated.')
+        nonce = nonce_prefix + struct.pack('>I', index)
+        # Which chunk is last isn't known until it decrypts, so try "not final"
+        # and fall back. A wrong passphrase fails both and is reported as such.
+        for final_flag in (False, True):
+            try:
+                dst.write(aead.decrypt(nonce, blob,
+                                       struct.pack('>I?', index, final_flag)))
+                saw_final = final_flag
+                break
+            except InvalidTag:
+                if final_flag:
+                    raise BackupPassphraseError(
+                        'Wrong passphrase, or this backup has been altered.')
+        index += 1
+    if not saw_final:
+        # Every chunk authenticated, but the one marked final never arrived.
+        raise BackupPassphraseError(
+            'The backup file is incomplete — the end of it is missing.')
+    return dst
+
+
 def _build_backup_zip_bytes(uid, include_files=True):
     """Serialise the whole instance for owner `uid` into an in-memory ZIP
     (backup.json + uploaded asset/navbar files) and return the raw bytes.
@@ -16080,22 +17860,56 @@ def _build_backup_zip_bytes(uid, include_files=True):
     return buf.getvalue()
 
 
-@app.route('/admin/settings/backup/export')
+@app.route('/admin/settings/backup/export', methods=['GET', 'POST'])
 @login_required
 @require_perm('settings.backup')
 def export_backup():
     # Whole-instance backup is org-wide and always scoped to the primary owner's
     # id (the shared anchor), never the acting user's own id. Gated by
     # settings.backup (full admins pass automatically; sub-admins can be granted).
-    include_files = request.args.get('include_files', '1') != '0'
+    #
+    # POST exists solely so the passphrase travels in a body rather than a query
+    # string: URLs end up in access logs, proxy logs and browser history, which
+    # is the last place the key to the whole database should be. GET remains for
+    # the plain download.
+    src = request.form if request.method == 'POST' else request.args
+    include_files = src.get('include_files', '1') != '0'
+    passphrase = (src.get('passphrase') or '').strip()
     uid = current_user.root_user_id
     zip_bytes = _build_backup_zip_bytes(uid, include_files=include_files)
 
     ts = datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d_%H%M%S')
     suffix = '' if include_files else '_data_only'
-    return send_file(io.BytesIO(zip_bytes), as_attachment=True,
-                     download_name=f'uwebia_backup_{ts}{suffix}.zip',
-                     mimetype='application/zip')
+
+    if not passphrase:
+        app.logger.info('Unencrypted backup downloaded by admin id=%s', current_user.id)
+        return send_file(io.BytesIO(zip_bytes), as_attachment=True,
+                         download_name=f'uwebia_backup_{ts}{suffix}.zip',
+                         mimetype='application/zip')
+
+    # Encrypt to a temp file rather than a second in-memory copy: with uploads
+    # included these run to hundreds of megabytes.
+    tmp = tempfile.NamedTemporaryFile(prefix='uwebia_backup_', suffix='.uwbak',
+                                      delete=False)
+    try:
+        encrypt_backup_stream(io.BytesIO(zip_bytes), tmp, passphrase)
+        tmp.flush()
+    finally:
+        tmp.close()
+    del zip_bytes
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            os.remove(tmp.name)
+        except OSError:
+            pass
+        return response
+
+    app.logger.info('Encrypted backup downloaded by admin id=%s', current_user.id)
+    return send_file(tmp.name, as_attachment=True,
+                     download_name=f'uwebia_backup_{ts}{suffix}.uwbak',
+                     mimetype='application/octet-stream')
 
 
 # ── Automatic backups ─────────────────────────────────────────────────────────
@@ -16163,10 +17977,16 @@ def _auto_backup_is_due(cfg, now=None):
 
 
 def _prune_auto_backups(folder, max_backups):
-    """Keep only the newest `max_backups` auto-backup zips in `folder`."""
+    """Keep only the newest `max_backups` auto-backups in `folder`.
+
+    Both extensions count: turning encryption on mid-life would otherwise leave
+    the old .zip files outside the retention limit and keep them forever — the
+    plaintext ones, of all things.
+    """
     try:
         files = [os.path.join(folder, f) for f in os.listdir(folder)
-                 if f.startswith('uwebia_autobackup_') and f.endswith('.zip')]
+                 if f.startswith('uwebia_autobackup_')
+                 and f.endswith(('.zip', '.uwbak'))]
         files = [f for f in files if os.path.isfile(f)]
         files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
         for stale in files[max(1, int(max_backups or 1)):]:
@@ -16201,9 +18021,29 @@ def _run_auto_backup_for(cfg):
         os.makedirs(folder, exist_ok=True)
         zip_bytes = _build_backup_zip_bytes(cfg.user_id, include_files=True)
         ts = now.strftime('%Y%m%d_%H%M%S')
-        path = os.path.join(folder, f'uwebia_autobackup_{ts}.zip')
-        with open(path, 'wb') as fh:
-            fh.write(zip_bytes)
+
+        passphrase = ''
+        if cfg.encrypt_enabled and cfg.encrypt_passphrase:
+            # Strict: the lenient helper returns the ciphertext on failure, which
+            # would encrypt the backup under a passphrase nobody knows.
+            passphrase = decrypt_api_key_strict(cfg.encrypt_passphrase) or ''
+            if not passphrase:
+                raise RuntimeError(
+                    'The stored backup passphrase could not be decrypted (SECRET_KEY '
+                    'has changed). Re-enter it in Settings — refusing to write an '
+                    'unencrypted backup when encryption was requested.')
+
+        ext = 'uwbak' if passphrase else 'zip'
+        path = os.path.join(folder, f'uwebia_autobackup_{ts}.{ext}')
+        # os.open with 0600: the default umask leaves these world-readable, and
+        # a backup readable by every local account defeats the point of
+        # encrypting it in the first place.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'wb') as fh:
+            if passphrase:
+                encrypt_backup_stream(io.BytesIO(zip_bytes), fh, passphrase)
+            else:
+                fh.write(zip_bytes)
         _prune_auto_backups(folder, cfg.max_backups)
         cfg.last_run_at = now
         cfg.last_status = 'success'
@@ -16221,6 +18061,147 @@ def _run_auto_backup_for(cfg):
         except Exception:
             db.session.rollback()
         return False, str(e)
+
+
+# ── Visitor IP retention ──────────────────────────────────────────────────────
+# Every table that records a visitor IP, paired with the timestamp that decides
+# how old the record is. Add new ones here — an IP recorded somewhere that isn't
+# on this list will simply be kept forever, which is the failure we're avoiding.
+def _ip_retention_targets():
+    return (
+        (PageVisit, PageVisit.ip_address, PageVisit.visited_at),
+        (ForumThread, ForumThread.ip_address, ForumThread.created_at),
+        (ForumReply, ForumReply.ip_address, ForumReply.created_at),
+        (ContactMessage, ContactMessage.ip_address, ContactMessage.created_at),
+        (PageComment, PageComment.ip_address, PageComment.created_at),
+        (CalendarFeedSubscriber, CalendarFeedSubscriber.ip_address,
+         CalendarFeedSubscriber.last_seen_at),
+    )
+
+
+def ip_retention_days():
+    """Org-wide retention, read from the anchor. 0 = keep forever."""
+    anchor = get_main_admin()
+    if anchor is None:
+        return 0
+    try:
+        return max(0, int(anchor.ip_retention_days or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def visitor_ip_storage_enabled():
+    """Org-wide: may a visitor IP be written to the database at all?"""
+    anchor = get_main_admin()
+    if anchor is None:
+        return True
+    return bool(getattr(anchor, 'store_visitor_ips', True))
+
+
+def recordable_ip(ip=None):
+    """The IP to persist against content, or None when storage is turned off.
+
+    Deliberately separate from get_request_ip(): rate limiting, login lockouts
+    and the contact-form cooldown keep using the real address, because those are
+    transient security controls rather than stored history. This function only
+    governs what gets written into a row and kept.
+    """
+    if not visitor_ip_storage_enabled():
+        return None
+    return get_request_ip() if ip is None else ip
+
+
+def prune_expired_ips(days=None):
+    """Erase visitor IPs older than the retention window. Returns {table: rows}.
+
+    The IP is nulled *in place* rather than the row deleted: analytics counts,
+    forum threads and contact messages all stay intact, they just stop carrying
+    the identifier. Rows whose IP is already NULL are skipped so a scheduled run
+    costs nothing once it has caught up.
+    """
+    days = ip_retention_days() if days is None else int(days)
+    if days <= 0:
+        return {}
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    cleared = {}
+    for model, ip_col, ts_col in _ip_retention_targets():
+        try:
+            n = (db.session.query(model)
+                 .filter(ip_col.isnot(None), ts_col.isnot(None), ts_col < cutoff)
+                 .update({ip_col: None}, synchronize_session=False))
+            if n:
+                cleared[model.__tablename__] = n
+        except Exception as prune_err:
+            db.session.rollback()
+            app.logger.warning('IP prune failed for %s: %s',
+                               model.__tablename__, prune_err)
+    if cleared:
+        db.session.commit()
+        app.logger.info('IP retention: erased %s', cleared)
+    return cleared
+
+
+def erase_all_visitor_ips():
+    """Erase every stored visitor IP, regardless of age. Returns {table: rows}.
+
+    Used when IP recording is switched off — leaving the existing addresses
+    behind would make "stop storing IPs" mean "stop storing new ones", which is
+    not what anyone turning it off is asking for.
+    """
+    cleared = {}
+    for model, ip_col, _ts in _ip_retention_targets():
+        try:
+            n = (db.session.query(model).filter(ip_col.isnot(None))
+                 .update({ip_col: None}, synchronize_session=False))
+            if n:
+                cleared[model.__tablename__] = n
+        except Exception as erase_err:
+            db.session.rollback()
+            app.logger.warning('IP erase failed for %s: %s',
+                               model.__tablename__, erase_err)
+    if cleared:
+        db.session.commit()
+        app.logger.info('IP recording disabled: erased %s', cleared)
+    return cleared
+
+
+def _stored_ip_count():
+    """How many rows currently hold a visitor IP — the concrete number the
+    retention setting is about, so the admin sees what they're deciding on."""
+    total = 0
+    for model, ip_col, _ts in _ip_retention_targets():
+        try:
+            total += db.session.query(model).filter(ip_col.isnot(None)).count()
+        except Exception:
+            pass
+    return total
+
+
+_ip_retention_scheduler_started = False
+
+
+def _start_ip_retention_scheduler():
+    """Daily sweep that applies the org-wide IP retention window."""
+    import threading
+    import time
+
+    global _ip_retention_scheduler_started
+    if _ip_retention_scheduler_started:
+        return
+    _ip_retention_scheduler_started = True
+
+    def _loop():
+        time.sleep(90)  # let startup settle
+        while True:
+            try:
+                with app.app_context():
+                    prune_expired_ips()
+            except Exception as loop_err:
+                print(f"[ip-retention] scheduler error: {loop_err}")
+            time.sleep(86400)  # once a day is plenty for a day-granularity rule
+
+    threading.Thread(target=_loop, daemon=True, name='ip-retention').start()
+    print("[ip-retention] background scheduler started (interval: 24 h)")
 
 
 _auto_backup_scheduler_started = False
@@ -16270,9 +18251,30 @@ def import_backup():
         return _utf8_json({'success': False, 'error': 'No file uploaded'}, 400)
 
     uid = current_user.root_user_id
+    _decrypted_tmp = None
     try:
         raw = uploaded.read()
-        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        if backup_is_encrypted(raw[:len(_BACKUP_MAGIC)]):
+            passphrase = (request.form.get('passphrase') or '').strip()
+            if not passphrase:
+                return _utf8_json({'success': False, 'encrypted': True,
+                                   'error': 'This backup is encrypted. Enter its '
+                                            'passphrase to restore it.'}, 400)
+            # Decrypt to disk, not memory: with uploads bundled these are large,
+            # and the zip reader below needs random access anyway.
+            _decrypted_tmp = tempfile.NamedTemporaryFile(
+                prefix='uwebia_restore_', suffix='.zip', delete=False)
+            try:
+                decrypt_backup_stream(io.BytesIO(raw), _decrypted_tmp, passphrase)
+                _decrypted_tmp.flush()
+            finally:
+                _decrypted_tmp.close()
+            del raw
+            source = _decrypted_tmp.name
+        else:
+            source = io.BytesIO(raw)
+
+        with zipfile.ZipFile(source) as zf:
             if 'backup.json' not in zf.namelist():
                 return _utf8_json({'success': False, 'error': 'Invalid backup: missing backup.json'}, 400)
             data = json.loads(zf.read('backup.json'))
@@ -16824,6 +18826,15 @@ def import_backup():
                         _brand_icon = _brand_icon.replace(
                             f'/uploads/{old_uid}/', f'/uploads/{uid}/')
                     _owner.admin_brand_icon_url = _brand_icon
+                    # Absent in backups taken before IP retention existed —
+                    # fall back to the model default rather than 0, so an old
+                    # backup can't silently turn pruning off.
+                    _retention = _owner_settings.get('ip_retention_days')
+                    _owner.ip_retention_days = (
+                        90 if _retention is None else max(0, int(_retention)))
+                    _store_ips = _owner_settings.get('store_visitor_ips')
+                    _owner.store_visitor_ips = (
+                        True if _store_ips is None else bool(_store_ips))
 
             for gd in data.get('permission_groups', []):
                 pg = PermissionGroup(owner_user_id=uid, name=gd['name'],
@@ -18343,10 +20354,25 @@ def import_backup():
                         pass
 
             # ── AdminChatMessage ──────────────────────────────────────────────
+            # Skip rows already present. The purge above only clears sub-admins'
+            # messages, so the owner's survive a restore — and re-adding them
+            # unconditionally appended a whole extra copy of the history on
+            # every restore, which is what made the chat look like it was
+            # duplicating itself. Two genuine sends can't share a timestamp to
+            # the microsecond, so an exact (user, text, time) match is a re-import.
+            _existing_chat = {
+                (m.message, m.created_at)
+                for m in AdminChatMessage.query.filter_by(user_id=uid).all()
+            }
             for md in data.get('admin_chat_messages', []):
+                _created = (datetime.fromisoformat(md['created_at'])
+                            if md.get('created_at') else None)
+                _text = md.get('message') or ''
+                if (_text, _created) in _existing_chat:
+                    continue
+                _existing_chat.add((_text, _created))
                 db.session.add(AdminChatMessage(
-                    user_id=uid, message=md.get('message') or '',
-                    created_at=datetime.fromisoformat(md['created_at']) if md.get('created_at') else None,
+                    user_id=uid, message=_text, created_at=_created,
                 ))
 
             # ── CalendarFeedSubscriber ────────────────────────────────────────
@@ -18627,12 +20653,23 @@ def import_backup():
                     with zf.open(name) as src, open(os.path.join(new_brand_dir, fname), 'wb') as dst:
                         shutil.copyfileobj(src, dst)
 
+    except BackupPassphraseError as pass_err:
+        # A wrong passphrase is a normal mistake, not a server fault — and it
+        # must not read as "your backup is corrupt".
+        return _utf8_json({'success': False, 'encrypted': True,
+                           'error': str(pass_err)}, 400)
     except zipfile.BadZipFile:
         return _utf8_json({'success': False, 'error': 'Invalid ZIP file'}, 400)
     except Exception as e:
         db.session.rollback()
         app.logger.exception('import_backup error')
         return _utf8_json({'success': False, 'error': str(e)}, 500)
+    finally:
+        if _decrypted_tmp is not None:
+            try:
+                os.remove(_decrypted_tmp.name)
+            except OSError:
+                pass
 
     return _utf8_json({'success': True})
 
@@ -18687,13 +20724,36 @@ def save_auto_backup_settings():
             return _utf8_json({'success': False,
                                'error': f'Folder is not writable: {e}'}, 400)
 
+    # Encryption. A blank passphrase field means "leave the stored one alone",
+    # so the page never has to render the secret back to the browser.
+    encrypt_enabled = str(request.form.get('encrypt_enabled', '')).lower() in (
+        '1', 'true', 'on', 'yes')
+    passphrase = (request.form.get('encrypt_passphrase') or '').strip()
+    if encrypt_enabled:
+        if not passphrase and not cfg.encrypt_passphrase:
+            return _utf8_json({'success': False,
+                               'error': 'Set a passphrase to encrypt scheduled backups.'}, 400)
+        if passphrase and len(passphrase) < 12:
+            return _utf8_json({'success': False,
+                               'error': 'Use a passphrase of at least 12 characters — '
+                                        'this is the only thing protecting the file.'}, 400)
+        if passphrase:
+            cfg.encrypt_passphrase = encrypt_api_key(passphrase)
+    else:
+        # Turning encryption off drops the stored passphrase rather than leaving
+        # it lying in the database for no reason.
+        cfg.encrypt_passphrase = None
+    cfg.encrypt_enabled = encrypt_enabled
+
     cfg.enabled = enabled
     cfg.folder_path = folder or None
     cfg.frequency = frequency
     cfg.max_backups = max_backups
     cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
-    return _utf8_json({'success': True})
+    app.logger.info('Auto-backup settings saved by admin id=%s (encryption %s)',
+                    current_user.id, 'ON' if encrypt_enabled else 'off')
+    return _utf8_json({'success': True, 'encrypt_enabled': encrypt_enabled})
 
 
 @app.route('/admin/settings/backup/auto/run', methods=['POST'])
@@ -19590,6 +21650,7 @@ def analytics_page():
     if not website_ids:
         return render_template(
             'analytics.html',
+            geoip_problem=None,
             websites=[],
             total_page_views=0,
             total_unique_visitors=0,
@@ -19799,6 +21860,8 @@ def analytics_page():
 
     return render_template(
         'analytics.html',
+        geoip_problem=geoip_config_problem(
+            AnalyticsSettings.query.filter_by(user_id=current_user.root_user_id).first()),
         websites=websites,
         total_page_views=total_page_views,
         total_unique_visitors=total_unique_visitors,
@@ -21230,7 +23293,7 @@ def track_calendar_feed_subscriber(calendar_id):
         subscriber = CalendarFeedSubscriber(
             calendar_id=calendar_id,
             subscriber_hash=subscriber_hash,
-            ip_address=ip_address,
+            ip_address=recordable_ip(ip_address),
             user_agent=user_agent,
             first_seen_at=now,
             last_seen_at=now,
@@ -22504,6 +24567,40 @@ WEBSITE_SPECIFIC_SECTIONS = {
     'forum', 'comments', 'analytics',
 }
 
+# Groups the ~28 permission sections into themes so the editor reads as a short
+# list of areas rather than one long alphabet-soup column. Order here is the
+# order shown; anything missing falls into "Other" rather than disappearing, so
+# adding a section to ADMIN_PERMISSIONS can never silently hide it.
+PERMISSION_CATEGORIES = [
+    ('Site content', ['website', 'pages', 'sections', 'appearance', 'code', 'templates']),
+    ('Media & files', ['assets', 'storage']),
+    ('Learning', ['guides', 'quizzes', 'resources', 'divisions', 'ksa']),
+    ('Community', ['forum', 'comments', 'posts', 'reviews', 'public_users']),
+    ('Communication', ['newsletters', 'messages', 'notifications', 'ai_agents']),
+    ('Commerce', ['store', 'payments']),
+    ('Scheduling', ['calendars']),
+    ('Administration', ['settings', 'admin_users', 'analytics']),
+]
+
+
+def permission_categories_for(section_keys):
+    """Return [(category, [section_key, ...]), ...] limited to `section_keys`.
+
+    Keys not listed in PERMISSION_CATEGORIES are collected under "Other" so a
+    newly added permission section still appears somewhere.
+    """
+    wanted = list(section_keys)
+    grouped, claimed = [], set()
+    for label, keys in PERMISSION_CATEGORIES:
+        present = [k for k in keys if k in wanted]
+        if present:
+            grouped.append((label, present))
+            claimed.update(present)
+    leftover = [k for k in wanted if k not in claimed]
+    if leftover:
+        grouped.append(('Other', leftover))
+    return grouped
+
 ADMIN_PERMISSIONS = {
     'website': {'label': 'Website', 'actions': {
         'edit': 'Edit website name, description & tags',
@@ -22710,7 +24807,11 @@ def admin_users_page():
             return jsonify({'error': 'Permission denied'}), 403
     sub_admins = User.query.filter_by(parent_user_id=current_user.root_user_id).all()
     root_user_id = current_user.root_user_id
-    live_websites = Website.query.filter_by(user_id=root_user_id, is_draft=False).order_by(Website.id).all()
+    # Primary site (url_prefix NULL = the root domain) first, so the per-website
+    # permission tabs open on the site an admin almost always means, rather than
+    # on whichever one happened to be created first.
+    live_websites = (Website.query.filter_by(user_id=root_user_id, is_draft=False)
+                     .order_by(Website.url_prefix.isnot(None), Website.id).all())
     all_folders = AssetFolder.query.filter_by(user_id=root_user_id).order_by(AssetFolder.name).all()
     perm_groups = PermissionGroup.query.filter_by(owner_user_id=root_user_id).order_by(PermissionGroup.name).all()
 
@@ -22812,10 +24913,33 @@ def admin_users_page():
                 'categories': cat_entries, 'uncategorized': uncategorized,
             })
 
+    # Accounts an org-wide 2FA requirement currently does nothing for: they hold
+    # no second factor, so whoever has the password can enrol one mid-login. The
+    # owner closes that by handing them a setup code out of band.
+    unprotected = admins_without_second_factor(root_user_id)
+    unprotected_ids = {u.id for u in unprotected}
+    pending_ticket_ids = {u.id for u in unprotected if totp_enrollment_ticket_pending(u)}
+    anchor = get_main_admin()
+    # Read the policy off the anchor rather than through _org_requires_2fa():
+    # that helper can switch the policy OFF as a side effect when the mail
+    # settings have changed, which should happen on a login attempt, not
+    # because someone opened this page.
+    org_requires_2fa = bool(anchor and (anchor.org_require_2fa or anchor.two_factor_enabled))
+
     return render_template('admin_users.html',
                            sub_admins=sub_admins,
+                           org_requires_2fa=org_requires_2fa,
+                           unprotected_admin_ids=unprotected_ids,
+                           pending_ticket_ids=pending_ticket_ids,
+                           anchor_unprotected=bool(anchor and anchor.id in unprotected_ids),
+                           anchor_username=(anchor.username if anchor else ''),
+                           enroll_ticket_hours=_TOTP_ENROLL_TICKET_HOURS,
                            permissions_schema=ADMIN_PERMISSIONS,
                            website_specific_sections=WEBSITE_SPECIFIC_SECTIONS,
+                           general_perm_categories=permission_categories_for(
+                               [k for k in ADMIN_PERMISSIONS if k not in WEBSITE_SPECIFIC_SECTIONS]),
+                           website_perm_categories=permission_categories_for(
+                               [k for k in ADMIN_PERMISSIONS if k in WEBSITE_SPECIFIC_SECTIONS]),
                            all_folders=[{'id': f.id, 'name': f.name, 'asset_type': f.asset_type} for f in all_folders],
                            permission_groups=perm_groups,
                            live_websites=live_websites,
@@ -22837,7 +24961,12 @@ def admin_public_users_page():
             flash("You don't have permission to view members.", 'permission_denied')
             return redirect(url_for('dashboard'))
     root_id = current_user.root_user_id if current_user.is_sub_admin else current_user.id
-    live_websites = Website.query.filter_by(user_id=root_id, is_draft=False).order_by(Website.id).all()
+    # Primary site first (url_prefix NULL = served at the root domain), then by
+    # id. Ordering purely by id made the opening tab whichever site happened to
+    # be created first, so members signing up on the main site could look
+    # missing simply because a secondary site was showing.
+    live_websites = (Website.query.filter_by(user_id=root_id, is_draft=False)
+                     .order_by(Website.url_prefix.isnot(None), Website.id).all())
     # Only site-wide roles are managed here; division-scoped roles live on the
     # Divisions & KSAs page and are assigned per-member there.
     roles_by_website = {
@@ -23138,6 +25267,19 @@ def admin_public_users_settings():
                 PublicUser.mirrored_admin_user_id.is_(None),
             ).update({PublicUser.first_name: None, PublicUser.last_name: None},
                      synchronize_session=False)
+    if 'github_login_enabled' in data:
+        enabled = bool(data.get('github_login_enabled', False))
+        if enabled and not github_login_is_configured():
+            return _utf8_json({'error': 'Add your GitHub OAuth app credentials in '
+                                        'Settings before enabling GitHub sign-in.'}, 400)
+        website.github_login_enabled = enabled
+        if not enabled:
+            website.github_login_only = False
+    if 'github_login_only' in data:
+        only = bool(data.get('github_login_only', False))
+        if only and not website.github_login_enabled:
+            return _utf8_json({'error': 'Enable GitHub sign-in first.'}, 400)
+        website.github_login_only = only
     db.session.commit()
     return _utf8_json({'success': True})
 
@@ -23572,11 +25714,18 @@ def _promote_conflict_websites(public_user, exclude_admin_user_id=None):
     owned_website_ids = {w.id for w in Website.query.filter_by(user_id=root_id, is_draft=False).all()}
     if not owned_website_ids:
         return []
+    # Compare the email only when there is one. `Column == None` compiles to
+    # `IS NULL`, so an emailless member (every GitHub sign-up, and every account
+    # on a site with email turned off) otherwise "collided" with every other
+    # emailless member — none of which is a real conflict, since NULLs don't
+    # contend for a unique index.
+    match_clauses = [PublicUser.username == public_user.username]
+    if public_user.email:
+        match_clauses.append(PublicUser.email == public_user.email)
     q = PublicUser.query.filter(
         PublicUser.id != public_user.id,
         PublicUser.website_id.in_(owned_website_ids),
-        or_(PublicUser.username == public_user.username,
-            PublicUser.email == public_user.email),
+        or_(*match_clauses),
     )
     if exclude_admin_user_id:
         q = q.filter(or_(
@@ -23613,7 +25762,9 @@ def _resolve_promote_conflicts(conflicts, promoting):
                     break
                 n += 1
 
-        if pu.email == promoting.email and '@' in pu.email:
+        # Both sides must actually have an address: two NULLs compare equal in
+        # Python and would then crash on the `in` test below.
+        if promoting.email and pu.email and pu.email == promoting.email and '@' in pu.email:
             local, _, domain = pu.email.partition('@')
             n = 2
             while True:
@@ -23688,8 +25839,20 @@ def admin_public_user_promote(user_id):
     pu = _get_owned_public_user(user_id)
     if pu.is_admin_mirror:
         return _utf8_json({'success': False, 'error': 'This user is already a staff mirror.'}, 400)
-    if not pu.password_hash:
-        return _utf8_json({'success': False, 'error': "This account has no password set, so it can't be promoted."}, 400)
+    # A promoted member needs *some* way to authenticate as an admin. A password
+    # is one; a linked GitHub account is another, and members who signed up
+    # through GitHub have no password by design — refusing them would make
+    # GitHub sign-ups permanently ineligible for staff.
+    if not pu.password_hash and not pu.github_user_id:
+        return _utf8_json({'success': False,
+                           'error': "This account has no password and no linked GitHub "
+                                    "account, so there'd be no way for them to sign in as "
+                                    "staff."}, 400)
+    if pu.github_user_id and not pu.password_hash and not github_login_is_configured():
+        return _utf8_json({'success': False,
+                           'error': 'This member signs in with GitHub, but GitHub sign-in is '
+                                    'not configured, so they could not reach the admin area. '
+                                    'Set it up in Settings first.'}, 400)
 
     data = request.get_json() or {}
     perms = data.get('permissions') or {}
@@ -23719,11 +25882,20 @@ def admin_public_user_promote(user_id):
 
     # Admin-User namespace check first — these can't be auto-resolved (an
     # actual admin already owns the name).
-    admin_clash = User.query.filter(or_(
-        User.username == pu.username, User.email == pu.email)).first()
+    # Compare the email only when there is one — `== None` compiles to IS NULL
+    # and would match every emailless admin, blocking the promotion outright.
+    _admin_match = [User.username == pu.username]
+    if pu.email:
+        _admin_match.append(User.email == pu.email)
+    admin_clash = User.query.filter(or_(*_admin_match)).first()
     if admin_clash:
         return _utf8_json({'success': False,
             'error': 'An admin account already uses that username or email.'}, 400)
+
+    # The GitHub link moves to the admin row, and it is globally unique there.
+    if pu.github_user_id and User.query.filter_by(github_user_id=pu.github_user_id).first():
+        return _utf8_json({'success': False,
+            'error': 'That GitHub account is already linked to an admin.'}, 400)
 
     # Cross-website public-user collisions — those are auto-resolvable.
     conflicts = _promote_conflict_websites(pu)
@@ -23761,6 +25933,9 @@ def admin_public_user_promote(user_id):
         first_name=pu.first_name,
         last_name=pu.last_name,
         password_hash=pu.password_hash,
+        # Carry the GitHub link across so a member who signed up that way can
+        # still get in — it is how they authenticate.
+        github_user_id=pu.github_user_id,
         parent_user_id=root_id,
         permission_group_id=group_id,
         permissions=perms if not group_id else {},
@@ -23774,6 +25949,10 @@ def admin_public_user_promote(user_id):
     source_website_id = pu.website_id
     pu.mirrored_admin_user_id = new_admin.id
     pu.password_hash = None
+    # The link now lives on the admin row. Leaving a copy here would let the
+    # public GitHub sign-in match the mirror first and hand out a session
+    # without ever running the admin second-factor gate.
+    pu.github_user_id = None
     pu.email_verified = True
     pu.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     pu.is_active_public = True
@@ -25955,6 +28134,14 @@ def public_register():
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
 
+    # GitHub-only sites have no password sign-up at all — accounts are created
+    # by the GitHub callback. Enforced server-side, not just hidden in the form.
+    if (getattr(website, 'github_login_only', False)
+            and getattr(website, 'github_login_enabled', False)):
+        if request.method == 'POST':
+            flash('This site uses GitHub sign-in.', 'error')
+        return redirect(url_for('public_login', website_prefix=website_prefix or None))
+
     # Self-registration can be closed (admins create accounts instead).
     if not getattr(website, 'allow_public_signup', True):
         if request.method == 'POST':
@@ -26150,6 +28337,265 @@ def public_register():
     )
 
 
+# ── GitHub sign-in routes ────────────────────────────────────────────────────
+
+@app.route('/auth/github/start')
+def github_start_public():
+    """Begin GitHub sign-in for a member."""
+    prefix = (request.args.get('website_prefix') or '').strip().strip('/')
+    website = get_live_website(url_prefix=prefix or None)
+    if not website or not website_uses_public_accounts(website):
+        return 'Public accounts are not enabled for this site.', 404
+    if not getattr(website, 'github_login_enabled', False):
+        return 'GitHub sign-in is not enabled for this site.', 404
+    url, err = _github_begin('public', website_prefix=prefix,
+                             next_url=request.args.get('next'))
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('public_login', website_prefix=prefix or None))
+    return redirect(url)
+
+
+@app.route('/admin/auth/github/start')
+def github_start_admin():
+    """Begin GitHub sign-in for an admin."""
+    url, err = _github_begin('admin', next_url=request.args.get('next'))
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('login'))
+    return redirect(url)
+
+
+@app.route('/admin/auth/github/link')
+@login_required
+def github_link_admin():
+    """Attach a GitHub account to the signed-in admin."""
+    url, err = _github_begin('link_admin')
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('settings_page'))
+    return redirect(url)
+
+
+@app.route('/admin/auth/github/unlink', methods=['POST'])
+@login_required
+def github_unlink_admin():
+    """Detach GitHub — refused if it would leave the account unreachable."""
+    if not current_user.password_hash:
+        return _utf8_json({'success': False,
+                           'error': 'This account has no password, so GitHub is the only way '
+                                    'to sign in. Set a password first.'}, 400)
+    current_user.github_user_id = None
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/auth/github/callback')
+def github_callback():
+    """Single callback for every GitHub round trip.
+
+    What happens next is decided by the intent stashed in the session when the
+    trip started, never by anything in the query string, so a crafted callback
+    URL can't redirect the flow into a different (more privileged) branch.
+    """
+    ctx = _github_consume_state(request.args.get('state'))
+    if not ctx:
+        flash('That sign-in link expired or did not start here. Please try again.', 'error')
+        return redirect(url_for('login'))
+
+    if request.args.get('error'):
+        flash('GitHub sign-in was cancelled.', 'error')
+        return redirect(url_for('login') if ctx['intent'] in ('admin', 'link_admin')
+                        else url_for('public_login', website_prefix=ctx['prefix'] or None))
+
+    def _fail(reason):
+        # Say what actually went wrong. These are configuration faults, not
+        # secrets, and a bare "try again" sends people round the same loop.
+        flash(f'GitHub sign-in failed. {reason}', 'error')
+        return redirect(url_for('login') if ctx['intent'] in ('admin', 'link_admin')
+                        else url_for('public_login', website_prefix=ctx['prefix'] or None))
+
+    code = request.args.get('code')
+    if not code:
+        return _fail('GitHub did not send an authorization code.')
+
+    token, token_error = _github_exchange_code(code, ctx.get('redirect_uri'))
+    if not token:
+        return _fail(token_error or 'The authorization code could not be exchanged.')
+
+    gh_id = _github_identity(token)
+    if not gh_id:
+        return _fail('GitHub accepted the sign-in but would not return an account id. '
+                     'Check the server log for the exact response.')
+
+    intent = ctx['intent']
+    if intent == 'admin':
+        return _github_admin_login(gh_id)
+    if intent == 'link_admin':
+        return _github_admin_link(gh_id)
+    if intent == 'public':
+        return _github_public_login(gh_id, ctx, token)
+    if intent == 'link_public':
+        return _github_public_link(gh_id, ctx)
+    return redirect(url_for('login'))
+
+
+def _github_admin_login(gh_id):
+    user = User.query.filter_by(github_user_id=gh_id).first()
+    if not user:
+        # Deliberately no self-signup for admins: an admin account is created by
+        # an existing admin, who then links GitHub. Otherwise anyone with a
+        # GitHub account could mint themselves one.
+        flash('That GitHub account is not linked to an admin here. Ask an existing '
+              'admin to create your account and link it.', 'error')
+        return redirect(url_for('login'))
+    app.logger.info('GitHub sign-in for admin user id=%s', user.id)
+    # Same second-factor gate as the password form — GitHub proves one factor only.
+    return begin_admin_login(user, remember=False, admin_key=None,
+                             on_error=lambda: redirect(url_for('login')))
+
+
+def _github_admin_link(gh_id):
+    taken = User.query.filter(User.github_user_id == gh_id,
+                              User.id != current_user.id).first()
+    if taken:
+        flash('That GitHub account is already linked to another admin.', 'error')
+        return redirect(url_for('settings_page'))
+    current_user.github_user_id = gh_id
+    db.session.commit()
+    flash('GitHub account linked.', 'success')
+    return redirect(url_for('settings_page'))
+
+
+def _github_public_login(gh_id, ctx, access_token=None):
+    website = get_live_website(url_prefix=ctx['prefix'] or None)
+    if not website or not website_uses_public_accounts(website):
+        return 'Public accounts are not enabled for this site.', 404
+    if not getattr(website, 'github_login_enabled', False):
+        return 'GitHub sign-in is not enabled for this site.', 404
+
+    pu = PublicUser.query.filter_by(website_id=website.id, github_user_id=gh_id).first()
+    if pu:
+        if pu.is_banned or not pu.is_active_public:
+            flash('That account is not currently active.', 'error')
+            return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+        public_user_login(pu, remember=True)
+        return redirect(ctx['next'] or _website_home_url(website))
+
+    # An admin's GitHub link lives on their User row, not on the PublicUser
+    # mirror, so the lookup above misses them and they'd be pushed into signing
+    # up for a second account. Recognise them and run the normal admin gate,
+    # landing back on the public page instead of the dashboard.
+    admin = User.query.filter_by(github_user_id=gh_id).first()
+    if admin:
+        session['pre_2fa_next_url'] = ctx['next'] or _website_home_url(website)
+        session['pre_2fa_public_website_id'] = website.id
+        session.pop('pre_2fa_admin_key', None)
+        app.logger.info('GitHub public sign-in by admin user id=%s', admin.id)
+        return begin_admin_login(
+            admin, remember=True, admin_key=None,
+            on_error=lambda: redirect(url_for('public_login',
+                                              website_prefix=ctx['prefix'] or None)))
+
+    # First time this GitHub account has been seen here. We do not invent a
+    # username from their GitHub login — that would import a name we promised
+    # not to store — so they choose one.
+    if not getattr(website, 'allow_public_signup', True):
+        flash('Sign-ups are closed on this site. Please contact an admin.', 'error')
+        return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+    # Offer their GitHub login as a one-click suggestion. Fetched only on this
+    # branch (a brand-new member), held for the next page, and stored only if
+    # they actually pick it.
+    suggested = _github_login_name(access_token) if access_token else None
+    if suggested and public_username_taken_anywhere(suggested):
+        suggested = None   # don't offer a name they can't have
+    session['gh_pending_new'] = {'gh_id': gh_id, 'website_id': website.id,
+                                 'next': ctx['next'] or '',
+                                 'suggested': suggested}
+    return redirect(url_for('github_choose_username',
+                            website_prefix=ctx['prefix'] or None))
+
+
+def _github_public_link(gh_id, ctx):
+    website = get_live_website(url_prefix=ctx['prefix'] or None)
+    viewer = _public_user_for_website(website) if website else None
+    if not viewer:
+        return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+    taken = PublicUser.query.filter(PublicUser.website_id == website.id,
+                                    PublicUser.github_user_id == gh_id,
+                                    PublicUser.id != viewer.id).first()
+    if taken:
+        flash('That GitHub account is already linked to another member.', 'error')
+    else:
+        viewer.github_user_id = gh_id
+        db.session.commit()
+        flash('GitHub account linked.', 'success')
+    return redirect(ctx['next'] or url_for('public_account_settings',
+                                           prefix=website.url_prefix or None))
+
+
+@app.route('/auth/github/choose-username', methods=['GET', 'POST'])
+def github_choose_username():
+    """Pick a site username for a brand-new GitHub-authenticated member.
+
+    The account is only created once a name is accepted, so an abandoned flow
+    leaves nothing behind.
+    """
+    pending = session.get('gh_pending_new')
+    if not pending:
+        return redirect(url_for('public_login'))
+    website = db.session.get(Website, pending.get('website_id'))
+    if not website:
+        session.pop('gh_pending_new', None)
+        return redirect(url_for('public_login'))
+
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip().lower()
+        if not username or len(username) < 3:
+            flash('Please choose a username of at least 3 characters.', 'error')
+            return redirect(request.path)
+        conflict = public_username_taken_anywhere(username)
+        if conflict:
+            flash(conflict, 'error')
+            return redirect(request.path)
+        # Re-check the GitHub id here too: two tabs could race this form.
+        if PublicUser.query.filter_by(website_id=website.id,
+                                      github_user_id=pending['gh_id']).first():
+            session.pop('gh_pending_new', None)
+            flash('That GitHub account is already registered. Please sign in.', 'error')
+            return redirect(url_for('public_login',
+                                    website_prefix=website.url_prefix or None))
+
+        pu = PublicUser(
+            website_id=website.id,
+            username=username,
+            github_user_id=pending['gh_id'],
+            # No email and no password: the whole point. Marked verified so the
+            # email-verification gate can't strand an account that has no email.
+            email=None,
+            email_verified=True,
+        )
+        if getattr(website, 'public_approval_required', False):
+            pu.is_active_public = False
+        db.session.add(pu)
+        db.session.commit()
+        nxt = pending.get('next') or ''
+        session.pop('gh_pending_new', None)
+        app.logger.info('New GitHub member created on website id=%s', website.id)
+
+        if not pu.is_active_public:
+            flash('Your account has been created and is pending admin approval.', 'success')
+            return redirect(url_for('public_login',
+                                    website_prefix=website.url_prefix or None))
+        public_user_login(pu, remember=True)
+        return redirect(nxt or _website_home_url(website))
+
+    return render_template('public_github_username.html', website=website,
+                           public_user=None,
+                           suggested_username=pending.get('suggested'),
+                           content={'current_page_url': url_for('github_choose_username')})
+
+
 @app.route('/account/login', methods=['GET', 'POST'])
 @app.route('/forum/login', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
@@ -26162,6 +28608,14 @@ def public_login():
 
     if not website or not website_uses_public_accounts(website):
         return "Public accounts are not enabled for this site.", 404
+
+    # When the site is GitHub-only, refuse password sign-in on the server too —
+    # hiding the form in the template is presentation, not enforcement, and a
+    # hand-crafted POST must not get past it.
+    if (request.method == 'POST' and getattr(website, 'github_login_only', False)
+            and getattr(website, 'github_login_enabled', False)):
+        flash('This site uses GitHub sign-in.', 'error')
+        return redirect(url_for('public_login', website_prefix=website_prefix or None))
 
     # Only allow site-relative targets (no scheme/host) to avoid open redirects.
     _raw_next = (request.values.get('next') or '').strip()
@@ -26888,7 +29342,7 @@ def public_forum_new_thread(prefix=None):
             public_user_id=public_user.id if public_user else None,
             title=title[:180],
             body=body,
-            ip_address=get_request_ip(),
+            ip_address=recordable_ip(),
             user_agent=request.headers.get('User-Agent')
         )
 
@@ -27003,7 +29457,7 @@ def public_forum_thread(thread_id, prefix=None):
             website_id=website.id,
             public_user_id=public_user.id if public_user else None,
             body=body,
-            ip_address=get_request_ip(),
+            ip_address=recordable_ip(),
             user_agent=request.headers.get('User-Agent')
         )
 
@@ -27295,7 +29749,7 @@ def submit_page_comment(section_id):
         display_name=display_name,
         body=body,
         is_approved=not settings.get('manual_approval', False),
-        ip_address=get_request_ip(),
+        ip_address=recordable_ip(),
         user_agent=request.headers.get('User-Agent')
     )
 
@@ -27891,16 +30345,21 @@ def public_2fa_disable(prefix=None):
 @app.route('/<string:prefix>/account/display-name', methods=['POST'])
 @app.route('/account/display-name', methods=['POST'], defaults={'prefix': None})
 def public_account_set_display_name(prefix=None):
-    """Public users edit their own display name. Admin mirrors edit theirs
-    from the admin settings page, not here."""
+    """Anyone edits their own display name here, staff included.
+
+    Staff used to be bounced to the admin settings page, but that page needs
+    the `settings.view` permission — a site-configuration right that has
+    nothing to do with your own profile. A sub-admin without it could then set
+    a display name in neither place. Nothing syncs display_username from the
+    admin row (ensure_admin_public_mirror copies only username and email), so
+    setting it here is safe and won't be overwritten.
+    """
     public_user = get_public_user()
     if not public_user:
         return _utf8_json({'error': 'Not logged in'}, 401)
     website = public_user.website
     if not website or website.is_draft or not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Not found'}, 404)
-    if public_user.is_admin_mirror:
-        return _utf8_json({'error': 'Admin mirrors are managed from admin settings.'}, 400)
 
     body = request.get_json(silent=True) or {}
     raw = (request.form.get('display_username') or body.get('display_username') or '').strip()
@@ -27979,6 +30438,14 @@ def public_account_delete(prefix=None):
     website = public_user.website
     if not website or website.is_draft or not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Not found'}, 404)
+    # A staff mirror is a projection of an admin account, not an account in its
+    # own right — deleting the row here removes nothing (the next sign-in
+    # recreates it) while looking like it worked. Say so instead of pretending.
+    if public_user.is_admin_mirror:
+        return _utf8_json(
+            {'error': 'This is your staff profile, which mirrors your admin account — '
+                      'deleting it here would not remove anything. Ask an owner to '
+                      'remove your staff account instead.'}, 400)
     public_user_logout()
     db.session.delete(public_user)
     db.session.commit()
@@ -28083,7 +30550,7 @@ def public_admin_2fa():
                                     website_prefix=(website_prefix or None)))
         expected_hash = session.get('pending_2fa_code_hash')
         if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt():
+            if register_failed_two_factor_attempt(user):
                 _clear_public_admin_2fa_session()
                 flash('Too many incorrect codes. Please log in again to get a new one.', 'error')
                 return redirect(url_for('public_login',
@@ -28671,6 +31138,12 @@ def _pub_2fa_recently_sent(user_id, cooldown_seconds=10):
 def _pub_2fa_validate(user_id, code, purpose):
     if session.get('pub_2fa_user_id') != user_id:
         return 'No matching verification code is pending.'
+    try:
+        _pu = db.session.get(PublicUser, user_id)
+        if _rl_check(get_request_ip(), (_pu.username if _pu else ''))['locked']:
+            return f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.'
+    except Exception:
+        pass
     if session.get('pub_2fa_purpose') != purpose:
         return 'This code is not valid for this action.'
     expires_raw = session.get('pub_2fa_expires_at')
@@ -28685,7 +31158,14 @@ def _pub_2fa_validate(user_id, code, purpose):
     code_hash = session.get('pub_2fa_code_hash')
     if not code_hash or not check_password_hash(code_hash, code):
         # Six digits is a small keyspace; burn the code after a few misses so
-        # guessing requires a fresh (cooldown-limited) send each round.
+        # guessing requires a fresh (cooldown-limited) send each round. The
+        # shared IP limiter is fed too, so signing in again for a new batch of
+        # guesses doesn't reset the budget.
+        try:
+            _pu = db.session.get(PublicUser, user_id)
+            _rl_record(get_request_ip(), (_pu.username if _pu else ''), success=False)
+        except Exception:
+            pass
         attempts = int(session.get('pub_2fa_attempts') or 0) + 1
         session['pub_2fa_attempts'] = attempts
         if attempts >= _2FA_MAX_ATTEMPTS:
@@ -28870,12 +31350,20 @@ def public_username_taken_anywhere(name, exclude_public_user_id=None):
 
     This keeps public login usernames globally unique across websites (it does
     NOT touch email, which stays unique per-website). Case-insensitive — both
-    models normalise via @validates."""
+    models normalise via @validates.
+
+    The message is deliberately the same whichever bucket matched. This runs on
+    the public sign-up and GitHub username-choice forms, so saying "an admin
+    account uses that" would let anyone map which usernames belong to admins
+    just by trying them — a target list for password attacks. "Taken on another
+    site" leaked cross-site membership the same way. A visitor only needs to
+    know they must pick something else."""
     name = (name or '').strip().lower()
     if not name:
         return None
+    taken_message = 'That username is already taken. Please choose another.'
     if User.query.filter(User.username == name).first():
-        return 'An admin account already uses that username.'
+        return taken_message
     pu_q = PublicUser.query.filter(
         PublicUser.username == name,
         PublicUser.mirrored_admin_user_id.is_(None),
@@ -28883,7 +31371,7 @@ def public_username_taken_anywhere(name, exclude_public_user_id=None):
     if exclude_public_user_id:
         pu_q = pu_q.filter(PublicUser.id != exclude_public_user_id)
     if pu_q.first():
-        return 'That username is already taken on another site.'
+        return taken_message
     return None
 
 
@@ -29198,6 +31686,250 @@ def public_user_logout():
     session.pop('public_user_id', None)
     session.pop('public_user_website_id', None)
     session['_pub_remember_clear'] = True
+
+
+# ── GitHub sign-in ───────────────────────────────────────────────────────────
+# Privacy is the whole point of this integration, so two rules are enforced in
+# code rather than left to convention:
+#
+#   1. NO SCOPES are requested. A scopeless token still authorises GET /user,
+#      which is all we need. `user:email` — the scope that hands over addresses
+#      — is never asked for.
+#   2. GET /user still returns an `email` field when the member has set a public
+#      profile email, so not asking is not enough. `_github_identity` reads the
+#      numeric id and throws the rest of the response away, which is why it
+#      returns a bare int rather than the parsed body: there is no way for a
+#      caller to accidentally persist a name or address it never received.
+#
+# We also drop the access token once the single call is done — unlike storage
+# providers there is nothing to refresh, so keeping it is pure liability.
+_GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
+_GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
+_GITHUB_USER_URL = 'https://api.github.com/user'
+
+
+def get_github_login_settings():
+    return GitHubLoginSettings.query.first()
+
+
+def github_login_is_configured():
+    cfg = get_github_login_settings()
+    return bool(cfg and cfg.client_id and cfg.client_secret)
+
+
+def _github_client_secret(cfg):
+    return decrypt_api_key(cfg.client_secret or '') if cfg else ''
+
+
+def github_callback_url():
+    """The one redirect_uri this app will ever send to GitHub.
+
+    GitHub compares this string against the callback registered on the OAuth
+    App and refuses the request if they differ at all — scheme, host, port or
+    path. So the authorize request, the token exchange and the value shown in
+    Settings must all come from here; when the settings page computed its own,
+    a scheme difference was enough to produce GitHub's "redirect_uri is not
+    associated with this application" warning.
+    """
+    return url_for('github_callback', _external=True, _scheme=_email_link_scheme())
+
+
+def github_authorize_url(state):
+    cfg = get_github_login_settings()
+    if not cfg or not cfg.client_id:
+        return None
+    from urllib.parse import urlencode as _enc
+    params = {
+        'client_id': cfg.client_id,
+        'redirect_uri': github_callback_url(),
+        'state': state,
+        # Empty scope, spelled out explicitly so a future edit has to make a
+        # deliberate decision to widen it.
+        'scope': '',
+        'allow_signup': 'false',
+    }
+    return f'{_GITHUB_AUTHORIZE_URL}?{_enc(params)}'
+
+
+# GitHub's own error codes, translated into something an admin can act on.
+_GITHUB_TOKEN_ERRORS = {
+    'incorrect_client_credentials':
+        'GitHub rejected the client ID or secret. Re-enter them in Settings — '
+        'if the secret was regenerated on GitHub, the old one no longer works.',
+    'redirect_uri_mismatch':
+        'The callback URL does not match the one registered on the OAuth App. '
+        'Copy the Callback URL shown in Settings into GitHub exactly.',
+    'bad_verification_code':
+        'That sign-in attempt had already been used or had expired. Please start again.',
+}
+
+
+def _github_exchange_code(code, redirect_uri=None):
+    """Swap the callback code for an access token. Returns (token, error_text).
+
+    GitHub answers this endpoint with HTTP 200 even when it refuses, putting
+    the reason in the JSON body — so checking the status code alone silently
+    throws away the only useful diagnostic and leaves the caller with a bare
+    "try again". Parse the body and report what actually went wrong.
+    """
+    cfg = get_github_login_settings()
+    if not cfg or not cfg.client_id:
+        return None, 'GitHub sign-in is not configured.'
+    # Reuse the EXACT string sent at the authorize step (stashed in the session)
+    # rather than recomputing it. GitHub requires the two to be byte-identical,
+    # and recomputing lets scheme/host drift between the two requests — behind a
+    # proxy the authorize hop and the callback hop don't always agree — which
+    # surfaces as redirect_uri_mismatch after the user has already approved.
+    sent_uri = redirect_uri or github_callback_url()
+    # `requests` is not imported at module scope anywhere in this file — every
+    # other caller imports it locally, and so must we.
+    import requests as _requests
+    try:
+        resp = _requests.post(
+            _GITHUB_TOKEN_URL,
+            data={
+                'client_id': cfg.client_id,
+                'client_secret': _github_client_secret(cfg),
+                'code': code,
+                'redirect_uri': sent_uri,
+            },
+            headers={'Accept': 'application/json'},
+            timeout=12,
+        )
+    except _requests.RequestException as e:
+        app.logger.warning('GitHub token exchange network error: %s', e)
+        return None, 'Could not reach GitHub. Check the server’s network access.'
+    except Exception as e:
+        # Anything else is a fault in this code, not the network — say so rather
+        # than blaming connectivity and sending the admin down the wrong path.
+        app.logger.exception('GitHub token exchange failed unexpectedly')
+        return None, f'Internal error during GitHub sign-in: {type(e).__name__}. Check the server log.'
+
+    if resp.status_code != 200:
+        app.logger.warning('GitHub token exchange: HTTP %s — %s',
+                           resp.status_code, resp.text[:300])
+        return None, f'GitHub returned HTTP {resp.status_code}.'
+
+    try:
+        body = resp.json() or {}
+    except Exception:
+        app.logger.warning('GitHub token exchange: unparseable body — %s', resp.text[:300])
+        return None, 'GitHub sent a response we could not read.'
+
+    token = body.get('access_token')
+    if token:
+        return token, None
+
+    err = body.get('error') or 'unknown_error'
+    detail = body.get('error_description') or ''
+    # Log the URI we sent: for a mismatch this is the single fact needed to fix
+    # it, and it is otherwise invisible from outside.
+    app.logger.warning('GitHub token exchange refused: %s — %s (redirect_uri sent: %s)',
+                       err, detail, sent_uri)
+    message = _GITHUB_TOKEN_ERRORS.get(err, f'GitHub said: {err}. {detail}'.strip())
+    if err == 'redirect_uri_mismatch':
+        message += f' This server sent: {sent_uri}'
+    return None, message
+
+
+def _github_identity(access_token):
+    """Return GitHub's numeric user id, and nothing else.
+
+    Returning an int rather than the response body is deliberate — see the
+    note above. The `email`, `login`, `name` and `avatar_url` fields GitHub
+    sends back are discarded here and never reach a caller.
+    """
+    import requests as _requests   # not available at module scope — see above
+    try:
+        resp = _requests.get(
+            _GITHUB_USER_URL,
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Accept': 'application/vnd.github+json'},
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            app.logger.warning('GitHub /user failed: HTTP %s — %s',
+                               resp.status_code, resp.text[:300])
+            return None
+        gh_id = (resp.json() or {}).get('id')
+        if gh_id is None:
+            app.logger.warning('GitHub /user returned no id field')
+            return None
+        return int(gh_id)
+    except Exception as e:
+        app.logger.warning('GitHub /user error: %s', e)
+        return None
+
+
+def _github_login_name(access_token):
+    """Fetch the GitHub *login* — for offering as a username suggestion only.
+
+    Kept separate from `_github_identity` on purpose. That function returns a
+    bare int so the sign-in path structurally cannot persist anything but the
+    account number; this one exists solely to populate a suggestion the member
+    can accept or ignore on the choose-a-username screen. Its result is held in
+    the session for that one page and is written to the database only if the
+    member submits it as the name they want shown.
+    """
+    import requests as _requests
+    try:
+        resp = _requests.get(
+            _GITHUB_USER_URL,
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Accept': 'application/vnd.github+json'},
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return None
+        login = ((resp.json() or {}).get('login') or '').strip().lower()
+    except Exception as e:
+        app.logger.warning('GitHub login-name lookup failed: %s', e)
+        return None
+    # Site usernames are lowercased by the model; GitHub logins are already
+    # limited to alphanumerics and hyphens, but re-check rather than trust it.
+    if not login or not re.fullmatch(r'[a-z0-9-]{1,39}', login):
+        return None
+    return login
+
+
+def _github_begin(intent, website_prefix=None, next_url=None):
+    """Start an OAuth round trip. Returns a redirect or an error response.
+
+    `state` is OAuth's own CSRF defence and is independent of CSRFProtect —
+    the callback arrives as a GET straight from GitHub and carries no token of
+    ours, so the nonce in the session is what proves the round trip started here.
+    """
+    if not github_login_is_configured():
+        return None, 'GitHub sign-in is not configured on this site.'
+    state = secrets.token_urlsafe(32)
+    session['gh_state'] = state
+    # Remember the exact redirect_uri sent to GitHub so the token exchange can
+    # replay the identical string instead of recomputing it.
+    session['gh_redirect_uri'] = github_callback_url()
+    session['gh_intent'] = intent          # 'public' | 'admin' | 'link_admin' | 'link_public'
+    session['gh_prefix'] = website_prefix or ''
+    # Only site-relative targets, so the callback can't be used as an open redirect.
+    session['gh_next'] = next_url if (next_url or '').startswith('/') and not (next_url or '').startswith('//') else ''
+    url = github_authorize_url(state)
+    if not url:
+        return None, 'GitHub sign-in is not configured on this site.'
+    return url, None
+
+
+def _github_consume_state(supplied_state):
+    """Validate and burn the state nonce. Returns the stored context or None."""
+    expected = session.pop('gh_state', None)
+    intent = session.pop('gh_intent', None)
+    prefix = session.pop('gh_prefix', '')
+    next_url = session.pop('gh_next', '')
+    redirect_uri = session.pop('gh_redirect_uri', '')
+    if not expected or not supplied_state:
+        return None
+    import hmac as _hmac
+    if not _hmac.compare_digest(str(expected), str(supplied_state)):
+        return None
+    return {'intent': intent, 'prefix': prefix, 'next': next_url,
+            'redirect_uri': redirect_uri}
 
 
 # ── Baseline security response headers ───────────────────────────────────────
@@ -30632,6 +33364,25 @@ def _run_startup_migrations_inner():
         db.session.rollback()
         print(f'[migrate] warning: merged-division role mirror: {_e}')
 
+    # ── Grandfather existing admin email access ──────────────────────────────
+    # `email_allowed` defaults to False so that NEW admins start with no email.
+    # Applying that default to admins who already have an address would revoke
+    # access retroactively the moment the org enabled the policy — so anyone
+    # already holding an email keeps the grant. Runs once: rows are only touched
+    # while the flag is still False.
+    try:
+        _grandfathered = User.query.filter(
+            User.email.isnot(None), User.email_allowed.is_(False)).all()
+        if _grandfathered:
+            for _u in _grandfathered:
+                _u.email_allowed = True
+            db.session.commit()
+            print(f'[migrate] granted email permission to {len(_grandfathered)} '
+                  'existing admin(s) that already had an address')
+    except Exception as _e:
+        db.session.rollback()
+        print(f'[migrate] warning: admin email grandfather: {_e}')
+
     # ── Step 9: seed organization membership. Anyone already placed in a
     # division, and every admin/staff mirror, is an org member — promote them
     # from the default 'visitor'. Idempotent: only touches rows still at the
@@ -30848,6 +33599,7 @@ with app.app_context():
             _start_subscription_sync_scheduler()
             _start_notification_event_scheduler()
             _start_auto_backup_scheduler()
+            _start_ip_retention_scheduler()
 
         _DB_MAINTENANCE_MODE = False
         # DB is healthy, so no maintenance access is needed — drop any token
@@ -30856,6 +33608,34 @@ with app.app_context():
             os.remove(MAINTENANCE_TOKEN_PATH)
         except OSError:
             pass
+
+        # Restore the admin's chosen request-logging level now the DB is up.
+        try:
+            _anchor_log = get_main_admin()
+            if _anchor_log is not None and getattr(_anchor_log, 'org_verbose_logging', False):
+                apply_log_verbosity(True)
+                print('[logging] per-request logging is ON (Settings → Logging)')
+        except Exception:
+            pass  # a logging preference must never block startup
+
+        # Name any admin whose authenticator secret this process cannot read.
+        # Without this the breakage only shows up as "Invalid code" at the login
+        # screen, which looks like user error rather than a config problem.
+        try:
+            _orphaned = [u.username for u in User.query.filter(
+                User.totp_secret.isnot(None)).all() if not totp_secret_is_readable(u)]
+            if _orphaned:
+                print('=' * 72)
+                print('WARNING: authenticator (TOTP) secrets cannot be decrypted for: '
+                      + ', '.join(_orphaned))
+                print('  Their app codes will be rejected. Each admin should sign in with a')
+                print('  recovery code and re-run setup at /admin/2fa/app/setup.')
+                if _SECRET_KEY_IS_EPHEMERAL:
+                    print('  Cause: SECRET_KEY is not set, so it changes on every restart.')
+                    print('  Set it first, or this will happen again after the next restart.')
+                print('=' * 72)
+        except Exception:
+            pass  # never let a diagnostic stop startup
 
     except Exception as _startup_err:
         import traceback, sqlalchemy.exc as _sa_exc

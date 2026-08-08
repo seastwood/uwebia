@@ -2738,15 +2738,6 @@
                     {% endif %}
 
                     {% if not website.is_draft %}
-                    {% if user_has_perm('forum.view') %}
-                    <button type="button" class="website-action-button" onclick="window.location.href='{{ url_for('admin_forum') }}'">
-                        <i class="fas fa-comments"></i><span>Forum</span>
-                    </button>
-                    {% else %}
-                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to access the forum">
-                        <i class="fas fa-lock"></i><span>Forum</span>
-                    </button>
-                    {% endif %}
                     {% if user_has_perm('website.draft.create') and website.id not in drafted_website_ids %}
                     <button type="button" class="website-action-button website-action-button-draft" onclick="createDraftWebsite({{ website.id }})">
                         <i class="fas fa-copy"></i><span>Create Draft</span>

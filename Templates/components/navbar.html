@@ -10,10 +10,26 @@
             <i class="fas fa-home"></i>
         </a>
         {% if current_website %}
-        <a href="{{ ('/' + current_website.url_prefix) if current_website.url_prefix else '/' }}"
-           class="nav-link-btn" title="View public site" target="_blank" rel="noopener">
-            <i class="fas fa-globe"></i>
-        </a>
+        {# Globe opens a small menu: the editor for this site, or the live page.
+           It used to jump straight to the public site, which left the editor
+           reachable only from the dashboard. #}
+        <div class="store-dropdown globe-dropdown">
+            <button type="button" class="nav-link-btn store-dropdown-btn" title="{{ current_website.name }}">
+                <i class="fas fa-globe"></i>
+            </button>
+            <div class="store-dropdown-content">
+                <div class="nav-tools-group-label">{{ current_website.name }}</div>
+                {% if user_has_perm('pages.view') %}
+                <a href="{{ url_for('websites_page') }}">
+                    <i class="fas fa-pen-to-square"></i><span>Website editor</span>
+                </a>
+                {% endif %}
+                <a href="{{ ('/' + current_website.url_prefix) if current_website.url_prefix else '/' }}"
+                   target="_blank" rel="noopener">
+                    <i class="fas fa-arrow-up-right-from-square"></i><span>View public site</span>
+                </a>
+            </div>
+        </div>
         {% endif %}
     <!-- </div> -->
 
@@ -52,6 +68,16 @@
                     </div>
                 </div>
                 <div class="nav-pages-section-divider" style="margin:2px 0 4px;"></div>
+                {% endif %}
+
+                {# Jump to the editor for the whole site, not just one page —
+                   the pages list otherwise dead-ends at individual pages. #}
+                {% if user_has_perm('pages.view') %}
+                <a href="{{ url_for('websites_page') }}" class="nav-pages-editor-link">
+                    <i class="fas fa-pen-to-square" style="font-size:0.75rem;opacity:0.65;"></i>
+                    <span>Website editor</span>
+                </a>
+                <div class="nav-pages-section-divider" style="margin:4px 0;"></div>
                 {% endif %}
 
                 {# ── Macro: render a page list for one website ── #}
@@ -250,6 +276,9 @@
         {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
         <a href="{{ url_for('admin_newsletters_page') }}" class="nav-link-btn" title="Newsletters" style="{{ _ord('newsletters') }}"><i class="fas fa-envelope-open-text"></i></a>
         {% endif %}
+        {% if user_has_perm('forum.view') and 'forum' not in _nd %}
+        <a href="{{ url_for('admin_forum') }}" class="nav-link-btn" title="Forum" style="{{ _ord('forum') }}"><i class="fas fa-comments"></i></a>
+        {% endif %}
         {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
         <a href="{{ url_for('admin_calendars_page') }}" class="nav-link-btn" title="Calendars" style="{{ _ord('calendars') }}"><i class="fas fa-calendar-alt"></i></a>
         {% endif %}
@@ -398,6 +427,11 @@
                 {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
                 <a href="{{ url_for('admin_newsletters_page') }}" class="nav-tools-item nav-tools-item--responsive">
                     <i class="fas fa-envelope-open-text"></i><span>Newsletters</span>
+                </a>
+                {% endif %}
+                {% if user_has_perm('forum.view') and 'forum' not in _nd %}
+                <a href="{{ url_for('admin_forum') }}" class="nav-tools-item nav-tools-item--responsive">
+                    <i class="fas fa-comments"></i><span>Forum</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
