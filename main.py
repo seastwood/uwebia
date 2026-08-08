@@ -17,6 +17,7 @@ import json
 import mimetypes
 import tempfile
 import time
+import click
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -32881,6 +32882,86 @@ def disable_2fa_cli():
     db.session.commit()
 
     print(f"2FA disabled for {user.username} (and org-wide 2FA requirement lifted).")
+
+
+@app.cli.command("clear-lockout")
+@click.argument('target', required=False)
+@click.option('--all', 'clear_all', is_flag=True,
+              help='Clear every counter, including the registration throttle.')
+def clear_lockout_cli(target, clear_all):
+    """Lift a login / two-factor lockout from the server terminal.
+
+    TARGET is an IP address or a username — every counter whose key mentions it
+    is cleared. With no TARGET this only *lists* what is locked, so you can see
+    the state before changing it.
+
+    \b
+        flask --app main clear-lockout                # show what is locked
+        flask --app main clear-lockout 203.0.113.7    # one address
+        flask --app main clear-lockout alice          # one account
+        flask --app main clear-lockout --all          # everything
+
+    Counters are keyed "ip:<addr>" and "ip:<addr>:id:<username>". The address
+    key is shared by every account signing in from there, which is why failed
+    attempts against one site can lock you out of another on the same
+    connection — clearing by username alone will not lift that one.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = LoginRateLimit.query.order_by(LoginRateLimit.key).all()
+
+    def describe(rec):
+        if rec.locked_until and rec.locked_until > now:
+            mins = max(1, int((rec.locked_until - now).total_seconds() // 60) + 1)
+            return f'LOCKED, {mins} more minute(s)'
+        return f'{rec.attempts or 0} failed attempt(s)'
+
+    def is_live(rec):
+        return bool((rec.locked_until and rec.locked_until > now) or (rec.attempts or 0))
+
+    if not rows:
+        print('Nothing recorded — no lockouts are in force.')
+        return
+
+    if not target and not clear_all:
+        live = [r for r in rows if is_live(r)]
+        if not live:
+            print(f'No lockouts in force ({len(rows)} spent counter(s) on record).')
+            return
+        print(f'{len(live)} active counter(s):\n')
+        for rec in live:
+            print(f'  {rec.key:<60} {describe(rec)}')
+        print('\nClear one with:  flask --app main clear-lockout <ip-or-username>'
+              '\nClear them all:  flask --app main clear-lockout --all')
+        return
+
+    if clear_all:
+        doomed = rows
+    else:
+        needle = target.strip().lower()
+        doomed = [r for r in rows if needle in (r.key or '').lower()]
+
+    if not doomed:
+        print(f'No counter mentions "{target}". Run without arguments to see what exists.')
+        return
+
+    for rec in doomed:
+        print(f'  cleared  {rec.key:<60} was {describe(rec)}')
+        db.session.delete(rec)
+    db.session.commit()
+    print(f'\nCleared {len(doomed)} counter(s).')
+
+    # Clearing by username leaves the shared address counter untouched, and that
+    # is usually the one actually holding the door shut. Say so rather than let
+    # them retry and hit the same wall.
+    still = [r for r in LoginRateLimit.query.all() if is_live(r)]
+    if still:
+        print(f'\nStill locked or counting ({len(still)}):')
+        for rec in still:
+            print(f'  {rec.key:<60} {describe(rec)}')
+        print('\nIf you are still refused, one of these covers your connection.')
+
+    print('\nNote: the per-session code budget lives in the browser session, not '
+          'here. Signing in again issues a fresh code and resets it.')
 
 
 @app.cli.command("reset-admin-password")

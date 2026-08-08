@@ -3,6 +3,10 @@ Backup command line commands:
 flask --app main reset-admin-password
 flask --app main disable-2fa
 
+flask --app main clear-lockout            # list what is locked
+flask --app main clear-lockout <ip>       # or a username
+flask --app main clear-lockout --all
+
 flask --app main safe-upgrade-db
 flask --app main make-migration
 
