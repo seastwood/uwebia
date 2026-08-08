@@ -5158,7 +5158,14 @@
                 const childContainer = group.querySelector('.navbar-group-children');
 
                 children.forEach(child => {
-                    addNavbarItem(websiteId, child.name || '', child.url || '', childContainer);
+                    // Mirror of the save side: a saved system child has to come
+                    // back as a system row, or reloading the editor would turn
+                    // it into a blank link row and the next save would drop it.
+                    if (child.type === 'system') {
+                        addSystemNavbarItem(websiteId, child.key, child.name || '', childContainer);
+                    } else {
+                        addNavbarItem(websiteId, child.name || '', child.url || '', childContainer);
+                    }
                 });
 
                 initializeNavbarSorting(websiteId);
@@ -5347,11 +5354,23 @@
                             type: 'group',
                             name: groupName,
                             url: groupUrl,   // empty string = label is not a link
-                            children: childRows.map(child => ({
-                                type: 'link',
-                                name: child.querySelector('.navbar-name').value.trim(),
-                                url: child.querySelector('.navbar-url').value.trim()
-                            })).filter(item => item.name && item.url)
+                            // A child is not necessarily a link. Dropping a
+                            // system page into a group builds a row with no
+                            // .navbar-url input, and reading .value off that
+                            // missing element threw before the fetch was even
+                            // reached — the Save button did nothing at all, no
+                            // error, no request. Read each child by its own
+                            // type, exactly as the top level does.
+                            children: childRows.map(child => {
+                                const nameEl = child.querySelector('.navbar-name');
+                                const name = nameEl ? nameEl.value.trim() : '';
+                                if (child.dataset.type === 'system') {
+                                    return { type: 'system', key: child.dataset.systemKey, name };
+                                }
+                                const urlEl = child.querySelector('.navbar-url');
+                                return { type: 'link', name, url: urlEl ? urlEl.value.trim() : '' };
+                            }).filter(item => item.type === 'system' ? !!item.key
+                                                                     : (item.name && item.url))
                         };
                     }
                 }).filter(item => {

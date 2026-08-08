@@ -111,10 +111,13 @@
                 {% endif %}
             {% endif %}
             {% for child in item.children %}
-                {% set child_has_hash = '#' in child.url %}
-                {% set child_url_no_hash = child.url.split('#')[0] %}
-                {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
-                    {% set group_active.value = true %}
+                {% set child_target = navbar_entry_target(child, website) %}
+                {% if child_target %}
+                    {% set child_has_hash = '#' in child_target[0] %}
+                    {% set child_url_no_hash = child_target[0].split('#')[0] %}
+                    {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
+                        {% set group_active.value = true %}
+                    {% endif %}
                 {% endif %}
             {% endfor %}
 
@@ -133,12 +136,15 @@
                 <div class="public-navbar-dropdown-menu">
                     <div class="public-navbar-menu-glass">
                         {% for child in item.children %}
-                            {% set child_has_hash = '#' in child.url %}
-                            {% set child_url_no_hash = child.url.split('#')[0] %}
-                            <a href="{{ child.url }}"
+                            {% set child_target = navbar_entry_target(child, website) %}
+                            {% if child_target %}
+                            {% set child_has_hash = '#' in child_target[0] %}
+                            {% set child_url_no_hash = child_target[0].split('#')[0] %}
+                            <a href="{{ child_target[0] }}"
                                class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                                {{ child.name }}
+                                {{ child_target[1] }}
                             </a>
+                            {% endif %}
                         {% endfor %}
                     </div>
                 </div>
@@ -382,10 +388,13 @@
                     {% endif %}
                 {% endif %}
                 {% for child in item.children %}
-                    {% set child_has_hash = '#' in child.url %}
-                    {% set child_url_no_hash = child.url.split('#')[0] %}
-                    {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
-                        {% set group_active.value = true %}
+                    {% set child_target = navbar_entry_target(child, website) %}
+                    {% if child_target %}
+                        {% set child_has_hash = '#' in child_target[0] %}
+                        {% set child_url_no_hash = child_target[0].split('#')[0] %}
+                        {% if not child_has_hash and child_url_no_hash == current_url_no_hash %}
+                            {% set group_active.value = true %}
+                        {% endif %}
                     {% endif %}
                 {% endfor %}
 
@@ -413,12 +422,15 @@
                     {% endif %}
                     <div class="public-navbar-menu-group-links">
                         {% for child in item.children %}
-                            {% set child_has_hash = '#' in child.url %}
-                            {% set child_url_no_hash = child.url.split('#')[0] %}
-                            <a href="{{ child.url }}"
+                            {% set child_target = navbar_entry_target(child, website) %}
+                            {% if child_target %}
+                            {% set child_has_hash = '#' in child_target[0] %}
+                            {% set child_url_no_hash = child_target[0].split('#')[0] %}
+                            <a href="{{ child_target[0] }}"
                                class="{% if not child_has_hash and child_url_no_hash == current_url_no_hash %}active-navbar-link{% endif %}">
-                                {{ child.name }}
+                                {{ child_target[1] }}
                             </a>
+                            {% endif %}
                         {% endfor %}
                     </div>
                 </div>

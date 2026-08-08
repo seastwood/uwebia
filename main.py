@@ -32569,6 +32569,46 @@ app.jinja_env.filters['user_datetime'] = format_user_datetime
 app.jinja_env.globals['is_plugin_enabled'] = is_plugin_enabled
 
 
+def navbar_entry_target(item, website):
+    """(url, label) for one public-navbar entry, or None when it must not show.
+
+    Dropdown children were assumed everywhere to be plain links, so a system
+    page put inside a group had no URL to render from — `child.url.split('#')`
+    on a missing key raises straight out of the template. Both kinds resolve
+    through here instead.
+
+    Returning None is how a system page hides itself when the feature behind it
+    is switched off, which is the whole point of it being a system entry rather
+    than a hand-typed link: the Shop item disappears with the store instead of
+    pointing at a dead page.
+    """
+    if not isinstance(item, dict):
+        return None
+    kind = item.get('type') or 'link'
+
+    if kind == 'system':
+        key = item.get('key')
+        if key == 'shop':
+            if not getattr(website, 'store_enabled', False):
+                return None
+            return '/shop', (item.get('name')
+                             or getattr(website, 'store_title', None) or 'Shop')
+        if key == 'forum':
+            if not getattr(website, 'forum_enabled', False):
+                return None
+            url = (url_for('public_forum_prefixed', prefix=website.url_prefix)
+                   if getattr(website, 'url_prefix', None) else url_for('public_forum'))
+            return url, (item.get('name')
+                         or getattr(website, 'forum_title', None) or 'Forum')
+        return None
+
+    url = (item.get('url') or '').strip()
+    if not url:
+        return None
+    return url, (item.get('name') or url)
+
+
+app.jinja_env.globals['navbar_entry_target'] = navbar_entry_target
 
 
 def _get_site_icon_url(website):
