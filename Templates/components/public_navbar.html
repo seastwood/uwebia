@@ -799,7 +799,8 @@
     .public-navbar-right a.active-navbar-link,
     .public-navbar-menu a.active-navbar-link,
     .public-navbar-dropdown button.active-navbar-link,
-    .public-navbar-dropdown.active-navbar-dropdown>button {
+    .public-navbar-dropdown.active-navbar-dropdown>button,
+    .public-navbar-dropdown.active-navbar-dropdown>a.public-navbar-group-link {
         color: var(--navbar-active-text-color, #7ee2cc) !important;
         font-weight: 850;
 
@@ -837,17 +838,23 @@
     .public-navbar-right a.active-navbar-link:hover,
     .public-navbar-menu a.active-navbar-link:hover,
     .public-navbar-dropdown button.active-navbar-link:hover,
-    .public-navbar-dropdown.active-navbar-dropdown>button:hover {
+    .public-navbar-dropdown.active-navbar-dropdown>button:hover,
+    .public-navbar-dropdown.active-navbar-dropdown>a.public-navbar-group-link:hover {
         color: var(--navbar-active-text-color, #7ee2cc) !important;
         background: transparent !important;
         box-shadow: none !important;
     }
 
-    .public-navbar-dropdown.active-navbar-dropdown>button {
+    /* Both group variants get the active treatment. These rules named only
+       <button>, so a dropdown whose label is also a link rendered without the
+       active underline and read as a different kind of item. */
+    .public-navbar-dropdown.active-navbar-dropdown>button,
+    .public-navbar-dropdown.active-navbar-dropdown>a.public-navbar-group-link {
         position: relative;
     }
 
-    .public-navbar-dropdown.active-navbar-dropdown>button::after {
+    .public-navbar-dropdown.active-navbar-dropdown>button::after,
+    .public-navbar-dropdown.active-navbar-dropdown>a.public-navbar-group-link::after {
         content: "";
         position: absolute;
 
@@ -910,6 +917,36 @@
     .public-navbar .public-navbar-dropdown:hover > .public-navbar-dropdown-menu,
     .public-navbar .public-navbar-dropdown:focus-within > .public-navbar-dropdown-menu {
         display: block;
+    }
+
+    /* Arrow-click state. `is-open` beats hover so a click holds the menu open
+       on a touch device, which has no hover at all; `is-closed` suppresses the
+       hover rule so clicking the arrow shut actually shuts it while the
+       pointer is still sitting on the item. Both are cleared on pointerleave,
+       so ordinary mouse hover behaves exactly as it always did. */
+    .public-navbar .public-navbar-dropdown.is-open > .public-navbar-dropdown-menu {
+        display: block;
+    }
+
+    .public-navbar .public-navbar-dropdown.is-closed:hover > .public-navbar-dropdown-menu,
+    .public-navbar .public-navbar-dropdown.is-closed:focus-within > .public-navbar-dropdown-menu {
+        display: none;
+    }
+
+    /* The arrow is its own click target now, so give it room and make it
+       obviously hittable without changing how the pair looks. */
+    .public-navbar-group-chevron,
+    .public-navbar-menu-group-chevron {
+        cursor: pointer;
+        padding: 2px 4px;
+        margin-right: -4px;
+        border-radius: 5px;
+    }
+
+    .public-navbar-group-chevron:hover,
+    .public-navbar-menu-group-chevron:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.1);
     }
 
     .public-navbar .public-navbar-dropdown-menu a {
@@ -1001,19 +1038,38 @@
         font-size: 0.92rem;
     }
 
-    /* A group whose title is also a link renders the toggle as an <a>, which the
-       generic side-panel link rule above would style as a plain block link
-       (wrong font size, chevron no longer right-aligned). Re-assert the toggle
-       layout so a linked group looks identical to a non-linked (button) one.
-       The generic `.public-navbar-menu a` rule (color:inherit; font:inherit)
-       outranks `.public-navbar-menu-group-toggle` on the <a>, so its weight
-       and color must be restated here or the link renders un-bold and a
-       slightly different shade than the button toggles. */
-    .public-navbar.dropdown-mode-side_panel .public-navbar-menu a.public-navbar-menu-group-toggle {
+    /* A group whose title is also a link renders the toggle as an <a>, and the
+       plain menu-link rules outrank the toggle's own: `.public-navbar-menu a`
+       is (0,1,1) against `.public-navbar-menu-group-toggle` at (0,1,0). So the
+       <a> fell back to `display: block`, which left justify-content with
+       nothing to do — the chevron sat right after the title instead of at the
+       end of the line — and took the plain link's padding, radius and font
+       size with it.
+
+       This restates the toggle's own layout for EVERY dropdown mode. It used
+       to be scoped to dropdown-mode-side_panel, which is why the default
+       (dropdown) mode still showed the mismatch.
+
+       Colour and opacity are deliberately absent: they belong to
+       `.active-navbar-menu-group .public-navbar-menu-group-toggle` (0,2,0) and
+       the :hover rule, and restating them here (0,3,1) would outrank both and
+       kill the active state on linked groups only — the exact class of bug
+       this rule exists to fix. */
+    .public-navbar .public-navbar-menu a.public-navbar-menu-group-toggle {
         display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 11px;
+        border-radius: 0;
+
         font-size: 0.82rem;
         font-weight: 850;
-        color: inherit;
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
     }
 
     .public-navbar.dropdown-mode-side_panel .public-navbar-menu-group {
@@ -1358,7 +1414,8 @@
     
 }
 
-.public-navbar-overflow-menu > .public-navbar-dropdown > button {
+.public-navbar-overflow-menu > .public-navbar-dropdown > button,
+.public-navbar-overflow-menu > .public-navbar-dropdown > a.public-navbar-group-link {
     width: 100%;
     text-align: left;
     justify-content: space-between;
@@ -2143,27 +2200,76 @@ html.gv-guide .public-cart-btn { display: none !important; }
         const group = trigger.closest('[data-menu-group]');
         if (!group) return;
 
-        // If the trigger is an <a> with a URL AND the dropdown is currently
-        // collapsed, swallow the first tap to just expand. Once it's open,
-        // a second tap actually follows the link. Buttons (no URL) and
-        // already-open links just toggle as before.
-        const isLink     = trigger.tagName === 'A' && trigger.getAttribute('href');
-        const isOpenNow  = group.classList.contains('is-open');
+        // The chevron is its own control (see the delegated handler below), so
+        // the title means what it says: a group with a URL navigates on the
+        // first tap. It used to swallow that tap to expand instead, which made
+        // the link itself reachable only on the second try.
+        const isLink = trigger.tagName === 'A' && trigger.getAttribute('href');
+        if (isLink) return;   // let the browser follow href
 
-        if (isLink && !isOpenNow) {
-            event.preventDefault();
-            event.stopPropagation();
-            group.classList.add('is-open');
-            return;
-        }
-
-        if (!isLink) {
-            event.preventDefault();
-            event.stopPropagation();
-            group.classList.toggle('is-open');
-        }
-        // Else: link is already expanded — let the browser follow href.
+        event.preventDefault();
+        event.stopPropagation();
+        group.classList.toggle('is-open');
     }
+
+    // ── The chevron opens/closes; the label does its own job ─────────────────
+    // Both group variants render `label + ▾` as one target, so on a linked
+    // group there was no way to open the menu without navigating away. Clicks
+    // on the arrow are now taken here, in the capture phase, so the <a>'s own
+    // inline handler never sees them.
+    (function initPublicNavbarChevrons() {
+        function setOpen(el, open) {
+            el.classList.toggle('is-open', open);
+            el.classList.toggle('is-closed', !open);
+            if (!el.dataset.uwNavHoverReset) {
+                el.dataset.uwNavHoverReset = '1';
+                // Hand control back to hover once the pointer leaves, so a
+                // click never leaves an item stuck in a state.
+                el.addEventListener('pointerleave', function () {
+                    el.classList.remove('is-open', 'is-closed');
+                });
+            }
+        }
+
+        document.addEventListener('click', function (event) {
+            const chevron = event.target.closest(
+                '.public-navbar-group-chevron, .public-navbar-menu-group-chevron');
+            if (!chevron) return;
+
+            // Side panel: the row is [data-menu-group] and a <button> label
+            // already toggles on its own — don't toggle twice.
+            const panelGroup = chevron.closest('[data-menu-group]');
+            if (panelGroup) {
+                const toggle = chevron.closest('.public-navbar-menu-group-toggle');
+                if (toggle && toggle.tagName !== 'A') return;
+                event.preventDefault();
+                event.stopPropagation();
+                panelGroup.classList.toggle('is-open');
+                return;
+            }
+
+            const dropdown = chevron.closest('.public-navbar-dropdown');
+            if (!dropdown) return;
+            event.preventDefault();
+            event.stopPropagation();
+
+            // Inside the More menu the hover rules are switched off and the
+            // open state is `is-expanded`, one group at a time — reuse that
+            // rather than introduce a second, competing state class.
+            if (dropdown.closest('.public-navbar-overflow-menu')) {
+                const wasExpanded = dropdown.classList.contains('is-expanded');
+                dropdown.parentNode
+                    .querySelectorAll(':scope > .public-navbar-dropdown.is-expanded')
+                    .forEach(g => g.classList.remove('is-expanded'));
+                dropdown.classList.toggle('is-expanded', !wasExpanded);
+                return;
+            }
+
+            // Top bar: hover opens these, but a touch device has no hover and
+            // a linked label would navigate — so the arrow drives it.
+            setOpen(dropdown, !dropdown.classList.contains('is-open'));
+        }, true);
+    })();
 
     function updatePublicNavbarPanelGroupLayout() {
         const menu = document.getElementById('publicNavbarMenu');
@@ -2400,14 +2506,10 @@ window.addEventListener('DOMContentLoaded', function () {
         }
         const group = trigger.closest('.public-navbar-dropdown');
         if (!group) return;
-        const isLink = trigger.tagName === 'A';
-        const isCollapsed = !group.classList.contains('is-expanded');
-        // First tap on a link-style group expands instead of navigating;
-        // a second tap (now expanded, chevron visible) follows the link.
-        // For button-style groups we just toggle.
-        if (isLink && isCollapsed) {
-            e.preventDefault();
-        }
+        // A linked title navigates on the first tap. Expanding is the
+        // chevron's job now, and the chevron handler takes those clicks in the
+        // capture phase, so reaching here on a link means the label was hit.
+        if (trigger.tagName === 'A') return;
         // Collapse siblings so only one nested group is open at a time.
         const siblings = group.parentNode.querySelectorAll(':scope > .public-navbar-dropdown.is-expanded');
         siblings.forEach(g => { if (g !== group) g.classList.remove('is-expanded'); });
