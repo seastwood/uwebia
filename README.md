@@ -345,6 +345,61 @@ If that prints `DNS:db.internal` while `DATABASE_URL` says `@10.0.0.5/`,
 
 ---
 
+## Backup encryption
+
+A backup is the most sensitive file this app produces. It contains every admin
+and member **password hash**, every email address, phone number, order and
+message — and unlike the database, it travels: onto laptops, into a backup
+folder, off to a NAS. Encrypt it.
+
+Stored credentials (SMTP password, Stripe keys, OAuth tokens) are a partial
+exception: those are already encrypted with this install's `SECRET_KEY`, which
+is *not* in the backup, so they stay unusable to whoever finds the file.
+
+### Manual downloads
+
+Settings → Backup & Restore → *Encrypt with a passphrase*. The result is a
+`.uwbak` file instead of `.zip`. The passphrase is **never stored** — it goes
+in the request body (not the URL, so it stays out of access logs), is used
+once, and is forgotten.
+
+> **Lose the passphrase and the backup is unrecoverable.** There is no reset,
+> no escrow, no recovery. Keep it in a password manager — not in the same
+> folder as the backup.
+
+Restoring prompts for it automatically when the file is `.uwbak`.
+
+### Scheduled backups
+
+Settings → Automatic Backups → *Encrypt scheduled backups*. An unattended job
+has to be able to read its own passphrase, so this one **is** stored — encrypted
+with `SECRET_KEY`.
+
+Be clear about what that does and doesn't buy you:
+
+- **Protects against** a backup file leaking on its own: a stray copy, a
+  misconfigured share, a stolen NAS drive, a folder someone made public.
+- **Does not protect against** an attacker who already has the server, since
+  they have `SECRET_KEY` too and can decrypt the stored passphrase.
+
+Keep your own copy of that passphrase as well. If `SECRET_KEY` is ever lost or
+rotated, the stored copy becomes unreadable and yours is the only way back into
+those files. (The scheduler refuses to run rather than quietly writing an
+unencrypted backup if that happens.)
+
+Scheduled backups are written `0600` — readable only by the user the app runs
+as — whether or not encryption is on.
+
+### Format
+
+`.uwbak` is AES-256-GCM in 1 MiB chunks, key derived with scrypt
+(N=32768, r=8, p=1) from the passphrase and a random per-file salt. Each chunk
+authenticates its own index and whether it is the last, so tampering,
+reordering and truncation are all detected rather than silently producing a
+short "valid" backup.
+
+---
+
 ## Troubleshooting
 
 **Can't connect to the database.**  Check `docker compose logs db` for the actual Postgres error. The most common cause is a `POSTGRES_PASSWORD` change after the volume was initialized — Postgres uses the password from the *first* boot and ignores later env changes. Wipe the volume to reset: `docker compose down && docker volume rm uwebia_db_data`.

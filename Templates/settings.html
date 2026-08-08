@@ -1687,6 +1687,17 @@
                     Include uploaded files (images, audio, documents)
                 </label>
             </div>
+            <div class="settings-field" style="margin-bottom:12px;">
+                <label for="backupPassphrase">Encrypt with a passphrase <span style="color:rgba(255,255,255,0.35);font-weight:400;">strongly recommended</span></label>
+                <input type="password" id="backupPassphrase" autocomplete="new-password"
+                       placeholder="Leave blank to download an unencrypted ZIP">
+                <p class="settings-help">
+                    This file contains every member's email address and password hash. Encrypting
+                    it means a leaked copy is useless without the passphrase.
+                    <strong>It is not stored anywhere &mdash; if you lose it, the backup cannot be
+                    recovered.</strong> Keep it in a password manager, not next to the backup.
+                </p>
+            </div>
             <button type="button" class="uw-btn uw-btn-secondary" onclick="downloadBackup()">
                 <i class="fas fa-download"></i> Download Backup
             </button>
@@ -1703,13 +1714,22 @@
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                 <label class="uw-btn uw-btn-secondary" style="cursor:pointer;" id="backupFileLabel">
                     <i class="fas fa-folder-open"></i> Choose File
-                    <input type="file" id="backupFileInput" accept=".zip" style="display:none;"
-                           onchange="document.getElementById('backupFileLabel').querySelector('span').textContent = this.files[0]?.name || ''">
+                    <input type="file" id="backupFileInput" accept=".zip,.uwbak" style="display:none;"
+                           onchange="_backupFilePicked(this)">
                     <span style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-left:6px;"></span>
                 </label>
                 <button class="uw-btn uw-btn-primary" id="importBackupBtn" onclick="startImport()">
                     <i class="fas fa-upload"></i> Import Backup
                 </button>
+            </div>
+            <div class="settings-field" id="restorePassphraseField" style="margin-top:10px;display:none;">
+                <label for="restorePassphrase">Backup passphrase</label>
+                <input type="password" id="restorePassphrase" autocomplete="off"
+                       placeholder="The passphrase this backup was encrypted with">
+                <p class="settings-help" id="restorePassphraseHint">
+                    This file is encrypted (<code>.uwbak</code>). Without the passphrase it
+                    cannot be restored &mdash; there is no recovery path.
+                </p>
             </div>
             <div id="importStatus" style="margin-top:10px;font-size:0.85rem;display:none;"></div>
         </div>
@@ -1737,6 +1757,36 @@
                    placeholder="/var/backups/uwebia"
                    value="{{ ab.folder_path if ab and ab.folder_path else '' }}">
         </div>
+
+        <div class="settings-field" style="margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="abEncrypt" {% if ab and ab.encrypt_enabled %}checked{% endif %}
+                       onchange="_abEncryptChanged()"
+                       style="accent-color:#7ee2cc;width:16px;height:16px;">
+                Encrypt scheduled backups
+            </label>
+            <div id="abPassphraseWrap" style="margin-top:8px;{% if not (ab and ab.encrypt_enabled) %}display:none;{% endif %}">
+                <input type="password" id="abPassphrase" autocomplete="new-password"
+                       placeholder="{% if ab and ab.encrypt_passphrase %}Stored — leave blank to keep it{% else %}Passphrase (12+ characters){% endif %}">
+                <p class="settings-help">
+                    Unlike a manual download, an unattended job has to be able to read this
+                    back, so it's stored encrypted with this server's <code>SECRET_KEY</code>.
+                    That protects a backup file that leaks <em>on its own</em> &mdash; off a NAS,
+                    a stray copy, a misconfigured share. It does not protect you from someone
+                    who already has the server and its key.
+                    <strong>Keep your own copy of the passphrase</strong>: if
+                    <code>SECRET_KEY</code> is ever lost or changed, the stored one becomes
+                    unreadable and only your copy can open those files.
+                </p>
+            </div>
+        </div>
+        {% if ab and ab.enabled and not ab.encrypt_enabled %}
+        <p class="settings-help" style="color:#ffce6b;margin-bottom:12px;">
+            <i class="fas fa-triangle-exclamation"></i>
+            Scheduled backups are being written unencrypted. Each one holds every member's
+            email address and password hash.
+        </p>
+        {% endif %}
 
         <div style="display:flex;gap:14px;flex-wrap:wrap;">
             <div class="settings-field" style="flex:1 1 180px;">
@@ -1788,6 +1838,11 @@
         form.append('folder_path', document.getElementById('abFolder').value);
         form.append('frequency', document.getElementById('abFrequency').value);
         form.append('max_backups', document.getElementById('abMax').value);
+        const abEncrypt = document.getElementById('abEncrypt').checked;
+        form.append('encrypt_enabled', abEncrypt ? '1' : '0');
+        // Blank means "keep the stored passphrase", so only send a new one.
+        const abPass = (document.getElementById('abPassphrase')?.value || '').trim();
+        if (abPass) form.append('encrypt_passphrase', abPass);
         btn.disabled = true;
         status.style.display = 'block';
         status.style.color = 'rgba(255,255,255,0.5)';
@@ -1838,15 +1893,50 @@
             });
     }
 
+    function _abEncryptChanged() {
+        const on = document.getElementById('abEncrypt').checked;
+        document.getElementById('abPassphraseWrap').style.display = on ? '' : 'none';
+    }
+
+    // Only ask for a passphrase when the chosen file actually needs one.
+    function _backupFilePicked(input) {
+        const name = input.files[0]?.name || '';
+        document.getElementById('backupFileLabel').querySelector('span').textContent = name;
+        const field = document.getElementById('restorePassphraseField');
+        field.style.display = name.toLowerCase().endsWith('.uwbak') ? '' : 'none';
+    }
+
     function downloadBackup() {
         const includeFiles = document.getElementById('backupIncludeFiles')?.checked !== false;
-        const url = '{{ url_for("export_backup") }}' + (includeFiles ? '' : '?include_files=0');
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = '';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        const passphrase = (document.getElementById('backupPassphrase')?.value || '').trim();
+        if (!passphrase && !confirm(
+                'Download this backup unencrypted?\n\nIt contains every member\'s email address and password hash in readable form. Anyone who gets the file gets all of it.')) {
+            return;
+        }
+        if (passphrase && passphrase.length < 12) {
+            alert('Use a passphrase of at least 12 characters — it is the only thing protecting the file.');
+            return;
+        }
+        // POSTed, not a link: a passphrase in a URL would be written to access
+        // logs, proxy logs and browser history. The CSRF shim in base.html adds
+        // the token to form submissions automatically.
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("export_backup") }}';
+        form.style.display = 'none';
+        const add = (name, value) => {
+            const i = document.createElement('input');
+            i.type = 'hidden'; i.name = name; i.value = value;
+            form.appendChild(i);
+        };
+        add('include_files', includeFiles ? '1' : '0');
+        if (passphrase) add('passphrase', passphrase);
+        document.body.appendChild(form);
+        form.submit();
+        setTimeout(() => form.remove(), 1000);
+        // Don't leave it sitting in the field afterwards.
+        const field = document.getElementById('backupPassphrase');
+        if (field) field.value = '';
     }
 
     async function startImport() {
@@ -1864,6 +1954,8 @@
 
         const form = new FormData();
         form.append('backup_file', file);
+        const passphrase = (document.getElementById('restorePassphrase')?.value || '').trim();
+        if (passphrase) form.append('passphrase', passphrase);
 
         try {
             const r = await fetch('/admin/settings/backup/import', { method: 'POST', body: form });
@@ -1873,6 +1965,12 @@
                 status.textContent = 'Import successful! Reloading…';
                 setTimeout(() => location.href = '/admin/dashboard', 1500);
             } else {
+                // Encrypted file with no/wrong passphrase: reveal the field and
+                // keep the file selected so they can just try again.
+                if (d.encrypted) {
+                    document.getElementById('restorePassphraseField').style.display = '';
+                    document.getElementById('restorePassphrase').focus();
+                }
                 status.style.color = '#f88';
                 status.textContent = 'Error: ' + (d.error || 'Import failed');
                 btn.disabled = false;

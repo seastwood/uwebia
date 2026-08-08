@@ -15,6 +15,7 @@ import secrets
 import hashlib
 import json
 import mimetypes
+import tempfile
 import time
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
@@ -49,7 +50,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
-from flask import send_file
+from flask import send_file, after_this_request
 
 from bs4 import BeautifulSoup
 
@@ -585,6 +586,23 @@ def decrypt_api_key(ciphertext: str) -> str:
     except (InvalidToken, Exception):
         # Graceful fallback: treat as plain-text (keys stored before this change)
         return ciphertext
+
+
+def decrypt_api_key_strict(ciphertext: str):
+    """Like decrypt_api_key, but returns None when it genuinely can't decrypt.
+
+    decrypt_api_key hands back the ciphertext unchanged on failure, which is
+    right for a legacy plaintext value but dangerous for anything that must be
+    correct: the caller gets a plausible-looking string and no way to know it is
+    garbage. A backup passphrase is exactly that case — using the wrong one
+    produces a file nobody can ever open.
+    """
+    if not ciphertext:
+        return None
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5492,6 +5510,15 @@ class AutoBackupSettings(db.Model):
     enabled     = db.Column(db.Boolean, nullable=False, default=False,
                             server_default=_sa_false())
     folder_path = db.Column(db.String(1000), nullable=True)
+    # Passphrase for encrypting scheduled backups. Stored encrypted (Fernet via
+    # SECRET_KEY) because an unattended daemon has to be able to read it back —
+    # which is the honest limit of this feature: it protects a backup file that
+    # leaks on its own, not an attacker who already owns the server and its
+    # SECRET_KEY. A manually downloaded backup is prompted for instead and its
+    # passphrase is never stored anywhere.
+    encrypt_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                                server_default=_sa_false())
+    encrypt_passphrase = db.Column(db.Text, nullable=True)
     max_backups = db.Column(db.Integer, nullable=False, default=10,
                             server_default='10')
     # 'hourly' | 'daily' | 'weekly' | 'monthly'
@@ -17668,6 +17695,134 @@ def _serialize_backup(uid):
     }
 
 
+# ── Backup encryption ─────────────────────────────────────────────────────────
+# A backup is the single most dangerous file this app produces: it carries every
+# admin and member password hash, every email address, phone number, order and
+# message. It also travels — downloaded to laptops, written to a server folder,
+# copied to a NAS — so it is the one artefact most likely to end up somewhere
+# nobody audited.
+#
+# The passphrase is deliberately NOT derived from SECRET_KEY. Two reasons: a
+# backup must stay readable after the install it came from is gone (that is the
+# entire point of a backup), and tying it to SECRET_KEY would mean one key
+# mistake costs both the running site and every copy of its history. The
+# consequence is the honest one — lose the passphrase and the backup is gone.
+#
+# Format, little more than a framed AEAD stream so a 100 MB+ backup never has to
+# sit in memory twice:
+#
+#   magic 'UWEBIABK' | version(1) | salt(16) | nonce prefix(8)
+#   then, repeatedly: length(4, big-endian) | AES-256-GCM ciphertext+tag
+#
+# Each chunk's nonce is prefix || counter, and its AAD binds the chunk index and
+# whether it is the last one. That makes reordering, splicing and — importantly
+# — silent truncation all detectable, which a plain "encrypt the bytes" approach
+# would not.
+_BACKUP_MAGIC = b'UWEBIABK'
+_BACKUP_ENC_VERSION = 1
+_BACKUP_CHUNK_SIZE = 1024 * 1024      # 1 MiB of plaintext per chunk
+_BACKUP_SCRYPT_N = 2 ** 15            # ~32 MB of memory to derive; deliberate
+_BACKUP_HEADER_LEN = len(_BACKUP_MAGIC) + 1 + 16 + 8
+
+
+class BackupPassphraseError(Exception):
+    """Wrong passphrase, or the file has been altered/truncated."""
+
+
+def _derive_backup_key(passphrase, salt):
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    return Scrypt(salt=salt, length=32, n=_BACKUP_SCRYPT_N, r=8, p=1).derive(
+        passphrase.encode('utf-8'))
+
+
+def backup_is_encrypted(head):
+    """True when these leading bytes are one of our encrypted backups."""
+    return bool(head) and head[:len(_BACKUP_MAGIC)] == _BACKUP_MAGIC
+
+
+def encrypt_backup_stream(src, dst, passphrase):
+    """Encrypt `src` (a readable binary file object) into `dst`."""
+    import struct
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt = secrets.token_bytes(16)
+    nonce_prefix = secrets.token_bytes(8)
+    aead = AESGCM(_derive_backup_key(passphrase, salt))
+
+    dst.write(_BACKUP_MAGIC)
+    dst.write(bytes([_BACKUP_ENC_VERSION]))
+    dst.write(salt)
+    dst.write(nonce_prefix)
+
+    index = 0
+    chunk = src.read(_BACKUP_CHUNK_SIZE)
+    while True:
+        nxt = src.read(_BACKUP_CHUNK_SIZE)
+        is_final = not nxt
+        blob = aead.encrypt(nonce_prefix + struct.pack('>I', index),
+                            chunk, struct.pack('>I?', index, is_final))
+        dst.write(struct.pack('>I', len(blob)))
+        dst.write(blob)
+        if is_final:
+            break
+        chunk = nxt
+        index += 1
+    return dst
+
+
+def decrypt_backup_stream(src, dst, passphrase):
+    """Decrypt `src` into `dst`. Raises BackupPassphraseError on any mismatch."""
+    import struct
+
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    header = src.read(_BACKUP_HEADER_LEN)
+    if len(header) < _BACKUP_HEADER_LEN or not backup_is_encrypted(header):
+        raise BackupPassphraseError('That file is not an encrypted Uwebia backup.')
+    version = header[len(_BACKUP_MAGIC)]
+    if version != _BACKUP_ENC_VERSION:
+        raise BackupPassphraseError(
+            f'This backup uses encryption format v{version}, which this version '
+            f'of Uwebia cannot read.')
+    salt = header[len(_BACKUP_MAGIC) + 1:len(_BACKUP_MAGIC) + 17]
+    nonce_prefix = header[len(_BACKUP_MAGIC) + 17:]
+    aead = AESGCM(_derive_backup_key(passphrase, salt))
+
+    index = 0
+    saw_final = False
+    while True:
+        raw_len = src.read(4)
+        if not raw_len:
+            break
+        if len(raw_len) < 4:
+            raise BackupPassphraseError('The backup file is truncated.')
+        (blob_len,) = struct.unpack('>I', raw_len)
+        blob = src.read(blob_len)
+        if len(blob) < blob_len:
+            raise BackupPassphraseError('The backup file is truncated.')
+        nonce = nonce_prefix + struct.pack('>I', index)
+        # Which chunk is last isn't known until it decrypts, so try "not final"
+        # and fall back. A wrong passphrase fails both and is reported as such.
+        for final_flag in (False, True):
+            try:
+                dst.write(aead.decrypt(nonce, blob,
+                                       struct.pack('>I?', index, final_flag)))
+                saw_final = final_flag
+                break
+            except InvalidTag:
+                if final_flag:
+                    raise BackupPassphraseError(
+                        'Wrong passphrase, or this backup has been altered.')
+        index += 1
+    if not saw_final:
+        # Every chunk authenticated, but the one marked final never arrived.
+        raise BackupPassphraseError(
+            'The backup file is incomplete — the end of it is missing.')
+    return dst
+
+
 def _build_backup_zip_bytes(uid, include_files=True):
     """Serialise the whole instance for owner `uid` into an in-memory ZIP
     (backup.json + uploaded asset/navbar files) and return the raw bytes.
@@ -17705,22 +17860,56 @@ def _build_backup_zip_bytes(uid, include_files=True):
     return buf.getvalue()
 
 
-@app.route('/admin/settings/backup/export')
+@app.route('/admin/settings/backup/export', methods=['GET', 'POST'])
 @login_required
 @require_perm('settings.backup')
 def export_backup():
     # Whole-instance backup is org-wide and always scoped to the primary owner's
     # id (the shared anchor), never the acting user's own id. Gated by
     # settings.backup (full admins pass automatically; sub-admins can be granted).
-    include_files = request.args.get('include_files', '1') != '0'
+    #
+    # POST exists solely so the passphrase travels in a body rather than a query
+    # string: URLs end up in access logs, proxy logs and browser history, which
+    # is the last place the key to the whole database should be. GET remains for
+    # the plain download.
+    src = request.form if request.method == 'POST' else request.args
+    include_files = src.get('include_files', '1') != '0'
+    passphrase = (src.get('passphrase') or '').strip()
     uid = current_user.root_user_id
     zip_bytes = _build_backup_zip_bytes(uid, include_files=include_files)
 
     ts = datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d_%H%M%S')
     suffix = '' if include_files else '_data_only'
-    return send_file(io.BytesIO(zip_bytes), as_attachment=True,
-                     download_name=f'uwebia_backup_{ts}{suffix}.zip',
-                     mimetype='application/zip')
+
+    if not passphrase:
+        app.logger.info('Unencrypted backup downloaded by admin id=%s', current_user.id)
+        return send_file(io.BytesIO(zip_bytes), as_attachment=True,
+                         download_name=f'uwebia_backup_{ts}{suffix}.zip',
+                         mimetype='application/zip')
+
+    # Encrypt to a temp file rather than a second in-memory copy: with uploads
+    # included these run to hundreds of megabytes.
+    tmp = tempfile.NamedTemporaryFile(prefix='uwebia_backup_', suffix='.uwbak',
+                                      delete=False)
+    try:
+        encrypt_backup_stream(io.BytesIO(zip_bytes), tmp, passphrase)
+        tmp.flush()
+    finally:
+        tmp.close()
+    del zip_bytes
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            os.remove(tmp.name)
+        except OSError:
+            pass
+        return response
+
+    app.logger.info('Encrypted backup downloaded by admin id=%s', current_user.id)
+    return send_file(tmp.name, as_attachment=True,
+                     download_name=f'uwebia_backup_{ts}{suffix}.uwbak',
+                     mimetype='application/octet-stream')
 
 
 # ── Automatic backups ─────────────────────────────────────────────────────────
@@ -17788,10 +17977,16 @@ def _auto_backup_is_due(cfg, now=None):
 
 
 def _prune_auto_backups(folder, max_backups):
-    """Keep only the newest `max_backups` auto-backup zips in `folder`."""
+    """Keep only the newest `max_backups` auto-backups in `folder`.
+
+    Both extensions count: turning encryption on mid-life would otherwise leave
+    the old .zip files outside the retention limit and keep them forever — the
+    plaintext ones, of all things.
+    """
     try:
         files = [os.path.join(folder, f) for f in os.listdir(folder)
-                 if f.startswith('uwebia_autobackup_') and f.endswith('.zip')]
+                 if f.startswith('uwebia_autobackup_')
+                 and f.endswith(('.zip', '.uwbak'))]
         files = [f for f in files if os.path.isfile(f)]
         files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
         for stale in files[max(1, int(max_backups or 1)):]:
@@ -17826,9 +18021,29 @@ def _run_auto_backup_for(cfg):
         os.makedirs(folder, exist_ok=True)
         zip_bytes = _build_backup_zip_bytes(cfg.user_id, include_files=True)
         ts = now.strftime('%Y%m%d_%H%M%S')
-        path = os.path.join(folder, f'uwebia_autobackup_{ts}.zip')
-        with open(path, 'wb') as fh:
-            fh.write(zip_bytes)
+
+        passphrase = ''
+        if cfg.encrypt_enabled and cfg.encrypt_passphrase:
+            # Strict: the lenient helper returns the ciphertext on failure, which
+            # would encrypt the backup under a passphrase nobody knows.
+            passphrase = decrypt_api_key_strict(cfg.encrypt_passphrase) or ''
+            if not passphrase:
+                raise RuntimeError(
+                    'The stored backup passphrase could not be decrypted (SECRET_KEY '
+                    'has changed). Re-enter it in Settings — refusing to write an '
+                    'unencrypted backup when encryption was requested.')
+
+        ext = 'uwbak' if passphrase else 'zip'
+        path = os.path.join(folder, f'uwebia_autobackup_{ts}.{ext}')
+        # os.open with 0600: the default umask leaves these world-readable, and
+        # a backup readable by every local account defeats the point of
+        # encrypting it in the first place.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'wb') as fh:
+            if passphrase:
+                encrypt_backup_stream(io.BytesIO(zip_bytes), fh, passphrase)
+            else:
+                fh.write(zip_bytes)
         _prune_auto_backups(folder, cfg.max_backups)
         cfg.last_run_at = now
         cfg.last_status = 'success'
@@ -18036,9 +18251,30 @@ def import_backup():
         return _utf8_json({'success': False, 'error': 'No file uploaded'}, 400)
 
     uid = current_user.root_user_id
+    _decrypted_tmp = None
     try:
         raw = uploaded.read()
-        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        if backup_is_encrypted(raw[:len(_BACKUP_MAGIC)]):
+            passphrase = (request.form.get('passphrase') or '').strip()
+            if not passphrase:
+                return _utf8_json({'success': False, 'encrypted': True,
+                                   'error': 'This backup is encrypted. Enter its '
+                                            'passphrase to restore it.'}, 400)
+            # Decrypt to disk, not memory: with uploads bundled these are large,
+            # and the zip reader below needs random access anyway.
+            _decrypted_tmp = tempfile.NamedTemporaryFile(
+                prefix='uwebia_restore_', suffix='.zip', delete=False)
+            try:
+                decrypt_backup_stream(io.BytesIO(raw), _decrypted_tmp, passphrase)
+                _decrypted_tmp.flush()
+            finally:
+                _decrypted_tmp.close()
+            del raw
+            source = _decrypted_tmp.name
+        else:
+            source = io.BytesIO(raw)
+
+        with zipfile.ZipFile(source) as zf:
             if 'backup.json' not in zf.namelist():
                 return _utf8_json({'success': False, 'error': 'Invalid backup: missing backup.json'}, 400)
             data = json.loads(zf.read('backup.json'))
@@ -20417,12 +20653,23 @@ def import_backup():
                     with zf.open(name) as src, open(os.path.join(new_brand_dir, fname), 'wb') as dst:
                         shutil.copyfileobj(src, dst)
 
+    except BackupPassphraseError as pass_err:
+        # A wrong passphrase is a normal mistake, not a server fault — and it
+        # must not read as "your backup is corrupt".
+        return _utf8_json({'success': False, 'encrypted': True,
+                           'error': str(pass_err)}, 400)
     except zipfile.BadZipFile:
         return _utf8_json({'success': False, 'error': 'Invalid ZIP file'}, 400)
     except Exception as e:
         db.session.rollback()
         app.logger.exception('import_backup error')
         return _utf8_json({'success': False, 'error': str(e)}, 500)
+    finally:
+        if _decrypted_tmp is not None:
+            try:
+                os.remove(_decrypted_tmp.name)
+            except OSError:
+                pass
 
     return _utf8_json({'success': True})
 
@@ -20477,13 +20724,36 @@ def save_auto_backup_settings():
             return _utf8_json({'success': False,
                                'error': f'Folder is not writable: {e}'}, 400)
 
+    # Encryption. A blank passphrase field means "leave the stored one alone",
+    # so the page never has to render the secret back to the browser.
+    encrypt_enabled = str(request.form.get('encrypt_enabled', '')).lower() in (
+        '1', 'true', 'on', 'yes')
+    passphrase = (request.form.get('encrypt_passphrase') or '').strip()
+    if encrypt_enabled:
+        if not passphrase and not cfg.encrypt_passphrase:
+            return _utf8_json({'success': False,
+                               'error': 'Set a passphrase to encrypt scheduled backups.'}, 400)
+        if passphrase and len(passphrase) < 12:
+            return _utf8_json({'success': False,
+                               'error': 'Use a passphrase of at least 12 characters — '
+                                        'this is the only thing protecting the file.'}, 400)
+        if passphrase:
+            cfg.encrypt_passphrase = encrypt_api_key(passphrase)
+    else:
+        # Turning encryption off drops the stored passphrase rather than leaving
+        # it lying in the database for no reason.
+        cfg.encrypt_passphrase = None
+    cfg.encrypt_enabled = encrypt_enabled
+
     cfg.enabled = enabled
     cfg.folder_path = folder or None
     cfg.frequency = frequency
     cfg.max_backups = max_backups
     cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
-    return _utf8_json({'success': True})
+    app.logger.info('Auto-backup settings saved by admin id=%s (encryption %s)',
+                    current_user.id, 'ON' if encrypt_enabled else 'off')
+    return _utf8_json({'success': True, 'encrypt_enabled': encrypt_enabled})
 
 
 @app.route('/admin/settings/backup/auto/run', methods=['POST'])
