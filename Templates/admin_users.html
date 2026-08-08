@@ -1970,23 +1970,49 @@ async function toggleEmailPermission(userId, currentlyAllowed, username) {
     } catch (e) { alert('Request failed.'); }
 }
 
+// A failing request used to be invisible: a 500 returns an HTML error page, so
+// `await r.json()` threw and the caller's alert() never ran — the button just
+// did nothing. Always come back with something the admin can read or report.
+async function _adminUserRequest(url, label) {
+    let r;
+    try {
+        r = await fetch(url, { method: 'POST' });
+    } catch (e) {
+        alert(`${label} failed: could not reach the server (${e.message}).`);
+        return null;
+    }
+    let d = null;
+    try {
+        d = await r.json();
+    } catch (e) {
+        alert(`${label} failed: the server returned ${r.status} ${r.statusText} ` +
+              `instead of a result.\n\nCheck the server log for the full error.`);
+        return null;
+    }
+    if (!d.success) {
+        let msg = d.error || `${label} failed (HTTP ${r.status}).`;
+        if (d.references && d.references.length) {
+            msg += '\n\nStill linked to this admin:\n' +
+                   d.references.map(x => `  • ${x.count} × ${x.what}`).join('\n');
+        }
+        alert(msg);
+        return null;
+    }
+    return d;
+}
+
 async function deleteUser(userId, username) {
     if (!confirm(`Delete admin user "${username}"? They will immediately lose access.`)) return;
-    const r = await fetch(`/admin/users/${userId}/delete`, { method: 'POST' });
-    const d = await r.json();
-    if (d.success) document.getElementById(`auCard-${userId}`)?.remove();
-    else alert(d.error || 'Failed');
+    const d = await _adminUserRequest(`/admin/users/${userId}/delete`, 'Delete');
+    if (d) document.getElementById(`auCard-${userId}`)?.remove();
 }
 
 async function demoteUser(userId, username) {
     if (!confirm(`Demote "${username}" to a regular public user?\n\nThey'll lose all admin access but keep their account — same username and password — as a public user on one of your sites.`)) return;
-    const r = await fetch(`/admin/users/${userId}/demote`, { method: 'POST' });
-    const d = await r.json();
-    if (d.success) {
+    const d = await _adminUserRequest(`/admin/users/${userId}/demote`, 'Demote');
+    if (d) {
         document.getElementById(`auCard-${userId}`)?.remove();
         alert(`"${username}" is now a regular public user.`);
-    } else {
-        alert(d.error || 'Failed to demote');
     }
 }
 

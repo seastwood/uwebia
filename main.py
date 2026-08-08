@@ -44,6 +44,7 @@ from icalendar import Calendar as ICalendar, Event as ICalEvent
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from sqlalchemy import func, or_, nullslast
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import validates
 from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -26045,7 +26046,17 @@ def admin_user_demote(user_id):
     # Remove the remaining mirrors (other sites) and the admin row itself.
     PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
     db.session.delete(sub)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        # Demote deletes the admin row too, so it hits exactly the same
+        # references a delete does — and used to fail the same silent way.
+        db.session.rollback()
+        app.logger.warning('admin_user_demote blocked for id=%s: %s', user_id, exc)
+        return _utf8_json({'success': False, 'blocked': True,
+                           'references': [{'what': lbl, 'count': n}
+                                          for lbl, n in _user_reference_counts(user_id)],
+                           'error': _describe_delete_blockers(user_id, exc)}, 409)
 
     return _utf8_json({
         'success': True,
@@ -26172,6 +26183,96 @@ def update_admin_user(user_id):
     return _utf8_json({'success': True})
 
 
+# Columns that point at an admin but never block a delete: mirrors are removed
+# first, and a user's own children are only relevant to that user's own row.
+_USER_REF_IGNORE = {('public_user', 'mirrored_admin_user_id')}
+
+# Friendlier names for the tables people actually hit.
+_USER_REF_LABELS = {
+    'admin_chat_message': 'admin chat message',
+    'ai_agent': 'AI agent',
+    'analytics_settings': 'analytics setting',
+    'asset': 'asset',
+    'asset_folder': 'asset folder',
+    'auto_backup_settings': 'automatic-backup setting',
+    'calendar': 'calendar',
+    'code_runner_settings': 'code runner setting',
+    'folder': 'folder',
+    'newsletter': 'newsletter',
+    'notification_channel': 'notification channel',
+    'payment': 'payment record',
+    'permission_group': 'permission group',
+    'picture': 'picture',
+    'post_collection': 'post collection',
+    'public_page_content': 'page they last edited',
+    'review_board': 'review board',
+    'saved_color': 'saved colour',
+    'sms_log': 'SMS log entry',
+    'sms_provider_settings': 'SMS provider setting',
+    'storage_connection': 'storage connection',
+    'stripe_settings': 'Stripe setting',
+    'website': 'website or draft site',
+}
+
+
+def _user_reference_counts(user_id):
+    """Every row elsewhere still pointing at this admin, as [(label, count)].
+
+    Worked out only after a delete has actually failed. The live schema doesn't
+    reliably carry the models' ondelete rules — columns added by the
+    auto-migrator arrive without their foreign key at all — so predicting up
+    front would be wrong in both directions. Reporting after the fact is
+    accurate by construction.
+    """
+    found = []
+    for table in db.metadata.tables.values():
+        for col in table.columns:
+            targets_user = any(fk.column.table.name == 'user'
+                               for fk in col.foreign_keys)
+            if not targets_user:
+                continue
+            if (table.name, col.name) in _USER_REF_IGNORE:
+                continue
+            if table.name == 'user' and col.name == 'parent_user_id':
+                continue          # their own sub-admins, not a blocker here
+            try:
+                n = db.session.query(db.func.count()).select_from(table).filter(
+                    col == user_id).scalar()
+            except Exception:
+                continue
+            if n:
+                label = _USER_REF_LABELS.get(table.name, table.name)
+                found.append((label, int(n)))
+    found.sort(key=lambda kv: -kv[1])
+    return found
+
+
+def _describe_delete_blockers(user_id, exc):
+    """Turn an IntegrityError into something an admin can act on."""
+    # Postgres names the offending constraint and table in the error text —
+    # that's the single most useful fact, so lead with it when it's there.
+    raw = str(getattr(exc, 'orig', exc))
+    culprit = None
+    m = re.search(r'on table "([^"]+)"', raw) or re.search(
+        r'table "([^"]+)" violates', raw)
+    if m:
+        culprit = _USER_REF_LABELS.get(m.group(1), m.group(1))
+
+    refs = _user_reference_counts(user_id)
+    if refs:
+        listed = ', '.join(
+            f"{n} {label}{'s' if n != 1 else ''}" for label, n in refs[:6])
+        detail = f'They still own: {listed}.'
+    else:
+        detail = 'Something still references this admin.'
+
+    lead = (f'Cannot delete this admin — records in "{culprit}" still point at them. '
+            if culprit else 'Cannot delete this admin — other records still point at them. ')
+    return (lead + detail +
+            ' Reassign or delete those first, or demote the admin instead, which '
+            'keeps the account as a public user.')
+
+
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @login_required
 def delete_admin_user(user_id):
@@ -26179,13 +26280,37 @@ def delete_admin_user(user_id):
         return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
     sub = User.query.get_or_404(user_id)
     if sub.parent_user_id != current_user.root_user_id:
+        # The primary owner lands here: its parent_user_id is NULL, so it can
+        # never match. Say that outright instead of a bare "Unauthorized".
+        if sub.parent_user_id is None:
+            return _utf8_json({'success': False, 'error':
+                               'That is the primary owner account and cannot be deleted. '
+                               'Transfer ownership to another admin first (the crown '
+                               'button); this account then becomes an ordinary admin.'}, 403)
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if sub.id == current_user.id:
+        return _utf8_json({'success': False,
+                           'error': "You can't delete the account you're signed in with."}, 400)
     # Explicitly remove public mirrors first. The FK has ondelete=CASCADE in
     # the model, but the auto-migrator that added the column doesn't always
     # carry that to the live schema, so we delete defensively.
     PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
     db.session.delete(sub)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        # Previously this escaped as a 500 with an HTML body, so the browser's
+        # `await r.json()` threw and the button silently did nothing at all.
+        db.session.rollback()
+        app.logger.warning('delete_admin_user blocked for id=%s: %s', user_id, exc)
+        return _utf8_json({'success': False, 'blocked': True,
+                           'references': [{'what': lbl, 'count': n}
+                                          for lbl, n in _user_reference_counts(user_id)],
+                           'error': _describe_delete_blockers(user_id, exc)}, 409)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('delete_admin_user failed for id=%s', user_id)
+        return _utf8_json({'success': False, 'error': f'Delete failed: {exc}'}, 500)
     return _utf8_json({'success': True})
 
 
