@@ -17,6 +17,7 @@ import json
 import mimetypes
 import tempfile
 import time
+import click
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -44,6 +45,7 @@ from icalendar import Calendar as ICalendar, Event as ICalEvent
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from sqlalchemy import func, or_, nullslast
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import validates
 from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -1429,7 +1431,7 @@ def admin_second_factor_state(user):
         return {'required': True, 'method': 'totp', 'enrol': None}
 
     mailbox = getattr(user, 'two_factor_email', None) or getattr(user, 'email', None)
-    email_usable = bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+    email_usable = bool(mailbox) and admin_email_2fa_permitted(user)
     if email_usable:
         return {'required': True, 'method': 'email', 'enrol': None}
 
@@ -9039,10 +9041,25 @@ def admin_totp_challenge():
                            can_use_email=_admin_email_2fa_available(user))
 
 
+def admin_email_2fa_permitted(user):
+    """May this admin use an emailed code as a second factor at all?
+
+    A question of policy, asked before they have an address: in GitHub-only
+    mode nobody holds a mailbox, and under the email restriction only admins
+    with the individual grant may. Both cases point at the authenticator app
+    instead, which is why it exists.
+
+    Separate from _admin_email_2fa_available, which additionally needs an
+    address already on file — no use for deciding whether to *offer* the
+    setup, since setup is where the address would be entered.
+    """
+    return not admin_github_only_mode() and admin_email_allowed(user)
+
+
 def _admin_email_2fa_available(user):
     """True when an emailed code is a usable second factor for this admin."""
     mailbox = (getattr(user, 'two_factor_email', None) or getattr(user, 'email', None))
-    return bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+    return bool(mailbox) and admin_email_2fa_permitted(user)
 
 
 @app.route('/admin/2fa/switch/<method>', methods=['POST'])
@@ -10600,6 +10617,18 @@ If you did not request this, you can ignore this email.
 @app.route('/admin/dashboard/settings/2fa/start', methods=['POST'])
 @login_required
 def start_two_factor_activation():
+    # The address is taken from the form and confirm() writes it to
+    # two_factor_email, so without this an admin under the email restriction
+    # could put a mailbox on their row through the 2FA flow — exactly what the
+    # account-email field refuses them. Hiding the card is not enforcement.
+    if not admin_email_2fa_permitted(current_user):
+        return jsonify({
+            'status': 'error',
+            'message': ('This account is not permitted to hold an email address, '
+                        'so it cannot use emailed codes. Set up an authenticator '
+                        'app instead.')
+        }), 403
+
     email_settings = get_email_settings()
 
     if not email_settings or not email_settings.is_active:
@@ -10612,6 +10641,14 @@ def start_two_factor_activation():
 
     if not two_factor_email:
         two_factor_email = current_user.email
+
+    # Enabling 2FA against no address at all would arm a factor whose codes can
+    # never arrive, locking the account at the next sign-in.
+    if not two_factor_email:
+        return jsonify({
+            'status': 'error',
+            'message': 'Enter the email address the codes should go to.'
+        }), 400
 
     code = generate_two_factor_code()
     set_pending_two_factor_code(current_user.id, code, 'activation')
@@ -16367,6 +16404,13 @@ def settings_page():
     timezone_choices = pytz.common_timezones
 
     if request.method == 'POST':
+        # Both tab panes live in one form, so a save still carries every field
+        # exactly as it did before the split — this only decides which tab the
+        # redirect lands on, so saving from "Site settings" doesn't bounce you
+        # back to "Your account".
+        _tab = request.form.get('active_tab') if request.form.get(
+            'active_tab') in ('user', 'site') else None
+
         # The custom admin-login URL key is an ORG-WIDE security setting: it's
         # stored on the anchor (primary owner) and enforced for everyone, so only
         # full admins / settings.edit may change it. (Timezone & date format below
@@ -16377,7 +16421,7 @@ def settings_page():
 
             if admin_url_key_enabled and not admin_url_key:
                 flash('Please enter an admin URL key or turn off the custom admin login URL setting.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             _anchor = get_main_admin() or current_user
             _anchor.admin_url_key_enabled = admin_url_key_enabled
@@ -16388,7 +16432,7 @@ def settings_page():
 
         if timezone_name not in pytz.all_timezones:
             flash('Invalid timezone selected.', 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         allowed_date_formats = [
             '%b %d, %Y %I:%M %p',
@@ -16413,7 +16457,7 @@ def settings_page():
 
         if not account_username:
             flash('Username cannot be blank.', 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         # In GitHub-only mode admins are expected to have no mailbox at all —
         # their second factor is the authenticator app, so an email is optional.
@@ -16425,33 +16469,33 @@ def settings_page():
         elif not account_email:
             if not admin_github_only_mode():
                 flash('Email cannot be blank.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
             account_email = None
         elif not valid_email(account_email):
             flash('Please enter a valid email address.', 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         conflict = admin_or_public_username_taken(
             account_username, account_email, exclude_admin_user_id=current_user.id
         )
         if conflict:
             flash(conflict, 'error')
-            return redirect(url_for('settings_page'))
+            return redirect(url_for('settings_page', tab=_tab))
 
         password_change_requested = bool(new_password or confirm_new_password)
 
         if password_change_requested:
             if not current_password:
                 flash('Enter your current password to change your password.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             if not current_user.check_password(current_password):
                 flash('Current password is incorrect.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             if new_password != confirm_new_password:
                 flash('New passwords do not match.', 'error')
-                return redirect(url_for('settings_page'))
+                return redirect(url_for('settings_page', tab=_tab))
 
             current_user.set_password(new_password)
 
@@ -16477,7 +16521,7 @@ def settings_page():
             )
         else:
             flash('Settings saved. Custom admin login URL is disabled.', 'success')
-        return redirect(url_for('settings_page'))
+        return redirect(url_for('settings_page', tab=_tab))
 
     # Build a sanitized database info dict — never expose the raw URL or password
     _raw_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
@@ -16532,6 +16576,14 @@ def settings_page():
         can_edit_settings=current_user.has_permission('settings.edit'),
         two_factor_enabled=current_user.two_factor_enabled,
         two_factor_email=current_user.two_factor_email or current_user.email,
+        # Offering email 2FA to an admin who may not hold an email address
+        # advertises a setting that can only fail — their factor is the
+        # authenticator app.
+        can_use_email_2fa=admin_email_2fa_permitted(current_user),
+        # Which tab opens. The page re-picks this client-side from ?tab= or the
+        # last one you used; this is the server's starting guess so the first
+        # paint isn't the wrong pane.
+        active_tab=('site' if request.args.get('tab') == 'site' else 'user'),
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
         # Only the client id is echoed back — the secret is never rendered into
@@ -25440,8 +25492,18 @@ def admin_public_user_delete(user_id):
     blocked = _reject_if_admin_mirror(u)
     if blocked:
         return blocked
-    db.session.delete(u)
-    db.session.commit()
+    # Same hazard as the admin mirrors: a plain ORM delete nullifies the
+    # authorship columns but has nothing to say about product_review or
+    # ksa_resource_completion, whose public_user_id can't be null and carry no
+    # cascade — deleting a member who'd left a review raised a bare 500.
+    try:
+        _delete_public_user_row(u)
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        app.logger.warning('admin_public_user_delete blocked for id=%s: %s',
+                           user_id, exc)
+        return _utf8_json({'error': _describe_public_delete_blockers(exc)}, 409)
     return _utf8_json({'success': True})
 
 
@@ -25787,6 +25849,64 @@ def _resolve_promote_conflicts(conflicts, promoting):
     return renamed
 
 
+def _delete_public_user_row(public_user):
+    """Remove one public account along with everything that points at it.
+
+    A bare ``DELETE FROM public_user`` fails the moment the person has ever
+    done anything on the site: 21 tables reference public_user.id, and the
+    live foreign keys carry no ON DELETE rule. This is what made one sub-admin
+    undeletable — their mirror had posted in the forum, so
+    ``forum_reply_public_user_id_fkey`` rejected the delete.
+
+    Two kinds of reference, split by whether the column may be null:
+
+      • nullable — authorship. A forum thread, a page comment, a quiz attempt
+        or an order outlives its author, so the column is set to NULL. The
+        forum templates already render a null author as "Guest".
+      • not-null — a row with no meaning once the person is gone: a vote, a
+        like, a saved address, a division membership. Those rows go.
+
+    Driven off the live metadata rather than a hand-kept list, so a table
+    added later is handled the day it appears instead of resurrecting this
+    same bug.
+    """
+    pu_id = public_user.id
+    for table in db.metadata.tables.values():
+        if table.name == 'public_user':
+            continue
+        for col in table.columns:
+            if not any(fk.column.table.name == 'public_user'
+                       for fk in col.foreign_keys):
+                continue
+            if col.nullable:
+                db.session.execute(
+                    table.update().where(col == pu_id).values({col: None}))
+            else:
+                db.session.execute(table.delete().where(col == pu_id))
+    # Those statements went straight to the database, so anything already
+    # loaded is now stale — including collections the ORM delete below would
+    # otherwise try to cascade over.
+    db.session.expire_all()
+    db.session.delete(public_user)
+
+
+def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
+    """Delete an admin's public mirrors, optionally sparing one.
+
+    Both routes used ``PublicUser.query.filter_by(...).delete()`` here. A bulk
+    delete bypasses the ORM completely — none of the nullify-the-author or
+    cascade rules that make the Members page's delete work apply to it — so it
+    raised straight out of the route, outside the try that was meant to catch
+    it, and the browser got a 500 with an HTML body. That is the whole reason
+    the button looked dead rather than saying anything.
+    """
+    for mirror in PublicUser.query.filter_by(
+            mirrored_admin_user_id=admin_user_id).all():
+        if keep_public_user_id is not None and mirror.id == keep_public_user_id:
+            continue
+        _delete_public_user_row(mirror)
+
+
 def _promote_can():
     """The promote permission is the user-create permission plus the explicit
     'promote' action. Main admins always pass."""
@@ -26043,9 +26163,21 @@ def admin_user_demote(user_id):
     survivor_id, survivor_website_id = survivor.id, survivor.website_id
 
     # Remove the remaining mirrors (other sites) and the admin row itself.
-    PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
-    db.session.delete(sub)
-    db.session.commit()
+    # The mirror delete lives inside the try: it can fail on its own, and it
+    # used to run before the try even started, so its failure escaped as a 500.
+    try:
+        _delete_admin_mirrors(sub.id, keep_public_user_id=survivor_id)
+        db.session.delete(sub)
+        db.session.commit()
+    except IntegrityError as exc:
+        # Demote deletes the admin row too, so it hits exactly the same
+        # references a delete does — and used to fail the same silent way.
+        db.session.rollback()
+        app.logger.warning('admin_user_demote blocked for id=%s: %s', user_id, exc)
+        return _utf8_json({'success': False, 'blocked': True,
+                           'references': [{'what': lbl, 'count': n}
+                                          for lbl, n in _user_reference_counts(user_id)],
+                           'error': _describe_delete_blockers(user_id, exc)}, 409)
 
     return _utf8_json({
         'success': True,
@@ -26172,6 +26304,119 @@ def update_admin_user(user_id):
     return _utf8_json({'success': True})
 
 
+# Columns that point at an admin but never block a delete: mirrors are removed
+# first, and a user's own children are only relevant to that user's own row.
+_USER_REF_IGNORE = {('public_user', 'mirrored_admin_user_id')}
+
+# Friendlier names for the tables people actually hit.
+_USER_REF_LABELS = {
+    'admin_chat_message': 'admin chat message',
+    'ai_agent': 'AI agent',
+    'analytics_settings': 'analytics setting',
+    'asset': 'asset',
+    'asset_folder': 'asset folder',
+    'auto_backup_settings': 'automatic-backup setting',
+    'calendar': 'calendar',
+    'code_runner_settings': 'code runner setting',
+    'folder': 'folder',
+    'newsletter': 'newsletter',
+    'notification_channel': 'notification channel',
+    'payment': 'payment record',
+    'permission_group': 'permission group',
+    'picture': 'picture',
+    'post_collection': 'post collection',
+    'public_page_content': 'page they last edited',
+    'review_board': 'review board',
+    'saved_color': 'saved colour',
+    'sms_log': 'SMS log entry',
+    'sms_provider_settings': 'SMS provider setting',
+    'storage_connection': 'storage connection',
+    'stripe_settings': 'Stripe setting',
+    'website': 'website or draft site',
+}
+
+
+def _user_reference_counts(user_id):
+    """Every row elsewhere still pointing at this admin, as [(label, count)].
+
+    Worked out only after a delete has actually failed. The live schema doesn't
+    reliably carry the models' ondelete rules — columns added by the
+    auto-migrator arrive without their foreign key at all — so predicting up
+    front would be wrong in both directions. Reporting after the fact is
+    accurate by construction.
+    """
+    found = []
+    for table in db.metadata.tables.values():
+        for col in table.columns:
+            targets_user = any(fk.column.table.name == 'user'
+                               for fk in col.foreign_keys)
+            if not targets_user:
+                continue
+            if (table.name, col.name) in _USER_REF_IGNORE:
+                continue
+            if table.name == 'user' and col.name == 'parent_user_id':
+                continue          # their own sub-admins, not a blocker here
+            try:
+                n = db.session.query(db.func.count()).select_from(table).filter(
+                    col == user_id).scalar()
+            except Exception:
+                continue
+            if n:
+                label = _USER_REF_LABELS.get(table.name, table.name)
+                found.append((label, int(n)))
+    found.sort(key=lambda kv: -kv[1])
+    return found
+
+
+def _blocking_table(exc):
+    """The table holding the reference that refused a delete, or None.
+
+    Postgres names the offending constraint and table in the error text — the
+    single most useful fact in it. Read the table that *holds* the reference,
+    not the one being deleted: "update or delete on table "public_user"
+    violates foreign key constraint "forum_reply_public_user_id_fkey" on table
+    "forum_reply"" names both, and the first is the row we're removing, which
+    tells the admin nothing. SQLite phrases it with no table at all, hence the
+    None.
+    """
+    raw = str(getattr(exc, 'orig', exc))
+    m = (re.search(r'still referenced from table "([^"]+)"', raw)
+         or re.search(r'constraint "[^"]+" on table "([^"]+)"', raw)
+         or re.search(r'table "([^"]+)" violates', raw))
+    if not m:
+        return None
+    return _USER_REF_LABELS.get(m.group(1), m.group(1))
+
+
+def _describe_public_delete_blockers(exc):
+    """The same, for a public member rather than an admin."""
+    culprit = _blocking_table(exc)
+    where = f' — records in "{culprit}" still point at them' if culprit else ''
+    return (f'Could not delete this member{where}. Their account is still '
+            'referenced by something this version does not know how to clear. '
+            'Deactivating or banning them removes their access without touching '
+            'the records.')
+
+
+def _describe_delete_blockers(user_id, exc):
+    """Turn an IntegrityError into something an admin can act on."""
+    culprit = _blocking_table(exc)
+
+    refs = _user_reference_counts(user_id)
+    if refs:
+        listed = ', '.join(
+            f"{n} {label}{'s' if n != 1 else ''}" for label, n in refs[:6])
+        detail = f'They still own: {listed}.'
+    else:
+        detail = 'Something still references this admin.'
+
+    lead = (f'Cannot delete this admin — records in "{culprit}" still point at them. '
+            if culprit else 'Cannot delete this admin — other records still point at them. ')
+    return (lead + detail +
+            ' Reassign or delete those first, or demote the admin instead, which '
+            'keeps the account as a public user.')
+
+
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @login_required
 def delete_admin_user(user_id):
@@ -26179,13 +26424,38 @@ def delete_admin_user(user_id):
         return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
     sub = User.query.get_or_404(user_id)
     if sub.parent_user_id != current_user.root_user_id:
+        # The primary owner lands here: its parent_user_id is NULL, so it can
+        # never match. Say that outright instead of a bare "Unauthorized".
+        if sub.parent_user_id is None:
+            return _utf8_json({'success': False, 'error':
+                               'That is the primary owner account and cannot be deleted. '
+                               'Transfer ownership to another admin first (the crown '
+                               'button); this account then becomes an ordinary admin.'}, 403)
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    if sub.id == current_user.id:
+        return _utf8_json({'success': False,
+                           'error': "You can't delete the account you're signed in with."}, 400)
     # Explicitly remove public mirrors first. The FK has ondelete=CASCADE in
     # the model, but the auto-migrator that added the column doesn't always
-    # carry that to the live schema, so we delete defensively.
-    PublicUser.query.filter_by(mirrored_admin_user_id=sub.id).delete(synchronize_session=False)
-    db.session.delete(sub)
-    db.session.commit()
+    # carry that to the live schema, so we delete defensively — and everything
+    # the mirror itself owns has to be dealt with before it can go.
+    try:
+        _delete_admin_mirrors(sub.id)
+        db.session.delete(sub)
+        db.session.commit()
+    except IntegrityError as exc:
+        # Previously this escaped as a 500 with an HTML body, so the browser's
+        # `await r.json()` threw and the button silently did nothing at all.
+        db.session.rollback()
+        app.logger.warning('delete_admin_user blocked for id=%s: %s', user_id, exc)
+        return _utf8_json({'success': False, 'blocked': True,
+                           'references': [{'what': lbl, 'count': n}
+                                          for lbl, n in _user_reference_counts(user_id)],
+                           'error': _describe_delete_blockers(user_id, exc)}, 409)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('delete_admin_user failed for id=%s', user_id)
+        return _utf8_json({'success': False, 'error': f'Delete failed: {exc}'}, 500)
     return _utf8_json({'success': True})
 
 
@@ -28770,6 +29040,19 @@ def public_login():
 
         next_url = safe_next or _website_home_url(website)
 
+        # The flag can outlive the address — an admin clears the email, or the
+        # site stops requiring one. A code then has nowhere to arrive, and the
+        # account is locked out permanently rather than protected, so drop a
+        # factor that cannot be satisfied. A mail server that is merely down is
+        # a different case: that still refuses the login below, as it should.
+        if (getattr(public_user, 'two_factor_enabled', False)
+                and not public_email_2fa_possible(public_user)):
+            app.logger.warning(
+                'Disabled unusable email 2FA for public user id=%s (no address on file)',
+                public_user.id)
+            public_user.two_factor_enabled = False
+            db.session.commit()
+
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
             session['pub_pending_remember'] = remember
@@ -30262,6 +30545,19 @@ def public_account_change_password(prefix=None):
     return redirect(settings_url)
 
 
+def public_email_2fa_possible(public_user):
+    """Could an emailed code ever reach this member?
+
+    email_verified alone is not the question, and using it as the test is what
+    put an unusable 2FA toggle in front of GitHub members: accounts created
+    through GitHub are stored with no address and email_verified=True on
+    purpose, so the verification gate can't strand an account that has no email
+    to verify. Sites that don't require an address (require_public_email off)
+    reach the same state by a different road. Ask for the address itself.
+    """
+    return bool(getattr(public_user, 'email', None)) and bool(public_user.email_verified)
+
+
 @app.route('/<string:prefix>/account/settings')
 @app.route('/account/settings', defaults={'prefix': None})
 def public_account_settings(prefix=None):
@@ -30283,7 +30579,14 @@ def public_account_settings(prefix=None):
         website=website,
         public_user=public_user,
         setup_pending=setup_pending,
-        two_factor_available=getattr(website, 'public_2fa_enabled', False) and public_user.email_verified,
+        # Already on but no longer offerable (the site turned 2FA off, or the
+        # address went away) still shows the card — otherwise the only switch
+        # that turns it back off would be out of reach.
+        two_factor_available=(
+            (getattr(website, 'public_2fa_enabled', False)
+             and public_email_2fa_possible(public_user))
+            or bool(public_user.two_factor_enabled)
+        ),
     )
 
 
@@ -30298,6 +30601,12 @@ def public_2fa_send_setup(prefix=None):
         return _utf8_json({'error': 'Not found'}, 404)
     if not getattr(website, 'public_2fa_enabled', False):
         return _utf8_json({'error': '2FA is not enabled for this site'}, 400)
+    if not getattr(public_user, 'email', None):
+        # Said plainly. This used to fall through to the send and come back as
+        # "Failed to send code. Check email settings." — which sent people off
+        # to inspect a mail server that was working fine.
+        return _utf8_json({'error': 'This account has no email address, so codes '
+                                    'have nowhere to go. Add one first.'}, 400)
     if not public_user.email_verified:
         return _utf8_json({'error': 'Email must be verified to enable 2FA'}, 400)
     code = generate_two_factor_code()
@@ -32260,6 +32569,48 @@ app.jinja_env.filters['user_datetime'] = format_user_datetime
 app.jinja_env.globals['is_plugin_enabled'] = is_plugin_enabled
 
 
+def navbar_entry_target(item, website):
+    """(url, label) for one public-navbar entry, or None when it must not show.
+
+    Dropdown children were assumed everywhere to be plain links, so a system
+    page put inside a group had no URL to render from — `child.url.split('#')`
+    on a missing key raises straight out of the template. Both kinds resolve
+    through here instead.
+
+    Returning None is how a system page hides itself when the feature behind it
+    is switched off, which is the whole point of it being a system entry rather
+    than a hand-typed link: the Shop item disappears with the store instead of
+    pointing at a dead page.
+    """
+    if not isinstance(item, dict):
+        return None
+    kind = item.get('type') or 'link'
+
+    if kind == 'system':
+        key = item.get('key')
+        if key == 'shop':
+            if not getattr(website, 'store_enabled', False):
+                return None
+            return '/shop', (item.get('name')
+                             or getattr(website, 'store_title', None) or 'Shop')
+        if key == 'forum':
+            if not getattr(website, 'forum_enabled', False):
+                return None
+            url = (url_for('public_forum_prefixed', prefix=website.url_prefix)
+                   if getattr(website, 'url_prefix', None) else url_for('public_forum'))
+            return url, (item.get('name')
+                         or getattr(website, 'forum_title', None) or 'Forum')
+        return None
+
+    url = (item.get('url') or '').strip()
+    if not url:
+        return None
+    return url, (item.get('name') or url)
+
+
+app.jinja_env.globals['navbar_entry_target'] = navbar_entry_target
+
+
 def _get_site_icon_url(website):
     """Return the favicon URL for a website, or None to use the template default."""
     return (website.public_navbar_style or {}).get('icon_url') if website else None
@@ -32662,6 +33013,86 @@ def disable_2fa_cli():
     db.session.commit()
 
     print(f"2FA disabled for {user.username} (and org-wide 2FA requirement lifted).")
+
+
+@app.cli.command("clear-lockout")
+@click.argument('target', required=False)
+@click.option('--all', 'clear_all', is_flag=True,
+              help='Clear every counter, including the registration throttle.')
+def clear_lockout_cli(target, clear_all):
+    """Lift a login / two-factor lockout from the server terminal.
+
+    TARGET is an IP address or a username — every counter whose key mentions it
+    is cleared. With no TARGET this only *lists* what is locked, so you can see
+    the state before changing it.
+
+    \b
+        flask --app main clear-lockout                # show what is locked
+        flask --app main clear-lockout 203.0.113.7    # one address
+        flask --app main clear-lockout alice          # one account
+        flask --app main clear-lockout --all          # everything
+
+    Counters are keyed "ip:<addr>" and "ip:<addr>:id:<username>". The address
+    key is shared by every account signing in from there, which is why failed
+    attempts against one site can lock you out of another on the same
+    connection — clearing by username alone will not lift that one.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = LoginRateLimit.query.order_by(LoginRateLimit.key).all()
+
+    def describe(rec):
+        if rec.locked_until and rec.locked_until > now:
+            mins = max(1, int((rec.locked_until - now).total_seconds() // 60) + 1)
+            return f'LOCKED, {mins} more minute(s)'
+        return f'{rec.attempts or 0} failed attempt(s)'
+
+    def is_live(rec):
+        return bool((rec.locked_until and rec.locked_until > now) or (rec.attempts or 0))
+
+    if not rows:
+        print('Nothing recorded — no lockouts are in force.')
+        return
+
+    if not target and not clear_all:
+        live = [r for r in rows if is_live(r)]
+        if not live:
+            print(f'No lockouts in force ({len(rows)} spent counter(s) on record).')
+            return
+        print(f'{len(live)} active counter(s):\n')
+        for rec in live:
+            print(f'  {rec.key:<60} {describe(rec)}')
+        print('\nClear one with:  flask --app main clear-lockout <ip-or-username>'
+              '\nClear them all:  flask --app main clear-lockout --all')
+        return
+
+    if clear_all:
+        doomed = rows
+    else:
+        needle = target.strip().lower()
+        doomed = [r for r in rows if needle in (r.key or '').lower()]
+
+    if not doomed:
+        print(f'No counter mentions "{target}". Run without arguments to see what exists.')
+        return
+
+    for rec in doomed:
+        print(f'  cleared  {rec.key:<60} was {describe(rec)}')
+        db.session.delete(rec)
+    db.session.commit()
+    print(f'\nCleared {len(doomed)} counter(s).')
+
+    # Clearing by username leaves the shared address counter untouched, and that
+    # is usually the one actually holding the door shut. Say so rather than let
+    # them retry and hit the same wall.
+    still = [r for r in LoginRateLimit.query.all() if is_live(r)]
+    if still:
+        print(f'\nStill locked or counting ({len(still)}):')
+        for rec in still:
+            print(f'  {rec.key:<60} {describe(rec)}')
+        print('\nIf you are still refused, one of these covers your connection.')
+
+    print('\nNote: the per-session code budget lives in the browser session, not '
+          'here. Signing in again issues a fresh code and resets it.')
 
 
 @app.cli.command("reset-admin-password")

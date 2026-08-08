@@ -305,9 +305,53 @@
 .icon-lib-thumb:hover { border-color: rgba(94, 238, 248, 0.6); }
 .icon-lib-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .icon-lib-folder { gap: 4px; padding: 6px; }
+
+/* ── Tabs: your account vs the whole site ────────────────────────────────── */
+.settings-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 22px 0 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.settings-tab {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 10px 18px;
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    transition: color 0.12s, border-color 0.12s;
+}
+.settings-tab:hover { color: rgba(255, 255, 255, 0.8); }
+.settings-tab.is-active {
+    color: #5eeef8;
+    border-bottom-color: #5eeef8;
+}
+.settings-tab i { font-size: 0.85em; }
+.settings-tab-hint {
+    margin: 0 0 4px;
+    font-size: 0.84rem;
+    color: rgba(255, 255, 255, 0.45);
+}
+/* Cards are tagged rather than moved, so a card keeps the script that drives
+   it as a neighbour. Hiding is by attribute; nothing here reorders the DOM.
+   The hide rule is scoped to .settings-page on purpose: a card that ends up
+   outside the container then simply stays visible instead of disappearing
+   with no way to reach it. */
+.settings-page [data-settings-tab] { display: none; }
+.settings-page[data-active-tab="user"] [data-settings-tab="user"],
+.settings-page[data-active-tab="site"] [data-settings-tab="site"] { display: block; }
 </style>
 
-<div class="settings-page">
+<div class="settings-page" data-active-tab="{{ active_tab }}">
     <div class="settings-header">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -331,13 +375,32 @@
             Back to Dashboard
         </a>
     </div>
+
+    <div class="settings-tabs" role="tablist">
+        <button type="button" class="settings-tab" role="tab" data-tab="user"
+                aria-controls="settings-pane-user">
+            <i class="fas fa-user"></i> Your account
+        </button>
+        <button type="button" class="settings-tab" role="tab" data-tab="site"
+                aria-controls="settings-pane-site">
+            <i class="fas fa-sliders-h"></i> Site settings
+        </button>
+    </div>
+    <p class="settings-tab-hint" data-settings-tab="user">
+        Settings for <strong>your admin account only</strong>. Nobody else is affected.
+    </p>
+    <p class="settings-tab-hint" data-settings-tab="site">
+        Settings for <strong>the whole organisation</strong>. Changes here apply to every
+        admin and every site.
+    </p>
+
             <form method="POST" action="{{ url_for('settings_page') }}" class="settings-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+            {# Which tab to come back to after the redirect. Kept current by the
+               tab script so a save never bounces you to the other half. #}
+            <input type="hidden" name="active_tab" id="activeTabField" value="{{ active_tab }}">
 
-    <div class="settings-card" style="margin-top: 20px;">
-        <h2 class="settings-section-title">Security</h2>
-        
-<div class="settings-card" style="margin-top: 20px;">
+<div class="settings-card" data-settings-tab="user" style="margin-top: 20px;">
     <h2 class="settings-section-title">Account</h2>
 
     {% if admin_collect_names %}
@@ -434,7 +497,7 @@
 </div>
 
 
-            <div class="settings-card" style="margin-top: 20px;">
+            <div class="settings-card" data-settings-tab="user" style="margin-top: 20px;">
                 <h2 class="settings-section-title">Two-Factor Authentication</h2>
 
                 {% if two_factor_enabled %}
@@ -445,6 +508,15 @@
                 <button type="button" class="settings-button danger" onclick="disableTwoFactor()">
                     Disable 2FA
                 </button>
+                {% elif not can_use_email_2fa %}
+                <p class="settings-help">
+                    This account can't hold an email address, so emailed codes aren't
+                    available to it. Set up an authenticator app instead — it needs no
+                    email and no mail server.
+                </p>
+                <a class="settings-button" href="{{ url_for('admin_totp_setup') }}">
+                    Set up authenticator app
+                </a>
                 {% else %}
                 <p class="settings-help">
                     2FA is currently disabled. To enable it, Uwebia will send an activation code using your saved email
@@ -485,7 +557,7 @@
             </div>
 
             {% if can_set_org_2fa %}
-            <div class="settings-card" style="margin-top: 20px;">
+            <div class="settings-card" data-settings-tab="site" style="margin-top: 20px;">
                 <h2 class="settings-section-title">Organization 2FA Policy</h2>
                 <p class="settings-help">
                     A site-wide security policy (not just your account). When on, <strong>every admin</strong> — main
@@ -535,10 +607,11 @@
                 <div class="settings-message" id="org2faMessage"></div>
             </div>
             {% endif %}
-        </dive>
 
-            {% if can_edit_settings %}
-            <div class="settings-card" style="margin-top:20px;">
+            {# Your own authenticator is not a site setting: it was gated on
+               settings.edit, so a sub-admin without that permission had no way
+               to set up the second factor the org may well require of them. #}
+            <div class="settings-card" data-settings-tab="user" style="margin-top:20px;">
                 <h2 class="settings-section-title">Authenticator App (TOTP)</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     A second factor that works without email — required for admins who
@@ -556,7 +629,27 @@
                 <div class="settings-message" id="totpMessage"></div>
             </div>
 
-            <div class="settings-card" style="margin-top:20px;">
+            {# Linking your own GitHub account is a personal setting; the app
+               credentials below are the org's. They used to share one card, so
+               this button was behind settings.edit too. #}
+            {% if github_login_available %}
+            <div class="settings-card" data-settings-tab="user" style="margin-top:20px;">
+                <h2 class="settings-section-title">GitHub Account</h2>
+                <p class="settings-help" style="margin-top:-6px;">
+                    {% if current_user.github_user_id %}
+                    <i class="fab fa-github"></i> This account is linked to GitHub.
+                    {% else %}
+                    <i class="fab fa-github"></i> This account is not linked to GitHub yet.
+                    {% endif %}
+                </p>
+                <a class="settings-button" href="{{ url_for('github_link_admin') }}">
+                    {% if current_user.github_user_id %}Re-link GitHub{% else %}Link my GitHub account{% endif %}
+                </a>
+            </div>
+            {% endif %}
+
+            {% if can_edit_settings %}
+            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
                 <h2 class="settings-section-title">GitHub Sign-In</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. Uwebia requests <strong>no scopes</strong> and stores only
@@ -575,25 +668,10 @@
                            placeholder="{% if github_login_available %}Leave blank to keep current secret{% else %}Paste the client secret{% endif %}">
                 </div>
                 <button type="button" class="settings-button" onclick="saveGithubSettings()">Save GitHub app</button>
-
-                <div style="margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);">
-                    <p class="settings-help">
-                        {% if current_user.github_user_id %}
-                        <i class="fab fa-github"></i> This account is linked to GitHub.
-                        {% else %}
-                        <i class="fab fa-github"></i> This account is not linked to GitHub yet.
-                        {% endif %}
-                    </p>
-                    {% if github_login_available %}
-                    <a class="settings-button" href="{{ url_for('github_link_admin') }}">
-                        {% if current_user.github_user_id %}Re-link GitHub{% else %}Link my GitHub account{% endif %}
-                    </a>
-                    {% endif %}
-                </div>
                 <div class="settings-message" id="githubMessage"></div>
             </div>
 
-            <div class="settings-card" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
                 <h2 class="settings-section-title">Admin Privacy</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. For teams whose admins are students or minors.
@@ -640,7 +718,7 @@
             {% endif %}
 
             {% if can_edit_settings %}
-            <div class="settings-card" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
                 <h2 class="settings-section-title">Logging</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. The log file is size-capped and rotates automatically,
@@ -674,7 +752,7 @@
             {% endif %}
 
             {% if can_edit_settings %}
-            <div class="settings-card" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
                 <h2 class="settings-section-title">Visitor IP retention</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. An IP address is personal data. The app records one against
@@ -721,7 +799,7 @@
             {% endif %}
 
             {% if can_edit_settings %}
-            <div class="settings-card">
+            <div class="settings-card" data-settings-tab="site">
                 <h2 class="settings-section-title">Admin URL Key</h2>
 
                 <p class="settings-help" style="margin-top:-6px;">Org-wide security setting — applies to every admin's login.</p>
@@ -772,11 +850,14 @@
                     </p>
                 </div>
                 {% endif %}
+
+                <button type="submit" class="settings-button" style="margin-top: 20px;">
+                    Save Settings
+                </button>
             </div>
             {% endif %}
-            </div>
 
-            <div class="settings-card" style="margin-top: 20px;">
+            <div class="settings-card" data-settings-tab="user" style="margin-top: 20px;">
                 <h2 class="settings-section-title">Date and Time</h2>
 
                 <div class="settings-field">
@@ -819,17 +900,18 @@
                         </option>
                     </select>
                 </div>
-            
 
-            <button type="submit" class="settings-button" style="margin-top: 20px;">
-                Save Settings
-            </button>
+                <button type="submit" class="settings-button" style="margin-top: 20px;">
+                    Save Settings
+                </button>
+            </div><!-- /Date and Time card: was closed AFTER </form>, so the
+                        parser pinned this tag on .settings-page instead and
+                        every card below fell outside it. -->
         </form>
-    </div>
 
     <!-- Public Display Names (per-website mirror) -->
     {% if admin_mirrors %}
-    <div class="settings-card">
+    <div class="settings-card" data-settings-tab="user">
         <h2 class="settings-section-title">Public Display Names</h2>
         <p class="settings-subtitle" style="margin-bottom:14px;">
             Pick what name shows next to your activity on each public site (comments, forum posts, reviews).
@@ -857,7 +939,7 @@
 
     <!-- Site Features (org-wide; needs store.settings) -->
     {% if can_store_settings %}
-    <div class="settings-card">
+    <div class="settings-card" data-settings-tab="site">
         <h2 class="settings-section-title">Site Features</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Turn site-wide features on or off for public visitors. Existing data (products, orders, threads, …) is preserved either way — these toggles only control what visitors can see and use.</p>
         {% if website %}
@@ -917,7 +999,7 @@
 
     <!-- Admin Navbar Visibility (org-wide; needs settings.edit) -->
     {% if can_edit_settings %}
-    <div class="settings-card" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Admin Navbar</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar for <strong>everyone</strong>, and <strong>drag the grip</strong> to set their order. Disabled items are hidden across all admins.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
@@ -1021,14 +1103,14 @@
                 </div>
             </div>
         </div>
-        <button class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
+        <button type="button" class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
         <div id="navVisStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
     </div>
     {% endif %}
 
     <!-- Admin Branding (org-wide; needs settings.edit) -->
     {% if can_edit_settings %}
-    <div class="settings-card" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Admin Branding</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Org-wide — sets the name &amp; icon shown on the admin navbar and the admin login page for <strong>everyone</strong>. Leave blank to use the default uwebia branding.</p>
 
@@ -1232,22 +1314,42 @@
         }
 
         async function saveNavbarVisibility() {
-            const form = document.getElementById('navbarVisibilityForm');
-            const disabled = [];
-            form.querySelectorAll('.nav-vis-check').forEach(c => { if (!c.checked) disabled.push(c.dataset.key); });
-            // Order = the current top-level row sequence (drag reorders these).
-            const order = Array.from(form.querySelectorAll(':scope > [data-navkey]')).map(el => el.dataset.navkey);
+            // Everything is inside the try, the status element is resolved
+            // first, and the catch reports the error itself. Previously the
+            // DOM lookups sat outside it: if any of them came back null the
+            // TypeError escaped before the try began and the button did
+            // nothing at all — no message, nothing to go on.
             const status = document.getElementById('navVisStatus');
+            const say = (msg, ok) => {
+                if (status) { status.style.color = ok ? '#5eeec8' : '#f55'; status.textContent = msg; }
+                else { alert(msg); }
+            };
             try {
+                const form = document.getElementById('navbarVisibilityForm');
+                if (!form) { say('Save failed: the navbar list is missing from the page.', false); return; }
+                const disabled = [];
+                form.querySelectorAll('.nav-vis-check').forEach(c => { if (!c.checked) disabled.push(c.dataset.key); });
+                // Order = the current top-level row sequence (drag reorders these).
+                const order = Array.from(form.querySelectorAll(':scope > [data-navkey]')).map(el => el.dataset.navkey);
+
                 const r = await fetch('/admin/settings/navbar-visibility', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ disabled, order })
                 });
-                const d = await r.json();
-                status.style.color = d.ok ? '#5eeec8' : '#f55';
-                status.textContent = d.ok ? 'Saved — reload the page to see changes.' : 'Save failed.';
-            } catch { status.style.color = '#f55'; status.textContent = 'Request failed.'; }
+                let d = null;
+                try { d = await r.json(); } catch (e) { d = null; }
+                if (!r.ok || !d) {
+                    // A permission redirect or a 500 returns HTML, not JSON —
+                    // say so instead of reporting a bare "Save failed."
+                    say(`Save failed: the server returned ${r.status} ${r.statusText}.`, false);
+                    return;
+                }
+                say(d.ok ? 'Saved — reload the page to see changes.'
+                         : (d.error || 'Save failed.'), !!d.ok);
+            } catch (e) {
+                say(`Save failed: ${e.message}`, false);
+            }
         }
 
         // Drag-to-reorder the navbar item rows. The store card renders last, so
@@ -1566,7 +1668,7 @@
     }
     </style>
     {% if can_moderate_posts %}
-    <div class="settings-card" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Content Moderation</h2>
 
         <div class="settings-field">
@@ -1611,7 +1713,7 @@
         </div>
 
         <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
-            <button class="settings-button" onclick="saveProfanitySettings()">Save</button>
+            <button type="button" class="settings-button" onclick="saveProfanitySettings()">Save</button>
             <span id="profanitySettingsStatus" style="font-size:0.82rem;min-height:1em;"></span>
         </div>
     </div>
@@ -1669,7 +1771,7 @@
     {% endif %}
 
     {% if can_backup %}
-    <div class="settings-card" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Backup &amp; Restore</h2>
 
         <div class="settings-field">
@@ -1718,7 +1820,7 @@
                            onchange="_backupFilePicked(this)">
                     <span style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-left:6px;"></span>
                 </label>
-                <button class="uw-btn uw-btn-primary" id="importBackupBtn" onclick="startImport()">
+                <button type="button" class="uw-btn uw-btn-primary" id="importBackupBtn" onclick="startImport()">
                     <i class="fas fa-upload"></i> Import Backup
                 </button>
             </div>
@@ -1736,7 +1838,7 @@
     </div>
 
     {% set ab = auto_backup %}
-    <div class="settings-card" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Automatic Backups</h2>
         <p class="settings-help" style="margin-bottom:14px;">
             Write a full backup ZIP to a folder on the server on a schedule, keeping only the
@@ -1988,7 +2090,7 @@
 
     {% if current_user.is_full_admin %}
     <!-- Database Settings (full admins only) -->
-    <div class="settings-card" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Database</h2>
 
         <div class="settings-field">
@@ -2022,7 +2124,7 @@
                 Running on PostgreSQL. To switch back to SQLite, the existing SQLite file is unchanged —
                 no data will be migrated back.
             </p>
-            <button class="uw-btn uw-btn-secondary" onclick="revertToSQLite()">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="revertToSQLite()">
                 <i class="fas fa-undo"></i> Revert to SQLite
             </button>
             {% else %}
@@ -2065,13 +2167,13 @@
             </div>
 
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                <button class="uw-btn uw-btn-secondary" id="pgTestBtn" onclick="testPgConnection()">
+                <button type="button" class="uw-btn uw-btn-secondary" id="pgTestBtn" onclick="testPgConnection()">
                     <i class="fas fa-plug"></i> Test Connection
                 </button>
-                <button class="uw-btn uw-btn-secondary" id="pgConnectBtn" onclick="connectToPostgres()">
+                <button type="button" class="uw-btn uw-btn-secondary" id="pgConnectBtn" onclick="connectToPostgres()">
                     <i class="fas fa-link"></i> Connect Only
                 </button>
-                <button class="uw-btn uw-btn-primary" id="pgMigrateBtn" onclick="migrateToPostgres()">
+                <button type="button" class="uw-btn uw-btn-primary" id="pgMigrateBtn" onclick="migrateToPostgres()">
                     <i class="fas fa-database"></i> Migrate &amp; Switch
                 </button>
             </div>
@@ -2192,5 +2294,45 @@
     }
     </script>
     {% endif %}
+</div><!-- /.settings-page — was never closed; the tab CSS matches on it -->
+
+<script>
+(function () {
+    const page = document.querySelector('.settings-page');
+    const tabs = document.querySelectorAll('.settings-tab');
+    const field = document.getElementById('activeTabField');
+    if (!page || !tabs.length) return;
+
+    const KEY = 'uwebiaSettingsTab';
+
+    function show(name) {
+        if (name !== 'user' && name !== 'site') name = 'user';
+        page.setAttribute('data-active-tab', name);
+        tabs.forEach(t => {
+            const on = t.dataset.tab === name;
+            t.classList.toggle('is-active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        // Both panes stay in the one form, so a save from either tab posts the
+        // same fields it always did. This only decides where we land after it.
+        if (field) field.value = name;
+        try { localStorage.setItem(KEY, name); } catch (e) { /* private mode */ }
+    }
+
+    tabs.forEach(t => t.addEventListener('click', () => {
+        show(t.dataset.tab);
+        const url = new URL(window.location);
+        url.searchParams.set('tab', t.dataset.tab);
+        history.replaceState(null, '', url);
+    }));
+
+    // ?tab= wins (that is where a redirect after saving puts you), then
+    // whichever tab you were last on, then your account.
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    let remembered = null;
+    try { remembered = localStorage.getItem(KEY); } catch (e) { /* ignore */ }
+    show(wanted || remembered || 'user');
+})();
+</script>
 
     {% endblock %}
