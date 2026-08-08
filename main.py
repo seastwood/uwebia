@@ -26165,8 +26165,11 @@ def admin_user_demote(user_id):
     # Remove the remaining mirrors (other sites) and the admin row itself.
     # The mirror delete lives inside the try: it can fail on its own, and it
     # used to run before the try even started, so its failure escaped as a 500.
+    moved = []
     try:
         _delete_admin_mirrors(sub.id, keep_public_user_id=survivor_id)
+        # Demotion deletes the admin row too, so it needs the same re-homing.
+        moved = _rehome_admin_references(sub.id, root_id)
         db.session.delete(sub)
         db.session.commit()
     except IntegrityError as exc:
@@ -26185,6 +26188,7 @@ def admin_user_demote(user_id):
             'id': survivor_id, 'username': username,
             'email': email, 'website_id': survivor_website_id,
         },
+        'moved': [{'what': lbl, 'count': n} for lbl, n in moved],
     })
 
 
@@ -26308,6 +26312,97 @@ def update_admin_user(user_id):
 # first, and a user's own children are only relevant to that user's own row.
 _USER_REF_IGNORE = {('public_user', 'mirrored_admin_user_id')}
 
+# Columns naming who OWNS a thing, as opposed to who last touched it. Everything
+# else pointing at user.id is attribution — an audit note, not a claim.
+_ADMIN_OWNER_COLS = {'user_id', 'owner_user_id', 'parent_user_id'}
+
+# Never re-homed when an admin is deleted:
+#   public_user.mirrored_admin_user_id — mirrors are dealt with before this runs
+#   website.user_id                    — User.websites is delete-orphan, so the
+#                                        websites go WITH the admin. Re-homing
+#                                        them here would quietly reverse that
+#                                        long-standing (if drastic) behaviour.
+_ADMIN_REHOME_SKIP = {
+    ('public_user', 'mirrored_admin_user_id'),
+    ('website', 'user_id'),
+}
+
+
+def _column_is_unique(table, col):
+    """True when one row per user is enforced — a settings singleton."""
+    if col.unique:
+        return True
+    return any(isinstance(c, db.UniqueConstraint)
+               and len(c.columns) == 1 and col.name in c.columns
+               for c in table.constraints)
+
+
+def _rehome_admin_references(user_id, new_owner_id):
+    """Move what a departing admin is attached to onto the owner.
+
+    A sub-admin who had merely *uploaded* a file could not be deleted. The
+    asset library is a shared pool keyed on the root admin — Asset.user_id is
+    always the root id, and Asset.uploaded_by_user_id exists purely for audit
+    (see the comment above pool_user_id). Refusing to delete somebody because
+    their name is on an audit field is backwards: the file belongs to the
+    organisation and any admin with the right permission may use it.
+
+    So, per column:
+
+      • ownership (user_id / owner_user_id / parent_user_id) — hand it to the
+        owner. Org resources outlive whoever created them: calendars, folders,
+        saved colours, permission groups, and the departing admin's own
+        sub-admins, which are simply re-parented.
+      • attribution (uploaded_by_user_id, updated_by_id, actor_user_id, …) —
+        set NULL where the column allows it. The record survives without a
+        name on it, exactly as a forum post does.
+
+    Settings tables that allow one row per user are the exception: the owner
+    usually has their own row already, and moving a second one would break the
+    unique constraint. Those rows are that admin's personal configuration, so
+    they go with the admin.
+
+    Returns [(label, count)] describing what moved, for the caller to report.
+    """
+    moved = []
+    for table in db.metadata.tables.values():
+        for col in table.columns:
+            if not any(fk.column.table.name == 'user' for fk in col.foreign_keys):
+                continue
+            if (table.name, col.name) in _ADMIN_REHOME_SKIP:
+                continue
+
+            n = db.session.query(db.func.count()).select_from(table).filter(
+                col == user_id).scalar() or 0
+            if not n:
+                continue
+
+            label = _user_ref_label(table.name, col.name)
+            is_owner_col = col.name in _ADMIN_OWNER_COLS
+
+            if not is_owner_col and col.nullable:
+                db.session.execute(
+                    table.update().where(col == user_id).values({col: None}))
+                moved.append((f'{label} (name removed)', int(n)))
+                continue
+
+            if is_owner_col and _column_is_unique(table, col):
+                taken = db.session.query(db.func.count()).select_from(table).filter(
+                    col == new_owner_id).scalar() or 0
+                if taken:
+                    db.session.execute(table.delete().where(col == user_id))
+                    moved.append((f'{label} (removed)', int(n)))
+                    continue
+
+            db.session.execute(
+                table.update().where(col == user_id).values({col: new_owner_id}))
+            moved.append((f'{label} (moved to you)', int(n)))
+
+    # Those statements bypassed the ORM, so drop anything stale before the
+    # delete walks its relationships.
+    db.session.expire_all()
+    return moved
+
 # Friendlier names for the tables people actually hit.
 _USER_REF_LABELS = {
     'admin_chat_message': 'admin chat message',
@@ -26334,6 +26429,47 @@ _USER_REF_LABELS = {
     'stripe_settings': 'Stripe setting',
     'website': 'website or draft site',
 }
+
+# Where the table name alone is misleading. "1 asset" read as though the admin
+# personally owned a file in a library that is explicitly a shared pool; what
+# it actually meant was that their name was on the uploaded-by audit field.
+_USER_REF_COL_LABELS = {
+    ('asset', 'uploaded_by_user_id'): 'asset they uploaded',
+    ('guide', 'updated_by_id'): 'guide they last edited',
+    ('quiz', 'updated_by_id'): 'quiz they last edited',
+    ('resource', 'updated_by_id'): 'resource they last edited',
+    ('inventory_movement', 'actor_user_id'): 'stock change they made',
+    ('order_status_event', 'actor_user_id'): 'order update they made',
+    ('order_return', 'initiated_by_user_id'): 'return they started',
+    ('order_ticket', 'redeemed_by_user_id'): 'ticket they scanned',
+    ('store_order', 'manual_paid_by_user_id'): 'order they marked paid',
+    ('user_ksa', 'granted_by_user_id'): 'KSA level they granted',
+    ('ksa_resource_completion', 'completed_by_user_id'): 'completion they recorded',
+    ('support_message', 'sender_user_id'): 'support reply they sent',
+    ('user', 'parent_user_id'): 'sub-admin under them',
+}
+
+# Columns worth naming individually — "1 asset" is far less use than the
+# filename when you are trying to work out what is holding a delete up.
+_USER_REF_NAME_COLS = ('original_filename', 'name', 'title', 'label', 'username')
+
+
+def _user_ref_label(table_name, col_name):
+    return _USER_REF_COL_LABELS.get((table_name, col_name),
+                                    _USER_REF_LABELS.get(table_name, table_name))
+
+
+def _user_ref_examples(table, col, user_id, limit=4):
+    """A few identifying names for the rows blocking a delete."""
+    name_col = next((table.c[c] for c in _USER_REF_NAME_COLS if c in table.c), None)
+    if name_col is None:
+        return []
+    try:
+        rows = db.session.execute(
+            db.select(name_col).where(col == user_id).limit(limit)).scalars().all()
+    except Exception:
+        return []
+    return [str(r) for r in rows if r]
 
 
 def _user_reference_counts(user_id):
@@ -26362,7 +26498,13 @@ def _user_reference_counts(user_id):
             except Exception:
                 continue
             if n:
-                label = _USER_REF_LABELS.get(table.name, table.name)
+                label = _user_ref_label(table.name, col.name)
+                names = _user_ref_examples(table, col, user_id)
+                if names:
+                    shown = ', '.join(names[:3])
+                    if int(n) > len(names[:3]):
+                        shown += ', …'
+                    label = f'{label} ({shown})'
                 found.append((label, int(n)))
     found.sort(key=lambda kv: -kv[1])
     return found
@@ -26439,8 +26581,11 @@ def delete_admin_user(user_id):
     # the model, but the auto-migrator that added the column doesn't always
     # carry that to the live schema, so we delete defensively — and everything
     # the mirror itself owns has to be dealt with before it can go.
+    moved = []
     try:
         _delete_admin_mirrors(sub.id)
+        # Hand the organisation's things to the owner instead of refusing.
+        moved = _rehome_admin_references(sub.id, current_user.root_user_id)
         db.session.delete(sub)
         db.session.commit()
     except IntegrityError as exc:
@@ -26456,7 +26601,8 @@ def delete_admin_user(user_id):
         db.session.rollback()
         app.logger.exception('delete_admin_user failed for id=%s', user_id)
         return _utf8_json({'success': False, 'error': f'Delete failed: {exc}'}, 500)
-    return _utf8_json({'success': True})
+    return _utf8_json({'success': True,
+                       'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
 
 
 @app.route('/admin/users/<int:user_id>/set-co-owner', methods=['POST'])
