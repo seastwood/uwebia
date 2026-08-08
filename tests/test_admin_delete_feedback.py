@@ -53,8 +53,13 @@ def setup():
 
         db.engine.dispose()
 
-        for model in (main.Website, main.User):
-            db.session.query(model).delete()
+        # Empty everything, children first. Deleting only Website and User was
+        # enough while a delete left nothing behind; now that an admin's rows
+        # are re-homed to the anchor rather than blocking, they survive the
+        # test and the next DELETE FROM user trips over them.
+        db.session.remove()
+        for table in reversed(db.metadata.sorted_tables):
+            db.session.execute(table.delete())
         db.session.commit()
 
         anchor = main.User(username='owner', parent_user_id=None)
@@ -97,53 +102,47 @@ def main_test():
     print('\n[1] reference counting')
     with app.app_context():
         refs = dict(main._user_reference_counts(blocked_id))
-        check('the blocking saved colour is counted', refs.get('saved colour') == 1)
-        check('their website is counted too', refs.get('website or draft site') == 1)
+        joined = ' | '.join(refs)
+        check(f'the saved colour is counted ({joined[:60]})',
+              any(k.startswith('saved colour') for k in refs))
+        check('their website is counted too, and named',
+              any(k.startswith('website or draft site') and 'Their site' in k
+                  for k in refs))
         check('an admin owning nothing reports no references',
               main._user_reference_counts(clean_id) == [])
 
-    print('\n[2] delete')
+    print('\n[2] delete re-homes rather than refusing')
+    # This used to assert a 409: a saved colour with a plain NO ACTION foreign
+    # key made the account undeletable. Refusing on an org resource was the
+    # wrong answer — those now move to the owner and the delete proceeds.
     with app.test_client() as c:
         with c.session_transaction() as s:
             s['_user_id'] = str(anchor_id)
             s['_fresh'] = True
 
+        with app.app_context():
+            sites_before = main.Website.query.filter_by(user_id=blocked_id).count()
+
         r = c.post(f'/admin/users/{blocked_id}/delete')
         d = r.get_json()
-        check('a blocked delete returns 409, not 500', r.status_code == 409)
         check('the response is JSON the browser can read', d is not None)
-        check('it is flagged as blocked', d.get('blocked') is True)
-        check('the message names what is blocking it',
-              'saved colour' in (d.get('error') or '').lower())
-        check('the message suggests a way forward',
-              'demote' in (d.get('error') or '').lower())
-        check('machine-readable references are included',
-              any(x['what'] == 'saved colour' for x in d.get('references', [])))
+        check(f'the delete succeeds — got {r.status_code}',
+              r.status_code == 200 and d.get('success') is True)
+        check('and reports what it handed over',
+              any('saved colour' in m['what'] for m in d.get('moved', [])))
         with app.app_context():
-            check('the admin still exists after a blocked delete',
-                  db.session.get(main.User, blocked_id) is not None)
-            check('the session is usable afterwards (rollback happened)',
-                  main.User.query.count() == 3)
+            check('the admin is gone', db.session.get(main.User, blocked_id) is None)
+            check('their saved colour survives, under the anchor',
+                  main.SavedColor.query.filter_by(user_id=anchor_id).count() == 1)
+            check('DESTRUCTIVE: deleting an admin still deletes their websites',
+                  sites_before == 1
+                  and main.Website.query.filter_by(user_id=blocked_id).count() == 0)
 
         r = c.post(f'/admin/users/{clean_id}/delete')
-        check('an unblocked delete still succeeds',
+        check('an admin owning nothing deletes too',
               r.status_code == 200 and r.get_json().get('success') is True)
         with app.app_context():
             check('that admin is gone', db.session.get(main.User, clean_id) is None)
-
-        # Pin down the destructive cascade so a future change to
-        # User.websites can't alter it unnoticed.
-        with app.app_context():
-            sites_before = main.Website.query.filter_by(user_id=blocked_id).count()
-            db.session.query(main.SavedColor).filter_by(user_id=blocked_id).delete()
-            db.session.commit()
-        r = c.post(f'/admin/users/{blocked_id}/delete')
-        check('removing the blocker lets the delete through',
-              r.status_code == 200 and r.get_json().get('success') is True)
-        with app.app_context():
-            check('DESTRUCTIVE: deleting an admin also deletes their websites',
-                  sites_before == 1
-                  and main.Website.query.filter_by(user_id=blocked_id).count() == 0)
 
         r = c.post(f'/admin/users/{anchor_id}/delete')
         d = r.get_json()
@@ -165,19 +164,35 @@ def main_test():
         check('you cannot delete the account you are signed in with',
               r.status_code == 400 and "signed in" in (r.get_json().get('error') or ''))
 
-    print('\n[4] demote reports the same way')
+    print('\n[4] demote re-homes the same way')
     with app.test_client() as c:
         with c.session_transaction() as s:
             s['_user_id'] = str(anchor_id)
             s['_fresh'] = True
         r = c.post(f'/admin/users/{blocked_id}/demote')
-        check('a blocked demote is a clean 409 too', r.status_code == 409)
-        d = r.get_json()
-        check('with the same explanation',
-              'saved colour' in (d.get('error') or '').lower())
+        d = r.get_json() or {}
+        check(f'the demote succeeds — got {r.status_code}', r.status_code == 200)
+        check('and reports what it handed over',
+              any('saved colour' in m['what'] for m in d.get('moved', [])))
         with app.app_context():
-            check('the admin survives a blocked demote',
-                  db.session.get(main.User, blocked_id) is not None)
+            check('the admin row is gone',
+                  db.session.get(main.User, blocked_id) is None)
+            check('their saved colour survives, under the anchor',
+                  main.SavedColor.query.filter_by(user_id=anchor_id).count() == 1)
+
+    print('\n[5] the 409 path still works when something truly cannot be moved')
+    # Nothing in the schema blocks a delete now, so this exercises the message
+    # builder directly — it is the safety net for a live database whose
+    # foreign keys the model metadata does not know about.
+    with app.app_context():
+        class _Fake(Exception):
+            pass
+        exc = _Fake()
+        exc.orig = ('update or delete on table "user" violates foreign key '
+                    'constraint "widget_user_id_fkey" on table "widget"')
+        msg = main._describe_delete_blockers(anchor_id, exc)
+        check('it names the table holding the reference', 'widget' in msg)
+        check('and still suggests a way forward', 'demote' in msg.lower())
 
 
 if __name__ == '__main__':
