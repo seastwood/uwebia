@@ -1431,7 +1431,7 @@ def admin_second_factor_state(user):
         return {'required': True, 'method': 'totp', 'enrol': None}
 
     mailbox = getattr(user, 'two_factor_email', None) or getattr(user, 'email', None)
-    email_usable = bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+    email_usable = bool(mailbox) and admin_email_2fa_permitted(user)
     if email_usable:
         return {'required': True, 'method': 'email', 'enrol': None}
 
@@ -9041,10 +9041,25 @@ def admin_totp_challenge():
                            can_use_email=_admin_email_2fa_available(user))
 
 
+def admin_email_2fa_permitted(user):
+    """May this admin use an emailed code as a second factor at all?
+
+    A question of policy, asked before they have an address: in GitHub-only
+    mode nobody holds a mailbox, and under the email restriction only admins
+    with the individual grant may. Both cases point at the authenticator app
+    instead, which is why it exists.
+
+    Separate from _admin_email_2fa_available, which additionally needs an
+    address already on file — no use for deciding whether to *offer* the
+    setup, since setup is where the address would be entered.
+    """
+    return not admin_github_only_mode() and admin_email_allowed(user)
+
+
 def _admin_email_2fa_available(user):
     """True when an emailed code is a usable second factor for this admin."""
     mailbox = (getattr(user, 'two_factor_email', None) or getattr(user, 'email', None))
-    return bool(mailbox) and not admin_github_only_mode() and admin_email_allowed(user)
+    return bool(mailbox) and admin_email_2fa_permitted(user)
 
 
 @app.route('/admin/2fa/switch/<method>', methods=['POST'])
@@ -10602,6 +10617,18 @@ If you did not request this, you can ignore this email.
 @app.route('/admin/dashboard/settings/2fa/start', methods=['POST'])
 @login_required
 def start_two_factor_activation():
+    # The address is taken from the form and confirm() writes it to
+    # two_factor_email, so without this an admin under the email restriction
+    # could put a mailbox on their row through the 2FA flow — exactly what the
+    # account-email field refuses them. Hiding the card is not enforcement.
+    if not admin_email_2fa_permitted(current_user):
+        return jsonify({
+            'status': 'error',
+            'message': ('This account is not permitted to hold an email address, '
+                        'so it cannot use emailed codes. Set up an authenticator '
+                        'app instead.')
+        }), 403
+
     email_settings = get_email_settings()
 
     if not email_settings or not email_settings.is_active:
@@ -10614,6 +10641,14 @@ def start_two_factor_activation():
 
     if not two_factor_email:
         two_factor_email = current_user.email
+
+    # Enabling 2FA against no address at all would arm a factor whose codes can
+    # never arrive, locking the account at the next sign-in.
+    if not two_factor_email:
+        return jsonify({
+            'status': 'error',
+            'message': 'Enter the email address the codes should go to.'
+        }), 400
 
     code = generate_two_factor_code()
     set_pending_two_factor_code(current_user.id, code, 'activation')
@@ -16534,6 +16569,10 @@ def settings_page():
         can_edit_settings=current_user.has_permission('settings.edit'),
         two_factor_enabled=current_user.two_factor_enabled,
         two_factor_email=current_user.two_factor_email or current_user.email,
+        # Offering email 2FA to an admin who may not hold an email address
+        # advertises a setting that can only fail — their factor is the
+        # authenticator app.
+        can_use_email_2fa=admin_email_2fa_permitted(current_user),
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
         # Only the client id is echoed back — the secret is never rendered into
@@ -28990,6 +29029,19 @@ def public_login():
 
         next_url = safe_next or _website_home_url(website)
 
+        # The flag can outlive the address — an admin clears the email, or the
+        # site stops requiring one. A code then has nowhere to arrive, and the
+        # account is locked out permanently rather than protected, so drop a
+        # factor that cannot be satisfied. A mail server that is merely down is
+        # a different case: that still refuses the login below, as it should.
+        if (getattr(public_user, 'two_factor_enabled', False)
+                and not public_email_2fa_possible(public_user)):
+            app.logger.warning(
+                'Disabled unusable email 2FA for public user id=%s (no address on file)',
+                public_user.id)
+            public_user.two_factor_enabled = False
+            db.session.commit()
+
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
             session['pub_pending_remember'] = remember
@@ -30482,6 +30534,19 @@ def public_account_change_password(prefix=None):
     return redirect(settings_url)
 
 
+def public_email_2fa_possible(public_user):
+    """Could an emailed code ever reach this member?
+
+    email_verified alone is not the question, and using it as the test is what
+    put an unusable 2FA toggle in front of GitHub members: accounts created
+    through GitHub are stored with no address and email_verified=True on
+    purpose, so the verification gate can't strand an account that has no email
+    to verify. Sites that don't require an address (require_public_email off)
+    reach the same state by a different road. Ask for the address itself.
+    """
+    return bool(getattr(public_user, 'email', None)) and bool(public_user.email_verified)
+
+
 @app.route('/<string:prefix>/account/settings')
 @app.route('/account/settings', defaults={'prefix': None})
 def public_account_settings(prefix=None):
@@ -30503,7 +30568,14 @@ def public_account_settings(prefix=None):
         website=website,
         public_user=public_user,
         setup_pending=setup_pending,
-        two_factor_available=getattr(website, 'public_2fa_enabled', False) and public_user.email_verified,
+        # Already on but no longer offerable (the site turned 2FA off, or the
+        # address went away) still shows the card — otherwise the only switch
+        # that turns it back off would be out of reach.
+        two_factor_available=(
+            (getattr(website, 'public_2fa_enabled', False)
+             and public_email_2fa_possible(public_user))
+            or bool(public_user.two_factor_enabled)
+        ),
     )
 
 
@@ -30518,6 +30590,12 @@ def public_2fa_send_setup(prefix=None):
         return _utf8_json({'error': 'Not found'}, 404)
     if not getattr(website, 'public_2fa_enabled', False):
         return _utf8_json({'error': '2FA is not enabled for this site'}, 400)
+    if not getattr(public_user, 'email', None):
+        # Said plainly. This used to fall through to the send and come back as
+        # "Failed to send code. Check email settings." — which sent people off
+        # to inspect a mail server that was working fine.
+        return _utf8_json({'error': 'This account has no email address, so codes '
+                                    'have nowhere to go. Add one first.'}, 400)
     if not public_user.email_verified:
         return _utf8_json({'error': 'Email must be verified to enable 2FA'}, 400)
     code = generate_two_factor_code()
@@ -32478,6 +32556,8 @@ def format_user_datetime(value, user=None, fmt=None):
 
 app.jinja_env.filters['user_datetime'] = format_user_datetime
 app.jinja_env.globals['is_plugin_enabled'] = is_plugin_enabled
+
+
 
 
 def _get_site_icon_url(website):

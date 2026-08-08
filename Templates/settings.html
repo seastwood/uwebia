@@ -445,6 +445,15 @@
                 <button type="button" class="settings-button danger" onclick="disableTwoFactor()">
                     Disable 2FA
                 </button>
+                {% elif not can_use_email_2fa %}
+                <p class="settings-help">
+                    This account can't hold an email address, so emailed codes aren't
+                    available to it. Set up an authenticator app instead — it needs no
+                    email and no mail server.
+                </p>
+                <a class="settings-button" href="{{ url_for('admin_totp_setup') }}">
+                    Set up authenticator app
+                </a>
                 {% else %}
                 <p class="settings-help">
                     2FA is currently disabled. To enable it, Uwebia will send an activation code using your saved email
