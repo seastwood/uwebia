@@ -72,17 +72,48 @@ def setup():
         page = main.PublicPageContent(website_id=site.id, name='Welcome', slug='home')
         db.session.add(page)
         db.session.commit()
+        # A section is found in the builder by its group, so the fixture builds
+        # the real path: page > group > row > column > section.
+        group = main.SectionGroup(page_content_id=page.id, name='Hero banner')
+        db.session.add(group)
+        db.session.commit()
+        row = main.Row(page_content_id=page.id, row_number=1,
+                       section_group_id=group.id)
+        db.session.add(row)
+        db.session.commit()
         # Twice in ONE section: still one place to go and fix.
-        db.session.add(main.PageSection(
+        section = main.PageSection(
             page_content_id=page.id, section_type='images', order=1, label='Gallery',
-            content={'images': [{'src': url}, {'src': url}]}))
+            content={'images': [{'src': url}, {'src': url}]})
+        db.session.add(section)
+        db.session.commit()
+        db.session.add(main.Column(row_id=row.id, column_number=1,
+                                   section_id=section.id))
 
         guide = main.Guide(website_id=site.id, title='Build a robot', slug='robot')
         db.session.add(guide)
         db.session.commit()
+        chapter = main.GuideNode(guide_id=guide.id, website_id=site.id,
+                                 node_type='chapter', title='Electrics', slug='electrics')
+        db.session.add(chapter)
+        db.session.commit()
         db.session.add(main.GuideNode(guide_id=guide.id, website_id=site.id,
                                       node_type='lesson', title='Wiring', slug='wiring',
+                                      parent_id=chapter.id,
                                       content=f'<img src="{url}">'))
+
+        # The image lives in the THIRD question, which is the bit worth saying.
+        quiz = main.Quiz(website_id=site.id, title='Safety check')
+        db.session.add(quiz)
+        db.session.commit()
+        cfg = {'options': [{'id': 1, 'text': 'Yes', 'correct': True},
+                           {'id': 2, 'text': 'No', 'correct': False}]}
+        for i, prompt in enumerate([
+                '<p>First</p>', '<p>Second</p>',
+                f'<p>Which shows the correct wiring layout?</p><img src="{url}">']):
+            db.session.add(main.QuizQuestion(
+                quiz_id=quiz.id, question_type='true_false', prompt=prompt,
+                config=cfg, points=1, sort_order=i))
 
         coll = main.PostCollection(website_id=site.id, user_id=owner.id,
                                    name='Blog', slug='blog')
@@ -136,6 +167,18 @@ def main_test():
           and 'Gallery' in by_kind['Page section']['name']
           and 'Welcome' in by_kind['Page section']['name'])
 
+    print('\n[1b] enough detail to actually find it')
+    check('the section names the group it sits in',
+          'Hero banner' in by_kind.get('Page section', {}).get('name', ''))
+    check('the lesson names its chapter',
+          'Electrics' in by_kind.get('Guide', {}).get('name', ''))
+    q = by_kind.get('Quiz question', {}).get('name', '')
+    check(f'the quiz question is numbered as in the editor ({q[:20]}…)',
+          q.startswith('Q3'))
+    check('and quotes what it asks',
+          'correct wiring layout' in q)
+    check('and names its quiz', 'Safety check' in q)
+
     print('\n[2] each row links to where you would go and fix it')
     check('the guide links to its editor',
           (by_kind.get('Guide', {}).get('link') or '').startswith('/admin/guides/'))
@@ -146,8 +189,8 @@ def main_test():
 
     print('\n[3] counting stays honest')
     check('two references in one section are ONE place',
-          by_kind.get('Page section', {}).get('times') == 2 and len(places) == 3)
-    check('the total still counts every reference', d.get('total') == 4)
+          by_kind.get('Page section', {}).get('times') == 2 and len(places) == 4)
+    check('the total still counts every reference', d.get('total') == 5)
     with app.app_context():
         a = db.session.get(main.Asset, used_id)
         check('the badge number agrees with the modal',

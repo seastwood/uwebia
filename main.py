@@ -6240,17 +6240,39 @@ def asset_usage_counts(assets):
 # than in the scan. Only resolved for the one asset being inspected, so an
 # unmapped table costs nothing until somebody opens it.
 
+def _usage_excerpt(text, limit=48):
+    """A short plain-text taste of some content, for naming a thing that has no
+    title of its own — a quiz question is its prompt, and the prompt is HTML."""
+    plain = ' '.join((_html_to_plain(text) or '').split())
+    if not plain:
+        return ''
+    return plain if len(plain) <= limit else plain[:limit - 1].rstrip() + '…'
+
+
 def _describe_usage_row(table_name, row_id):
     """(kind, name, link) for one reference, or None to drop it.
 
     Returning None hides rows that are noise rather than uses — a thumbnail
     column on the asset's own record, say.
     """
+    def link_to(endpoint, **kw):
+        """A link, or None if one cannot be built.
+
+        Deliberately separate from the describing: url_for needs a request
+        context and can fail if an endpoint is renamed, and losing the whole
+        entry over a missing link would hide the very reference this feature
+        exists to show. Better a row you have to find by hand than no row.
+        """
+        try:
+            return url_for(endpoint, **kw)
+        except Exception:
+            return None
+
     def page_link(page):
         site = db.session.get(Website, page.website_id) if page else None
         if not (page and site):
             return None
-        return url_for('page_editor', website_id=site.id, page_id=page.id)
+        return link_to('page_editor', website_id=site.id, page_id=page.id)
 
     try:
         if table_name == 'public_page_content':
@@ -6262,51 +6284,81 @@ def _describe_usage_row(table_name, row_id):
             if not sec:
                 return None
             page = db.session.get(PublicPageContent, sec.page_content_id)
-            where = f'{sec.label or sec.section_type} section'
-            return ('Page section',
-                    f'{where} on {page.name}' if page else where,
-                    page_link(page))
+            # A section's own label if it has been named, otherwise its type.
+            what = sec.label or f'{sec.section_type} section'
+            # Sections sit in a column, inside a row, inside a named group —
+            # which is how they are actually found in the builder, so say it.
+            group_name = None
+            try:
+                col = Column.query.filter_by(section_id=sec.id).first()
+                row = db.session.get(Row, col.row_id) if col else None
+                grp = (db.session.get(SectionGroup, row.section_group_id)
+                       if row and row.section_group_id else None)
+                group_name = grp.name if grp else None
+            except Exception:
+                group_name = None
+            bits = [what]
+            if group_name:
+                bits.append(f'in “{group_name}”')
+            if page:
+                bits.append(f'on {page.name}')
+            return ('Page section', ' '.join(bits), page_link(page))
 
         if table_name == 'guide_node':
             node = db.session.get(GuideNode, row_id)
             if not node:
                 return None
             guide = db.session.get(Guide, node.guide_id)
-            return ('Guide',
-                    f'{node.title} — {guide.title}' if guide else node.title,
-                    url_for('admin_guide_editor', gid=node.guide_id))
+            parent = db.session.get(GuideNode, node.parent_id) if node.parent_id else None
+            where = node.title
+            if parent:
+                where += f' (in {parent.title})'
+            if guide:
+                where += f' — {guide.title}'
+            return ('Guide', where, link_to('admin_guide_editor', gid=node.guide_id))
 
         if table_name == 'guide':
             g = db.session.get(Guide, row_id)
-            return g and ('Guide', g.title, url_for('admin_guide_editor', gid=g.id))
+            return g and ('Guide', g.title, link_to('admin_guide_editor', gid=g.id))
 
         if table_name == 'post':
             post = db.session.get(Post, row_id)
             return post and ('Article', post.title,
-                             url_for('admin_post_edit', cid=post.collection_id, pid=post.id))
+                             link_to('admin_post_edit', cid=post.collection_id, pid=post.id))
 
         if table_name == 'quiz_question':
             qq = db.session.get(QuizQuestion, row_id)
             if not qq:
                 return None
             quiz = db.session.get(Quiz, qq.quiz_id)
-            return ('Quiz question',
-                    f'a question in {quiz.title}' if quiz else 'a quiz question',
-                    url_for('admin_quiz_editor', qid=qq.quiz_id))
+            # "a question in Safety check" is not enough to find it. Number it
+            # as the editor does, and show what it actually asks.
+            position = (QuizQuestion.query
+                        .filter(QuizQuestion.quiz_id == qq.quiz_id,
+                                QuizQuestion.sort_order < (qq.sort_order or 0))
+                        .count()) + 1
+            excerpt = _usage_excerpt(qq.prompt)
+            label = f'Q{position}'
+            if excerpt:
+                label += f': {excerpt}'
+            if quiz:
+                label += f' — {quiz.title}'
+            return ('Quiz question', label,
+                    link_to('admin_quiz_editor', qid=qq.quiz_id))
 
         if table_name == 'quiz':
             q = db.session.get(Quiz, row_id)
-            return q and ('Quiz', q.title, url_for('admin_quiz_editor', qid=q.id))
+            return q and ('Quiz', q.title, link_to('admin_quiz_editor', qid=q.id))
 
         if table_name == 'newsletter_campaign':
             camp = db.session.get(NewsletterCampaign, row_id)
             return camp and ('Newsletter', camp.subject,
-                             url_for('admin_newsletter_campaign_edit',
+                             link_to('admin_newsletter_campaign_edit',
                                      nid=camp.newsletter_id, cid=camp.id))
 
         if table_name == 'resource':
             res = db.session.get(Resource, row_id)
-            return res and ('Resource', res.title, url_for('admin_resources_page'))
+            return res and ('Resource', res.title, link_to('admin_resources_page'))
 
         if table_name == 'website':
             site = db.session.get(Website, row_id)
