@@ -3763,6 +3763,12 @@ class GuideNode(db.Model):
     is_published = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     created_at   = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at   = db.Column(db.DateTime, nullable=True)
+    # Bumped on every save. The editor sends back the version it loaded, so a
+    # save built on a stale copy is refused instead of silently overwriting
+    # whatever the other person just wrote. A counter rather than a timestamp
+    # comparison: no clock skew between workers, and no sub-second ties.
+    version      = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     children     = db.relationship('GuideNode',
                                    backref=db.backref('parent', remote_side=[id]),
                                    lazy='dynamic', cascade='all, delete-orphan',
@@ -11432,6 +11438,47 @@ class AdminChatMessage(db.Model):
     message    = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     sender     = db.relationship('User', foreign_keys=[user_id])
+
+
+class EditingPresence(db.Model):
+    """Who is looking at which document right now, and where inside it.
+
+    Deliberately a database table polled over HTTP rather than anything
+    push-based. The app runs on sync gunicorn workers with no Redis and no
+    websocket layer (see the Dockerfile): in-memory state would be per-worker
+    and therefore wrong, an SSE stream would pin one of the three workers for
+    as long as an editor stayed open, and websockets need a different worker
+    class entirely. Postgres is the only state all workers already share.
+
+    One row per person per document, refreshed by a heartbeat. Rows older than
+    PRESENCE_STALE_SECONDS are treated as gone — a browser that crashes or a
+    laptop that sleeps never sends a goodbye, so absence has to time out rather
+    than be announced.
+    """
+    __tablename__ = 'editing_presence'
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # Which organisation the watcher belongs to, so one org never sees another's
+    # people even if resource ids happen to collide.
+    root_user_id  = db.Column(db.Integer, nullable=False, index=True)
+    resource_type = db.Column(db.String(40), nullable=False)   # 'guide' | 'quiz' | 'page'
+    resource_id   = db.Column(db.Integer, nullable=False)
+    # Where inside the document: the lesson/question/section being edited, and a
+    # human label so a peer chip can say "Lesson 3: Wiring" without a second
+    # query per peer.
+    context_id    = db.Column(db.Integer, nullable=True)
+    context_label = db.Column(db.String(200), nullable=True)
+    # True while they actually have the editor focused, as opposed to having
+    # the page open on another monitor.
+    is_editing    = db.Column(db.Boolean, nullable=False, default=False,
+                              server_default=_sa_false())
+    last_seen_at  = db.Column(db.DateTime, nullable=False,
+                              default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                              index=True)
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'resource_type', 'resource_id',
+                            name='uq_presence_user_resource'),
+    )
 
 
 class LoginRateLimit(db.Model):
@@ -38468,6 +38515,126 @@ def _unique_guide_node_slug(guide_id, base_slug, exclude_id=None):
         counter += 1
 
 
+# ── Live presence ────────────────────────────────────────────────────────────
+# How long a heartbeat counts for. The client beats every 5s, so this tolerates
+# two dropped beats before someone is shown as gone — long enough to survive a
+# slow request, short enough that a closed laptop clears within a few seconds.
+PRESENCE_STALE_SECONDS = 16
+PRESENCE_TYPES = ('guide', 'quiz', 'page')
+
+
+def _presence_prune():
+    """Forget heartbeats that stopped arriving."""
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None)
+              - timedelta(seconds=PRESENCE_STALE_SECONDS * 4))
+    db.session.query(EditingPresence).filter(
+        EditingPresence.last_seen_at < cutoff).delete(synchronize_session=False)
+
+
+def _presence_peers(root_user_id, resource_type, resource_id, exclude_user_id):
+    """Everyone else currently on this document."""
+    fresh = (datetime.now(timezone.utc).replace(tzinfo=None)
+             - timedelta(seconds=PRESENCE_STALE_SECONDS))
+    rows = (EditingPresence.query
+            .filter(EditingPresence.root_user_id == root_user_id,
+                    EditingPresence.resource_type == resource_type,
+                    EditingPresence.resource_id == resource_id,
+                    EditingPresence.user_id != exclude_user_id,
+                    EditingPresence.last_seen_at >= fresh)
+            .all())
+    if not rows:
+        return []
+    users = {u.id: u for u in User.query.filter(
+        User.id.in_([r.user_id for r in rows])).all()}
+    out = []
+    for r in rows:
+        u = users.get(r.user_id)
+        if not u:
+            continue
+        name = (u.display_name if getattr(u, 'display_name', None) else None) or u.username
+        out.append({
+            'user_id': r.user_id,
+            'name': name,
+            'initials': ''.join(p[0] for p in str(name).split()[:2]).upper() or '?',
+            'context_id': r.context_id,
+            'context_label': r.context_label,
+            'is_editing': bool(r.is_editing),
+        })
+    out.sort(key=lambda p: p['name'].lower())
+    return out
+
+
+@app.route('/admin/presence/ping', methods=['POST'])
+@login_required
+def admin_presence_ping():
+    """Heartbeat: record where I am, and hear who else is here.
+
+    Deliberately cheap and side-effect free beyond the one upsert — this runs
+    every few seconds per open editor, per admin.
+    """
+    data = request.get_json(silent=True) or {}
+    rtype = (data.get('resource_type') or '').strip()
+    if rtype not in PRESENCE_TYPES:
+        return _utf8_json({'success': False, 'error': 'Unknown resource type'}, 400)
+    try:
+        rid = int(data.get('resource_id'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Missing resource id'}, 400)
+
+    context_id = data.get('context_id')
+    try:
+        context_id = int(context_id) if context_id not in ('', None) else None
+    except (TypeError, ValueError):
+        context_id = None
+    label = (data.get('context_label') or '')[:200] or None
+    root_id = current_user.root_user_id
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    row = EditingPresence.query.filter_by(
+        user_id=current_user.id, resource_type=rtype, resource_id=rid).first()
+    if row is None:
+        row = EditingPresence(user_id=current_user.id, resource_type=rtype,
+                              resource_id=rid, root_user_id=root_id)
+        db.session.add(row)
+    row.root_user_id = root_id
+    row.context_id = context_id
+    row.context_label = label
+    row.is_editing = bool(data.get('is_editing'))
+    row.last_seen_at = now
+
+    try:
+        _presence_prune()
+        db.session.commit()
+    except IntegrityError:
+        # Two beats from the same person raced the insert. Harmless — the other
+        # one won and holds the same data.
+        db.session.rollback()
+
+    return _utf8_json({
+        'success': True,
+        'peers': _presence_peers(root_id, rtype, rid, current_user.id),
+        'stale_after': PRESENCE_STALE_SECONDS,
+    })
+
+
+@app.route('/admin/presence/leave', methods=['POST'])
+@login_required
+def admin_presence_leave():
+    """Best-effort goodbye on navigating away. Never required for correctness —
+    a row nobody refreshes ages out on its own."""
+    data = request.get_json(silent=True) or {}
+    rtype = (data.get('resource_type') or '').strip()
+    try:
+        rid = int(data.get('resource_id'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': True})
+    EditingPresence.query.filter_by(
+        user_id=current_user.id, resource_type=rtype, resource_id=rid
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 def _stamp_editor(obj):
     """Record who last edited a Guide/Quiz/Resource and when. Called from the
     interactive admin edit routes (never from backup import, which preserves the
@@ -38497,6 +38664,9 @@ def _serialize_guide_node(node, include_content=False):
         'slug': node.slug,
         'sort_order': node.sort_order,
         'is_published': node.is_published,
+        # The editor sends this back on save so a write built on a stale copy
+        # can be spotted rather than silently landing on top of someone else's.
+        'version': node.version or 1,
         'children': [_serialize_guide_node(c, include_content)
                      for c in node.children.order_by(GuideNode.sort_order)],
     }
@@ -39095,6 +39265,37 @@ def admin_guide_node_save(gid):
         node = GuideNode.query.filter_by(id=int(nid), guide_id=gid).first_or_404()
         if parent_id == node.id:
             return _utf8_json({'success': False, 'error': 'A node cannot be its own parent'}, 400)
+
+        # Refuse a save built on a copy someone has since replaced. Without
+        # this the whole lesson body is posted verbatim and the later save
+        # wins, so two admins in one lesson meant one of them lost their work
+        # with nothing on screen to say so.
+        #
+        # base_version is optional: a page loaded before this shipped, or a new
+        # node, simply doesn't send one and keeps the old behaviour rather than
+        # being locked out.
+        base_version = data.get('base_version')
+        if base_version not in ('', None) and not data.get('force'):
+            try:
+                base_version = int(base_version)
+            except (TypeError, ValueError):
+                base_version = None
+            current_version = node.version or 1
+            if base_version is not None and base_version != current_version:
+                other = (db.session.get(User, node.updated_by_id)
+                         if node.updated_by_id else None)
+                return _utf8_json({
+                    'success': False,
+                    'conflict': True,
+                    'error': (f'{other.username if other else "Someone else"} saved this '
+                              f'lesson while you were editing it. Your copy is out of date.'),
+                    'saved_by': (other.username if other else None),
+                    'saved_at': (node.updated_at.isoformat() if node.updated_at else None),
+                    'current_version': current_version,
+                    # Their text, so the editor can show it or let you keep yours.
+                    'current_content': node.content or '',
+                    'current_title': node.title,
+                }, 409)
         raw_slug = (data.get('slug') or '').strip()
         if raw_slug:
             node.slug = _unique_guide_node_slug(gid, _slugify_post(raw_slug), exclude_id=node.id)
@@ -39109,6 +39310,11 @@ def admin_guide_node_save(gid):
         if 'is_published' in data:
             node.is_published = bool(data['is_published'])
         node.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        node.version = (node.version or 1) + 1
+        try:
+            node.updated_by_id = current_user.id
+        except Exception:
+            pass
     else:
         raw_slug = (data.get('slug') or '').strip()
         base = _slugify_post(raw_slug if raw_slug else title)

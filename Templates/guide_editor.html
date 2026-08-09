@@ -57,6 +57,20 @@
 .ge-placeholder { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
 .ge-chapter-note { color: rgba(255,255,255,0.4); font-size: 0.85rem; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; }
 
+/* ── Presence ───────────────────────────────────────────────────────────── */
+.ge-presence { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; }
+.ge-presence-label { font-size: 0.74rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(255,255,255,0.4); }
+.ge-presence-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.ge-peer { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 4px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09); font-size: 0.8rem; color: rgba(255,255,255,0.8); }
+.ge-peer-dot { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.66rem; font-weight: 850; color: #10101a; }
+.ge-peer-where { color: rgba(255,255,255,0.45); font-size: 0.76rem; }
+/* A quiet pulse only while they are actually typing, so the row isn't noisy
+   when someone simply has the tab open. */
+.ge-peer.is-editing .ge-peer-dot { box-shadow: 0 0 0 0 rgba(94,238,248,0.7); animation: gePeerPulse 1.8s ease-out infinite; }
+@keyframes gePeerPulse { 70% { box-shadow: 0 0 0 7px rgba(94,238,248,0); } 100% { box-shadow: 0 0 0 0 rgba(94,238,248,0); } }
+.ge-here-warning { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; padding: 10px 13px; border-radius: 9px; font-size: 0.86rem; background: rgba(255,196,84,0.1); border: 1px solid rgba(255,196,84,0.32); color: #ffd08a; }
+@media (prefers-reduced-motion: reduce) { .ge-peer.is-editing .ge-peer-dot { animation: none; } }
+
 #quill-editor { background: rgba(255,255,255,0.03); color: #fff; border-radius: 0 0 10px 10px; min-height: 320px; }
 .ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
 .ql-toolbar.ql-snow { flex-wrap: wrap; }
@@ -161,6 +175,12 @@
 
     <!-- Editor panel -->
     <div class="ge-card" id="gePane">
+        <!-- Who else has this guide open, and where they are in it. -->
+        <div class="ge-presence" id="gePresence" style="display:none;">
+            <span class="ge-presence-label">Also here:</span>
+            <div class="ge-presence-chips" id="gePresenceChips"></div>
+        </div>
+        <div class="ge-here-warning" id="geHereWarning" style="display:none;"></div>
         <div class="ge-placeholder" id="gePlaceholder">
             Select a node on the left to edit it, or add a chapter / lesson to begin.
         </div>
@@ -191,7 +211,7 @@
                 Chapters are headings that group lessons. They have no body content of their own.
             </div>
             <div class="ge-actions">
-                <button class="ge-btn ge-btn-primary" onclick="saveNode(this)"><i class="fas fa-check"></i> Save</button>
+                <button id="geSaveBtn" class="ge-btn ge-btn-primary" onclick="saveNode(this)"><i class="fas fa-check"></i> Save</button>
                 <button class="ge-btn ge-btn-danger" onclick="deleteNode()"><i class="fas fa-trash"></i> Delete</button>
             </div>
         </div>
@@ -257,6 +277,10 @@ let TREE = {{ tree | tojson }};
 let currentNodeId = null;
 let quill = null;
 let _sortables = [];
+// Version of the node currently loaded, echoed back on save so the server can
+// refuse a write built on a copy someone else has already replaced.
+let baseVersion = null;
+let forceNextSave = false;
 
 // ── Custom Quill blots (register before new Quill) ─────────────────────────
 (function registerBlots() {
@@ -912,6 +936,10 @@ async function selectNode(id) {
     document.querySelectorAll('.gn-row').forEach(r => r.classList.remove('is-selected'));
     const li = document.querySelector(`.gn-item[data-id="${id}"]`);
     if (li) li.querySelector('.gn-row').classList.add('is-selected');
+    // Remember what we loaded, so the save can prove it wasn't built on a copy
+    // someone has since replaced.
+    baseVersion = node.version || null;
+    presenceBeat(true);
 }
 async function saveNode(btn) {
     const id = document.getElementById('geNodeId').value;
@@ -926,6 +954,8 @@ async function saveNode(btn) {
     };
     if (!body.title) { alert('Title is required'); return; }
     if (type === 'lesson') body.content = quill.root.innerHTML;
+    if (baseVersion) body.base_version = baseVersion;
+    if (forceNextSave) { body.force = true; forceNextSave = false; }
 
     const original = btn ? btn.innerHTML : null;
     if (btn) {
@@ -935,8 +965,10 @@ async function saveNode(btn) {
     const restore = () => { if (btn) { btn.innerHTML = original; btn.disabled = false; btn.classList.remove('ge-btn-saved'); } };
 
     try {
-        const d = await (await fetch(`/admin/guides/${GUIDE_ID}/nodes/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+        const r = await fetch(`/admin/guides/${GUIDE_ID}/nodes/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
         if (d.success) {
+            baseVersion = (d.node && d.node.version) || baseVersion;
             await refreshTree(parseInt(id));
             if (btn) {
                 btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
@@ -944,6 +976,9 @@ async function saveNode(btn) {
                 clearTimeout(btn._savedTimer);
                 btn._savedTimer = setTimeout(restore, 1800);
             }
+        } else if (r.status === 409 && d.conflict) {
+            restore();
+            handleSaveConflict(d, body);
         } else {
             alert(d.error || 'Failed to save');
             restore();
@@ -952,6 +987,46 @@ async function saveNode(btn) {
         alert('Failed to save');
         restore();
     }
+}
+
+// Somebody saved this lesson while it was open here. Nothing is decided
+// automatically: overwriting silently is the bug being fixed, and discarding
+// silently would just be the same bug pointing the other way.
+function handleSaveConflict(d, attempted) {
+    const who = d.saved_by || 'Someone else';
+    const mine = attempted.content || '';
+    const choice = prompt(
+        `${who} saved this lesson while you were editing it.\n\n`
+        + `Your version has NOT been saved — nothing was overwritten.\n\n`
+        + `Type one of:\n`
+        + `  theirs  — load their version (your edits are copied to the clipboard first)\n`
+        + `  mine    — overwrite with yours (their changes are lost)\n`
+        + `  cancel  — leave everything as it is\n`,
+        'theirs');
+    const pick = (choice || '').trim().toLowerCase();
+
+    if (pick === 'mine') {
+        forceNextSave = true;
+        baseVersion = d.current_version;
+        saveNode(document.getElementById('geSaveBtn'));
+        return;
+    }
+    if (pick === 'theirs') {
+        // Hand their work back, but never without putting yours somewhere first.
+        const done = () => {
+            quill.root.innerHTML = d.current_content || '';
+            document.getElementById('geNodeTitle').value = d.current_title || '';
+            baseVersion = d.current_version;
+            alert('Loaded their version. Your text was copied to the clipboard.');
+        };
+        if (navigator.clipboard && mine) {
+            navigator.clipboard.writeText(mine).then(done, () => {
+                if (confirm('Could not copy your text to the clipboard. Load their version anyway and lose yours?')) done();
+            });
+        } else { done(); }
+    }
+    // cancel: nothing saved, nothing replaced — their copy is still on the
+    // server and yours is still on screen.
 }
 async function deleteNode() {
     const id = document.getElementById('geNodeId').value;
@@ -965,5 +1040,128 @@ async function deleteNode() {
         await refreshTree();
     } else { alert(d.error || 'Failed to delete'); }
 }
+
+// ── Presence ───────────────────────────────────────────────────────────────
+// Polling, not push: the app runs on sync gunicorn workers with no Redis and
+// no websocket layer, so a held-open stream would occupy one of three workers
+// per editor. A 5s beat against Postgres costs one small query and is the only
+// approach the current deployment actually supports.
+const PRESENCE_INTERVAL_MS = 5000;
+let _presenceTimer = null;
+let _typingUntil = 0;
+
+// Peer colours are derived from the user id so the same person keeps the same
+// colour for everyone looking, with no palette to allocate or store.
+function peerColor(id) {
+    const hues = [190, 275, 330, 45, 150, 15, 230, 95];
+    return `hsl(${hues[Math.abs(id) % hues.length]}, 70%, 62%)`;
+}
+
+function renderPeers(peers) {
+    const bar = document.getElementById('gePresence');
+    const chips = document.getElementById('gePresenceChips');
+    const warn = document.getElementById('geHereWarning');
+    if (!bar || !chips) return;
+
+    if (!peers.length) {
+        bar.style.display = 'none';
+        if (warn) warn.style.display = 'none';
+        return;
+    }
+    bar.style.display = 'flex';
+    chips.innerHTML = peers.map(p => {
+        const where = p.context_label
+            ? `<span class="ge-peer-where">${p.is_editing ? 'editing' : 'in'} ${escapeHtml(p.context_label)}</span>`
+            : '<span class="ge-peer-where">browsing</span>';
+        return `<span class="ge-peer ${p.is_editing ? 'is-editing' : ''}" title="${escapeHtml(p.name)}">
+            <span class="ge-peer-dot" style="background:${peerColor(p.user_id)}">${escapeHtml(p.initials)}</span>
+            ${escapeHtml(p.name)} ${where}
+        </span>`;
+    }).join('');
+
+    // The part that actually prevents lost work: say so BEFORE they start
+    // typing into a lesson somebody else is already in.
+    const sameNode = currentNodeId
+        ? peers.filter(p => p.context_id === currentNodeId) : [];
+    if (warn) {
+        if (sameNode.length) {
+            const names = sameNode.map(p => p.name).join(', ');
+            warn.innerHTML = `<i class="fas fa-triangle-exclamation"></i> `
+                + `<span><strong>${escapeHtml(names)}</strong> ${sameNode.length > 1 ? 'are' : 'is'} `
+                + `in this same lesson. Whoever saves last is asked to resolve it — `
+                + `nothing is overwritten silently, but it's easier to take different lessons.</span>`;
+            warn.style.display = 'flex';
+        } else {
+            warn.style.display = 'none';
+        }
+    }
+}
+
+async function presenceBeat(immediate) {
+    try {
+        const node = currentNodeId
+            ? (document.getElementById('geNodeTitle') || {}).value : null;
+        const r = await fetch('/admin/presence/ping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                resource_type: 'guide',
+                resource_id: GUIDE_ID,
+                context_id: currentNodeId,
+                context_label: node || null,
+                is_editing: Date.now() < _typingUntil,
+            }),
+        });
+        if (!r.ok) return;              // a blip is not worth a visible error
+        const d = await r.json();
+        if (d.success) renderPeers(d.peers || []);
+    } catch (e) { /* offline or navigating away — the row ages out server-side */ }
+}
+
+function startPresence() {
+    if (_presenceTimer) return;
+    presenceBeat(true);
+    _presenceTimer = setInterval(() => {
+        // Don't beat from a backgrounded tab: it keeps a stale "here" chip on
+        // everyone else's screen for someone who walked away.
+        if (document.hidden) return;
+        presenceBeat(false);
+    }, PRESENCE_INTERVAL_MS);
+
+    if (quill) {
+        quill.on('text-change', (_d, _o, source) => {
+            if (source === 'user') _typingUntil = Date.now() + 4000;
+        });
+    }
+
+    // Best effort only. The server ages rows out regardless, because a crashed
+    // browser never gets to say goodbye.
+    //
+    // fetch with keepalive rather than sendBeacon: beacons bypass the patched
+    // window.fetch in components/csrf.html, so they arrive with no X-CSRFToken
+    // and CSRFProtect rejects them. keepalive survives the page unload the same
+    // way and still picks up the token.
+    window.addEventListener('pagehide', () => {
+        try {
+            fetch('/admin/presence/leave', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ resource_type: 'guide', resource_id: GUIDE_ID }),
+                keepalive: true,
+            });
+        } catch (e) { /* the row ages out on its own */ }
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) presenceBeat(true);
+    });
+}
+
+if (typeof escapeHtml !== 'function') {
+    window.escapeHtml = function (s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    };
+}
+window.addEventListener('DOMContentLoaded', startPresence);
 </script>
 {% endblock %}
