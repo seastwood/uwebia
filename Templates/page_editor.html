@@ -14039,6 +14039,7 @@ setTimeout(() => {
                 // Optimistic locking: include the version we last saw
                 const card = document.querySelector(`.section-card[data-section-id="${form.dataset.sectionId}"]`);
                 if (card) formData.set("_version", card.dataset.sectionVersion ?? '');
+                if (_takeForce(sectionId)) formData.set('_force', '1');
 
                 fetch(endpoint, {
                     method: "POST",
@@ -14046,6 +14047,14 @@ setTimeout(() => {
                 })
                     .then(async response => {
                         const data = await response.json();
+                        if (response.status === 409 && data.conflict) {
+                            if (data.version !== undefined && card) card.dataset.sectionVersion = data.version;
+                            UwebiaConflict.handle(data, {
+                                label: 'section',
+                                armForce: function () { _armForce(sectionId); },
+                            });
+                            return null;
+                        }
                         if (!response.ok) {
                             throw new Error(data.message || data.error || 'Failed to save section.');
                         }
@@ -14401,14 +14410,58 @@ setTimeout(() => {
             return null;
         }
 
+        // ── Section versions ─────────────────────────────────────────
+        // Every path that writes a section must send the version it last saw
+        // AND take the new one back, or the next ordinary save looks stale and
+        // reports a conflict that isn't one. That mismatch is exactly why
+        // enforcement was left switched off before.
+        function _sectionCard(id) {
+            return document.querySelector(`.section-card[data-section-id="${id}"]`);
+        }
+        function _sectionVersion(id) {
+            const c = _sectionCard(id);
+            return c ? (c.dataset.sectionVersion ?? '') : '';
+        }
+        function _setSectionVersion(id, v) {
+            const c = _sectionCard(id);
+            if (c && v !== undefined && v !== null) c.dataset.sectionVersion = v;
+        }
+        function _armForce(id) {
+            const c = _sectionCard(id);
+            if (c) c.dataset.forceNextSave = '1';
+        }
+        function _takeForce(id) {
+            const c = _sectionCard(id);
+            if (c && c.dataset.forceNextSave === '1') { delete c.dataset.forceNextSave; return true; }
+            return false;
+        }
+        // Autosaving paths report a clash instead of interrupting, and stop
+        // saving into it until the person acts.
+        const _sectionConflicted = {};
+        function _reportSectionConflict(id, d) {
+            _sectionConflicted[id] = true;
+            if (typeof showEditorToast === 'function') {
+                showEditorToast(`${d.saved_by || 'Someone else'} changed this section — reload before editing further`);
+            }
+            console.warn('[section conflict]', id, d.error);
+        }
+
         const _calStyleSaveTimers = {};
         function saveCalendarStyles(sectionId) {
             clearTimeout(_calStyleSaveTimers[sectionId]);
             _calStyleSaveTimers[sectionId] = setTimeout(() => {
                 const form = document.getElementById(`calStyleForm-${sectionId}`);
                 if (!form) return;
+                if (_sectionConflicted[sectionId]) return;
                 const data = new FormData(form);
+                data.set('_version', _sectionVersion(sectionId));
+                if (_takeForce(sectionId)) data.set('_force', '1');
                 fetch('/update_section', { method: 'POST', body: data })
+                    .then(async r => {
+                        const d = await r.json().catch(() => null);
+                        if (r.status === 409 && d) { _reportSectionConflict(sectionId, d); return; }
+                        if (d && d.version !== undefined) _setSectionVersion(sectionId, d.version);
+                    })
                     .catch(err => console.error('Failed to save calendar styles:', err));
             }, 600);
         }
@@ -14581,8 +14634,20 @@ setTimeout(() => {
             }
             status.textContent = 'Saving…'; status.style.color = 'rgba(255,255,255,0.4)';
             try {
-                const r = await fetch('/update_section', { method: 'POST', body: new FormData(form) });
+                const fd = new FormData(form);
+                fd.set('_version', _sectionVersion(sectionId));
+                if (_takeForce(sectionId)) fd.set('_force', '1');
+                const r = await fetch('/update_section', { method: 'POST', body: fd });
                 const d = await r.json();
+                if (r.status === 409 && d.conflict) {
+                    status.style.color = '#ffc454'; status.textContent = 'Someone else changed this';
+                    UwebiaConflict.handle(d, {
+                        label: 'section',
+                        armForce: function () { _armForce(sectionId); },
+                    });
+                    return;
+                }
+                if (d.version !== undefined) _setSectionVersion(sectionId, d.version);
                 if (d.status === 'success') {
                     status.style.color = '#5eeec8'; status.textContent = 'Saved';
                     setTimeout(() => status.textContent = '', 2500);
@@ -15015,15 +15080,31 @@ setTimeout(() => {
             const code    = cm ? cm.getValue() : (ta ? ta.value : '');
             const agentId = sel && sel.value ? parseInt(sel.value) : null;
 
+            if (_sectionConflicted[sectionId] && showToast === false) return Promise.resolve();
             return fetch(`/section/${sectionId}/save_code`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: code, agent_id: agentId })
+                body: JSON.stringify({
+                    code: code,
+                    agent_id: agentId,
+                    // Was always sent as undefined and ignored server-side.
+                    version: _sectionVersion(sectionId),
+                    force: _takeForce(sectionId) || undefined,
+                })
             })
-            .then(r => r.json())
-            .then(data => {
+            .then(async r => {
+                const data = await r.json().catch(() => ({}));
+                if (r.status === 409 && data.conflict) {
+                    if (showToast === false) { _reportSectionConflict(sectionId, data); return; }
+                    UwebiaConflict.handle(data, {
+                        label: 'code section',
+                        armForce: function () { _armForce(sectionId); },
+                    });
+                    return;
+                }
+                if (data.version !== undefined) _setSectionVersion(sectionId, data.version);
                 if (data.success && showToast !== false) showEditorToast('Code saved');
-                else if (!data.success) console.error('Code save failed:', data.error);
+                else if (!data.success && !data.conflict) console.error('Code save failed:', data.error);
             })
             .catch(err => console.error('[saveCodeSection] network error:', err));
         };

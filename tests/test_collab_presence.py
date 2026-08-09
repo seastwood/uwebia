@@ -66,7 +66,8 @@ def setup():
         # A real colleague, not a bystander: they need guides.edit to save, or
         # the "two people writing at once" case never actually happens.
         mate = main.User(username='rowan', parent_user_id=owner.id,
-                         permissions={'guides.view': True, 'guides.edit': True})
+                         permissions={'guides.view': True, 'guides.edit': True,
+                                      'sections.edit': True})
         mate.set_password('x')
         db.session.add(mate)
         db.session.commit()
@@ -279,7 +280,69 @@ def main_test():
                     json={'resource_type': rtype, 'resource_id': 1})
         check(f'{rtype} is an accepted presence type', rr.status_code == 200)
 
-    print('\n[10] older editors keep working')
+    print('\n[10] page builder sections')
+    # The scaffolding for this existed and was switched off with a note that
+    # enforcing it would false-positive, because several save paths bumped the
+    # version without telling the card. Those paths send and refresh it now.
+    with app.app_context():
+        page = main.PublicPageContent(website_id=site_id, name='Home', slug='home')
+        db.session.add(page)
+        db.session.commit()
+        sec = main.PageSection(page_content_id=page.id, section_type='text',
+                               content={'text': 'original'}, order=1)
+        db.session.add(sec)
+        db.session.commit()
+        page_id, sec_id = page.id, sec.id
+        start_version = sec.version or 0
+
+    def save_text(client, body, version, force=False):
+        form = {'section_id': str(sec_id), 'section_type': 'text', 'text': body}
+        if version is not None:
+            form['_version'] = str(version)
+        if force:
+            form['_force'] = '1'
+        return client.post('/update_section', data=form)
+
+    r1 = save_text(b, 'rowan wrote this', start_version)
+    d1 = r1.get_json() or {}
+    check(f'a save at the current version lands — got {r1.status_code}',
+          r1.status_code == 200)
+    check('and reports the new version', d1.get('version') == start_version + 1)
+
+    r2 = save_text(a, 'owner had a stale copy', start_version)
+    d2 = r2.get_json() or {}
+    check(f'a save at the OLD version is refused — got {r2.status_code}',
+          r2.status_code == 409)
+    check('flagged as a conflict', d2.get('conflict') is True)
+    check('naming the section so the editor can point at it',
+          d2.get('section_id') == sec_id)
+    with app.app_context():
+        kept = db.session.get(main.PageSection, sec_id).content
+        check("the first writer's text survived",
+              'rowan' in str(kept))
+
+    check('an explicit overwrite still works',
+          save_text(a, 'owner insisted', start_version, force=True).status_code == 200)
+
+    print('\n[11] the false positive the old comment warned about')
+    # A second save from the SAME person, using the version handed back by the
+    # first, must go straight through. This is what broke when side-channel
+    # saves bumped the version without refreshing the card.
+    with app.app_context():
+        v = db.session.get(main.PageSection, sec_id).version
+    again = save_text(a, 'same person, next edit', v)
+    check(f'consecutive saves by one person do not conflict — got {again.status_code}',
+          again.status_code == 200)
+    v2 = (again.get_json() or {}).get('version')
+    check('each save hands back the next version', v2 == v + 1)
+    check('and that version is immediately usable',
+          save_text(a, 'and again', v2).status_code == 200)
+
+    print('\n[12] a caller that sends no version is not locked out')
+    check('an omitted version still saves (older clients, other callers)',
+          save_text(a, 'no version supplied', None).status_code == 200)
+
+    print('\n[13] older editors keep working')
     # A page loaded before this shipped sends no base_version and must not be
     # locked out of saving.
     r_old = a.post(f'/admin/guides/{guide_id}/nodes/save', json={

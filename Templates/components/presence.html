@@ -180,6 +180,21 @@ window.UwebiaConflict = (function () {
     function handle(d, opts) {
         var who = d.saved_by || 'Someone else';
         var label = opts.label || 'item';
+
+        // Without applyTheirs there is no way to show their copy in place —
+        // a page section's content is arbitrary JSON, not one text body you
+        // can paste into an editor. Reloading is the honest option there.
+        if (!opts.applyTheirs) {
+            var take = confirm(
+                who + ' changed this ' + label + ' while you were editing it.\n\n'
+                + 'Your change has NOT been saved — nothing was overwritten.\n\n'
+                + 'OK      — reload the page and start from their version\n'
+                + 'Cancel  — keep what is on screen (use Save again to overwrite theirs)');
+            if (take) { window.location.reload(); }
+            else if (opts.retryForce) { opts.armForce && opts.armForce(); }
+            return;
+        }
+
         var answer = prompt(
             who + ' saved this ' + label + ' while you were editing it.\n\n'
             + 'Your version has NOT been saved — nothing was overwritten.\n\n'

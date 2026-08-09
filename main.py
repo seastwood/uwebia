@@ -23005,8 +23005,9 @@ def update_section():
     if section is None:
         return jsonify({'status': 'error', 'message': 'Failed to update section'})
 
-    # Version is tracked but not enforced here — the save flow has multiple
-    # concurrent callers (bulk save button, auto-save) that would false-positive.
+    conflict = _section_conflict(section, request.form.get('_version'))
+    if conflict:
+        return conflict
 
     form_data = request.form
 
@@ -27017,7 +27018,13 @@ def save_code_section(section_id):
         data = request.get_json(force=True, silent=True) or {}
         code = data.get('code', '')
         agent_id = data.get('agent_id')
-        client_version = data.get('version')
+
+        # This endpoint has always accepted a client version and ignored it.
+        # It autosaves on a 600ms debounce, so an unheeded stale write here is
+        # the easiest way in the whole builder to wipe somebody's code.
+        conflict = _section_conflict(section, data.get('version'))
+        if conflict:
+            return conflict
 
         # Full assignment + flag_modified ensures SQLAlchemy detects the JSON change
         from sqlalchemy.orm.attributes import flag_modified
@@ -38584,6 +38591,58 @@ def _conflict_response(obj, data, label='item', content_attr=None, title_attr='t
     if content_attr:
         payload['current_content'] = getattr(obj, content_attr, None) or ''
     return _utf8_json(payload, 409)
+
+
+def _force_requested():
+    """True when the client explicitly chose to overwrite. Sent as a form field
+    by the builder's form posts and as JSON by its fetch callers."""
+    if request.form.get('_force') in ('1', 'true', 'on'):
+        return True
+    body = request.get_json(silent=True) or {}
+    return bool(body.get('force'))
+
+
+def _section_conflict(section, supplied_version):
+    """Refuse a page-section save built on a version somebody has replaced.
+
+    The scaffolding for this existed and was left switched off, with a note
+    that enforcing it would false-positive because several callers save the
+    same section. That was true, and it was the callers that were wrong: the
+    calendar-style, product-grid and code autosaves each bumped the version
+    without telling the card, so the NEXT ordinary save looked stale. They send
+    and refresh the version now, which is what makes enforcing this safe.
+
+    A section's content is arbitrary JSON, not one text body, so there is no
+    sensible "paste theirs into your editor". The client offers reload or
+    overwrite instead — see UwebiaConflict.handle with no applyTheirs.
+    """
+    if supplied_version in ('', None):
+        return None                      # caller opted out (or predates this)
+    if _force_requested():
+        return None                      # "overwrite theirs", chosen deliberately
+    try:
+        supplied = int(supplied_version)
+    except (TypeError, ValueError):
+        return None
+    current = section.version or 0
+    if supplied == current:
+        return None
+
+    who = None
+    page = db.session.get(PublicPageContent, section.page_content_id)
+    if page is not None and getattr(page, 'last_edited_by_id', None):
+        who = db.session.get(User, page.last_edited_by_id)
+    return jsonify({
+        'status': 'conflict',
+        'conflict': True,
+        'error': (f'{who.username if who else "Someone else"} changed this section '
+                  f'while you were editing it. Your copy is out of date.'),
+        'saved_by': (who.username if who else None),
+        'saved_at': (section.updated_at.isoformat() if section.updated_at else None),
+        'current_version': current,
+        'section_id': section.id,
+        'section_type': section.section_type,
+    }), 409
 
 
 def _bump_version(obj):
