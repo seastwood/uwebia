@@ -962,10 +962,17 @@ class User(UserMixin, db.Model):
     totp_recovery_codes = db.Column(db.JSON, nullable=True)
     # ── Owner-provisioned enrolment ──────────────────────────────────────────
     # Setting up an authenticator *mid-login* only proves the password, so on
-    # its own it let anyone holding that password satisfy a 2FA requirement by
-    # enrolling their own device. An owner issues a single-use ticket out of
-    # band instead; without one, mid-login enrolment is refused. Hashed, never
+    # its own it lets anyone holding that password satisfy a 2FA requirement by
+    # enrolling their own device. An owner can issue a single-use ticket out of
+    # band as the second thing an attacker would also need. Hashed, never
     # stored in the clear, and shown to the issuing owner exactly once.
+    #
+    # A ticket is NOT required by default: a newly promoted admin enrolling
+    # their own authenticator on first sign-in is the normal case, and demanding
+    # a code nobody has issued strands them at the login screen. It is required
+    # when the org turns on org_require_enroll_ticket, or when someone has
+    # actually issued this admin a ticket (see
+    # mid_login_enrollment_needs_ticket).
     totp_enroll_ticket_hash = db.Column(db.String(255), nullable=True)
     totp_enroll_ticket_expires_at = db.Column(db.DateTime, nullable=True)
     totp_enroll_ticket_issued_by_id = db.Column(db.Integer, nullable=True)
@@ -1003,6 +1010,14 @@ class User(UserMixin, db.Model):
     # team" cascade with an explicit, transfer-proof setting.
     org_require_2fa = db.Column(db.Boolean, nullable=False, default=False,
                                 server_default=_sa_false())
+    # Org-wide policy (anchor only): when on, an admin may not set up their own
+    # authenticator during login without a ticket an owner issued them out of
+    # band. Off by default — see the note on totp_enroll_ticket_hash. Turning it
+    # on is the stricter posture: it stops a stolen password from satisfying the
+    # 2FA requirement by enrolling the thief's own device, at the cost of an
+    # owner having to hand every new admin a code.
+    org_require_enroll_ticket = db.Column(db.Boolean, nullable=False, default=False,
+                                          server_default=_sa_false())
     # Email-settings fingerprint captured when the org policy was verified; if it
     # no longer matches, the policy auto-disables (mirrors per-user 2FA). The
     # needs-attention flag lets the UI explain why it switched off.
@@ -10688,17 +10703,32 @@ def totp_enrollment_ticket_valid(user, submitted):
 def mid_login_enrollment_needs_ticket(user):
     """Whether this admin must present an owner-issued ticket to enrol mid-login.
 
-    The primary owner is exempt: they are the root of trust and, on a fresh
-    install, the only person who could issue a ticket — requiring one would
-    deadlock the org. Everyone else needs one, which is what stops a stolen
-    password alone from satisfying the 2FA requirement.
+    A ticket used to be required of everyone but the anchor, which meant a
+    freshly created admin could not complete their very first sign-in: the org
+    requires 2FA, they have no authenticator yet, and enrolling one demanded a
+    code nobody had thought to issue. Setting up your own authenticator on
+    first login is the ordinary case, so it is allowed by default.
+
+    A ticket is required when:
+
+      • the org has turned on org_require_enroll_ticket — the stricter posture,
+        where a stolen password must not be able to satisfy the 2FA requirement
+        by enrolling the thief's own device; or
+      • somebody has actually issued this admin one. Issuing a ticket is a
+        deliberate act, so honour it: while it is live, it is the way in.
+
+    The primary owner is exempt either way. They are the root of trust and, on a
+    fresh install, the only person who could issue a ticket, so requiring one
+    would deadlock the org.
     """
     if user is None:
         return True
     anchor = get_main_admin()
     if anchor is not None and user.id == anchor.id:
         return False
-    return True
+    if totp_enrollment_ticket_pending(user):
+        return True
+    return bool(anchor is not None and getattr(anchor, 'org_require_enroll_ticket', False))
 
 
 def totp_enrollment_ticket_pending(user):
@@ -11155,6 +11185,36 @@ def org_2fa_policy_disable():
     anchor.org_2fa_needs_attention = False
     db.session.commit()
     return _utf8_json({'success': True, 'org_require_2fa': False})
+
+
+@app.route('/admin/dashboard/settings/2fa/enroll-ticket-policy', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def org_enroll_ticket_policy():
+    """Turn the owner-issued-ticket requirement for mid-login enrolment on/off.
+
+    Off (the default) lets an admin set up their own authenticator the first
+    time they sign in. On means an owner must issue them a ticket first — no
+    code, no enrolment.
+    """
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+    want = bool((request.get_json(silent=True) or {}).get('enabled'))
+
+    # Turning it on while admins are mid-enrolment would lock them out with no
+    # warning, so say who is affected rather than just flipping the switch.
+    stranded = []
+    if want:
+        stranded = [u.username for u in admins_without_second_factor(anchor.id)
+                    if not totp_enrollment_ticket_pending(u)]
+
+    anchor.org_require_enroll_ticket = want
+    db.session.commit()
+    app.logger.info('org enrolment-ticket policy set to %s by admin id=%s',
+                    want, current_user.id)
+    return _utf8_json({'success': True, 'org_require_enroll_ticket': want,
+                       'stranded': stranded})
 
 
 @app.route('/admin/dashboard/settings/github', methods=['POST'])
@@ -17067,6 +17127,7 @@ def settings_page():
         active_tab=('site' if request.args.get('tab') == 'site' else 'user'),
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
+        org_require_enroll_ticket=bool(getattr(_anchor, 'org_require_enroll_ticket', False)),
         # Only the client id is echoed back — the secret is never rendered into
         # a page, which is why a blank secret field means "keep the stored one".
         github_client_id=(get_github_login_settings().client_id
@@ -17458,6 +17519,7 @@ def _serialize_backup(uid):
             'admin_url_key': _owner.admin_url_key,
             'admin_url_key_enabled': bool(_owner.admin_url_key_enabled),
             'org_require_2fa': bool(_owner.org_require_2fa),
+            'org_require_enroll_ticket': bool(_owner.org_require_enroll_ticket),
             'org_2fa_email_settings_version': _owner.org_2fa_email_settings_version,
             'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
             'admin_brand_name': _owner.admin_brand_name,
@@ -19351,6 +19413,8 @@ def import_backup():
                     _owner.admin_url_key = _owner_settings.get('admin_url_key')
                     _owner.admin_url_key_enabled = bool(_owner_settings.get('admin_url_key_enabled'))
                     _owner.org_require_2fa = bool(_owner_settings.get('org_require_2fa'))
+                    _owner.org_require_enroll_ticket = bool(
+                        _owner_settings.get('org_require_enroll_ticket'))
                     _owner.org_2fa_email_settings_version = _owner_settings.get('org_2fa_email_settings_version')
                     _owner.org_2fa_needs_attention = bool(_owner_settings.get('org_2fa_needs_attention'))
                     _owner.admin_brand_name = _owner_settings.get('admin_brand_name')

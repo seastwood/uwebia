@@ -606,6 +606,38 @@
 
                 <div class="settings-message" id="org2faMessage"></div>
             </div>
+
+            {# Requiring an owner-issued code before an admin may set up their own
+               authenticator is the stricter posture, not the default one: on its
+               own it stops a new admin completing their first sign-in. #}
+            <div class="settings-card" data-settings-tab="site" style="margin-top: 20px;">
+                <h2 class="settings-section-title">Authenticator Setup Codes</h2>
+                <p class="settings-help">
+                    When an admin who has no second factor signs in and the org requires one, they set up an
+                    authenticator app there and then. By default they can do that themselves — which is what lets a
+                    newly created or newly promoted admin finish their first sign-in without anyone else present.
+                </p>
+                <p class="settings-help">
+                    Turn this on to require a <strong>setup code</strong> instead: an owner issues a single-use code
+                    from the admin's row on the Users page and passes it on in person, and without it the enrolment is
+                    refused. This is what stops a stolen password alone from satisfying the 2FA requirement — the thief
+                    could otherwise enrol their own device. The cost is that every new admin has to be handed a code
+                    before they can sign in, so leave it off unless someone is available to do that.
+                </p>
+                <p class="settings-help">
+                    Either way, issuing someone a code makes it required <em>for them</em> until it is used or expires.
+                    The primary owner is always exempt.
+                </p>
+                <div class="settings-row" style="display:flex;align-items:center;gap:12px;margin-top:6px;">
+                    <label class="settings-toggle-label" for="orgEnrollTicketTog" style="flex:1;">
+                        Require an owner-issued setup code to enrol an authenticator
+                    </label>
+                    <input type="checkbox" id="orgEnrollTicketTog"
+                           {% if org_require_enroll_ticket %}checked{% endif %}
+                           onchange="saveEnrollTicketPolicy(this)">
+                </div>
+                <div class="settings-message" id="enrollTicketMessage"></div>
+            </div>
             {% endif %}
 
             {# Your own authenticator is not a site setting: it was gated on
@@ -1515,6 +1547,40 @@
                 if (!d.success) { _org2faMsg(d.error || 'Could not disable.', true); return; }
                 window.location.reload();
             } catch (e) { _org2faMsg('Request failed.', true); }
+        }
+
+        async function saveEnrollTicketPolicy(el) {
+            const on = el.checked;
+            try {
+                const r = await fetch('/admin/dashboard/settings/2fa/enroll-ticket-policy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: on })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    el.checked = !on;
+                    _msg('enrollTicketMessage', d.error || 'Could not save.', true);
+                    return;
+                }
+                // Naming who is affected beats a bare "Saved" — turning this on
+                // means these admins cannot sign in until someone issues them a
+                // code, and that is worth knowing before they try.
+                if (on && d.stranded && d.stranded.length) {
+                    _msg('enrollTicketMessage',
+                         'Saved. ' + d.stranded.length + ' admin' +
+                         (d.stranded.length === 1 ? '' : 's') +
+                         ' (' + d.stranded.join(', ') + ') hold no second factor and will ' +
+                         'need a setup code issued before they can sign in.', true);
+                } else {
+                    _msg('enrollTicketMessage',
+                         on ? 'Saved — a setup code is now required.'
+                            : 'Saved — admins can set up their own authenticator.', false);
+                }
+            } catch (e) {
+                el.checked = !on;
+                _msg('enrollTicketMessage', 'Request failed.', true);
+            }
         }
 
         function _msg(id, text, isError) {

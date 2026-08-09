@@ -323,8 +323,14 @@ def test_backup_roundtrip():
         data = main._serialize_backup(anchor.id)
         check('retention is exported in owner_settings',
               data['owner_settings'].get('ip_retention_days') == 45)
-        check('the enrolment ticket is NOT exported',
-              not any('enroll_ticket' in k for k in data['owner_settings']))
+        # The ticket itself is a live credential and must not travel in a
+        # backup. The policy that decides whether tickets are required at all
+        # is not a secret, and has to survive a restore like the other org
+        # settings — so name the secret rather than matching on 'ticket'.
+        check('the enrolment ticket itself is NOT exported',
+              not any(k.startswith('totp_enroll_ticket') for k in data['owner_settings']))
+        check('but the policy that requires one is',
+              'org_require_enroll_ticket' in data['owner_settings'])
         check('the IP recording switch is exported',
               'store_visitor_ips' in data['owner_settings'])
 
