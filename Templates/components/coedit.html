@@ -1,0 +1,187 @@
+{# ── Live co-editing for a Quill editor ───────────────────────────────────────
+   Include once, then:
+
+       UwebiaCoedit.attach({
+           quill: quill,
+           docKey: 'guide_node:' + nodeId,
+           seed: '<p>current html</p>',   // used only if nobody has ever edited
+           name: 'Rowan',
+           onVersion: v => baseVersion = v,
+           onStatus: (state, peers) => { ... },
+       });
+       UwebiaCoedit.detach();            // when switching documents
+
+   Yjs is a CRDT: each edit is a small binary patch that merges in any order,
+   applied more than once with the same result. So two people typing in one
+   lesson no longer race — their edits combine, and the version check that
+   guards ordinary saves never fires between them.
+
+   The transport is a ~1s poll of /admin/collab/sync rather than a websocket,
+   because this app runs on sync gunicorn workers with no Redis. Yjs keeps the
+   document independent of the transport, so this file is the only thing that
+   changes if that is ever swapped. #}
+<script type="module">
+import * as Y from "{{ url_for('static', filename='js/vendor/yjs.mjs') }}";
+import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate }
+    from "{{ url_for('static', filename='js/vendor/y-awareness.mjs') }}";
+import { QuillBinding } from "{{ url_for('static', filename='js/vendor/y-quill.mjs') }}";
+import QuillCursors from "{{ url_for('static', filename='js/vendor/quill-cursors.mjs') }}";
+
+// Vendored, not loaded from a CDN: an editor that silently stops merging
+// because a third party is unreachable would be worse than one that never
+// offered to.
+if (window.Quill && !Quill.imports['modules/cursors']) {
+    Quill.register('modules/cursors', QuillCursors);
+}
+
+const POLL_MS = 1000;
+const b64 = {
+    enc: (u8) => btoa(String.fromCharCode.apply(null, u8)),
+    dec: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
+};
+
+let session = null;
+
+function teardown() {
+    if (!session) return;
+    clearInterval(session.timer);
+    try { session.binding.destroy(); } catch (e) { /* already gone */ }
+    // Awareness runs its own interval to expire quiet peers. Without this,
+    // clicking through ten lessons leaves ten of them running.
+    try { session.awareness.destroy(); } catch (e) { /* already gone */ }
+    try { session.doc.destroy(); } catch (e) { /* already gone */ }
+    session = null;
+}
+
+async function sync(body) {
+    const r = await fetch('/admin/collab/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    return r.json();
+}
+
+function attach(opts) {
+    teardown();
+    if (!opts.quill || !opts.docKey) return null;
+
+    const doc = new Y.Doc();
+    const text = doc.getText('body');
+    const awareness = new Awareness(doc);
+    awareness.setLocalStateField('user', {
+        name: opts.name || 'Someone',
+        color: opts.color || '#5eeef8',
+    });
+
+    const s = {
+        doc, text, awareness, docKey: opts.docKey,
+        since: 0, seeded: false, pending: [], sending: false,
+        timer: null, binding: null, opts,
+    };
+    session = s;
+
+    // Queue local changes; the poll ships them. Batching a second of typing
+    // into one request is the whole reason this is affordable over HTTP.
+    doc.on('update', (update, origin) => {
+        if (origin === 'remote') return;
+        s.pending.push(update);
+    });
+
+    s.binding = new QuillBinding(text, opts.quill, awareness);
+
+    awareness.on('update', ({ added, updated, removed }) => {
+        s.awarenessDirty = true;
+    });
+
+    async function beat() {
+        if (s !== session || s.sending) return;
+        s.sending = true;
+        try {
+            const merged = s.pending.length
+                ? Y.mergeUpdates(s.pending) : null;
+            s.pending = [];
+
+            const body = { doc_key: s.docKey, since: s.since };
+            if (merged) body.update = b64.enc(merged);
+            if (s.awarenessDirty) {
+                s.awarenessDirty = false;
+                body.awareness = b64.enc(
+                    encodeAwarenessUpdate(awareness, [doc.clientID]));
+            }
+
+            const d = await sync(body);
+            if (!d || s !== session) return;
+
+            if (d.updates && d.updates.length) {
+                // 'remote' origin keeps these out of the outbound queue.
+                Y.transact(doc, () => {
+                    d.updates.forEach((u) => Y.applyUpdate(doc, b64.dec(u), 'remote'));
+                }, 'remote');
+            }
+            s.since = d.since || s.since;
+
+            (d.awareness || []).forEach((a) => {
+                try { applyAwarenessUpdate(awareness, b64.dec(a), 'remote'); }
+                catch (e) { /* a peer sent something we can't read; ignore it */ }
+            });
+
+            // First contact: if the shared document is empty, nobody has ever
+            // co-edited this record, so seed it from what is stored. Guarded so
+            // two people opening at once can't seed it twice.
+            if (!s.seeded) {
+                s.seeded = true;
+                if (text.length === 0 && opts.seed) {
+                    opts.quill.clipboard.dangerouslyPasteHTML(opts.seed, 'api');
+                }
+            }
+
+            if (typeof opts.onVersion === 'function' && d.record_version) {
+                opts.onVersion(d.record_version);
+            }
+
+            // Fold the log down to one snapshot when it gets long.
+            if (d.compact) {
+                sync({
+                    doc_key: s.docKey,
+                    since: s.since,
+                    snapshot: b64.enc(Y.encodeStateAsUpdate(doc)),
+                    upto: s.since,
+                });
+            }
+
+            if (typeof opts.onStatus === 'function') {
+                opts.onStatus('live', awareness.getStates().size - 1);
+            }
+        } catch (e) {
+            if (typeof opts.onStatus === 'function') opts.onStatus('offline', 0);
+        } finally {
+            s.sending = false;
+        }
+    }
+
+    beat();
+    s.timer = setInterval(beat, POLL_MS);
+
+    window.addEventListener('pagehide', () => {
+        try {
+            awareness.setLocalState(null);
+            fetch('/admin/collab/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    doc_key: s.docKey, since: s.since,
+                    awareness: b64.enc(encodeAwarenessUpdate(awareness, [doc.clientID])),
+                }),
+                keepalive: true,
+            });
+        } catch (e) { /* the row ages out on its own */ }
+    });
+
+    return s;
+}
+
+window.UwebiaCoedit = { attach, detach: teardown };
+window.dispatchEvent(new Event('uwebia-coedit-ready'));
+</script>

@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/presence.html' %}
+{% include 'components/coedit.html' %}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
@@ -188,7 +189,9 @@
                 </label>
             </div>
             <div class="ge-field" id="geContentField">
-                <label class="ge-label">Lesson content</label>
+                <label class="ge-label">Lesson content
+                    <span id="geCoeditStatus" style="float:right;font-weight:600;text-transform:none;letter-spacing:0;font-size:0.72rem;color:rgba(255,255,255,0.35);"></span>
+                </label>
                 <div id="quill-editor"></div>
             </div>
             <div class="ge-chapter-note" id="geChapterNote" style="display:none;">
@@ -400,7 +403,10 @@ function initQuill() {
             toolbar: {
                 container: toolbarOptions,
                 handlers: { image: quillImageHandler, video: quillVideoHandler },
-            }
+            },
+            // Remote carets. Registered by components/coedit.html; harmless
+            // when co-editing never starts.
+            cursors: { transformOnTextChange: true },
         }
     });
 
@@ -925,6 +931,41 @@ async function selectNode(id) {
     // someone has since replaced.
     baseVersion = node.version || null;
     if (_presence) _presence.beat();
+    startCoediting(node);
+}
+
+// Live co-editing for the open lesson. Chapters have no body, so there is
+// nothing to share. Everything degrades to the old behaviour if the module
+// did not load: the version check still guards the save.
+function startCoediting(node) {
+    if (!window.UwebiaCoedit) return;
+    UwebiaCoedit.detach();
+    if (node.node_type !== 'lesson') return;
+    UwebiaCoedit.attach({
+        quill: quill,
+        docKey: 'guide_node:' + node.id,
+        seed: node.content || '',
+        name: {{ (current_user.username or 'Someone') | tojson }},
+        color: UwebiaPresence.colorFor({{ current_user.id }}),
+        // Everyone in the session tracks the saved version, so whoever presses
+        // Save is never working from a stale number and the conflict dialog
+        // stops firing between people who are already merged.
+        onVersion: function (v) { baseVersion = v; },
+        onStatus: function (state, peers) {
+            const el = document.getElementById('geCoeditStatus');
+            if (!el) return;
+            if (state === 'offline') {
+                el.textContent = 'Reconnecting…';
+                el.style.color = '#ffc454';
+            } else if (peers > 0) {
+                el.textContent = `Live — editing together with ${peers} other${peers > 1 ? 's' : ''}`;
+                el.style.color = '#5eeec8';
+            } else {
+                el.textContent = 'Live';
+                el.style.color = 'rgba(255,255,255,0.35)';
+            }
+        },
+    });
 }
 async function saveNode(btn) {
     const id = document.getElementById('geNodeId').value;

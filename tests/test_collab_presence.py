@@ -342,7 +342,71 @@ def main_test():
     check('an omitted version still saves (older clients, other callers)',
           save_text(a, 'no version supplied', None).status_code == 200)
 
-    print('\n[13] older editors keep working')
+    print('\n[13] live co-editing relay')
+    import base64 as _b64
+    dk = f'guide_node:{node_id}'
+
+    r = a.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0})
+    d = r.get_json() or {}
+    check(f'the relay accepts a known document — got {r.status_code}',
+          r.status_code == 200 and d.get('success') is True)
+    check('and reports the saved version so everyone stays in step',
+          isinstance(d.get('record_version'), int))
+
+    bad = a.post('/admin/collab/sync', json={'doc_key': 'guide_node:999999', 'since': 0})
+    check('an unknown document is refused', bad.status_code == 403)
+    junk = a.post('/admin/collab/sync', json={'doc_key': 'not-a-key', 'since': 0})
+    check('a malformed key is refused, not crashed on', junk.status_code == 403)
+    other = a.post('/admin/collab/sync', json={'doc_key': 'secret:1', 'since': 0})
+    check('an unmapped type cannot be used as a channel', other.status_code == 403)
+
+    # Opaque bytes: the server never interprets them, which is the point.
+    up1 = _b64.b64encode(b'\x01update-from-rowan').decode()
+    p1 = b.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0, 'update': up1})
+    check(f'a peer can push an update — got {p1.status_code}', p1.status_code == 200)
+
+    pulled = a.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0}).get_json() or {}
+    check('the other side receives it', up1 in (pulled.get('updates') or []))
+    cursor = pulled.get('since')
+    again = a.post('/admin/collab/sync', json={'doc_key': dk, 'since': cursor}).get_json() or {}
+    check('and is not handed the same update twice', (again.get('updates') or []) == [])
+
+    print('\n[14] cursors are exchanged but never pile up')
+    aw = _b64.b64encode(b'cursor-of-rowan').decode()
+    b.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0, 'awareness': aw})
+    seen = a.post('/admin/collab/sync', json={'doc_key': dk, 'since': cursor}).get_json() or {}
+    check("a peer's cursor comes back", aw in (seen.get('awareness') or []))
+    mine = b.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0}).get_json() or {}
+    check('but never your own', aw not in (mine.get('awareness') or []))
+    with app.app_context():
+        b.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0, 'awareness': aw})
+        check('one row per person per document, however many beats',
+              main.CollabAwareness.query.filter_by(doc_key=dk).count() == 1)
+
+    print('\n[15] the log is compacted, not grown forever')
+    # Push a few more so the count before compaction is actually meaningful.
+    for n in range(4):
+        b.post('/admin/collab/sync', json={
+            'doc_key': dk, 'since': 0,
+            'update': _b64.b64encode(f'edit-{n}'.encode()).decode()})
+    with app.app_context():
+        before = main.CollabUpdate.query.filter_by(doc_key=dk).count()
+    check(f'the log really did grow first ({before} rows)', before >= 5)
+    snap = _b64.b64encode(b'\x02whole-document-state').decode()
+    with app.app_context():
+        upto = db.session.query(db.func.max(main.CollabUpdate.id)).filter_by(
+            doc_key=dk).scalar()
+    a.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0,
+                                       'snapshot': snap, 'upto': upto})
+    with app.app_context():
+        rows = main.CollabUpdate.query.filter_by(doc_key=dk).all()
+        check(f'a snapshot replaces what it subsumes ({before} rows -> {len(rows)})',
+              len(rows) == 1 and rows[0].is_snapshot is True)
+    fresh = a.post('/admin/collab/sync', json={'doc_key': dk, 'since': 0}).get_json() or {}
+    check('a newcomer gets the whole state in one go',
+          (fresh.get('updates') or []) == [snap])
+
+    print('\n[16] older editors keep working')
     # A page loaded before this shipped sends no base_version and must not be
     # locked out of saving.
     r_old = a.post(f'/admin/guides/{guide_id}/nodes/save', json={

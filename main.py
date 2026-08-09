@@ -11495,6 +11495,55 @@ class EditingPresence(db.Model):
     )
 
 
+class CollabUpdate(db.Model):
+    """An append-only log of Yjs updates for one document.
+
+    Yjs is a CRDT: every update is a small binary patch that can be applied in
+    any order, more than once, with the same result. That is what makes a plain
+    table enough — the server never merges, interprets or orders anything. It
+    stores opaque bytes and hands back whatever a client hasn't seen yet, and
+    the browsers converge on their own.
+
+    `id` doubles as the cursor: a client remembers the highest id it has
+    applied and asks for anything above it.
+
+    The log is compacted by a client posting a snapshot (the whole document
+    state as one update), after which every row it subsumes is deleted. Safe
+    precisely because updates are idempotent — a snapshot already contains them.
+    """
+    __tablename__ = 'collab_update'
+    id           = db.Column(db.Integer, primary_key=True)
+    doc_key      = db.Column(db.String(120), nullable=False, index=True)
+    root_user_id = db.Column(db.Integer, nullable=False, index=True)
+    payload      = db.Column(db.LargeBinary, nullable=False)
+    is_snapshot  = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    created_at   = db.Column(db.DateTime, nullable=False,
+                             default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                             index=True)
+
+
+class CollabAwareness(db.Model):
+    """Where each person's cursor is. Ephemeral by nature — one row per person
+    per document, overwritten on every beat and pruned once it goes quiet.
+
+    Kept apart from CollabUpdate because it must NOT accumulate: a cursor
+    position is only interesting while its owner is still holding it.
+    """
+    __tablename__ = 'collab_awareness'
+    id           = db.Column(db.Integer, primary_key=True)
+    doc_key      = db.Column(db.String(120), nullable=False, index=True)
+    user_id      = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    root_user_id = db.Column(db.Integer, nullable=False, index=True)
+    payload      = db.Column(db.LargeBinary, nullable=False)
+    updated_at   = db.Column(db.DateTime, nullable=False,
+                             default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                             index=True)
+    __table_args__ = (
+        db.UniqueConstraint('doc_key', 'user_id', name='uq_collab_awareness_doc_user'),
+    )
+
+
 class LoginRateLimit(db.Model):
     """Tracks failed login attempts per IP and per IP+identifier combination."""
     __tablename__ = 'login_rate_limit'
@@ -38752,6 +38801,157 @@ def admin_presence_ping():
         'success': True,
         'peers': _presence_peers(root_id, rtype, rid, current_user.id),
         'stale_after': PRESENCE_STALE_SECONDS,
+    })
+
+
+# ── Live co-editing (Yjs relay) ──────────────────────────────────────────────
+# Transport is a poll against Postgres rather than a websocket, because that is
+# what this deployment supports: 3 sync gunicorn workers, no Redis. Yjs keeps
+# the document and the transport separate, so swapping this for a websocket
+# later changes nothing in the editor.
+COLLAB_AWARENESS_STALE_SECONDS = 20
+COLLAB_COMPACT_THRESHOLD = 150      # rows before a client is asked to snapshot
+
+
+def _collab_resolve(doc_key):
+    """(record, version) for a doc_key the current admin may edit, else None.
+
+    The key arrives from the browser, so it is never trusted: each type is
+    resolved to a real row and put through the same ownership and permission
+    checks its own editor uses. Without this, "guide_node:<any id>" would be a
+    read/write channel into another organisation's content.
+    """
+    try:
+        kind, raw_id = str(doc_key).split(':', 1)
+        rid = int(raw_id)
+    except (ValueError, AttributeError):
+        return None
+
+    if kind == 'guide_node':
+        node = db.session.get(GuideNode, rid)
+        if node is None:
+            return None
+        guide = db.session.get(Guide, node.guide_id)
+        website = get_admin_website()
+        if not guide or not website or not is_owner(website):
+            return None
+        if guide.website_id != website.id or not can_access_guide(guide):
+            return None
+        if current_user.is_sub_admin and not current_user.has_permission('guides.edit'):
+            return None
+        return node, (node.version or 1)
+
+    return None
+
+
+@app.route('/admin/collab/sync', methods=['POST'])
+@login_required
+def admin_collab_sync():
+    """One round trip: hand up what I changed, take back what I haven't seen.
+
+    Push and pull are the same request because at a ~1s cadence two would
+    double the traffic for no benefit.
+    """
+    data = request.get_json(silent=True) or {}
+    doc_key = (data.get('doc_key') or '')[:120]
+    resolved = _collab_resolve(doc_key)
+    if resolved is None:
+        return _utf8_json({'success': False, 'error': 'Unknown or forbidden document'}, 403)
+    record, record_version = resolved
+    root_id = current_user.root_user_id
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    try:
+        since = int(data.get('since') or 0)
+    except (TypeError, ValueError):
+        since = 0
+
+    # ── push ──
+    update_b64 = data.get('update')
+    if update_b64:
+        try:
+            blob = base64.b64decode(update_b64)
+        except Exception:
+            return _utf8_json({'success': False, 'error': 'Malformed update'}, 400)
+        if len(blob) > 2 * 1024 * 1024:
+            return _utf8_json({'success': False, 'error': 'Update too large'}, 413)
+        db.session.add(CollabUpdate(doc_key=doc_key, root_user_id=root_id,
+                                    payload=blob))
+
+    # A snapshot subsumes everything up to the point it was taken, so those
+    # rows can go. This is what stops the log growing without bound.
+    snap_b64 = data.get('snapshot')
+    if snap_b64:
+        try:
+            snap = base64.b64decode(snap_b64)
+        except Exception:
+            snap = None
+        if snap:
+            db.session.add(CollabUpdate(doc_key=doc_key, root_user_id=root_id,
+                                        payload=snap, is_snapshot=True))
+            db.session.flush()
+            upto = data.get('upto')
+            try:
+                upto = int(upto)
+            except (TypeError, ValueError):
+                upto = 0
+            if upto:
+                CollabUpdate.query.filter(
+                    CollabUpdate.doc_key == doc_key,
+                    CollabUpdate.id <= upto).delete(synchronize_session=False)
+
+    # ── awareness (cursors) ──
+    aw_b64 = data.get('awareness')
+    if aw_b64:
+        try:
+            aw = base64.b64decode(aw_b64)
+        except Exception:
+            aw = None
+        if aw and len(aw) <= 64 * 1024:
+            row = CollabAwareness.query.filter_by(doc_key=doc_key,
+                                                  user_id=current_user.id).first()
+            if row is None:
+                row = CollabAwareness(doc_key=doc_key, user_id=current_user.id,
+                                      root_user_id=root_id, payload=aw)
+                db.session.add(row)
+            row.payload = aw
+            row.root_user_id = root_id
+            row.updated_at = now
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()      # two beats raced; the other one won
+
+    # ── pull ──
+    rows = (CollabUpdate.query
+            .filter(CollabUpdate.doc_key == doc_key,
+                    CollabUpdate.root_user_id == root_id,
+                    CollabUpdate.id > since)
+            .order_by(CollabUpdate.id).limit(500).all())
+    total = db.session.query(db.func.count()).select_from(CollabUpdate.__table__).filter(
+        CollabUpdate.doc_key == doc_key).scalar() or 0
+
+    fresh = now - timedelta(seconds=COLLAB_AWARENESS_STALE_SECONDS)
+    aw_rows = (CollabAwareness.query
+               .filter(CollabAwareness.doc_key == doc_key,
+                       CollabAwareness.root_user_id == root_id,
+                       CollabAwareness.user_id != current_user.id,
+                       CollabAwareness.updated_at >= fresh).all())
+    CollabAwareness.query.filter(
+        CollabAwareness.updated_at < now - timedelta(
+            seconds=COLLAB_AWARENESS_STALE_SECONDS * 6)).delete(synchronize_session=False)
+    db.session.commit()
+
+    return _utf8_json({
+        'success': True,
+        'since': (rows[-1].id if rows else since),
+        'updates': [base64.b64encode(r.payload).decode('ascii') for r in rows],
+        'awareness': [base64.b64encode(r.payload).decode('ascii') for r in aw_rows],
+        # Everyone in the session tracks the saved version from here, so the
+        # one who saves next is never working from a stale number.
+        'record_version': record_version,
+        'compact': total > COLLAB_COMPACT_THRESHOLD,
     })
 
 
