@@ -816,6 +816,86 @@ def sanitize_email(value):
     return v
 
 
+# ── Username & display-name rules ────────────────────────────────────────────
+# A username had no constraints at all: an entire URL fitted, so did markup, an
+# email address, or 150 characters of anything. These names are printed beside
+# forum posts and comments, used in @-style references and stored in a shared
+# namespace with admin accounts, so they need to be plain and short.
+#
+# Letters and digits only. Deliberately no dots, dashes or underscores: those
+# are what make one name mistakable for another (rn/m, l/1, seth.eastwood vs
+# seth-eastwood), which is the whole point of restricting them.
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 30
+DISPLAY_NAME_MAX_LENGTH = 40
+_USERNAME_RE = re.compile(r'^[A-Za-z0-9]+$')
+# A display name is a person's name, so single spaces BETWEEN words are allowed
+# — "Seth Eastwood" has to remain possible. No leading, trailing or doubled
+# spaces, which are the ones used to fake a different name.
+_DISPLAY_NAME_RE = re.compile(r'^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$')
+
+
+def _banned_words_for(website=None):
+    """The site's profanity list, or [] when the filter is off."""
+    site = website
+    if site is None:
+        try:
+            site = get_live_website()
+        except Exception:
+            site = None
+    if not site or not getattr(site, 'profanity_filter_enabled', False):
+        return []
+    raw = getattr(site, 'post_profanity_words', None) or ''
+    return [w.strip().lower() for w in raw.replace(',', '\n').split('\n') if w.strip()]
+
+
+def _name_profanity_error(name, website=None):
+    """A name containing a banned word is refused outright.
+
+    The post filter can mask a word mid-sentence; a username cannot be
+    half-masked and still be a name, so this only ever blocks — regardless of
+    whether the site's action is set to block or replace.
+    """
+    lowered = (name or '').lower()
+    for w in _banned_words_for(website):
+        if w and w in lowered:
+            return 'That name contains language this site does not allow.'
+    return None
+
+
+def validate_username(raw, website=None, label='Username'):
+    """(cleaned, error). `cleaned` is lower-cased, as usernames are stored."""
+    name = (raw or '').strip()
+    if not name:
+        return '', f'{label} is required.'
+    if len(name) < USERNAME_MIN_LENGTH:
+        return name, f'{label} must be at least {USERNAME_MIN_LENGTH} characters.'
+    if len(name) > USERNAME_MAX_LENGTH:
+        return name, f'{label} must be {USERNAME_MAX_LENGTH} characters or fewer.'
+    if not _USERNAME_RE.match(name):
+        return name, f'{label} may only contain letters and numbers — no spaces, punctuation or symbols.'
+    err = _name_profanity_error(name, website)
+    if err:
+        return name, err
+    return name.lower(), None
+
+
+def validate_display_name(raw, website=None):
+    """(cleaned, error). Blank is allowed — it falls back to the username."""
+    name = ' '.join((raw or '').split())
+    if not name:
+        return '', None
+    if len(name) > DISPLAY_NAME_MAX_LENGTH:
+        return name, f'Display name must be {DISPLAY_NAME_MAX_LENGTH} characters or fewer.'
+    if not _DISPLAY_NAME_RE.match(name):
+        return name, ('Display name may only contain letters, numbers and single '
+                      'spaces between words.')
+    err = _name_profanity_error(name, website)
+    if err:
+        return name, err
+    return name, None
+
+
 def valid_email(value):
     """Route-level counterpart to sanitize_email that never raises: returns the
     normalized address, or None if it's blank/malformed/injection-bearing. Use at
@@ -16837,7 +16917,8 @@ def settings_page():
         current_user.timezone = timezone_name
         current_user.date_format = date_format
 
-        account_username = request.form.get('account_username', '').strip().lower()
+        account_username, _uname_err = validate_username(
+            request.form.get('account_username'))
         account_email = request.form.get('account_email', '').strip().lower()
         account_first_name = request.form.get('account_first_name', '')
         account_last_name = request.form.get('account_last_name', '')
@@ -16845,8 +16926,8 @@ def settings_page():
         new_password = request.form.get('new_password', '')
         confirm_new_password = request.form.get('confirm_new_password', '')
 
-        if not account_username:
-            flash('Username cannot be blank.', 'error')
+        if _uname_err:
+            flash(_uname_err, 'error')
             return redirect(url_for('settings_page', tab=_tab))
 
         # In GitHub-only mode admins are expected to have no mailbox at all —
@@ -17011,14 +17092,17 @@ def admin_set_mirror_display_name():
     """Save the display_username for one of the current admin's mirrors."""
     data = request.get_json(silent=True) or {}
     pu_id = data.get('mirror_id')
-    raw = (data.get('display_username') or '').strip()
-    new_name = raw or None
-    if new_name and len(new_name) > 80:
-        return _utf8_json({'error': 'Display name is too long (max 80 chars).'}, 400)
-
     pu = db.session.get(PublicUser, int(pu_id)) if pu_id else None
     if not pu or pu.mirrored_admin_user_id != current_user.id:
         return _utf8_json({'error': 'Mirror not found.'}, 404)
+
+    # Validated against the site the mirror lives on, so its banned-word list
+    # is the one that applies.
+    cleaned, err = validate_display_name(
+        data.get('display_username'), website=db.session.get(Website, pu.website_id))
+    if err:
+        return _utf8_json({'error': err}, 400)
+    new_name = cleaned or None
 
     conflict = display_username_collision(new_name, pu.website_id, exclude_public_user_id=pu.id)
     if conflict:
@@ -25747,7 +25831,9 @@ def admin_public_user_create():
     if not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Public accounts are not enabled for this site.'}, 400)
 
-    username = (data.get('username') or '').strip().lower()
+    username, _uname_err = validate_username(data.get('username'), website=website)
+    if _uname_err:
+        return _utf8_json({'error': _uname_err}, 400)
     password = (data.get('password') or '').strip()
     email_raw = (data.get('email') or '').strip()
     email = valid_email(email_raw)
@@ -25840,7 +25926,10 @@ def admin_public_user_update(user_id):
     if blocked:
         return blocked
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip().lower()
+    username, _uname_err = validate_username(
+        data.get('username'), website=db.session.get(Website, u.website_id))
+    if _uname_err:
+        return _utf8_json({'error': _uname_err}, 400)
     email_raw = (data.get('email') or '').strip()
     email = valid_email(email_raw)
     if email_raw and not email:
@@ -26591,7 +26680,9 @@ def create_admin_user():
     if current_user.is_sub_admin and not current_user.has_permission('admin_users.create'):
         return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip().lower()
+    username, _uname_err = validate_username(data.get('username'))
+    if _uname_err:
+        return _utf8_json({'success': False, 'error': _uname_err}, 400)
     email = (data.get('email') or '').strip().lower()
     password = (data.get('password') or '').strip()
     perms = data.get('permissions') or {}
@@ -29036,7 +29127,8 @@ def public_register():
         # or username turned out to exist.
         _reg_probe_record(ip)
 
-        username = (request.form.get('username') or '').strip().lower()
+        username, _uname_err = validate_username(
+            request.form.get('username'), website=website)
         email_raw = (request.form.get('email') or '').strip()
         email = valid_email(email_raw)
         password = request.form.get('password') or ''
@@ -29053,6 +29145,13 @@ def public_register():
         if not username or not password or (require_email and not email):
             flash('Please fill out all fields.' if require_email
                   else 'Please enter a username and password.', 'error')
+            return _register_redirect()
+
+        # Letters and digits, a sane length, and nothing on the site's banned
+        # word list. Checked before the uniqueness probe below so a rejected
+        # name never counts towards the probing throttle.
+        if _uname_err:
+            flash(_uname_err, 'error')
             return _register_redirect()
 
         # A supplied-but-malformed email is rejected up front so it never reaches
@@ -29380,9 +29479,10 @@ def github_choose_username():
         return redirect(url_for('public_login'))
 
     if request.method == 'POST':
-        username = (request.form.get('username') or '').strip().lower()
-        if not username or len(username) < 3:
-            flash('Please choose a username of at least 3 characters.', 'error')
+        username, _uname_err = validate_username(
+            request.form.get('username'), website=website)
+        if _uname_err:
+            flash(_uname_err, 'error')
             return redirect(request.path)
         conflict = public_username_taken_anywhere(username)
         if conflict:
@@ -31231,10 +31331,12 @@ def public_account_set_display_name(prefix=None):
         return _utf8_json({'error': 'Not found'}, 404)
 
     body = request.get_json(silent=True) or {}
-    raw = (request.form.get('display_username') or body.get('display_username') or '').strip()
-    new_name = raw or None
-    if new_name and len(new_name) > 80:
-        return _utf8_json({'error': 'Display name is too long (max 80 chars).'}, 400)
+    cleaned, err = validate_display_name(
+        request.form.get('display_username') or body.get('display_username'),
+        website=website)
+    if err:
+        return _utf8_json({'error': err}, 400)
+    new_name = cleaned or None
 
     conflict = display_username_collision(new_name, website.id, exclude_public_user_id=public_user.id)
     if conflict:

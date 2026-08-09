@@ -259,7 +259,8 @@
             <input type="text" name="display_username" id="displayNameInput"
                    value="{{ public_user.display_username or '' }}"
                    placeholder="{{ public_user.username }}"
-                   maxlength="80"
+                   maxlength="40" pattern="[A-Za-z0-9]+( [A-Za-z0-9]+)*"
+                   title="Letters, numbers and single spaces between words"
                    style="width:100%;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);color:#fff;box-sizing:border-box;">
             <div style="display:flex;align-items:center;gap:12px;">
                 <button type="submit" class="btn btn-primary">Save Display Name</button>
