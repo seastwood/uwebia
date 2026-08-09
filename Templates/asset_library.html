@@ -108,6 +108,42 @@
         cursor: grab;
     }
 
+    /* Usage count on the tile itself. The descriptive line lower down says
+       the same thing in words; this is the version you can scan a wall of
+       thumbnails with. */
+    .asset-use-badge {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 2;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        font-size: 0.68rem;
+        font-weight: 850;
+        line-height: 1;
+        background: rgba(10, 10, 16, 0.72);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        color: #eaf6ff;
+        pointer-events: none;
+    }
+    /* Nothing points at this file — worth noticing before a delete, not worth
+       shouting about, so it is dimmed rather than coloured like an error. */
+    .asset-use-badge--none {
+        background: rgba(10, 10, 16, 0.55);
+        border-color: rgba(255, 255, 255, 0.14);
+        color: rgba(255, 255, 255, 0.42);
+        font-weight: 700;
+    }
+    .asset-use-badge i { font-size: 0.62rem; opacity: 0.75; }
+
     .asset-preview {
         height: 135px;
         display: flex;
@@ -1052,6 +1088,11 @@
         <div class="asset-card asset-card-{{ asset.asset_type }}" draggable="true"
             data-asset-id="{{ asset.id }}"
             ondragstart="dragStart(event, '{{ asset.id }}')">
+            {% set uses = usage_counts.get(asset.id, 0) %}
+            <span class="asset-use-badge{% if not uses %} asset-use-badge--none{% endif %}"
+                  title="{% if uses %}Used in {{ uses }} place{{ 's' if uses != 1 }} across the whole site{% else %}Nothing on the site references this file{% endif %}">
+                <i class="fas {{ 'fa-link' if uses else 'fa-unlink' }}"></i>{{ uses }}
+            </span>
             <div class="asset-preview{% if asset.asset_type == 'image' %} is-image{% endif %}"
                 {% if asset.asset_type == 'image' %}
                 onclick="event.stopPropagation(); openImagePreview('{{ asset.url }}', '{{ asset.original_filename | e }}')"
@@ -1131,7 +1172,6 @@
                 <div class="asset-sub">
                     {{ asset.asset_type|capitalize }} · {{ asset.extension }} · {{ asset.file_size|filesizeformat }}
                 </div>
-                {% set uses = usage_counts.get(asset.id, 0) %}
                 <div class="asset-uses{% if not uses %} asset-uses--none{% endif %}"
                      title="{% if uses %}Referenced in {{ uses }} place{{ 's' if uses != 1 }} across the site{% else %}Nothing on the site references this file. Check before deleting — very new uploads and links built in JavaScript may not be counted.{% endif %}">
                     <i class="fas {{ 'fa-link' if uses else 'fa-unlink' }}"></i>
