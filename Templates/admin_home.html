@@ -1,7 +1,12 @@
 {% extends 'base.html' %}
-{% include 'components/navbar.html' %}
 
 {% block content %}
+{# The navbar include belongs INSIDE the block. Outside it, Jinja still runs it
+   and emits the markup before base.html's document — so the browser received
+   the navbar with no doctype and no stylesheets, painted it white in quirks
+   mode, and only went dark when base.html's <head> finally arrived tens of
+   kilobytes later. That was the flash. #}
+{% include 'components/navbar.html' %}
 <style>
     .home-wrap {
         max-width: 1180px;

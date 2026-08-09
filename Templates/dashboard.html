@@ -1,21 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends 'base.html' %}
+{% block content %}
+{# extends MUST be the first tag. It used to sit sixteen lines down, under a
+   hand-written <!DOCTYPE>/<head> that was never closed, and Jinja then emitted
+   this whole page BEFORE base.html's document: content at byte 0, the doctype
+   at byte 48,062, the head after it. The browser therefore parsed ~48KB in
+   quirks mode against a default white background and only went dark once it
+   reached base.html's stylesheets — the flash.
 
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
-    <!-- Favicon (org-wide admin brand icon; falls back to uwebia). This page has
-         its own head rendered before the mid-file extends, so base.html's favicon
-         is ignored by the browser — it must live here in the real head. -->
-    <link rel="icon" href="{{ admin_brand_icon_url }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
-
-    {% extends 'base.html' %}
-    {% block content %}
+   Everything that head carried is already in base.html: the charset, a better
+   viewport, font-awesome, and the same admin-brand favicon. Only the two files
+   unique to this page are kept, below. #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
     {% include 'components/navbar.html' %}
     {% include 'components/photo_library_modal.html' %}
     <script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
@@ -7427,9 +7423,3 @@ function updateNavbarTitleTypographyPreview(websiteId) {
 }
         </script>
         {% endblock %}
-
-
-
-</body>
-
-</html>
