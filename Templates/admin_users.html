@@ -1026,6 +1026,7 @@ const _existingUsers = {
     },
     {% endfor %}
 };
+const CURRENT_USER_ID = {{ current_user.id | tojson }};
 const _storageConnections = {{ storage_connections | default([]) | tojson }};
 
 const _liveWebsites = {{ live_websites | map(attribute='id') | list | tojson }}.map((id, i) => ({
@@ -2032,6 +2033,21 @@ async function _adminUserRequest(url, label) {
     return d;
 }
 
+async function deleteOwnAccount(username) {
+    if (!confirm(
+        `Delete YOUR OWN admin account, "${username}"?\n\n`
+        + `You will be signed out immediately and will not be able to sign back in.\n\n`
+        + `Anything belonging to the organisation — assets, calendars, folders, `
+        + `permission groups — is handed to the owner rather than deleted.\n\n`
+        + `This cannot be undone by you. Only an owner could create you a new account.`)) return;
+    if (!confirm(`Last check: this really does close your account and sign you out. Continue?`)) return;
+
+    const d = await _adminUserRequest(`/admin/users/${CURRENT_USER_ID}/delete`, 'Delete');
+    if (!d) return;
+    alert('Your admin account has been deleted.' + _movedSummary(d));
+    window.location.href = d.redirect || '/admin/login';
+}
+
 function _movedSummary(d) {
     if (!d || !d.moved || !d.moved.length) return '';
     return '\n\nHanded over to you:\n'
@@ -2039,6 +2055,9 @@ function _movedSummary(d) {
 }
 
 async function deleteUser(userId, username) {
+    // Closing your own account is a different decision from removing somebody
+    // else's, and it ends the session — so it asks differently.
+    if (userId === CURRENT_USER_ID) return deleteOwnAccount(username);
     if (!confirm(`Delete admin user "${username}"? They will immediately lose access.\n\n`
         + `Anything of the organisation's they were attached to — assets, calendars, `
         + `folders, permission groups — moves to you rather than blocking the delete.\n\n`

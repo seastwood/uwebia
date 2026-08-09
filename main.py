@@ -2232,8 +2232,16 @@ class PublicUser(UserMixin, db.Model):
 
     @validates('display_username')
     def normalize_public_display_username(self, key, value):
+        # Stored exactly as typed, capitals and all — this is the name shown
+        # next to somebody's forum posts and comments, and it used to be
+        # lower-cased on the way in, so "Seth Eastwood" appeared as
+        # "seth eastwood" on the public site with no way to fix it.
+        #
+        # Only whitespace is trimmed. Uniqueness is still enforced without
+        # regard to case, in display_username_collision, so this does not open
+        # a door to impersonation by capitalisation.
         v = (value or '').strip()
-        return v.lower() if v else None
+        return v or None
 
     @validates('email')
     def normalize_public_email(self, key, value):
@@ -26947,7 +26955,13 @@ def _describe_delete_blockers(user_id, exc):
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @login_required
 def delete_admin_user(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.delete'):
+    # Closing your own account is not the same right as removing somebody
+    # else's, so it does not need admin_users.delete. The primary owner is
+    # still refused below — that account is the org's root of trust and the
+    # only way out of it is an ownership transfer.
+    deleting_self = (str(user_id) == str(current_user.id))
+    if (current_user.is_sub_admin and not deleting_self
+            and not current_user.has_permission('admin_users.delete')):
         return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
     sub = User.query.get_or_404(user_id)
     if sub.parent_user_id != current_user.root_user_id:
@@ -26959,9 +26973,9 @@ def delete_admin_user(user_id):
                                'Transfer ownership to another admin first (the crown '
                                'button); this account then becomes an ordinary admin.'}, 403)
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
-    if sub.id == current_user.id:
-        return _utf8_json({'success': False,
-                           'error': "You can't delete the account you're signed in with."}, 400)
+    # Deleting yourself is allowed for anyone but the owner (refused above).
+    # It used to be blocked outright, which left an admin unable to close their
+    # own account without asking somebody else to do it for them.
     # Explicitly remove public mirrors first. The FK has ondelete=CASCADE in
     # the model, but the auto-migrator that added the column doesn't always
     # carry that to the live schema, so we delete defensively — and everything
@@ -26986,6 +27000,15 @@ def delete_admin_user(user_id):
         db.session.rollback()
         app.logger.exception('delete_admin_user failed for id=%s', user_id)
         return _utf8_json({'success': False, 'error': f'Delete failed: {exc}'}, 500)
+    if deleting_self:
+        # The session now points at a row that no longer exists; every later
+        # request would fail on the user loader. End it here and send them to
+        # the login page rather than leaving a half-dead session behind.
+        logout_user()
+        session.clear()
+        return _utf8_json({'success': True, 'self_deleted': True,
+                           'redirect': url_for('login'),
+                           'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
     return _utf8_json({'success': True,
                        'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
 
@@ -32239,11 +32262,14 @@ def display_username_collision(name, website_id, exclude_public_user_id=None):
     if exclude_public_user_id:
         pu_q = pu_q.filter(PublicUser.id != exclude_public_user_id)
 
-    if pu_q.filter(PublicUser.display_username == n).first():
+    # Compared case-insensitively on both sides: display names keep the case
+    # they were typed in now, so a plain == would let "Seth" and "seth" coexist
+    # and let one person pass for another.
+    if pu_q.filter(db.func.lower(PublicUser.display_username) == n).first():
         return 'Another user on this site already uses that display name.'
-    if pu_q.filter(PublicUser.username == n).first():
+    if pu_q.filter(db.func.lower(PublicUser.username) == n).first():
         return "That name is taken by another user's login username."
-    if User.query.filter(User.username == n).first():
+    if User.query.filter(db.func.lower(User.username) == n).first():
         # Admins on this site share the namespace; allow a user to pick their
         # own admin's name only via the admin mirror path (handled elsewhere).
         if not exclude_public_user_id:
