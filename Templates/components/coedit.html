@@ -77,7 +77,7 @@ function attach(opts) {
 
     const s = {
         doc, text, awareness, docKey: opts.docKey,
-        since: 0, seeded: false, pending: [], sending: false,
+        since: 0, started: false, pending: [], sending: false,
         timer: null, binding: null, opts,
     };
     session = s;
@@ -89,11 +89,29 @@ function attach(opts) {
         s.pending.push(update);
     });
 
-    s.binding = new QuillBinding(text, opts.quill, awareness);
+    // NOTE: the QuillBinding is deliberately NOT created yet. Its constructor
+    // replaces the editor's contents with the shared document's, so binding
+    // before the first sync blanked the editor and refilled it a moment later
+    // — a visible flash, and a fight with the HTML the editor had just put in
+    // the DOM directly. It is created in `begin()` once the shared state is
+    // actually known.
 
     awareness.on('update', ({ added, updated, removed }) => {
         s.awarenessDirty = true;
     });
+
+    // Runs once, after the first response: settle what the document contains,
+    // THEN hand Quill over to it.
+    function begin(d) {
+        s.started = true;
+        if (text.length === 0 && d.may_seed && opts.seed) {
+            // Converted through Quill rather than pasted into the DOM, so the
+            // shared document and the editor's model agree from the outset.
+            const delta = opts.quill.clipboard.convert(opts.seed);
+            text.applyDelta(delta.ops);
+        }
+        s.binding = new QuillBinding(text, opts.quill, awareness);
+    }
 
     async function beat() {
         if (s !== session || s.sending) return;
@@ -127,15 +145,9 @@ function attach(opts) {
                 catch (e) { /* a peer sent something we can't read; ignore it */ }
             });
 
-            // First contact: if the shared document is empty, nobody has ever
-            // co-edited this record, so seed it from what is stored. Guarded so
-            // two people opening at once can't seed it twice.
-            if (!s.seeded) {
-                s.seeded = true;
-                if (text.length === 0 && opts.seed) {
-                    opts.quill.clipboard.dangerouslyPasteHTML(opts.seed, 'api');
-                }
-            }
+            // The shared state is now known, so it is safe to bind Quill to it
+            // — and to seed, if the server said this client is the one to do it.
+            if (!s.started) begin(d);
 
             if (typeof opts.onVersion === 'function' && d.record_version) {
                 opts.onVersion(d.record_version);

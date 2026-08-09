@@ -11523,6 +11523,27 @@ class CollabUpdate(db.Model):
                              index=True)
 
 
+class CollabDoc(db.Model):
+    """Who is allowed to put the stored content into a shared document.
+
+    Seeding cannot be a client-side decision. A client's first update only
+    ships on its NEXT beat, so anybody who attaches inside that window sees an
+    empty log, concludes nobody has seeded, and seeds again — and because Yjs
+    faithfully merges both, the lesson comes back with everything in it twice.
+    That is not a rare race: at a 1s cadence it is what normally happens when a
+    second admin opens the lesson.
+
+    So the right to seed is granted by the server, to one client, once. The
+    grant expires so a browser that dies mid-seed doesn't strand the document
+    empty forever.
+    """
+    __tablename__ = 'collab_doc'
+    id              = db.Column(db.Integer, primary_key=True)
+    doc_key         = db.Column(db.String(120), nullable=False, unique=True, index=True)
+    seed_granted_to = db.Column(db.Integer, nullable=True)
+    seed_granted_at = db.Column(db.DateTime, nullable=True)
+
+
 class CollabAwareness(db.Model):
     """Where each person's cursor is. Ephemeral by nature — one row per person
     per document, overwritten on every beat and pruned once it goes quiet.
@@ -38943,11 +38964,34 @@ def admin_collab_sync():
             seconds=COLLAB_AWARENESS_STALE_SECONDS * 6)).delete(synchronize_session=False)
     db.session.commit()
 
+    # Exactly one client may put the stored content into an empty document.
+    # Granted for a short window so a browser that dies mid-seed doesn't leave
+    # the lesson permanently blank.
+    may_seed = False
+    if total == 0:
+        doc_row = CollabDoc.query.filter_by(doc_key=doc_key).first()
+        if doc_row is None:
+            doc_row = CollabDoc(doc_key=doc_key)
+            db.session.add(doc_row)
+        stale = (doc_row.seed_granted_at is None
+                 or (now - doc_row.seed_granted_at).total_seconds() > 15)
+        if stale or doc_row.seed_granted_to == current_user.id:
+            doc_row.seed_granted_to = current_user.id
+            doc_row.seed_granted_at = now
+            may_seed = True
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Another worker created the row first; theirs holds the grant.
+            db.session.rollback()
+            may_seed = False
+
     return _utf8_json({
         'success': True,
         'since': (rows[-1].id if rows else since),
         'updates': [base64.b64encode(r.payload).decode('ascii') for r in rows],
         'awareness': [base64.b64encode(r.payload).decode('ascii') for r in aw_rows],
+        'may_seed': may_seed,
         # Everyone in the session tracks the saved version from here, so the
         # one who saves next is never working from a stale number.
         'record_version': record_version,

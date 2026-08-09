@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import timedelta
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-collab')
 os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
@@ -150,7 +151,6 @@ def main_test():
 
     print('\n[4] a stale heartbeat stops counting')
     with app.app_context():
-        from datetime import timedelta
         row = main.EditingPresence.query.filter_by(user_id=mate_id).first()
         row.last_seen_at = (row.last_seen_at
                             - timedelta(seconds=main.PRESENCE_STALE_SECONDS + 5))
@@ -406,7 +406,48 @@ def main_test():
     check('a newcomer gets the whole state in one go',
           (fresh.get('updates') or []) == [snap])
 
-    print('\n[16] older editors keep working')
+    print('\n[16] only one client may seed a fresh document')
+    # The reported bug: everything in the lesson appeared twice as soon as a
+    # second admin opened it. A client's first update only ships on its NEXT
+    # beat, so anyone attaching inside that window saw an empty log, decided
+    # nobody had seeded, and seeded again — and Yjs faithfully merged both.
+    with app.app_context():
+        fresh_node = main.GuideNode(guide_id=guide_id, website_id=site_id,
+                                    node_type='lesson', title='Lesson 2',
+                                    slug='lesson-2', content='<p>stored copy</p>')
+        db.session.add(fresh_node)
+        db.session.commit()
+        fresh_key = f'guide_node:{fresh_node.id}'
+
+    first = a.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
+    check('the first client to arrive is told to seed', first.get('may_seed') is True)
+
+    second = b.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
+    check('a second client arriving before the seed ships is NOT',
+          second.get('may_seed') is False)
+
+    retry = a.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
+    check('the holder keeps its grant across beats', retry.get('may_seed') is True)
+
+    # Once anything is in the log there is nothing to seed, for anybody.
+    a.post('/admin/collab/sync', json={
+        'doc_key': fresh_key, 'since': 0,
+        'update': _b64.b64encode(b'seeded-content').decode()})
+    after_a = a.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
+    after_b = b.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
+    check('nobody may seed once the document has content',
+          after_a.get('may_seed') is False and after_b.get('may_seed') is False)
+
+    print('\n[17] a browser that dies mid-seed does not strand the document')
+    with app.app_context():
+        main.CollabUpdate.query.filter_by(doc_key=fresh_key).delete()
+        row = main.CollabDoc.query.filter_by(doc_key=fresh_key).first()
+        row.seed_granted_at = row.seed_granted_at - timedelta(seconds=30)
+        db.session.commit()
+    rescued = b.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
+    check('the grant expires so someone else can seed', rescued.get('may_seed') is True)
+
+    print('\n[18] older editors keep working')
     # A page loaded before this shipped sends no base_version and must not be
     # locked out of saving.
     r_old = a.post(f'/admin/guides/{guide_id}/nodes/save', json={
