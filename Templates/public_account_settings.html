@@ -196,24 +196,26 @@
         <div class="settings-row">
             <div class="settings-row-text">
                 <p class="settings-row-label">Code from an app on your phone</p>
-                {% if public_user.totp_enabled %}
+                {% if totp_enabled %}
                 <p class="settings-row-help">
-                    On. You'll be asked for a code from your app each time you sign in.
+                    On. You'll be asked for a code from your app each time you sign in{% if totp_is_staff_account %},
+                    here and in the admin area{% endif %}.
                 </p>
                 {% else %}
                 <p class="settings-row-help">
                     Ask for a 6-digit code from an authenticator app when you sign in. Works
-                    offline and needs no email address.
+                    offline and needs no email address.{% if totp_is_staff_account %}
+                    This is your staff account's authenticator — the same one the admin area uses.{% endif %}
                 </p>
                 {% endif %}
             </div>
-            {% if public_user.totp_enabled %}
+            {% if totp_enabled %}
             <button class="btn btn-danger" onclick="disableTotp()">Turn off</button>
             {% else %}
             <a class="btn btn-primary" href="{{ url_for('public_totp_setup', prefix=website.url_prefix or none) }}">Set up</a>
             {% endif %}
         </div>
-        {% if public_user.totp_enabled and totp_secret_lost %}
+        {% if totp_enabled and totp_secret_lost %}
         {# Enrolled, but the server can no longer decrypt the secret, so every
            code from their app will be rejected. Better to say so here than to
            let them discover it at the login screen. #}
@@ -230,7 +232,7 @@
     {% if two_factor_available %}
     <div class="settings-card" id="twoFactorCard">
         <h2>Two-Factor Authentication</h2>
-        {% if public_user.totp_enabled %}
+        {% if totp_enabled %}
         <p class="settings-row-help" style="margin:-4px 0 12px;">
             Your authenticator app is used at sign-in. An emailed code is only a fallback if you
             turn the app off.

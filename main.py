@@ -29888,15 +29888,31 @@ def public_login():
                 # to `public_admin_2fa` instead of `two_factor_login`, and on
                 # success we land on the requested public URL rather than the
                 # admin dashboard.
-                _needs_2fa = admin_requires_2fa(admin)
+                # Which factor, decided by the same function the admin form
+                # uses — this branch used to assume an emailed code and turn
+                # away anyone whose only factor was an authenticator, which is
+                # exactly what a promoted member usually has.
+                _state = admin_second_factor_state(admin)
+                _needs_2fa = _state['required']
                 _two_fa_email = _admin_two_fa_email(admin)
                 if _needs_2fa:
                     next_q = safe_next or _website_home_url(website)
-                    if not _two_fa_email:
-                        # Defensive fallback — shouldn't normally happen.
+
+                    if _state['method'] == 'totp':
+                        session['pre_2fa_user_id'] = admin.id
+                        session['pre_2fa_public_next_url'] = next_q
+                        session['pre_2fa_public_website_prefix'] = website_prefix or ''
+                        session['pre_2fa_remember'] = remember
+                        session.pop('pre_2fa_admin_key', None)
+                        _rl_record(ip, login_value, success=True)
+                        return redirect(url_for('public_admin_totp'))
+
+                    if _state['method'] != 'email' or not _two_fa_email:
+                        # Required, but they hold no usable factor yet. The
+                        # admin login page is where enrolment lives.
                         flash('Your admin account requires two-factor verification, '
-                              'but no 2FA email is configured. Use the admin '
-                              'login page.', 'error')
+                              'but no second factor is set up yet. Sign in on the '
+                              'admin login page to set one up.', 'error')
                         return redirect(url_for('login', next=next_q))
 
                     session['pre_2fa_user_id'] = admin.id
@@ -31527,6 +31543,25 @@ def public_totp_available(website):
     return bool(website is not None and getattr(website, 'public_totp_enabled', False))
 
 
+def totp_account_for(public_user):
+    """The row that actually holds this person's authenticator enrolment.
+
+    A staff profile is a projection of an admin account, and promotion moves
+    the enrolment onto that admin row — next to the password hash it guards —
+    leaving the mirror's own totp_* columns deliberately empty. Reading the
+    mirror therefore told a staff member their authenticator was off while it
+    was in fact protecting every sign-in they made, and offered them a "Set up"
+    button that would have enrolled a second, unused secret.
+
+    Everything that shows or changes the enrolment goes through here, so the
+    account settings page speaks about the same row the login checks.
+    """
+    admin_id = getattr(public_user, 'mirrored_admin_user_id', None)
+    if admin_id:
+        return db.session.get(User, admin_id) or public_user
+    return public_user
+
+
 def public_totp_required(public_user):
     """True when this member must pass the authenticator step to sign in.
 
@@ -31608,17 +31643,20 @@ def public_totp_setup(prefix=None):
             flash('That code did not match. Check your authenticator and try again.', 'error')
             return redirect(url_for('public_totp_setup', prefix=prefix))
 
-        public_user.totp_secret = encrypt_api_key(secret)
-        public_user.totp_enabled = True
-        public_user.totp_activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        public_user.totp_last_counter = counter
+        account = totp_account_for(public_user)
+        account.totp_secret = encrypt_api_key(secret)
+        account.totp_enabled = True
+        account.totp_activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        account.totp_last_counter = counter
         plain, hashed = generate_totp_recovery_codes()
-        public_user.totp_recovery_codes = hashed
+        account.totp_recovery_codes = hashed
         db.session.commit()
         session.pop('pub_totp_setup_secret', None)
         # Shown exactly once — only hashes are kept.
         session['pub_totp_recovery_plain'] = plain
-        app.logger.info('TOTP enrolled for public user id=%s', public_user.id)
+        app.logger.info('TOTP enrolled from the public site for %s id=%s',
+                        'admin' if account is not public_user else 'public user',
+                        account.id)
         return redirect(url_for('public_totp_recovery_codes', prefix=prefix))
 
     secret = session.get('pub_totp_setup_secret')
@@ -31654,13 +31692,16 @@ def public_totp_disable(prefix=None):
     public_user, website, err = _public_totp_guard(require_site_setting=False)
     if err:
         return err
-    public_user.totp_enabled = False
-    public_user.totp_secret = None
-    public_user.totp_activated_at = None
-    public_user.totp_last_counter = None
-    public_user.totp_recovery_codes = None
+    account = totp_account_for(public_user)
+    account.totp_enabled = False
+    account.totp_secret = None
+    account.totp_activated_at = None
+    account.totp_last_counter = None
+    account.totp_recovery_codes = None
     db.session.commit()
-    app.logger.info('TOTP disabled for public user id=%s', public_user.id)
+    app.logger.info('TOTP disabled from the public site for %s id=%s',
+                    'admin' if account is not public_user else 'public user',
+                    account.id)
     return _utf8_json({'success': True})
 
 
@@ -31763,6 +31804,7 @@ def public_account_settings(prefix=None):
     # of the admin panel is an ownership transfer, not an account closure.
     _mirrored_admin = (db.session.get(User, public_user.mirrored_admin_user_id)
                        if public_user.is_admin_mirror else None)
+    _totp_acct = totp_account_for(public_user)
     return render_template(
         'public_account_settings.html',
         website=website,
@@ -31774,9 +31816,13 @@ def public_account_settings(prefix=None):
         # enrolled, so turning the site option off doesn't hide the only switch
         # that would turn it back off.
         totp_available=(public_totp_available(website)
-                        or bool(public_user.totp_enabled)),
-        totp_secret_lost=(bool(public_user.totp_enabled)
-                          and not totp_secret_is_readable(public_user)),
+                        or bool(_totp_acct.totp_enabled)),
+        totp_enabled=bool(_totp_acct.totp_enabled),
+        totp_secret_lost=(bool(_totp_acct.totp_enabled)
+                          and not totp_secret_is_readable(_totp_acct)),
+        # Staff manage the enrolment on the admin account behind this profile,
+        # so say so rather than letting it look like a second, separate one.
+        totp_is_staff_account=(_totp_acct is not public_user),
         # Already on but no longer offerable (the site turned 2FA off, or the
         # address went away) still shows the card — otherwise the only switch
         # that turns it back off would be out of reach.
@@ -32047,6 +32093,100 @@ def _login_link_covers_2fa(admin):
     return two_fa_email.strip().lower() == (admin.email or '').strip().lower()
 
 
+def _finish_public_admin_login(user, website, next_url):
+    """Complete an admin sign-in that started on the public site.
+
+    Shared by the emailed-code and authenticator challenges so both land the
+    same way: signed in as the admin, recognised on the public side through
+    their mirror, and back at the page they asked for rather than the
+    dashboard.
+    """
+    login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
+    if admin_url_key_required_for_user(user):
+        session['admin_path_verified'] = True
+    _stamp_login(user)
+    _clear_public_admin_2fa_session()
+
+    # Mirror the post-password success path from public_login so the public
+    # side recognises the admin as a signed-in member too.
+    mirror = ensure_admin_public_mirror(user, website)
+    if mirror:
+        public_user_login(mirror)
+    return redirect(next_url)
+
+
+@app.route('/2fa/admin/app', methods=['GET', 'POST'])
+def public_admin_totp():
+    """Admin authenticator challenge reached via the public login form.
+
+    The public form only ever knew how to email a code, so an admin whose one
+    factor is an authenticator was turned away at it — "no 2FA email is
+    configured, use the admin login page" — even though their app was working.
+    Promotion makes that the common case, because a member who enrolled an app
+    carries it onto the admin row and often holds no separate 2FA mailbox.
+    """
+    user_id = session.get('pre_2fa_user_id')
+    next_url = session.get('pre_2fa_public_next_url')
+    website_prefix = session.get('pre_2fa_public_website_prefix') or ''
+    if not user_id or not next_url:
+        return redirect(url_for('public_login',
+                                website_prefix=(website_prefix or None)))
+    user = db.session.get(User, user_id)
+    if not user or not user.totp_enabled:
+        _clear_public_admin_2fa_session()
+        return redirect(url_for('public_login',
+                                website_prefix=(website_prefix or None)))
+    website = get_live_website(url_prefix=(website_prefix or None)) or get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    secret_lost = not totp_secret_is_readable(user)
+
+    if request.method == 'POST':
+        if two_factor_lockout_active(user):
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.',
+                  'error')
+            return redirect(url_for('public_admin_totp'))
+
+        submitted = (request.form.get('code') or '').strip()
+        use_recovery = bool(request.form.get('use_recovery'))
+
+        if use_recovery:
+            if consume_totp_recovery_code(user, submitted):
+                app.logger.info('TOTP recovery code used for admin id=%s (public form)',
+                                user.id)
+                flash(f'Recovery code accepted. {len(user.totp_recovery_codes or [])} left.',
+                      'success')
+                return _finish_public_admin_login(user, website, next_url)
+        else:
+            ok, counter = verify_totp(user_totp_secret(user), submitted,
+                                      last_used_counter=user.totp_last_counter)
+            if ok:
+                user.totp_last_counter = counter
+                db.session.commit()
+                return _finish_public_admin_login(user, website, next_url)
+
+        if secret_lost and not use_recovery:
+            flash('This account\u2019s authenticator secret can no longer be read '
+                  '(the server\u2019s SECRET_KEY changed). Use a recovery code, '
+                  'then set the authenticator up again.', 'error')
+            return redirect(url_for('public_admin_totp'))
+
+        if register_failed_two_factor_attempt(user):
+            _clear_public_admin_2fa_session()
+            flash('Too many incorrect codes. Please sign in again.', 'error')
+            return redirect(url_for('public_login',
+                                    website_prefix=(website_prefix or None)))
+        flash('Invalid code.', 'error')
+        return redirect(url_for('public_admin_totp'))
+
+    return render_template('public_totp_challenge.html', website=website,
+                           public_user=None,
+                           has_recovery=bool(user.totp_recovery_codes),
+                           secret_lost=secret_lost,
+                           submit_url=url_for('public_admin_totp'))
+
+
 @app.route('/2fa/admin', methods=['GET', 'POST'])
 def public_admin_2fa():
     """Admin 2FA challenge reached via the public login form. The code-email
@@ -32089,18 +32229,7 @@ def public_admin_2fa():
             flash('Invalid verification code.', 'error')
             return redirect(url_for('public_admin_2fa'))
 
-        login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
-        if admin_url_key_required_for_user(user):
-            session['admin_path_verified'] = True
-        _stamp_login(user)
-        _clear_public_admin_2fa_session()
-
-        # Mirror the post-password success path from public_login so the
-        # public side recognises the admin as a signed-in member too.
-        mirror = ensure_admin_public_mirror(user, website)
-        if mirror:
-            public_user_login(mirror)
-        return redirect(next_url)
+        return _finish_public_admin_login(user, website, next_url)
 
     return render_template(
         'public_2fa.html',

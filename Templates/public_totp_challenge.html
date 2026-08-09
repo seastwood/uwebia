@@ -124,7 +124,7 @@
     </div>
     {% endif %}
 
-    <form method="POST" action="{{ url_for('public_totp_challenge') }}" id="codeForm">
+    <form method="POST" action="{{ submit_url or url_for('public_totp_challenge') }}" id="codeForm">
         <input type="hidden" name="use_recovery" id="useRecovery" value="{% if secret_lost and has_recovery %}1{% else %}{% endif %}">
         <input type="text" name="code" id="codeInput"
                placeholder="{% if secret_lost and has_recovery %}xxxxx-xxxxx{% else %}000000{% endif %}"

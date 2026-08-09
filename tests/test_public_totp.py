@@ -282,6 +282,80 @@ def main_test():
         check('so they can still sign in with the app they already had',
               s.get('public_user_id') == member_id)
 
+    print('\n[7b] and the settings page tells staff the truth about it')
+    # Promotion moves the enrolment onto the admin row, so reading the mirror's
+    # own columns showed a staff member "off" while their authenticator was
+    # protecting every sign-in — and offered a Set up button that would have
+    # enrolled a second, unused secret.
+    owner_id, site_id, member_id = setup()
+    c, secret, codes = enrol(member_id, site_id)
+
+    def totp_card(client):
+        body = client.get('/account/settings').get_data(as_text=True)
+        i = body.find('id="totpCard"')
+        if i < 0:
+            return 'absent'
+        seg = body[i:i + 1500]
+        if 'btn-danger" onclick="disableTotp()' in seg:
+            return 'on'
+        return 'off' if 'Set up</a>' in seg else 'unknown'
+
+    theirs = signed_in(member_id, site_id)
+    check(f'as a member it reads on ({totp_card(theirs)})', totp_card(theirs) == 'on')
+
+    admin = app.test_client()
+    with admin.session_transaction() as s:
+        s['_user_id'] = str(owner_id)
+        s['_fresh'] = True
+        s['editing_website_id'] = site_id
+    admin.post(f'/admin/users/public/{member_id}/promote', json={'permissions': {}})
+    with app.app_context():
+        mirror = db.session.get(main.PublicUser, member_id)
+        staff_id = mirror.mirrored_admin_user_id
+        check('the mirror itself holds no enrolment', not mirror.totp_enabled)
+    check(f'but the page still reads on ({totp_card(theirs)})', totp_card(theirs) == 'on')
+
+    r = theirs.post('/account/2fa/app/disable')
+    check(f'and turning it off there works — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('switching off the ADMIN account\'s authenticator, not the mirror\'s',
+              not db.session.get(main.User, staff_id).totp_enabled)
+    check(f'so the page now reads off ({totp_card(theirs)})', totp_card(theirs) == 'off')
+
+    print('\n[7c] staff with only an authenticator can use the public login form')
+    # The public form only knew how to email a code, so it turned away an admin
+    # whose one factor was an app — "no 2FA email is configured" — which is
+    # exactly what a promoted member has.
+    owner_id, site_id, member_id = setup()
+    c, secret, codes = enrol(member_id, site_id)
+    admin = app.test_client()
+    with admin.session_transaction() as s:
+        s['_user_id'] = str(owner_id)
+        s['_fresh'] = True
+        s['editing_website_id'] = site_id
+    admin.post(f'/admin/users/public/{member_id}/promote', json={'permissions': {}})
+    with app.app_context():
+        staff_id = db.session.get(main.PublicUser, member_id).mirrored_admin_user_id
+
+    pub = app.test_client()
+    r = pub.post('/login', data={'login': 'learner', 'password': 'memberpassword'},
+                 follow_redirects=False)
+    check(f'the password sends them to the authenticator step — got {r.status_code}',
+          r.status_code in (301, 302)
+          and '/2fa/admin/app' in (r.headers.get('Location') or ''))
+
+    with app.app_context():
+        staff = db.session.get(main.User, staff_id)
+        staff.totp_last_counter = int(main.time.time()) // main._TOTP_STEP - 1
+        db.session.commit()
+    r = pub.post('/2fa/admin/app', data={'code': code_for(secret)}, follow_redirects=False)
+    check(f'and the code completes the sign-in — got {r.status_code}',
+          r.status_code in (301, 302))
+    with pub.session_transaction() as s:
+        check('signed in as the admin', s.get('_user_id') == str(staff_id))
+        check('and recognised on the public side through their mirror',
+              s.get('public_user_id') == member_id)
+
     print('\n[8] turning it off')
     off = signed_in(member_id, site_id)
     r = off.post('/account/2fa/app/disable')
