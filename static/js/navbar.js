@@ -198,9 +198,44 @@ function toggleAdminChat() {
     panel.style.display = _chatOpen ? 'flex' : 'none';
     if (_chatOpen) {
         loadAdminChatMessages();
+        loadAdminChatOnline();
         markAdminChatRead();
         document.getElementById('adminChatInput')?.focus();
     }
+}
+
+// Same hue formula as UwebiaPresence.colorFor, so a person is the same colour
+// in the chat as on their editing chips. Duplicated rather than imported
+// because that component only loads on editor pages and the chat is everywhere.
+function adminChatColor(id) {
+    const hues = [190, 275, 330, 45, 150, 15, 230, 95];
+    return `hsl(${hues[Math.abs(id) % hues.length]}, 70%, 62%)`;
+}
+
+async function loadAdminChatOnline() {
+    const strip = document.getElementById('adminChatOnline');
+    if (!strip) return;
+    try {
+        const r = await fetch('/admin/chat/online');
+        if (!r.ok) return;
+        const d = await r.json();
+        const others = (d.online || []).filter(u => !u.is_me);
+        if (!others.length) { strip.style.display = 'none'; return; }
+        strip.style.display = 'flex';
+        strip.innerHTML =
+            `<span style="letter-spacing:0.04em;text-transform:uppercase;font-weight:800;">Online</span>` +
+            others.map(u => `
+                <span title="${u.name.replace(/"/g, '&quot;')}"
+                      style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 2px;
+                             border-radius:999px;background:rgba(255,255,255,0.06);
+                             border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.75);">
+                    <span style="width:18px;height:18px;border-radius:50%;display:inline-flex;
+                                 align-items:center;justify-content:center;font-size:0.56rem;
+                                 font-weight:850;color:#10101a;background:${adminChatColor(u.user_id)};">
+                        ${u.initials.replace(/</g, '&lt;')}
+                    </span>${u.name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}
+                </span>`).join('');
+    } catch {}
 }
 
 async function loadAdminChatMessages() {
@@ -281,7 +316,12 @@ async function pollAdminChatUnread() {
 
 document.addEventListener('DOMContentLoaded', () => {
     pollAdminChatUnread();
-    setInterval(pollAdminChatUnread, 15000);
+    setInterval(() => {
+        pollAdminChatUnread();
+        // Only while the panel is open — last_seen_at is written at most once
+        // a minute, so refreshing this behind a closed panel buys nothing.
+        if (_chatOpen) loadAdminChatOnline();
+    }, 15000);
 });
 // ─────────────────────────────────────────────────────────────────────────
 

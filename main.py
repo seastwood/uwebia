@@ -11589,6 +11589,44 @@ def admin_chat_messages():
     } for m in msgs])
 
 
+# How long after their last request an admin still counts as here. The
+# before_request hook that maintains last_seen_at is throttled to once a
+# minute, so anything under two minutes would flicker people off and on while
+# they are sitting right there.
+ADMIN_ONLINE_SECONDS = 180
+
+
+@app.route('/admin/chat/online')
+@login_required
+def admin_chat_online():
+    """Which admins are around right now.
+
+    Read from User.last_seen_at, which a before_request hook already maintains
+    on every authenticated request — so this costs one query and no new
+    polling. It means "using the admin panel", which is the question the chat
+    actually raises, rather than the per-document presence used in the editors.
+    """
+    root_id = current_user.root_user_id
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None)
+              - timedelta(seconds=ADMIN_ONLINE_SECONDS))
+    admins = (User.query
+              .filter(db.or_(User.id == root_id, User.parent_user_id == root_id),
+                      User.last_seen_at.isnot(None),
+                      User.last_seen_at >= cutoff)
+              .all())
+    out = []
+    for u in admins:
+        name = (getattr(u, 'display_name', None) or u.username or '?')
+        out.append({
+            'user_id': u.id,
+            'name': name,
+            'initials': ''.join(p[0] for p in str(name).split()[:2]).upper() or '?',
+            'is_me': u.id == current_user.id,
+        })
+    out.sort(key=lambda p: (not p['is_me'], p['name'].lower()))
+    return _utf8_json({'success': True, 'online': out})
+
+
 @app.route('/admin/chat/send', methods=['POST'])
 @login_required
 def admin_chat_send():
