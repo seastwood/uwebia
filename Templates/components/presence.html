@@ -112,7 +112,12 @@ window.UwebiaPresence = (function () {
             }).then(function (r) {
                 return r.ok ? r.json() : null;
             }).then(function (d) {
-                if (d && d.success) render(d.peers || []);
+                if (!d || !d.success) return;
+                render(d.peers || []);
+                // Let the page put people wherever else they belong — on the
+                // rows of a contents list, say — without this component
+                // needing to know that layout exists.
+                if (typeof opts.onPeers === 'function') opts.onPeers(d.peers || []);
             }).catch(function () { /* a blip is not worth an error on screen */ });
         }
 

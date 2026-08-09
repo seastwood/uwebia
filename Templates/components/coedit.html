@@ -34,6 +34,31 @@ if (window.Quill && !Quill.imports['modules/cursors']) {
     Quill.register('modules/cursors', QuillCursors);
 }
 
+// A <script type="module"> is deferred, so this file runs AFTER the classic
+// script that constructs Quill — by which point `modules: { cursors: … }` has
+// already been resolved and quietly dropped, and y-quill's
+// quill.getModule('cursors') returns null. That is why no carets appeared.
+// Fit the module now instead of demanding every editor be restructured to
+// build its Quill later.
+// Built directly rather than listed in the editor's `modules` config, for two
+// reasons. Quill 1.3.6 resolves that config at construction and does
+// `new moduleClass(...)` on the result — with this module registered later, it
+// would be constructing `null` and taking the whole editor down. And
+// transformOnTextChange defaults to false, so carets would sit still while
+// text moved underneath them.
+function ensureCursors(quill) {
+    try {
+        const existing = quill.getModule('cursors');
+        if (existing) return existing;
+        if (quill.theme && quill.theme.modules) {
+            const mod = new QuillCursors(quill, { transformOnTextChange: true });
+            quill.theme.modules.cursors = mod;
+            return mod;
+        }
+    } catch (e) { /* carets are a nicety; never break the editor over one */ }
+    return null;
+}
+
 const POLL_MS = 1000;
 const b64 = {
     enc: (u8) => btoa(String.fromCharCode.apply(null, u8)),
@@ -110,6 +135,10 @@ function attach(opts) {
             const delta = opts.quill.clipboard.convert(opts.seed);
             text.applyDelta(delta.ops);
         }
+        // Must exist before the binding: y-quill reads the cursors module once,
+        // in its constructor, and draws nothing for the rest of the session if
+        // it wasn't there.
+        ensureCursors(opts.quill);
         s.binding = new QuillBinding(text, opts.quill, awareness);
     }
 
