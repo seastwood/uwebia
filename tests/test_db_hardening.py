@@ -297,7 +297,11 @@ def test_asset_usage():
               counts.get(unused.id) == 0)
 
         # The cache must actually serve repeat calls, not silently rescan.
-        main._asset_usage_cache['index'] = {'/static/uploads/x/sentinel.png': 7}
+        # The index maps a stored FILENAME to the (table, row) pairs that
+        # reference it — it used to be URL -> count, and changed when the
+        # library gained "show me where this is used".
+        main._asset_usage_cache['index'] = {
+            'sentinel.png': [('page_section', n) for n in range(7)]}
         main._asset_usage_cache['at'] = main.time.time()
         sentinel = main.Asset(user_id=1, original_filename='s.png',
                               stored_filename='sentinel.png',

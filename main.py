@@ -6144,13 +6144,18 @@ _ASSET_URL_RE = re.compile(r'/static/uploads/[A-Za-z0-9_\-./]+')
 
 
 def _asset_usage_index():
-    """Count every reference to an uploads URL anywhere in the database.
+    """Find every reference to an uploads URL anywhere in the database.
 
-    Returns a Counter keyed by URL path. Never raises: a usage badge is a nicety
-    and must not be able to take the asset library down.
+    Returns {filename: [(table_name, row_pk), ...]} — the row a reference sits
+    in, not just how many there are, so the library can say WHERE a file is
+    used and link to it. Keyed on the stored filename because the same file is
+    referenced absolutely and relatively, and an uploads URL can carry a
+    cache-busting query string.
+
+    Never raises: a usage badge is a nicety and must not be able to take the
+    asset library down.
     """
-    from collections import Counter
-    counts = Counter()
+    places = {}
     for table in db.metadata.tables.values():
         if table.name in _ASSET_USAGE_SKIP_TABLES:
             continue
@@ -6158,9 +6163,13 @@ def _asset_usage_index():
                 if isinstance(c.type, (db.String, db.Text, db.JSON))]
         if not cols:
             continue
+        pk = list(table.primary_key.columns)
+        pk_col = pk[0] if len(pk) == 1 else None
         try:
-            for row in db.session.execute(db.select(*cols)):
-                for value in row:
+            select_cols = ([pk_col] if pk_col is not None else []) + cols
+            for row in db.session.execute(db.select(*select_cols)):
+                row_id = row[0] if pk_col is not None else None
+                for value in (row[1:] if pk_col is not None else row):
                     if not value:
                         continue
                     # JSON columns arrive as dict/list; str() is enough to find
@@ -6169,11 +6178,12 @@ def _asset_usage_index():
                     if '/static/uploads/' not in text:
                         continue
                     for match in _ASSET_URL_RE.findall(text):
-                        counts[match] += 1
+                        name = match.rsplit('/', 1)[-1]
+                        places.setdefault(name, []).append((table.name, row_id))
         except Exception as scan_err:
             app.logger.warning('asset usage scan skipped %s: %s',
                                table.name, scan_err)
-    return counts
+    return places
 
 
 # The scan is proportional to how much content exists, not how many assets, so
@@ -6196,6 +6206,24 @@ def _asset_usage_index_cached():
     return index
 
 
+def _asset_filenames(asset):
+    """Every filename that means "this asset". An optimised upload keeps its
+    pre-conversion original, and a reference to either one is a use of it."""
+    names = [asset.stored_filename]
+    if asset.original_stored_filename and asset.original_stored_filename != asset.stored_filename:
+        names.append(asset.original_stored_filename)
+    return [n for n in names if n]
+
+
+def _asset_usage_rows(asset, index=None):
+    """The (table, row_pk) pairs referencing one asset."""
+    index = index if index is not None else _asset_usage_index_cached()
+    rows = []
+    for name in _asset_filenames(asset):
+        rows.extend(index.get(name, []))
+    return rows
+
+
 def asset_usage_counts(assets):
     """Map asset id -> how many places reference it."""
     if not assets:
@@ -6203,23 +6231,138 @@ def asset_usage_counts(assets):
     index = _asset_usage_index_cached()
     if not index:
         return {a.id: 0 for a in assets}
+    return {a.id: len(_asset_usage_rows(a, index)) for a in assets}
 
-    # Match on the stored filename rather than the full URL: the same file is
-    # referenced both absolutely and relatively, and an uploads URL can carry a
-    # cache-busting query string.
-    by_name = {}
-    for url, n in index.items():
-        by_name[url.rsplit('/', 1)[-1]] = by_name.get(url.rsplit('/', 1)[-1], 0) + n
 
-    out = {}
-    for a in assets:
-        total = by_name.get(a.stored_filename, 0)
-        # An optimised upload keeps the pre-conversion original; a reference to
-        # either one is a use of the same asset.
-        if a.original_stored_filename and a.original_stored_filename != a.stored_filename:
-            total += by_name.get(a.original_stored_filename, 0)
-        out[a.id] = total
+# ── Describing where an asset is used ────────────────────────────────────────
+# The scan knows a reference sits in (table, row). Turning that into "Lesson 3
+# of Build a robot" plus a link is per-table knowledge, so it lives here rather
+# than in the scan. Only resolved for the one asset being inspected, so an
+# unmapped table costs nothing until somebody opens it.
+
+def _describe_usage_row(table_name, row_id):
+    """(kind, name, link) for one reference, or None to drop it.
+
+    Returning None hides rows that are noise rather than uses — a thumbnail
+    column on the asset's own record, say.
+    """
+    def page_link(page):
+        site = db.session.get(Website, page.website_id) if page else None
+        if not (page and site):
+            return None
+        return url_for('page_editor', website_id=site.id, page_id=page.id)
+
+    try:
+        if table_name == 'public_page_content':
+            page = db.session.get(PublicPageContent, row_id)
+            return page and ('Page', page.name or page.slug, page_link(page))
+
+        if table_name == 'page_section':
+            sec = db.session.get(PageSection, row_id)
+            if not sec:
+                return None
+            page = db.session.get(PublicPageContent, sec.page_content_id)
+            where = f'{sec.label or sec.section_type} section'
+            return ('Page section',
+                    f'{where} on {page.name}' if page else where,
+                    page_link(page))
+
+        if table_name == 'guide_node':
+            node = db.session.get(GuideNode, row_id)
+            if not node:
+                return None
+            guide = db.session.get(Guide, node.guide_id)
+            return ('Guide',
+                    f'{node.title} — {guide.title}' if guide else node.title,
+                    url_for('admin_guide_editor', gid=node.guide_id))
+
+        if table_name == 'guide':
+            g = db.session.get(Guide, row_id)
+            return g and ('Guide', g.title, url_for('admin_guide_editor', gid=g.id))
+
+        if table_name == 'post':
+            post = db.session.get(Post, row_id)
+            return post and ('Article', post.title,
+                             url_for('admin_post_edit', cid=post.collection_id, pid=post.id))
+
+        if table_name == 'quiz_question':
+            qq = db.session.get(QuizQuestion, row_id)
+            if not qq:
+                return None
+            quiz = db.session.get(Quiz, qq.quiz_id)
+            return ('Quiz question',
+                    f'a question in {quiz.title}' if quiz else 'a quiz question',
+                    url_for('admin_quiz_editor', qid=qq.quiz_id))
+
+        if table_name == 'quiz':
+            q = db.session.get(Quiz, row_id)
+            return q and ('Quiz', q.title, url_for('admin_quiz_editor', qid=q.id))
+
+        if table_name == 'newsletter_campaign':
+            camp = db.session.get(NewsletterCampaign, row_id)
+            return camp and ('Newsletter', camp.subject,
+                             url_for('admin_newsletter_campaign_edit',
+                                     nid=camp.newsletter_id, cid=camp.id))
+
+        if table_name == 'resource':
+            res = db.session.get(Resource, row_id)
+            return res and ('Resource', res.title, url_for('admin_resources_page'))
+
+        if table_name == 'website':
+            site = db.session.get(Website, row_id)
+            return site and ('Site settings', site.name, None)
+
+        if table_name == 'user':
+            u = db.session.get(User, row_id)
+            return u and ('Admin branding', u.username, None)
+    except Exception as err:
+        app.logger.warning('asset usage describe failed for %s#%s: %s',
+                           table_name, row_id, err)
+        return None
+
+    # Anything unmapped is still worth reporting — a count with no explanation
+    # is what this feature exists to fix — just without a link.
+    pretty = table_name.replace('_', ' ')
+    return (pretty[:1].upper() + pretty[1:],
+            f'record #{row_id}' if row_id is not None else 'a record', None)
+
+
+def asset_usage_places(asset):
+    """Every place one asset is used, newest-looking first, de-duplicated.
+
+    A single row can reference the same file more than once (a gallery using it
+    twice, say). That is one place to go and edit, so the row is listed once
+    with the number of references on it.
+    """
+    from collections import Counter
+    tally = Counter(_asset_usage_rows(asset))
+    out = []
+    for (table_name, row_id), times in tally.items():
+        described = _describe_usage_row(table_name, row_id)
+        if not described:
+            continue
+        kind, name, link = described
+        out.append({'kind': kind, 'name': name or '(untitled)',
+                    'link': link, 'times': times})
+    out.sort(key=lambda e: (e['kind'].lower(), str(e['name']).lower()))
     return out
+
+
+@app.route('/admin/assets/<int:asset_id>/usage')
+@login_required
+def admin_asset_usage(asset_id):
+    """Where this asset is used. Scoped to the caller's own library."""
+    asset = Asset.query.filter_by(id=asset_id,
+                                  user_id=current_user.root_user_id).first()
+    if asset is None:
+        return _utf8_json({'success': False, 'error': 'Asset not found'}, 404)
+    places = asset_usage_places(asset)
+    return _utf8_json({
+        'success': True,
+        'filename': asset.original_filename,
+        'total': sum(p['times'] for p in places),
+        'places': places,
+    })
 
 
 def get_user_asset_folder(user_id):

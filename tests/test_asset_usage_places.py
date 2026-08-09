@@ -1,0 +1,175 @@
+"""The asset library says WHERE a file is used, not just how many times.
+
+    venv/bin/python tests/test_asset_usage_places.py
+
+The count already existed. What it could not tell you was which page, lesson or
+article to go and look at — so the badge is now clickable and resolves each
+reference to a named thing with a link into the editor that owns it.
+
+Copies main.py into a throwaway directory and imports it from there, so it
+builds its own SQLite database and cannot touch the real instance.
+"""
+import os
+import shutil
+import sys
+import tempfile
+
+os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-asset-usage')
+os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
+
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SCRATCH = tempfile.mkdtemp(prefix='uwebia-usage-test-')
+shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
+for _linked in ('Templates', 'icons', 'static'):
+    _src = os.path.join(_REPO, _linked)
+    if os.path.exists(_src):
+        os.symlink(_src, os.path.join(_SCRATCH, _linked))
+
+sys.path.insert(0, _SCRATCH)
+import main  # noqa: E402
+
+assert os.path.dirname(os.path.abspath(main.__file__)) == _SCRATCH, \
+    'refusing to run against the real checkout'
+
+app, db = main.app, main.db
+FAILURES = []
+
+
+def check(label, cond):
+    print(('  PASS  ' if cond else '  FAIL  ') + label)
+    if not cond:
+        FAILURES.append(label)
+
+
+def setup():
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
+        for table in reversed(db.metadata.sorted_tables):
+            db.session.execute(table.delete())
+        db.session.commit()
+
+        owner = main.User(username='owner', parent_user_id=None)
+        owner.set_password('x')
+        db.session.add(owner)
+        db.session.commit()
+
+        site = main.Website(user_id=owner.id, name='Main site', is_draft=False)
+        db.session.add(site)
+        db.session.commit()
+
+        url = f'/static/uploads/{owner.id}/assets/hero777.jpg'
+        used = main.Asset(user_id=owner.id, original_filename='hero.jpg',
+                          stored_filename='hero777.jpg', url=url,
+                          asset_type='image', file_size=100)
+        lonely = main.Asset(user_id=owner.id, original_filename='lonely.png',
+                            stored_filename='lonely999.png',
+                            url=f'/static/uploads/{owner.id}/assets/lonely999.png',
+                            asset_type='image', file_size=50)
+        db.session.add_all([used, lonely])
+        db.session.commit()
+
+        page = main.PublicPageContent(website_id=site.id, name='Welcome', slug='home')
+        db.session.add(page)
+        db.session.commit()
+        # Twice in ONE section: still one place to go and fix.
+        db.session.add(main.PageSection(
+            page_content_id=page.id, section_type='images', order=1, label='Gallery',
+            content={'images': [{'src': url}, {'src': url}]}))
+
+        guide = main.Guide(website_id=site.id, title='Build a robot', slug='robot')
+        db.session.add(guide)
+        db.session.commit()
+        db.session.add(main.GuideNode(guide_id=guide.id, website_id=site.id,
+                                      node_type='lesson', title='Wiring', slug='wiring',
+                                      content=f'<img src="{url}">'))
+
+        coll = main.PostCollection(website_id=site.id, user_id=owner.id,
+                                   name='Blog', slug='blog')
+        db.session.add(coll)
+        db.session.commit()
+        db.session.add(main.Post(collection_id=coll.id, website_id=site.id,
+                                 title='Season recap', slug='recap',
+                                 content=f'<p><img src="{url}?v=3"></p>'))
+        db.session.commit()
+
+        # Another organisation, with its own asset — must stay invisible.
+        rival = main.User(username='rival', parent_user_id=None)
+        rival.set_password('x')
+        db.session.add(rival)
+        db.session.commit()
+        theirs = main.Asset(user_id=rival.id, original_filename='theirs.jpg',
+                            stored_filename='theirs555.jpg',
+                            url=f'/static/uploads/{rival.id}/assets/theirs555.jpg',
+                            asset_type='image', file_size=10)
+        db.session.add(theirs)
+        db.session.commit()
+        return owner.id, site.id, used.id, lonely.id, theirs.id
+
+
+def main_test():
+    owner_id, site_id, used_id, lonely_id, theirs_id = setup()
+    app.config['WTF_CSRF_ENABLED'] = False
+
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s['_user_id'] = str(owner_id)
+        s['_fresh'] = True
+        s['admin_website_id'] = site_id
+
+    r = c.get(f'/admin/assets/{used_id}/usage')
+    d = r.get_json() or {}
+    places = d.get('places') or []
+    by_kind = {p['kind']: p for p in places}
+    for p in places:
+        print(f"         {p['kind']:14} {str(p['name'])[:40]:42} x{p['times']}  {p['link']}")
+
+    print('\n[1] it names the actual things')
+    check(f'the endpoint answers — got {r.status_code}', r.status_code == 200)
+    check('the guide lesson, by lesson AND guide name',
+          'Guide' in by_kind and 'Wiring' in by_kind['Guide']['name']
+          and 'Build a robot' in by_kind['Guide']['name'])
+    check('the article, by title',
+          'Article' in by_kind and by_kind['Article']['name'] == 'Season recap')
+    check('the page section, by label and page',
+          'Page section' in by_kind
+          and 'Gallery' in by_kind['Page section']['name']
+          and 'Welcome' in by_kind['Page section']['name'])
+
+    print('\n[2] each row links to where you would go and fix it')
+    check('the guide links to its editor',
+          (by_kind.get('Guide', {}).get('link') or '').startswith('/admin/guides/'))
+    check('the article links to its editor',
+          '/articles/' in (by_kind.get('Article', {}).get('link') or ''))
+    check('the page section links to the page builder',
+          bool(by_kind.get('Page section', {}).get('link')))
+
+    print('\n[3] counting stays honest')
+    check('two references in one section are ONE place',
+          by_kind.get('Page section', {}).get('times') == 2 and len(places) == 3)
+    check('the total still counts every reference', d.get('total') == 4)
+    with app.app_context():
+        a = db.session.get(main.Asset, used_id)
+        check('the badge number agrees with the modal',
+              main.asset_usage_counts([a])[used_id] == d['total'])
+
+    print('\n[4] an unused file says so plainly')
+    d2 = c.get(f'/admin/assets/{lonely_id}/usage').get_json() or {}
+    check('no places, no total', d2.get('places') == [] and d2.get('total') == 0)
+
+    print('\n[5] you only get your own library')
+    r3 = c.get(f'/admin/assets/{theirs_id}/usage')
+    check(f"another organisation's asset is not found — got {r3.status_code}",
+          r3.status_code == 404)
+    r4 = c.get('/admin/assets/999999/usage')
+    check('nor is one that does not exist', r4.status_code == 404)
+    anon = app.test_client()
+    ra = anon.get(f'/admin/assets/{used_id}/usage')
+    check(f'signed out gets nothing — got {ra.status_code}',
+          ra.status_code in (301, 302, 401, 403))
+
+
+if __name__ == '__main__':
+    main_test()
+    print('\n' + ('ALL PASSED' if not FAILURES else f'{len(FAILURES)} FAILED: {FAILURES}'))
+    sys.exit(1 if FAILURES else 0)
