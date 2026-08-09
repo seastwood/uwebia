@@ -1,0 +1,126 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Recovery codes{% endblock %}
+
+{% block head %}
+<style>
+    .rc-wrap {
+        width: min(520px, calc(100% - 28px));
+        margin: 90px auto;
+        padding: 28px 24px;
+        background: rgba(0,0,0,0.34);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .rc-wrap h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; }
+    .rc-intro {
+        font-size: 0.88rem;
+        color: rgba(255,255,255,0.6);
+        margin: 0 0 8px;
+        line-height: 1.5;
+    }
+    .rc-warn {
+        background: rgba(255,196,84,0.1);
+        border: 1px solid rgba(255,196,84,0.32);
+        color: #ffd08a;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.84rem;
+        line-height: 1.45;
+        margin: 0 0 18px;
+    }
+
+    .rc-codes {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 8px;
+        margin-bottom: 18px;
+    }
+    .rc-codes code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.95rem;
+        letter-spacing: 0.08em;
+        background: rgba(255,255,255,0.07);
+        border: 1px solid rgba(255,255,255,0.13);
+        border-radius: 9px;
+        padding: 9px 10px;
+        text-align: center;
+    }
+
+    .rc-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .rc-btn {
+        flex: 1;
+        min-width: 150px;
+        padding: 12px;
+        border-radius: 12px;
+        border: none;
+        font-weight: 800;
+        font-size: 0.9rem;
+        cursor: pointer;
+        text-align: center;
+        text-decoration: none;
+    }
+    .rc-btn.primary { background: linear-gradient(135deg, #5eeef8, #5eeec8); color: #111; }
+    .rc-btn.ghost {
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.16);
+        color: inherit;
+        line-height: 1.4;
+    }
+    .rc-btn:hover { opacity: 0.88; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rc-wrap">
+    <h1>Save your recovery codes</h1>
+    <p class="rc-intro">
+        Your authenticator app is now protecting this account.
+    </p>
+    <div class="rc-warn">
+        <strong>This is the only time these are shown.</strong> Each code works once, and they are
+        the way back in if you lose your phone. Save them somewhere other than the device
+        running your authenticator.
+    </div>
+
+    <div class="rc-codes" id="rcCodes">
+        {% for c in codes %}<code>{{ c }}</code>{% endfor %}
+    </div>
+
+    <div class="rc-actions">
+        <button type="button" class="rc-btn ghost" onclick="copyCodes(this)">Copy codes</button>
+        <a class="rc-btn primary" href="{{ url_for('public_account_settings', prefix=website.url_prefix or none) }}">Done</a>
+    </div>
+</div>
+<script>
+function copyCodes(btn) {
+    var codes = Array.prototype.map.call(
+        document.querySelectorAll('#rcCodes code'),
+        function (el) { return el.textContent.trim(); }).join('\n');
+    var done = function () {
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = 'Copy codes'; }, 1800);
+    };
+    // navigator.clipboard is unavailable over plain http, which is exactly how
+    // a site gets tested locally — fall back rather than silently doing nothing.
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(codes).then(done, function () { fallback(codes, done); });
+    } else {
+        fallback(codes, done);
+    }
+}
+function fallback(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'absolute';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { /* nothing to do */ }
+    document.body.removeChild(ta);
+}
+</script>
+{% endblock %}

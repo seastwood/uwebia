@@ -332,6 +332,7 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
             {% set _tog = [
                 ('public_users_enabled',               'Enable Public Users',             'Master switch — when off, registration and login are disabled for this site',              w.public_users_enabled != false),
                 ('public_2fa_enabled',                 'Two-Factor Authentication',        'Let users enable email-based 2FA on their accounts',                                     w.public_2fa_enabled),
+                ('public_totp_enabled',                'Authenticator App (TOTP)',         'Let users protect their account with an authenticator app. Needs no email, so it works for members who sign in with GitHub or have no address on file.', w.public_totp_enabled),
                 ('require_login_to_view',              'Require Login to View',            'Visitors must be logged in to view any public page on this site',                        w.require_login_to_view),
                 ('public_approval_required',           'Require Admin Approval',           'New accounts must be approved before they can log in',                                   w.public_approval_required),
                 ('public_email_verification_enabled',  'Email Verification',               'Send a verification email when users register',                                          w.public_email_verification_enabled),
@@ -1179,7 +1180,7 @@ async function saveSettings(websiteId) {
     const btn    = document.getElementById(`save-btn-${websiteId}`);
     const status = document.getElementById(`save-status-${websiteId}`);
     btn.disabled = true;
-    const keys = ['public_users_enabled','public_2fa_enabled','require_login_to_view',
+    const keys = ['public_users_enabled','public_2fa_enabled','public_totp_enabled','require_login_to_view',
                   'public_approval_required','public_email_verification_enabled','public_email_verification_required',
                   'visitors_can_see_members','visitors_can_see_visitors','collect_real_names','require_public_email','allow_public_signup',
                   'github_login_enabled','github_login_only'];

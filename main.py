@@ -2202,6 +2202,19 @@ class PublicUser(UserMixin, db.Model):
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     two_factor_last_sent_at = db.Column(db.DateTime, nullable=True)
 
+    # ── TOTP second factor (authenticator app) ───────────────────────────────
+    # Same columns, same helpers and same encryption as User's — deliberately,
+    # because a member who is promoted to staff carries this across to their
+    # admin row and back again on demotion, and that only works if both sides
+    # store the secret identically. Offered only where the site turns on
+    # Website.public_totp_enabled.
+    totp_secret = db.Column(db.String(255), nullable=True)
+    totp_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    totp_activated_at = db.Column(db.DateTime, nullable=True)
+    totp_last_counter = db.Column(db.BigInteger, nullable=True)
+    totp_recovery_codes = db.Column(db.JSON, nullable=True)
+
     # Passwordless email sign-in ("magic link"). A fresh nonce is minted on
     # every link request and cleared on use, so each link is single-use and
     # issuing a new one invalidates any older link. sent_at drives the resend
@@ -3195,6 +3208,16 @@ class Website(db.Model):
         server_default=_sa_true()
     )
     public_2fa_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
+    )
+    # Lets members protect their account with an authenticator app. Independent
+    # of public_2fa_enabled (the emailed code): this one needs no mailbox, so
+    # it is the option that works on a site where members have no email —
+    # GitHub sign-ups, or a site with require_public_email off.
+    public_totp_enabled = db.Column(
         db.Boolean,
         nullable=False,
         default=False,
@@ -17685,6 +17708,19 @@ def _serialize_backup(uid):
                           'is_banned': u.is_banned, 'is_active_public': u.is_active_public,
                           'two_factor_enabled': u.two_factor_enabled,
                           'two_factor_last_sent_at': u.two_factor_last_sent_at.isoformat() if u.two_factor_last_sent_at else None,
+                          # Carried for the same reason password_hash is: a
+                          # restore that dropped these would silently strip a
+                          # second factor the member set up themselves. The
+                          # secret is encrypted with a key derived from
+                          # SECRET_KEY, so restoring onto an instance with a
+                          # different one leaves it unreadable — which the
+                          # login handles by falling back to the recovery
+                          # codes, and those are hashed independently.
+                          'totp_secret': u.totp_secret,
+                          'totp_enabled': u.totp_enabled,
+                          'totp_activated_at': u.totp_activated_at.isoformat() if u.totp_activated_at else None,
+                          'totp_last_counter': u.totp_last_counter,
+                          'totp_recovery_codes': u.totp_recovery_codes,
                           'created_at': u.created_at.isoformat() if u.created_at else None,
                           'last_login_at': u.last_login_at.isoformat() if u.last_login_at else None,
                           } for u in public_users],
@@ -19604,6 +19640,11 @@ def import_backup():
                     is_active_public=ud.get('is_active_public', True),
                     two_factor_enabled=ud.get('two_factor_enabled', False),
                     two_factor_last_sent_at=datetime.fromisoformat(ud['two_factor_last_sent_at']) if ud.get('two_factor_last_sent_at') else None,
+                    totp_secret=ud.get('totp_secret'),
+                    totp_enabled=ud.get('totp_enabled', False),
+                    totp_activated_at=datetime.fromisoformat(ud['totp_activated_at']) if ud.get('totp_activated_at') else None,
+                    totp_last_counter=ud.get('totp_last_counter'),
+                    totp_recovery_codes=ud.get('totp_recovery_codes'),
                     created_at=datetime.fromisoformat(ud['created_at']) if ud.get('created_at') else None,
                     last_login_at=datetime.fromisoformat(ud['last_login_at']) if ud.get('last_login_at') else None)
                 db.session.add(pu)
@@ -25847,6 +25888,7 @@ def admin_public_users_settings():
         return _utf8_json({'error': 'No website'}, 400)
     website.public_users_enabled               = bool(data.get('public_users_enabled', True))
     website.public_2fa_enabled                 = bool(data.get('public_2fa_enabled', False))
+    website.public_totp_enabled                = bool(data.get('public_totp_enabled', False))
     website.require_login_to_view              = bool(data.get('require_login_to_view', False))
     website.public_approval_required           = bool(data.get('public_approval_required', False))
     website.public_email_verification_enabled  = bool(data.get('public_email_verification_enabled', False))
@@ -26683,6 +26725,15 @@ def admin_public_user_promote(user_id):
         # Carry the GitHub link across so a member who signed up that way can
         # still get in — it is how they authenticate.
         github_user_id=pu.github_user_id,
+        # Same for an authenticator they already set up as a member: it is the
+        # second factor the admin side may well require of them, and re-using
+        # the same secret means the entry already in their app keeps working.
+        # Moved rather than copied, for the reason given below.
+        totp_secret=pu.totp_secret,
+        totp_enabled=pu.totp_enabled,
+        totp_activated_at=pu.totp_activated_at,
+        totp_last_counter=pu.totp_last_counter,
+        totp_recovery_codes=pu.totp_recovery_codes,
         parent_user_id=root_id,
         permission_group_id=group_id,
         permissions=perms if not group_id else {},
@@ -26700,6 +26751,15 @@ def admin_public_user_promote(user_id):
     # public GitHub sign-in match the mirror first and hand out a session
     # without ever running the admin second-factor gate.
     pu.github_user_id = None
+    # The authenticator now lives on the admin row, next to the password hash
+    # it guards. Leaving a copy here would mean disabling it in one place left
+    # it enabled in the other, and the counter that blocks replay would be
+    # tracked in two places at once.
+    pu.totp_secret = None
+    pu.totp_enabled = False
+    pu.totp_activated_at = None
+    pu.totp_last_counter = None
+    pu.totp_recovery_codes = None
     pu.email_verified = True
     pu.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     pu.is_active_public = True
@@ -26763,6 +26823,16 @@ def admin_user_demote(user_id):
     # link outright, and somebody who signs in with GitHub then has no way in
     # at all.
     github_id = getattr(sub, 'github_user_id', None)
+    # The authenticator moves the same way, and for the same reason: deleting
+    # the admin row without handing it back would silently strip a second
+    # factor the person set up themselves and still expects to be asked for.
+    totp_fields = {
+        'totp_secret': sub.totp_secret,
+        'totp_enabled': sub.totp_enabled,
+        'totp_activated_at': sub.totp_activated_at,
+        'totp_last_counter': sub.totp_last_counter,
+        'totp_recovery_codes': sub.totp_recovery_codes,
+    }
 
     if survivor is not None:
         # Detach the survivor FIRST so deleting the admin can't cascade-delete
@@ -26774,6 +26844,8 @@ def admin_user_demote(user_id):
         if github_id and _github_id_free_on_site(github_id, survivor.website_id,
                                                  exclude_public_user_id=survivor.id):
             survivor.github_user_id = github_id
+        for _f, _v in totp_fields.items():
+            setattr(survivor, _f, _v)
         survivor.email_verified = True
         survivor.is_active_public = True
         survivor.is_banned = False
@@ -26790,6 +26862,7 @@ def admin_user_demote(user_id):
             password_hash=pw_hash, email_verified=True, is_active_public=True,
             github_user_id=(github_id if github_id and _github_id_free_on_site(
                 github_id, current_site.id) else None),
+            **totp_fields,
         )
         db.session.add(survivor)
         db.session.flush()
@@ -29607,8 +29680,14 @@ def _github_public_login(gh_id, ctx, access_token=None):
         if pu.is_banned or not pu.is_active_public:
             flash('That account is not currently active.', 'error')
             return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+        _dest = ctx['next'] or _website_home_url(website)
+        # Proving control of the GitHub account is one factor; an enrolled
+        # authenticator is the second, and GitHub does not stand in for it.
+        _totp_step = begin_public_totp(pu, _dest, remember=True)
+        if _totp_step:
+            return _totp_step
         public_user_login(pu, remember=True)
-        return redirect(ctx['next'] or _website_home_url(website))
+        return redirect(_dest)
 
     # An admin's GitHub link lives on their User row, not on the PublicUser
     # mirror, so the lookup above misses them and they'd be pushed into signing
@@ -29912,6 +29991,14 @@ def public_login():
             public_user.two_factor_enabled = False
             db.session.commit()
 
+        # The authenticator comes first when both are enrolled: it needs no
+        # working mail server and no code in transit, and its recovery codes
+        # are the backup.
+        _totp_step = begin_public_totp(public_user, next_url, remember)
+        if _totp_step:
+            _rl_record(ip, login_value, success=True)
+            return _totp_step
+
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
             session['pub_pending_remember'] = remember
@@ -30177,8 +30264,13 @@ def public_login_link(token):
             display_name=display_name,
             confirm_url=request.path,
             is_admin_link=bool(admin),
-            will_need_code=bool(admin and admin_requires_2fa(admin)
-                                and not _login_link_covers_2fa(admin)),
+            # A member with an authenticator is asked for a code after this
+            # button too, so the page should say so rather than implying the
+            # link is the last step.
+            will_need_code=bool(
+                (admin and admin_requires_2fa(admin)
+                 and not _login_link_covers_2fa(admin))
+                or (public_user and public_totp_required(public_user))),
         )
 
     if admin:
@@ -30249,9 +30341,16 @@ def public_login_link(token):
 
     db.session.commit()
 
-    # No 2FA step on purpose: public-user 2FA is an emailed code, and this
-    # link already proves control of that same inbox.
     _rl_record(get_request_ip(), public_user.email or '', success=True)
+
+    # The emailed code is skipped on purpose — this link already proves control
+    # of that same inbox, so the code would prove nothing new. An authenticator
+    # is a different matter: it is deliberately not in the mailbox, so the link
+    # says nothing about it and the step still has to happen.
+    _totp_step = begin_public_totp(public_user, next_target)
+    if _totp_step:
+        return _totp_step
+
     public_user_login(public_user)
 
     return redirect(next_target)
@@ -31417,6 +31516,230 @@ def public_email_2fa_possible(public_user):
     return bool(getattr(public_user, 'email', None)) and bool(public_user.email_verified)
 
 
+def public_totp_available(website):
+    """Whether members of this site may protect their account with an app.
+
+    Off by default — it is a site's choice whether to offer it at all, the same
+    way the emailed code is. Unlike the emailed code it needs no mailbox, so
+    it is the second factor that works for members who sign in with GitHub or
+    on a site that doesn't collect addresses.
+    """
+    return bool(website is not None and getattr(website, 'public_totp_enabled', False))
+
+
+def public_totp_required(public_user):
+    """True when this member must pass the authenticator step to sign in.
+
+    An unreadable secret is not a usable factor — every code would be rejected
+    — so it deliberately does not count, and the caller falls through to
+    whatever other factor applies rather than presenting a challenge nothing
+    could satisfy.
+    """
+    return (bool(getattr(public_user, 'totp_enabled', False))
+            and totp_secret_is_readable(public_user))
+
+
+def begin_public_totp(public_user, next_url, remember=False):
+    """Hand a signing-in member to the authenticator step, or None to proceed.
+
+    Every path that establishes a member session goes through here. Password
+    login is the obvious one, but the magic link and GitHub sign-in matter
+    more: both used to log the member straight in on the reasoning that
+    public-user 2FA *is* an emailed code, so a link delivered to that inbox
+    already proved it. An authenticator is an independent factor — the whole
+    point is that it is not in the mailbox — so that reasoning does not carry,
+    and skipping it would let anyone holding the inbox walk past it.
+    """
+    if not public_totp_required(public_user):
+        return None
+    session['pub_totp_user_id'] = public_user.id
+    session['pub_totp_next_url'] = next_url
+    session['pub_pending_remember'] = bool(remember)
+    return redirect(url_for('public_totp_challenge'))
+
+
+def _public_totp_guard(require_site_setting=True):
+    """(public_user, website, error_response) for the member TOTP routes.
+
+    `require_site_setting` is False for turning it OFF and for the login
+    challenge: a member who enrolled while the site allowed it must still be
+    able to sign in and switch it off after the site turns the option back off,
+    or disabling the feature would lock out everyone already using it.
+    """
+    public_user = get_public_user()
+    if not public_user:
+        return None, None, _utf8_json({'error': 'Not logged in'}, 401)
+    website = public_user.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return None, None, _utf8_json({'error': 'Not found'}, 404)
+    if require_site_setting and not public_totp_available(website):
+        return None, None, _utf8_json(
+            {'error': 'Authenticator apps are not enabled for this site.'}, 400)
+    return public_user, website, None
+
+
+@app.route('/<string:prefix>/account/2fa/app/setup', methods=['GET', 'POST'])
+@app.route('/account/2fa/app/setup', methods=['GET', 'POST'], defaults={'prefix': None})
+def public_totp_setup(prefix=None):
+    """Enrol an authenticator app on a member account."""
+    public_user, website, err = _public_totp_guard()
+    if err:
+        # A browser navigating here deserves a page, not raw JSON.
+        if request.method == 'GET':
+            return redirect(url_for('public_account_settings', prefix=prefix))
+        return err
+
+    # Enrolling against a key that dies at the next restart produces an
+    # enrolment that silently stops working — the same trap the admin flow
+    # refuses, for the same reason.
+    if _SECRET_KEY_IS_EPHEMERAL:
+        flash('This site has no SECRET_KEY set, so an authenticator enrolment '
+              'would stop working the next time the server restarts. Ask an '
+              'administrator to set one up first.', 'error')
+        return redirect(url_for('public_account_settings', prefix=prefix))
+
+    if request.method == 'POST':
+        secret = session.get('pub_totp_setup_secret')
+        if not secret:
+            flash('Setup expired. Please start again.', 'error')
+            return redirect(url_for('public_totp_setup', prefix=prefix))
+        ok, counter = verify_totp(secret, request.form.get('code', ''))
+        if not ok:
+            flash('That code did not match. Check your authenticator and try again.', 'error')
+            return redirect(url_for('public_totp_setup', prefix=prefix))
+
+        public_user.totp_secret = encrypt_api_key(secret)
+        public_user.totp_enabled = True
+        public_user.totp_activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        public_user.totp_last_counter = counter
+        plain, hashed = generate_totp_recovery_codes()
+        public_user.totp_recovery_codes = hashed
+        db.session.commit()
+        session.pop('pub_totp_setup_secret', None)
+        # Shown exactly once — only hashes are kept.
+        session['pub_totp_recovery_plain'] = plain
+        app.logger.info('TOTP enrolled for public user id=%s', public_user.id)
+        return redirect(url_for('public_totp_recovery_codes', prefix=prefix))
+
+    secret = session.get('pub_totp_setup_secret')
+    if not secret:
+        secret = generate_totp_secret()
+        session['pub_totp_setup_secret'] = secret
+    uri = totp_provisioning_uri(secret, public_user.username or 'member',
+                                website.name or 'Uwebia')
+    return render_template('public_totp_setup.html', website=website,
+                           public_user=public_user, secret=secret,
+                           qr_svg=_generate_qr_svg(uri, box_size=6, border=2),
+                           provisioning_uri=uri)
+
+
+@app.route('/<string:prefix>/account/2fa/app/recovery-codes')
+@app.route('/account/2fa/app/recovery-codes', defaults={'prefix': None})
+def public_totp_recovery_codes(prefix=None):
+    """The one and only showing of the recovery codes."""
+    public_user, website, err = _public_totp_guard(require_site_setting=False)
+    if err:
+        return redirect(url_for('public_login'))
+    codes = session.pop('pub_totp_recovery_plain', None)
+    if not codes:
+        return redirect(url_for('public_account_settings', prefix=prefix))
+    return render_template('public_totp_recovery_codes.html', website=website,
+                           public_user=public_user, codes=codes)
+
+
+@app.route('/<string:prefix>/account/2fa/app/disable', methods=['POST'])
+@app.route('/account/2fa/app/disable', methods=['POST'], defaults={'prefix': None})
+def public_totp_disable(prefix=None):
+    # Deliberately not gated on the site setting — see _public_totp_guard.
+    public_user, website, err = _public_totp_guard(require_site_setting=False)
+    if err:
+        return err
+    public_user.totp_enabled = False
+    public_user.totp_secret = None
+    public_user.totp_activated_at = None
+    public_user.totp_last_counter = None
+    public_user.totp_recovery_codes = None
+    db.session.commit()
+    app.logger.info('TOTP disabled for public user id=%s', public_user.id)
+    return _utf8_json({'success': True})
+
+
+@app.route('/2fa/app', methods=['GET', 'POST'])
+def public_totp_challenge():
+    """The authenticator step of a member signing in."""
+    user_id = session.get('pub_totp_user_id')
+    if not user_id:
+        return redirect(url_for('public_login'))
+    public_user = db.session.get(PublicUser, user_id)
+    if not public_user or not public_user.totp_enabled:
+        session.pop('pub_totp_user_id', None)
+        return redirect(url_for('public_login'))
+    website = public_user.website or get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    # Enrolled but unreadable: every code would be rejected with no way to tell
+    # why. Say so, and let recovery codes through — they are hashed
+    # independently of SECRET_KEY, so they still work.
+    secret_lost = not totp_secret_is_readable(public_user)
+    ip = get_request_ip()
+
+    if request.method == 'POST':
+        if _rl_check(ip, public_user.username or '')['locked']:
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.',
+                  'error')
+            return redirect(url_for('public_totp_challenge'))
+
+        submitted = (request.form.get('code') or '').strip()
+        use_recovery = bool(request.form.get('use_recovery'))
+        accepted = False
+
+        if use_recovery:
+            if consume_totp_recovery_code(public_user, submitted):
+                app.logger.info('TOTP recovery code used for public user id=%s',
+                                public_user.id)
+                flash(f'Recovery code accepted. {len(public_user.totp_recovery_codes or [])} left.',
+                      'success')
+                accepted = True
+        else:
+            ok, counter = verify_totp(user_totp_secret(public_user), submitted,
+                                      last_used_counter=public_user.totp_last_counter)
+            if ok:
+                # Burn the step so the same code can't be replayed while it is
+                # still inside its validity window.
+                public_user.totp_last_counter = counter
+                db.session.commit()
+                accepted = True
+
+        if accepted:
+            if public_user.is_banned or not public_user.is_active_public:
+                flash('Account is no longer accessible.', 'error')
+                return redirect(url_for('public_login'))
+            next_url = session.pop('pub_totp_next_url', None) or _website_home_url(website)
+            remember = bool(session.pop('pub_pending_remember', False))
+            session.pop('pub_totp_user_id', None)
+            _rl_record(ip, public_user.username or '', success=True)
+            public_user_login(public_user, remember=remember)
+            return redirect(next_url)
+
+        if secret_lost and not use_recovery:
+            # Not a wrong code — the stored secret is unreadable, so don't
+            # spend an attempt on a guess that could never have succeeded.
+            flash('This account’s authenticator secret can no longer be read '
+                  '(the server’s SECRET_KEY changed). Use a recovery code, '
+                  'then set the authenticator up again.', 'error')
+            return redirect(url_for('public_totp_challenge'))
+
+        _rl_record(ip, public_user.username or '', success=False)
+        flash('Invalid code.', 'error')
+        return redirect(url_for('public_totp_challenge'))
+
+    return render_template('public_totp_challenge.html', website=website,
+                           public_user=None,
+                           has_recovery=bool(public_user.totp_recovery_codes),
+                           secret_lost=secret_lost)
+
+
 @app.route('/<string:prefix>/account/settings')
 @app.route('/account/settings', defaults={'prefix': None})
 def public_account_settings(prefix=None):
@@ -31447,6 +31770,13 @@ def public_account_settings(prefix=None):
         setup_pending=setup_pending,
         mirror_is_primary_owner=bool(_mirrored_admin is not None
                                      and _mirrored_admin.parent_user_id is None),
+        # Offered where the site allows it — but also whenever they are already
+        # enrolled, so turning the site option off doesn't hide the only switch
+        # that would turn it back off.
+        totp_available=(public_totp_available(website)
+                        or bool(public_user.totp_enabled)),
+        totp_secret_lost=(bool(public_user.totp_enabled)
+                          and not totp_secret_is_readable(public_user)),
         # Already on but no longer offerable (the site turned 2FA off, or the
         # address went away) still shows the card — otherwise the only switch
         # that turns it back off would be out of reach.
@@ -32167,10 +32497,16 @@ def public_org_invite(token):
     if pu.membership_status == 'invited':
         _set_public_membership_status(pu, 'member')
         db.session.commit()
+    _dest = url_for('public_account_settings', prefix=website.url_prefix or None)
     if not pu.is_admin_mirror:
+        # Accepting an invite signs them in, so it is a sign-in path like any
+        # other and owes the same second factor.
+        _totp_step = begin_public_totp(pu, _dest)
+        if _totp_step:
+            return _totp_step
         public_user_login(pu)
     flash(f"Welcome — you're now a member of {org_name}.", 'success')
-    return redirect(url_for('public_account_settings', prefix=website.url_prefix or None))
+    return redirect(_dest)
 
 
 def send_admin_login_link_email(admin, website, next_url='', dest='public'):

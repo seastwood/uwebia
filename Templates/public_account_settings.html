@@ -190,9 +190,52 @@
         {% endfor %}
     {% endwith %}
 
+    {% if totp_available %}
+    <div class="settings-card" id="totpCard">
+        <h2>Authenticator App</h2>
+        <div class="settings-row">
+            <div class="settings-row-text">
+                <p class="settings-row-label">Code from an app on your phone</p>
+                {% if public_user.totp_enabled %}
+                <p class="settings-row-help">
+                    On. You'll be asked for a code from your app each time you sign in.
+                </p>
+                {% else %}
+                <p class="settings-row-help">
+                    Ask for a 6-digit code from an authenticator app when you sign in. Works
+                    offline and needs no email address.
+                </p>
+                {% endif %}
+            </div>
+            {% if public_user.totp_enabled %}
+            <button class="btn btn-danger" onclick="disableTotp()">Turn off</button>
+            {% else %}
+            <a class="btn btn-primary" href="{{ url_for('public_totp_setup', prefix=website.url_prefix or none) }}">Set up</a>
+            {% endif %}
+        </div>
+        {% if public_user.totp_enabled and totp_secret_lost %}
+        {# Enrolled, but the server can no longer decrypt the secret, so every
+           code from their app will be rejected. Better to say so here than to
+           let them discover it at the login screen. #}
+        <p class="settings-row-help" style="color:#ffd08a;margin-top:10px;">
+            This server can no longer read your authenticator secret, so codes from your app
+            won't be accepted. Sign in with a recovery code, then turn this off and set it up
+            again.
+        </p>
+        {% endif %}
+        <p id="totpErr" style="color:#ff8888;margin-top:8px;font-size:0.82rem;display:none;"></p>
+    </div>
+    {% endif %}
+
     {% if two_factor_available %}
     <div class="settings-card" id="twoFactorCard">
         <h2>Two-Factor Authentication</h2>
+        {% if public_user.totp_enabled %}
+        <p class="settings-row-help" style="margin:-4px 0 12px;">
+            Your authenticator app is used at sign-in. An emailed code is only a fallback if you
+            turn the app off.
+        </p>
+        {% endif %}
         <div class="settings-row">
             <div class="settings-row-text">
                 <p class="settings-row-label">Email verification code on login</p>
@@ -483,6 +526,22 @@ function disableTwoFa() {
 
 function openDeleteModal()  { document.getElementById('deleteModal').classList.add('open'); }
 function closeDeleteModal() { document.getElementById('deleteModal').classList.remove('open'); }
+
+function disableTotp() {
+    if (!confirm('Turn off your authenticator app?\n\nSigning in will no longer ask for a code from it.')) return;
+    var err = document.getElementById('totpErr');
+    fetch(_acctBase + '/account/2fa/app/disable', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) { window.location.reload(); return; }
+        err.textContent = d.error || 'Could not turn it off.';
+        err.style.display = 'block';
+    })
+    .catch(function() {
+        err.textContent = 'Request failed.';
+        err.style.display = 'block';
+    });
+}
 
 function executeDelete() {
     fetch(_acctBase + '/account/delete', {method: 'POST'})

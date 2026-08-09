@@ -1,0 +1,154 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Set up authenticator app{% endblock %}
+
+{% block head %}
+<style>
+    .tfa-wrap {
+        width: min(520px, calc(100% - 28px));
+        margin: 90px auto;
+        padding: 28px 24px;
+        background: rgba(0,0,0,0.34);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .tfa-wrap h1 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; }
+    .tfa-intro {
+        font-size: 0.88rem;
+        color: rgba(255,255,255,0.55);
+        margin: 0 0 22px;
+        line-height: 1.5;
+    }
+
+    .tfa-step { margin-bottom: 22px; }
+    .tfa-step h2 {
+        font-size: 0.95rem;
+        font-weight: 700;
+        margin: 0 0 8px;
+    }
+    .tfa-step p {
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.6);
+        margin: 0 0 10px;
+        line-height: 1.5;
+    }
+
+    .tfa-qr {
+        display: flex;
+        justify-content: center;
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+        margin: 0 auto 12px;
+        width: fit-content;
+    }
+
+    .tfa-secret {
+        display: block;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92rem;
+        letter-spacing: 0.12em;
+        word-break: break-all;
+        background: rgba(255,255,255,0.07);
+        border: 1px solid rgba(255,255,255,0.13);
+        border-radius: 10px;
+        padding: 10px 12px;
+        text-align: center;
+    }
+
+    .tfa-wrap input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 13px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.08);
+        color: inherit;
+        font: inherit;
+        font-size: 1.5rem;
+        letter-spacing: 0.25em;
+        text-align: center;
+        margin-bottom: 14px;
+    }
+    .tfa-wrap input[type="text"]:focus {
+        outline: none;
+        border-color: rgba(94,238,200,0.5);
+    }
+
+    .tfa-submit {
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(135deg, #5eeef8, #5eeec8);
+        color: #111;
+        font-weight: 800;
+        font-size: 0.95rem;
+        cursor: pointer;
+    }
+    .tfa-submit:hover { opacity: 0.88; }
+
+    .tfa-back {
+        display: block;
+        text-align: center;
+        margin-top: 16px;
+        font-size: 0.84rem;
+        color: rgba(255,255,255,0.45);
+        text-decoration: none;
+    }
+    .tfa-back:hover { color: rgba(255,255,255,0.75); }
+
+    .flash-msg {
+        padding: 10px 14px;
+        border-radius: 10px;
+        margin-bottom: 14px;
+        font-size: 0.85rem;
+    }
+    .flash-error { background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.3); color: #ff8888; }
+    .flash-success { background: rgba(94,238,200,0.13); border: 1px solid rgba(94,238,200,0.3); color: #5eeec8; }
+    .flash-info { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="tfa-wrap">
+    <h1>Set up your authenticator app</h1>
+    <p class="tfa-intro">
+        Once this is on, signing in will ask for a code from your app as well as your password.
+        It works offline and doesn't need an email address.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('public_totp_setup', prefix=website.url_prefix or none) }}">
+        <div class="tfa-step">
+            <h2>Step 1 — scan this code</h2>
+            {% if qr_svg %}
+            <div class="tfa-qr">{{ qr_svg|safe }}</div>
+            {% endif %}
+            <p style="text-align:center;">
+                Use Google Authenticator, Authy, 1Password, or any TOTP app.
+            </p>
+            <p>Can't scan it? Enter this key by hand instead:</p>
+            <code class="tfa-secret">{{ secret }}</code>
+        </div>
+
+        <div class="tfa-step">
+            <h2>Step 2 — enter the code it shows</h2>
+            <p>This confirms the app is set up correctly before we turn it on.</p>
+            <input type="text" name="code" placeholder="000000"
+                   maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+                   autofocus required>
+            <button type="submit" class="tfa-submit">Turn on authenticator</button>
+        </div>
+    </form>
+
+    <a class="tfa-back" href="{{ url_for('public_account_settings', prefix=website.url_prefix or none) }}">← Back to account settings</a>
+</div>
+{% endblock %}
