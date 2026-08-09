@@ -18753,7 +18753,6 @@ window.addEventListener('DOMContentLoaded', function () {
     var panel  = host.querySelector('.pgp-panel');
     var list   = host.querySelector('.pgp-list');
     var warnEl = host.querySelector('.pgp-warn');
-    var known  = {};      // who we have already announced
 
     bubble.addEventListener('click', function () {
         host.dataset.open = host.dataset.open === '1' ? '0' : '1';
@@ -18773,7 +18772,6 @@ window.addEventListener('DOMContentLoaded', function () {
         if (!peers.length) {
             host.style.display = 'none';
             host.dataset.open = '0';
-            known = {};
             return;
         }
         host.style.display = 'block';
@@ -18812,14 +18810,9 @@ window.addEventListener('DOMContentLoaded', function () {
             warnEl.style.display = 'none';
         }
 
-        // Open by itself when somebody new arrives — that is the moment the
-        // information is worth having. Staying open after that is their call.
-        var fresh = peers.some(function (p) { return !known[p.user_id]; });
-        peers.forEach(function (p) { known[p.user_id] = true; });
-        Object.keys(known).forEach(function (id) {
-            if (!peers.some(function (p) { return String(p.user_id) === id; })) delete known[id];
-        });
-        if (fresh) host.dataset.open = '1';
+        // Never opens itself. Someone laying out a page does not want a panel
+        // appearing over it because a colleague arrived; the faces are enough
+        // to notice, and the detail is one click away when it is wanted.
     }
 
     UwebiaPresence.start({
